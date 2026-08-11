@@ -36,6 +36,7 @@ import {
   jobCorrelation,
 } from "./queueing.js";
 import { promoteAskFromWebhookEvent } from "./askIntake.js";
+import { releaseOrphanReviewSingletonJobsInTx } from "../orphanReviewSingletonReaper.js";
 import { releaseReviewSingletonSlot } from "../singletonQueue.js";
 import { pgBossDb } from "../../db/postgres.js";
 import {
@@ -304,6 +305,8 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
+    // Clear failed/orphan singleton holders so the live queued review can activate.
+    await releaseOrphanReviewSingletonJobsInTx(ctx.boss, ctx.client, resourceKey);
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
@@ -313,11 +316,8 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const workItemId = insert.id;
-  // Clear failed key_strict_fifo blockers only; leave any live jobs alone.
-  await releaseReviewSingletonSlot(ctx.boss, resourceKey, {
-    db: pgBossDb(ctx.client),
-    cancelNonTerminal: false,
-  });
+  // Clear failed blockers and orphan holders; leave live jobs for non-terminal work alone.
+  await releaseOrphanReviewSingletonJobsInTx(ctx.boss, ctx.client, resourceKey);
   await enqueueSlashAck(ctx, {
     workItemId,
     progress: { lens: "review", headSha: ctx.ref.headSha, source: "slash" },

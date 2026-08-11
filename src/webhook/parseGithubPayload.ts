@@ -3,7 +3,9 @@ import { installationIdPickSchema } from "./payloads/common.js";
 import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.js";
 import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.js";
 import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
+import { checkSuiteWebhookSchema } from "./payloads/checkSuiteEvent.js";
 import { workflowRunWebhookSchema } from "./payloads/workflowRunEvent.js";
+import type { CheckSuiteWebhookPayload } from "./payloads/checkSuiteEvent.js";
 import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
 import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
@@ -38,6 +40,7 @@ export type ParsedGithubEvent =
       data: PullRequestReviewCommentWebhookPayload;
     }
   | { name: "workflow_run"; data: WorkflowRunWebhookPayload }
+  | { name: "check_suite"; data: CheckSuiteWebhookPayload }
   | { name: "ignored"; data: unknown };
 
 function parseOrThrow<T>(
@@ -97,6 +100,14 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
       return {
         name: "workflow_run",
         data: parseOrThrow(eventName, workflowRunWebhookSchema, payload),
+      };
+    case "check_suite":
+      if (payloadAction(payload) !== "completed") {
+        return { name: "ignored", data: payload };
+      }
+      return {
+        name: "check_suite",
+        data: parseOrThrow(eventName, checkSuiteWebhookSchema, payload),
       };
     default:
       return { name: "ignored", data: payload };

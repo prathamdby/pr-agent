@@ -110,6 +110,7 @@ describe("processWebhookPostRequestEffect", () => {
         issueComment: () => Effect.void,
         pullRequestReviewComment: () => Effect.void,
         workflowRun: () => Effect.void,
+        checkSuite: () => Effect.void,
       }),
     ),
   );
@@ -506,6 +507,7 @@ describe("processWebhookPostRequestEffect", () => {
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
           workflowRun: () => Effect.void,
+          checkSuite: () => Effect.void,
         }),
       ),
     );
@@ -560,6 +562,7 @@ describe("processWebhookPostRequestEffect", () => {
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
           workflowRun: () => Effect.void,
+          checkSuite: () => Effect.void,
         }),
       ),
     );

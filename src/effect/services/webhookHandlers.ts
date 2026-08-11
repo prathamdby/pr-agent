@@ -27,6 +27,50 @@ type PullRequestReviewCommentData = Extract<
   { name: "pull_request_review_comment" }
 >["data"];
 type WorkflowRunData = Extract<ParsedGithubEvent, { name: "workflow_run" }>["data"];
+type CheckSuiteData = Extract<ParsedGithubEvent, { name: "check_suite" }>["data"];
+
+type CiRefreshHeadSource = {
+  readonly installationId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly pullRequests: readonly {
+    readonly number: number;
+    readonly head: { readonly sha: string };
+  }[];
+};
+
+function submitCiRefreshFromHead(
+  scheduler: {
+    readonly submitCiRefresh: (
+      headers: WebhookHeaders,
+      data: {
+        readonly installationId: number;
+        readonly owner: string;
+        readonly repo: string;
+        readonly headSha: string;
+        readonly prNumbers: readonly number[];
+      },
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
+  },
+  headers: WebhookHeaders,
+  data: CiRefreshHeadSource,
+  intakeLog: RequestLogger,
+) {
+  const prNumbers = prNumbersForWorkflowRunHead(data.headSha, data.pullRequests);
+  return scheduler.submitCiRefresh(
+    headers,
+    {
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      prNumbers,
+    },
+    intakeLog,
+  );
+}
 
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
   WebhookHandlers,
@@ -53,6 +97,12 @@ export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
       cfg: Config,
       headers: WebhookHeaders,
       data: WorkflowRunData,
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
+    readonly checkSuite: (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: CheckSuiteData,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
   }
@@ -297,19 +347,31 @@ export const WebhookHandlersCore = Layer.effect(
 
       workflowRun: (_cfg, headers, data, intakeLog) =>
         Effect.gen(function* () {
-          const headSha = data.workflow_run.head_sha;
-          const prNumbers = prNumbersForWorkflowRunHead(
-            headSha,
-            data.workflow_run.pull_requests ?? [],
-          );
-          yield* scheduler.submitCiRefresh(
+          yield* submitCiRefreshFromHead(
+            scheduler,
             headers,
             {
               installationId: data.installation.id,
               owner: data.repository.owner.login,
               repo: data.repository.name,
-              headSha,
-              prNumbers,
+              headSha: data.workflow_run.head_sha,
+              pullRequests: data.workflow_run.pull_requests ?? [],
+            },
+            intakeLog,
+          );
+        }),
+
+      checkSuite: (_cfg, headers, data, intakeLog) =>
+        Effect.gen(function* () {
+          yield* submitCiRefreshFromHead(
+            scheduler,
+            headers,
+            {
+              installationId: data.installation.id,
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              headSha: data.check_suite.head_sha,
+              pullRequests: data.check_suite.pull_requests ?? [],
             },
             intakeLog,
           );

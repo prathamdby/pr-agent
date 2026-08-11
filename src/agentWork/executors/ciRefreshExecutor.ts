@@ -21,7 +21,7 @@ const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SEN
 
 /**
  * Refreshes the CI cell on matching review summary comments for a head SHA after
- * workflow_run completed. Does not re-run the review agent.
+ * workflow_run / check_suite completed. Does not re-run the review agent.
  */
 export async function executeCiRefreshJob(
   cfg: Config,

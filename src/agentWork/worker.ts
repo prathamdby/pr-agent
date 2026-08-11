@@ -38,6 +38,7 @@ import {
   type VerificationJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
+import { reapOrphanReviewSingletonJobs } from "./orphanReviewSingletonReaper.js";
 import { reapStrandedWorkItems } from "./strandedWorkReaper.js";
 import {
   collectQueueDiagnostics,
@@ -277,6 +278,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               }
             } catch (e) {
               logWarn("stranded_work_reaper_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
+            try {
+              const orphans = await reapOrphanReviewSingletonJobs(boss, pool);
+              if (orphans.released > 0 || orphans.staleQueuedLogged > 0) {
+                logInfo("orphan_review_singleton_reaper_tick", orphans);
+              }
+            } catch (e) {
+              logWarn("orphan_review_singleton_reaper_failed", {
                 message: e instanceof Error ? e.message : String(e),
                 ...errorLogFields(e),
               });

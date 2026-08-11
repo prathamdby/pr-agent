@@ -371,10 +371,11 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, TRIAGE_QUEUE]);
   });
 
-  it("clears failed review singleton blockers before enqueueing /review", async () => {
+  it("clears failed and orphan review singleton holders before enqueueing /review", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
     const findJobs = vi.fn(async () => [
       { id: "failed-blocker", state: "failed", data: { workItemId: "wi-old" } },
+      { id: "orphan-active", state: "active", data: { workItemId: "wi-done" } },
     ]);
     const deleteJob = vi.fn(async () => ({ rows: [] }));
     const cancel = vi.fn(async () => ({ rows: [] }));
@@ -392,6 +393,9 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "work-review" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          return { rows: [{ id: "wi-done" }, { id: "wi-old" }] };
+        }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -410,7 +414,7 @@ describe("applySlashCommandIntake", () => {
       expect.objectContaining({ key: "acme/app#7:review" }),
     );
     expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "failed-blocker", expect.anything());
-    expect(cancel).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "orphan-active", expect.anything());
     expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, REVIEW_QUEUE]);
     expect(intakeLog.getContext().events).toContainEqual(
       expect.objectContaining({
@@ -422,14 +426,24 @@ describe("applySlashCommandIntake", () => {
 
   it("acks already-in-progress when slash review create loses the uniqueness race", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const findJobs = vi.fn(async () => [
+      { id: "orphan-active", state: "active", data: { workItemId: "wi-terminal" } },
+      { id: "live-created", state: "created", data: { workItemId: "winner-review" } },
+      { id: "failed-blocker", state: "failed", data: { workItemId: "wi-fail" } },
+    ]);
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const deleteJob = vi.fn(async () => ({ rows: [] }));
     const boss = {
       send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
         sentJobs.push({ queue, data });
         return "job-1";
       }),
+      findJobs,
+      cancel,
+      deleteJob,
     } as unknown as PgBoss;
     const client = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
@@ -441,6 +455,11 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("SELECT id") && sql.includes("review_lens")) {
           return { rows: [] };
+        }
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          const ids = params?.[0] as string[];
+          expect(ids).toEqual(expect.arrayContaining(["wi-terminal", "winner-review", "wi-fail"]));
+          return { rows: [{ id: "wi-terminal" }, { id: "wi-fail" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -455,6 +474,13 @@ describe("applySlashCommandIntake", () => {
 
     await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/review"), intakeLog));
 
+    expect(findJobs).toHaveBeenCalledWith(
+      REVIEW_QUEUE,
+      expect.objectContaining({ key: "acme/app#7:review" }),
+    );
+    expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "failed-blocker", expect.anything());
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "orphan-active", expect.anything());
+    expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "live-created", expect.anything());
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
     expect(sentJobs[0]?.data.progress).toBeUndefined();

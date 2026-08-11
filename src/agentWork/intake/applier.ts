@@ -9,6 +9,7 @@ import {
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
+import { releaseOrphanReviewSingletonJobsInTx } from "../orphanReviewSingletonReaper.js";
 import {
   releaseReviewSingletonSlot,
   releaseSingletonSlot,
@@ -81,6 +82,10 @@ async function dispatchAutomatedKind(
     cancelNonTerminal: supersededIds.length > 0,
     cancelWorkItemIds: supersededIds,
   });
+  if (descriptor.eventType === "review") {
+    // Also drop orphan holders for terminal/missing work items so the new job can activate.
+    await releaseOrphanReviewSingletonJobsInTx(boss, client, resourceKey);
+  }
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);
   }
@@ -323,7 +328,7 @@ export async function applyAutomatedPullRequestIntake(
 }
 
 /**
- * Enqueues CI-refresh jobs for a completed workflow_run on matching PR heads.
+ * Enqueues CI-refresh jobs for a completed workflow_run / check_suite on matching PR heads.
  * No agent_work_item row — fire-and-forget like ack (ADR 0026).
  */
 export async function applyCiRefreshIntake(
