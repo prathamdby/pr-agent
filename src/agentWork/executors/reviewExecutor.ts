@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
+import { AppError, isAppError } from "../../errors/appError.js";
 import {
   classifyFailure,
   classifiedFailureLogFields,
@@ -184,18 +185,28 @@ async function handleStaleHeadReschedule(args: {
   ) {
     return undefined;
   }
-  await completeReviewCheckRun(pool, {
-    prSurface,
-    owner: item.owner,
-    repo: item.repo,
-    prNumber: item.prNumber,
-    workItemId: item.id,
-    resourceKey: item.resourceKey,
-    reviewLens,
-    conclusion: "cancelled",
-    summary: "Review was rescheduled for a newer pull request head.",
-  });
-  return buildStaleReviewRescheduleResult(pool, item, prSurface);
+  if (await shouldSkipWork(pool, item)) {
+    return undefined;
+  }
+  try {
+    await completeReviewCheckRun(pool, {
+      prSurface,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+      reviewLens,
+      conclusion: "cancelled",
+      summary: "Review was rescheduled for a newer pull request head.",
+    });
+    return await buildStaleReviewRescheduleResult(pool, item, prSurface);
+  } catch (error) {
+    if (isAppError(error) && error.code === "agent_work.stale_head_parent_not_reschedulable") {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function completeCheckFromStoredSummary(args: {
@@ -651,20 +662,43 @@ async function runFullReviewAgainstRepositoryView(args: {
     },
   });
 
-  if (
-    staleHeadAtPublish.value &&
-    (payload.source === "slash" || payload.source === "auto") &&
-    !payload.staleHeadRescheduled
-  ) {
-    await completeCheckFromStoredSummary({
-      pool,
-      item,
-      reviewLens,
-      prSurface,
-      conclusion: "cancelled",
-      summary: "Review was rescheduled for a newer pull request head.",
-    });
-    return buildStaleReviewRescheduleResult(pool, item, prSurface);
+  if (staleHeadAtPublish.value) {
+    if (
+      (payload.source === "slash" || payload.source === "auto") &&
+      !payload.staleHeadRescheduled
+    ) {
+      // Burst synchronize may have already cancel-requested this parent and
+      // enqueued a newer auto review. Do not create a competing replacement or
+      // steal progress ownership from that successor.
+      if (!(await shouldSkipWork(pool, item))) {
+        try {
+          await completeCheckFromStoredSummary({
+            pool,
+            item,
+            reviewLens,
+            prSurface,
+            conclusion: "cancelled",
+            summary: "Review was rescheduled for a newer pull request head.",
+          });
+          return await buildStaleReviewRescheduleResult(pool, item, prSurface);
+        } catch (error) {
+          if (
+            !(isAppError(error) && error.code === "agent_work.stale_head_parent_not_reschedulable")
+          ) {
+            throw error;
+          }
+          // Parent became skippable between the check and the insert — fall through.
+        }
+      }
+    } else if (payload.staleHeadRescheduled) {
+      // One-shot replacement also went stale: fail with retry guidance (no loop).
+      throw new AppError({
+        code: "review.stale_head_replacement_exhausted",
+        message:
+          "Stale-head replacement went stale again. Run /review to retry on the latest head.",
+        context: { workItemId: item.id, resourceKey: item.resourceKey },
+      });
+    }
   }
 
   return handleReviewPublishResult({

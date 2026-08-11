@@ -461,11 +461,14 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
+    // Reschedule enqueue must win over parent skip: execute may already have
+    // persisted a replacement + stolen progress ownership. Skipping here orphans
+    // that replacement and leaves the PR stub stuck on superseded.
     if (result.rescheduled) {
       await completeRescheduledResult(result);
       return;
     }
+    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
     if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
     if (!(await markWorkCompleted(spec.pool, item.id, executionEpoch))) {
       await recheckSkippableAndCancel("completion_race", false);

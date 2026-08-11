@@ -5,7 +5,7 @@ import { inTransaction, pgBossDb } from "../db/postgres.js";
 import { AppError } from "../errors/appError.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
+import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
 import type { PrSurface } from "../github/prSurface.js";
 import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
@@ -131,9 +131,32 @@ export async function buildStaleReviewRescheduleResult(
 export async function createReviewRescheduleWorkItem(
   pool: Pool,
   item: ReviewWorkItem,
-  latestHeadSha: string,
+  /**
+   * Ignored for new inserts — replacements use DEFERRED_HEAD_SHA so the worker
+   * resolves the latest head at claim time (burst synchronize collapse).
+   * Retained for call-site compatibility and conflict-path tests.
+   */
+  _latestHeadSha: string,
 ): Promise<ReviewRescheduleWorkItem> {
   return inTransaction(pool, async (client) => {
+    // Do not steal progress ownership after a newer auto intake (or /cancel)
+    // already cancelled this parent — that orphans the PR on a superseded stub.
+    const parentLive = await client.query<{ id: string }>(
+      `SELECT id FROM agent_work_items
+        WHERE id = $1
+          AND status = 'running'
+          AND cancel_requested_at IS NULL
+        FOR UPDATE`,
+      [item.id],
+    );
+    if ((parentLive.rowCount ?? 0) === 0) {
+      throw new AppError({
+        code: "agent_work.stale_head_parent_not_reschedulable",
+        message: `Parent review ${item.id} is no longer running for stale-head reschedule`,
+        context: { workItemId: item.id },
+      });
+    }
+
     const payload = item.payload;
     const reviewLens = item.reviewLens;
     let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
@@ -174,6 +197,8 @@ export async function createReviewRescheduleWorkItem(
       staleHeadReplacementWorkItemId: replacementWorkItemId,
     };
 
+    // Deferred head: worker resolves the newest SHA at claim so rapid pushes
+    // collapse into this one-shot replacement instead of pinning an intermediate head.
     const insertResult = await client.query<{ head_sha: string }>(
       `INSERT INTO agent_work_items (
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
@@ -192,7 +217,7 @@ export async function createReviewRescheduleWorkItem(
         item.repo,
         item.prNumber,
         item.installationId,
-        latestHeadSha,
+        DEFERRED_HEAD_SHA,
         reviewLens,
         item.resourceKey,
         JSON.stringify(nextPayload),

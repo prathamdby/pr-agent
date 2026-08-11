@@ -429,6 +429,71 @@ describe("executeReviewJob", () => {
     );
   });
 
+  it("does not create a stale-head replacement when a newer auto review already cancelled the parent", async () => {
+    mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "getHeadSha").mockResolvedValue("new-head");
+    // Gate check (false) then post-orchestrator reschedule guard (true).
+    mocks.shouldSkipWork.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
+      const gate = await params.gate.check();
+      expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
+      return { published: false, publishAttempts: 0, publishSuperseded: true };
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review publish was skipped because the work was superseded or cancelled.",
+      }),
+    );
+  });
+
+  it("fails a one-shot stale-head replacement with retry guidance instead of quiet supersede", async () => {
+    mockDurableExecution("auto");
+    mocks.lightweight.mockResolvedValue({ handled: false });
+    vi.spyOn(durableSurfaceBundle.surface, "getHeadSha").mockResolvedValue("newer-head");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "old-replacement-head",
+    });
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      const item = makeReviewWorkItem({
+        id: "wi-replacement",
+        source: "auto",
+        status: "running",
+        headSha: "old-replacement-head",
+        payload: {
+          mode: "review",
+          source: "auto",
+          staleHeadRescheduled: true,
+          staleHeadReplacementWorkItemId: "wi-replacement",
+        },
+      });
+      await expect(
+        spec.execute(item, {
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "old-replacement-head",
+          pullRequest: { ...pullRequest, head: { sha: "old-replacement-head" } },
+          executionEpoch: 1,
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toMatchObject({ code: "review.stale_head_replacement_exhausted" });
+    });
+    mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
+      const gate = await params.gate.check();
+      expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
+      return { published: false, publishAttempts: 0, publishSuperseded: true };
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+  });
+
   it("preserves superseded gate stops without checking the pull request head", async () => {
     mocks.shouldSkipWork.mockResolvedValue(true);
     mocks.getWorkItem.mockResolvedValueOnce(
