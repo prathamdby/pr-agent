@@ -1,6 +1,6 @@
 /** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
-export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
+export const LABEL_REVIEW_SIZE_PREFIX = "size:";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
@@ -12,14 +12,6 @@ export const AGENT_FIX_PROMPT_PREAMBLE =
 export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Fix all findings (agent prompt)";
 
 /** Review comment formatting (GitHub markdown). */
-/** Effort 2–3 both map to "Moderate" on the 1–5 scale. */
-export const REVIEW_EFFORT_WORDS = [
-  "Light",
-  "Moderate",
-  "Moderate",
-  "Substantial",
-  "Heavy",
-] as const;
 export const REVIEW_OVERVIEW_ALERT = "NOTE";
 export const REVIEW_FAILURE_ALERT = "CAUTION";
 export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
@@ -114,8 +106,10 @@ export const REVIEW_RISK_PATH_PATTERNS: Readonly<
 };
 
 export const MAX_REVIEW_FOLLOW_UPS = 5;
-export const REVIEW_EFFORT_MIN = 1;
-export const REVIEW_EFFORT_MAX = 5;
+
+/** Review size scale (t-shirt sizes), ordered smallest to largest. */
+export const REVIEW_SIZES = ["XS", "S", "M", "L", "XL", "XXL"] as const;
+export type ReviewSize = (typeof REVIEW_SIZES)[number];
 
 /** ReviewPayload public field size limits (unlimited finding count; bounded text). */
 export const REVIEW_FINDING_TITLE_MAX_CHARS = 80;

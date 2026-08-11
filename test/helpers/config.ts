@@ -17,7 +17,7 @@ const baseTestConfig: Config = {
     verification: "auto",
     ask: "manual",
     triage: "manual",
-    reviewLabels: "effort",
+    reviewLabels: "size",
     commitStatus: false,
     titleRewrite: false,
   },

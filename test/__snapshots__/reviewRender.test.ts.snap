@@ -100,7 +100,7 @@ exports[`renderReviewSummaryComment > drops finding rows from the tail when comp
 
 <table>
 <tbody>
-<tr><td><strong>Effort</strong></td><td>Moderate · <code>3/5</code></td></tr>
+<tr><td><strong>Size</strong></td><td><code>M</code></td></tr>
 <tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f0.ts#L1">Bug 0</a></strong><br><em>Summary only · <code>src/f0.ts</code> · line 1</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
 <tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f1.ts#L2">Bug 1</a></strong><br><em>Summary only · <code>src/f1.ts</code> · line 2</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
 <tr><td><strong>Relevant tests</strong></td><td>partial</td></tr>

@@ -103,12 +103,8 @@ export function ReviewSummaryMock({ lens = "review" }: ReviewSummaryMockProps) {
 
   const rows = [
     {
-      label: "Effort",
-      value: (
-        <>
-          Moderate · <GhCode>3/5</GhCode>
-        </>
-      ),
+      label: "Size",
+      value: <GhCode>M</GhCode>,
     },
     ...findings.map((finding) => ({
       label: `${finding.severity} · ${finding.confidence}`,

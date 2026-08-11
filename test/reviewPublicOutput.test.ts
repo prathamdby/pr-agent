@@ -49,7 +49,7 @@ describe("reviewPublicOutput", () => {
           violatedRule: ".pr-agent/ghp_1234567890123456789012345678901234567890.mdc",
         },
       ],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],

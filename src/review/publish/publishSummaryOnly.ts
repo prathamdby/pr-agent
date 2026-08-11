@@ -545,12 +545,12 @@ export async function publishReviewSummaryOnly(params: {
   const wantsCategoryLabel = dominantReviewCategory(params.payload.findings) != null;
   const syncCategoryLabels =
     mode === "review" && (wantsCategoryLabel || hasManagedCategoryLabel(currentLabels));
-  const syncEffortLabel = params.cfg.features.reviewLabels !== "off";
-  const syncSecurityLabel = params.cfg.features.reviewLabels === "effort+security";
-  if (syncEffortLabel || syncSecurityLabel || syncCategoryLabels) {
+  const syncSizeLabel = params.cfg.features.reviewLabels !== "off";
+  const syncSecurityLabel = params.cfg.features.reviewLabels === "size+security";
+  if (syncSizeLabel || syncSecurityLabel || syncCategoryLabels) {
     try {
       const options = {
-        effort: syncEffortLabel,
+        size: syncSizeLabel,
         security: syncSecurityLabel,
         category: syncCategoryLabels,
       };

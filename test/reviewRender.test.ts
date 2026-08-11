@@ -42,7 +42,7 @@ const ctx = {
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
   return makeReviewPayload({
     prCharacter: "Adds a retry wrapper around the webhook dispatcher.",
-    estimatedEffort: 3,
+    size: "M",
     relevantTests: "partial",
     ...overrides,
   });

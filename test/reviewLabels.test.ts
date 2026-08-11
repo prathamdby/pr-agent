@@ -11,26 +11,26 @@ import {
 const basePayload = makeReviewPayload();
 
 describe("labelsAlreadySynced", () => {
-  it("returns false when effort matches but security label is stale", () => {
+  it("returns false when size matches but security label is stale", () => {
     expect(
-      labelsAlreadySynced(["Review effort 2/5", "Possible security concern"], basePayload, {
-        effort: true,
+      labelsAlreadySynced(["size:S", "Possible security concern"], basePayload, {
+        size: true,
         security: true,
         category: false,
       }),
     ).toBe(false);
   });
 
-  it("returns true when effort and security labels match payload", () => {
+  it("returns true when size and security labels match payload", () => {
     expect(
       labelsAlreadySynced(
-        ["Review effort 2/5", "Possible security concern"],
+        ["size:S", "Possible security concern"],
         {
           ...basePayload,
           securityConcerns: "xss",
         },
         {
-          effort: true,
+          size: true,
           security: true,
           category: false,
         },
@@ -38,20 +38,10 @@ describe("labelsAlreadySynced", () => {
     ).toBe(true);
   });
 
-  it("uses the review effort prefix for recognized legacy lenses", () => {
+  it("returns false when the size label is stale", () => {
     expect(
-      labelsAlreadySynced(["Review effort 2/5", "Quality effort 4/5"], basePayload, {
-        effort: true,
-        security: false,
-        category: false,
-      }),
-    ).toBe(true);
-  });
-
-  it("returns false when the review effort label is stale", () => {
-    expect(
-      labelsAlreadySynced(["Review effort 1/5"], basePayload, {
-        effort: true,
+      labelsAlreadySynced(["size:XS"], basePayload, {
+        size: true,
         security: false,
         category: false,
       }),
@@ -78,7 +68,7 @@ describe("labelsAlreadySynced", () => {
           ],
         },
         {
-          effort: false,
+          size: false,
           security: false,
           category: true,
         },
@@ -133,14 +123,14 @@ describe("hasManagedCategoryLabel", () => {
 });
 
 describe("reviewLabelsFromPayload", () => {
-  it("uses the review effort prefix", () => {
+  it("uses the size prefix", () => {
     expect(
       reviewLabelsFromPayload(basePayload, {
-        effort: true,
+        size: true,
         security: false,
         category: false,
       }),
-    ).toEqual(["Review effort 2/5"]);
+    ).toEqual(["size:S"]);
   });
 
   it("adds dominant category label when enabled", () => {
@@ -162,7 +152,7 @@ describe("reviewLabelsFromPayload", () => {
           ],
         },
         {
-          effort: false,
+          size: false,
           security: false,
           category: true,
         },
@@ -172,28 +162,40 @@ describe("reviewLabelsFromPayload", () => {
 });
 
 describe("syncReviewLabels", () => {
-  it("replaces Review effort label and preserves unrelated labels", () => {
-    const current = ["Review effort 3/5", "bug", "enhancement"];
-    const next = syncReviewLabels(current, ["Review effort 4/5"]);
-    expect(next).toEqual(["bug", "enhancement", "Review effort 4/5"]);
+  it("replaces size label and preserves unrelated labels", () => {
+    const current = ["size:L", "bug", "enhancement"];
+    const next = syncReviewLabels(current, ["size:XL"]);
+    expect(next).toEqual(["bug", "enhancement", "size:XL"]);
+  });
+
+  it("preserves unrelated labels in the size namespace", () => {
+    const current = ["size:epic", "size:L", "enhancement"];
+    const next = syncReviewLabels(current, ["size:XL"]);
+    expect(next).toEqual(["size:epic", "enhancement", "size:XL"]);
+  });
+
+  it("removes legacy effort labels during size sync", () => {
+    const current = ["Review effort 2/5", "size:L", "enhancement"];
+    const next = syncReviewLabels(current, ["size:XL"]);
+    expect(next).toEqual(["enhancement", "size:XL"]);
+  });
+
+  it("preserves unrelated labels that resemble legacy effort labels", () => {
+    const current = ["Review effort", "Review effort high", "enhancement"];
+    const next = syncReviewLabels(current, ["size:XL"]);
+    expect(next).toEqual(["Review effort", "Review effort high", "enhancement", "size:XL"]);
   });
 
   it("drops Possible security concern when not in next managed set", () => {
     const current = ["Possible security concern", "docs"];
-    const next = syncReviewLabels(current, ["Review effort 2/5"]);
-    expect(next).toEqual(["docs", "Review effort 2/5"]);
+    const next = syncReviewLabels(current, ["size:S"]);
+    expect(next).toEqual(["docs", "size:S"]);
   });
 
-  it("replaces the review effort label family for recognized legacy lenses", () => {
-    const current = ["Review effort 3/5", "Quality effort 1/5", "bug"];
-    const next = syncReviewLabels(current, ["Review effort 2/5"]);
-    expect(next).toEqual(["Quality effort 1/5", "bug", "Review effort 2/5"]);
-  });
-
-  it("replaces category labels without touching effort labels", () => {
-    const current = ["Review effort 2/5", "Category: bug", "enhancement"];
-    const next = syncReviewLabels(current, ["Review effort 2/5", "Category: security"]);
-    expect(next).toEqual(["enhancement", "Review effort 2/5", "Category: security"]);
+  it("replaces category labels without touching size labels", () => {
+    const current = ["size:S", "Category: bug", "enhancement"];
+    const next = syncReviewLabels(current, ["size:S", "Category: security"]);
+    expect(next).toEqual(["enhancement", "size:S", "Category: security"]);
   });
 
   it("removes stale category labels when payload has no dominant category", () => {

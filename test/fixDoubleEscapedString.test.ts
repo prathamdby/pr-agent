@@ -123,7 +123,7 @@ describe("coerceReviewPayloadInput double escape", () => {
           fixPrompt: "Fix it",
         },
       ],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
