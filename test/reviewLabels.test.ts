@@ -168,6 +168,24 @@ describe("syncReviewLabels", () => {
     expect(next).toEqual(["bug", "enhancement", "size:XL"]);
   });
 
+  it("preserves unrelated labels in the size namespace", () => {
+    const current = ["size:epic", "size:L", "enhancement"];
+    const next = syncReviewLabels(current, ["size:XL"]);
+    expect(next).toEqual(["size:epic", "enhancement", "size:XL"]);
+  });
+
+  it("removes legacy effort labels during size sync", () => {
+    const current = ["Review effort 2/5", "size:L", "enhancement"];
+    const next = syncReviewLabels(current, ["size:XL"]);
+    expect(next).toEqual(["enhancement", "size:XL"]);
+  });
+
+  it("preserves unrelated labels that resemble legacy effort labels", () => {
+    const current = ["Review effort", "Review effort high", "enhancement"];
+    const next = syncReviewLabels(current, ["size:XL"]);
+    expect(next).toEqual(["Review effort", "Review effort high", "enhancement", "size:XL"]);
+  });
+
   it("drops Possible security concern when not in next managed set", () => {
     const current = ["Possible security concern", "docs"];
     const next = syncReviewLabels(current, ["size:S"]);

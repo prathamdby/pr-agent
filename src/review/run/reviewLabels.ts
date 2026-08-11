@@ -2,6 +2,7 @@ import {
   LABEL_CATEGORY_PREFIX,
   LABEL_REVIEW_SIZE_PREFIX,
   LABEL_SECURITY_CONCERN,
+  REVIEW_SIZES,
 } from "../../settings/index.js";
 import {
   REVIEW_FINDING_CATEGORIES,
@@ -9,6 +10,8 @@ import {
   type ReviewFindingCategory,
   type ReviewPayload,
 } from "../reviewSchema.js";
+
+const LEGACY_REVIEW_EFFORT_LABEL = /^Review effort [1-5]\/5$/;
 
 export function dominantReviewCategory(
   findings: readonly ReviewFinding[],
@@ -88,7 +91,8 @@ export function reviewLabelsFromPayload(
 export function syncReviewLabels(currentLabels: string[], nextManaged: string[]): string[] {
   const preserved = currentLabels.filter(
     (name) =>
-      !name.startsWith(LABEL_REVIEW_SIZE_PREFIX) &&
+      !REVIEW_SIZES.some((size) => name === `${LABEL_REVIEW_SIZE_PREFIX}${size}`) &&
+      !LEGACY_REVIEW_EFFORT_LABEL.test(name) &&
       name !== LABEL_SECURITY_CONCERN &&
       !name.startsWith(LABEL_CATEGORY_PREFIX),
   );
