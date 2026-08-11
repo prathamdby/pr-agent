@@ -8,14 +8,13 @@ import {
   cancelUnenqueuedStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
+  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+  STALE_HEAD_REPLACEMENT_EXHAUSTED,
+  staleHeadReplacementExhaustedError,
+  tryBuildStaleReviewRescheduleResult,
 } from "../src/agentWork/reviewReschedule.js";
 import type { ReviewWorkItem } from "../src/agentWork/types.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-
-function prSurfaceWithHead(headSha: string) {
-  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { headSha }).surface;
-}
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
@@ -77,7 +76,6 @@ describe("createReviewRescheduleWorkItem", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      "newhead",
     );
 
     expect(replacement).toEqual({
@@ -106,7 +104,6 @@ describe("createReviewRescheduleWorkItem", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      "newhead",
     );
 
     expect(replacement.replacementWorkItemId).toBe("existing-replacement");
@@ -125,7 +122,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), "newhead");
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem());
 
     expect(replacement).toEqual({
       replacementWorkItemId: "generated-replacement",
@@ -141,9 +138,9 @@ describe("createReviewRescheduleWorkItem", () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    await expect(createReviewRescheduleWorkItem(pool, makeItem(), "newhead")).rejects.toMatchObject(
-      { code: "agent_work.stale_head_parent_not_reschedulable" },
-    );
+    await expect(createReviewRescheduleWorkItem(pool, makeItem())).rejects.toMatchObject({
+      code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+    });
     expect(query).toHaveBeenCalledTimes(1);
   });
 
@@ -167,11 +164,7 @@ describe("createReviewRescheduleWorkItem", () => {
       },
     });
 
-    const result = await buildStaleReviewRescheduleResult(
-      pool,
-      parent,
-      prSurfaceWithHead("newhead"),
-    );
+    const result = await buildStaleReviewRescheduleResult(pool, parent);
     const insertParams = query.mock.calls.find((call) =>
       String(call[0]).includes("INSERT INTO agent_work_items"),
     )?.[1] as unknown[] | undefined;
@@ -202,7 +195,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), "newhead");
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem());
 
     expect(replacement.replacementWorkItemId).toBe("winner-replacement");
     expect(getWorkItem).toHaveBeenCalledWith(pool, "parent-wi");
@@ -229,7 +222,6 @@ describe("createReviewRescheduleWorkItem", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     await result.afterComplete(boss, "active-job");
 
@@ -237,6 +229,40 @@ describe("createReviewRescheduleWorkItem", () => {
     expect(ackCall?.[1]).toMatchObject({
       progress: { headSha: "persisted-head" },
     });
+  });
+});
+
+describe("stale-head shared helpers", () => {
+  it("tryBuild returns null when the parent is not reschedulable", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
+    const pool = { query } as unknown as Pool;
+
+    await expect(tryBuildStaleReviewRescheduleResult(pool, makeItem())).resolves.toBeNull();
+  });
+
+  it("tryBuild returns a reschedule result for a live parent", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ replacement_id: "generated-replacement" }],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+
+    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem());
+    expect(result).toMatchObject({
+      rescheduled: true,
+      replacementWorkItemId: "generated-replacement",
+    });
+  });
+
+  it("staleHeadReplacementExhaustedError uses the shared exhausted code", () => {
+    const error = staleHeadReplacementExhaustedError(makeItem());
+    expect(error.code).toBe(STALE_HEAD_REPLACEMENT_EXHAUSTED);
+    expect(error.message).toMatch(/\/review/);
   });
 });
 
@@ -557,7 +583,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     await result.onRescheduleAbort(boss, boom);
 
@@ -585,7 +610,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     await result.afterComplete(boss, "active-job");
     await result.onRescheduleAbort(boss, new Error("should not cancel"));
@@ -611,7 +635,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementEnqueued: true,
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     const error = new Error("parent failed");
     await result.onRescheduleAbort(boss, error);

@@ -461,9 +461,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    // Reschedule enqueue must win over parent skip: execute may already have
-    // persisted a replacement + stolen progress ownership. Skipping here orphans
-    // that replacement and leaves the PR stub stuck on superseded.
+    // Replacement enqueue before skip: execute may already have transferred progress ownership.
     if (result.rescheduled) {
       await completeRescheduledResult(result);
       return;

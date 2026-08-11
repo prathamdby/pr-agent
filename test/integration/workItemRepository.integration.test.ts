@@ -356,7 +356,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     expect(parent?.type).toBe("review");
     if (parent?.type !== "review") throw new Error("expected review parent");
 
-    const replacement = await createReviewRescheduleWorkItem(pool, parent, "sha-new");
+    const replacement = await createReviewRescheduleWorkItem(pool, parent);
     const owner = await getProgressCommentOwner(pool, resourceKey, "review");
 
     expect(owner).toEqual({ workItemId: replacement.replacementWorkItemId, generation: 5 });

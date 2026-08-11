@@ -204,7 +204,7 @@ describe("executeReviewJob", () => {
       mocks.lightweight,
     );
     vi.spyOn(prWorkspace, "withPrRepositoryView").mockImplementation(mocks.withPrRepositoryView);
-    vi.spyOn(reviewReschedule, "buildStaleReviewRescheduleResult").mockImplementation(
+    vi.spyOn(reviewReschedule, "tryBuildStaleReviewRescheduleResult").mockImplementation(
       mocks.buildStaleReschedule,
     );
     vi.spyOn(reviewTrustedContext, "buildTrustedReviewContextForReview").mockImplementation(
@@ -406,7 +406,6 @@ describe("executeReviewJob", () => {
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ id: "wi-1" }),
-      durableSurfaceBundle.surface,
     );
   });
 
@@ -425,7 +424,6 @@ describe("executeReviewJob", () => {
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ id: "wi-1", source: "auto" }),
-      durableSurfaceBundle.surface,
     );
   });
 
@@ -481,7 +479,7 @@ describe("executeReviewJob", () => {
           executionEpoch: 1,
           signal: new AbortController().signal,
         }),
-      ).rejects.toMatchObject({ code: "review.stale_head_replacement_exhausted" });
+      ).rejects.toMatchObject({ code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED });
     });
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
