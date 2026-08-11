@@ -2,8 +2,6 @@ import * as v from "valibot";
 import {
   MAX_REVIEW_FOLLOW_UPS,
   MAX_REVIEW_PAYLOAD_FINDINGS,
-  REVIEW_EFFORT_MAX,
-  REVIEW_EFFORT_MIN,
   REVIEW_FINDING_DETAIL_MAX_CHARS,
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
@@ -12,6 +10,7 @@ import {
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
+  REVIEW_SIZES,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
@@ -75,12 +74,7 @@ export function createReviewPayloadSchema() {
   return v.object({
     prCharacter: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_OVERVIEW_MAX_CHARS)),
     findings: v.pipe(v.array(reviewFindingSchema), v.maxLength(MAX_REVIEW_PAYLOAD_FINDINGS)),
-    estimatedEffort: v.pipe(
-      v.number(),
-      v.integer(),
-      v.minValue(REVIEW_EFFORT_MIN),
-      v.maxValue(REVIEW_EFFORT_MAX),
-    ),
+    size: v.picklist(REVIEW_SIZES),
     relevantTests: v.picklist(["yes", "no", "partial"]),
     securityConcerns: v.nullable(
       v.pipe(v.string(), v.maxLength(REVIEW_SECURITY_CONCERNS_MAX_CHARS)),
@@ -315,11 +309,11 @@ export function coerceReviewPayloadInput(raw: unknown): {
       input.prCharacter = text;
     }
   }
-  if ("estimatedEffort" in input) {
-    const n = coercePositiveInt(input.estimatedEffort);
-    if (n != null && n !== input.estimatedEffort) {
-      input.estimatedEffort = n;
-      coercions.push("estimatedEffort_number");
+  if ("size" in input && typeof input.size === "string") {
+    const normalized = input.size.trim().toUpperCase();
+    if (normalized !== input.size) {
+      input.size = normalized;
+      coercions.push("size_token_case");
     }
   }
   if ("securityConcerns" in input && typeof input.securityConcerns === "string") {
@@ -394,7 +388,7 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
+    `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
   lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
   const firstIssue = issues[0];

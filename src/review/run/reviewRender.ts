@@ -16,7 +16,6 @@ import {
   LIGHTWEIGHT_REVIEW_COMPLETION_LEAD,
   LIGHTWEIGHT_REVIEW_COMPLETION_REASON,
   REPEAT_NO_BUGS_PREFIX,
-  REVIEW_EFFORT_WORDS,
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDING_FOOTNOTE_SUMMARY,
   REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
@@ -71,11 +70,6 @@ function escapeCodeFenceBreakers(text: string): string {
 function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
   const lineAnchor = startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
   return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
-}
-
-function formatEffortLabelHtml(effort: number): string {
-  const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
-  return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
 }
 
 export function renderRepeatNoBugsReviewBody(
@@ -367,7 +361,7 @@ function buildReviewSummaryBody(
   rows.push("");
 
   const tableRows: Array<[string, string]> = [
-    [renderTableStrong("Effort"), formatEffortLabelHtml(payload.estimatedEffort)],
+    [renderTableStrong("Size"), renderTableCode(payload.size)],
   ];
 
   const summaryOnlyAccordions: string[] = [];

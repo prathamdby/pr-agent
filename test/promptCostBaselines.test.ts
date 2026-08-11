@@ -37,7 +37,7 @@ const SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
 const REVIEW_PAYLOAD_FIELDS = [
   "prCharacter",
   "findings",
-  "estimatedEffort",
+  "size",
   "relevantTests",
   "securityConcerns",
   "followUps",

@@ -47,7 +47,7 @@ function validPayload(overrides: Record<string, unknown> = {}) {
   return {
     prCharacter: "Does things.",
     findings: [],
-    estimatedEffort: 1,
+    size: "XS",
     relevantTests: "no" as const,
     securityConcerns: null,
     followUps: [],

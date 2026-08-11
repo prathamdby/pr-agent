@@ -100,7 +100,7 @@ describe("publishReviewSummaryOnly", () => {
     const payload: ReviewPayload = {
       prCharacter: "Two findings.",
       findings: [first, second],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "yes",
       securityConcerns: null,
       followUps: [],
@@ -174,7 +174,7 @@ describe("publishReviewSummaryOnly", () => {
       payload: {
         prCharacter: "No findings.",
         findings: [],
-        estimatedEffort: 1,
+        size: "XS",
         relevantTests: "no",
         securityConcerns: null,
         followUps: [],
@@ -215,7 +215,7 @@ describe("publishReviewSummaryOnly", () => {
       payload: {
         prCharacter: "One finding with partial coverage.",
         findings: [finding(10)],
-        estimatedEffort: 2,
+        size: "S",
         relevantTests: "partial",
         securityConcerns: null,
         followUps: [],
@@ -262,7 +262,7 @@ describe("publishReviewSummaryOnly", () => {
         payload: {
           prCharacter: "No coverage.",
           findings: [],
-          estimatedEffort: 1,
+          size: "XS",
           relevantTests: "no",
           securityConcerns: null,
           followUps: [],

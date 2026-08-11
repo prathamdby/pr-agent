@@ -33,7 +33,7 @@ function payload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
   return {
     prCharacter: "Test.",
     findings: [],
-    estimatedEffort: 2,
+    size: "S",
     relevantTests: "no",
     securityConcerns: null,
     followUps: [],

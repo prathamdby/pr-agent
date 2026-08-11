@@ -100,7 +100,7 @@ function batchPayload(findings: readonly ReviewFinding[]): ReviewPayload {
   return {
     prCharacter: "Incremental review findings.",
     findings: [...findings],
-    estimatedEffort: 1,
+    size: "M",
     relevantTests: "no",
     securityConcerns: null,
     followUps: [],

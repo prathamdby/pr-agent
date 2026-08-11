@@ -174,7 +174,7 @@ describe("listPullRequestLabels", () => {
 
   it("keeps later-page labels when computing replace-all setLabels payload", async () => {
     const pageOne = Array.from({ length: COMMENTS_PAGE_SIZE }, (_, i) => ({
-      name: i === 0 ? "Review effort 1/5" : `custom-${i}`,
+      name: i === 0 ? "size:XS" : `custom-${i}`,
     }));
     const pageTwo = [{ name: "must-preserve" }, { name: "also-preserve" }];
     listLabelsOnIssue.mockResolvedValueOnce({ data: pageOne }).mockResolvedValueOnce({
@@ -182,14 +182,14 @@ describe("listPullRequestLabels", () => {
     });
 
     const current = await listPullRequestLabels("tok", "o", "r", 7);
-    const next = syncReviewLabels(current, ["Review effort 2/5"]);
+    const next = syncReviewLabels(current, ["size:S"]);
 
     expect(current).toHaveLength(COMMENTS_PAGE_SIZE + 2);
     expect(next).toContain("must-preserve");
     expect(next).toContain("also-preserve");
     expect(next).toContain("custom-1");
-    expect(next).toContain("Review effort 2/5");
-    expect(next).not.toContain("Review effort 1/5");
+    expect(next).toContain("size:S");
+    expect(next).not.toContain("size:XS");
   });
 });
 

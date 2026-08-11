@@ -45,55 +45,55 @@ describe("publishReview labels and token expiry", () => {
     expect(harness.setLabels).not.toHaveBeenCalled();
   });
 
-  it("skips setLabels when exact effort label already exists", async () => {
-    harness.getLabels.mockResolvedValueOnce(["Review effort 2/5", "bug"]);
+  it("skips setLabels when exact size label already exists", async () => {
+    harness.getLabels.mockResolvedValueOnce(["size:S", "bug"]);
 
     await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
+        features: { ...baseParams.cfg.features, reviewLabels: "size" as const },
       },
     });
 
     expect(harness.setLabels).not.toHaveBeenCalled();
   });
 
-  it("calls setLabels when effort matches but security label is stale", async () => {
-    harness.getLabels.mockResolvedValueOnce(["Review effort 2/5", "Possible security concern"]);
+  it("calls setLabels when size matches but security label is stale", async () => {
+    harness.getLabels.mockResolvedValueOnce(["size:S", "Possible security concern"]);
 
     await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort+security" as const },
+        features: { ...baseParams.cfg.features, reviewLabels: "size+security" as const },
       },
-      payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
+      payload: { ...payload, size: "S", securityConcerns: null },
     });
 
-    expect(harness.setLabels).toHaveBeenCalledWith(["Review effort 2/5"]);
+    expect(harness.setLabels).toHaveBeenCalledWith(["size:S"]);
   });
 
-  it("calls setLabels when effort label value changes", async () => {
-    harness.getLabels.mockResolvedValueOnce(["Review effort 2/5", "bug"]);
+  it("calls setLabels when size label value changes", async () => {
+    harness.getLabels.mockResolvedValueOnce(["size:S", "bug"]);
 
     await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
+        features: { ...baseParams.cfg.features, reviewLabels: "size" as const },
       },
-      payload: { ...payload, estimatedEffort: 4 },
+      payload: { ...payload, size: "L" },
     });
 
-    expect(harness.setLabels).toHaveBeenCalledWith(["bug", "Review effort 4/5"]);
+    expect(harness.setLabels).toHaveBeenCalledWith(["bug", "size:L"]);
   });
 
-  it("uses the review effort family for a recognized legacy mode", async () => {
-    harness.getLabels.mockResolvedValueOnce(["Review effort 3/5", "Quality effort 1/5", "bug"]);
+  it("syncs the size label for a recognized legacy mode", async () => {
+    harness.getLabels.mockResolvedValueOnce(["size:M", "bug"]);
 
     await publishReviewForTest({
       ...baseParams,
@@ -101,43 +101,35 @@ describe("publishReview labels and token expiry", () => {
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
+        features: { ...baseParams.cfg.features, reviewLabels: "size" as const },
       },
-      payload: { ...payload, estimatedEffort: 4 },
+      payload: { ...payload, size: "L" },
     });
 
-    expect(harness.setLabels).toHaveBeenCalledWith([
-      "Quality effort 1/5",
-      "bug",
-      "Review effort 4/5",
-    ]);
+    expect(harness.setLabels).toHaveBeenCalledWith(["bug", "size:L"]);
   });
 
   it("preserves unmanaged labels beyond the first GitHub page on replace-all sync", async () => {
     const pageOneExtras = Array.from({ length: 30 }, (_, i) => `extra-${i + 1}`);
     const pageTwoExtras = ["must-preserve-page-two", "also-preserve-page-two"];
-    harness.getLabels.mockResolvedValueOnce([
-      "Review effort 1/5",
-      ...pageOneExtras,
-      ...pageTwoExtras,
-    ]);
+    harness.getLabels.mockResolvedValueOnce(["size:XS", ...pageOneExtras, ...pageTwoExtras]);
 
     await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
+        features: { ...baseParams.cfg.features, reviewLabels: "size" as const },
       },
-      payload: { ...payload, estimatedEffort: 2 },
+      payload: { ...payload, size: "S" },
     });
 
     expect(harness.setLabels).toHaveBeenCalledWith(
-      expect.arrayContaining([...pageOneExtras, ...pageTwoExtras, "Review effort 2/5"]),
+      expect.arrayContaining([...pageOneExtras, ...pageTwoExtras, "size:S"]),
     );
     const nextLabels = harness.setLabels.mock.calls[0]?.[0] ?? [];
     expect(nextLabels).toHaveLength(pageOneExtras.length + pageTwoExtras.length + 1);
-    expect(nextLabels).not.toContain("Review effort 1/5");
+    expect(nextLabels).not.toContain("size:XS");
   });
 
   it("does not create a zero-comment review on repeat no-bugs publish", async () => {
@@ -167,7 +159,7 @@ describe("publishReview labels and token expiry", () => {
         publishState: testPublishState(),
         cfg: {
           ...baseParams.cfg,
-          features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
+          features: { ...baseParams.cfg.features, reviewLabels: "size" as const },
         },
       }),
     ).resolves.toBeUndefined();
@@ -198,7 +190,7 @@ describe("publishReview labels and token expiry", () => {
           publishState: testPublishState(),
           cfg: {
             ...baseParams.cfg,
-            features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
+            features: { ...baseParams.cfg.features, reviewLabels: "size" as const },
           },
         }),
       ).resolves.toBeUndefined();

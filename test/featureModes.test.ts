@@ -18,7 +18,7 @@ describe("feature modes", () => {
     expect(DEFAULT_FEATURE_VERIFICATION).toBe("auto");
     expect(DEFAULT_FEATURE_ASK).toBe("manual");
     expect(DEFAULT_FEATURE_TRIAGE).toBe("manual");
-    expect(DEFAULT_FEATURE_REVIEW_LABELS).toBe("effort");
+    expect(DEFAULT_FEATURE_REVIEW_LABELS).toBe("size");
     expect(DEFAULT_FEATURE_COMMIT_STATUS).toBe(false);
     expect(DEFAULT_FEATURE_TITLE_REWRITE).toBe(false);
   });

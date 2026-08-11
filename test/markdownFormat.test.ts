@@ -35,12 +35,12 @@ describe("markdownFormat", () => {
 
   it("renderKeyValueTable omits GFM header row", () => {
     const table = renderKeyValueTable([
-      [renderTableStrong("Effort"), "Moderate · <code>2/5</code>"],
+      [renderTableStrong("Size"), "<code>M</code>"],
       [renderTableStrong("P1"), "plain value"],
     ]);
     expect(table).not.toContain("| | |");
     expect(table).toContain("<table>");
-    expect(table).toContain("<strong>Effort</strong>");
-    expect(table).toContain("<code>2/5</code>");
+    expect(table).toContain("<strong>Size</strong>");
+    expect(table).toContain("<code>M</code>");
   });
 });

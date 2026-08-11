@@ -33,7 +33,7 @@ describe("feature config", () => {
       verification: "auto",
       ask: "manual",
       triage: "manual",
-      reviewLabels: "effort",
+      reviewLabels: "size",
       commitStatus: false,
       titleRewrite: false,
     });
@@ -43,12 +43,12 @@ describe("feature config", () => {
     const cfg = await load({
       FEATURE_DESCRIBE: "off",
       FEATURE_ASK: "off",
-      FEATURE_REVIEW_LABELS: "effort+security",
+      FEATURE_REVIEW_LABELS: "size+security",
       FEATURE_COMMIT_STATUS: "true",
     });
     expect(cfg.features.describe).toBe("off");
     expect(cfg.features.ask).toBe("off");
-    expect(cfg.features.reviewLabels).toBe("effort+security");
+    expect(cfg.features.reviewLabels).toBe("size+security");
     expect(cfg.features.commitStatus).toBe(true);
   });
 

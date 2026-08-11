@@ -100,7 +100,7 @@ describe("severity helpers", () => {
           detail: "minor",
         },
       ],
-      estimatedEffort: 1,
+      size: "XS",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
@@ -130,7 +130,7 @@ describe("selectInlineFindings", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Large review",
       findings,
-      estimatedEffort: 3,
+      size: "M",
       relevantTests: "partial",
       securityConcerns: null,
       followUps: [],
@@ -147,7 +147,7 @@ describe("selectInlineFindings", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Huge review",
       findings,
-      estimatedEffort: 3,
+      size: "M",
       relevantTests: "partial",
       securityConcerns: null,
       followUps: [],
@@ -173,7 +173,7 @@ describe("reviewPayloadSchema", () => {
           confidence: 4,
         },
       ],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "partial",
       securityConcerns: null,
       followUps: [],
@@ -191,7 +191,7 @@ describe("reviewPayloadSchema", () => {
       const parsed = v.safeParse(reviewPayloadSchema, {
         prCharacter: "Review with bad confidence",
         findings: [{ ...makeFinding("P1", "bad confidence"), confidence }],
-        estimatedEffort: 2,
+        size: "S",
         relevantTests: "partial",
         securityConcerns: null,
         followUps: [],
@@ -207,7 +207,7 @@ describe("reviewPayloadSchema", () => {
           suggestedCode: "x".repeat(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS + 1),
         },
       ],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "partial",
       securityConcerns: null,
       followUps: [],
@@ -231,7 +231,7 @@ describe("coerceReviewPayloadInput", () => {
           fixPrompt: "fix",
         },
       ],
-      estimatedEffort: "3",
+      size: "xl",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
@@ -242,7 +242,7 @@ describe("coerceReviewPayloadInput", () => {
     if (parsed.success) {
       expect(parsed.output.findings[0]?.severity).toBe("P0");
       expect(parsed.output.findings[0]?.startLine).toBe(10);
-      expect(parsed.output.estimatedEffort).toBe(3);
+      expect(parsed.output.size).toBe("XL");
     }
   });
 
@@ -259,7 +259,7 @@ describe("coerceReviewPayloadInput", () => {
     const { value } = coerceReviewPayloadInput({
       prCharacter: "x",
       findings: [finding],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
@@ -272,7 +272,7 @@ describe("coerceReviewPayloadInput", () => {
     const trimmed = coerceReviewPayloadInput({
       prCharacter: "x",
       findings: [],
-      estimatedEffort: 1,
+      size: "XS",
       relevantTests: "no",
       securityConcerns: "  timing issue  ",
       followUps: [],
@@ -283,7 +283,7 @@ describe("coerceReviewPayloadInput", () => {
     const alreadyTrimmed = coerceReviewPayloadInput({
       prCharacter: "x",
       findings: [],
-      estimatedEffort: 1,
+      size: "XS",
       relevantTests: "no",
       securityConcerns: "plain",
       followUps: [],
@@ -302,7 +302,7 @@ describe("reviewFinding violatedRule", () => {
           violatedRule: ".pr-agent/module-layout.mdc",
         },
       ],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
@@ -315,7 +315,7 @@ describe("reviewFinding violatedRule", () => {
     const legacy = v.safeParse(reviewPayloadSchema, {
       prCharacter: "No policy field",
       findings: [makeFinding("P2", "ordinary bug")],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
@@ -345,7 +345,7 @@ describe("reviewFinding violatedRule", () => {
       const parsed = v.safeParse(reviewPayloadSchema, {
         prCharacter: "Bad rule path",
         findings: [{ ...makeFinding("P2", "bad rule"), violatedRule }],
-        estimatedEffort: 2,
+        size: "S",
         relevantTests: "no",
         securityConcerns: null,
         followUps: [],
@@ -360,7 +360,7 @@ describe("reviewFinding violatedRule", () => {
     const accepted = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Max rule path",
       findings: [{ ...makeFinding("P2", "max path"), violatedRule: exactly80 }],
-      estimatedEffort: 2,
+      size: "S",
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
@@ -389,7 +389,7 @@ describe("reviewFinding category", () => {
             category: "bug",
           },
         ],
-        estimatedEffort: 2,
+        size: "S",
         relevantTests: "no",
         securityConcerns: null,
         followUps: [],
@@ -410,7 +410,7 @@ describe("reviewFinding category", () => {
             fixPrompt: "Await the promise.",
           },
         ],
-        estimatedEffort: 2,
+        size: "S",
         relevantTests: "no",
         securityConcerns: null,
         followUps: [],
@@ -432,7 +432,7 @@ describe("reviewFinding category", () => {
             category: "maintainability",
           },
         ],
-        estimatedEffort: 2,
+        size: "S",
         relevantTests: "no",
         securityConcerns: null,
         followUps: [],
@@ -445,7 +445,7 @@ describe("reviewPayload unknown fields", () => {
   const baseInput = {
     prCharacter: "Adds retry logic.",
     findings: [],
-    estimatedEffort: 2,
+    size: "S",
     relevantTests: "no" as const,
     securityConcerns: null,
     followUps: [] as string[],

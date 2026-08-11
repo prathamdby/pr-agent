@@ -203,7 +203,7 @@ function deterministicPayload(params: {
       ? "Judgment degraded. The deterministic summary preserves every accepted finding."
       : "The orchestrated review completed.",
     findings: [...params.findings],
-    estimatedEffort: params.findings.length === 0 ? 1 : Math.min(5, params.findings.length + 1),
+    size: "M",
     relevantTests: "partial",
     securityConcerns: null,
     followUps: [],

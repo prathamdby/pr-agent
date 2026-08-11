@@ -30,7 +30,7 @@ export const reviewOverviewWritingGuidance = [
   "",
   "### Other overview fields",
   "- securityConcerns: null when none; otherwise one or two short STE100 sentences naming the risk.",
-  "- estimatedEffort: integer 1–5 for review cost only, not code quality.",
+  "- size: XS | S | M | L | XL | XXL for the scale of the change set, not code quality.",
   "- relevantTests: yes | no | partial from the accepted evidence only.",
   "- followUps: short STE100 lines for deferred non-blocking work; empty when none.",
 ].join("\n");

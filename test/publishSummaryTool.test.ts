@@ -84,7 +84,7 @@ function summaryInput(ids: readonly string[]) {
       confidence: 5,
       category: "performance",
     })),
-    estimatedEffort: 3,
+    size: "M",
     relevantTests: "partial",
     securityConcerns: null,
     followUps: ["Add a regression test."],
