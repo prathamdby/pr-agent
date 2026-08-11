@@ -251,9 +251,9 @@ async function applyReviewMergeCancelIntake(
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   const attribution = { kind: "merged" as const };
   const cancelled = await cancelActiveReviews(client, resourceKey, attribution);
-  const cancelledIds = cancelled.map((row) => row.id);
+  const cancelledWorkItemIds = cancelled.map((row) => row.id);
   await releaseReviewQueueSlotInTx(boss, client, resourceKey, {
-    cancelWorkItemIds: cancelledIds,
+    cancelWorkItemIds: cancelledWorkItemIds,
   });
   const primary = cancelled[0];
   if (primary != null) {
@@ -267,6 +267,7 @@ async function applyReviewMergeCancelIntake(
       targets: [],
       cancelProgress: {
         workItemId: primary.id,
+        cancelledWorkItemIds,
         attribution,
       },
       ...correlation,
@@ -277,8 +278,8 @@ async function applyReviewMergeCancelIntake(
     name: REVIEW_CANCELLED_PR_MERGED,
     fields: {
       resourceKey,
-      cancelledCount: cancelledIds.length,
-      cancelledIds,
+      cancelledCount: cancelledWorkItemIds.length,
+      cancelledIds: cancelledWorkItemIds,
       ...jobCorrelation(event.id, headers),
     },
   });

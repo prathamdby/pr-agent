@@ -4,6 +4,8 @@ import { createFakePrSurface } from "../src/github/prSurface.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getReviewCheckRunGithubId: vi.fn(async () => null),
+  getSummaryCommentGithubId: vi.fn(async () => null),
+  getWorkItemCore: vi.fn(async () => null),
   recordReviewCheckRun: vi.fn(async () => undefined),
   releaseUnstartedReviewCheckRunReservation: vi.fn(async () => true),
   reserveReviewCheckRun: vi.fn(async () => true),
@@ -15,18 +17,24 @@ vi.mock("../src/evlog.js", () => ({
 
 import {
   getReviewCheckRunGithubId,
+  getSummaryCommentGithubId,
+  getWorkItemCore,
   recordReviewCheckRun,
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "../src/agentWork/repository.js";
 import { logWarn } from "../src/evlog.js";
 import {
+  REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
+  cancelReviewCheckRun,
+  cancelReviewCheckRunsForWorkItems,
   completeReviewCheckRun,
   ensureReviewCheckRunStarted,
   reviewCheckRunName,
   reviewCheckRunOutcome,
   waitForReviewCheckRunGithubId,
 } from "../src/agentWork/reviewCheckRun.js";
+import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
 
 const pool = {} as never;
 
@@ -356,5 +364,374 @@ describe("review check run lifecycle", () => {
     ).resolves.toBe(false);
 
     expect(logWarn).not.toHaveBeenCalled();
+  });
+
+  it("cancels a persisted check run", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
+    const prSurface = makePrSurface();
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkRunId: 123,
+        conclusion: "cancelled",
+        summary: REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
+      }),
+    );
+  });
+
+  it("silently handles missing Checks permission on cancel", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
+    const prSurface = makePrSurface({
+      finishReviewCheck: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+        ),
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+
+    expect(logWarn).not.toHaveBeenCalled();
+  });
+
+  it("returns false and logs when cancel finish fails generically", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
+    const prSurface = makePrSurface({
+      finishReviewCheck: vi.fn().mockRejectedValue(new Error("github unavailable")),
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_check_run_complete_failed",
+      expect.objectContaining({
+        checkRunId: 123,
+        conclusion: "cancelled",
+        message: "github unavailable",
+      }),
+    );
+  });
+
+  it("returns true and logs a DB record warning when cancel GitHub completion succeeds", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
+    vi.mocked(recordReviewCheckRun).mockRejectedValueOnce(new Error("db unavailable"));
+    const prSurface = makePrSurface();
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+
+    expect(prSurface.finishReviewCheck).toHaveBeenCalled();
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_check_run_complete_record_failed",
+      expect.objectContaining({
+        checkRunId: 123,
+        conclusion: "cancelled",
+        message: "db unavailable",
+      }),
+    );
+  });
+
+  it("recovers an in-progress check by head when the github id never persists", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [
+        {
+          id: 555,
+          name: "PR Agent Review",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+
+    expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkRunId: 555,
+        conclusion: "cancelled",
+      }),
+    );
+  });
+
+  it("does not wait for a late-persisted check id on cancel", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    const getCiStatus = vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [],
+      legacyStatuses: [],
+    });
+
+    const pending = cancelReviewCheckRun(pool, startParams(prSurface));
+    await expect(pending).resolves.toBe(false);
+
+    expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
+    expect(getCiStatus).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("is safe when cancel completes the same check twice", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(123);
+    const prSurface = makePrSurface();
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(2);
+    expect(prSurface.finishReviewCheck).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ checkRunId: 123, conclusion: "cancelled" }),
+    );
+    expect(prSurface.finishReviewCheck).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ checkRunId: 123, conclusion: "cancelled" }),
+    );
+  });
+
+  it("returns false when cancel fallback finds no open check", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
+
+    getCiStatus.mockRejectedValueOnce(new Error("status boom"));
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+
+    getCiStatus.mockResolvedValueOnce({ checkRuns: [], legacyStatuses: [] });
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+
+    getCiStatus.mockResolvedValueOnce({
+      checkRuns: [
+        {
+          id: 1,
+          name: "Other Check",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+
+    getCiStatus.mockResolvedValueOnce({
+      checkRuns: [
+        {
+          id: 2,
+          name: "PR Agent Review",
+          status: "completed",
+          conclusion: "success",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
+  it("does not look up open checks when headSha is undefined", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
+
+    await expect(
+      cancelReviewCheckRun(pool, {
+        ...startParams(prSurface),
+        headSha: undefined,
+      }),
+    ).resolves.toBe(false);
+
+    expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
+    expect(getCiStatus).not.toHaveBeenCalled();
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
+  it("does not look up open checks when headSha is the deferred sentinel", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
+
+    await expect(
+      cancelReviewCheckRun(pool, {
+        ...startParams(prSurface),
+        headSha: DEFERRED_HEAD_SHA,
+      }),
+    ).resolves.toBe(false);
+
+    expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
+    expect(getCiStatus).not.toHaveBeenCalled();
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
+  it("cancels check runs for every cancelled work item", async () => {
+    vi.mocked(getWorkItemCore)
+      .mockResolvedValueOnce({
+        id: "wi-a",
+        type: "review",
+        reviewLens: "review",
+        resourceKey: "o/r#1",
+        headSha: "sha-a",
+      } as never)
+      .mockResolvedValueOnce({
+        id: "wi-b",
+        type: "review",
+        reviewLens: "review",
+        resourceKey: "o/r#1",
+        headSha: "sha-b",
+      } as never);
+    vi.mocked(getSummaryCommentGithubId).mockResolvedValue(9);
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(11).mockResolvedValueOnce(22);
+    const prSurface = makePrSurface();
+
+    await cancelReviewCheckRunsForWorkItems(pool, {
+      prSurface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      workItemIds: ["wi-a", "wi-b"],
+    });
+
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(2);
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ checkRunId: 11, conclusion: "cancelled" }),
+    );
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ checkRunId: 22, conclusion: "cancelled" }),
+    );
+  });
+
+  it("skips non-review cores and continues after a per-item cancel failure", async () => {
+    vi.mocked(getWorkItemCore).mockImplementation(async (_pool, workItemId) => {
+      switch (workItemId) {
+        case "wi-ask":
+          return {
+            id: "wi-ask",
+            type: "ask",
+            reviewLens: null,
+            resourceKey: "o/r#1",
+            headSha: "sha-ask",
+          } as never;
+        case "wi-null-lens":
+          return {
+            id: "wi-null-lens",
+            type: "review",
+            reviewLens: null,
+            resourceKey: "o/r#1",
+            headSha: "sha-null",
+          } as never;
+        case "wi-a":
+          return {
+            id: "wi-a",
+            type: "review",
+            reviewLens: "review",
+            resourceKey: "o/r#1:a",
+            headSha: "sha-a",
+          } as never;
+        case "wi-b":
+          return {
+            id: "wi-b",
+            type: "review",
+            reviewLens: "review",
+            resourceKey: "o/r#1:b",
+            headSha: "sha-b",
+          } as never;
+        default:
+          return null;
+      }
+    });
+    vi.mocked(getSummaryCommentGithubId).mockImplementation(async (_pool, resourceKey) => {
+      if (resourceKey === "o/r#1:a") return null;
+      if (resourceKey === "o/r#1:b") return 9;
+      return null;
+    });
+    vi.mocked(getReviewCheckRunGithubId).mockImplementation(async (_pool, workItemId) => {
+      if (workItemId === "wi-a") return 11;
+      if (workItemId === "wi-b") return 22;
+      return null;
+    });
+    const prSurface = makePrSurface({
+      finishReviewCheck: vi.fn(async (args: { checkRunId: number }) => {
+        if (args.checkRunId === 11) throw new Error("first cancel boom");
+      }),
+    });
+
+    await cancelReviewCheckRunsForWorkItems(pool, {
+      prSurface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      workItemIds: ["wi-missing", "wi-ask", "wi-null-lens", "wi-a", "wi-b"],
+    });
+
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(2);
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkRunId: 11,
+        conclusion: "cancelled",
+        detailsUrl: undefined,
+      }),
+    );
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkRunId: 22,
+        conclusion: "cancelled",
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-9",
+      }),
+    );
+  });
+
+  it("continues cancelling later work items when getWorkItemCore throws", async () => {
+    vi.mocked(getWorkItemCore).mockImplementation(async (_pool, workItemId) => {
+      if (workItemId === "wi-a") throw new Error("db read boom");
+      if (workItemId === "wi-b") {
+        return {
+          id: "wi-b",
+          type: "review",
+          reviewLens: "review",
+          resourceKey: "o/r#1",
+          headSha: "sha-b",
+        } as never;
+      }
+      return null;
+    });
+    vi.mocked(getSummaryCommentGithubId).mockResolvedValue(9);
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(22);
+    const prSurface = makePrSurface();
+
+    await cancelReviewCheckRunsForWorkItems(pool, {
+      prSurface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      workItemIds: ["wi-a", "wi-b"],
+    });
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_check_run_cancel_item_failed",
+      expect.objectContaining({
+        workItemId: "wi-a",
+        message: "db read boom",
+      }),
+    );
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ checkRunId: 22, conclusion: "cancelled" }),
+    );
   });
 });

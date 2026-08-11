@@ -60,9 +60,11 @@ export type AckJobData = JobCorrelation & {
     readonly headSha: string;
     readonly source: WorkSource;
   };
-  /** Replace the review progress stub with a cancelled notice (`/cancel` or PR merge). */
+  /** Cancelled notice for the progress stub plus check-run completion for each cancelled review. */
   readonly cancelProgress?: {
     readonly workItemId: string;
+    /** Absent on stale pre-deploy ack jobs; reader falls back to workItemId. */
+    readonly cancelledWorkItemIds?: readonly string[];
     readonly attribution: ReviewCancelAttribution;
   };
   readonly reply?: {

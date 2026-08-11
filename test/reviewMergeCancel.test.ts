@@ -178,6 +178,7 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
           kind: "ack",
           cancelProgress: {
             workItemId: "wi-running",
+            cancelledWorkItemIds: ["wi-running", "wi-queued"],
             attribution: { kind: "merged" },
           },
         }),

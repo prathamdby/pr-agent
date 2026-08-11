@@ -172,7 +172,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ### Review output
 
-Review check runs are always on. The worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. Full-coverage runs complete with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes as `neutral`; the optional commit status reports `error`. Checks require GitHub App read/write permission and soft-fail when that permission is missing.
+Review check runs are always on. The acknowledgement worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. Full-coverage runs complete with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes as `neutral`; the optional commit status reports `error`. Slash `/cancel`, merge cancel, and worker-observed cancel complete the check as `cancelled` (idempotent if already finished). Checks require GitHub App read/write permission and soft-fail when that permission is missing.
 
 Operators using branch protection must replace required checks named `PR Agent Security Review`, `PR Agent Quality Review`, or `PR Agent Tests Review` with `PR Agent Review`. New runs no longer create the three old check names.
 

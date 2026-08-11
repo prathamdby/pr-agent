@@ -65,6 +65,7 @@ import {
 } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
+  cancelReviewCheckRun,
   completeReviewCheckRun,
   ensureReviewCheckRunStarted,
   reviewCheckDetailsUrl,
@@ -869,7 +870,7 @@ export async function executeReviewJob(
       if (!item.reviewLens) return;
       const reviewLens = item.reviewLens;
       const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-      await completeReviewCheckRun(pool, {
+      await cancelReviewCheckRun(pool, {
         prSurface,
         owner: item.owner,
         repo: item.repo,
@@ -877,8 +878,7 @@ export async function executeReviewJob(
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
-        conclusion: "cancelled",
-        summary: "Review was cancelled before completion.",
+        headSha: item.headSha,
         detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
       });
     },

@@ -644,6 +644,7 @@ describe("applySlashCommandIntake", () => {
     });
     expect(sentJobs[0]?.data.cancelProgress).toEqual({
       workItemId: "wi-review",
+      cancelledWorkItemIds: ["wi-review"],
       attribution: { kind: "user", login: "alice" },
     });
     expect(intakeLog.getContext().events).toContainEqual(
@@ -712,6 +713,7 @@ describe("applySlashCommandIntake", () => {
 
     expect(sentJobs[0]?.data.cancelProgress).toEqual({
       workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running", "wi-queued"],
       attribution: { kind: "user", login: "alice" },
     });
     const attributionPatch = JSON.stringify({
