@@ -75,10 +75,30 @@ function dispatchGithubEventEffect(
         yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data, intakeLog);
         return { kind: "ok" as const };
       case "workflow_run":
-        yield* handlers.workflowRun(cfg, headers, parsed.data, intakeLog);
+        yield* handlers.ciRefresh(
+          headers,
+          {
+            installationId: parsed.data.installation.id,
+            owner: parsed.data.repository.owner.login,
+            repo: parsed.data.repository.name,
+            headSha: parsed.data.workflow_run.head_sha,
+            pullRequests: parsed.data.workflow_run.pull_requests ?? [],
+          },
+          intakeLog,
+        );
         return { kind: "ok" as const };
       case "check_suite":
-        yield* handlers.checkSuite(cfg, headers, parsed.data, intakeLog);
+        yield* handlers.ciRefresh(
+          headers,
+          {
+            installationId: parsed.data.installation.id,
+            owner: parsed.data.repository.owner.login,
+            repo: parsed.data.repository.name,
+            headSha: parsed.data.check_suite.head_sha,
+            pullRequests: parsed.data.check_suite.pull_requests ?? [],
+          },
+          intakeLog,
+        );
         return { kind: "ok" as const };
       default:
         parsed satisfies never;

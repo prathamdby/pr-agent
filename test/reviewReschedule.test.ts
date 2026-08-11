@@ -325,7 +325,9 @@ describe("enqueueReviewReschedule", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0]).toBe(ACK_QUEUE);
     expect(cancel).not.toHaveBeenCalled();
-    expect(String(query.mock.calls[0]?.[0])).toContain("staleHeadReplacementEnqueued");
+    expect(
+      query.mock.calls.some((call) => String(call[0]).includes("staleHeadReplacementEnqueued")),
+    ).toBe(true);
   });
 
   it("accepts a deterministic review job id that is already terminal", async () => {

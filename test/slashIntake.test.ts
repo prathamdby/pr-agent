@@ -617,6 +617,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          return { rows: [{ id: "wi-review" }] };
+        }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;

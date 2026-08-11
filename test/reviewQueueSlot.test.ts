@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
-  reapOrphanReviewSingletonJobs,
-  releaseOrphanReviewSingletonJobs,
-} from "../src/agentWork/orphanReviewSingletonReaper.js";
+  reapReviewQueueOrphans,
+  releaseReviewQueueSlot,
+} from "../src/agentWork/reviewQueueSlot.js";
 import { initEvlog } from "../src/evlog.js";
 import { REVIEW_QUEUE, STRANDED_WORK_REAPER_GRACE_SECONDS } from "../src/settings/index.js";
 
@@ -29,7 +29,7 @@ vi.mock("../src/evlog.js", async () => {
   };
 });
 
-describe("releaseOrphanReviewSingletonJobs", () => {
+describe("releaseReviewQueueSlot", () => {
   beforeEach(() => {
     initEvlog("info", { silent: true, suppressDrainWarning: true });
     analyticsMocks.captureEvent.mockReset();
@@ -55,7 +55,7 @@ describe("releaseOrphanReviewSingletonJobs", () => {
       query: vi.fn(async () => ({ rows: [{ id: "wi-done" }, { id: "wi-fail" }] })),
     } as unknown as Pool;
 
-    await expect(releaseOrphanReviewSingletonJobs(boss, pool, "acme/app#7")).resolves.toEqual({
+    await expect(releaseReviewQueueSlot(boss, pool, "acme/app#7")).resolves.toEqual({
       released: 3,
     });
 
@@ -65,9 +65,30 @@ describe("releaseOrphanReviewSingletonJobs", () => {
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "missing-item", undefined);
     expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "live-created", undefined);
   });
+
+  it("also cancels explicit cancelWorkItemIds", async () => {
+    const findJobs = vi.fn(async () => [
+      { id: "live-slash", state: "created", data: { workItemId: "wi-slash" } },
+      { id: "other-live", state: "active", data: { workItemId: "wi-other" } },
+    ]);
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const deleteJob = vi.fn(async () => ({ rows: [] }));
+    const boss = { findJobs, cancel, deleteJob } as unknown as PgBoss;
+    const pool = {
+      query: vi.fn(async () => ({ rows: [] })),
+    } as unknown as Pool;
+
+    await releaseReviewQueueSlot(boss, pool, "acme/app#7", {
+      cancelWorkItemIds: ["wi-slash"],
+    });
+
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "live-slash", undefined);
+    expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "other-live", undefined);
+    expect(deleteJob).not.toHaveBeenCalled();
+  });
 });
 
-describe("reapOrphanReviewSingletonJobs", () => {
+describe("reapReviewQueueOrphans", () => {
   beforeEach(() => {
     initEvlog("info", { silent: true, suppressDrainWarning: true });
     analyticsMocks.captureEvent.mockReset();
@@ -118,7 +139,7 @@ describe("reapOrphanReviewSingletonJobs", () => {
       }),
     } as unknown as Pool;
 
-    await expect(reapOrphanReviewSingletonJobs(boss, pool)).resolves.toEqual({
+    await expect(reapReviewQueueOrphans(boss, pool)).resolves.toEqual({
       released: 2,
       staleQueuedLogged: 1,
     });

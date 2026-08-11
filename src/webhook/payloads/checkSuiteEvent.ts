@@ -1,10 +1,6 @@
 import * as v from "valibot";
 import { installationSchema, repositorySchema } from "./common.js";
-
-const checkSuitePullRequestSchema = v.object({
-  number: v.number(),
-  head: v.object({ sha: v.string() }),
-});
+import { ciRefreshPullRequestSchema } from "./ciRefreshHead.js";
 
 export const checkSuiteWebhookSchema = v.object({
   action: v.string(),
@@ -15,7 +11,7 @@ export const checkSuiteWebhookSchema = v.object({
     head_sha: v.string(),
     status: v.string(),
     conclusion: v.nullable(v.string()),
-    pull_requests: v.optional(v.array(checkSuitePullRequestSchema), []),
+    pull_requests: v.optional(v.array(ciRefreshPullRequestSchema), []),
   }),
 });
 

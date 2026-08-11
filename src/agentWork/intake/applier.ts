@@ -9,12 +9,8 @@ import {
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
-import { releaseOrphanReviewSingletonJobsInTx } from "../orphanReviewSingletonReaper.js";
-import {
-  releaseReviewSingletonSlot,
-  releaseSingletonSlot,
-  type SingletonSlotDb,
-} from "../singletonQueue.js";
+import { releaseReviewQueueSlotInTx } from "../reviewQueueSlot.js";
+import { releaseSingletonSlot, type SingletonSlotDb } from "../singletonQueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
@@ -74,17 +70,18 @@ async function dispatchAutomatedKind(
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
-  // Clear failed blockers; cancel only superseded auto work items on this key.
-  await releaseSingletonSlot(boss, {
-    queue: descriptor.queueName,
-    singletonKey: descriptor.singletonKey,
-    db: slotDb,
-    cancelNonTerminal: supersededIds.length > 0,
-    cancelWorkItemIds: supersededIds,
-  });
   if (descriptor.eventType === "review") {
-    // Also drop orphan holders for terminal/missing work items so the new job can activate.
-    await releaseOrphanReviewSingletonJobsInTx(boss, client, resourceKey);
+    await releaseReviewQueueSlotInTx(boss, client, resourceKey, {
+      cancelWorkItemIds: supersededIds,
+    });
+  } else {
+    await releaseSingletonSlot(boss, {
+      queue: descriptor.queueName,
+      singletonKey: descriptor.singletonKey,
+      db: slotDb,
+      cancelNonTerminal: supersededIds.length > 0,
+      cancelWorkItemIds: supersededIds,
+    });
   }
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);
@@ -255,9 +252,7 @@ async function applyReviewMergeCancelIntake(
   const attribution = { kind: "merged" as const };
   const cancelled = await cancelActiveReviews(client, resourceKey, attribution);
   const cancelledIds = cancelled.map((row) => row.id);
-  await releaseReviewSingletonSlot(boss, resourceKey, {
-    db: pgBossDb(client),
-    cancelNonTerminal: cancelledIds.length > 0,
+  await releaseReviewQueueSlotInTx(boss, client, resourceKey, {
     cancelWorkItemIds: cancelledIds,
   });
   const primary = cancelled[0];

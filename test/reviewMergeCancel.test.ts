@@ -103,6 +103,9 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-merged" }] };
       }
+      if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+        return { rows: [{ id: "wi-queued" }, { id: "wi-running" }] };
+      }
       if (sql.includes("status = 'queued'")) {
         return {
           rows: [
@@ -281,6 +284,9 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
     const clientQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-zero" }] };
+      }
+      if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+        return { rows: [{ id: "wi-old" }] };
       }
       if (sql.includes("status = 'queued'") || sql.includes("status = 'running'")) {
         return { rows: [] };

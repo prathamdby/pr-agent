@@ -3,16 +3,13 @@ import { Effect, Exit, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { createOperationLogger } from "../src/evlog.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
-import type { WorkflowRunWebhookPayload } from "../src/webhook/payloads/workflowRunEvent.js";
-import { makeTestConfig } from "./helpers/config.js";
-
-const cfg = makeTestConfig();
+import type { CiRefreshHeadSource } from "../src/webhook/payloads/ciRefreshHead.js";
 
 function handlerLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
   return WebhookHandlersCore.pipe(Layer.provide(scheduler));
 }
 
-describe("WebhookHandlers.workflowRun PR filtering", () => {
+describe("WebhookHandlers.ciRefresh", () => {
   it("passes only matching, deduped PR numbers to submitCiRefresh", async () => {
     const captured: Array<{
       readonly headSha: string;
@@ -42,21 +39,16 @@ describe("WebhookHandlers.workflowRun PR filtering", () => {
       }),
     );
 
-    const data: WorkflowRunWebhookPayload = {
-      action: "completed",
-      installation: { id: 9 },
-      repository: { owner: { login: "acme" }, name: "pr-agent" },
-      workflow_run: {
-        id: 55,
-        head_sha: "sha-a",
-        status: "completed",
-        conclusion: "success",
-        pull_requests: [
-          { number: 11, head: { sha: "sha-a" } },
-          { number: 12, head: { sha: "sha-b" } },
-          { number: 11, head: { sha: "sha-a" } },
-        ],
-      },
+    const data: CiRefreshHeadSource = {
+      installationId: 9,
+      owner: "acme",
+      repo: "pr-agent",
+      headSha: "sha-a",
+      pullRequests: [
+        { number: 11, head: { sha: "sha-a" } },
+        { number: 12, head: { sha: "sha-b" } },
+        { number: 11, head: { sha: "sha-a" } },
+      ],
     };
 
     const intakeLog = createOperationLogger({
@@ -67,11 +59,10 @@ describe("WebhookHandlers.workflowRun PR filtering", () => {
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
-        yield* handlers.workflowRun(
-          cfg,
+        yield* handlers.ciRefresh(
           {
-            event: "workflow_run",
-            delivery: "d-wr-1",
+            event: "check_suite",
+            delivery: "d-ci-1",
             rawBody: Buffer.from("{}"),
           },
           data,
@@ -108,19 +99,6 @@ describe("WebhookHandlers.workflowRun PR filtering", () => {
       }),
     );
 
-    const data: WorkflowRunWebhookPayload = {
-      action: "completed",
-      installation: { id: 1 },
-      repository: { owner: { login: "o" }, name: "r" },
-      workflow_run: {
-        id: 1,
-        head_sha: "sha-a",
-        status: "completed",
-        conclusion: "failure",
-        pull_requests: [{ number: 3, head: { sha: "other" } }],
-      },
-    };
-
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -129,14 +107,19 @@ describe("WebhookHandlers.workflowRun PR filtering", () => {
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
-        yield* handlers.workflowRun(
-          cfg,
+        yield* handlers.ciRefresh(
           {
             event: "workflow_run",
-            delivery: "d-wr-2",
+            delivery: "d-ci-2",
             rawBody: Buffer.from("{}"),
           },
-          data,
+          {
+            installationId: 1,
+            owner: "o",
+            repo: "r",
+            headSha: "sha-a",
+            pullRequests: [{ number: 3, head: { sha: "other" } }],
+          },
           intakeLog,
         );
       }).pipe(Effect.provide(handlerLayers(scheduler))),

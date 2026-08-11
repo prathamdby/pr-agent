@@ -36,9 +36,7 @@ import {
   jobCorrelation,
 } from "./queueing.js";
 import { promoteAskFromWebhookEvent } from "./askIntake.js";
-import { releaseOrphanReviewSingletonJobsInTx } from "../orphanReviewSingletonReaper.js";
-import { releaseReviewSingletonSlot } from "../singletonQueue.js";
-import { pgBossDb } from "../../db/postgres.js";
+import { releaseReviewQueueSlotInTx } from "../reviewQueueSlot.js";
 import {
   cancelActiveReviews,
   createDescriptionWorkItem,
@@ -305,8 +303,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
-    // Clear failed/orphan singleton holders so the live queued review can activate.
-    await releaseOrphanReviewSingletonJobsInTx(ctx.boss, ctx.client, resourceKey);
+    await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey);
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
@@ -316,8 +313,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const workItemId = insert.id;
-  // Clear failed blockers and orphan holders; leave live jobs for non-terminal work alone.
-  await releaseOrphanReviewSingletonJobsInTx(ctx.boss, ctx.client, resourceKey);
+  await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey);
   await enqueueSlashAck(ctx, {
     workItemId,
     progress: { lens: "review", headSha: ctx.ref.headSha, source: "slash" },
@@ -354,9 +350,7 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const primary = cancelled[0]!;
-  await releaseReviewSingletonSlot(ctx.boss, resourceKey, {
-    db: pgBossDb(ctx.client),
-    cancelNonTerminal: true,
+  await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey, {
     cancelWorkItemIds: cancelled.map((row) => row.id),
   });
   await enqueueSlashAck(ctx, {

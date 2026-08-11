@@ -28,8 +28,7 @@ const webhookLayer = Layer.mergeAll(
       pullRequest: () => Effect.void,
       issueComment: () => Effect.void,
       pullRequestReviewComment: () => Effect.void,
-      workflowRun: () => Effect.void,
-      checkSuite: () => Effect.void,
+      ciRefresh: () => Effect.void,
     }),
   ),
 );

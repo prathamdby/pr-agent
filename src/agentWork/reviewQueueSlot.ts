@@ -1,23 +1,24 @@
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { logWarn } from "../evlog.js";
 import { captureEvent } from "../analytics/index.js";
+import { pgBossDb } from "../db/postgres.js";
+import { logWarn } from "../evlog.js";
 import {
   REVIEW_QUEUE,
   STRANDED_WORK_REAPER_BATCH_SIZE,
   STRANDED_WORK_REAPER_GRACE_SECONDS,
 } from "../settings/index.js";
-import { pgBossDb } from "../db/postgres.js";
-import { reviewSingletonKey } from "./types.js";
 import type { SingletonSlotDb } from "./singletonQueue.js";
+import { ACTIVE_WORK_STATUSES, TERMINAL_WORK_STATUSES, reviewSingletonKey } from "./types.js";
 
-const TERMINAL_WORK_STATUSES = new Set(["cancelled", "completed", "failed", "superseded"]);
+export type ReviewQueueSlotReleaseResult = {
+  readonly released: number;
+};
 
-type LiveJobState = "created" | "active" | "retry" | "failed";
-
-function isLiveJobState(state: string): state is LiveJobState {
-  return state === "created" || state === "active" || state === "retry" || state === "failed";
-}
+export type ReviewQueueOrphanReapResult = {
+  readonly released: number;
+  readonly staleQueuedLogged: number;
+};
 
 async function loadTerminalWorkItemIds(
   db: Pick<Pool, "query"> | PoolClient,
@@ -34,28 +35,39 @@ async function loadTerminalWorkItemIds(
   return new Set(result.rows.map((row) => row.id));
 }
 
+function isHoldingState(state: string): boolean {
+  return state === "created" || state === "active" || state === "retry" || state === "failed";
+}
+
 /**
- * Clears review singleton jobs that can never run again: failed rows and
- * created/active/retry jobs whose work item is missing or already terminal.
- * Successors waiting in `created` behind those holders can then activate.
+ * Frees the per-PR review queue slot of holders that can never run:
+ * failed key_strict_fifo blockers, and created/active/retry jobs whose work
+ * item is missing or already terminal. Optionally also cancels jobs for
+ * explicit work item ids (slash/merge cancel after those rows are terminalised).
  */
-export async function releaseOrphanReviewSingletonJobs(
+export async function releaseReviewQueueSlot(
   boss: PgBoss,
   db: Pick<Pool, "query"> | PoolClient,
   resourceKey: string,
-  opts?: { readonly connection?: SingletonSlotDb },
-): Promise<{ readonly released: number }> {
+  opts?: {
+    readonly connection?: SingletonSlotDb;
+    readonly skipJobId?: string;
+    readonly skipWorkItemId?: string;
+    readonly cancelWorkItemIds?: readonly string[];
+  },
+): Promise<ReviewQueueSlotReleaseResult> {
   const connection = opts?.connection ? { db: opts.connection } : undefined;
-  const singletonKey = reviewSingletonKey(resourceKey);
+  const cancelWorkItemIds =
+    opts?.cancelWorkItemIds != null ? new Set(opts.cancelWorkItemIds) : null;
   const jobs = await boss.findJobs<{ workItemId?: string }>(REVIEW_QUEUE, {
-    key: singletonKey,
+    key: reviewSingletonKey(resourceKey),
     ...connection,
   });
 
   const candidateIds = [
     ...new Set(
       jobs
-        .filter((job) => isLiveJobState(job.state as string))
+        .filter((job) => isHoldingState(job.state as string))
         .map((job) => job.data.workItemId)
         .filter((id): id is string => typeof id === "string" && id.length > 0),
     ),
@@ -64,12 +76,15 @@ export async function releaseOrphanReviewSingletonJobs(
 
   let released = 0;
   for (const job of jobs) {
+    if (opts?.skipJobId && job.id === opts.skipJobId) continue;
+    if (opts?.skipWorkItemId && job.data.workItemId === opts.skipWorkItemId) continue;
     const state = job.state as string;
     if (state === "cancelled" || state === "completed") continue;
+
     if (state === "failed") {
       await boss.deleteJob(REVIEW_QUEUE, job.id, connection);
       released += 1;
-      logWarn("orphan_review_singleton_job_released", {
+      logWarn("review_queue_slot_released", {
         resourceKey,
         jobId: job.id,
         state,
@@ -78,37 +93,58 @@ export async function releaseOrphanReviewSingletonJobs(
       });
       continue;
     }
+
     if (state !== "created" && state !== "active" && state !== "retry") continue;
     const workItemId = job.data.workItemId;
+    const explicitCancel =
+      workItemId != null && cancelWorkItemIds != null && cancelWorkItemIds.has(workItemId);
     const orphan = workItemId == null || workItemId.length === 0 || terminalIds.has(workItemId);
-    if (!orphan) continue;
+    if (!explicitCancel && !orphan) continue;
+
     await boss.cancel(REVIEW_QUEUE, job.id, connection);
     released += 1;
-    logWarn("orphan_review_singleton_job_released", {
+    logWarn("review_queue_slot_released", {
       resourceKey,
       jobId: job.id,
       state,
       workItemId: workItemId ?? null,
-      reason:
-        workItemId == null || workItemId.length === 0 ? "missing_work_item" : "terminal_work_item",
+      reason: explicitCancel
+        ? "cancel_requested"
+        : workItemId == null || workItemId.length === 0
+          ? "missing_work_item"
+          : "terminal_work_item",
     });
   }
   return { released };
 }
 
-export type OrphanReviewSingletonReaperResult = {
-  readonly released: number;
-  readonly staleQueuedLogged: number;
-};
+/** Intake helper using the ambient transaction connection for pg-boss lookups. */
+export async function releaseReviewQueueSlotInTx(
+  boss: PgBoss,
+  client: PoolClient,
+  resourceKey: string,
+  opts?: {
+    readonly skipJobId?: string;
+    readonly skipWorkItemId?: string;
+    readonly cancelWorkItemIds?: readonly string[];
+  },
+): Promise<ReviewQueueSlotReleaseResult> {
+  return releaseReviewQueueSlot(boss, client, resourceKey, {
+    connection: pgBossDb(client),
+    skipJobId: opts?.skipJobId,
+    skipWorkItemId: opts?.skipWorkItemId,
+    cancelWorkItemIds: opts?.cancelWorkItemIds,
+  });
+}
 
 /**
- * Diagnostics tick: release orphan review singleton holders, then emit a clear
- * signal for review work items that remain queued past the stranded grace window.
+ * Diagnostics tick: release orphan review queue holders across keys, then signal
+ * reviews that remain queued past the stranded grace window.
  */
-export async function reapOrphanReviewSingletonJobs(
+export async function reapReviewQueueOrphans(
   boss: PgBoss,
   pool: Pool,
-): Promise<OrphanReviewSingletonReaperResult> {
+): Promise<ReviewQueueOrphanReapResult> {
   const holders = await pool.query<{
     job_id: string;
     singleton_key: string;
@@ -129,12 +165,12 @@ export async function reapOrphanReviewSingletonJobs(
             SELECT 1
               FROM agent_work_items wi
              WHERE wi.id::text = j.data->>'workItemId'
-               AND wi.status IN ('queued', 'running')
+               AND wi.status = ANY($2::text[])
           )
         )
       ORDER BY j.created_on ASC
-      LIMIT $2::int`,
-    [REVIEW_QUEUE, STRANDED_WORK_REAPER_BATCH_SIZE],
+      LIMIT $3::int`,
+    [REVIEW_QUEUE, [...ACTIVE_WORK_STATUSES], STRANDED_WORK_REAPER_BATCH_SIZE],
   );
 
   let released = 0;
@@ -145,7 +181,7 @@ export async function reapOrphanReviewSingletonJobs(
       await boss.cancel(REVIEW_QUEUE, row.job_id);
     }
     released += 1;
-    logWarn("orphan_review_singleton_job_released", {
+    logWarn("review_queue_slot_released", {
       singletonKey: row.singleton_key,
       jobId: row.job_id,
       state: row.state,
@@ -193,15 +229,4 @@ export async function reapOrphanReviewSingletonJobs(
   }
 
   return { released, staleQueuedLogged: staleQueued.rows.length };
-}
-
-/** Intake helper that uses the ambient transaction connection for pg-boss lookups. */
-export async function releaseOrphanReviewSingletonJobsInTx(
-  boss: PgBoss,
-  client: PoolClient,
-  resourceKey: string,
-): Promise<{ readonly released: number }> {
-  return releaseOrphanReviewSingletonJobs(boss, client, resourceKey, {
-    connection: pgBossDb(client),
-  });
 }

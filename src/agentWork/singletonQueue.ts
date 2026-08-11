@@ -1,10 +1,13 @@
 import type { PgBoss } from "pg-boss";
 import { pgBossDb } from "../db/postgres.js";
-import { REVIEW_QUEUE } from "../settings/index.js";
-import { reviewSingletonKey } from "./types.js";
 
 export type SingletonSlotDb = ReturnType<typeof pgBossDb>;
 
+/**
+ * Clears failed key_strict_fifo blockers on any durable queue key, and optionally
+ * cancels non-terminal jobs (optionally filtered by work item id).
+ * Review slots use {@link releaseReviewQueueSlot} instead (also drops orphans).
+ */
 export async function releaseSingletonSlot(
   boss: PgBoss,
   params: {
@@ -33,7 +36,6 @@ export async function releaseSingletonSlot(
     const state = job.state as string;
     if (state === "cancelled" || state === "completed") continue;
     if (state === "failed") {
-      // key_strict_fifo blocks while failed; delete clears the slot.
       await boss.deleteJob(params.queue, job.id, connection);
       continue;
     }
@@ -45,27 +47,4 @@ export async function releaseSingletonSlot(
       await boss.cancel(params.queue, job.id, connection);
     }
   }
-}
-
-/** Cancel in-flight review singleton jobs and clear failed blockers. */
-export async function releaseReviewSingletonSlot(
-  boss: PgBoss,
-  resourceKey: string,
-  opts?: {
-    readonly db?: SingletonSlotDb;
-    readonly skipJobId?: string;
-    readonly skipWorkItemId?: string;
-    readonly cancelNonTerminal?: boolean;
-    readonly cancelWorkItemIds?: readonly string[];
-  },
-): Promise<void> {
-  await releaseSingletonSlot(boss, {
-    queue: REVIEW_QUEUE,
-    singletonKey: reviewSingletonKey(resourceKey),
-    db: opts?.db,
-    skipJobId: opts?.skipJobId,
-    skipWorkItemId: opts?.skipWorkItemId,
-    cancelNonTerminal: opts?.cancelNonTerminal,
-    cancelWorkItemIds: opts?.cancelWorkItemIds,
-  });
 }

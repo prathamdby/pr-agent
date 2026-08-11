@@ -107,8 +107,7 @@ Production credential hardening and extra deploy notes: [docs/operations.md](doc
    - `pull_request`
    - `issue_comment`
    - `pull_request_review_comment`
-   - `workflow_run` (refreshes the CI row on an existing review summary when Actions finish later)
-   - `check_suite` (same CI-cell refresh when the install delivers suite completions instead of `workflow_run`)
+   - `workflow_run` and `check_suite` (either completed event refreshes the CI row on an existing review summary when Actions finish later)
 5. Do **not** require `pull_request_review` unless you have a reason. The bot does not need it for normal intake.
 6. Repository permissions:
 
