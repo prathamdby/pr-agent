@@ -38,6 +38,10 @@ export function isStaleHeadParentNotReschedulable(error: unknown): boolean {
   return isAppError(error) && error.code === STALE_HEAD_PARENT_NOT_RESCHEDULABLE;
 }
 
+export function isStaleHeadReplacementExhausted(error: unknown): boolean {
+  return isAppError(error) && error.code === STALE_HEAD_REPLACEMENT_EXHAUSTED;
+}
+
 /** One-shot replacement already consumed; caller should fail with `/review` retry guidance. */
 export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppError {
   return new AppError({

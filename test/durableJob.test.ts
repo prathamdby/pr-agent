@@ -30,9 +30,13 @@ vi.mock("../src/agentWork/repository.js", () => ({
   updateRunningWorkHeadSha: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/reviewReschedule.js", () => ({
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
-}));
+vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/reviewReschedule.js")>();
+  return {
+    ...actual,
+    cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
+  };
+});
 
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
@@ -535,6 +539,28 @@ describe("runDurableWorkItem", () => {
 
     expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("terminal-fails stale-head replacement exhaustion without durable retry", async () => {
+    mockFetchedItem(makeItem());
+    const { AppError } = await import("../src/errors/appError.js");
+    const boom = new AppError({
+      code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
+      message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
+    });
+    const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(0, 3), execute, onTerminalFailure });
+
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
+    expect(onTerminalFailure).toHaveBeenCalledTimes(1);
+    expect(onTerminalFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wi-1" }),
+      expect.anything(),
+      boom,
+    );
   });
 
   it("on terminal pg-boss attempt: marks failed and invokes onTerminalFailure", async () => {

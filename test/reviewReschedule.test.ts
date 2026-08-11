@@ -10,6 +10,7 @@ import {
   enqueueReviewReschedule,
   STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
   STALE_HEAD_REPLACEMENT_EXHAUSTED,
+  isStaleHeadReplacementExhausted,
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
 } from "../src/agentWork/reviewReschedule.js";
@@ -263,6 +264,8 @@ describe("stale-head shared helpers", () => {
     const error = staleHeadReplacementExhaustedError(makeItem());
     expect(error.code).toBe(STALE_HEAD_REPLACEMENT_EXHAUSTED);
     expect(error.message).toMatch(/\/review/);
+    expect(isStaleHeadReplacementExhausted(error)).toBe(true);
+    expect(isStaleHeadReplacementExhausted(new Error("other"))).toBe(false);
   });
 });
 
