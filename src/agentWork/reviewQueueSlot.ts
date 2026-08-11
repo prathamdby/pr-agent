@@ -9,7 +9,7 @@ import {
   STRANDED_WORK_REAPER_GRACE_SECONDS,
 } from "../settings/index.js";
 import type { SingletonSlotDb } from "./singletonQueue.js";
-import { ACTIVE_WORK_STATUSES, TERMINAL_WORK_STATUSES, reviewSingletonKey } from "./types.js";
+import { ACTIVE_WORK_STATUSES, reviewSingletonKey } from "./types.js";
 
 export type ReviewQueueSlotReleaseResult = {
   readonly released: number;
@@ -20,7 +20,25 @@ export type ReviewQueueOrphanReapResult = {
   readonly staleQueuedLogged: number;
 };
 
-async function loadTerminalWorkItemIds(
+/** Non-empty string work item ids from holding jobs (candidates for an active-row lookup). */
+function holdingWorkItemIdCandidates(
+  jobs: readonly { readonly state: unknown; readonly data: { readonly workItemId?: unknown } }[],
+): string[] {
+  return [
+    ...new Set(
+      jobs
+        .filter((job) => isHoldingState(job.state as string))
+        .map((job) => job.data.workItemId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+}
+
+/**
+ * Active work-item ids among candidates. Compared as text so non-UUID job data
+ * cannot abort an intake transaction.
+ */
+async function loadActiveWorkItemIds(
   db: Pick<Pool, "query"> | PoolClient,
   workItemIds: readonly string[],
 ): Promise<Set<string>> {
@@ -28,9 +46,9 @@ async function loadTerminalWorkItemIds(
   const result = await db.query<{ id: string }>(
     `SELECT id::text AS id
        FROM agent_work_items
-      WHERE id = ANY($1::uuid[])
+      WHERE id::text = ANY($1::text[])
         AND status = ANY($2::text[])`,
-    [workItemIds, [...TERMINAL_WORK_STATUSES]],
+    [workItemIds, [...ACTIVE_WORK_STATUSES]],
   );
   return new Set(result.rows.map((row) => row.id));
 }
@@ -39,11 +57,16 @@ function isHoldingState(state: string): boolean {
   return state === "created" || state === "active" || state === "retry" || state === "failed";
 }
 
+function isOrphanWorkItemId(workItemId: unknown, activeIds: ReadonlySet<string>): boolean {
+  return typeof workItemId !== "string" || workItemId.length === 0 || !activeIds.has(workItemId);
+}
+
 /**
  * Frees the per-PR review queue slot of holders that can never run:
  * failed key_strict_fifo blockers, and created/active/retry jobs whose work
- * item is missing or already terminal. Optionally also cancels jobs for
- * explicit work item ids (slash/merge cancel after those rows are terminalised).
+ * item id is missing/empty/non-string or not in an active status
+ * (`queued`/`running`). Optionally also cancels jobs for explicit work item
+ * ids (slash/merge cancel after those rows are terminalised).
  */
 export async function releaseReviewQueueSlot(
   boss: PgBoss,
@@ -59,25 +82,23 @@ export async function releaseReviewQueueSlot(
   const connection = opts?.connection ? { db: opts.connection } : undefined;
   const cancelWorkItemIds =
     opts?.cancelWorkItemIds != null ? new Set(opts.cancelWorkItemIds) : null;
-  const jobs = await boss.findJobs<{ workItemId?: string }>(REVIEW_QUEUE, {
+  const jobs = await boss.findJobs<{ workItemId?: unknown }>(REVIEW_QUEUE, {
     key: reviewSingletonKey(resourceKey),
     ...connection,
   });
 
-  const candidateIds = [
-    ...new Set(
-      jobs
-        .filter((job) => isHoldingState(job.state as string))
-        .map((job) => job.data.workItemId)
-        .filter((id): id is string => typeof id === "string" && id.length > 0),
-    ),
-  ];
-  const terminalIds = await loadTerminalWorkItemIds(db, candidateIds);
+  const activeIds = await loadActiveWorkItemIds(db, holdingWorkItemIdCandidates(jobs));
 
   let released = 0;
   for (const job of jobs) {
     if (opts?.skipJobId && job.id === opts.skipJobId) continue;
-    if (opts?.skipWorkItemId && job.data.workItemId === opts.skipWorkItemId) continue;
+    if (
+      opts?.skipWorkItemId &&
+      typeof job.data.workItemId === "string" &&
+      job.data.workItemId === opts.skipWorkItemId
+    ) {
+      continue;
+    }
     const state = job.state as string;
     if (state === "cancelled" || state === "completed") continue;
 
@@ -88,7 +109,7 @@ export async function releaseReviewQueueSlot(
         resourceKey,
         jobId: job.id,
         state,
-        workItemId: job.data.workItemId ?? null,
+        workItemId: typeof job.data.workItemId === "string" ? job.data.workItemId : null,
         reason: "failed_blocker",
       });
       continue;
@@ -97,8 +118,10 @@ export async function releaseReviewQueueSlot(
     if (state !== "created" && state !== "active" && state !== "retry") continue;
     const workItemId = job.data.workItemId;
     const explicitCancel =
-      workItemId != null && cancelWorkItemIds != null && cancelWorkItemIds.has(workItemId);
-    const orphan = workItemId == null || workItemId.length === 0 || terminalIds.has(workItemId);
+      typeof workItemId === "string" &&
+      cancelWorkItemIds != null &&
+      cancelWorkItemIds.has(workItemId);
+    const orphan = isOrphanWorkItemId(workItemId, activeIds);
     if (!explicitCancel && !orphan) continue;
 
     await boss.cancel(REVIEW_QUEUE, job.id, connection);
@@ -107,12 +130,12 @@ export async function releaseReviewQueueSlot(
       resourceKey,
       jobId: job.id,
       state,
-      workItemId: workItemId ?? null,
+      workItemId: typeof workItemId === "string" ? workItemId : null,
       reason: explicitCancel
         ? "cancel_requested"
-        : workItemId == null || workItemId.length === 0
+        : typeof workItemId !== "string" || workItemId.length === 0
           ? "missing_work_item"
-          : "terminal_work_item",
+          : "inactive_work_item",
     });
   }
   return { released };
@@ -140,6 +163,9 @@ export async function releaseReviewQueueSlotInTx(
 /**
  * Diagnostics tick: release orphan review queue holders across keys, then signal
  * reviews that remain queued past the stranded grace window.
+ *
+ * Orphan rule matches {@link releaseReviewQueueSlot}: failed blockers, or holding
+ * jobs whose work item id is missing/empty or not in an active status.
  */
 export async function reapReviewQueueOrphans(
   boss: PgBoss,

@@ -104,7 +104,8 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
         return { rows: [{ id: "event-merged" }] };
       }
       if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
-        return { rows: [{ id: "wi-queued" }, { id: "wi-running" }] };
+        // Merge cancel terminalises queued/running; only the foreign holder stays active.
+        return { rows: [{ id: "wi-other" }] };
       }
       if (sql.includes("status = 'queued'")) {
         return {
@@ -286,7 +287,8 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
         return { rows: [{ id: "event-zero" }] };
       }
       if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
-        return { rows: [{ id: "wi-old" }] };
+        // Failed blocker is not active; keep the unrelated live holder.
+        return { rows: [{ id: "wi-live" }] };
       }
       if (sql.includes("status = 'queued'") || sql.includes("status = 'running'")) {
         return { rows: [] };

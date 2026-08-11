@@ -32,7 +32,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 - GitHub may redeliver if Postgres is unavailable during intake because the app returns `503` instead of acknowledging unpersisted work.
 - Acknowledgement reactions and progress comments are fast but asynchronous; they may appear shortly after the webhook response.
-- `key_strict_fifo` blocks a pull request while a pg-boss review job is failed or an orphan holder remains. `releaseReviewQueueSlot` clears failed blockers and jobs for missing/terminal work items on intake, cancel, and the diagnostics tick; worker logs still expose blocked keys and `docs/agent-work-ops.md` documents manual recovery.
+- `key_strict_fifo` blocks a pull request while a pg-boss review job is failed or an orphan holder remains. `releaseReviewQueueSlot` clears failed blockers and jobs whose work item is missing or not active (`queued`/`running`) on intake, cancel, and the diagnostics tick; worker logs still expose blocked keys and `docs/agent-work-ops.md` documents manual recovery.
 - ADR 0002's in-memory queue decision and ADR 0007's "synchronous webhook contract unchanged" consequence are superseded for agent work.
 
 ## Reversal

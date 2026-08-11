@@ -394,7 +394,8 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "work-review" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
-          return { rows: [{ id: "wi-done" }, { id: "wi-old" }] };
+          // Orphans: neither holder is queued/running.
+          return { rows: [] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -459,7 +460,8 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
           const ids = params?.[0] as string[];
           expect(ids).toEqual(expect.arrayContaining(["wi-terminal", "winner-review", "wi-fail"]));
-          return { rows: [{ id: "wi-terminal" }, { id: "wi-fail" }] };
+          // Only the race winner remains active; terminal/failed ids are orphans.
+          return { rows: [{ id: "winner-review" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),

@@ -16,6 +16,22 @@ export type CiRefreshHeadSource = {
   readonly pullRequests: readonly CiRefreshPullRequest[];
 };
 
+/** Normalize workflow_run / check_suite completed payloads into a CI refresh head. */
+export function toCiRefreshHeadSource(input: {
+  readonly installation: { readonly id: number };
+  readonly repository: { readonly owner: { readonly login: string }; readonly name: string };
+  readonly headSha: string;
+  readonly pullRequests?: readonly CiRefreshPullRequest[] | null;
+}): CiRefreshHeadSource {
+  return {
+    installationId: input.installation.id,
+    owner: input.repository.owner.login,
+    repo: input.repository.name,
+    headSha: input.headSha,
+    pullRequests: input.pullRequests ?? [],
+  };
+}
+
 /** PR numbers whose head SHA matches the completed CI head (deduped). */
 export function prNumbersForCiHead(
   headSha: string,

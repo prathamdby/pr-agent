@@ -218,7 +218,15 @@ describe("createReviewRescheduleWorkItem", () => {
 
 describe("enqueueReviewReschedule", () => {
   it("does not cancel a co-queued foreign work item on the singleton", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+        return {
+          rowCount: 2,
+          rows: [{ id: "slash-waiting" }, { id: "replacement-wi" }],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
     const pool = { query } as unknown as Pool;
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([

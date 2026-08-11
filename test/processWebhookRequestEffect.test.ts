@@ -487,6 +487,149 @@ describe("processWebhookPostRequestEffect", () => {
     expect(slashCalls).toEqual([]);
   });
 
+  function ciRefreshCaptureLayer(
+    captured: Array<{
+      readonly headSha: string;
+      readonly prNumbers: readonly number[];
+      readonly owner: string;
+      readonly repo: string;
+      readonly installationId: number;
+    }>,
+  ) {
+    const scheduler = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: () => Effect.void,
+        submitAutomatedReview: () => Effect.void,
+        submitSlashCommand: () => Effect.void,
+        submitCiRefresh: (_headers, data) =>
+          Effect.sync(() => {
+            captured.push({
+              headSha: data.headSha,
+              prNumbers: data.prNumbers,
+              owner: data.owner,
+              repo: data.repo,
+              installationId: data.installationId,
+            });
+          }),
+        ping: () => Effect.succeed(true),
+      }),
+    );
+    return Layer.mergeAll(scheduler, WebhookHandlersCore.pipe(Layer.provide(scheduler)));
+  }
+
+  it("dispatches ciRefresh for completed check_suite with normalized head source", async () => {
+    const captured: Array<{
+      readonly headSha: string;
+      readonly prNumbers: readonly number[];
+      readonly owner: string;
+      readonly repo: string;
+      readonly installationId: number;
+    }> = [];
+    const payload = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: {
+        name: "pr-agent",
+        owner: { login: "acme" },
+        size: 10,
+      },
+      check_suite: {
+        id: 55,
+        head_sha: "sha-a",
+        status: "completed",
+        conclusion: "success",
+        pull_requests: [
+          { number: 11, head: { sha: "sha-a" } },
+          { number: 12, head: { sha: "sha-b" } },
+          { number: 11, head: { sha: "sha-a" } },
+        ],
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "check_suite",
+            "x-github-delivery": "d-check-suite-ci",
+          },
+          rawBody: body,
+        },
+        ciRefreshCaptureLayer(captured),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(captured).toEqual([
+      {
+        headSha: "sha-a",
+        prNumbers: [11],
+        owner: "acme",
+        repo: "pr-agent",
+        installationId: 9,
+      },
+    ]);
+  });
+
+  it("dispatches ciRefresh for completed workflow_run with normalized head source", async () => {
+    const captured: Array<{
+      readonly headSha: string;
+      readonly prNumbers: readonly number[];
+      readonly owner: string;
+      readonly repo: string;
+      readonly installationId: number;
+    }> = [];
+    const payload = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: {
+        name: "pr-agent",
+        owner: { login: "acme" },
+        size: 10,
+      },
+      workflow_run: {
+        id: 55,
+        head_sha: "sha-a",
+        status: "completed",
+        conclusion: "failure",
+        pull_requests: [
+          { number: 11, head: { sha: "sha-a" } },
+          { number: 12, head: { sha: "sha-b" } },
+          { number: 11, head: { sha: "sha-a" } },
+        ],
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "workflow_run",
+            "x-github-delivery": "d-workflow-run-ci",
+          },
+          rawBody: body,
+        },
+        ciRefreshCaptureLayer(captured),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(captured).toEqual([
+      {
+        headSha: "sha-a",
+        prNumbers: [11],
+        owner: "acme",
+        repo: "pr-agent",
+        installationId: 9,
+      },
+    ]);
+  });
+
   it("returns 503 when handling exceeds the timeout budget", async () => {
     const slowLayer = Layer.mergeAll(
       Layer.succeed(
