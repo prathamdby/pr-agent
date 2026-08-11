@@ -85,7 +85,8 @@ import {
   type ReviewExecutorPublishContext,
 } from "../repository.js";
 import {
-  buildStaleReviewRescheduleResult,
+  staleHeadReplacementExhaustedError,
+  tryBuildStaleReviewRescheduleResult,
   type StaleReviewRescheduleResult,
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
@@ -169,6 +170,23 @@ function reviewRunGate(args: {
   };
 }
 
+/**
+ * Build a deferred-head replacement when the parent can still own reschedule.
+ * Runs optional pre-work (check-run cancel) only after the skip guard passes.
+ */
+async function scheduleStaleHeadReplacement(args: {
+  readonly pool: Pool;
+  readonly item: ReviewWorkItem;
+  readonly beforeBuild?: () => Promise<void>;
+}): Promise<StaleReviewRescheduleResult | undefined> {
+  if (await shouldSkipWork(args.pool, args.item)) {
+    return undefined;
+  }
+  await args.beforeBuild?.();
+  return (await tryBuildStaleReviewRescheduleResult(args.pool, args.item)) ?? undefined;
+}
+
+/** Resume a parent that already persisted a replacement marker but has not finished enqueue. */
 async function handleStaleHeadReschedule(args: {
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
@@ -184,18 +202,23 @@ async function handleStaleHeadReschedule(args: {
   ) {
     return undefined;
   }
-  await completeReviewCheckRun(pool, {
-    prSurface,
-    owner: item.owner,
-    repo: item.repo,
-    prNumber: item.prNumber,
-    workItemId: item.id,
-    resourceKey: item.resourceKey,
-    reviewLens,
-    conclusion: "cancelled",
-    summary: "Review was rescheduled for a newer pull request head.",
+  return scheduleStaleHeadReplacement({
+    pool,
+    item,
+    beforeBuild: async () => {
+      await completeReviewCheckRun(pool, {
+        prSurface,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens,
+        conclusion: "cancelled",
+        summary: "Review was rescheduled for a newer pull request head.",
+      });
+    },
   });
-  return buildStaleReviewRescheduleResult(pool, item, prSurface);
 }
 
 async function completeCheckFromStoredSummary(args: {
@@ -651,20 +674,27 @@ async function runFullReviewAgainstRepositoryView(args: {
     },
   });
 
-  if (
-    staleHeadAtPublish.value &&
-    (payload.source === "slash" || payload.source === "auto") &&
-    !payload.staleHeadRescheduled
-  ) {
-    await completeCheckFromStoredSummary({
-      pool,
-      item,
-      reviewLens,
-      prSurface,
-      conclusion: "cancelled",
-      summary: "Review was rescheduled for a newer pull request head.",
-    });
-    return buildStaleReviewRescheduleResult(pool, item, prSurface);
+  if (staleHeadAtPublish.value) {
+    if (payload.staleHeadRescheduled) {
+      throw staleHeadReplacementExhaustedError(item);
+    }
+    if (payload.source === "slash" || payload.source === "auto") {
+      const reschedule = await scheduleStaleHeadReplacement({
+        pool,
+        item,
+        beforeBuild: async () => {
+          await completeCheckFromStoredSummary({
+            pool,
+            item,
+            reviewLens,
+            prSurface,
+            conclusion: "cancelled",
+            summary: "Review was rescheduled for a newer pull request head.",
+          });
+        },
+      });
+      if (reschedule) return reschedule;
+    }
   }
 
   return handleReviewPublishResult({

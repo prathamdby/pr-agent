@@ -2,11 +2,10 @@ import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { inTransaction, pgBossDb } from "../db/postgres.js";
-import { AppError } from "../errors/appError.js";
+import { AppError, isAppError } from "../errors/appError.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
-import type { PrSurface } from "../github/prSurface.js";
+import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
 import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
@@ -18,6 +17,9 @@ import {
   type ReviewJobData,
   type ReviewWorkPayload,
 } from "./types.js";
+
+export const STALE_HEAD_PARENT_NOT_RESCHEDULABLE = "agent_work.stale_head_parent_not_reschedulable";
+export const STALE_HEAD_REPLACEMENT_EXHAUSTED = "review.stale_head_replacement_exhausted";
 
 export type StaleReviewRescheduleResult = {
   readonly rescheduled: true;
@@ -31,6 +33,23 @@ type ReviewRescheduleWorkItem = {
   readonly replacementWorkItemId: string;
   readonly headSha: string;
 };
+
+export function isStaleHeadParentNotReschedulable(error: unknown): boolean {
+  return isAppError(error) && error.code === STALE_HEAD_PARENT_NOT_RESCHEDULABLE;
+}
+
+export function isStaleHeadReplacementExhausted(error: unknown): boolean {
+  return isAppError(error) && error.code === STALE_HEAD_REPLACEMENT_EXHAUSTED;
+}
+
+/** One-shot replacement already consumed; caller should fail with `/review` retry guidance. */
+export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppError {
+  return new AppError({
+    code: STALE_HEAD_REPLACEMENT_EXHAUSTED,
+    message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
+    context: { workItemId: item.id, resourceKey: item.resourceKey },
+  });
+}
 
 /**
  * Cancel a queued stale-head replacement that was persisted but never enqueued.
@@ -95,11 +114,8 @@ export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
 export async function buildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,
-  prSurface: PrSurface,
 ): Promise<StaleReviewRescheduleResult> {
-  const latestHeadSha = await prSurface.getHeadSha();
-  const replacement = await createReviewRescheduleWorkItem(pool, item, latestHeadSha);
-  // Closed over by afterComplete / onRescheduleAbort so terminal abort does not re-read payload.
+  const replacement = await createReviewRescheduleWorkItem(pool, item);
   let replacementEnqueued = false;
   return {
     rescheduled: true,
@@ -128,12 +144,40 @@ export async function buildStaleReviewRescheduleResult(
   };
 }
 
+/** Like buildStaleReviewRescheduleResult, but null when the parent can no longer own a replacement. */
+export async function tryBuildStaleReviewRescheduleResult(
+  pool: Pool,
+  item: ReviewWorkItem,
+): Promise<StaleReviewRescheduleResult | null> {
+  try {
+    return await buildStaleReviewRescheduleResult(pool, item);
+  } catch (error) {
+    if (isStaleHeadParentNotReschedulable(error)) return null;
+    throw error;
+  }
+}
+
 export async function createReviewRescheduleWorkItem(
   pool: Pool,
   item: ReviewWorkItem,
-  latestHeadSha: string,
 ): Promise<ReviewRescheduleWorkItem> {
   return inTransaction(pool, async (client) => {
+    const parentLive = await client.query<{ id: string }>(
+      `SELECT id FROM agent_work_items
+        WHERE id = $1
+          AND status = 'running'
+          AND cancel_requested_at IS NULL
+        FOR UPDATE`,
+      [item.id],
+    );
+    if ((parentLive.rowCount ?? 0) === 0) {
+      throw new AppError({
+        code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+        message: `Parent review ${item.id} is no longer running for stale-head reschedule`,
+        context: { workItemId: item.id },
+      });
+    }
+
     const payload = item.payload;
     const reviewLens = item.reviewLens;
     let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
@@ -192,7 +236,7 @@ export async function createReviewRescheduleWorkItem(
         item.repo,
         item.prNumber,
         item.installationId,
-        latestHeadSha,
+        DEFERRED_HEAD_SHA,
         reviewLens,
         item.resourceKey,
         JSON.stringify(nextPayload),
@@ -337,6 +381,6 @@ export async function enqueueReviewReschedule(
     previousWorkItemId: item.id,
     replacementWorkItemId: workItemId,
     previousHeadSha: item.headSha,
-    latestHeadSha: replacementHeadSha,
+    replacementHeadSha,
   });
 }

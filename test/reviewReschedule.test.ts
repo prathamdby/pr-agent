@@ -1,21 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { ACK_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
+import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../src/settings/index.js";
 import {
   buildStaleReviewRescheduleResult,
   cancelOrphanedStaleHeadReplacementOnTerminalFailure,
   cancelUnenqueuedStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
+  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+  STALE_HEAD_REPLACEMENT_EXHAUSTED,
+  isStaleHeadReplacementExhausted,
+  staleHeadReplacementExhaustedError,
+  tryBuildStaleReviewRescheduleResult,
 } from "../src/agentWork/reviewReschedule.js";
 import type { ReviewWorkItem } from "../src/agentWork/types.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-
-function prSurfaceWithHead(headSha: string) {
-  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { headSha }).surface;
-}
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
@@ -61,10 +61,11 @@ beforeEach(() => {
 
 describe("createReviewRescheduleWorkItem", () => {
   it("keeps the first persisted head_sha when replacement row already exists", async () => {
-    const query = vi.fn().mockResolvedValue({
-      rowCount: 1,
-      rows: [{ head_sha: "persisted-head" }],
-    });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
     const replacement = await createReviewRescheduleWorkItem(
@@ -76,23 +77,23 @@ describe("createReviewRescheduleWorkItem", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      "newhead",
     );
 
     expect(replacement).toEqual({
       replacementWorkItemId: "existing-replacement",
       headSha: "persisted-head",
     });
-    const sql = String(query.mock.calls[0]?.[0]);
-    expect(sql).toContain("RETURNING head_sha");
-    expect(sql).not.toContain("head_sha = EXCLUDED.head_sha");
+    const insertSql = String(query.mock.calls[1]?.[0]);
+    expect(insertSql).toContain("RETURNING head_sha");
+    expect(insertSql).not.toContain("head_sha = EXCLUDED.head_sha");
   });
 
   it("reuses persisted replacement id without creating a new marker", async () => {
-    const query = vi.fn().mockResolvedValue({
-      rowCount: 1,
-      rows: [{ head_sha: "newhead" }],
-    });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
     const replacement = await createReviewRescheduleWorkItem(
@@ -104,36 +105,51 @@ describe("createReviewRescheduleWorkItem", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      "newhead",
     );
 
     expect(replacement.replacementWorkItemId).toBe("existing-replacement");
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls.some((call) => String(call[0]).includes("FOR UPDATE"))).toBe(true);
   });
 
-  it("persists marker then inserts replacement on first attempt", async () => {
+  it("persists marker then inserts a deferred-head replacement on first attempt", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({
         rowCount: 1,
         rows: [{ replacement_id: "generated-replacement" }],
       })
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] });
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), "newhead");
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem());
 
-    expect(replacement.replacementWorkItemId).toBe("generated-replacement");
-    expect(query).toHaveBeenCalledTimes(3);
-    expect(String(query.mock.calls[0]?.[0])).toContain(
+    expect(replacement).toEqual({
+      replacementWorkItemId: "generated-replacement",
+      headSha: DEFERRED_HEAD_SHA,
+    });
+    expect(String(query.mock.calls[1]?.[0])).toContain(
       "payload->>'staleHeadReplacementWorkItemId') IS NULL",
     );
+    expect(query.mock.calls[2]?.[1]?.[7]).toBe(DEFERRED_HEAD_SHA);
+  });
+
+  it("refuses to create a replacement when the parent is already cancel-requested", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
+    const pool = { query } as unknown as Pool;
+
+    await expect(createReviewRescheduleWorkItem(pool, makeItem())).rejects.toMatchObject({
+      code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+    });
+    expect(query).toHaveBeenCalledTimes(1);
   });
 
   it("preserves auto source on the replacement work item and ack", async () => {
     const query = vi
       .fn()
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
     const send = vi.fn().mockResolvedValue("job-id");
@@ -149,17 +165,16 @@ describe("createReviewRescheduleWorkItem", () => {
       },
     });
 
-    const result = await buildStaleReviewRescheduleResult(
-      pool,
-      parent,
-      prSurfaceWithHead("newhead"),
-    );
-    expect(query.mock.calls[0]?.[1]?.[2]).toBe("auto");
+    const result = await buildStaleReviewRescheduleResult(pool, parent);
+    const insertParams = query.mock.calls.find((call) =>
+      String(call[0]).includes("INSERT INTO agent_work_items"),
+    )?.[1] as unknown[] | undefined;
+    expect(insertParams?.[2]).toBe("auto");
     await result.afterComplete(boss, "active-job");
 
     const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
     expect(ackCall?.[1]).toMatchObject({
-      progress: { source: "auto", headSha: "newhead" },
+      progress: { source: "auto", headSha: DEFERRED_HEAD_SHA },
     });
   });
 
@@ -175,11 +190,13 @@ describe("createReviewRescheduleWorkItem", () => {
     );
     const query = vi
       .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({ rowCount: 0, rows: [] })
-      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] });
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), "newhead");
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem());
 
     expect(replacement.replacementWorkItemId).toBe("winner-replacement");
     expect(getWorkItem).toHaveBeenCalledWith(pool, "parent-wi");
@@ -188,8 +205,9 @@ describe("createReviewRescheduleWorkItem", () => {
   it("uses the persisted replacement head for the ack after an insert conflict", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
-      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+      .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([]);
@@ -205,7 +223,6 @@ describe("createReviewRescheduleWorkItem", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     await result.afterComplete(boss, "active-job");
 
@@ -213,6 +230,42 @@ describe("createReviewRescheduleWorkItem", () => {
     expect(ackCall?.[1]).toMatchObject({
       progress: { headSha: "persisted-head" },
     });
+  });
+});
+
+describe("stale-head shared helpers", () => {
+  it("tryBuild returns null when the parent is not reschedulable", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
+    const pool = { query } as unknown as Pool;
+
+    await expect(tryBuildStaleReviewRescheduleResult(pool, makeItem())).resolves.toBeNull();
+  });
+
+  it("tryBuild returns a reschedule result for a live parent", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [{ replacement_id: "generated-replacement" }],
+      })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: DEFERRED_HEAD_SHA }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+
+    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem());
+    expect(result).toMatchObject({
+      rescheduled: true,
+      replacementWorkItemId: "generated-replacement",
+    });
+  });
+
+  it("staleHeadReplacementExhaustedError uses the shared exhausted code", () => {
+    const error = staleHeadReplacementExhaustedError(makeItem());
+    expect(error.code).toBe(STALE_HEAD_REPLACEMENT_EXHAUSTED);
+    expect(error.message).toMatch(/\/review/);
+    expect(isStaleHeadReplacementExhausted(error)).toBe(true);
+    expect(isStaleHeadReplacementExhausted(new Error("other"))).toBe(false);
   });
 });
 
@@ -533,7 +586,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     await result.onRescheduleAbort(boss, boom);
 
@@ -543,8 +595,9 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
   it("does not cancel after afterComplete marks the replacement enqueued", async () => {
     const query = vi
       .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ id: "parent-wi" }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
-      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+      .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([]);
@@ -560,7 +613,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     await result.afterComplete(boss, "active-job");
     await result.onRescheduleAbort(boss, new Error("should not cancel"));
@@ -586,7 +638,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementEnqueued: true,
         },
       }),
-      prSurfaceWithHead("latest-head"),
     );
     const error = new Error("parent failed");
     await result.onRescheduleAbort(boss, error);

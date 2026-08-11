@@ -56,9 +56,13 @@ vi.mock("../src/agentWork/repository.js", () => ({
   updateRunningWorkHeadSha: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/reviewReschedule.js", () => ({
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
-}));
+vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/reviewReschedule.js")>();
+  return {
+    ...actual,
+    cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
+  };
+});
 
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),

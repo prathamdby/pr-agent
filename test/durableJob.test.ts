@@ -30,9 +30,13 @@ vi.mock("../src/agentWork/repository.js", () => ({
   updateRunningWorkHeadSha: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/reviewReschedule.js", () => ({
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
-}));
+vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/reviewReschedule.js")>();
+  return {
+    ...actual,
+    cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
+  };
+});
 
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
@@ -537,6 +541,28 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
+  it("terminal-fails stale-head replacement exhaustion without durable retry", async () => {
+    mockFetchedItem(makeItem());
+    const { AppError } = await import("../src/errors/appError.js");
+    const boom = new AppError({
+      code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
+      message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
+    });
+    const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(0, 3), execute, onTerminalFailure });
+
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
+    expect(onTerminalFailure).toHaveBeenCalledTimes(1);
+    expect(onTerminalFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wi-1" }),
+      expect.anything(),
+      boom,
+    );
+  });
+
   it("on terminal pg-boss attempt: marks failed and invokes onTerminalFailure", async () => {
     mockFetchedItem(makeItem());
     const boom = new Error("dead");
@@ -599,6 +625,34 @@ describe("runDurableWorkItem", () => {
     expect(afterComplete).toHaveBeenCalledWith(boss, "job-1");
     expect(repo.forceMarkRescheduledParentCompleted).toHaveBeenCalledWith(pool, "wi-1");
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("still enqueues a stale-head replacement when parent becomes skippable after execute", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "auto",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    // cancelBeforeClaim is false; finishRescheduledParentWorkItem then sees cancel_requested.
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+    vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
+    const afterComplete = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete,
+    });
+
+    await runReviewWorkItem({ execute });
+
+    expect(afterComplete).toHaveBeenCalledWith(boss, "job-1");
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
   });
 
   it("throws when rescheduled parent cannot be completed and replacement marker exists", async () => {

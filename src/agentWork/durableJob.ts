@@ -42,7 +42,10 @@ import {
 } from "./repository.js";
 import { createPrSurface, type PrSurface } from "../github/prSurface.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
-import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
+import {
+  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+  isStaleHeadReplacementExhausted,
+} from "./reviewReschedule.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
@@ -76,6 +79,11 @@ function getCachedBotIdentity(cfg: Config): Promise<BotIdentity> {
     throw error;
   });
   return botIdentityCache;
+}
+
+/** Failures that must terminalise on first throw (no pg-boss / durable retry budget). */
+function isNonRetryableDurableFailure(error: unknown): boolean {
+  return isStaleHeadReplacementExhausted(error);
 }
 
 type DurableExecutionResult = {
@@ -461,11 +469,12 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
+    // Replacement enqueue before skip: execute may already have transferred progress ownership.
     if (result.rescheduled) {
       await completeRescheduledResult(result);
       return;
     }
+    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
     if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
     if (!(await markWorkCompleted(spec.pool, item.id, executionEpoch))) {
       await recheckSkippableAndCancel("completion_race", false);
@@ -523,7 +532,8 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     if (await recheckSkippableAndCancel("skipped_after_error")) return;
     const message = error instanceof Error ? error.message : String(error);
-    if (!(spec.job.retryCount >= spec.job.retryLimit)) {
+    // Permanent product failures skip the pg-boss retry budget and fail on first throw.
+    if (!isNonRetryableDurableFailure(error) && !(spec.job.retryCount >= spec.job.retryLimit)) {
       await markRetryingOrCancel(error, message);
       return;
     }
