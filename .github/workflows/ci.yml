@@ -41,6 +41,7 @@ jobs:
               - "scripts/**"
               - "src/**"
               - "test/**"
+              - "tools/**"
               - "tsconfig*.json"
               - "vitest*.config.ts"
             site:

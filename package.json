@@ -50,10 +50,11 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
     "oxfmt": "^0.60.0",
-    "oxlint": "1.75.0",
+    "oxlint": "1.78.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

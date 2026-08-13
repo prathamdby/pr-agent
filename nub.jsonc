@@ -7,7 +7,7 @@
       "pg-cloudflare",
       "typescript",
       "cron-parser@5.6.2",
-      "oxlint@1.75.0",
+      "oxlint@1.78.0",
       "oxlint-tsgolint@7.0.2001",
       "@oxlint/*",
       "@oxlint-tsgolint/*",
