@@ -174,11 +174,11 @@ describe("publishTriage", () => {
     expect(upsertProgressBody(controls)).toContain("head changed");
   });
 
-  it("skips already acted ids and never resolves dismissed verdicts", async () => {
+  it("resolves dismissed threads without a new reply", async () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool({ actedThreadIds: [1] }),
+      pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
@@ -197,6 +197,75 @@ describe("publishTriage", () => {
             verdict: "dismissed",
             threadRootCommentId: 1,
             evidence: "maintainer said intentional",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toContain("node");
+  });
+
+  it("still resolves dismissed verdicts when push is stale", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      executionEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => {
+        throw new StaleHeadPushError();
+      }),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "dismissed",
+            threadRootCommentId: 1,
+            evidence: "maintainer said intentional",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toContain("node");
+  });
+
+  it("does not resolve skipped threads", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      executionEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "skipped",
+            threadRootCommentId: 1,
+            reason: "too large for one commit",
           },
         ],
       },
@@ -372,6 +441,7 @@ describe("publishTriage", () => {
     });
 
     const body = upsertProgressBody(controls);
+    expect(resolveThreadIds(controls)).toContain("node");
     expect(body).toContain("Policy suggestions for dismissed findings");
     expect(body).toContain("[redacted]");
     expect(body).not.toContain("ghp_");

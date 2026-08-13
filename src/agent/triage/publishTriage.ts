@@ -115,6 +115,18 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
   };
 }
 
+function shouldReplyToTriageThread(
+  verdict: TriageVerdict,
+): verdict is Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }> {
+  return verdict.verdict === "fixed" || verdict.verdict === "already-resolved";
+}
+
+function shouldResolveTriageThread(verdict: TriageVerdict, pushed: boolean): boolean {
+  if (verdict.verdict === "skipped") return false;
+  if (verdict.verdict === "fixed" && !pushed) return false;
+  return true;
+}
+
 function replyBody(
   verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>,
 ): string {
@@ -294,8 +306,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   for (const verdict of params.payload.verdicts) {
-    if (verdict.verdict !== "fixed" && verdict.verdict !== "already-resolved") continue;
-    if (verdict.verdict === "fixed" && !pushed) continue;
+    if (!shouldResolveTriageThread(verdict, pushed)) continue;
     const thread = threadById.get(verdict.threadRootCommentId);
     const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
     if (!thread || !resolution) {
@@ -309,7 +320,11 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       continue;
     }
     if (resolution.isResolved) continue;
-    if (!actedThreadIds.has(verdict.threadRootCommentId) && thread.hasTriageReply !== true) {
+    if (
+      shouldReplyToTriageThread(verdict) &&
+      !actedThreadIds.has(verdict.threadRootCommentId) &&
+      thread.hasTriageReply !== true
+    ) {
       try {
         await withOperationIntent({
           client: params.pool,
