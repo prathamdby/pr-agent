@@ -235,8 +235,8 @@ describe("reapReviewQueueOrphans", () => {
       staleQueuedLogged: 1,
     });
 
-    expect(holderSql).toContain("j.singleton_key");
-    expect(holderSql).not.toContain("j.key");
+    expect(holderSql).toMatch(/\bj\.singleton_key\b/);
+    expect(holderSql).not.toMatch(/\bj\.key\b/);
 
     expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "j-fail");
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "j-orphan");
@@ -255,5 +255,21 @@ describe("reapReviewQueueOrphans", () => {
         resource_key: "acme/app#9",
       }),
     });
+  });
+
+  it("returns zeros when no holders or stale queued rows", async () => {
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const deleteJob = vi.fn(async () => ({ rows: [] }));
+    const boss = { cancel, deleteJob } as unknown as PgBoss;
+    const pool = {
+      query: vi.fn(async () => ({ rows: [] })),
+    } as unknown as Pool;
+
+    await expect(reapReviewQueueOrphans(boss, pool)).resolves.toEqual({
+      released: 0,
+      staleQueuedLogged: 0,
+    });
+    expect(deleteJob).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
   });
 });

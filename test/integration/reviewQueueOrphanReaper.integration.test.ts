@@ -49,8 +49,8 @@ async function deleteReviewJobs(boss: PgBoss): Promise<void> {
 }
 
 describe.skipIf(!hasDatabase)("review queue orphan reaper (integration)", () => {
-  let pool: Pool;
-  let boss: PgBoss;
+  let pool: Pool | undefined;
+  let boss: PgBoss | undefined;
 
   beforeAll(async () => {
     pool = integrationPool();
@@ -63,38 +63,49 @@ describe.skipIf(!hasDatabase)("review queue orphan reaper (integration)", () => 
   });
 
   afterAll(async () => {
-    await stopBoss(boss, DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS * 1000);
-    await pool.end();
+    if (boss) await stopBoss(boss, DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS * 1000);
+    await pool?.end();
   });
 
   afterEach(async () => {
+    if (!pool || !boss) return;
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
     await deleteReviewJobs(boss);
   });
 
-  it("deletes a failed review holder whose work item is not active", async () => {
-    const repo = `repo-${randomUUID().slice(0, 8)}`;
-    const resourceKey = prResourceKey(OWNER, repo, 9);
-    const singletonKey = reviewSingletonKey(resourceKey);
+  async function insertReviewWorkItem(
+    repo: string,
+    resourceKey: string,
+    status: "failed" | "completed",
+  ): Promise<string> {
+    if (!pool) throw new Error("pool is required");
     const webhookEventId = randomUUID();
-    const failedWorkItemId = randomUUID();
-
+    const workItemId = randomUUID();
     await pool.query(
       `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
        VALUES ($1, $2, $3, 'sha', 'accepted')`,
-      [webhookEventId, `failed-${webhookEventId}`, EVENT],
+      [webhookEventId, `${status}-${webhookEventId}`, EVENT],
     );
     await pool.query(
       `INSERT INTO agent_work_items (
          id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
          head_sha, review_lens, resource_key, priority, payload, completed_at
        ) VALUES (
-         $1, $2, 'review', 'auto', 'failed', $3, $4, 9, 4242, 'sha-old', 'review', $5, 0,
+         $1, $2, 'review', 'auto', $3, $4, $5, 9, 4242, 'sha-old', 'review', $6, 0,
          '{}'::jsonb, now()
        )`,
-      [failedWorkItemId, webhookEventId, OWNER, repo, resourceKey],
+      [workItemId, webhookEventId, status, OWNER, repo, resourceKey],
     );
+    return workItemId;
+  }
+
+  it("deletes a failed review holder whose work item is not active", async () => {
+    if (!pool || !boss) throw new Error("setup required");
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 9);
+    const singletonKey = reviewSingletonKey(resourceKey);
+    const failedWorkItemId = await insertReviewWorkItem(repo, resourceKey, "failed");
 
     const failedJobId = await boss.send(
       REVIEW_QUEUE,
@@ -111,5 +122,41 @@ describe.skipIf(!hasDatabase)("review queue orphan reaper (integration)", () => 
       staleQueuedLogged: 0,
     });
     await expect(boss.findJobs(REVIEW_QUEUE, { key: singletonKey })).resolves.toEqual([]);
+  });
+
+  it("cancels an active holder whose work item is completed", async () => {
+    if (!pool || !boss) throw new Error("setup required");
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 9);
+    const singletonKey = reviewSingletonKey(resourceKey);
+    const workItemId = await insertReviewWorkItem(repo, resourceKey, "completed");
+
+    const jobId = await boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { singletonKey });
+    expect(jobId).toBeTruthy();
+    await pool.query(`UPDATE pgboss.job SET state = 'active', started_on = now() WHERE id = $1`, [
+      jobId,
+    ]);
+
+    await expect(reapReviewQueueOrphans(boss, pool)).resolves.toEqual({
+      released: 1,
+      staleQueuedLogged: 0,
+    });
+    await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.not.toContain(singletonKey);
+  });
+
+  it("cancels a created holder with no workItemId", async () => {
+    if (!pool || !boss) throw new Error("setup required");
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 9);
+    const singletonKey = reviewSingletonKey(resourceKey);
+
+    const jobId = await boss.send(REVIEW_QUEUE, { kind: "review" }, { singletonKey });
+    expect(jobId).toBeTruthy();
+
+    await expect(reapReviewQueueOrphans(boss, pool)).resolves.toEqual({
+      released: 1,
+      staleQueuedLogged: 0,
+    });
+    await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.not.toContain(singletonKey);
   });
 });
