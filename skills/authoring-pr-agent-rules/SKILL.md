@@ -114,7 +114,7 @@ For every new `.mdc`:
 | "Duplicating existing rules is safer under time pressure" | Duplicates waste the 20-file cap and dilute attention. Inventory first.                |
 | "Fill all remaining slots so the stakeholder sees volume" | Empty slots beat weak rules. Stop when the quality bar fails.                          |
 | "Bodies over 1000 chars are fine; more detail helps"      | Excess is truncated at load — silent loss. Cut to ≤1000.                               |
-| "Update AGENTS.md instead; it's always applied"           | AGENTS.md is navigation (`AGENTS.md` says so). Binding review prefs are `.mdc`.        |
+| "Update AGENTS.md instead; it's always applied"           | AGENTS.md is the pointer index. Binding review prefs are `.pr-agent/*.mdc`.            |
 
 ## Red flags — STOP
 
