@@ -426,21 +426,21 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### Other
 
-| Symbol                                                                           | Role                                                            |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `CONTEXT7_BASE_URL`                                                              | Context7 API                                                    |
-| `MAX_LOG_MESSAGE_LEN`                                                            | 2000                                                            |
-| `MAX_LOG_REDACTION_SCAN_LEN`                                                     | 8000                                                            |
-| `SLASH_HELP_BODY`                                                                | `/help` text                                                    |
-| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY`                              | `/cancel` ack replies when no review is active / after cancel   |
-| `MIGRATIONS_DIR_NAME`                                                            | `migrations`                                                    |
-| `MIGRATION_ADVISORY_LOCK_KEY`                                                    | runMigrations cross-process lock                                |
-| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                                              | 2000ms margin before GitHub's webhook timeout                   |
-| `WEBHOOK_MAX_BODY_BYTES`                                                         | 25000000 (GitHub payload cap)                                   |
-| `WEBHOOK_TIMEOUT_MS`                                                             | 10000 (intake 503 budget)                                       |
-| `CONTEXT7_RESPONSE_BYTES`                                                        | 64000                                                           |
-| `LOG_MAX_WIDE_EVENTS`                                                            | 128                                                             |
-| `HEALTH_DB_PING_TIMEOUT_MS`                                                      | 2000 (`/ready` Postgres ping budget)                            |
+| Symbol                                              | Role                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| `CONTEXT7_BASE_URL`                                 | Context7 API                                                  |
+| `MAX_LOG_MESSAGE_LEN`                               | 2000                                                          |
+| `MAX_LOG_REDACTION_SCAN_LEN`                        | 8000                                                          |
+| `SLASH_HELP_BODY`                                   | `/help` text                                                  |
+| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY` | `/cancel` ack replies when no review is active / after cancel |
+| `MIGRATIONS_DIR_NAME`                               | `migrations`                                                  |
+| `MIGRATION_ADVISORY_LOCK_KEY`                       | runMigrations cross-process lock                              |
+| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                 | 2000ms margin before GitHub's webhook timeout                 |
+| `WEBHOOK_MAX_BODY_BYTES`                            | 25000000 (GitHub payload cap)                                 |
+| `WEBHOOK_TIMEOUT_MS`                                | 10000 (intake 503 budget)                                     |
+| `CONTEXT7_RESPONSE_BYTES`                           | 64000                                                         |
+| `LOG_MAX_WIDE_EVENTS`                               | 128                                                           |
+| `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/ready` Postgres ping budget)                          |
 
 Prompt prose (investigator contracts) remains in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`.
 
