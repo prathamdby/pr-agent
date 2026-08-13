@@ -178,7 +178,7 @@ export async function reapReviewQueueOrphans(
     work_item_id: string | null;
   }>(
     `SELECT j.id::text AS job_id,
-            j.key AS singleton_key,
+            j.singleton_key,
             j.state::text AS state,
             j.data->>'workItemId' AS work_item_id
        FROM pgboss.job j
