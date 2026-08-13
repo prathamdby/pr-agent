@@ -115,6 +115,39 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
   };
 }
 
+function shouldReplyToTriageThread(
+  verdict: TriageVerdict,
+): verdict is Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }> {
+  switch (verdict.verdict) {
+    case "fixed":
+    case "already-resolved":
+      return true;
+    case "skipped":
+    case "dismissed":
+      return false;
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
+  }
+}
+
+function shouldResolveTriageThread(verdict: TriageVerdict, pushed: boolean): boolean {
+  switch (verdict.verdict) {
+    case "skipped":
+      return false;
+    case "fixed":
+      return pushed;
+    case "already-resolved":
+    case "dismissed":
+      return true;
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
+  }
+}
+
 function replyBody(
   verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>,
 ): string {
@@ -294,8 +327,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   for (const verdict of params.payload.verdicts) {
-    if (verdict.verdict !== "fixed" && verdict.verdict !== "already-resolved") continue;
-    if (verdict.verdict === "fixed" && !pushed) continue;
+    if (!shouldResolveTriageThread(verdict, pushed)) continue;
     const thread = threadById.get(verdict.threadRootCommentId);
     const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
     if (!thread || !resolution) {
@@ -309,7 +341,11 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       continue;
     }
     if (resolution.isResolved) continue;
-    if (!actedThreadIds.has(verdict.threadRootCommentId) && thread.hasTriageReply !== true) {
+    if (
+      shouldReplyToTriageThread(verdict) &&
+      !actedThreadIds.has(verdict.threadRootCommentId) &&
+      thread.hasTriageReply !== true
+    ) {
       try {
         await withOperationIntent({
           client: params.pool,

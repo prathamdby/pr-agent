@@ -59,6 +59,18 @@ function checkout(push: () => Promise<void>): WritablePrCheckout {
   };
 }
 
+function emptyCheckout(push: () => Promise<void>): WritablePrCheckout {
+  return {
+    dir: "/tmp/checkout",
+    headRef: "main",
+    baseSha: "a".repeat(40),
+    commit: vi.fn(),
+    push,
+    listCommittedShas: () => [],
+    listCommittedDetails: () => [],
+  };
+}
+
 function pool(detail?: unknown): Pool {
   return {
     query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
@@ -119,6 +131,42 @@ describe("publishTriage", () => {
     expect(upsertProgressBody(controls)).toContain("head changed");
   });
 
+  it("replies and resolves a fixed thread after a successful push", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      executionEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef123456",
+            evidence: "fixed",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result.degraded).toBe(false);
+    expect(controls.replies).toHaveLength(1);
+    expect(controls.replies[0]?.body).toContain("Fixed in");
+    expect(resolveThreadIds(controls)).toContain("node");
+  });
+
   it("still replies to already-resolved verdicts when push is stale", async () => {
     const fake = publishTestPrSurface(
       new Map([
@@ -174,11 +222,11 @@ describe("publishTriage", () => {
     expect(upsertProgressBody(controls)).toContain("head changed");
   });
 
-  it("skips already acted ids and never resolves dismissed verdicts", async () => {
+  it("resolves dismissed threads without a new reply", async () => {
     const fake = publishTestPrSurface();
     controls = fake.controls;
     await publishTriage({
-      pool: pool({ actedThreadIds: [1] }),
+      pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
@@ -203,6 +251,162 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toContain("node");
+  });
+
+  it("still resolves dismissed verdicts when push is stale", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      executionEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => {
+        throw new StaleHeadPushError();
+      }),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "dismissed",
+            threadRootCommentId: 1,
+            evidence: "maintainer said intentional",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toContain("node");
+  });
+
+  it("does not resolve skipped threads", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      executionEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "skipped",
+            threadRootCommentId: 1,
+            reason: "too large for one commit",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+  });
+
+  it("resolves dismissed and already-resolved threads when the checkout has no commits", async () => {
+    const push = vi.fn(async () => undefined);
+    const fake = publishTestPrSurface(
+      new Map([
+        [1, { threadNodeId: "node-1", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+    );
+    controls = fake.controls;
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      executionEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: emptyCheckout(push),
+      inventory: [thread, secondThread],
+      resolutionByRootCommentId: new Map([
+        [1, { threadNodeId: "node-1", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "dismissed",
+            threadRootCommentId: 1,
+            evidence: "maintainer said intentional",
+          },
+          {
+            verdict: "already-resolved",
+            threadRootCommentId: 2,
+            evidence: "current code already handles this",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(push).not.toHaveBeenCalled();
+    expect(controls.replies).toHaveLength(1);
+    expect(controls.replies[0]?.target).toEqual(
+      expect.objectContaining({ kind: "inlineReviewThread", inReplyToCommentId: 2 }),
+    );
+    expect(resolveThreadIds(controls)).toEqual(expect.arrayContaining(["node-1", "node-2"]));
+  });
+
+  it("does not resolve a fixed thread when the checkout has no commits", async () => {
+    const push = vi.fn(async () => undefined);
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      executionEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: emptyCheckout(push),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef123456",
+            evidence: "fixed",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(push).not.toHaveBeenCalled();
     expect(controls.replies).toHaveLength(0);
     expect(resolveThreadIds(controls)).toHaveLength(0);
   });
@@ -372,6 +576,7 @@ describe("publishTriage", () => {
     });
 
     const body = upsertProgressBody(controls);
+    expect(resolveThreadIds(controls)).toContain("node");
     expect(body).toContain("Policy suggestions for dismissed findings");
     expect(body).toContain("[redacted]");
     expect(body).not.toContain("ghp_");
