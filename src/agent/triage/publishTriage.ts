@@ -118,13 +118,34 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
 function shouldReplyToTriageThread(
   verdict: TriageVerdict,
 ): verdict is Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }> {
-  return verdict.verdict === "fixed" || verdict.verdict === "already-resolved";
+  switch (verdict.verdict) {
+    case "fixed":
+    case "already-resolved":
+      return true;
+    case "skipped":
+    case "dismissed":
+      return false;
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
+  }
 }
 
 function shouldResolveTriageThread(verdict: TriageVerdict, pushed: boolean): boolean {
-  if (verdict.verdict === "skipped") return false;
-  if (verdict.verdict === "fixed" && !pushed) return false;
-  return true;
+  switch (verdict.verdict) {
+    case "skipped":
+      return false;
+    case "fixed":
+      return pushed;
+    case "already-resolved":
+    case "dismissed":
+      return true;
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
+  }
 }
 
 function replyBody(

@@ -24,4 +24,4 @@ This amends ADR 0018 decision (6) and the “triage never resolves dismissed” 
 
 ## Reversal
 
-Restore the publish skip for `dismissed` and the “never auto-resolve dismissed” wording in CONTEXT and `.pr-agent/triage-safety.mdc`.
+Restore the publish skip for `dismissed` and the “never auto-resolve dismissed” wording in `CONTEXT.md`, `docs/operations.md` (`/triage` paragraph: reply on `fixed` then resolve; resolve `already-resolved` and `dismissed` without a Files-tab reply, including stale or empty push), and `.pr-agent/triage-safety.mdc` (push-or-nothing before resolving threads).
