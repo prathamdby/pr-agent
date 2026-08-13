@@ -21,10 +21,15 @@ export type FakePiSessionControls = {
   readonly setScript: (script: FakePiSessionScript) => void;
 };
 
+export type FakePiSession = {
+  readonly session: PiSession;
+  readonly controls: FakePiSessionControls;
+};
+
 export function createFakePiSession(
   params: PiSessionCreateParams,
   initialScript?: FakePiSessionScript,
-): { readonly session: PiSession; readonly controls: FakePiSessionControls } {
+): FakePiSession {
   const events: AgentLifecycleEvent[] = [];
   const sends: Array<{ prompt: string; opts: PiSessionSendOptions }> = [];
   let script: FakePiSessionScript =

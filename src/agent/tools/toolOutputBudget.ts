@@ -54,6 +54,10 @@ export type FileReadOutput = {
   readonly note?: string;
 };
 
+type MutableFileReadOutput = {
+  -readonly [K in keyof FileReadOutput]: FileReadOutput[K];
+};
+
 /**
  * A single minified line must not displace the whole response budget: lines
  * longer than LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS are replaced by a
@@ -98,24 +102,23 @@ export function readTextWithOutputBudget(
     const capped = capTextOutput(body, maxResponseBytes, "response byte budget exceeded");
     const endLine = endLineForText(capped.content);
     const shownClamped = clamped?.clampedLines.filter((line) => line <= endLine) ?? [];
-    return {
+    const result: MutableFileReadOutput = {
       content: capped.content,
       size,
       startLine: 1,
       endLine,
       truncated: capped.truncated,
       returnedBytes: capped.returnedBytes,
-      ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
-      ...(shownClamped.length > 0 ? { clampedLines: shownClamped } : {}),
-      // A byte-cap cut can land mid-line, so the next read resumes ON the
-      // last shown line instead of silently skipping its tail.
-      ...(capped.truncated
-        ? {
-            resumeStartLine: endLine,
-            note: `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${endLine} (the last shown line may be cut off).`,
-          }
-        : {}),
     };
+    if (capped.truncationReason) result.truncationReason = capped.truncationReason;
+    if (shownClamped.length > 0) result.clampedLines = shownClamped;
+    // A byte-cap cut can land mid-line, so the next read resumes ON the
+    // last shown line instead of silently skipping its tail.
+    if (capped.truncated) {
+      result.resumeStartLine = endLine;
+      result.note = `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${endLine} (the last shown line may be cut off).`;
+    }
+    return result;
   }
 
   // Name the dead end: silent empty content is indistinguishable from a
@@ -157,27 +160,24 @@ export function readTextWithOutputBudget(
   const shownClamped =
     clamped?.clampedLines.filter((line) => line >= startLine && line <= endLine) ?? [];
 
-  return {
+  const result: MutableFileReadOutput = {
     content: capped.content,
     size,
     startLine,
     endLine,
     truncated,
     returnedBytes: capped.returnedBytes,
-    ...(truncationReason ? { truncationReason } : {}),
-    ...(shownClamped.length > 0 ? { clampedLines: shownClamped } : {}),
-    ...(capped.truncated
-      ? {
-          resumeStartLine: endLine,
-          note: `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${endLine} (the last shown line may be cut off).`,
-        }
-      : lineWindowTruncated
-        ? {
-            resumeStartLine: endLine + 1,
-            note: `Line window ended at line ${endLine} of ${lines.length}. Resume with startLine ${endLine + 1}.`,
-          }
-        : {}),
   };
+  if (truncationReason) result.truncationReason = truncationReason;
+  if (shownClamped.length > 0) result.clampedLines = shownClamped;
+  if (capped.truncated) {
+    result.resumeStartLine = endLine;
+    result.note = `Truncated by the response byte budget at line ${endLine} of ${lines.length}. Resume with startLine ${endLine} (the last shown line may be cut off).`;
+  } else if (lineWindowTruncated) {
+    result.resumeStartLine = endLine + 1;
+    result.note = `Line window ended at line ${endLine} of ${lines.length}. Resume with startLine ${endLine + 1}.`;
+  }
+  return result;
 }
 
 function splitLines(text: string): string[] {

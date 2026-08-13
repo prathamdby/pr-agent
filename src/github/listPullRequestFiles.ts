@@ -1,4 +1,3 @@
-import type { RestEndpointMethodTypes } from "@octokit/rest";
 import { AppError } from "../errors/appError.js";
 import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
@@ -12,6 +11,10 @@ export type PullRequestFileEntry = {
   readonly previousFilename?: string;
   readonly patch?: string;
   readonly patchOmitted?: boolean;
+};
+
+type MutablePullRequestFileEntry = {
+  -readonly [K in keyof PullRequestFileEntry]: PullRequestFileEntry[K];
 };
 
 export type ListPullRequestFilesResult = {
@@ -29,8 +32,35 @@ export type ListPullRequestFilesLimits = {
   readonly maxPrFilesPatchBytes: number;
 };
 
-type Octokit = ReturnType<typeof installationOctokit>;
-type GithubFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["data"][number];
+type GithubPullRequestFile = {
+  readonly filename: string;
+  readonly status: string;
+  readonly additions: number;
+  readonly deletions: number;
+  readonly changes: number;
+  readonly previous_filename?: string;
+  readonly patch?: string;
+};
+
+export type PullRequestFilesOctokit = {
+  readonly rest: {
+    readonly pulls: {
+      get(params: {
+        readonly owner: string;
+        readonly repo: string;
+        readonly pull_number: number;
+      }): Promise<{ readonly data: PullRequestForFileList }>;
+      listFiles(params: {
+        readonly owner: string;
+        readonly repo: string;
+        readonly pull_number: number;
+        readonly per_page?: number;
+        readonly page?: number;
+      }): Promise<{ readonly data: readonly GithubPullRequestFile[] }>;
+    };
+  };
+};
+
 export type PullRequestForFileList = {
   readonly additions: number;
   readonly deletions: number;
@@ -55,16 +85,18 @@ export function assertPullRequestFilesHeadSha(
   }
 }
 
+type ResolvePatchResult = {
+  readonly patch: string | undefined;
+  readonly patchOmitted: true | undefined;
+  readonly state: PatchBudgetState;
+  readonly patchOmittedCountDelta: number;
+};
+
 function resolvePatchForFile(
   rawPatch: string | undefined,
   state: PatchBudgetState,
   maxPatchBytes: number,
-): {
-  patch: string | undefined;
-  patchOmitted: true | undefined;
-  state: PatchBudgetState;
-  patchOmittedCountDelta: number;
-} {
+): ResolvePatchResult {
   if (rawPatch == null) {
     return {
       patch: undefined,
@@ -102,7 +134,7 @@ function resolvePatchForFile(
 }
 
 export async function listPullRequestFilesPaginated(
-  octokit: Octokit,
+  octokit: PullRequestFilesOctokit,
   owner: string,
   repo: string,
   pullNumber: number,
@@ -126,7 +158,7 @@ export async function listPullRequestFilesPaginated(
   let patchOmittedCount = 0;
   let patchCapReached = false;
 
-  function consumeFilePage(data: readonly GithubFile[]): void {
+  function consumeFilePage(data: readonly GithubPullRequestFile[]): void {
     for (const file of data) {
       if (files.length >= limits.maxPrFilesListed) {
         return;
@@ -202,20 +234,21 @@ export async function listPullRequestFilesPaginated(
 }
 
 function mapGithubFile(
-  file: GithubFile,
+  file: GithubPullRequestFile,
   patch: string | undefined,
   patchOmitted: true | undefined,
 ): PullRequestFileEntry {
-  return {
+  const entry: MutablePullRequestFileEntry = {
     filename: file.filename,
     status: file.status,
     additions: file.additions,
     deletions: file.deletions,
     changes: file.changes,
-    ...(file.previous_filename ? { previousFilename: file.previous_filename } : {}),
     patch,
-    ...(patchOmitted ? { patchOmitted } : {}),
   };
+  if (file.previous_filename) entry.previousFilename = file.previous_filename;
+  if (patchOmitted) entry.patchOmitted = patchOmitted;
+  return entry;
 }
 
 export async function fetchPullRequestFiles(

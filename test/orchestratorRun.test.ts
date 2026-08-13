@@ -1,22 +1,44 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
+import * as v from "valibot";
 import type { PiSession } from "../src/agent/runtime/types.js";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import type {
   FindingLedger,
-  ReviewCoverage,
   SpecialistId,
   SpecialistOutcome,
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import type { Pool } from "pg";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
+import type { ReviewRunResult } from "../src/review/run/reviewRunTypes.js";
+import type { CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
+import type { ReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
+import type { JsonObject } from "../src/util/jsonValue.js";
+import * as publishRecord from "../src/agentWork/publishRecordRepository.js";
+import * as reviewRunSetup from "../src/review/run/reviewRunSetup.js";
+import * as specialistRun from "../src/review/orchestrator/specialistRun.js";
+import * as publishThreadTool from "../src/review/orchestrator/publishThreadTool.js";
+import * as publishSummaryTool from "../src/review/orchestrator/publishSummaryTool.js";
+import * as stubTick from "../src/review/orchestrator/stubTick.js";
+import * as reviewRunFallback from "../src/review/run/reviewRunFallback.js";
+import * as publishSummaryOnly from "../src/review/publish/publishSummaryOnly.js";
+import {
+  resetCreateFeaturePiSession,
+  setCreateFeaturePiSession,
+} from "../src/agent/runtime/createFeatureSession.js";
+import type { RunSpecialistParams } from "../src/review/orchestrator/specialistRun.js";
+import type { TickProgressCommentArgs } from "../src/review/orchestrator/stubTick.js";
+import {
+  runOrchestratedPrReview,
+  type OrchestratedReviewRunParams,
+} from "../src/review/orchestrator/orchestratorRun.js";
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -31,52 +53,84 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-const testState = vi.hoisted(() => ({
-  outcomes: new Map<string, Deferred<SpecialistOutcome>>(),
-  publishOrder: [] as string[],
-  activeSource: null as SpecialistId | null,
-  ledger: null as FindingLedger | null,
-  summaryNotes: [] as Array<string | undefined>,
+type OrchestratorTickRecord = {
+  progressRevision: number;
+  kind: string;
+  recon?: TickProgressCommentArgs["tickState"]["recon"];
+  specialists?: TickProgressCommentArgs["tickState"]["specialists"];
+};
+
+type OrchestratorSendDelay = {
+  readonly phase: "recon" | "judgment" | "synthesis";
+  readonly ms: number;
+};
+
+type NamedTool = {
+  readonly name: string;
+};
+
+type OrchestratorTestState = {
+  outcomes: Map<string, Deferred<SpecialistOutcome>>;
+  publishOrder: string[];
+  activeSource: SpecialistId | null;
+  ledger: FindingLedger | null;
+  summaryNotes: Array<string | undefined>;
+  failureNotices: number;
+  refreshes: number;
+  briefMessages: string[];
+  signals: Map<string, AbortSignal>;
+  sessionAborts: number;
+  sessionDisposals: number;
+  judgmentFailuresRemaining: number;
+  judgmentExecutorFailuresRemaining: number;
+  lastSessionToolNames: string[];
+  reconSubmitsBrief: boolean;
+  deterministicSummaries: ReviewPayload[];
+  deterministicCiAuthors: Array<CiSummaryAuthor | undefined>;
+  summaryToolCiAuthors: Array<CiSummaryAuthor | undefined>;
+  ticks: OrchestratorTickRecord[];
+  createError: Error | null;
+  createDelayMs: number;
+  sendDelay: OrchestratorSendDelay | null;
+  publishedBatchCount: number;
+  synthesisPublishesSummary: boolean;
+  progressUrlResolvers: Array<() => Promise<string | undefined>>;
+};
+
+const testState: OrchestratorTestState = {
+  outcomes: new Map(),
+  publishOrder: [],
+  activeSource: null,
+  ledger: null,
+  summaryNotes: [],
   failureNotices: 0,
   refreshes: 0,
-  briefMessages: [] as string[],
-  signals: new Map<string, AbortSignal>(),
+  briefMessages: [],
+  signals: new Map(),
   sessionAborts: 0,
   sessionDisposals: 0,
   judgmentFailuresRemaining: 0,
   judgmentExecutorFailuresRemaining: 0,
-  lastSessionToolNames: [] as string[],
+  lastSessionToolNames: [],
   reconSubmitsBrief: true,
-  deterministicSummaries: [] as Array<Record<string, unknown>>,
-  deterministicCiAuthors: [] as Array<unknown>,
-  summaryToolCiAuthors: [] as Array<unknown>,
-  ticks: [] as Array<{
-    readonly progressRevision: number;
-    readonly kind: string;
-    readonly recon?: string;
-    readonly specialists?: Record<string, { phase: string }>;
-  }>,
-  createError: null as Error | null,
+  deterministicSummaries: [],
+  deterministicCiAuthors: [],
+  summaryToolCiAuthors: [],
+  ticks: [],
+  createError: null,
   createDelayMs: 0,
-  sendDelay: null as {
-    readonly phase: "recon" | "judgment" | "synthesis";
-    readonly ms: number;
-  } | null,
+  sendDelay: null,
   publishedBatchCount: 0,
   synthesisPublishesSummary: true,
-  progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
-}));
+  progressUrlResolvers: [],
+};
 
-const publishRecordMocks = vi.hoisted(() => ({
-  getSummaryCommentGithubId: vi.fn<() => Promise<number | null>>(async () => 99),
-}));
+const getSummaryCommentGithubId = vi.fn(async (): Promise<number | null> => 99);
+const runner = { createSession: vi.fn() };
 
-vi.mock("../src/agentWork/publishRecordRepository.js", () => publishRecordMocks);
-
-vi.mock("../src/review/run/reviewRunSetup.js", () => ({
-  buildReviewRunSetup: vi.fn(() => ({
-    systemPrompt: "legacy prompt must not be used",
-    userContent: "Inspect the pull request.",
+function fakeReviewRunSetup(): ReviewRunSetup {
+  return {
+    orchestratorUserContent: "Inspect the pull request.",
     workspaceTools: { piTools: [], executors: {} },
     cachedDiffIndex: {
       files: new Map(),
@@ -90,151 +144,8 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
       snapshot: () => [],
     },
     prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
-  })),
-}));
-
-vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
-  runSpecialist: vi.fn(
-    (params: {
-      readonly specialist: SpecialistId;
-      readonly briefMessage: string;
-      readonly signal?: AbortSignal;
-    }) => {
-      const outcome = testState.outcomes.get(params.specialist);
-      if (!outcome) throw new Error(`Missing ${params.specialist} outcome`);
-      testState.briefMessages.push(params.briefMessage);
-      if (params.signal) testState.signals.set(params.specialist, params.signal);
-      return new Promise<SpecialistOutcome>((resolve) => {
-        outcome.promise.then(resolve);
-        params.signal?.addEventListener("abort", () => resolve(failed(params.specialist)), {
-          once: true,
-        });
-      });
-    },
-  ),
-}));
-
-vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
-  buildPublishThreadTool: vi.fn(
-    (params: { resolveProgressCommentUrl: () => Promise<string | undefined> }) => {
-      testState.progressUrlResolvers.push(params.resolveProgressCommentUrl);
-      testState.ledger = createFindingLedger();
-      return {
-        piTool: { name: "publish_thread", description: "publish", parameters: {} },
-        executor: vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
-          if (!testState.activeSource) throw new Error("missing active source");
-          testState.publishOrder.push(testState.activeSource);
-          testState.publishedBatchCount += 1;
-          const ledger = testState.ledger ?? createFindingLedger();
-          const accepted = (args.findings ?? []).map((item, index) => ({
-            kind: "posted" as const,
-            source: testState.activeSource ?? "correctness",
-            placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
-            canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
-            reviewId: testState.publishOrder.length,
-          }));
-          testState.ledger = {
-            ...ledger,
-            accepted: [...ledger.accepted, ...accepted],
-            postedInlineCount: ledger.postedInlineCount + accepted.length,
-            threadCallCount: ledger.threadCallCount + 1,
-          };
-          return {
-            kind: "empty",
-            delta: {
-              accepted: [],
-              suppressionFingerprints: [],
-              inlineReviewIds: [],
-              postedInlineCount: 0,
-              threadCallCount: 1,
-              threadBudgetExhausted: false,
-            },
-            publishedThreadOverlapHints: [],
-          };
-        }),
-        setSource: (source: SpecialistId) => {
-          testState.activeSource = source;
-        },
-        getLedger: () => testState.ledger ?? createFindingLedger(),
-        getPublishedBatchCount: () => testState.publishedBatchCount,
-        getStopReason: () => null,
-      };
-    },
-  ),
-}));
-
-vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
-  createPublishSummaryState: vi.fn(() => ({ published: false, lastValidationError: null })),
-  buildPublishSummaryTool: vi.fn(
-    (params: {
-      state: { published: boolean };
-      getCoverage: () => ReviewCoverage;
-      ciAuthor?: unknown;
-    }) => {
-      testState.summaryToolCiAuthors.push(params.ciAuthor);
-      return {
-        piTool: { name: "publish_summary", description: "summary", parameters: {} },
-        executor: vi.fn(async () => {
-          testState.publishOrder.push("summary");
-          const coverage = params.getCoverage();
-          testState.summaryNotes.push(coverage.kind === "partial" ? coverage.note : undefined);
-          params.state.published = true;
-          return { ok: true, summaryCommentId: 9 };
-        }),
-      };
-    },
-  ),
-}));
-
-vi.mock("../src/review/orchestrator/stubTick.js", () => ({
-  tickProgressComment: vi.fn(
-    async (params: {
-      progressRevision: number;
-      tickState: {
-        kind: string;
-        recon?: string;
-        specialists?: Record<string, { phase: string }>;
-      };
-    }) => {
-      testState.ticks.push({
-        progressRevision: params.progressRevision,
-        kind: params.tickState.kind,
-        recon: params.tickState.recon,
-        specialists: params.tickState.specialists,
-      });
-    },
-  ),
-}));
-
-vi.mock("../src/review/run/reviewRunFallback.js", () => ({
-  publishReviewRunFailureNotice: vi.fn(async () => {
-    testState.failureNotices += 1;
-  }),
-}));
-
-vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
-  publishReviewSummaryOnly: vi.fn(
-    async (params: { readonly payload: Record<string, unknown>; readonly ciAuthor?: unknown }) => {
-      testState.publishOrder.push("summary");
-      testState.deterministicSummaries.push(params.payload);
-      testState.deterministicCiAuthors.push(params.ciAuthor);
-      return { kind: "published", summaryCommentId: 10 };
-    },
-  ),
-}));
-
-const runner = vi.hoisted(() => ({
-  createSession: vi.fn(),
-}));
-
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
-  createFeaturePiSession: runner.createSession,
-}));
-
-import {
-  runOrchestratedPrReview,
-  type OrchestratedReviewRunParams,
-} from "../src/review/orchestrator/orchestratorRun.js";
+  };
+}
 
 const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/orchestrator-test",
@@ -301,6 +212,115 @@ function failed(specialist: SpecialistId, message = `${specialist} failed`): Spe
   };
 }
 
+function spyOrchestratorSeams(): void {
+  vi.spyOn(publishRecord, "getSummaryCommentGithubId").mockImplementation(
+    getSummaryCommentGithubId,
+  );
+  vi.spyOn(reviewRunSetup, "buildReviewRunSetup").mockImplementation(() => fakeReviewRunSetup());
+  vi.spyOn(specialistRun, "runSpecialist").mockImplementation((params: RunSpecialistParams) => {
+    const outcome = testState.outcomes.get(params.specialist);
+    if (!outcome) throw new Error(`Missing ${params.specialist} outcome`);
+    testState.briefMessages.push(params.briefMessage);
+    if (params.signal) testState.signals.set(params.specialist, params.signal);
+    return new Promise<SpecialistOutcome>((resolve) => {
+      outcome.promise.then(resolve);
+      params.signal?.addEventListener("abort", () => resolve(failed(params.specialist)), {
+        once: true,
+      });
+    });
+  });
+  vi.spyOn(publishThreadTool, "buildPublishThreadTool").mockImplementation((params) => {
+    testState.progressUrlResolvers.push(params.resolveProgressCommentUrl);
+    testState.ledger = createFindingLedger();
+    return {
+      piTool: { name: "publish_thread", description: "publish", parameters: {} },
+      executor: vi.fn(async (_args: JsonObject) => {
+        if (!testState.activeSource) throw new Error("missing active source");
+        const source = testState.activeSource;
+        testState.publishOrder.push(source);
+        testState.publishedBatchCount += 1;
+        const ledger = testState.ledger ?? createFindingLedger();
+        const published = finding(source);
+        testState.ledger = {
+          ...ledger,
+          accepted: [
+            ...ledger.accepted,
+            {
+              kind: "posted",
+              source,
+              placement: {
+                finding: published,
+                inlineLine: published.startLine,
+                inlinePosted: true,
+              },
+              canonicalFingerprint: `${source}-fp`,
+              reviewId: testState.publishedBatchCount,
+            },
+          ],
+          postedInlineCount: ledger.postedInlineCount + 1,
+          threadCallCount: ledger.threadCallCount + 1,
+        };
+        return {
+          kind: "empty" as const,
+          delta: {
+            accepted: [],
+            suppressionFingerprints: [],
+            inlineReviewIds: [],
+            postedInlineCount: 0,
+            threadCallCount: 1,
+            threadBudgetExhausted: false,
+          },
+          publishedThreadOverlapHints: [],
+        };
+      }),
+      setSource: (source: SpecialistId) => {
+        testState.activeSource = source;
+      },
+      getLedger: () => testState.ledger ?? createFindingLedger(),
+      getPublishedBatchCount: () => testState.publishedBatchCount,
+      getStopReason: () => null,
+    };
+  });
+  vi.spyOn(publishSummaryTool, "createPublishSummaryState").mockImplementation(() => ({
+    published: false,
+    lastValidationError: null,
+    stoppedReason: null,
+  }));
+  vi.spyOn(publishSummaryTool, "buildPublishSummaryTool").mockImplementation((params) => {
+    testState.summaryToolCiAuthors.push(params.ciAuthor);
+    return {
+      piTool: { name: "publish_summary", description: "summary", parameters: {} },
+      executor: vi.fn(async () => {
+        testState.publishOrder.push("summary");
+        const coverage = params.getCoverage();
+        testState.summaryNotes.push(coverage.kind === "partial" ? coverage.note : undefined);
+        params.state.published = true;
+        return { ok: true, summaryCommentId: 9 };
+      }),
+    };
+  });
+  vi.spyOn(stubTick, "tickProgressComment").mockImplementation(
+    async (params: TickProgressCommentArgs) => {
+      testState.ticks.push({
+        progressRevision: params.progressRevision,
+        kind: params.tickState.kind,
+        recon: params.tickState.recon,
+        specialists: params.tickState.specialists,
+      });
+    },
+  );
+  vi.spyOn(reviewRunFallback, "publishReviewRunFailureNotice").mockImplementation(async () => {
+    testState.failureNotices += 1;
+  });
+  vi.spyOn(publishSummaryOnly, "publishReviewSummaryOnly").mockImplementation(async (params) => {
+    testState.publishOrder.push("summary");
+    testState.deterministicSummaries.push(params.payload);
+    testState.deterministicCiAuthors.push(params.ciAuthor);
+    return { kind: "published", summaryCommentId: 10 };
+  });
+  setCreateFeaturePiSession(runner.createSession);
+}
+
 function params(): OrchestratedReviewRunParams {
   const now = Date.now();
   return {
@@ -335,7 +355,7 @@ function coordinatedRecordPublishStep() {
     vi.fn(async () => undefined),
     {
       summaryCommentCoordination: {
-        pool: Object.create(null) as Pool,
+        pool: new Pool({ connectionString: "postgres://127.0.0.1:1/unused" }),
         workItemId: "wi-1",
         resourceKey: "o/r#1",
       },
@@ -360,6 +380,7 @@ function hardDeadlineParams(): OrchestratedReviewRunParams {
 
 describe("runOrchestratedPrReview", () => {
   beforeEach(() => {
+    spyOrchestratorSeams();
     testState.outcomes.clear();
     testState.publishOrder.length = 0;
     testState.activeSource = null;
@@ -383,8 +404,8 @@ describe("runOrchestratedPrReview", () => {
     testState.sendDelay = null;
     testState.publishedBatchCount = 0;
     testState.progressUrlResolvers.length = 0;
-    publishRecordMocks.getSummaryCommentGithubId.mockReset();
-    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(99);
+    getSummaryCommentGithubId.mockReset();
+    getSummaryCommentGithubId.mockResolvedValue(99);
     testState.synthesisPublishesSummary = true;
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.set(specialist, deferred());
@@ -396,9 +417,7 @@ describe("runOrchestratedPrReview", () => {
         await new Promise<void>((resolve) => setTimeout(resolve, testState.createDelayMs));
       }
       const executors = sessionParams.executors;
-      testState.lastSessionToolNames = sessionParams.tools.map(
-        (tool: { name: string }) => tool.name,
-      );
+      testState.lastSessionToolNames = sessionParams.tools.map((tool: NamedTool) => tool.name);
       const session: Pick<PiSession, "role" | "send" | "abort" | "dispose"> = {
         role: "orchestrator",
         send: vi.fn(async (prompt) => {
@@ -464,6 +483,8 @@ describe("runOrchestratedPrReview", () => {
   });
 
   afterEach(() => {
+    resetCreateFeaturePiSession();
+    vi.restoreAllMocks();
     vi.useRealTimers();
     evlog.initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
@@ -483,8 +504,8 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
-    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
-    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
+    expect(v.is(v.function(), testState.summaryToolCiAuthors[0])).toBe(true);
+    expect(v.is(v.function(), testState.deterministicCiAuthors[0])).toBe(true);
   });
 
   it("returns before returnByMs when session creation crosses modelStopAtMs", async () => {
@@ -493,7 +514,7 @@ describe("runOrchestratedPrReview", () => {
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
     }
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
+    let result: ReviewRunResult | undefined;
     const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
       result = value;
       return value;
@@ -514,7 +535,7 @@ describe("runOrchestratedPrReview", () => {
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
     }
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
+    let result: ReviewRunResult | undefined;
     const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
       result = value;
       return value;
@@ -531,7 +552,7 @@ describe("runOrchestratedPrReview", () => {
   it("abandons a judgment send at modelStopAtMs and preserves the report", async () => {
     vi.useFakeTimers();
     testState.sendDelay = { phase: "judgment", ms: 200 };
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
+    let result: ReviewRunResult | undefined;
     const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
       result = value;
       return value;
@@ -554,7 +575,7 @@ describe("runOrchestratedPrReview", () => {
   it("abandons synthesis at modelStopAtMs and publishes a deterministic summary", async () => {
     vi.useFakeTimers();
     testState.sendDelay = { phase: "synthesis", ms: 200 };
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
+    let result: ReviewRunResult | undefined;
     const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
       result = value;
       return value;
@@ -593,7 +614,7 @@ describe("runOrchestratedPrReview", () => {
       "security",
       "summary",
     ]);
-    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
+    expect(v.is(v.function(), testState.summaryToolCiAuthors[0])).toBe(true);
   });
 
   it("records every successful orchestrator turn and only new thread batches", async () => {
@@ -692,7 +713,7 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
     expect(testState.failureNotices).toBe(0);
     expect(testState.deterministicSummaries).toHaveLength(1);
-    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
+    expect(v.is(v.function(), testState.deterministicCiAuthors[0])).toBe(true);
   });
 
   it("falls back to a deterministic brief when recon never submits one", async () => {
@@ -723,7 +744,7 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
     expect(testState.sessionAborts).toBe(1);
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
-    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
+    expect(v.is(v.function(), testState.deterministicCiAuthors[0])).toBe(true);
   });
 
   it("preserves a report when judgment publish_thread throws", async () => {
@@ -848,7 +869,7 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("resolves the current progress comment after orchestration starts", async () => {
-    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(123);
+    getSummaryCommentGithubId.mockResolvedValue(123);
     const recordPublishStep = coordinatedRecordPublishStep();
     const run = runOrchestratedPrReview({
       ...params(),
@@ -868,9 +889,7 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("re-reads the progress comment on every batch instead of memoizing the first", async () => {
-    publishRecordMocks.getSummaryCommentGithubId
-      .mockResolvedValueOnce(99)
-      .mockResolvedValueOnce(123);
+    getSummaryCommentGithubId.mockResolvedValueOnce(99).mockResolvedValueOnce(123);
     const recordPublishStep = coordinatedRecordPublishStep();
     const run = runOrchestratedPrReview({
       ...params(),
@@ -882,7 +901,7 @@ describe("runOrchestratedPrReview", () => {
     const resolveUrl = testState.progressUrlResolvers[0];
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-99");
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-123");
-    expect(publishRecordMocks.getSummaryCommentGithubId).toHaveBeenCalledTimes(2);
+    expect(getSummaryCommentGithubId).toHaveBeenCalledTimes(2);
 
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -891,7 +910,7 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("falls back to the progress comment hint when the live read fails", async () => {
-    publishRecordMocks.getSummaryCommentGithubId.mockRejectedValueOnce(new Error("db down"));
+    getSummaryCommentGithubId.mockRejectedValueOnce(new Error("db down"));
     const recordPublishStep = coordinatedRecordPublishStep();
     const run = runOrchestratedPrReview({
       ...params(),
@@ -910,7 +929,7 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("falls back to the progress comment hint when the live read finds no record", async () => {
-    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(null);
+    getSummaryCommentGithubId.mockResolvedValue(null);
     const recordPublishStep = coordinatedRecordPublishStep();
     const run = runOrchestratedPrReview({
       ...params(),
@@ -929,7 +948,7 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("resolves no progress comment url when neither the live read nor the hint has one", async () => {
-    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(null);
+    getSummaryCommentGithubId.mockResolvedValue(null);
     const recordPublishStep = coordinatedRecordPublishStep();
     const run = runOrchestratedPrReview({
       ...params(),
@@ -956,7 +975,7 @@ describe("runOrchestratedPrReview", () => {
     await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
     const resolveUrl = testState.progressUrlResolvers[0];
     await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-99");
-    expect(publishRecordMocks.getSummaryCommentGithubId).not.toHaveBeenCalled();
+    expect(getSummaryCommentGithubId).not.toHaveBeenCalled();
 
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));

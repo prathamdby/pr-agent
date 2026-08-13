@@ -1,40 +1,31 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const authFn = vi.fn();
-const getAuthenticated = vi.fn();
-const getByUsername = vi.fn();
-
-vi.mock("@octokit/auth-app", () => ({
-  createAppAuth: vi.fn(() => authFn),
-}));
-
-vi.mock("@octokit/plugin-retry", () => ({
-  retry: vi.fn(),
-}));
-
-vi.mock("@octokit/plugin-throttling", () => ({
-  throttling: vi.fn(),
-}));
-
-vi.mock("@octokit/rest", () => ({
-  Octokit: class {
-    static plugin() {
-      return this;
-    }
-
-    readonly rest = {
-      apps: { getAuthenticated },
-      users: { getByUsername },
-    };
-  },
-}));
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../src/errors/appError.js";
 import {
   clearAppBotIdentityCacheForTest,
+  clearInstallationOctokitCacheForTest,
   getAppBotIdentity,
   prewarmAppBotIdentity,
+  resetCreateAppAuth,
+  resetInstallationOctokitFactory,
+  setCreateAppAuth,
+  setInstallationOctokitFactory,
+  type InstallationOctokitClient,
 } from "../src/github/appAuth.js";
+
+const authFn = vi.fn(async () => ({ token: "jwt" }));
+const getAuthenticated = vi.fn();
+const getByUsername = vi.fn();
+
+function fakeOctokit(token: string | undefined): InstallationOctokitClient {
+  return {
+    rest: {
+      apps: { getAuthenticated },
+      users: { getByUsername },
+    },
+    hook: { after: vi.fn() },
+    token,
+  };
+}
 
 const cfg = { githubAppId: "111", githubAppPrivateKey: "k" } as const;
 
@@ -55,9 +46,18 @@ describe("app bot identity cache", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearAppBotIdentityCacheForTest();
+    clearInstallationOctokitCacheForTest();
+    setCreateAppAuth(() => authFn);
+    setInstallationOctokitFactory(fakeOctokit);
     authFn.mockResolvedValue({ token: "jwt" });
     getAuthenticated.mockResolvedValue({ data: { slug: "pr-agent" } });
     getByUsername.mockResolvedValue({ data: { id: 123, login: "pr-agent[bot]" } });
+  });
+
+  afterEach(() => {
+    resetCreateAppAuth();
+    resetInstallationOctokitFactory();
+    clearInstallationOctokitCacheForTest();
   });
 
   it("coalesces concurrent cold app identity lookups", async () => {
@@ -102,9 +102,10 @@ describe("app bot identity cache", () => {
   it("throws github.missing_app_slug when /app response has no slug", async () => {
     getAuthenticated.mockResolvedValueOnce({ data: {} });
 
-    await expect(getAppBotIdentity(cfg)).rejects.toSatisfy((error: unknown) => {
+    await expect(getAppBotIdentity(cfg)).rejects.toSatisfy((error) => {
       expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("github.missing_app_slug");
+      if (!(error instanceof AppError)) return false;
+      expect(error.code).toBe("github.missing_app_slug");
       return true;
     });
   });

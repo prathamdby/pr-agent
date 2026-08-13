@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import {
-  deleteExpiredCodeIndexSnapshots,
   ensureBuildingSnapshot,
+  deleteExpiredCodeIndexSnapshots,
 } from "../src/codeIndex/repository.js";
 import { RETENTION_DELETE_BATCH_SIZE } from "../src/settings/index.js";
+import { createQueryPool } from "./helpers/fakePool.js";
 
 describe("ensureBuildingSnapshot", () => {
   it("rebuilds when ready snapshot has a different chunker_version", async () => {
@@ -21,7 +21,7 @@ describe("ensureBuildingSnapshot", () => {
       }
       throw new Error(`unexpected query: ${text}`);
     });
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryPool(query);
 
     const snapshot = await ensureBuildingSnapshot(pool, {
       installationId: 1,
@@ -44,9 +44,9 @@ describe("deleteExpiredCodeIndexSnapshots", () => {
       expect(text).toContain("updated_at < now()");
       const batch = batches[calls++];
       if (batch === undefined) throw new Error("unexpected extra code_index_snapshots query");
-      return { rowCount: batch };
+      return { rowCount: batch, rows: [] };
     });
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryPool(query);
 
     const deleted = await deleteExpiredCodeIndexSnapshots(
       pool,

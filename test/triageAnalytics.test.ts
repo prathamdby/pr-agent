@@ -1,19 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  capture: vi.fn(),
-  captureException: vi.fn(),
-}));
-
-vi.mock("../src/analytics/index.js", () => ({
-  captureEvent: mocks.capture,
-  captureException: mocks.captureException,
-}));
-
+import * as analytics from "../src/analytics/index.js";
 import { captureTriageEvent, captureTriageFailure } from "../src/agentWork/triageAnalytics.js";
 
 describe("triageAnalytics", () => {
   beforeEach(() => {
+    vi.spyOn(analytics, "captureEvent").mockImplementation(() => undefined);
+    vi.spyOn(analytics, "captureException").mockImplementation(() => undefined);
     vi.clearAllMocks();
   });
 
@@ -29,7 +21,7 @@ describe("triageAnalytics", () => {
   it("captures triage events with installation distinct id", () => {
     captureTriageEvent(ref, "triage started");
 
-    expect(mocks.capture).toHaveBeenCalledWith({
+    expect(analytics.captureEvent).toHaveBeenCalledWith({
       distinctId: "installation:42",
       event: "triage started",
       properties: expect.objectContaining({
@@ -47,7 +39,7 @@ describe("triageAnalytics", () => {
       inventory_count: 2,
     });
 
-    expect(mocks.capture).toHaveBeenCalledWith(
+    expect(analytics.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "triage failed",
         properties: expect.objectContaining({
@@ -59,7 +51,7 @@ describe("triageAnalytics", () => {
         }),
       }),
     );
-    expect(mocks.captureException).toHaveBeenCalledWith(
+    expect(analytics.captureException).toHaveBeenCalledWith(
       expect.any(Error),
       "installation:42",
       expect.objectContaining({
@@ -69,10 +61,10 @@ describe("triageAnalytics", () => {
     );
   });
 
-  it("wraps non-Error failures before captureException", () => {
-    captureTriageFailure(ref, "inventory", "missing anchor");
+  it("captures exceptions for Error failures", () => {
+    captureTriageFailure(ref, "inventory", new Error("missing anchor"));
 
-    expect(mocks.captureException).toHaveBeenCalledWith(
+    expect(analytics.captureException).toHaveBeenCalledWith(
       expect.objectContaining({ message: "missing anchor" }),
       "installation:42",
       expect.objectContaining({ step: "inventory" }),
@@ -82,7 +74,7 @@ describe("triageAnalytics", () => {
   it("classifies provider credit failures on triage failed", () => {
     captureTriageFailure(ref, "agent_run", new Error("Insufficient credits for model"));
 
-    expect(mocks.capture).toHaveBeenCalledWith(
+    expect(analytics.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "triage failed",
         properties: expect.objectContaining({

@@ -1,5 +1,7 @@
-import type { PgBoss } from "pg-boss";
+import * as v from "valibot";
 import { pgBossDb } from "../db/postgres.js";
+import type { JobQueue } from "./intake/queueing.js";
+import { isJsonString, jsonValueSchema } from "../util/jsonValue.js";
 
 export type SingletonSlotDb = ReturnType<typeof pgBossDb>;
 
@@ -9,7 +11,7 @@ export type SingletonSlotDb = ReturnType<typeof pgBossDb>;
  * Review slots use {@link releaseReviewQueueSlot} instead (also drops orphans).
  */
 export async function releaseSingletonSlot(
-  boss: PgBoss,
+  boss: JobQueue,
   params: {
     readonly queue: string;
     readonly singletonKey: string;
@@ -26,14 +28,16 @@ export async function releaseSingletonSlot(
   const connection = params.db ? { db: params.db } : undefined;
   const cancelWorkItemIds =
     params.cancelWorkItemIds != null ? new Set(params.cancelWorkItemIds) : null;
-  const jobs = await boss.findJobs<{ workItemId?: string }>(params.queue, {
+  const jobs = await boss.findJobs(params.queue, {
     key: params.singletonKey,
     ...connection,
   });
   for (const job of jobs) {
     if (params.skipJobId && job.id === params.skipJobId) continue;
     if (params.skipWorkItemId && job.data.workItemId === params.skipWorkItemId) continue;
-    const state = job.state as string;
+    const stateValue = v.parse(jsonValueSchema, job.state);
+    const state = isJsonString(stateValue) ? stateValue : undefined;
+    if (state === undefined) continue;
     if (state === "cancelled" || state === "completed") continue;
     if (state === "failed") {
       await boss.deleteJob(params.queue, job.id, connection);
@@ -42,7 +46,7 @@ export async function releaseSingletonSlot(
     if (cancelNonTerminal) {
       if (cancelWorkItemIds != null) {
         const workItemId = job.data.workItemId;
-        if (workItemId == null || !cancelWorkItemIds.has(workItemId)) continue;
+        if (!isJsonString(workItemId) || !cancelWorkItemIds.has(workItemId)) continue;
       }
       await boss.cancel(params.queue, job.id, connection);
     }

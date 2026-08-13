@@ -30,13 +30,15 @@ export const specialistBriefSchema = v.object({
 
 export type SpecialistBrief = v.InferOutput<typeof specialistBriefSchema>;
 
-export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
+export type SpecialistBriefTool = {
   readonly piTool: PiTool;
   readonly executor: AgentRunnerToolExecutor;
   readonly getBrief: () => SpecialistBrief | null;
   readonly getValidationError: () => string | null;
   readonly clearValidationError: () => void;
-} {
+};
+
+export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): SpecialistBriefTool {
   let brief: SpecialistBrief | null = null;
   let validationError: string | null = null;
   const piTool: PiTool = {

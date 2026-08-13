@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 const intakeCfg = makeTestConfig();
 import { Effect } from "effect";
-import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
+import * as v from "valibot";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import type { AckJobData } from "../src/agentWork/types.js";
 import { createOperationLogger, initEvlog } from "../src/evlog.js";
 import {
   ACK_QUEUE,
@@ -17,6 +17,15 @@ import {
   TRIAGE_QUEUE,
 } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
+import type { IntakeClient } from "../src/db/postgres.js";
+import { jsonObjectSchema, type JsonValue } from "../src/util/jsonValue.js";
+import {
+  createJobQueue,
+  createRecordingBoss,
+  type RecordedBossJob,
+} from "./helpers/recordingBoss.js";
+import { createQueryClient, createUnusedPool } from "./helpers/fakePool.js";
+import type { JobQueue, QueueJob } from "../src/agentWork/intake/queueing.js";
 
 function makeSlashInput(body: string) {
   const command = body.slice(1).split(/\s+/, 1)[0] ?? "";
@@ -39,15 +48,29 @@ function makeSlashInput(body: string) {
   };
 }
 
-function makeClient() {
-  return {
-    query: vi.fn(async (sql: string) => {
+function makeClient(): IntakeClient {
+  return createQueryClient(
+    vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-1" }] };
       }
       throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
     }),
-  } as unknown as PoolClient;
+  );
+}
+
+function ackData(jobs: readonly RecordedBossJob[]): AckJobData {
+  const data = jobs[0]?.data;
+  expect(data?.kind).toBe("ack");
+  if (data?.kind !== "ack") {
+    throw new Error("expected ack job");
+  }
+  return data;
+}
+
+function slashScheduler(boss: JobQueue, client: IntakeClient) {
+  vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+  return makeAgentWorkScheduler(createUnusedPool(), boss, intakeCfg);
 }
 
 describe("applySlashCommandIntake", () => {
@@ -61,17 +84,9 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("replies to unknown slash commands", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const client = makeClient();
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const scheduler = slashScheduler(boss, makeClient());
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -101,17 +116,9 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("still replies to help", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown>; options?: unknown }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>, options?: unknown) => {
-        sentJobs.push({ queue, data, options });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const client = makeClient();
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const scheduler = slashScheduler(boss, makeClient());
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -122,7 +129,7 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
     expect(sentJobs[0]?.options).toEqual(expect.objectContaining({ priority: 100 }));
-    expect(sentJobs[0]?.data.reply).toEqual({
+    expect(ackData(sentJobs).reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
       body: SLASH_HELP_BODY,
     });
@@ -132,17 +139,9 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("routes removed review lens commands to the unknown-command reply", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const client = makeClient();
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const scheduler = slashScheduler(boss, makeClient());
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -172,17 +171,12 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("enqueues a triage work item and ack", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const workItemInserts: unknown[][] = [];
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const workItemInserts: JsonValue[][] = [];
     let workItemInsertSql = "";
-    const client = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+    const client = createQueryClient(
+      vi.fn(async (sql: string, params?: JsonValue[]) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SELECT id, payload")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) {
@@ -192,10 +186,8 @@ describe("applySlashCommandIntake", () => {
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -216,15 +208,10 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("dedups an active triage work item", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id, payload")) {
@@ -245,10 +232,8 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -258,21 +243,16 @@ describe("applySlashCommandIntake", () => {
 
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
-    expect(sentJobs[0]?.data.reply).toMatchObject({
+    expect(ackData(sentJobs).reply).toMatchObject({
       target: { kind: "prConversation", prNumber: 7 },
     });
   });
 
   it("acks full-run-in-progress when a thread /triage arrives during full triage", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id, payload")) {
@@ -293,10 +273,8 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -320,23 +298,18 @@ describe("applySlashCommandIntake", () => {
     );
 
     expect(sentJobs).toHaveLength(1);
-    expect(sentJobs[0]?.data.reply).toMatchObject({
+    expect(ackData(sentJobs).reply).toMatchObject({
       target: { kind: "inlineReviewThread", prNumber: 7, inReplyToCommentId: 50 },
     });
-    expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toContain("full-PR");
+    expect(ackData(sentJobs).reply?.body).toContain("full-PR");
   });
 
   it("stores triage scope in the work item payload", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const workItemInserts: unknown[][] = [];
-    const client = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const workItemInserts: JsonValue[][] = [];
+    const client = createQueryClient(
+      vi.fn(async (sql: string, params?: JsonValue[]) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SELECT id, payload")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) {
@@ -345,10 +318,8 @@ describe("applySlashCommandIntake", () => {
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -364,7 +335,7 @@ describe("applySlashCommandIntake", () => {
       ),
     );
 
-    const payload = JSON.parse(String(workItemInserts[0]?.at(-1)));
+    const payload = v.parse(jsonObjectSchema, JSON.parse(String(workItemInserts[0]?.at(-1))));
     expect(payload.scope).toBe("all");
     expect(payload.needsThreadRootResolution).toBeUndefined();
     expect(payload.replyTarget).toEqual({ kind: "prConversation", prNumber: 7 });
@@ -372,37 +343,28 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("clears failed and orphan review singleton holders before enqueueing /review", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const findJobs = vi.fn(async () => [
-      { id: "failed-blocker", state: "failed", data: { workItemId: "wi-old" } },
-      { id: "orphan-active", state: "active", data: { workItemId: "wi-done" } },
-    ]);
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-      findJobs,
-      deleteJob,
-      cancel,
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "failed-blocker", state: "failed", data: { workItemId: "wi-old" } },
+        { id: "orphan-active", state: "active", data: { workItemId: "wi-done" } },
+      ],
+    );
+    const deleteJob = vi.fn(async () => ({}));
+    const cancel = vi.fn(async () => ({}));
+    const boss = createJobQueue({ findJobs, deleteJob, cancel }, sentJobs);
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "work-review" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
-          // Orphans: neither holder is queued/running.
           return { rows: [] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -426,25 +388,19 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("acks already-in-progress when slash review create loses the uniqueness race", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const findJobs = vi.fn(async () => [
-      { id: "orphan-active", state: "active", data: { workItemId: "wi-terminal" } },
-      { id: "live-created", state: "created", data: { workItemId: "winner-review" } },
-      { id: "failed-blocker", state: "failed", data: { workItemId: "wi-fail" } },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-      findJobs,
-      cancel,
-      deleteJob,
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "orphan-active", state: "active", data: { workItemId: "wi-terminal" } },
+        { id: "live-created", state: "created", data: { workItemId: "winner-review" } },
+        { id: "failed-blocker", state: "failed", data: { workItemId: "wi-fail" } },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const boss = createJobQueue({ findJobs, cancel, deleteJob }, sentJobs);
+    const client = createQueryClient(
+      vi.fn(async (sql: string, params?: JsonValue[]) => {
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
@@ -458,17 +414,15 @@ describe("applySlashCommandIntake", () => {
           return { rows: [] };
         }
         if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
-          const ids = params?.[0] as string[];
-          expect(ids).toEqual(expect.arrayContaining(["wi-terminal", "winner-review", "wi-fail"]));
-          // Only the race winner remains active; terminal/failed ids are orphans.
+          expect(params?.[0]).toEqual(
+            expect.arrayContaining(["wi-terminal", "winner-review", "wi-fail"]),
+          );
           return { rows: [{ id: "winner-review" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -485,24 +439,19 @@ describe("applySlashCommandIntake", () => {
     expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "live-created", expect.anything());
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
-    expect(sentJobs[0]?.data.progress).toBeUndefined();
-    expect(sentJobs[0]?.data.workItemId).toBeUndefined();
-    expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toContain("already queued");
+    expect(ackData(sentJobs).progress).toBeUndefined();
+    expect(ackData(sentJobs).workItemId).toBeUndefined();
+    expect(ackData(sentJobs).reply?.body).toContain("already queued");
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "agent_work_enqueued" }),
     );
   });
 
   it("acks already-in-progress when slash describe create loses the uniqueness race", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sentJobs);
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
@@ -517,10 +466,8 @@ describe("applySlashCommandIntake", () => {
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -531,36 +478,26 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
     expect(sentJobs.map((j) => j.queue)).not.toContain(DESCRIPTION_QUEUE);
-    expect(sentJobs[0]?.data.progress).toBeUndefined();
-    expect(sentJobs[0]?.data.workItemId).toBeUndefined();
-    expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toBe(
-      DESCRIPTION_ALREADY_IN_PROGRESS,
-    );
+    expect(ackData(sentJobs).progress).toBeUndefined();
+    expect(ackData(sentJobs).workItemId).toBeUndefined();
+    expect(ackData(sentJobs).reply?.body).toBe(DESCRIPTION_ALREADY_IN_PROGRESS);
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "agent_work_enqueued" }),
     );
   });
 
   it("acks when /cancel finds no active review", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-      findJobs: vi.fn(async () => []),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createJobQueue({ findJobs: vi.fn(async () => []) }, sentJobs);
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
         if (sql.includes("SET cancel_requested_at")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -587,22 +524,16 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("cancels an active review and enqueues cancelProgress ack", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const findJobs = vi.fn(async () => [
-      { id: "live-job", state: "created", data: { workItemId: "wi-review" } },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-      findJobs,
-      cancel,
-      deleteJob: vi.fn(async () => ({ rows: [] })),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "live-job", state: "created", data: { workItemId: "wi-review" } },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const boss = createJobQueue({ findJobs, cancel, deleteJob: vi.fn(async () => ({})) }, sentJobs);
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return { rows: [] };
@@ -624,10 +555,8 @@ describe("applySlashCommandIntake", () => {
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -638,11 +567,11 @@ describe("applySlashCommandIntake", () => {
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "live-job", expect.anything());
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
-    expect(sentJobs[0]?.data.reply).toEqual({
+    expect(ackData(sentJobs).reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
       body: SLASH_CANCEL_DONE_BODY,
     });
-    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+    expect(ackData(sentJobs).cancelProgress).toEqual({
       workItemId: "wi-review",
       cancelledWorkItemIds: ["wi-review"],
       attribution: { kind: "user", login: "alice" },
@@ -661,18 +590,17 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("prefers a running review as cancelProgress primary over queued", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-      findJobs: vi.fn(async () => []),
-      cancel: vi.fn(async () => ({ rows: [] })),
-      deleteJob: vi.fn(async () => ({ rows: [] })),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const sentJobs: RecordedBossJob[] = [];
+    const boss = createJobQueue(
+      {
+        findJobs: vi.fn(async () => []),
+        cancel: vi.fn(async () => ({})),
+        deleteJob: vi.fn(async () => ({})),
+      },
+      sentJobs,
+    );
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           expect(sql).toContain("last_error");
@@ -704,14 +632,12 @@ describe("applySlashCommandIntake", () => {
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    );
+    const scheduler = slashScheduler(boss, client);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
     await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/cancel"), intakeLog));
 
-    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+    expect(ackData(sentJobs).cancelProgress).toEqual({
       workItemId: "wi-running",
       cancelledWorkItemIds: ["wi-running", "wi-queued"],
       attribution: { kind: "user", login: "alice" },

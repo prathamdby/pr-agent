@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { Pool } from "pg";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 import { withOperationIntent } from "../src/agentWork/withOperationIntent.js";
 
-const pool = {} as Pool;
+const pool = new Pool({
+  connectionString: "postgres://127.0.0.1:1/pr-agent-unused",
+  max: 1,
+  connectionTimeoutMillis: 1,
+  idleTimeoutMillis: 1,
+});
 
 describe("memoryOperationIntentStore + real withOperationIntent", () => {
   it("returns the existing row on conflict without resetting status or detail", async () => {

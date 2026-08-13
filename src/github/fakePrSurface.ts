@@ -8,6 +8,7 @@ import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
 import type {
   ReviewThreadResolution,
   ReviewThreadResolutionStatus,
+  ListReviewThreadResolutionResult,
 } from "./reviewThreadResolution.js";
 import type { GithubReactionContent } from "../settings/index.js";
 import type {
@@ -116,7 +117,7 @@ export type FakePrSurfaceControls = {
       readonly legacyStatuses: readonly CiLegacyStatus[];
     },
   ) => void;
-  readonly setCiStatusError: (error: unknown) => void;
+  readonly setCiStatusError: (error: Error) => void;
   readonly setProgressComment: (sentinel: string, body: string, id?: number) => void;
   readonly getProgressComment: (
     sentinel: string,
@@ -194,10 +195,19 @@ function defaultPullRequest(headSha: string): PullRequestForFileList {
   };
 }
 
+type MutableListReviewThreadResolutionResult = {
+  -readonly [K in keyof ListReviewThreadResolutionResult]: ListReviewThreadResolutionResult[K];
+};
+
+export type FakePrSurfaceHandle = {
+  readonly surface: PrSurface;
+  readonly controls: FakePrSurfaceControls;
+};
+
 export function createFakePrSurface(
   params: Pick<CreatePrSurfaceParams, "owner" | "repo" | "prNumber">,
   options?: FakePrSurfaceOptions,
-): { readonly surface: PrSurface; readonly controls: FakePrSurfaceControls } {
+): FakePrSurfaceHandle {
   const events: FakePrSurfaceEvent[] = [];
   const reactions: FakePrSurfaceControls["reactions"] = [];
   const replies: FakePrSurfaceControls["replies"] = [];
@@ -214,7 +224,7 @@ export function createFakePrSurface(
   let rateLimitOpen = options?.rateLimitOpen ?? false;
   let credentialToken = options?.credentialToken ?? "fake-git-token";
   let credentialExpiresAtTs = Date.now() + 3_600_000;
-  let ciStatusError: unknown;
+  let ciStatusError: Error | undefined;
   const ciStatusByHead = new Map<
     string,
     {
@@ -527,11 +537,12 @@ export function createFakePrSurface(
 
     async listInlineReviewThreads() {
       events.push({ kind: "listInlineReviewThreads" });
-      return {
+      const result: MutableListReviewThreadResolutionResult = {
         byRootCommentId: new Map(threads),
         status: threadResolutionStatus,
-        ...(threadResolutionWarning != null ? { warning: threadResolutionWarning } : {}),
       };
+      if (threadResolutionWarning != null) result.warning = threadResolutionWarning;
+      return result;
     },
 
     async resolveInlineReviewThread(threadId) {
@@ -550,7 +561,7 @@ export function createFakePrSurface(
 
     async listCommitCompareFiles(base, head) {
       events.push({ kind: "listCommitCompareFiles", base, head });
-      return typeof commitCompareFilesResult === "function"
+      return commitCompareFilesResult instanceof Function
         ? commitCompareFilesResult(base, head)
         : commitCompareFilesResult;
     },

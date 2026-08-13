@@ -1,9 +1,9 @@
 import type { JobWithMetadata } from "pg-boss";
-import type { Pool } from "pg";
+import type { IntakeClient, IntakePool } from "../db/postgres.js";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { captureEvent } from "../analytics/index.js";
-import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
+import { AppError, errorLogFields, isAppError, nonErrorThrown } from "../errors/appError.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import { getAppBotIdentity, type BotIdentity, type InstallationToken } from "../github/appAuth.js";
 import {
@@ -74,15 +74,15 @@ export function clearDurableAuthCachesForTest(): void {
 }
 
 function getCachedBotIdentity(cfg: Config): Promise<BotIdentity> {
-  botIdentityCache ??= getAppBotIdentity(cfg).catch((error: unknown) => {
+  botIdentityCache ??= getAppBotIdentity(cfg).catch((error) => {
     botIdentityCache = undefined;
-    throw error;
+    throw error instanceof Error ? error : nonErrorThrown("agent_work.non_error_thrown");
   });
   return botIdentityCache;
 }
 
 /** Failures that must terminalise on first throw (no pg-boss / durable retry budget). */
-function isNonRetryableDurableFailure(error: unknown): boolean {
+function isNonRetryableDurableFailure(error: Error): boolean {
   return isStaleHeadReplacementExhausted(error);
 }
 
@@ -92,7 +92,7 @@ type DurableExecutionResult = {
   readonly replacementWorkItemId?: string;
   readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
   /** Review-owned: cancel a persisted-but-not-enqueued replacement on terminal parent failure. */
-  readonly onRescheduleAbort?: (boss: PgBoss, error: unknown) => Promise<void>;
+  readonly onRescheduleAbort?: (boss: PgBoss, error: Error) => Promise<void>;
 };
 
 export type DurableHeadResolution = {
@@ -102,7 +102,7 @@ export type DurableHeadResolution = {
 
 export type DurableJobSpec<T extends WorkType = WorkType> = {
   readonly cfg: Config;
-  readonly pool: Pool;
+  readonly pool: IntakePool;
   readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: T;
@@ -118,7 +118,7 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   readonly onTerminalFailure?: (
     item: Extract<AgentWorkItem, { type: T }>,
     prSurface: PrSurface | undefined,
-    error: unknown,
+    error: Error,
   ) => Promise<void>;
   readonly onCancelled?: (
     item: Extract<AgentWorkItemCore, { type: T }>,
@@ -156,7 +156,7 @@ async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolea
 }
 
 async function finishRescheduledParentWorkItem(
-  pool: Pool,
+  pool: IntakeClient,
   itemId: string,
   type: WorkType,
   replacementWorkItemId: string | undefined,
@@ -257,7 +257,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   let seededInstallation: InstallationToken | undefined;
   let executionPrSurface: PrSurface | undefined;
   /** Set while a reschedule afterComplete may still need abort on terminal failure. */
-  let pendingRescheduleAbort: ((boss: PgBoss, error: unknown) => Promise<void>) | undefined;
+  let pendingRescheduleAbort: ((boss: PgBoss, error: Error) => Promise<void>) | undefined;
 
   async function prSurfaceForHooks(
     workItemCore: TypedCore,
@@ -280,11 +280,15 @@ export async function runDurableWorkItem<T extends WorkType>(
       const prSurface = await prSurfaceForHooks(itemCore, installation);
       await spec.onCancelled(itemCore, prSurface, reason);
     } catch (error) {
+      const err =
+        error instanceof Error
+          ? error
+          : nonErrorThrown("agent_work.cancelled_hook_non_error_thrown");
       logWarn("agent_work_cancelled_hook_failed", {
         type: spec.type,
         workItemId: itemCore.id,
         reason,
-        message: error instanceof Error ? error.message : String(error),
+        message: err.message,
       });
     }
   }
@@ -349,10 +353,12 @@ export async function runDurableWorkItem<T extends WorkType>(
     const rawPayload = await getWorkItemPayload(spec.pool, core.id);
     if (rawPayload === undefined) return;
     try {
+      // SAFETY: workItemAccepted narrowed core to spec.type T; attachWorkItemPayload preserves that type.
       workItem = attachWorkItemPayload({ ...core, executionEpoch }, rawPayload) as TypedItem;
     } catch (error) {
-      await markWorkFailed(spec.pool, core.id, error, executionEpoch);
-      throw error;
+      const err = error instanceof Error ? error : nonErrorThrown("agent_work.non_error_thrown");
+      await markWorkFailed(spec.pool, core.id, err, executionEpoch);
+      throw err;
     }
   }
 
@@ -428,7 +434,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     );
   }
 
-  async function invokeRescheduleAbort(error: unknown): Promise<void> {
+  async function invokeRescheduleAbort(error: Error): Promise<void> {
     try {
       if (pendingRescheduleAbort) {
         await pendingRescheduleAbort(spec.boss, error);
@@ -444,12 +450,14 @@ export async function runDurableWorkItem<T extends WorkType>(
         );
       }
     } catch (abortError) {
+      const err =
+        abortError instanceof Error
+          ? abortError
+          : nonErrorThrown("agent_work.replacement_cancel_non_error_thrown");
       logWarn("agent_work_replacement_cancel_failed", {
         type: spec.type,
         workItemId: item.id,
-        message: sanitizeLogMessage(
-          abortError instanceof Error ? abortError.message : String(abortError),
-        ),
+        message: sanitizeLogMessage(err.message),
       });
     }
   }
@@ -459,11 +467,15 @@ export async function runDurableWorkItem<T extends WorkType>(
       const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
       await prSurface.setAcknowledgementReaction(reactionTargetsForWorkItem(item), content);
     } catch (error) {
+      const err =
+        error instanceof Error
+          ? error
+          : nonErrorThrown("agent_work.outcome_reaction_non_error_thrown");
       logWarn("agent_work_outcome_reaction_failed", {
         type: spec.type,
         workItemId: item.id,
         reaction: content,
-        message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+        message: sanitizeLogMessage(err.message),
       });
     }
   }
@@ -485,7 +497,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
   }
 
-  async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
+  async function markRetryingOrCancel(error: Error, message: string): Promise<void> {
     if (await markWorkRetrying(spec.pool, item.id, error, executionEpoch)) {
       const failure = classifyFailure(error);
       logWarn("agent_work_retrying", {
@@ -503,21 +515,25 @@ export async function runDurableWorkItem<T extends WorkType>(
     await recheckSkippableAndCancel("retry_claim_rejected");
   }
 
-  async function invokeTerminalFailureHook(error: unknown): Promise<void> {
+  async function invokeTerminalFailureHook(error: Error): Promise<void> {
     if (!spec.onTerminalFailure) return;
     try {
       const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
       await spec.onTerminalFailure(item, prSurface, error);
     } catch (publishError) {
+      const err =
+        publishError instanceof Error
+          ? publishError
+          : nonErrorThrown("agent_work.terminal_failure_hook_non_error_thrown");
       logWarn("agent_work_terminal_failure_hook_failed", {
         type: spec.type,
         workItemId: item.id,
-        message: publishError instanceof Error ? publishError.message : String(publishError),
+        message: err.message,
       });
     }
   }
 
-  async function handleDurableExecutionError(error: unknown): Promise<void> {
+  async function handleDurableExecutionError(error: Error): Promise<void> {
     if (isAppError(error) && error.code === "agent_work.stale_execution_epoch") {
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,
@@ -531,7 +547,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
     if (await recheckSkippableAndCancel("skipped_after_error")) return;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error.message;
     // Permanent product failures skip the pg-boss retry budget and fail on first throw.
     if (!isNonRetryableDurableFailure(error) && !(spec.job.retryCount >= spec.job.retryLimit)) {
       await markRetryingOrCancel(error, message);
@@ -567,18 +583,21 @@ export async function runDurableWorkItem<T extends WorkType>(
       },
       error,
     );
+    const properties = {
+      type: spec.type,
+      owner: item.owner,
+      repo: item.repo,
+      pr_number: item.prNumber,
+      attempt_count: item.attemptCount,
+      ...classifiedFailurePostHogProperties(failure),
+    };
     captureEvent({
       distinctId: `installation:${item.installationId}`,
       event: "work item failed",
-      properties: {
-        type: spec.type,
-        owner: item.owner,
-        repo: item.repo,
-        pr_number: item.prNumber,
-        attempt_count: item.attemptCount,
-        ...classifiedFailurePostHogProperties(failure),
-        ...(failure.failureDomain === "provider" ? { provider_error_kind: providerErrorKind } : {}),
-      },
+      properties:
+        failure.failureDomain === "provider"
+          ? { ...properties, provider_error_kind: providerErrorKind }
+          : properties,
     });
   }
 
@@ -622,6 +641,8 @@ export async function runDurableWorkItem<T extends WorkType>(
     const result = await spec.execute(item, execution);
     await completeDurableExecution(result);
   } catch (error) {
-    await handleDurableExecutionError(error);
+    await handleDurableExecutionError(
+      error instanceof Error ? error : nonErrorThrown("agent_work.non_error_thrown"),
+    );
   }
 }

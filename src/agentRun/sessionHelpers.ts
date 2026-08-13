@@ -1,14 +1,47 @@
 import type { Api, AssistantMessage, ProviderId } from "@earendil-works/pi-ai";
+import { AppError } from "../errors/appError.js";
 import type { Config } from "../config.js";
 import type { AgentRunnerTurn } from "../agent/providers/interface.js";
-import type { PiSession } from "../agent/runtime/types.js";
+import type { PiSession, PiSessionSendOptions } from "../agent/runtime/types.js";
+
+function isApi(value: string): value is Api {
+  return value.length > 0;
+}
+
+function isProviderId(value: string): value is ProviderId {
+  return value.length > 0;
+}
+
+function parseApi(value: string): Api {
+  if (!isApi(value)) {
+    throw new AppError({
+      code: "agent.invalid_pi_api",
+      message: "piApi is empty",
+    });
+  }
+  return value;
+}
+
+function parseProviderId(value: string): ProviderId {
+  if (!isProviderId(value)) {
+    throw new AppError({
+      code: "agent.invalid_pi_provider",
+      message: "provider is empty",
+    });
+  }
+  return value;
+}
+
+type MutablePiSessionSendOptions = {
+  -readonly [K in keyof PiSessionSendOptions]: PiSessionSendOptions[K];
+};
 
 export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
     role: "assistant",
     content: text ? [{ type: "text", text }] : [],
-    api: cfg.piApi as Api,
-    provider: (provider || cfg.piProvider) as ProviderId,
+    api: parseApi(cfg.piApi),
+    provider: parseProviderId(provider || cfg.piProvider),
     model: cfg.piModel,
     usage: {
       input: 0,
@@ -35,11 +68,12 @@ function defaultSubmitOnlySend(
   options?: SubmitOnlyRoundOptions,
 ): Promise<AgentRunnerTurn> {
   const phase = activeSession.role === "orchestrator" ? "synthesis" : activeSession.role;
-  return activeSession.send(activePrompt, {
+  const sendOptions: MutablePiSessionSendOptions = {
     phase,
     checkpointId: `${activeSession.role}:${phase}`,
-    ...(options?.maxToolRounds != null ? { maxToolRounds: options.maxToolRounds } : {}),
-  });
+  };
+  if (options?.maxToolRounds != null) sendOptions.maxToolRounds = options.maxToolRounds;
+  return activeSession.send(activePrompt, sendOptions);
 }
 
 /**
@@ -52,9 +86,9 @@ export async function runSubmitOnlyRound(
   sendOrOptions?: SubmitOnlySend | SubmitOnlyRoundOptions,
 ): Promise<string> {
   const options =
-    sendOrOptions != null && typeof sendOrOptions !== "function" ? sendOrOptions : undefined;
+    sendOrOptions != null && !(sendOrOptions instanceof Function) ? sendOrOptions : undefined;
   const send: SubmitOnlySend =
-    typeof sendOrOptions === "function"
+    sendOrOptions instanceof Function
       ? sendOrOptions
       : (active, text) => defaultSubmitOnlySend(active, text, options);
 

@@ -1,6 +1,10 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import type { CheckoutCoverage, LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
+import type {
+  CheckoutCoverage,
+  GitGrepWorkspaceResult,
+  LocalPrWorkspace,
+} from "../../prWorkspace/localPrWorkspace.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   assertPathAllowedForAsk,
@@ -10,14 +14,15 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "../ask/askSafety.js";
-import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import { defineLocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import {
   MISSING_FROM_CHECKOUT_REASON,
   readBudgetedWorkspaceTextFile,
   refuseWorkspaceTextFileRead,
   type BudgetedWorkspaceTextFileRead,
 } from "./readWorkspaceTextFile.js";
-import { capTextOutput } from "./toolOutputBudget.js";
+import { capTextOutput, type FileReadOutput } from "./toolOutputBudget.js";
 import {
   LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
@@ -49,6 +54,67 @@ const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
   diffResponseBytes: LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
   searchMaxFiles: LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   searchMaxTotalBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+};
+
+type ChangedFileListEntry = {
+  path: string;
+  oldPath?: string;
+  status: string;
+  presentInCheckout: boolean;
+};
+
+type ChangedFilesToolResult = {
+  files: ChangedFileListEntry[];
+  truncated: boolean;
+  warning?: string;
+};
+
+type WorkspaceFileRefusedToolResult = {
+  path: string;
+  refused: true;
+  reason: string;
+  coverage: CheckoutCoverage;
+  note?: string;
+  similarPaths?: readonly string[];
+};
+
+type MutableFileReadOutput = {
+  -readonly [K in keyof FileReadOutput]: FileReadOutput[K];
+};
+
+type WorkspaceFileReadToolResult = MutableFileReadOutput & { path: string };
+
+type SearchWorkspaceToolResult = {
+  matches: GitGrepWorkspaceResult["matches"];
+  truncated: boolean;
+  pathsSearched: number;
+  filesScanned: number;
+  coverage?: CheckoutCoverage;
+  warning?: string;
+};
+
+type WorkspaceDiffToolResult = {
+  path: string;
+  diff: string;
+  truncated: boolean;
+  returnedBytes: number;
+  truncationReason?: string;
+};
+
+type WorkspaceBlameToolResult = {
+  path: string;
+  blame: string;
+  truncated: boolean;
+  returnedBytes: number;
+  truncationReason?: string;
+};
+
+type ResolveSymbolToolResult = {
+  name: string;
+  available: boolean;
+  matches: ReturnType<LocalPrWorkspace["lookupSymbol"]>;
+  reason?: string;
+  reminder: string;
 };
 
 function primePathGate(
@@ -164,10 +230,12 @@ function basenameOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
 
-function sameDirEntries(
-  normalized: string,
-  checkoutPaths: readonly string[],
-): { readonly filename: string; readonly entries: string[] } {
+type SameDirEntries = {
+  readonly filename: string;
+  readonly entries: string[];
+};
+
+function sameDirEntries(normalized: string, checkoutPaths: readonly string[]): SameDirEntries {
   const slash = normalized.lastIndexOf("/");
   const dir = slash === -1 ? "" : normalized.slice(0, slash + 1);
   const filename = slash === -1 ? normalized : normalized.slice(slash + 1);
@@ -247,6 +315,20 @@ function suggestSimilarPaths(
   return scored.slice(0, LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS).map((entry) => entry.path);
 }
 
+export type LocalWorkspaceExecutors = {
+  readonly listChangedFiles: AgentRunnerToolExecutor;
+  readonly readWorkspaceFile: AgentRunnerToolExecutor;
+  readonly searchWorkspace: AgentRunnerToolExecutor;
+  readonly getWorkspaceDiff: AgentRunnerToolExecutor;
+  readonly getWorkspaceBlame: AgentRunnerToolExecutor;
+  readonly resolveSymbol: AgentRunnerToolExecutor;
+};
+
+export type LocalWorkspaceTools = {
+  readonly piTools: PiTool[];
+  readonly executors: LocalWorkspaceExecutors;
+};
+
 export function buildLocalWorkspaceTools(
   workspace: LocalPrWorkspace,
   opts?: {
@@ -256,33 +338,33 @@ export function buildLocalWorkspaceTools(
     readonly evidenceLedger?: EvidenceLedger;
     readonly headSha?: string;
   },
-): {
-  piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
+): LocalWorkspaceTools {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
   const evidenceLedger = opts?.evidenceLedger;
   const headSha = opts?.headSha ?? evidenceLedger?.headSha;
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 
-  const listChangedFiles: LocalTool = {
+  const listChangedFiles = defineLocalTool({
     description:
       "Start here: list files changed in this pull request (path, status, presence in the PR head checkout).",
     schema: v.object({}),
-    run: async () => ({
-      files: workspace.changedFiles.map((file) => ({
-        path: file.path,
-        oldPath: file.oldPath,
-        status: file.status,
-        presentInCheckout: workspace.checkoutPaths.has(file.path),
-      })),
-      truncated: workspace.stats.truncated,
-      ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
-    }),
-  };
+    run: async () => {
+      const result: ChangedFilesToolResult = {
+        files: workspace.changedFiles.map((file) => ({
+          path: file.path,
+          oldPath: file.oldPath,
+          status: file.status,
+          presentInCheckout: workspace.checkoutPaths.has(file.path),
+        })),
+        truncated: workspace.stats.truncated,
+      };
+      if (workspace.stats.warning) result.warning = workspace.stats.warning;
+      return result;
+    },
+  });
 
-  const readWorkspaceFile: LocalTool = {
+  const readWorkspaceFile = defineLocalTool({
     description:
       "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; on truncated, narrow the range — do not retry the same call unchanged. Missing paths explain why and may include similarPaths; empty files and past-EOF windows return a note — act on it instead of retrying.",
     schema: v.object({
@@ -304,13 +386,14 @@ export function buildLocalWorkspaceTools(
         note?: string,
       ) => {
         if (result.refused) {
-          return {
+          const output: WorkspaceFileRefusedToolResult = {
             path: readPath,
             refused: true,
             reason: result.reason,
             coverage: workspace.getCoverage(),
-            ...(note ? { note } : {}),
           };
+          if (note) output.note = note;
+          return output;
         }
         if (
           evidenceLedger &&
@@ -330,11 +413,9 @@ export function buildLocalWorkspaceTools(
           });
         }
         const combinedNote = [note, result.note].filter(Boolean).join(" ");
-        return {
-          path: readPath,
-          ...result,
-          ...(combinedNote ? { note: combinedNote } : {}),
-        };
+        const output: WorkspaceFileReadToolResult = { path: readPath, ...result };
+        if (combinedNote) output.note = combinedNote;
+        return output;
       };
 
       // Invisible unicode differences (NFC/NFD, narrow no-break space, curly
@@ -360,13 +441,14 @@ export function buildLocalWorkspaceTools(
           workspace.sortedCheckoutPaths,
           pathGate,
         );
-        return {
+        const missing: WorkspaceFileRefusedToolResult = {
           path: normalized,
           refused: true,
           reason: MISSING_FROM_CHECKOUT_REASON,
           coverage: workspace.getCoverage(),
-          ...(similarPaths.length > 0 ? { similarPaths } : {}),
         };
+        if (similarPaths.length > 0) missing.similarPaths = similarPaths;
+        return missing;
       };
 
       if (!workspace.isPathInCheckout(normalized)) {
@@ -385,9 +467,9 @@ export function buildLocalWorkspaceTools(
       }
       return respondWithRead(normalized, result);
     },
-  };
+  });
 
-  const searchWorkspace: LocalTool = {
+  const searchWorkspace = defineLocalTool({
     description:
       "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. pathsSearched is how many checkout paths were scanned; filesScanned is the distinct matched file count.",
     schema: v.object({
@@ -415,17 +497,21 @@ export function buildLocalWorkspaceTools(
       const matchedFiles = new Set(result.matches.map((match) => match.path));
       const coverage = workspace.getCoverage();
       const warning = truncated ? coverageWarning(coverage) : undefined;
-      return {
+      const searchResult: SearchWorkspaceToolResult = {
         matches: result.matches.slice(0, maxResults),
         truncated,
         pathsSearched,
         filesScanned: matchedFiles.size,
-        ...(truncated ? { coverage, ...(warning ? { warning } : {}) } : {}),
       };
+      if (truncated) {
+        searchResult.coverage = coverage;
+        if (warning) searchResult.warning = warning;
+      }
+      return searchResult;
     },
-  };
+  });
 
-  const getWorkspaceDiff: LocalTool = {
+  const getWorkspaceDiff = defineLocalTool({
     description:
       "After listChangedFiles, read each change's PR unified diff before opening whole files. Path from the changed-file list. Responses are byte-capped; on truncated, narrow the path or follow up with a focused file read.",
     schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
@@ -442,17 +528,18 @@ export function buildLocalWorkspaceTools(
           diff: capped.content,
         });
       }
-      return {
+      const diffResult: WorkspaceDiffToolResult = {
         path: normalized,
         diff: capped.content,
         truncated: capped.truncated,
         returnedBytes: capped.returnedBytes,
-        ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
       };
+      if (capped.truncationReason) diffResult.truncationReason = capped.truncationReason;
+      return diffResult;
     },
-  };
+  });
 
-  const getWorkspaceBlame: LocalTool = {
+  const getWorkspaceBlame = defineLocalTool({
     description:
       "Best-effort local git blame at PR head. Use only when authorship genuinely decides a finding. Responses are byte-capped; prefer startLine/maxLines on readWorkspaceFile for focused follow-up context.",
     schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
@@ -491,17 +578,18 @@ export function buildLocalWorkspaceTools(
         limits.diffResponseBytes,
         "response byte budget exceeded",
       );
-      return sanitizeToolResultForAsk("getWorkspaceBlame", {
+      const blameResult: WorkspaceBlameToolResult = {
         path: normalized,
         blame: capped.content,
         truncated: capped.truncated,
         returnedBytes: capped.returnedBytes,
-        ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
-      });
+      };
+      if (capped.truncationReason) blameResult.truncationReason = capped.truncationReason;
+      return sanitizeToolResultForAsk("getWorkspaceBlame", blameResult);
     },
-  };
+  });
 
-  const resolveSymbol: LocalTool = {
+  const resolveSymbol = defineLocalTool({
     description:
       "Look up symbol definitions in the ephemeral per-run symbol index (TypeScript/JavaScript/Python heuristics). Navigation hint only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
     schema: v.object({
@@ -514,28 +602,35 @@ export function buildLocalWorkspaceTools(
     run: async ({ name, maxResults }) => {
       const status = workspace.getSymbolIndexStatus();
       const matches = workspace.lookupSymbol(name, maxResults);
-      return {
+      const symbolResult: ResolveSymbolToolResult = {
         name,
         available: status.available,
         matches,
-        ...(status.available ? {} : { reason: "Symbol index unavailable for this workspace." }),
         reminder: "Call readWorkspaceFile before citing any match.",
       };
+      if (!status.available) {
+        symbolResult.reason = "Symbol index unavailable for this workspace.";
+      }
+      return symbolResult;
     },
-  };
+  });
 
-  const tools: Record<string, LocalTool> = {
-    listChangedFiles,
-    readWorkspaceFile,
-    searchWorkspace,
-    getWorkspaceDiff,
-    getWorkspaceBlame,
-    resolveSymbol,
-  };
   return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
-    ),
+    piTools: [
+      toPiTool("listChangedFiles", listChangedFiles),
+      toPiTool("readWorkspaceFile", readWorkspaceFile),
+      toPiTool("searchWorkspace", searchWorkspace),
+      toPiTool("getWorkspaceDiff", getWorkspaceDiff),
+      toPiTool("getWorkspaceBlame", getWorkspaceBlame),
+      toPiTool("resolveSymbol", resolveSymbol),
+    ],
+    executors: {
+      listChangedFiles: toExecutor("listChangedFiles", listChangedFiles),
+      readWorkspaceFile: toExecutor("readWorkspaceFile", readWorkspaceFile),
+      searchWorkspace: toExecutor("searchWorkspace", searchWorkspace),
+      getWorkspaceDiff: toExecutor("getWorkspaceDiff", getWorkspaceDiff),
+      getWorkspaceBlame: toExecutor("getWorkspaceBlame", getWorkspaceBlame),
+      resolveSymbol: toExecutor("resolveSymbol", resolveSymbol),
+    },
   };
 }

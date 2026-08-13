@@ -12,6 +12,7 @@ import {
 } from "../src/review/reviewSchema.js";
 import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings/index.js";
 import type { ReviewFinding, ReviewMode } from "../src/review/reviewSchema.js";
+import { isJsonObject, isJsonString } from "../src/util/jsonValue.js";
 
 function makeFinding(severity: ReviewFinding["severity"], title: string): ReviewFinding {
   return {
@@ -264,8 +265,12 @@ describe("coerceReviewPayloadInput", () => {
       securityConcerns: null,
       followUps: [],
     });
-    const out = value as { findings: unknown[] };
-    expect(out.findings[0]).toBe(finding);
+    expect(isJsonObject(value)).toBe(true);
+    if (!isJsonObject(value)) return;
+    const findings = value.findings;
+    expect(Array.isArray(findings)).toBe(true);
+    if (!Array.isArray(findings)) return;
+    expect(findings[0]).toBe(finding);
   });
 
   it("trims securityConcerns only when whitespace changes the value", () => {
@@ -277,7 +282,10 @@ describe("coerceReviewPayloadInput", () => {
       securityConcerns: "  timing issue  ",
       followUps: [],
     });
-    expect((trimmed.value as { securityConcerns: string }).securityConcerns).toBe("timing issue");
+    const concerns = trimmed.value.securityConcerns;
+    expect(isJsonString(concerns)).toBe(true);
+    if (!isJsonString(concerns)) return;
+    expect(concerns).toBe("timing issue");
     expect(trimmed.coerced).toBe(true);
 
     const alreadyTrimmed = coerceReviewPayloadInput({
@@ -288,7 +296,10 @@ describe("coerceReviewPayloadInput", () => {
       securityConcerns: "plain",
       followUps: [],
     });
-    expect((alreadyTrimmed.value as { securityConcerns: string }).securityConcerns).toBe("plain");
+    const alreadyConcerns = alreadyTrimmed.value.securityConcerns;
+    expect(isJsonString(alreadyConcerns)).toBe(true);
+    if (!isJsonString(alreadyConcerns)) return;
+    expect(alreadyConcerns).toBe("plain");
   });
 });
 
@@ -448,7 +459,7 @@ describe("reviewPayload unknown fields", () => {
     size: "S",
     relevantTests: "no" as const,
     securityConcerns: null,
-    followUps: [] as string[],
+    followUps: new Array<string>(),
   };
 
   it("strips legacy mergeVerdict from parsed payload", () => {

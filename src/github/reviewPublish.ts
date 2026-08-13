@@ -1,3 +1,4 @@
+import { nonErrorThrown } from "../errors/appError.js";
 import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
@@ -232,10 +233,11 @@ export async function getIssueCommentIfSentinel(
     });
     if (!(data.body ?? "").startsWith(sentinel)) return null;
     return { id: data.id, url: data.html_url };
-  } catch (e: unknown) {
-    const status = httpStatus(e);
+  } catch (error) {
+    const err = error instanceof Error ? error : nonErrorThrown("github.issue_comment_get");
+    const status = httpStatus(err);
     if (status === 404) return null;
-    throw e;
+    throw err;
   }
 }
 

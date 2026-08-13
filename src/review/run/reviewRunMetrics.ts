@@ -1,7 +1,8 @@
 import type { AgentRunnerTurn } from "../../agent/providers/interface.js";
 import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.js";
-import { logInfo, tryUseLogger } from "../../evlog.js";
+import { logInfo, tryUseLogger, type RequestLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 
 const MAX_RECENT_TOOL_ERRORS = 3;
 
@@ -127,6 +128,16 @@ export type ReviewRunMetricsSnapshot = {
   readonly tokenCoverage: "full_run" | "orchestrator_only";
 };
 
+type MutableReviewRunMetricsSnapshot = {
+  -readonly [K in keyof ReviewRunMetricsSnapshot]: ReviewRunMetricsSnapshot[K];
+};
+
+type ModelTurnMetricEvent = {
+  kind: "model_turn";
+  usage?: Extract<ReviewMetricEvent, { kind: "model_turn" }>["usage"];
+  prompt?: Extract<ReviewMetricEvent, { kind: "model_turn" }>["prompt"];
+};
+
 type MutableReviewRunMetrics = {
   provider: string;
   model: string;
@@ -186,9 +197,7 @@ function createEmptyMetrics(meta: {
     model: meta.model,
     mode: meta.mode,
     startedAtMs:
-      typeof meta.startedAtMs === "number" && Number.isFinite(meta.startedAtMs)
-        ? meta.startedAtMs
-        : Date.now(),
+      meta.startedAtMs != null && Number.isFinite(meta.startedAtMs) ? meta.startedAtMs : Date.now(),
     published: false,
     publishAttempts: 0,
     submitCallCount: 0,
@@ -232,6 +241,8 @@ function createEmptyMetrics(meta: {
   };
 }
 
+const metricsByLogger = new WeakMap<RequestLogger, MutableReviewRunMetrics>();
+
 function getOrInitMetrics(meta?: {
   provider: string;
   model: string;
@@ -239,11 +250,11 @@ function getOrInitMetrics(meta?: {
 }): MutableReviewRunMetrics | null {
   const logger = tryUseLogger();
   if (!logger) return null;
-  const ctx = logger.getContext();
-  const existing = ctx.reviewRunMetrics as MutableReviewRunMetrics | undefined;
+  const existing = metricsByLogger.get(logger);
   if (existing) return existing;
   if (!meta) return null;
   const created = createEmptyMetrics(meta);
+  metricsByLogger.set(logger, created);
   logger.set({ reviewRunMetrics: created });
   return created;
 }
@@ -278,14 +289,16 @@ function recordModelTurnUsage(
   }
 }
 
+export type CacheExcellenceMetrics = {
+  readonly cacheHitRate: number | null;
+  readonly cacheWriteAmplification: number | null;
+};
+
 export function deriveCacheExcellenceMetrics(params: {
   readonly providerInputTokens: number;
   readonly cacheReadTokens: number | null;
   readonly cacheWriteTokens: number | null;
-}): {
-  readonly cacheHitRate: number | null;
-  readonly cacheWriteAmplification: number | null;
-} {
+}): CacheExcellenceMetrics {
   if (params.cacheReadTokens == null || params.cacheWriteTokens == null) {
     return { cacheHitRate: null, cacheWriteAmplification: null };
   }
@@ -406,11 +419,10 @@ export function recordAgentTurnMetrics(
   turn: AgentRunnerTurn,
   opts?: { readonly specialist?: boolean },
 ): void {
-  recordReviewMetric({
-    kind: "model_turn",
-    ...(turn.usage ? { usage: turn.usage } : {}),
-    ...(turn.prompt ? { prompt: turn.prompt } : {}),
-  });
+  const event: ModelTurnMetricEvent = { kind: "model_turn" };
+  if (turn.usage) event.usage = turn.usage;
+  if (turn.prompt) event.prompt = turn.prompt;
+  recordReviewMetric(event);
   if (opts?.specialist) {
     const metrics = getOrInitMetrics();
     if (metrics) metrics.specialistTokensRecorded = true;
@@ -438,9 +450,10 @@ export function initReviewRunMetrics(meta: {
 }): void {
   const logger = tryUseLogger();
   if (!logger) return;
-  const existing = logger.getContext().reviewRunMetrics as MutableReviewRunMetrics | undefined;
-  if (existing) return;
-  logger.set({ reviewRunMetrics: createEmptyMetrics(meta) });
+  if (metricsByLogger.has(logger)) return;
+  const created = createEmptyMetrics(meta);
+  metricsByLogger.set(logger, created);
+  logger.set({ reviewRunMetrics: created });
 }
 
 export function setReviewRunMetricFields(
@@ -478,7 +491,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     cacheReadTokens: metrics.cacheReadTokens,
     cacheWriteTokens: metrics.cacheWriteTokens,
   });
-  return {
+  const snapshot: MutableReviewRunMetricsSnapshot = {
     provider: metrics.provider,
     model: metrics.model,
     mode: metrics.mode,
@@ -527,14 +540,15 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     toolMs: metrics.toolMs,
     generationMs,
     tokenCoverage: metrics.specialistTokensRecorded ? "full_run" : "orchestrator_only",
-    ...(generationMs > 0
-      ? { providerOutputTps: metrics.providerOutputTokens / (generationMs / 1000) }
-      : {}),
-    ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
   };
+  if (generationMs > 0) {
+    snapshot.providerOutputTps = metrics.providerOutputTokens / (generationMs / 1000);
+  }
+  if (metrics.lightweight !== undefined) snapshot.lightweight = metrics.lightweight;
+  return snapshot;
 }
 
-export function logReviewRunCompleted(extra?: Record<string, unknown>): void {
+export function logReviewRunCompleted(extra?: JsonObject): void {
   const snapshot = snapshotReviewRunMetrics();
   if (!snapshot) return;
   logInfo("review_run_completed", { ...snapshot, ...extra });

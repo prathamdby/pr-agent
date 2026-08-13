@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { AppError } from "../errors/appError.js";
 import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/legacyReviewLenses.js";
+import type { JsonValue } from "../util/jsonValue.js";
 import type {
   AgentWorkItem,
   AgentWorkItemCore,
@@ -126,11 +127,11 @@ export class WorkItemPayloadValidationError extends AppError {
   }
 }
 
-function parseWithSchema<T>(
+function parseWithSchema<TSchema extends v.GenericSchema>(
   workType: WorkType,
-  schema: v.GenericSchema<unknown, T>,
-  raw: unknown,
-): T {
+  schema: TSchema,
+  raw: JsonValue,
+): v.InferOutput<TSchema> {
   const result = v.safeParse(schema, raw);
   if (!result.success) {
     const issue = result.issues[0];
@@ -145,14 +146,14 @@ function parseWithSchema<T>(
   return result.output;
 }
 
-export function parseWorkItemPayload(type: "review", raw: unknown): ReviewWorkPayload;
-export function parseWorkItemPayload(type: "ask", raw: unknown): AskWorkPayload;
-export function parseWorkItemPayload(type: "description", raw: unknown): DescriptionWorkPayload;
-export function parseWorkItemPayload(type: "triage", raw: unknown): TriageWorkPayload;
-export function parseWorkItemPayload(type: "verification", raw: unknown): VerificationWorkPayload;
+export function parseWorkItemPayload(type: "review", raw: JsonValue): ReviewWorkPayload;
+export function parseWorkItemPayload(type: "ask", raw: JsonValue): AskWorkPayload;
+export function parseWorkItemPayload(type: "description", raw: JsonValue): DescriptionWorkPayload;
+export function parseWorkItemPayload(type: "triage", raw: JsonValue): TriageWorkPayload;
+export function parseWorkItemPayload(type: "verification", raw: JsonValue): VerificationWorkPayload;
 export function parseWorkItemPayload(
   type: WorkType,
-  raw: unknown,
+  raw: JsonValue,
 ):
   | ReviewWorkPayload
   | AskWorkPayload
@@ -161,7 +162,7 @@ export function parseWorkItemPayload(
   | VerificationWorkPayload;
 export function parseWorkItemPayload(
   type: WorkType,
-  raw: unknown,
+  raw: JsonValue,
 ):
   | ReviewWorkPayload
   | AskWorkPayload
@@ -191,10 +192,10 @@ export function parseWorkItemPayload(
 
 export function attachWorkItemPayload<T extends WorkType>(
   core: Extract<AgentWorkItemCore, { type: T }>,
-  raw: unknown,
+  raw: JsonValue,
 ): Extract<AgentWorkItem, { type: T }>;
-export function attachWorkItemPayload(core: AgentWorkItemCore, raw: unknown): AgentWorkItem;
-export function attachWorkItemPayload(core: AgentWorkItemCore, raw: unknown): AgentWorkItem {
+export function attachWorkItemPayload(core: AgentWorkItemCore, raw: JsonValue): AgentWorkItem;
+export function attachWorkItemPayload(core: AgentWorkItemCore, raw: JsonValue): AgentWorkItem {
   switch (core.type) {
     case "review":
       return { ...core, payload: parseWorkItemPayload("review", raw) };

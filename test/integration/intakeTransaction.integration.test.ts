@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
-import type { PgBoss, SendOptions } from "pg-boss";
+import type { FindJobsOptions, PgBoss, SendOptions } from "pg-boss";
+import type { JsonObject, JsonValue } from "../../src/util/jsonValue.js";
 import { applyAutomatedPullRequestIntake } from "../../src/agentWork/intake/applier.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import type { PrRef, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
@@ -10,19 +11,9 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import { makeTestConfig } from "../helpers/config.js";
 
-// These tests exercise the supersede/cancel mechanism on repeated synchronize deliveries,
-// which only auto-runs review on push when the review trigger includes synchronize.
-// Verification stays off so work-item counts only reflect review intake.
-vi.mock("../../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/settings/index.js")>();
-  return {
-    ...actual,
-    AUTO_TRIGGER_ACTIONS: {
-      ...actual.AUTO_TRIGGER_ACTIONS,
-      review: new Set(["opened", "synchronize"]),
-    },
-  };
-});
+// Repeated synchronize deliveries would not auto-enqueue review (AUTO_TRIGGER_ACTIONS.review
+// is opened-only). These tests use opened so each delivery plans a review and exercises
+// supersede/cancel. Verification stays off so work-item counts only reflect review intake.
 
 const intakeCfg = makeTestConfig({
   features: { ...makeTestConfig().features, verification: "off" },
@@ -83,45 +74,62 @@ function intakeLog() {
   return createOperationLogger({ method: "POST", path: "/webhooks" });
 }
 
-function withSendFailOnNth(realBoss: PgBoss, failOnSend: number): { restore: () => void } {
+type PgBossSendData = JsonObject | null;
+
+type BossSendHost = {
+  send(name: string, data?: PgBossSendData, options?: SendOptions): Promise<string | null>;
+};
+
+type QueuedJob = {
+  readonly id: string;
+  readonly data?: JsonValue;
+};
+
+type BossFindJobsHost = {
+  findJobs(name: string, options?: FindJobsOptions): Promise<readonly QueuedJob[]>;
+};
+
+function withSendFailOnNth(realBoss: PgBoss, failOnSend: number) {
   let sendCount = 0;
-  const originalSend = realBoss.send.bind(realBoss);
-  realBoss.send = (async (name: string, data?: object | null, options?: SendOptions) => {
+  const host: BossSendHost = realBoss;
+  const originalSend = host.send.bind(host);
+  host.send = async function send(name, data, options) {
     sendCount += 1;
     if (sendCount >= failOnSend) {
       throw new Error("injected send failure");
     }
     return originalSend(name, data, options);
-  }) as PgBoss["send"];
+  };
   return {
     restore: () => {
-      realBoss.send = originalSend;
+      host.send = originalSend;
     },
   };
 }
 
 function withFindJobsGate(
   realBoss: PgBoss,
-  shouldGate: (queue: string, options?: Parameters<PgBoss["findJobs"]>[1]) => boolean,
+  shouldGate: (queue: string, options?: FindJobsOptions) => boolean,
   onGateEntered: () => void,
-): { releaseGate: () => void; restore: () => void } {
+) {
   let releaseGate!: () => void;
   const gateHeld = new Promise<void>((resolve) => {
     releaseGate = resolve;
   });
-  const originalFindJobs = realBoss.findJobs.bind(realBoss);
-  realBoss.findJobs = (async <T>(name: string, options?: Parameters<PgBoss["findJobs"]>[1]) => {
-    const jobs = await originalFindJobs<T>(name, options);
+  const host: BossFindJobsHost = realBoss;
+  const originalFindJobs = host.findJobs.bind(host);
+  host.findJobs = async function findJobs(name, options) {
+    const jobs = await originalFindJobs(name, options);
     if (shouldGate(name, options) && jobs.length > 0) {
       onGateEntered();
       await gateHeld;
     }
     return jobs;
-  }) as PgBoss["findJobs"];
+  };
   return {
     releaseGate: () => releaseGate(),
     restore: () => {
-      realBoss.findJobs = originalFindJobs;
+      host.findJobs = originalFindJobs;
     },
   };
 }
@@ -206,9 +214,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", delivery),
+      headers("opened", delivery),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -232,9 +240,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
         applyAutomatedPullRequestIntake(
           boss,
           pool,
-          headers("synchronize", delivery),
+          headers("opened", delivery),
           ref,
-          "synchronize",
+          "opened",
           intakeLog(),
           intakeCfg,
         ),
@@ -255,9 +263,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-supersede-a"),
+      headers("opened", "delivery-supersede-a"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -268,9 +276,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-supersede-b"),
+      headers("opened", "delivery-supersede-b"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -294,9 +302,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-cancel-a"),
+      headers("opened", "delivery-cancel-a"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -319,9 +327,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     const intakeB = applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-cancel-b"),
+      headers("opened", "delivery-cancel-b"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -360,9 +368,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-failed-a"),
+      headers("opened", "delivery-failed-a"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -387,9 +395,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-failed-b"),
+      headers("opened", "delivery-failed-b"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -412,9 +420,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", delivery),
+      headers("opened", delivery),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -449,9 +457,9 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", delivery),
+      headers("opened", delivery),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );

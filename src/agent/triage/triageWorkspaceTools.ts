@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { Config } from "../../config.js";
-import { AppError } from "../../errors/appError.js";
+import { AppError, nodeErrorCode, nonErrorThrown } from "../../errors/appError.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
@@ -18,6 +18,7 @@ import {
 } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import type { AgentRunnerToolExecutorMap } from "../providers/interface.js";
 import {
   normalizeTextFileEncoding,
   readBudgetedWorkspaceTextFile,
@@ -101,15 +102,17 @@ export function createTriageWorkspaceToolState(): TriageWorkspaceToolState {
   return { commitByThreadRootCommentId: new Map() };
 }
 
+export type TriageWorkspaceTools = {
+  readonly piTools: PiTool[];
+  readonly executors: AgentRunnerToolExecutorMap;
+};
+
 export function buildTriageWorkspaceTools(params: {
   readonly cfg: Config;
   readonly checkout: WritablePrCheckout;
   readonly inventory: readonly BotFindingThread[];
   readonly state: TriageWorkspaceToolState;
-}): {
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
+}): TriageWorkspaceTools {
   const inventoryIds = new Set(params.inventory.map((thread) => thread.rootCommentId));
   const implicatedPaths = new Set(
     params.inventory.map((thread) => normalizeRepoRelativePath(thread.path)),
@@ -149,11 +152,11 @@ export function buildTriageWorkspaceTools(params: {
         root,
         ["grep", "-nF", "-I", "-e", query, "--", "."],
         LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-      ).catch((error: unknown) => {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
-          return "";
-        }
-        throw error;
+      ).catch((error) => {
+        const err =
+          error instanceof Error ? error : nonErrorThrown("triage.git_grep_non_error_thrown");
+        if (nodeErrorCode(err) === 1) return "";
+        throw err;
       });
       const lines = stdout.split("\n").filter(Boolean);
       const matches = lines.slice(0, maxResults).map((line) => {
@@ -323,19 +326,22 @@ export function buildTriageWorkspaceTools(params: {
     },
   });
 
-  const tools = {
-    readWorkspaceFile,
-    searchWorkspace,
-    getWorkspaceDiff,
-    editWorkspaceFile,
-    createWorkspaceFile,
-    commitFix,
-  };
-
   return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
-    ),
+    piTools: [
+      toPiTool("readWorkspaceFile", readWorkspaceFile),
+      toPiTool("searchWorkspace", searchWorkspace),
+      toPiTool("getWorkspaceDiff", getWorkspaceDiff),
+      toPiTool("editWorkspaceFile", editWorkspaceFile),
+      toPiTool("createWorkspaceFile", createWorkspaceFile),
+      toPiTool("commitFix", commitFix),
+    ],
+    executors: {
+      readWorkspaceFile: toExecutor("readWorkspaceFile", readWorkspaceFile),
+      searchWorkspace: toExecutor("searchWorkspace", searchWorkspace),
+      getWorkspaceDiff: toExecutor("getWorkspaceDiff", getWorkspaceDiff),
+      editWorkspaceFile: toExecutor("editWorkspaceFile", editWorkspaceFile),
+      createWorkspaceFile: toExecutor("createWorkspaceFile", createWorkspaceFile),
+      commitFix: toExecutor("commitFix", commitFix),
+    },
   };
 }

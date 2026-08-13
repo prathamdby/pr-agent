@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { PoolClient } from "pg";
+import type { IntakeClient } from "../../db/postgres.js";
 import { AppError } from "../../errors/appError.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
@@ -16,6 +16,24 @@ import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
 import { prResourceKey, type PrRef } from "../types.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
+import * as v from "valibot";
+import { jsonValueSchema, type JsonValue } from "../../util/jsonValue.js";
+
+type MutableReviewWorkPayload = {
+  -readonly [K in keyof ReviewWorkPayload]: ReviewWorkPayload[K];
+};
+type MutableDescriptionWorkPayload = {
+  -readonly [K in keyof DescriptionWorkPayload]: DescriptionWorkPayload[K];
+};
+type MutableTriageWorkPayload = {
+  -readonly [K in keyof TriageWorkPayload]: TriageWorkPayload[K];
+};
+type MutableVerificationWorkPayload = {
+  -readonly [K in keyof VerificationWorkPayload]: VerificationWorkPayload[K];
+};
+type MutableAskWorkPayload = {
+  -readonly [K in keyof AskWorkPayload]: AskWorkPayload[K];
+};
 
 /**
  * Partial unique index predicate from migrations/014_slash_active_uniqueness.sql.
@@ -89,7 +107,7 @@ type AgentWorkInsert =
       readonly conflict: "ask_webhook";
     });
 
-function insertParams(params: AgentWorkInsert): unknown[] {
+function insertParams(params: AgentWorkInsert): JsonValue[] {
   return [
     params.id,
     params.webhookEventId,
@@ -109,7 +127,7 @@ function insertParams(params: AgentWorkInsert): unknown[] {
 
 /** Insert with optional uniqueness conflict; winner SELECT is a separate query for READ COMMITTED races. */
 async function insertAgentWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: AgentWorkInsert,
 ): Promise<ConflictAwareInsertResult> {
   const values = insertParams(params);
@@ -203,7 +221,7 @@ async function insertAgentWorkItem(
 }
 
 export async function transferProgressCommentOwnership(
-  client: PoolClient,
+  client: IntakeClient,
   params: {
     readonly workItemId: string;
     readonly resourceKey: string;
@@ -240,27 +258,27 @@ type ReviewWorkItemParams = {
 };
 
 export async function createReviewWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: ReviewWorkItemParams & { source: "auto" },
 ): Promise<string>;
 export async function createReviewWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: ReviewWorkItemParams & { source: "slash" },
 ): Promise<SlashActiveWorkInsertResult>;
 export async function createReviewWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: ReviewWorkItemParams & { source: WorkSource },
 ): Promise<string | SlashActiveWorkInsertResult> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  const payload = {
+  const payload: MutableReviewWorkPayload = {
     mode: "review",
     source: params.source,
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
     commenterId: params.commenterId,
-    ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
-  } satisfies ReviewWorkPayload;
+  };
+  if (params.ackTargets != null) payload.ackTargets = params.ackTargets;
 
   if (params.source === "slash") {
     const insert = await insertAgentWorkItem(client, {
@@ -315,26 +333,26 @@ type DescriptionWorkItemParams = {
 };
 
 export async function createDescriptionWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: DescriptionWorkItemParams & { source: "auto" },
 ): Promise<string>;
 export async function createDescriptionWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: DescriptionWorkItemParams & { source: "slash" },
 ): Promise<SlashActiveWorkInsertResult>;
 export async function createDescriptionWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: DescriptionWorkItemParams & { source: WorkSource },
 ): Promise<string | SlashActiveWorkInsertResult> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  const payload = {
+  const payload: MutableDescriptionWorkPayload = {
     source: params.source,
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
     commenterId: params.commenterId,
-    ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
-  } satisfies DescriptionWorkPayload;
+  };
+  if (params.ackTargets != null) payload.ackTargets = params.ackTargets;
 
   if (params.source === "slash") {
     return insertAgentWorkItem(client, {
@@ -367,7 +385,7 @@ export async function createDescriptionWorkItem(
 }
 
 export async function createTriageWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: {
     webhookEventId: string;
     ref: PrRef;
@@ -382,6 +400,17 @@ export async function createTriageWorkItem(
 ): Promise<SlashActiveWorkInsertResult> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
+  const payload: MutableTriageWorkPayload = {
+    source: "slash",
+    repositorySizeKb: params.ref.repositorySizeKb,
+    commentId: params.commentId,
+    commenterId: params.commenterId,
+    scope: params.scope,
+    threadAnchorCommentId: params.threadAnchorCommentId,
+    needsThreadRootResolution: params.needsThreadRootResolution,
+    replyTarget: params.replyTarget,
+  };
+  if (params.ackTargets != null) payload.ackTargets = params.ackTargets;
   return insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
@@ -391,23 +420,13 @@ export async function createTriageWorkItem(
     reviewLens: null,
     resourceKey,
     priority: 50,
-    payload: {
-      source: "slash",
-      repositorySizeKb: params.ref.repositorySizeKb,
-      commentId: params.commentId,
-      commenterId: params.commenterId,
-      scope: params.scope,
-      threadAnchorCommentId: params.threadAnchorCommentId,
-      needsThreadRootResolution: params.needsThreadRootResolution,
-      replyTarget: params.replyTarget,
-      ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
-    } satisfies TriageWorkPayload,
+    payload,
     conflict: "slash_active",
   });
 }
 
 export async function createVerificationWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: {
     webhookEventId: string;
     ref: PrRef;
@@ -417,6 +436,12 @@ export async function createVerificationWorkItem(
 ): Promise<string> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
+  const payload: MutableVerificationWorkPayload = {
+    source: "auto",
+    repositorySizeKb: params.ref.repositorySizeKb,
+  };
+  if (params.pushBeforeSha != null) payload.pushBeforeSha = params.pushBeforeSha;
+  if (params.ackTargets != null) payload.ackTargets = params.ackTargets;
   const insert = await insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
@@ -426,19 +451,14 @@ export async function createVerificationWorkItem(
     reviewLens: null,
     resourceKey,
     priority: 0,
-    payload: {
-      source: "auto",
-      repositorySizeKb: params.ref.repositorySizeKb,
-      ...(params.pushBeforeSha != null ? { pushBeforeSha: params.pushBeforeSha } : {}),
-      ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
-    } satisfies VerificationWorkPayload,
+    payload,
     conflict: "none",
   });
   return insert.id;
 }
 
 export async function fetchActiveTriageWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   resourceKey: string,
 ): Promise<{ id: string; payload: TriageWorkPayload } | null> {
   const result = await client.query<{ id: string; payload: unknown }>(
@@ -452,7 +472,10 @@ export async function fetchActiveTriageWorkItem(
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { id: row.id, payload: parseWorkItemPayload("triage", row.payload) };
+  return {
+    id: row.id,
+    payload: parseWorkItemPayload("triage", v.parse(jsonValueSchema, row.payload)),
+  };
 }
 
 export type CancelledActiveReview = {
@@ -474,7 +497,7 @@ function cancelLastError(attribution: ReviewCancelAttribution): string {
  * Returns running rows first (newest), then queued — ack primary owns the stub.
  */
 export async function cancelActiveReviews(
-  client: PoolClient,
+  client: IntakeClient,
   resourceKey: string,
   attribution: ReviewCancelAttribution,
 ): Promise<readonly CancelledActiveReview[]> {
@@ -542,7 +565,7 @@ export async function cancelActiveReviews(
 }
 
 export async function createAskWorkItem(
-  client: PoolClient,
+  client: IntakeClient,
   params: {
     webhookEventId: string;
     ref: PrRef;
@@ -555,15 +578,15 @@ export async function createAskWorkItem(
   },
 ): Promise<ConflictAwareInsertResult> {
   const id = crypto.randomUUID();
-  const payload = {
+  const payload: MutableAskWorkPayload = {
     question: params.question,
     replyTarget: params.replyTarget,
     repositorySizeKb: params.ref.repositorySizeKb,
     commentId: params.commentId,
     commenterId: params.commenterId,
     codeAnchor: params.codeAnchor,
-    ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
-  } satisfies AskWorkPayload;
+  };
+  if (params.ackTargets != null) payload.ackTargets = params.ackTargets;
   return insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,

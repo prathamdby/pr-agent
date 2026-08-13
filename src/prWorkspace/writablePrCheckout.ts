@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { promisify } from "node:util";
 import type { BotIdentity } from "../github/appAuth.js";
-import { AppError } from "../errors/appError.js";
+import { AppError, nodeErrorStderr, nonErrorThrown } from "../errors/appError.js";
 import {
   SENSITIVE_PATH_PATTERNS,
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
@@ -288,8 +288,15 @@ export function buildCommitCommandArgs(args: CommitArgs): readonly string[] {
     : ["commit", "-n", "-m", args.subject, "-m", messageBody];
 }
 
+export type GitIdentityEnv = {
+  readonly GIT_AUTHOR_NAME: string;
+  readonly GIT_AUTHOR_EMAIL: string;
+  readonly GIT_COMMITTER_NAME: string;
+  readonly GIT_COMMITTER_EMAIL: string;
+};
+
 /** Env overrides so author and committer match without rewriting global user.* mid-run. */
-export function gitIdentityEnv(person: GitPerson): Record<string, string> {
+export function gitIdentityEnv(person: GitPerson): GitIdentityEnv {
   validateGitPerson(person, "person");
   return {
     GIT_AUTHOR_NAME: person.name,
@@ -383,11 +390,8 @@ function gitObjectStoreBytes(countObjectsOutput: string): number {
   return (sizeKiB + sizePackKiB) * 1024;
 }
 
-function classifyPushError(error: unknown): never {
-  const text =
-    error instanceof Error
-      ? `${error.message}\n${"stderr" in error && typeof error.stderr === "string" ? error.stderr : ""}`
-      : String(error);
+function classifyPushError(error: Error): never {
+  const text = `${error.message}\n${nodeErrorStderr(error)}`;
   if (/non-fast-forward|fetch first|stale info|rejected/i.test(text)) {
     throw new StaleHeadPushError();
   }
@@ -432,7 +436,7 @@ export async function withWritablePrCheckout<T>(
   const git = (
     args: readonly string[],
     timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-    extraEnv?: Record<string, string>,
+    extraEnv?: GitIdentityEnv,
   ) =>
     exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
       cwd: dir,
@@ -520,7 +524,9 @@ export async function withWritablePrCheckout<T>(
             LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
           );
         } catch (error) {
-          classifyPushError(error);
+          classifyPushError(
+            error instanceof Error ? error : nonErrorThrown("pr_workspace.push_non_error_thrown"),
+          );
         }
       },
       listCommittedShas: () => committed.map((item) => item.sha),

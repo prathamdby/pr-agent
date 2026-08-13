@@ -1,8 +1,6 @@
 import { Context, Duration, Effect } from "effect";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
-import { inTransaction } from "../db/postgres.js";
+import { inTransaction, type IntakePool } from "../db/postgres.js";
 import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
 import {
@@ -13,6 +11,7 @@ import {
   type SlashCommandInput,
 } from "./intake/applier.js";
 import { flushDeferredEvents } from "./intake/deferredEvents.js";
+import type { JobQueue } from "./intake/queueing.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
@@ -49,7 +48,11 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   }
 >() {}
 
-export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Config, "features">) {
+export function makeAgentWorkScheduler(
+  pool: IntakePool,
+  boss: JobQueue,
+  cfg: Pick<Config, "features">,
+) {
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
       Effect.tryPromise({

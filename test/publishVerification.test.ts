@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool, type QueryResult, type QueryResultRow } from "pg";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.js";
 import type { VerificationPayload } from "../src/review/triageSchema.js";
@@ -9,23 +9,43 @@ import {
   resolveThreadIds,
   editReviewCommentEvents,
 } from "./helpers/publishPrSurface.js";
-import { recordPublishStep } from "../src/agentWork/repository.js";
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  recordPublishStep: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
-  return {
-    ...actual,
-    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
-    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
-  };
-});
-
+import * as repo from "../src/agentWork/repository.js";
+import * as workItemState from "../src/agentWork/workItemStateRepository.js";
 import { publishVerification } from "../src/agent/verification/publishVerification.js";
+import type { RepoPolicyResult } from "../src/review/repoPolicy.js";
+import type { JsonObject } from "../src/util/jsonValue.js";
+
+function unusedQueryResult(rows: QueryResultRow[]): QueryResult {
+  return {
+    rows,
+    command: "SELECT",
+    rowCount: rows.length,
+    oid: 0,
+    fields: [],
+  };
+}
+
+function pool(detail?: JsonObject): Pool {
+  const client = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
+  vi.spyOn(client, "query").mockImplementation(async () =>
+    unusedQueryResult(detail === undefined ? [] : [{ detail }]),
+  );
+  return client;
+}
+
+type PublishVerificationTestOverrides = {
+  readonly payload: VerificationPayload;
+  readonly inventory?: readonly BotFindingThread[];
+  readonly resolutionByRootCommentId?: ReadonlyMap<number, ReviewThreadResolution>;
+  readonly changedFilePaths?: readonly string[];
+  readonly changedFilePathsTruncated?: boolean;
+  readonly pool?: Pool;
+  readonly workItemId?: string;
+  readonly executionEpoch?: number;
+  readonly policyResult?: RepoPolicyResult;
+  readonly threads?: ReadonlyMap<number, ReviewThreadResolution>;
+  readonly stubBodies?: ReadonlyMap<number, string>;
+};
 
 const thread = {
   rootCommentId: 1,
@@ -51,12 +71,6 @@ const thirdThread = {
   titleSnippet: "P1 · Unchanged path",
 } satisfies BotFindingThread;
 
-function pool(detail?: unknown): Pool {
-  return {
-    query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
-  } as unknown as Pool;
-}
-
 function resolutionMap(
   entries: readonly [number, ReviewThreadResolution][],
 ): Map<number, ReviewThreadResolution> {
@@ -65,19 +79,7 @@ function resolutionMap(
 
 let controls: import("../src/github/fakePrSurface.js").FakePrSurfaceControls;
 
-function baseParams(overrides: {
-  readonly payload: VerificationPayload;
-  readonly inventory?: readonly BotFindingThread[];
-  readonly resolutionByRootCommentId?: ReadonlyMap<number, ReviewThreadResolution>;
-  readonly changedFilePaths?: readonly string[];
-  readonly changedFilePathsTruncated?: boolean;
-  readonly pool?: Pool;
-  readonly workItemId?: string;
-  readonly executionEpoch?: number;
-  readonly policyResult?: Parameters<typeof publishVerification>[0]["policyResult"];
-  readonly threads?: ReadonlyMap<number, ReviewThreadResolution>;
-  readonly stubBodies?: Readonly<Record<number, string>>;
-}) {
+function baseParams(overrides: PublishVerificationTestOverrides) {
   const fake = publishTestPrSurface(
     overrides.threads ??
       overrides.resolutionByRootCommentId ??
@@ -97,8 +99,8 @@ function baseParams(overrides: {
       fake.controls.setReviewCommentBody(stubId, `${VERIFICATION_STUB_MARKER}\nstub`);
     }
   }
-  for (const [stubId, body] of Object.entries(overrides.stubBodies ?? {})) {
-    fake.controls.setReviewCommentBody(Number(stubId), body);
+  for (const [stubId, body] of overrides.stubBodies ?? []) {
+    fake.controls.setReviewCommentBody(stubId, body);
   }
   return {
     pool: overrides.pool ?? pool(),
@@ -128,7 +130,13 @@ function baseParams(overrides: {
 
 describe("publishVerification", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.spyOn(repo, "recordPublishStep").mockResolvedValue(undefined);
+    vi.spyOn(workItemState, "assertCurrentExecutionEpoch").mockResolvedValue(undefined);
+    vi.spyOn(workItemState, "isExecutionEpochCurrent").mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("silently resolves fixed and already-resolved threads without replying", async () => {
@@ -156,7 +164,7 @@ describe("publishVerification", () => {
     expect(controls.replies).toHaveLength(0);
     expect(controls.events.filter((e) => e.kind === "editReviewComment")).toHaveLength(0);
     expect(resolveThreadIds(controls)).toHaveLength(2);
-    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
+    expect(repo.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         step: "verification_thread_actions",
@@ -171,7 +179,7 @@ describe("publishVerification", () => {
         },
       }),
     );
-    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
+    expect(repo.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         step: "verification_thread_actions",
@@ -215,7 +223,7 @@ describe("publishVerification", () => {
 
     expect(controls.replies).toHaveLength(0);
     expect(resolveThreadIds(controls)).toHaveLength(0);
-    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
+    expect(repo.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -335,7 +343,7 @@ describe("publishVerification", () => {
             "1": { stubCommentId: 555, lastVerdict: "skipped", lastHeadSha: "b".repeat(40) },
           },
         }),
-        stubBodies: { 555: `${VERIFICATION_STUB_MARKER}\nstub` },
+        stubBodies: new Map([[555, `${VERIFICATION_STUB_MARKER}\nstub`]]),
         inventory: [thread],
         payload: {
           verdicts: [
@@ -411,15 +419,13 @@ describe("publishVerification", () => {
 
     expect(controls.replies).toHaveLength(0);
     expect(controls.events.filter((e) => e.kind === "editReviewComment")).toHaveLength(1);
-    const body =
-      (controls.events.find((e) => e.kind === "editReviewComment") as { body: string } | undefined)
-        ?.body ?? "";
+    const body = editReviewCommentEvents(controls)[0]?.body ?? "";
     expect(body).toContain("Dismissed");
     expect(body).toContain("Append this to `.pr-agent/src.mdc`:");
     expect(body).not.toContain("pathInstructions");
     expect(body).not.toContain(".pr-agent.yml");
     expect(resolveThreadIds(controls)).toContain("PRRT_1");
-    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
+    expect(repo.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -454,7 +460,7 @@ describe("publishVerification", () => {
 
     expect(controls.replies).toHaveLength(1);
     expect(resolveThreadIds(controls)).toHaveLength(1);
-    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
+    expect(repo.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -549,7 +555,7 @@ describe("publishVerification", () => {
             "1": { stubCommentId: 555, lastVerdict: "skipped" },
           },
         }),
-        stubBodies: {},
+        stubBodies: new Map(),
         inventory: [thread],
         payload: {
           verdicts: [
@@ -567,7 +573,7 @@ describe("publishVerification", () => {
       true,
     );
     expect(controls.replies).toHaveLength(1);
-    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
+    expect(repo.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -610,7 +616,7 @@ describe("publishVerification", () => {
     expect(edit?.commentId).toBe(555);
     expect(edit?.body).toContain("**Verification**: Fixed");
     expect(resolveThreadIds(controls)).toHaveLength(1);
-    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
+    expect(repo.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -628,23 +634,17 @@ describe("publishVerification", () => {
   });
 
   it("loads ledger by resource key so prior stubs survive a new work item", async () => {
-    const query = vi.fn(async () => ({
-      rows: [
-        {
-          detail: {
-            threads: {
-              "1": { stubCommentId: 4242, lastVerdict: "skipped" },
-            },
-          },
-        },
-      ],
-    }));
+    const client = pool({
+      threads: {
+        "1": { stubCommentId: 4242, lastVerdict: "skipped" },
+      },
+    });
     await publishVerification(
       baseParams({
-        pool: { query } as unknown as Pool,
+        pool: client,
         workItemId: "wi-new",
         executionEpoch: 1,
-        stubBodies: { 4242: `${VERIFICATION_STUB_MARKER}\nstub` },
+        stubBodies: new Map([[4242, `${VERIFICATION_STUB_MARKER}\nstub`]]),
         inventory: [thread],
         payload: {
           verdicts: [
@@ -658,7 +658,7 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(query).toHaveBeenCalledWith(
+    expect(client.query).toHaveBeenCalledWith(
       expect.stringContaining("resource_key"),
       expect.arrayContaining(["o/r#1"]),
     );

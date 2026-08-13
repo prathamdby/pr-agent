@@ -19,13 +19,17 @@ export type AgentAuditRecord = {
   readonly recordedAt: string;
 };
 
+type MutableAgentAuditRecord = {
+  -readonly [K in keyof AgentAuditRecord]: AgentAuditRecord[K];
+};
+
 /** Derive a metadata-only audit record from a sanitized lifecycle event. */
 export function agentAuditRecordFromLifecycleEvent(
   event: AgentLifecycleEvent,
   now: () => Date = () => new Date(),
 ): AgentAuditRecord {
-  const base = {
-    source: "agent_lifecycle" as const,
+  const result: MutableAgentAuditRecord = {
+    source: "agent_lifecycle",
     kind: event.kind,
     role: event.role,
     provider: event.provider,
@@ -35,52 +39,42 @@ export function agentAuditRecordFromLifecycleEvent(
 
   switch (event.kind) {
     case "turn":
-      return {
-        ...base,
-        phase: event.phase,
-        checkpointId: event.checkpointId,
-      };
+      result.phase = event.phase;
+      result.checkpointId = event.checkpointId;
+      return result;
     case "tool":
-      return {
-        ...base,
-        ...(event.phase ? { phase: event.phase } : {}),
-        ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
-        toolName: event.toolName,
-        ...(event.ok != null ? { ok: event.ok } : {}),
-      };
+      result.toolName = event.toolName;
+      if (event.phase) result.phase = event.phase;
+      if (event.checkpointId) result.checkpointId = event.checkpointId;
+      if (event.ok != null) result.ok = event.ok;
+      return result;
     case "retry":
-      return {
-        ...base,
-        ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
-        reason: event.reason,
-        ...(event.attempt != null ? { attempt: event.attempt } : {}),
-      };
+      result.reason = event.reason;
+      if (event.checkpointId) result.checkpointId = event.checkpointId;
+      if (event.attempt != null) result.attempt = event.attempt;
+      return result;
     case "compaction":
-      return { ...base, reason: event.reason };
+      result.reason = event.reason;
+      return result;
     case "usage":
-      return {
-        ...base,
-        ...(event.phase ? { phase: event.phase } : {}),
-      };
+      if (event.phase) result.phase = event.phase;
+      return result;
     case "cancellation":
-      return { ...base, reason: event.reason };
+      result.reason = event.reason;
+      return result;
     case "completion":
-      return {
-        ...base,
-        ...(event.phase ? { phase: event.phase } : {}),
-        ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
-        ok: true,
-      };
+      result.ok = true;
+      if (event.phase) result.phase = event.phase;
+      if (event.checkpointId) result.checkpointId = event.checkpointId;
+      return result;
     case "failure":
-      return {
-        ...base,
-        ...(event.phase ? { phase: event.phase } : {}),
-        ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
-        ok: false,
-        failureCode: event.failureCode,
-        ...(event.failureDomain ? { failureDomain: event.failureDomain } : {}),
-        ...(event.errorKind ? { errorKind: event.errorKind } : {}),
-      };
+      result.ok = false;
+      result.failureCode = event.failureCode;
+      if (event.phase) result.phase = event.phase;
+      if (event.checkpointId) result.checkpointId = event.checkpointId;
+      if (event.failureDomain) result.failureDomain = event.failureDomain;
+      if (event.errorKind) result.errorKind = event.errorKind;
+      return result;
     default: {
       const _exhaustive: never = event;
       return _exhaustive;

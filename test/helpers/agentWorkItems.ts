@@ -9,6 +9,7 @@ import type {
   TriageWorkPayload,
   VerificationWorkItem,
   VerificationWorkPayload,
+  WorkStatus,
 } from "../../src/agentWork/types.js";
 
 type ReviewOverrides = Omit<
@@ -46,10 +47,25 @@ type VerificationOverrides = Omit<
   payload?: Partial<VerificationWorkPayload>;
 };
 
-const base = {
+type TestWorkItemBase = {
+  readonly id: string;
+  readonly webhookEventId: string | null;
+  readonly status: WorkStatus;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly installationId: number;
+  readonly headSha: string;
+  readonly resourceKey: string;
+  readonly attemptCount: number;
+  readonly executionEpoch: number;
+  readonly cancelRequestedAt: Date | null;
+};
+
+const base: TestWorkItemBase = {
   id: "wi-1",
-  webhookEventId: "ev-1" as string | null,
-  status: "running" as const,
+  webhookEventId: "ev-1",
+  status: "running",
   owner: "o",
   repo: "r",
   prNumber: 1,
@@ -58,7 +74,7 @@ const base = {
   resourceKey: "o/r#1",
   attemptCount: 0,
   executionEpoch: 1,
-  cancelRequestedAt: null as Date | null,
+  cancelRequestedAt: null,
 };
 
 export function makeReviewWorkItem(overrides: ReviewOverrides = {}): ReviewWorkItem {

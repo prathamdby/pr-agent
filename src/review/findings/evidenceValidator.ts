@@ -7,6 +7,11 @@ export type EvidenceRejectedFinding = {
   readonly reasonCode: string;
 };
 
+export type EvidenceValidationResult = {
+  readonly accepted: ReviewFinding[];
+  readonly rejected: EvidenceRejectedFinding[];
+};
+
 export function assertFindingsHaveEvidence(
   findings: readonly ReviewFinding[],
   ledger: EvidenceLedger,
@@ -15,7 +20,7 @@ export function assertFindingsHaveEvidence(
     readonly checkoutCoverage?: CheckoutCoverage;
     readonly isPathInCheckout?: (path: string) => boolean;
   },
-): { accepted: ReviewFinding[]; rejected: EvidenceRejectedFinding[] } {
+): EvidenceValidationResult {
   const accepted: ReviewFinding[] = [];
   const rejected: EvidenceRejectedFinding[] = [];
 

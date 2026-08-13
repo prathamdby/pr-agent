@@ -5,12 +5,13 @@ import {
   decryptResumeSnapshot,
   encryptResumeSnapshot,
   RESUME_SNAPSHOT_ENVELOPE_VERSION,
+  type ResumeSnapshotEnvelopeMeta,
 } from "../src/agent/runtime/resumeSnapshots.js";
 
 const KEY = Buffer.alloc(32, 7).toString("base64");
 const OTHER_KEY = Buffer.alloc(32, 9).toString("base64");
 
-function meta(overrides: Record<string, unknown> = {}) {
+function meta(overrides: Partial<ResumeSnapshotEnvelopeMeta> = {}) {
   return {
     envelopeVersion: RESUME_SNAPSHOT_ENVELOPE_VERSION,
     installationId: 42,
@@ -100,7 +101,7 @@ describe("resumeSnapshots", () => {
       });
       expect.fail("expected throw");
     } catch (error) {
-      expect(isAppError(error)).toBe(true);
+      expect(error instanceof Error && isAppError(error)).toBe(true);
     }
   });
 });

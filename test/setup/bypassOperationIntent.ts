@@ -1,22 +1,11 @@
-import { vi } from "vitest";
+import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
 
 /**
- * Opt-in only for suites that never exercise publish durability.
- * Prefer the default memory intent store (`operationIntent-memory.ts`).
+ * Opt-in helper for suites that never exercise publish durability.
+ * Call `mutate()` directly instead of wrapping with operation intent.
  */
-vi.mock("../../src/agentWork/reconcilePendingIntents.js", () => ({
-  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  intentDetailMatchesPublishRecord: vi.fn(() => true),
-}));
-
-vi.mock("../../src/agentWork/withOperationIntent.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../src/agentWork/withOperationIntent.js")>();
-  return {
-    ...actual,
-    withOperationIntent: vi.fn(
-      async <T>(params: Parameters<typeof actual.withOperationIntent<T>>[0]): Promise<T> =>
-        params.mutate(),
-    ),
-  };
-});
+export async function bypassOperationIntent<T>(
+  params: Parameters<typeof withOperationIntent<T>>[0],
+): Promise<T> {
+  return params.mutate();
+}

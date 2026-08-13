@@ -21,6 +21,10 @@ import type {
   CiLegacyStatus,
   CiSummary,
 } from "./ciSummaryTypes.js";
+
+type MutableCiSummary = {
+  -readonly [K in keyof CiSummary]: CiSummary[K];
+};
 import type { PrSurface } from "../../github/prSurface.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
 import {
@@ -181,7 +185,7 @@ async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalC
       statuses: legacyStatuses.filter((status) => status.context !== OWN_COMMIT_STATUS_CONTEXT),
     };
   } catch (error) {
-    if (isMissingChecksPermissionError(error)) {
+    if (error instanceof Error && isMissingChecksPermissionError(error)) {
       logDebug("review_ci_summary_unavailable", {
         owner: options.prSurface.owner,
         repo: options.prSurface.repo,
@@ -193,7 +197,7 @@ async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalC
     logWarn("review_ci_summary_fetch_failed", {
       owner: options.prSurface.owner,
       repo: options.prSurface.repo,
-      message: error instanceof Error ? error.message : String(error),
+      message: error instanceof Error ? error.message : "Non-error thrown",
     });
     return { ok: false, reason: "fetch_error" };
   }
@@ -244,27 +248,33 @@ export function summarizeCiSnapshot(params: {
   const state = classifySnapshot(params.checks, params.statuses);
   const permissionNote = params.permissionNote;
   switch (state) {
-    case "none":
-      return {
+    case "none": {
+      const summary: MutableCiSummary = {
         status: "none",
         headline: "No CI checks on this head",
         failures: [],
-        ...(permissionNote != null ? { permissionNote } : {}),
       };
-    case "pending":
-      return {
+      if (permissionNote != null) summary.permissionNote = permissionNote;
+      return summary;
+    }
+    case "pending": {
+      const summary: MutableCiSummary = {
         status: "pending",
         headline: "⏳ CI still running",
         failures: [],
-        ...(permissionNote != null ? { permissionNote } : {}),
       };
-    case "passing":
-      return {
+      if (permissionNote != null) summary.permissionNote = permissionNote;
+      return summary;
+    }
+    case "passing": {
+      const summary: MutableCiSummary = {
         status: "passing",
         headline: "✅ All CI is passing",
         failures: [],
-        ...(permissionNote != null ? { permissionNote } : {}),
       };
+      if (permissionNote != null) summary.permissionNote = permissionNote;
+      return summary;
+    }
     case "failing": {
       const failures = params.failures ?? [];
       const failingNames = [
@@ -274,12 +284,13 @@ export function summarizeCiSnapshot(params: {
       const uniqueNames = [...new Set(failingNames)];
       const nameList = uniqueNames.slice(0, 3).join(", ");
       const more = uniqueNames.length > 3 ? ` (+${uniqueNames.length - 3} more)` : "";
-      return {
+      const summary: MutableCiSummary = {
         status: "failing",
         headline: `❌ CI failing — ${nameList}${more}`,
         failures,
-        ...(permissionNote != null ? { permissionNote } : {}),
       };
+      if (permissionNote != null) summary.permissionNote = permissionNote;
+      return summary;
     }
     default: {
       const exhaustive: never = state;

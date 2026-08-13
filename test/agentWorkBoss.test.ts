@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PgBoss } from "pg-boss";
-import { bossConstructorOptions, ensureAgentQueues } from "../src/agentWork/boss.js";
+import type { Queue } from "pg-boss";
+import {
+  bossConstructorOptions,
+  ensureAgentQueues,
+  type AgentQueueBoss,
+} from "../src/agentWork/boss.js";
 import {
   ACK_DEAD_LETTER_QUEUE,
   ACK_QUEUE,
@@ -61,13 +65,14 @@ describe("ensureAgentQueues", () => {
       CI_REFRESH_QUEUE,
     ];
 
+    type CreateQueueOptions = Omit<Queue, "name">;
     type Deferred = {
       readonly name: string;
-      readonly options: unknown;
+      readonly options: CreateQueueOptions | undefined;
       readonly resolve: () => void;
     };
     const started: Deferred[] = [];
-    const createQueue = vi.fn((name: string, options: unknown) => {
+    const createQueue = vi.fn((name: string, options?: CreateQueueOptions) => {
       let resolve!: () => void;
       const promise = new Promise<void>((res) => {
         resolve = res;
@@ -75,7 +80,7 @@ describe("ensureAgentQueues", () => {
       started.push({ name, options, resolve });
       return promise;
     });
-    const boss = { createQueue } as unknown as PgBoss;
+    const boss: AgentQueueBoss = { createQueue };
     const cfg = makeTestConfig();
 
     const ensurePromise = ensureAgentQueues(boss, cfg);

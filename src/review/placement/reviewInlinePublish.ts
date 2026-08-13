@@ -56,7 +56,7 @@ function matchesLineResolutionHint(
 
 function hintedLineResolutionDrop<TPlacement extends InlinePlacement>(
   placements: readonly TPlacement[],
-  error: unknown,
+  error: Error,
 ): TPlacement[] | undefined {
   const hint = lineResolutionPublishErrorHint(error);
   if (hint != null) {
@@ -110,7 +110,7 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
         lineResolutionFallback: anchorDroppedPlacements.length > 0,
       };
     } catch (error) {
-      if (!isLineResolutionPublishError(error)) {
+      if (!(error instanceof Error) || !isLineResolutionPublishError(error)) {
         throw error;
       }
       const hintedDrop = hintedLineResolutionDrop(attemptPlacements, error);

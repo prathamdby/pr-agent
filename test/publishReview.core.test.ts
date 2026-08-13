@@ -13,6 +13,7 @@ import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
+  spyPublishReviewRepositories,
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
 
@@ -20,22 +21,13 @@ type RecordPublishStep = NonNullable<
   Parameters<typeof publishReviewForTest>[0]["recordPublishStep"]
 >;
 
-vi.mock("../src/agentWork/repository.js", async () => {
-  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createAgentWorkRepositoryMock();
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
 const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
 describe("publishReview core", () => {
   beforeEach(() => {
+    spyPublishReviewRepositories();
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
@@ -179,12 +171,11 @@ describe("publishReview core", () => {
     },
   ])("skips PR review when there are no P0–P2 findings ($label)", async ({ mode, sentinel }) => {
     const publishState = testPublishState();
-
     await publishReviewForTest({
       ...baseParams,
-      ...(mode ? { mode } : {}),
       publishState,
       payload: { ...payload, findings: [] },
+      mode,
     });
 
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();

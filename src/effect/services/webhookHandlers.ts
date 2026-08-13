@@ -7,6 +7,7 @@ import { commentMentionsBot } from "../../commands/parseBotMention.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
+import type { SlashCommandInput } from "../../agentWork/intake/slashIntake.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import { IGNORED_BOT_SLASH_COMMAND, IGNORED_UNAUTHORIZED_SLASH } from "../../settings/index.js";
@@ -16,6 +17,10 @@ import {
   prNumbersForCiHead,
   type CiRefreshHeadSource,
 } from "../../webhook/payloads/ciRefreshHead.js";
+
+type MutableSlashCommandInput = {
+  -readonly [K in keyof SlashCommandInput]: SlashCommandInput[K];
+};
 
 const resolveBotIdentityEffect = (cfg: Config) =>
   Effect.tryPromise({
@@ -202,28 +207,26 @@ export const WebhookHandlersCore = Layer.effect(
           );
           if (!bot) return;
 
-          yield* scheduler.submitSlashCommand(
-            {
-              headers,
-              installationId: data.installation.id,
-              owner: data.repository.owner.login,
-              repo: data.repository.name,
-              repositorySizeKb: data.repository.size,
+          const commandInput: MutableSlashCommandInput = {
+            headers,
+            installationId: data.installation.id,
+            owner: data.repository.owner.login,
+            repo: data.repository.name,
+            repositorySizeKb: data.repository.size,
+            prNumber: data.issue.number,
+            commenterId: data.comment.user.id,
+            commenterLogin: data.comment.user.login ?? undefined,
+            commentId: data.comment.id,
+            body,
+            command,
+            replyTarget: {
+              kind: "prConversation",
               prNumber: data.issue.number,
-              commenterId: data.comment.user.id,
-              commenterLogin: data.comment.user.login ?? undefined,
-              commentId: data.comment.id,
-              body,
-              command,
-              replyTarget: {
-                kind: "prConversation",
-                prNumber: data.issue.number,
-              },
-              ...(command === "triage" ? { triageScope: "all" as const } : {}),
-              ...(command === "ask" ? { botLogin: bot.login } : {}),
             },
-            intakeLog,
-          );
+          };
+          if (command === "triage") commandInput.triageScope = "all";
+          if (command === "ask") commandInput.botLogin = bot.login;
+          yield* scheduler.submitSlashCommand(commandInput, intakeLog);
         }),
 
       pullRequestReviewComment: (cfg, headers, data, intakeLog) =>
@@ -268,33 +271,28 @@ export const WebhookHandlersCore = Layer.effect(
           );
           if (!bot) return;
 
-          yield* scheduler.submitSlashCommand(
-            {
-              headers,
-              installationId: data.installation.id,
-              owner: data.repository.owner.login,
-              repo: data.repository.name,
-              repositorySizeKb: data.repository.size,
-              prNumber: data.pull_request.number,
-              commenterId: data.comment.user.id,
-              commenterLogin: data.comment.user.login ?? undefined,
-              commentId: data.comment.id,
-              body,
-              command,
-              replyTarget,
-              codeAnchor,
-              ...(command === "triage"
-                ? {
-                    triageScope:
-                      data.comment.in_reply_to_id != null ? ("thread" as const) : undefined,
-                    threadAnchorCommentId: data.comment.in_reply_to_id ?? undefined,
-                    needsThreadRootResolution: data.comment.in_reply_to_id != null,
-                  }
-                : {}),
-              ...(command === "ask" ? { botLogin: bot.login } : {}),
-            },
-            intakeLog,
-          );
+          const commandInput: MutableSlashCommandInput = {
+            headers,
+            installationId: data.installation.id,
+            owner: data.repository.owner.login,
+            repo: data.repository.name,
+            repositorySizeKb: data.repository.size,
+            prNumber: data.pull_request.number,
+            commenterId: data.comment.user.id,
+            commenterLogin: data.comment.user.login ?? undefined,
+            commentId: data.comment.id,
+            body,
+            command,
+            replyTarget,
+            codeAnchor,
+          };
+          if (command === "triage") {
+            commandInput.triageScope = data.comment.in_reply_to_id != null ? "thread" : undefined;
+            commandInput.threadAnchorCommentId = data.comment.in_reply_to_id ?? undefined;
+            commandInput.needsThreadRootResolution = data.comment.in_reply_to_id != null;
+          }
+          if (command === "ask") commandInput.botLogin = bot.login;
+          yield* scheduler.submitSlashCommand(commandInput, intakeLog);
         }),
 
       ciRefresh: (headers, data, intakeLog) =>

@@ -1,7 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
-import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
 import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import {
@@ -12,6 +10,8 @@ import {
 } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createJobQueue } from "./helpers/recordingBoss.js";
+import { createQueryClient, createQueryPool, createUnusedPool } from "./helpers/fakePool.js";
 
 const intakeCfg = makeTestConfig();
 
@@ -34,8 +34,8 @@ function makePrRef() {
 }
 
 function mockAutomatedClient() {
-  return {
-    query: vi.fn(async (sql: string) => {
+  return createQueryClient(
+    vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-1" }] };
       }
@@ -53,19 +53,20 @@ function mockAutomatedClient() {
       }
       throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
     }),
-  } as unknown as PoolClient;
+  );
 }
 
-function makeBoss(sentQueues: string[]): PgBoss {
-  return {
-    send: vi.fn(async (queue: string) => {
-      sentQueues.push(queue);
-      return "job-1";
-    }),
+function makeBoss(sentQueues: string[]) {
+  const send = vi.fn(async (queue: string) => {
+    sentQueues.push(queue);
+    return "job-1";
+  });
+  return createJobQueue({
+    send,
     findJobs: vi.fn(async () => []),
-    deleteJob: vi.fn(async () => ({ rows: [] })),
-    cancel: vi.fn(async () => ({ rows: [] })),
-  } as unknown as PgBoss;
+    deleteJob: vi.fn(async () => ({})),
+    cancel: vi.fn(async () => ({})),
+  });
 }
 
 describe("makeAgentWorkScheduler automated describe", () => {
@@ -74,7 +75,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const boss = makeBoss(sentQueues);
 
     const client = mockAutomatedClient();
-    const pool = {} as Pool;
+    const pool = createUnusedPool();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
@@ -96,17 +97,13 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const sentQueues: string[] = [];
     const boss = makeBoss(sentQueues);
 
-    // synchronize is no longer a review/description action by default, so intake records
-    // an ignored webhook via a direct pool insert (no transaction) instead of enqueuing work.
-    // Verification is also disabled here to keep the test focused on review/description.
-    const pool = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("INSERT INTO webhook_events")) {
-          return { rows: [{ id: "event-1" }] };
-        }
-        throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
-      }),
-    } as unknown as Pool;
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_events")) {
+        return { rows: [{ id: "event-1" }] };
+      }
+      throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
+    });
+    const pool = createQueryPool(query);
     const txSpy = vi.spyOn(postgres, "inTransaction").mockImplementation(async () => {
       throw new Error("inTransaction should not run for a no-work synchronize intake");
     });
@@ -129,7 +126,6 @@ describe("makeAgentWorkScheduler automated describe", () => {
         ),
       );
 
-      // Review auto-triggers only on opened, so follow-up pushes schedule no work.
       expect(sentQueues).not.toContain(REVIEW_QUEUE);
       expect(sentQueues).not.toContain(ACK_QUEUE);
       expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
@@ -144,7 +140,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const boss = makeBoss(sentQueues);
 
     const client = mockAutomatedClient();
-    const pool = {} as Pool;
+    const pool = createUnusedPool();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
@@ -172,7 +168,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const boss = makeBoss(sentQueues);
 
     const client = mockAutomatedClient();
-    const pool = {} as Pool;
+    const pool = createUnusedPool();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss, {

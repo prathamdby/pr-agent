@@ -1,11 +1,8 @@
 export type ProviderErrorKind = "auth" | "quota" | "billing" | "rate_limit" | "timeout" | "unknown";
 
 /** Logs-only classification for worker/provider failures. */
-export function classifyProviderError(error: unknown): ProviderErrorKind {
-  const text =
-    error instanceof Error
-      ? `${error.name} ${error.message}`.toLowerCase()
-      : String(error).toLowerCase();
+export function classifyProviderError(error: Error): ProviderErrorKind {
+  const text = `${error.name} ${error.message}`.toLowerCase();
   if (
     /\b401\b|\b403\b|unauthorized|forbidden|invalid api key|authentication|bad credentials/.test(
       text,

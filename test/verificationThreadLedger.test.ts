@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import {
   loadVerificationThreadLedger,
   parseVerificationThreadLedger,
   upsertVerificationThreadState,
 } from "../src/agentWork/verificationThreadLedger.js";
 import { VERIFICATION_PUBLISH_LENS } from "../src/settings/index.js";
+import { createQueryPool } from "./helpers/fakePool.js";
 
 describe("verificationThreadLedger", () => {
   it("parses the threads map detail shape", () => {
@@ -75,7 +75,7 @@ describe("verificationThreadLedger", () => {
 
   it("loads an empty ledger when no publish record exists", async () => {
     const query = vi.fn(async () => ({ rows: [] }));
-    const ledger = await loadVerificationThreadLedger({ query } as unknown as Pool, {
+    const ledger = await loadVerificationThreadLedger(createQueryPool(query), {
       resourceKey: "o/r#1",
     });
     expect(ledger).toEqual({ threads: {} });

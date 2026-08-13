@@ -1,9 +1,9 @@
-import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
 import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
+import type { IntakeClient } from "../db/postgres.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -20,7 +20,7 @@ export type RetentionResult = {
  * backlog never holds one long transaction.
  */
 export async function runRetention(
-  pool: Pool,
+  pool: IntakeClient,
   cfg: Pick<
     Config,
     | "agentWorkRetentionSeconds"

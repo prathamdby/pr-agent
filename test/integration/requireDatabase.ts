@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { isJsonString } from "../../src/util/jsonValue.js";
 
 export const INTEGRATION_ALLOW_SKIP_ENV = "INTEGRATION_ALLOW_SKIP_WITHOUT_DB";
 
@@ -44,7 +45,7 @@ export async function assertIntegrationDatabaseReady(
   if (allowIntegrationSkipWithoutDatabase(env)) return;
 
   const databaseUrl = env.DATABASE_URL;
-  if (typeof databaseUrl !== "string" || databaseUrl.length === 0) {
+  if (!isJsonString(databaseUrl) || databaseUrl.length === 0) {
     throw formatMissingDatabaseUrlError();
   }
 

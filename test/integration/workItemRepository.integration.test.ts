@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
-import { inTransaction } from "../../src/db/postgres.js";
+import { inTransaction, type IntakeClient } from "../../src/db/postgres.js";
 import {
   createAskWorkItem,
   createDescriptionWorkItem,
@@ -23,7 +23,7 @@ import { hasDatabase, integrationPool } from "./db.js";
 const OWNER = "work-item-repo-it";
 const EVENT = "work-item-repo-it";
 
-async function insertWebhookEvent(client: PoolClient, id: string): Promise<void> {
+async function insertWebhookEvent(client: IntakeClient, id: string): Promise<void> {
   await client.query(
     `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
      VALUES ($1, $2, $3, 'sha', 'accepted')`,
@@ -233,7 +233,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     });
 
     expect(slash.created).toBe(true);
-    expect(typeof verificationId).toBe("string");
+    expect(verificationId).toEqual(expect.any(String));
     expect(verificationId).not.toBe(slash.id);
   });
 
@@ -495,7 +495,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       `UPDATE agent_work_items SET status = 'running', created_at = $2 WHERE id = $1`,
       [runningId, "2026-01-01T00:00:00Z"],
     );
-    expect(typeof askId === "string" || (askId as { id: string }).id).toBeTruthy();
+    expect(askId.id).toEqual(expect.any(String));
 
     await expect(getReviewQueuePosition(pool, firstId)).resolves.toEqual({
       position: 1,

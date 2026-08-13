@@ -7,8 +7,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
-import type { TextContent, Tool as PiTool } from "@earendil-works/pi-ai";
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -16,22 +15,218 @@ import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import {
+  jsonObjectSchema,
+  isJsonString,
+  asJsonObject,
+  type JsonObject,
+  type JsonValue,
+} from "../../util/jsonValue.js";
+import * as v from "valibot";
+import {
   exactUsageFromProviderUsage,
   mergeExactUsage,
   promptMetadataFromText,
 } from "../providers/usageMetadata.js";
 import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
-import { bindPromptCacheRetention } from "./modelRuntimeCache.js";
+import { bindPromptCacheRetention, type PromptCacheRuntime } from "./modelRuntimeCache.js";
 import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
 import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
 
-function toolResultToText(result: unknown): string {
-  if (result === undefined) return "";
-  return typeof result === "string" ? result : JSON.stringify(result);
+export type PiModelInfo = {
+  readonly id: string;
+  readonly provider?: string;
+  readonly api?: string;
+};
+
+export type PiModelRuntimeCreateOptions = {
+  readonly authPath?: string;
+  readonly modelsPath?: string | null;
+  readonly allowModelNetwork?: boolean;
+};
+
+export type PiModelRuntime = PromptCacheRuntime & {
+  setRuntimeApiKey(provider: string, key: string): Promise<void>;
+  getError(): string | undefined;
+  getModel(provider: string, model: string): PiModelInfo | undefined;
+};
+
+export type PiResourceLoader = {
+  reload(): Promise<void>;
+};
+
+export type PiSettingsManager = {
+  readonly compaction?: { readonly enabled: boolean };
+};
+
+export type PiSessionManagerHandle = {
+  readonly id?: string;
+};
+
+export type PiCompactionSettings = {
+  readonly compaction: { readonly enabled: boolean };
+};
+
+export type PiExtensionRuntime = {
+  readonly dispose?: () => void;
+};
+
+export type PiToolExecuteContext = {
+  readonly cwd?: string;
+};
+
+export type PiDefinedTool = {
+  readonly name: string;
+  readonly label?: string;
+  readonly description: string;
+  readonly execute: (
+    toolCallId: string,
+    params: JsonObject,
+    onUpdate?: undefined,
+    signal?: undefined,
+    ctx?: PiToolExecuteContext,
+  ) => Promise<{
+    readonly content: readonly { readonly type: "text"; readonly text: string }[];
+    readonly details?: JsonObject;
+  }>;
+};
+
+export type PiDefineToolInput = {
+  readonly name: string;
+  readonly label: string;
+  readonly description: string;
+  readonly parameters: JsonObject;
+  readonly execute: PiDefinedTool["execute"];
+};
+
+export type PiSdkTurnEndEvent = {
+  readonly type: "turn_end";
+  readonly toolResults: readonly JsonObject[];
+  readonly message: {
+    readonly role: string;
+    readonly usage?: {
+      readonly input: number;
+      readonly output: number;
+      readonly cacheRead: number;
+      readonly cacheWrite: number;
+      readonly totalTokens: number;
+      readonly cost: {
+        readonly input: number;
+        readonly output: number;
+        readonly cacheRead: number;
+        readonly cacheWrite: number;
+        readonly total: number;
+      };
+    };
+    readonly content: readonly (
+      | { readonly type: "text"; readonly text: string }
+      | { readonly type: "thinking"; readonly thinking: string }
+      | {
+          readonly type: "toolCall";
+          readonly id: string;
+          readonly name: string;
+          readonly arguments: JsonObject;
+        }
+    )[];
+  };
+};
+
+export type PiSdkEvent =
+  | PiSdkTurnEndEvent
+  | { readonly type: "tool_execution_start"; readonly toolName: string }
+  | { readonly type: "message_update" };
+
+export type PiSdkSession = {
+  subscribe(listener: (event: PiSdkEvent) => void): () => void;
+  prompt(text: string): Promise<void>;
+  abort(): void | Promise<void>;
+  setActiveToolsByName(names: readonly string[]): void;
+  setThinkingLevel(level: string): void;
+  dispose(): void;
+};
+
+export type PiResourceLoaderOptions = {
+  readonly cwd: string;
+  readonly agentDir: string;
+  readonly settingsManager: PiSettingsManager;
+  readonly systemPromptOverride: () => string;
+  readonly skillsOverride: () => {
+    readonly skills: readonly never[];
+    readonly diagnostics: readonly never[];
+  };
+  readonly agentsFilesOverride: () => { readonly agentsFiles: readonly never[] };
+  readonly promptsOverride: () => {
+    readonly prompts: readonly never[];
+    readonly diagnostics: readonly never[];
+  };
+  readonly extensionsOverride: () => {
+    readonly extensions: readonly never[];
+    readonly errors: readonly never[];
+    readonly runtime: PiExtensionRuntime;
+  };
+};
+
+export type PiCreateAgentSessionOptions = {
+  readonly cwd: string;
+  readonly agentDir: string;
+  readonly model: PiModelInfo;
+  readonly thinkingLevel: string;
+  readonly modelRuntime: PiModelRuntime;
+  readonly resourceLoader: PiResourceLoader;
+  readonly settingsManager: PiSettingsManager;
+  readonly sessionManager: PiSessionManagerHandle;
+  readonly noTools: "builtin";
+  readonly customTools: readonly PiDefinedTool[];
+};
+
+export type PiSessionRuntime = {
+  readonly ModelRuntime: {
+    create(options: PiModelRuntimeCreateOptions): Promise<PiModelRuntime>;
+  };
+  createAgentSession(options: PiCreateAgentSessionOptions): Promise<{ session: PiSdkSession }>;
+  createExtensionRuntime(): PiExtensionRuntime;
+  defineTool(tool: PiDefineToolInput): PiDefinedTool;
+  DefaultResourceLoader: new (options: PiResourceLoaderOptions) => PiResourceLoader;
+  readonly SessionManager: {
+    inMemory(cwd: string, options?: { readonly id?: string }): PiSessionManagerHandle;
+  };
+  readonly SettingsManager: {
+    inMemory(settings: PiCompactionSettings): PiSettingsManager;
+  };
+};
+
+const defaultPiSessionRuntime = {
+  ModelRuntime,
+  createAgentSession,
+  createExtensionRuntime,
+  defineTool,
+  DefaultResourceLoader,
+  SessionManager,
+  SettingsManager,
+};
+
+// @ts-expect-error Pi SDK module shapes are wider than PiSessionRuntime; tests inject PiSessionRuntime.
+const defaultPiSessionRuntimeTyped: PiSessionRuntime = defaultPiSessionRuntime;
+let piSessionRuntime: PiSessionRuntime = defaultPiSessionRuntimeTyped;
+
+export function setPiSessionRuntime(runtime: PiSessionRuntime): void {
+  piSessionRuntime = runtime;
 }
 
-function toolResultSize(result: unknown): { resultBytes: number; resultCharacters: number } {
+export function resetPiSessionRuntime(): void {
+  piSessionRuntime = defaultPiSessionRuntimeTyped;
+}
+
+function toolResultToText(result: JsonValue): string {
+  return isJsonString(result) ? result : JSON.stringify(result);
+}
+
+type ToolResultSize = {
+  readonly resultBytes: number;
+  readonly resultCharacters: number;
+};
+
+function toolResultSize(result: JsonValue): ToolResultSize {
   const text = toolResultToText(result);
   return {
     resultCharacters: text.length,
@@ -47,11 +242,11 @@ function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0])
   }
 }
 
-function assistantMessageText(message: TurnEndEvent["message"]): string {
+function assistantMessageText(message: PiSdkTurnEndEvent["message"]): string {
   if (message.role !== "assistant") return "";
   return message.content
-    .filter((part): part is TextContent => part.type === "text")
-    .map((part) => part.text)
+    .filter((part) => part.type === "text")
+    .map((part) => (part.type === "text" ? part.text : ""))
     .join("\n")
     .trim();
 }
@@ -60,13 +255,14 @@ function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
-): ReturnType<typeof defineTool> {
-  return defineTool({
+): ReturnType<PiSessionRuntime["defineTool"]> {
+  return piSessionRuntime.defineTool({
     name: tool.name,
     label: tool.name,
     description: tool.description,
+    // SAFETY: Pi defineTool expects its own JSON-schema parameter type; tool.parameters is already that schema from toJsonSchema.
     parameters: tool.parameters as never,
-    execute: async (_toolCallId: string, params: Record<string, unknown>) => {
+    execute: async (_toolCallId: string, params) => {
       const startedAt = Date.now();
       if (!executor) {
         safeRecordReviewMetric({
@@ -86,7 +282,8 @@ function toCodingAgentTool(
         if (refreshBeforeTool) {
           await refreshBeforeTool(tool.name);
         }
-        const result = await executor(params);
+        const args = v.parse(jsonObjectSchema, params);
+        const result = await executor(args);
         const size = toolResultSize(result);
         safeRecordReviewMetric({
           kind: "tool_call",
@@ -96,9 +293,10 @@ function toCodingAgentTool(
           resultBytes: size.resultBytes,
           resultCharacters: size.resultCharacters,
         });
+        const details = asJsonObject(result) ?? {};
         return {
           content: [{ type: "text" as const, text: toolResultToText(result) }],
-          details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
+          details,
         };
       } catch (error) {
         safeRecordReviewMetric({
@@ -106,13 +304,19 @@ function toCodingAgentTool(
           name: tool.name,
           ok: false,
           durationMs: Date.now() - startedAt,
-          errorMessage: error instanceof Error ? error.message : String(error),
+          errorMessage: error instanceof Error ? error.message : "Non-error thrown",
         });
         throw error;
       }
     },
   });
 }
+
+type ModelNotFoundContext = {
+  piProvider: string;
+  piModel: string;
+  modelsJsonPath?: string;
+};
 
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
   const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
@@ -121,7 +325,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
 
   try {
     const authPath = join(agentDir, "auth.json");
-    const modelRuntime = await ModelRuntime.create({
+    const modelRuntime = await piSessionRuntime.ModelRuntime.create({
       authPath,
       modelsPath: params.cfg.modelsJsonPath,
       allowModelNetwork: false,
@@ -142,26 +346,27 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     }
     const model = modelRuntime.getModel(params.primary.provider, params.primary.model);
     if (!model) {
+      const context: ModelNotFoundContext = {
+        piProvider: params.primary.provider,
+        piModel: params.primary.model,
+      };
+      if (params.cfg.modelsJsonPath) context.modelsJsonPath = params.cfg.modelsJsonPath;
       throw new AppError({
         code: "provider.model_not_found",
         message: params.cfg.modelsJsonPath
           ? `Model not found: ${params.primary.provider}/${params.primary.model} (models.json: ${params.cfg.modelsJsonPath})`
           : `Model not found: ${params.primary.provider}/${params.primary.model}`,
-        context: {
-          piProvider: params.primary.provider,
-          piModel: params.primary.model,
-          ...(params.cfg.modelsJsonPath ? { modelsJsonPath: params.cfg.modelsJsonPath } : {}),
-        },
+        context,
       });
     }
     bindPromptCacheRetention(modelRuntime, params.promptCachePolicy.retention);
 
-    const settingsManager = SettingsManager.inMemory({
+    const settingsManager = piSessionRuntime.SettingsManager.inMemory({
       compaction: {
         enabled: params.compactionPolicy.enabled,
       },
     });
-    const resourceLoader = new DefaultResourceLoader({
+    const resourceLoader = new piSessionRuntime.DefaultResourceLoader({
       cwd: params.cwd ?? process.cwd(),
       agentDir,
       settingsManager,
@@ -172,7 +377,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       extensionsOverride: () => ({
         extensions: [],
         errors: [],
-        runtime: createExtensionRuntime(),
+        runtime: piSessionRuntime.createExtensionRuntime(),
       }),
     });
     await resourceLoader.reload();
@@ -184,7 +389,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       cacheIdentityFromAssignment(params.role, params.primary, params.specialistId),
     );
     const cwd = params.cwd ?? process.cwd();
-    const { session } = await createAgentSession({
+    const { session } = await piSessionRuntime.createAgentSession({
       cwd,
       agentDir,
       model,
@@ -192,7 +397,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       modelRuntime,
       resourceLoader,
       settingsManager,
-      sessionManager: SessionManager.inMemory(cwd, { id: sessionCacheId }),
+      sessionManager: piSessionRuntime.SessionManager.inMemory(cwd, { id: sessionCacheId }),
       noTools: "builtin",
       customTools: params.tools.map((tool) =>
         toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool),
@@ -234,7 +439,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         let finalText = "";
         let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
         const idleTimeoutMs = opts.deadlineMs ?? params.cfg.providerPromptTimeoutMs;
-        const idleTimeoutEnabled = typeof idleTimeoutMs === "number" && idleTimeoutMs > 0;
+        const idleTimeoutEnabled = idleTimeoutMs != null && idleTimeoutMs > 0;
         let idleCheckHandle: ReturnType<typeof setInterval> | undefined;
         let rejectOnIdle: ((error: Error) => void) | undefined;
         let lastActivityAt = Date.now();

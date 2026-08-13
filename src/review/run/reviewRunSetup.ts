@@ -13,8 +13,9 @@ import {
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
+import type { AgentRunnerToolExecutorMap } from "../../agent/providers/interface.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
-import type { Pool } from "pg";
+import type { IntakeClient } from "../../db/postgres.js";
 import {
   buildCodeIndexTools,
   buildUnavailableCodeIndexTools,
@@ -24,7 +25,7 @@ export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
   readonly workspaceTools: {
     readonly piTools: PiTool[];
-    readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+    readonly executors: AgentRunnerToolExecutorMap;
   };
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly evidenceLedger: EvidenceLedger;
@@ -60,7 +61,7 @@ export function buildReviewRunSetup(params: {
   userSupplement?: string;
   trustedContext?: string;
   workspace: LocalPrWorkspace;
-  pool?: Pool;
+  pool?: IntakeClient;
   codeIndexSnapshotId?: string;
 }): ReviewRunSetup {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
@@ -74,8 +75,7 @@ export function buildReviewRunSetup(params: {
     evidenceLedger,
     headSha,
   });
-  const executors = { ...bundle.executors };
-  wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
+  const executors = wrapListPullRequestFilesDiffIngestion({ ...bundle.executors }, cachedDiffIndex);
 
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,

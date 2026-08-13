@@ -1,7 +1,8 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import { AppError, toAppError } from "../../errors/appError.js";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
+import { AppError, nonErrorThrown, toAppError } from "../../errors/appError.js";
 import { MAX_REVIEW_PAYLOAD_FINDINGS } from "../../settings/index.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
@@ -139,17 +140,18 @@ function validateFindingIds(
 
 function findingFromCopy(accepted: AcceptedPlacement, copy: SummaryFindingCopy): ReviewFinding {
   const immutable = accepted.placement.finding;
-  return {
+  const finding: ReviewFinding = {
     severity: immutable.severity,
     file: immutable.file,
     startLine: immutable.startLine,
     endLine: immutable.endLine,
     title: copy.title,
     detail: copy.detail,
-    ...(copy.fixPrompt == null ? {} : { fixPrompt: copy.fixPrompt }),
-    ...(copy.confidence == null ? {} : { confidence: copy.confidence }),
-    ...(copy.category == null ? {} : { category: copy.category }),
   };
+  if (copy.fixPrompt != null) finding.fixPrompt = copy.fixPrompt;
+  if (copy.confidence != null) finding.confidence = copy.confidence;
+  if (copy.category != null) finding.category = copy.category;
+  return finding;
 }
 
 function reconstructPayload(
@@ -205,10 +207,12 @@ function ledgerWithFindingCopy(
   };
 }
 
-export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
+export type PublishSummaryTool = {
   readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<PublishSummaryToolResult>;
-} {
+  readonly executor: AgentRunnerToolExecutor;
+};
+
+export function buildPublishSummaryTool(params: PublishSummaryToolParams): PublishSummaryTool {
   const { state, getLedger, getCoverage, ...publishContext } = params;
   const piTool: PiTool = {
     name: "publish_summary",
@@ -216,7 +220,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       "Publish the final review summary exactly once. Supply display copy for every accepted finding ID without changing severity or placement. Write prCharacter per the synthesis overview-scale hard rule.",
     parameters: toJsonSchema(publishSummarySchema, { errorMode: "ignore" }),
   };
-  const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
+  const executor: AgentRunnerToolExecutor = async (args) => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_summary");
     if (!gate.ok) {
       return {
@@ -266,7 +270,8 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
         coverage: getCoverage(),
       });
     } catch (error) {
-      throw toAppError(error, {
+      const err = error instanceof Error ? error : nonErrorThrown("review.publish_summary_failed");
+      throw toAppError(err, {
         code: "review.publish_summary_failed",
         context: {
           owner: params.ctx.owner,

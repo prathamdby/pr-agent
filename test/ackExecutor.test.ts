@@ -1,6 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import type { Config } from "../src/config.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
 import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
 import type { AckJobData } from "../src/agentWork/types.js";
 import {
@@ -8,54 +7,23 @@ import {
   GITHUB_REACTION_PLUS_ONE,
   REVIEW_SUMMARY_SENTINEL,
 } from "../src/settings/index.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
-
-let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-
-vi.mock("../src/agentWork/durableJob.js", () => ({
-  mintInstallationToken: vi.fn(async () => ({
-    token: "tok",
-    expiresAtTs: Date.now() + 3_600_000,
-    ttlMs: 3_600_000,
-  })),
-}));
-
-vi.mock("../src/review/ci/analyzeCi.js", () => ({
-  buildCiSummaryForSurface: vi.fn(async () => null),
-}));
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  getSummaryCommentGithubId: vi.fn(async () => null),
-  getProgressCommentOwner: vi.fn(async () => null),
-  getReviewQueuePosition: vi.fn(async () => null),
-  getWorkItemCore: vi.fn(async () => ({
-    id: "wi-1",
-    status: "running",
-    type: "review",
-  })),
-  recordPublishStep: vi.fn(),
-  claimSummaryCommentCreation: vi.fn(async () => true),
-}));
-
-vi.mock("../src/review/publish/publishReview.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/publish/publishReview.js")>();
-  return {
-    ...actual,
-    upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({ id: 42, updated: false })),
-  };
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
-  ensureReviewCheckRunStarted: vi.fn(),
-  cancelReviewCheckRunsForWorkItems: vi.fn(async () => undefined),
-}));
-
-vi.mock("../src/evlog.js", () => ({
-  logWarn: vi.fn(),
-}));
-
+import {
+  createFakePrSurface,
+  resetCreatePrSurface,
+  setCreatePrSurface,
+} from "../src/github/prSurface.js";
+import { makeTestConfig } from "./helpers/config.js";
+import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { coreOf, setupDefaultDurableAuthMocks } from "./helpers/executorDurableHarness.js";
+import * as analyzeCi from "../src/review/ci/analyzeCi.js";
+import * as repo from "../src/agentWork/repository.js";
+import * as publishReview from "../src/review/publish/publishReview.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
+import * as reviewCheckRun from "../src/agentWork/reviewCheckRun.js";
+import {
+  cancelReviewCheckRunsForWorkItems,
+  ensureReviewCheckRunStarted,
+} from "../src/agentWork/reviewCheckRun.js";
 import {
   getProgressCommentOwner,
   getReviewQueuePosition,
@@ -63,18 +31,17 @@ import {
   recordPublishStep,
 } from "../src/agentWork/repository.js";
 import {
-  cancelReviewCheckRunsForWorkItems,
-  ensureReviewCheckRunStarted,
-} from "../src/agentWork/reviewCheckRun.js";
-import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
 } from "../src/review/run/progressComment.js";
 import { REVIEW_PROGRESS_QUEUE_LABEL, reviewProgressCancelledNote } from "../src/settings/index.js";
+import * as evlog from "../src/evlog.js";
 import { logWarn } from "../src/evlog.js";
 
-const cfg = {} as Config;
-const pool = {} as Pool;
+let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+
+const cfg = makeTestConfig();
+const pool = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
 
 function ackData(): AckJobData {
   return {
@@ -93,9 +60,34 @@ function ackData(): AckJobData {
 
 describe("executeAckJob", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
+    setCreatePrSurface(() => surfaceBundle.surface);
+    setupDefaultDurableAuthMocks();
+    vi.spyOn(analyzeCi, "buildCiSummaryForSurface").mockResolvedValue({
+      status: "passing",
+      headline: "CI passing",
+      failures: [],
+    });
+    vi.spyOn(repo, "getSummaryCommentGithubId").mockResolvedValue(null);
+    vi.spyOn(repo, "getProgressCommentOwner").mockResolvedValue(null);
+    vi.spyOn(repo, "getReviewQueuePosition").mockResolvedValue(null);
+    vi.spyOn(repo, "getWorkItemCore").mockResolvedValue(
+      coreOf(makeReviewWorkItem({ id: "wi-1", status: "running" })),
+    );
+    vi.spyOn(repo, "recordPublishStep").mockResolvedValue(undefined);
+    vi.spyOn(repo, "claimSummaryCommentCreation").mockResolvedValue(true);
+    vi.spyOn(publishReview, "upsertSummaryCommentWithCreationClaim").mockResolvedValue({
+      id: 42,
+      updated: false,
+    });
+    vi.spyOn(reviewCheckRun, "ensureReviewCheckRunStarted").mockResolvedValue(null);
+    vi.spyOn(reviewCheckRun, "cancelReviewCheckRunsForWorkItems").mockResolvedValue(undefined);
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    resetCreatePrSurface();
+    vi.restoreAllMocks();
   });
 
   it("posts eyes on every ack target", async () => {
@@ -217,11 +209,9 @@ describe("executeAckJob", () => {
   });
 
   it("no-ops progress when the work item is superseded", async () => {
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
-      id: "wi-stale",
-      status: "superseded",
-      type: "review",
-    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce(
+      coreOf(makeReviewWorkItem({ id: "wi-stale", status: "superseded" })),
+    );
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -234,15 +224,11 @@ describe("executeAckJob", () => {
   });
 
   it("executes acknowledgements in reverse order without letting A overwrite B", async () => {
-    vi.mocked(getWorkItemCore).mockImplementation(async (_pool, id: string) => {
+    vi.mocked(getWorkItemCore).mockImplementation(async (_pool, id) => {
       if (id === "wi-b") {
-        return { id: "wi-b", status: "running", type: "review" } as Awaited<
-          ReturnType<typeof getWorkItemCore>
-        >;
+        return coreOf(makeReviewWorkItem({ id: "wi-b", status: "running" }));
       }
-      return { id: "wi-a", status: "superseded", type: "review" } as Awaited<
-        ReturnType<typeof getWorkItemCore>
-      >;
+      return coreOf(makeReviewWorkItem({ id: "wi-a", status: "superseded" }));
     });
     vi.mocked(getProgressCommentOwner)
       .mockResolvedValueOnce(null)
@@ -269,11 +255,9 @@ describe("executeAckJob", () => {
   });
 
   it("skips progress when another work item already owns the comment", async () => {
-    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
-      id: "wi-a",
-      status: "running",
-      type: "review",
-    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce(
+      coreOf(makeReviewWorkItem({ id: "wi-a", status: "running" })),
+    );
     vi.mocked(getProgressCommentOwner).mockResolvedValueOnce({
       workItemId: "wi-b",
       generation: 1,
@@ -354,7 +338,7 @@ describe("executeAckJob", () => {
     );
 
     surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
+    setCreatePrSurface(() => surfaceBundle.surface);
     surfaceBundle.controls.setProgressComment(
       REVIEW_SUMMARY_SENTINEL,
       renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }),

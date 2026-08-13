@@ -1,7 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
+import {
+  resetInstallationOctokitFactory,
+  setInstallationOctokitFactory,
+} from "../src/github/appAuth.js";
+import * as appAuth from "../src/github/appAuth.js";
+import * as evlog from "../src/evlog.js";
+import * as httpStatusMod from "../src/github/httpStatus.js";
+import { createPrSurface } from "../src/github/prSurface.js";
+import {
+  GITHUB_REACTION_EYES,
+  GITHUB_REACTION_MINUS_ONE,
+  GITHUB_REACTION_PLUS_ONE,
+} from "../src/settings/index.js";
 
-const mocks = vi.hoisted(() => ({
+const mocks = {
   createForIssue: vi.fn(),
   listForIssue: vi.fn(),
   deleteForIssue: vi.fn(),
@@ -11,52 +24,76 @@ const mocks = vi.hoisted(() => ({
   createForPullRequestReviewComment: vi.fn(),
   listForPullRequestReviewComment: vi.fn(),
   deleteForPullRequestComment: vi.fn(),
-  logDebug: vi.fn(),
-  httpStatus: vi.fn(),
-  getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
-}));
+};
 
-vi.mock("../src/github/appAuth.js", () => ({
-  getAppBotIdentity: mocks.getAppBotIdentity,
-  installationOctokit: () => {
-    const rest = {
-      reactions: {
-        createForIssue: mocks.createForIssue,
-        listForIssue: mocks.listForIssue,
-        deleteForIssue: mocks.deleteForIssue,
-        createForIssueComment: mocks.createForIssueComment,
-        listForIssueComment: mocks.listForIssueComment,
-        deleteForIssueComment: mocks.deleteForIssueComment,
-        createForPullRequestReviewComment: mocks.createForPullRequestReviewComment,
-        listForPullRequestReviewComment: mocks.listForPullRequestReviewComment,
-        deleteForPullRequestComment: mocks.deleteForPullRequestComment,
-      },
+type ReactionListParams = {
+  readonly owner?: string;
+  readonly repo?: string;
+  readonly issue_number?: number;
+  readonly comment_id?: number;
+  readonly per_page?: number;
+  readonly content?: string;
+  readonly reaction_id?: number;
+};
+
+type ListedReactionRow = {
+  readonly id: number;
+  readonly content: string;
+  readonly user: { readonly id: number } | null;
+};
+
+type ReactionPage = {
+  readonly data: readonly ListedReactionRow[];
+};
+
+type FakeOctokit = {
+  readonly rest: {
+    readonly reactions: {
+      createForIssue: (params: ReactionListParams) => Promise<void>;
+      listForIssue: (params: ReactionListParams) => Promise<ReactionPage>;
+      deleteForIssue: (params: ReactionListParams) => Promise<void>;
+      createForIssueComment: (params: ReactionListParams) => Promise<void>;
+      listForIssueComment: (params: ReactionListParams) => Promise<ReactionPage>;
+      deleteForIssueComment: (params: ReactionListParams) => Promise<void>;
+      createForPullRequestReviewComment: (params: ReactionListParams) => Promise<void>;
+      listForPullRequestReviewComment: (params: ReactionListParams) => Promise<ReactionPage>;
+      deleteForPullRequestComment: (params: ReactionListParams) => Promise<void>;
     };
-    return {
-      rest,
-      paginate: async (fn: (...args: unknown[]) => unknown, opts: unknown) => {
-        const result = await fn(opts);
-        return (result as { data: unknown[] }).data;
-      },
-    };
-  },
-}));
+  };
+  paginate(
+    fn: (params: ReactionListParams) => Promise<ReactionPage>,
+    params: ReactionListParams,
+  ): Promise<readonly ListedReactionRow[]>;
+  readonly hook: {
+    after: (event: string, handler: () => void) => void;
+  };
+};
 
-vi.mock("../src/evlog.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/evlog.js")>();
-  return { ...actual, logDebug: mocks.logDebug };
-});
-
-vi.mock("../src/github/httpStatus.js", () => ({
-  httpStatus: mocks.httpStatus,
-}));
-
-import { createPrSurface } from "../src/github/prSurface.js";
-import {
-  GITHUB_REACTION_EYES,
-  GITHUB_REACTION_MINUS_ONE,
-  GITHUB_REACTION_PLUS_ONE,
-} from "../src/settings/index.js";
+function fakeOctokit(): FakeOctokit {
+  const rest = {
+    reactions: {
+      createForIssue: mocks.createForIssue,
+      listForIssue: mocks.listForIssue,
+      deleteForIssue: mocks.deleteForIssue,
+      createForIssueComment: mocks.createForIssueComment,
+      listForIssueComment: mocks.listForIssueComment,
+      deleteForIssueComment: mocks.deleteForIssueComment,
+      createForPullRequestReviewComment: mocks.createForPullRequestReviewComment,
+      listForPullRequestReviewComment: mocks.listForPullRequestReviewComment,
+      deleteForPullRequestComment: mocks.deleteForPullRequestComment,
+    },
+  };
+  return {
+    rest,
+    paginate: async (fn, opts) => {
+      const result = await fn(opts);
+      return result.data;
+    },
+    hook: {
+      after: vi.fn(),
+    },
+  };
+}
 
 const BOT_USER_ID = 999;
 
@@ -77,11 +114,25 @@ function prSurface() {
 
 describe("PrSurface acknowledgement reactions", () => {
   beforeEach(() => {
+    setInstallationOctokitFactory(fakeOctokit);
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: BOT_USER_ID,
+      login: "pr-agent[bot]",
+    });
+    vi.spyOn(evlog, "logDebug").mockImplementation(() => undefined);
+    vi.spyOn(httpStatusMod, "httpStatus");
     vi.clearAllMocks();
-    mocks.getAppBotIdentity.mockResolvedValue({ userId: BOT_USER_ID, login: "pr-agent[bot]" });
+    vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
+      userId: BOT_USER_ID,
+      login: "pr-agent[bot]",
+    });
     mocks.listForIssue.mockResolvedValue({ data: [] });
     mocks.createForIssue.mockResolvedValue({});
     mocks.deleteForIssue.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    resetInstallationOctokitFactory();
   });
 
   it("posts the requested reaction content", async () => {
@@ -100,13 +151,13 @@ describe("PrSurface acknowledgement reactions", () => {
 
   it("debug-logs suppressed 403 errors", async () => {
     mocks.createForIssue.mockRejectedValue(new Error("forbidden"));
-    mocks.httpStatus.mockReturnValue(403);
+    vi.mocked(httpStatusMod.httpStatus).mockReturnValue(403);
 
     await expect(
       prSurface().setAcknowledgementReaction([{ kind: "pr", prNumber: 7 }], GITHUB_REACTION_EYES),
     ).resolves.toBeUndefined();
 
-    expect(mocks.logDebug).toHaveBeenCalledWith(
+    expect(evlog.logDebug).toHaveBeenCalledWith(
       "reaction_suppressed_forbidden",
       expect.objectContaining({
         owner: "o",
@@ -120,13 +171,13 @@ describe("PrSurface acknowledgement reactions", () => {
 
   it("keeps 422 silent", async () => {
     mocks.createForIssue.mockRejectedValue(new Error("already reacted"));
-    mocks.httpStatus.mockReturnValue(422);
+    vi.mocked(httpStatusMod.httpStatus).mockReturnValue(422);
 
     await expect(
       prSurface().setAcknowledgementReaction([{ kind: "pr", prNumber: 7 }], GITHUB_REACTION_EYES),
     ).resolves.toBeUndefined();
 
-    expect(mocks.logDebug).not.toHaveBeenCalled();
+    expect(evlog.logDebug).not.toHaveBeenCalled();
   });
 
   it("continues when one target fails", async () => {
@@ -134,7 +185,7 @@ describe("PrSurface acknowledgement reactions", () => {
       .mockResolvedValueOnce({ data: [] })
       .mockRejectedValueOnce(new Error("boom"))
       .mockResolvedValueOnce({ data: [] });
-    mocks.httpStatus.mockReturnValue(500);
+    vi.mocked(httpStatusMod.httpStatus).mockReturnValue(500);
 
     await expect(
       prSurface().setAcknowledgementReaction(
@@ -148,7 +199,7 @@ describe("PrSurface acknowledgement reactions", () => {
     ).resolves.toBeUndefined();
 
     expect(mocks.listForIssue).toHaveBeenCalledTimes(3);
-    expect(mocks.logDebug).toHaveBeenCalledWith(
+    expect(evlog.logDebug).toHaveBeenCalledWith(
       "ack_reaction_failed",
       expect.objectContaining({ reaction: GITHUB_REACTION_PLUS_ONE }),
     );
@@ -216,7 +267,7 @@ describe("PrSurface acknowledgement reactions", () => {
   });
 
   it("creates without deletes when bot identity is unavailable", async () => {
-    mocks.getAppBotIdentity.mockRejectedValue(new Error("no bot"));
+    vi.mocked(appAuth.getAppBotIdentity).mockRejectedValue(new Error("no bot"));
 
     await prSurface().setAcknowledgementReaction(
       [{ kind: "pr", prNumber: 7 }],
@@ -287,7 +338,7 @@ describe("PrSurface acknowledgement reactions", () => {
     mocks.deleteForIssue
       .mockRejectedValueOnce(new Error("delete failed"))
       .mockResolvedValueOnce({});
-    mocks.httpStatus.mockReturnValue(500);
+    vi.mocked(httpStatusMod.httpStatus).mockReturnValue(500);
 
     await expect(
       prSurface().setAcknowledgementReaction(
@@ -296,7 +347,7 @@ describe("PrSurface acknowledgement reactions", () => {
       ),
     ).resolves.toBeUndefined();
 
-    expect(mocks.logDebug).toHaveBeenCalledWith(
+    expect(evlog.logDebug).toHaveBeenCalledWith(
       "ack_reaction_failed",
       expect.objectContaining({ reaction: GITHUB_REACTION_PLUS_ONE }),
     );

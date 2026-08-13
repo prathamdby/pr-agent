@@ -3,8 +3,46 @@ import {
   sanitizePostHogEvent,
   type PostHogEventMessage,
 } from "../src/security/sanitizePostHogEvent.js";
+import {
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+} from "../src/util/jsonValue.js";
 
 const TOKEN = "ghp_1234567890123456789012345678901234";
+
+function expectJsonObject(value: JsonValue | undefined): JsonObject {
+  expect(value !== undefined && isJsonObject(value)).toBe(true);
+  if (value === undefined || !isJsonObject(value)) {
+    throw new Error("expected a JSON object");
+  }
+  return value;
+}
+
+function expectJsonArray(value: JsonValue | undefined): readonly JsonValue[] {
+  expect(Array.isArray(value)).toBe(true);
+  if (!Array.isArray(value)) {
+    throw new Error("expected a JSON array");
+  }
+  return value;
+}
+
+function expectJsonString(value: JsonValue | undefined): string {
+  expect(value !== undefined && isJsonString(value)).toBe(true);
+  if (value === undefined || !isJsonString(value)) {
+    throw new Error("expected a JSON string");
+  }
+  return value;
+}
+
+function firstExceptionEntry(properties: JsonObject | null | undefined): JsonObject {
+  return expectJsonObject(expectJsonArray(properties?.$exception_list)[0]);
+}
+
+function firstStackFrame(entry: JsonObject): JsonObject {
+  return expectJsonObject(expectJsonArray(expectJsonObject(entry.stacktrace).frames)[0]);
+}
 
 describe("sanitizePostHogEvent", () => {
   it("returns null unchanged", () => {
@@ -67,22 +105,22 @@ describe("sanitizePostHogEvent", () => {
     };
 
     const sanitized = sanitizePostHogEvent(event);
-    const entry = (sanitized?.properties?.$exception_list as unknown[])[0] as Record<
-      string,
-      unknown
-    >;
+    const entry = firstExceptionEntry(sanitized?.properties);
     expect(entry.type).toBe("Error");
-    expect(String(entry.value)).toContain("[redacted]");
-    expect(String(entry.value)).not.toContain("sk-");
+    const value = expectJsonString(entry.value);
+    expect(value).toContain("[redacted]");
+    expect(value).not.toContain("sk-");
 
-    const frame = (entry.stacktrace as { frames: Array<Record<string, unknown>> }).frames[0];
+    const frame = firstStackFrame(entry);
     expect(frame.filename).toBe("/tmp/app.ts");
     expect(frame.function).toBe("run");
     expect(frame.lineno).toBe(12);
-    expect(String(frame.context_line)).toContain("[redacted]");
-    expect(String(frame.context_line)).not.toContain("ghp_");
-    expect((frame.pre_context as string[])[0]).toContain("[redacted]");
-    expect((frame.pre_context as string[])[0]).not.toContain("ghp_");
+    const contextLine = expectJsonString(frame.context_line);
+    expect(contextLine).toContain("[redacted]");
+    expect(contextLine).not.toContain("ghp_");
+    const preContext = expectJsonString(expectJsonArray(frame.pre_context)[0]);
+    expect(preContext).toContain("[redacted]");
+    expect(preContext).not.toContain("ghp_");
     expect(frame.post_context).toEqual(["return;"]);
   });
 
@@ -121,36 +159,17 @@ describe("sanitizePostHogEvent", () => {
     };
 
     const sanitized = sanitizePostHogEvent(event);
+    const sanitizedEntry = firstExceptionEntry(sanitized?.properties);
+    const sanitizedFrame = firstStackFrame(sanitizedEntry);
 
     expect(sanitized).not.toBe(event);
     expect(sanitized?.properties).not.toBe(properties);
     expect(sanitized?.properties?.$exception_list).not.toBe(exceptionList);
-    expect((sanitized?.properties?.$exception_list as unknown[])[0]).not.toBe(exceptionEntry);
-    expect(
-      ((sanitized?.properties?.$exception_list as unknown[])[0] as { stacktrace: unknown })
-        .stacktrace,
-    ).not.toBe(stacktrace);
-    expect(
-      (
-        (sanitized?.properties?.$exception_list as unknown[])[0] as {
-          stacktrace: { frames: unknown[] };
-        }
-      ).stacktrace.frames,
-    ).not.toBe(frames);
-    expect(
-      (
-        (sanitized?.properties?.$exception_list as unknown[])[0] as {
-          stacktrace: { frames: unknown[] };
-        }
-      ).stacktrace.frames[0],
-    ).not.toBe(frame);
-    expect(
-      (
-        (sanitized?.properties?.$exception_list as unknown[])[0] as {
-          stacktrace: { frames: Array<{ pre_context: unknown }> };
-        }
-      ).stacktrace.frames[0].pre_context,
-    ).not.toBe(preContext);
+    expect(sanitizedEntry).not.toBe(exceptionEntry);
+    expect(sanitizedEntry.stacktrace).not.toBe(stacktrace);
+    expect(expectJsonObject(sanitizedEntry.stacktrace).frames).not.toBe(frames);
+    expect(sanitizedFrame).not.toBe(frame);
+    expect(sanitizedFrame.pre_context).not.toBe(preContext);
 
     expect(event.properties).toBe(properties);
     expect(properties.error_message).toBe(errorMessage);

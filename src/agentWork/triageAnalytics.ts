@@ -3,6 +3,7 @@ import {
   classifyFailure,
   classifiedFailurePostHogProperties,
 } from "../errors/classifiedFailure.js";
+import type { JsonObject } from "../util/jsonValue.js";
 import type { TriageScope } from "./types.js";
 
 export type TriageAnalyticsRef = {
@@ -18,20 +19,29 @@ function distinctId(installationId: number): string {
   return `installation:${installationId}`;
 }
 
-function baseProperties(ref: TriageAnalyticsRef): Record<string, unknown> {
-  return {
+type TriageBaseProperties = {
+  owner: string;
+  repo: string;
+  pr_number: number;
+  work_item_id?: string;
+  scope?: TriageScope;
+};
+
+function baseProperties(ref: TriageAnalyticsRef): JsonObject {
+  const properties: TriageBaseProperties = {
     owner: ref.owner,
     repo: ref.repo,
     pr_number: ref.prNumber,
-    ...(ref.workItemId != null ? { work_item_id: ref.workItemId } : {}),
-    ...(ref.scope != null ? { scope: ref.scope } : {}),
   };
+  if (ref.workItemId != null) properties.work_item_id = ref.workItemId;
+  if (ref.scope != null) properties.scope = ref.scope;
+  return properties;
 }
 
 export function captureTriageEvent(
   ref: TriageAnalyticsRef,
   event: string,
-  properties?: Record<string, unknown>,
+  properties?: JsonObject,
 ): void {
   captureEvent({
     distinctId: distinctId(ref.installationId),
@@ -43,21 +53,19 @@ export function captureTriageEvent(
 export function captureTriageFailure(
   ref: TriageAnalyticsRef,
   step: string,
-  error: unknown,
-  properties?: Record<string, unknown>,
+  error: Error,
+  properties?: JsonObject,
 ): void {
-  const errorObj = error instanceof Error ? error : new Error(String(error));
   const failure = classifyFailure(error, { phase: step });
-  captureTriageEvent(ref, "triage failed", {
+  const extra: JsonObject = {
     step,
     ...classifiedFailurePostHogProperties(failure),
     ...properties,
-  });
-  captureException(errorObj, distinctId(ref.installationId), {
+  };
+  captureTriageEvent(ref, "triage failed", extra);
+  captureException(error, distinctId(ref.installationId), {
     type: "triage",
-    step,
     ...baseProperties(ref),
-    ...classifiedFailurePostHogProperties(failure),
-    ...properties,
+    ...extra,
   });
 }

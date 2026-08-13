@@ -3,24 +3,16 @@ import { mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
+import { describe, expect, it, vi } from "vitest";
+import type {
+  ListPullRequestFilesResult,
+  PullRequestFileEntry,
+} from "../src/github/listPullRequestFiles.js";
+
+type MutablePullRequestFileEntry = {
+  -readonly [K in keyof PullRequestFileEntry]: PullRequestFileEntry[K];
+};
 import { LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB } from "../src/settings/index.js";
-
-const settingsOverrides: { maxFetchBytes?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get LOCAL_WORKSPACE_MAX_FETCH_BYTES() {
-      return settingsOverrides.maxFetchBytes ?? actual.LOCAL_WORKSPACE_MAX_FETCH_BYTES;
-    },
-  };
-});
-
-afterEach(() => {
-  delete settingsOverrides.maxFetchBytes;
-});
 import {
   assertWorkspacePath,
   buildCheckoutCoverage,
@@ -51,7 +43,7 @@ async function buildPrFilesFromRepo(
     "--find-renames",
     `${baseSha}..${headSha}`,
   ]);
-  const files: Array<ListPullRequestFilesResult["files"][number]> = [];
+  const files: MutablePullRequestFileEntry[] = [];
   let totalChanges = 0;
 
   for (const line of nameStatus.split("\n")) {
@@ -90,15 +82,16 @@ async function buildPrFilesFromRepo(
     const changes = additions + deletions;
     totalChanges += changes;
 
-    files.push({
+    const entry: MutablePullRequestFileEntry = {
       filename,
       status,
       additions,
       deletions,
       changes,
-      ...(previousFilename ? { previousFilename } : {}),
-      ...(patch ? { patch } : {}),
-    });
+    };
+    if (previousFilename) entry.previousFilename = previousFilename;
+    if (patch) entry.patch = patch;
+    files.push(entry);
   }
 
   return { files, truncated: false, omittedCountLowerBound: 0, totalChanges };
@@ -318,7 +311,6 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        settingsOverrides.maxFetchBytes = 1;
         const workspaceDirsBefore = new Set(
           (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
         );
@@ -332,6 +324,7 @@ describe("local PR workspace", () => {
             installationToken: "unused",
             prFiles,
             remoteUrlOverride: remote,
+            maxFetchBytes: 1,
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
@@ -372,7 +365,6 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        settingsOverrides.maxFetchBytes = 1;
         const workspaceDirsBefore = new Set(
           (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
         );
@@ -387,6 +379,7 @@ describe("local PR workspace", () => {
             prFiles,
             repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
             remoteUrlOverride: remote,
+            maxFetchBytes: 1,
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 

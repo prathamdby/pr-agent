@@ -1,4 +1,4 @@
-import { errorLogFields, toAppError } from "../../errors/appError.js";
+import { errorLogFields, nonErrorThrown, toAppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
 
@@ -40,7 +40,11 @@ export async function pumpSpecialistCompletions(args: {
     try {
       await args.onOutcome(outcome);
     } catch (error) {
-      const appError = toAppError(error, {
+      const err =
+        error instanceof Error
+          ? error
+          : nonErrorThrown("review.orchestrator_outcome_handler_failed");
+      const appError = toAppError(err, {
         code: "review.orchestrator_outcome_handler_failed",
         context: { specialist: outcome.specialist, outcomeKind: outcome.kind },
       });

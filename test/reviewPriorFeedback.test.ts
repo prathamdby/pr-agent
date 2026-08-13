@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyReviewLensFromPointerBody,
   formatPriorInlineFeedbackBlock,
@@ -7,20 +7,28 @@ import {
 import { fetchPriorInlineReviewFeedback } from "../src/github/reviewPriorFeedbackIo.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
+import {
+  clearInstallationOctokitCacheForTest,
+  installationOctokit,
+  resetInstallationOctokitFactory,
+  type InstallationOctokit,
+} from "../src/github/appAuth.js";
 
 const [SECURITY_REVIEW_POINTER_BODY, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] =
   LEGACY_REVIEW_POINTER_BODIES;
 
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: vi.fn(),
-}));
-
-import { installationOctokit } from "../src/github/appAuth.js";
+function bindTestOctokit(): InstallationOctokit {
+  resetInstallationOctokitFactory();
+  clearInstallationOctokitCacheForTest();
+  return installationOctokit("token");
+}
 
 describe("reviewPriorFeedback", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  afterEach(() => {
+    resetInstallationOctokitFactory();
+    clearInstallationOctokitCacheForTest();
   });
+
   it("classifies review lens from pointer body", () => {
     expect(classifyReviewLensFromPointerBody(REVIEW_POINTER_BODY)).toBe("review");
     expect(classifyReviewLensFromPointerBody(SECURITY_REVIEW_POINTER_BODY)).toBe("review-security");
@@ -69,45 +77,44 @@ describe("reviewPriorFeedback", () => {
     const humanUserId = 2;
     const reviewId = 100;
 
-    vi.mocked(installationOctokit).mockReturnValue({
-      rest: {
-        pulls: {
-          listReviews: vi.fn(async () => ({
-            data: [
-              {
-                id: reviewId,
-                user: { id: botUserId },
-                body: SECURITY_REVIEW_POINTER_BODY,
-              },
-            ],
-          })),
-          listReviewComments: vi.fn(async () => ({
-            data: [
-              {
-                id: 10,
-                in_reply_to_id: null,
-                pull_request_review_id: reviewId,
-                user: { id: botUserId },
-                body: "**P1** · **Missing await**",
-                path: "src/a.ts",
-                line: 4,
-                html_url: "https://github.com/o/r/pull/1#discussion_r10",
-              },
-              {
-                id: 11,
-                in_reply_to_id: 10,
-                pull_request_review_id: null,
-                user: { id: humanUserId },
-                body: "False positive — already handled upstream",
-                path: "src/a.ts",
-                line: 4,
-                html_url: "https://github.com/o/r/pull/1#discussion_r11",
-              },
-            ],
-          })),
-        },
-      },
-    } as never);
+    const octokit = bindTestOctokit();
+    vi.spyOn(octokit.rest.pulls, "listReviews").mockImplementation(
+      vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: reviewId,
+            user: { id: botUserId },
+            body: SECURITY_REVIEW_POINTER_BODY,
+          },
+        ],
+      }),
+    );
+    vi.spyOn(octokit.rest.pulls, "listReviewComments").mockImplementation(
+      vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: 10,
+            in_reply_to_id: null,
+            pull_request_review_id: reviewId,
+            user: { id: botUserId },
+            body: "**P1** · **Missing await**",
+            path: "src/a.ts",
+            line: 4,
+            html_url: "https://github.com/o/r/pull/1#discussion_r10",
+          },
+          {
+            id: 11,
+            in_reply_to_id: 10,
+            pull_request_review_id: null,
+            user: { id: humanUserId },
+            body: "False positive — already handled upstream",
+            path: "src/a.ts",
+            line: 4,
+            html_url: "https://github.com/o/r/pull/1#discussion_r11",
+          },
+        ],
+      }),
+    );
 
     const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 
@@ -120,55 +127,54 @@ describe("reviewPriorFeedback", () => {
     const humanUserId = 2;
     const reviewId = 100;
 
-    vi.mocked(installationOctokit).mockReturnValue({
-      rest: {
-        pulls: {
-          listReviews: vi.fn(async () => ({
-            data: [
-              {
-                id: reviewId,
-                user: { id: botUserId },
-                body: REVIEW_POINTER_BODY,
-              },
-            ],
-          })),
-          listReviewComments: vi.fn(async () => ({
-            data: [
-              {
-                id: 10,
-                in_reply_to_id: null,
-                pull_request_review_id: reviewId,
-                user: { id: botUserId },
-                body: "**P1** · **Missing await**",
-                path: "src/a.ts",
-                line: 4,
-                html_url: "https://github.com/o/r/pull/1#discussion_r10",
-              },
-              {
-                id: 11,
-                in_reply_to_id: 10,
-                pull_request_review_id: null,
-                user: { id: humanUserId },
-                body: "Still a false positive",
-                path: "src/a.ts",
-                line: 4,
-                html_url: "https://github.com/o/r/pull/1#discussion_r11",
-              },
-              {
-                id: 12,
-                in_reply_to_id: 11,
-                pull_request_review_id: null,
-                user: { id: humanUserId },
-                body: "The helper already awaits it",
-                path: "src/a.ts",
-                line: 4,
-                html_url: "https://github.com/o/r/pull/1#discussion_r12",
-              },
-            ],
-          })),
-        },
-      },
-    } as never);
+    const octokit = bindTestOctokit();
+    vi.spyOn(octokit.rest.pulls, "listReviews").mockImplementation(
+      vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: reviewId,
+            user: { id: botUserId },
+            body: REVIEW_POINTER_BODY,
+          },
+        ],
+      }),
+    );
+    vi.spyOn(octokit.rest.pulls, "listReviewComments").mockImplementation(
+      vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: 10,
+            in_reply_to_id: null,
+            pull_request_review_id: reviewId,
+            user: { id: botUserId },
+            body: "**P1** · **Missing await**",
+            path: "src/a.ts",
+            line: 4,
+            html_url: "https://github.com/o/r/pull/1#discussion_r10",
+          },
+          {
+            id: 11,
+            in_reply_to_id: 10,
+            pull_request_review_id: null,
+            user: { id: humanUserId },
+            body: "Still a false positive",
+            path: "src/a.ts",
+            line: 4,
+            html_url: "https://github.com/o/r/pull/1#discussion_r11",
+          },
+          {
+            id: 12,
+            in_reply_to_id: 11,
+            pull_request_review_id: null,
+            user: { id: humanUserId },
+            body: "The helper already awaits it",
+            path: "src/a.ts",
+            line: 4,
+            html_url: "https://github.com/o/r/pull/1#discussion_r12",
+          },
+        ],
+      }),
+    );
 
     const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 

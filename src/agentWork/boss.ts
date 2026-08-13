@@ -1,4 +1,4 @@
-import { PgBoss, type ConstructorOptions, type QueueOptions } from "pg-boss";
+import { PgBoss, type ConstructorOptions, type Queue, type QueueOptions } from "pg-boss";
 import type { Config } from "../config.js";
 import { logWarn, logError } from "../evlog.js";
 import {
@@ -56,7 +56,11 @@ export async function createStartedBoss(cfg: BossConfig): Promise<PgBoss> {
   return boss;
 }
 
-export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise<void> {
+export type AgentQueueBoss = {
+  createQueue(name: string, options?: Omit<Queue, "name">): Promise<void>;
+};
+
+export async function ensureAgentQueues(boss: AgentQueueBoss, cfg: QueueConfig): Promise<void> {
   const defaults = queueDefaults(cfg);
   const dlq: QueueOptions = {
     retryLimit: 0,

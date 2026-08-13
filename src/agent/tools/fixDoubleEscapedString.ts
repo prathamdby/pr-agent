@@ -1,8 +1,15 @@
+import { isJsonString, parseJsonText } from "../../util/jsonValue.js";
+
 const HAS_JSON_ESCAPE_CANDIDATE_RE = /\\[nrt"'\\]/;
 const DRIVE_LETTER_PATH_RE = /(?:^|[^A-Za-z0-9])[A-Za-z]:\\/;
 const DOUBLED_BACKSLASH_RE = /\\\\/;
 const REGEX_CLASS_ESCAPE_RE = /\\[dDwWsSbB]/;
 const REGEX_LITERAL_RE = /^\/(?:\\.|[^\\/])+\/[gimsuy]*$/;
+
+export type FixDoubleEscapedStringResult = {
+  readonly text: string;
+  readonly fixed: boolean;
+};
 
 function countControlChars(value: string): number {
   let count = 0;
@@ -25,18 +32,15 @@ function isAmbiguousBackslashInput(value: string): boolean {
 
 function tryDecodeJsonStringBody(value: string): string | null {
   try {
-    const parsed: unknown = JSON.parse(`"${value}"`);
-    return typeof parsed === "string" ? parsed : null;
+    const parsed = parseJsonText(`"${value}"`);
+    return isJsonString(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
 /** Unwrap model output where JSON string escapes were emitted literally (e.g. `\\n` instead of newline). */
-export function fixDoubleEscapedString(value: string): {
-  text: string;
-  fixed: boolean;
-} {
+export function fixDoubleEscapedString(value: string): FixDoubleEscapedStringResult {
   if (!HAS_JSON_ESCAPE_CANDIDATE_RE.test(value)) {
     return { text: value, fixed: false };
   }
@@ -44,8 +48,8 @@ export function fixDoubleEscapedString(value: string): {
   const trimmed = value.trim();
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
     try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (typeof parsed === "string" && parsed !== value) {
+      const parsed = parseJsonText(trimmed);
+      if (isJsonString(parsed) && parsed !== value) {
         return { text: parsed, fixed: true };
       }
     } catch {

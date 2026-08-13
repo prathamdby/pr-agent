@@ -15,13 +15,14 @@ import {
   createSubmitTriageState,
   type SubmitTriageState,
 } from "./submitTriageTool.js";
+import type { AgentRunnerToolExecutorMap } from "../providers/interface.js";
 import { MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.js";
 
 export type TriageRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
   readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly executors: AgentRunnerToolExecutorMap;
   readonly submitState: SubmitTriageState;
   readonly workspaceState: TriageWorkspaceToolState;
 };

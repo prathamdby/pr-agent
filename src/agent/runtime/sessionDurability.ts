@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../../db/postgres.js";
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
 import {
@@ -14,6 +14,7 @@ import {
   computeResumeSnapshotTtlSeconds,
   type ResumeSnapshotPlaintext,
 } from "./resumeSnapshots.js";
+import { isJsonNumber, isJsonObject, isJsonString, type JsonValue } from "../../util/jsonValue.js";
 import type { AgentSessionPhase, AgentSessionRole, AuthoritativeStructuredState } from "./types.js";
 import { EMPTY_STRUCTURED_STATE } from "./types.js";
 
@@ -22,7 +23,7 @@ export const RESUME_SNAPSHOT_PROMPT_VERSION = "prompt-1";
 export const RESUME_SNAPSHOT_TOOL_POLICY_VERSION = "tools-1";
 
 export type FeatureSessionDurability = {
-  readonly pool: Pool;
+  readonly pool: IntakeClient;
   readonly workItemId: string;
   readonly installationId: number;
   readonly owner?: string;
@@ -30,7 +31,7 @@ export type FeatureSessionDurability = {
   readonly prNumber?: number;
 };
 
-const PHASE_ORDINAL: Readonly<Record<AgentSessionPhase, number>> = {
+const PHASE_ORDINAL = {
   recon: 10,
   specialist: 20,
   judgment: 30,
@@ -42,30 +43,26 @@ const PHASE_ORDINAL: Readonly<Record<AgentSessionPhase, number>> = {
   triage: 10,
   verification: 10,
   ci_summary: 10,
-};
+} satisfies Record<AgentSessionPhase, number>;
+
+function isAgentSessionPhase(phase: string): phase is AgentSessionPhase {
+  return Object.hasOwn(PHASE_ORDINAL, phase);
+}
 
 export function phaseOrdinal(phase: string): number {
-  if (Object.prototype.hasOwnProperty.call(PHASE_ORDINAL, phase)) {
-    return PHASE_ORDINAL[phase as AgentSessionPhase];
+  if (isAgentSessionPhase(phase)) {
+    return PHASE_ORDINAL[phase];
   }
   return -1;
 }
 
-function isAuthoritativeStructuredState(value: unknown): value is AuthoritativeStructuredState {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.version === "number" &&
-    typeof candidate.payload === "object" &&
-    candidate.payload !== null &&
-    !Array.isArray(candidate.payload)
-  );
+function isAuthoritativeStructuredState(value: JsonValue): value is AuthoritativeStructuredState {
+  return isJsonObject(value) && isJsonNumber(value.version) && isJsonObject(value.payload);
 }
 
-function snapshotConversationPhase(conversation: unknown): string | undefined {
-  if (typeof conversation !== "object" || conversation === null) return undefined;
-  const lastPhase = (conversation as Record<string, unknown>).lastPhase;
-  return typeof lastPhase === "string" ? lastPhase : undefined;
+function snapshotConversationPhase(conversation: JsonValue): string | undefined {
+  if (!isJsonObject(conversation)) return undefined;
+  return isJsonString(conversation.lastPhase) ? conversation.lastPhase : undefined;
 }
 
 /** True when the durable checkpoint should supply structured state over the snapshot. */
@@ -89,7 +86,7 @@ export function checkpointOutranksSnapshot(params: {
 }
 
 export async function commitPhaseCheckpoint(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   params: {
     readonly workItemId: string;
     readonly sessionRole: AgentSessionRole;
@@ -102,7 +99,7 @@ export async function commitPhaseCheckpoint(
 }
 
 export async function saveResumeSnapshotIfConfigured(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   cfg: Config,
   params: {
     readonly workItemId: string;
@@ -150,7 +147,7 @@ export type LoadedResumeSnapshot =
   | { readonly ok: false; readonly reason: string };
 
 export async function loadResumeSnapshotIfConfigured(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   cfg: Config,
   params: {
     readonly workItemId: string;
@@ -203,7 +200,7 @@ export async function resolveDurableStructuredState(params: {
   let chosen: AuthoritativeStructuredState | null = null;
   let resumeCheckpointId: string | undefined;
   let lastCompletedPhase: string | undefined;
-  let resumeConversation: unknown;
+  let resumeConversation: JsonValue | undefined;
 
   if (checkpointState && checkpoint) {
     chosen = checkpointState;
@@ -233,26 +230,19 @@ export async function resolveDurableStructuredState(params: {
     return params.structuredState ?? EMPTY_STRUCTURED_STATE;
   }
 
-  return {
-    version: chosen.version,
-    payload: {
-      ...chosen.payload,
-      ...(resumeCheckpointId ? { __resumeCheckpointId: resumeCheckpointId } : {}),
-      ...(lastCompletedPhase ? { __lastCompletedPhase: lastCompletedPhase } : {}),
-      ...(resumeConversation !== undefined ? { __resumeConversation: resumeConversation } : {}),
-    },
-  };
+  const payload = { ...chosen.payload };
+  if (resumeCheckpointId) payload.__resumeCheckpointId = resumeCheckpointId;
+  if (lastCompletedPhase) payload.__lastCompletedPhase = lastCompletedPhase;
+  if (resumeConversation !== undefined) payload.__resumeConversation = resumeConversation;
+  return { version: chosen.version, payload };
 }
 
-export async function clearResumeSnapshots(
-  pool: Pool | PoolClient,
-  workItemId: string,
-): Promise<void> {
+export async function clearResumeSnapshots(pool: IntakeClient, workItemId: string): Promise<void> {
   await deleteResumeSnapshotsForWorkItem(pool, workItemId);
 }
 
 export async function clearResumeSnapshotsBestEffort(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   workItemId: string,
 ): Promise<void> {
   try {

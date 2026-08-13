@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { Config } from "../../config.js";
-import { AppError } from "../../errors/appError.js";
+import { AppError, nodeErrorCode, nonErrorThrown } from "../../errors/appError.js";
 import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
@@ -13,6 +13,7 @@ import {
 } from "../../settings/index.js";
 import { isSensitivePath } from "../ask/askSafety.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import type { AgentRunnerToolExecutorMap } from "../providers/interface.js";
 import { readBudgetedWorkspaceTextFile } from "../tools/readWorkspaceTextFile.js";
 
 const exec = promisify(execFile);
@@ -48,13 +49,15 @@ async function git(root: string, args: readonly string[], timeoutMs: number): Pr
   return stdout;
 }
 
+export type VerificationWorkspaceTools = {
+  readonly piTools: PiTool[];
+  readonly executors: AgentRunnerToolExecutorMap;
+};
+
 export function buildVerificationWorkspaceTools(params: {
   readonly cfg: Config;
   readonly rootDir: string;
-}): {
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
+}): VerificationWorkspaceTools {
   const root = params.rootDir;
 
   const readWorkspaceFile = defineLocalTool({
@@ -89,11 +92,11 @@ export function buildVerificationWorkspaceTools(params: {
         root,
         ["grep", "-nF", "-I", `--max-count=${maxResults + 1}`, "-e", query, "--", "."],
         LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-      ).catch((error: unknown) => {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
-          return "";
-        }
-        throw error;
+      ).catch((error) => {
+        const err =
+          error instanceof Error ? error : nonErrorThrown("verification.git_grep_non_error_thrown");
+        if (nodeErrorCode(err) === 1) return "";
+        throw err;
       });
       const matches = stdout
         .split("\n")
@@ -124,16 +127,16 @@ export function buildVerificationWorkspaceTools(params: {
     },
   });
 
-  const tools = {
-    readWorkspaceFile,
-    searchWorkspace,
-    getWorkspaceDiff,
-  };
-
   return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
-    ),
+    piTools: [
+      toPiTool("readWorkspaceFile", readWorkspaceFile),
+      toPiTool("searchWorkspace", searchWorkspace),
+      toPiTool("getWorkspaceDiff", getWorkspaceDiff),
+    ],
+    executors: {
+      readWorkspaceFile: toExecutor("readWorkspaceFile", readWorkspaceFile),
+      searchWorkspace: toExecutor("searchWorkspace", searchWorkspace),
+      getWorkspaceDiff: toExecutor("getWorkspaceDiff", getWorkspaceDiff),
+    },
   };
 }

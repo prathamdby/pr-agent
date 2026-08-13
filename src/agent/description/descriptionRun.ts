@@ -19,6 +19,7 @@ import {
 import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.js";
 import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 
 export type DescriptionRunResult = {
   lastAssistant: AssistantMessage;
@@ -37,7 +38,7 @@ export async function runFullPrDescription(params: {
   cwd?: string;
   workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
-  recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
+  recordPublishStep?: (detail?: JsonObject) => Promise<void>;
   operationIntent?: OperationIntentContext;
   durability?: FeatureSessionDurability;
 }): Promise<DescriptionRunResult> {

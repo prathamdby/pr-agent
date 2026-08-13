@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { InstallationAccessTokenAuthentication } from "@octokit/auth-app";
 import type { JobWithMetadata } from "pg-boss";
 import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
 import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
@@ -75,35 +76,39 @@ export function coreOf(item: AgentWorkItem): AgentWorkItemCore {
 }
 
 export function mockFetchedWorkItem(item: AgentWorkItem | null): void {
-  vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
-  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
+  vi.spyOn(repo, "getWorkItemCore").mockResolvedValue(item ? coreOf(item) : null);
+  vi.spyOn(repo, "getWorkItemPayload").mockResolvedValue(item?.payload);
 }
 
 export function setupDefaultDurableRepositoryMocks(): void {
-  vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-  vi.mocked(repo.claimWorkForExecution).mockResolvedValue({ executionEpoch: 1 });
-  vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(true);
-  vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
-  vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
-  vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCancelled).mockResolvedValue(undefined);
-  vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
+  vi.spyOn(repo, "shouldSkipWork").mockResolvedValue(false);
+  vi.spyOn(repo, "claimWorkForExecution").mockResolvedValue({ executionEpoch: 1 });
+  vi.spyOn(repo, "isExecutionEpochCurrent").mockResolvedValue(true);
+  vi.spyOn(repo, "updateRunningWorkHeadSha").mockResolvedValue(true);
+  vi.spyOn(repo, "markWorkCompleted").mockResolvedValue(true);
+  vi.spyOn(repo, "markWorkFailed").mockResolvedValue(true);
+  vi.spyOn(repo, "markWorkRetrying").mockResolvedValue(true);
+  vi.spyOn(repo, "markWorkCancelled").mockResolvedValue(undefined);
+  vi.spyOn(repo, "markWorkPublishDegraded").mockResolvedValue(undefined);
 }
 
 export function setupDefaultDurableAuthMocks(): void {
   clearDurableAuthCachesForTest();
-  vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
+  const auth: InstallationAccessTokenAuthentication = {
     type: "token",
     tokenType: "installation",
     token: "tok",
+    createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    permissions: {},
+    repositorySelection: "all",
     installationId: 42,
-  } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-  vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
+  };
+  vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue(auth);
+  vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
-  } as Awaited<ReturnType<typeof appAuth.getAppBotIdentity>>);
+  });
 }
 
 export function makeDurableJobMetadata(

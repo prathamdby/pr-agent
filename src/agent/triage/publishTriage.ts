@@ -38,6 +38,8 @@ import {
   StaleHeadPushError,
   type WritablePrCheckout,
 } from "../../prWorkspace/writablePrCheckout.js";
+import { nonErrorThrown } from "../../errors/appError.js";
+import { isJsonObject, isJsonString, type JsonValue } from "../../util/jsonValue.js";
 import { renderTriageReport } from "./triageRender.js";
 
 type PublishTriageParams = {
@@ -88,30 +90,30 @@ export type StoredTriagePushDetail = {
   readonly commits: readonly TriageCommittedDetail[];
 };
 
-function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
-  if (typeof value !== "object" || value == null) return null;
-  const entry = value as Record<string, unknown>;
-  return typeof entry.sha === "string" &&
-    typeof entry.subject === "string" &&
-    typeof entry.diff === "string"
-    ? { sha: entry.sha, subject: entry.subject, diff: entry.diff }
+function parseStoredCommit(value: JsonValue): TriageCommittedDetail | null {
+  if (!isJsonObject(value)) return null;
+  return isJsonString(value.sha) && isJsonString(value.subject) && isJsonString(value.diff)
+    ? { sha: value.sha, subject: value.subject, diff: value.diff }
     : null;
 }
 
-export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDetail | null {
-  if (typeof detail !== "object" || detail == null) return null;
-  const entry = detail as Record<string, unknown>;
-  const payload = v.safeParse(TriagePayloadSchema, entry.payload);
-  if (!payload.success || !Array.isArray(entry.commits)) return null;
-  const commits = entry.commits.map(parseStoredCommit);
-  if (commits.some((commit) => commit == null)) return null;
-  const staleHead = entry.staleHead === true;
+export function parseStoredTriagePushDetail(detail: JsonValue): StoredTriagePushDetail | null {
+  if (!isJsonObject(detail)) return null;
+  const payload = v.safeParse(TriagePayloadSchema, detail.payload);
+  if (!payload.success || !Array.isArray(detail.commits)) return null;
+  const commits: TriageCommittedDetail[] = [];
+  for (const item of detail.commits) {
+    const parsed = parseStoredCommit(item);
+    if (parsed == null) return null;
+    commits.push(parsed);
+  }
+  const staleHead = detail.staleHead === true;
   return {
     payload: payload.output,
-    commits: commits as TriageCommittedDetail[],
+    commits,
     pushed: !staleHead,
     degraded: staleHead,
-    pushedHeadSha: typeof entry.pushedHeadSha === "string" ? entry.pushedHeadSha : undefined,
+    pushedHeadSha: isJsonString(detail.pushedHeadSha) ? detail.pushedHeadSha : undefined,
   };
 }
 
@@ -223,8 +225,12 @@ export async function publishTriageReportOnly(params: ReportOnlyParams): Promise
   try {
     await upsertTriageReport(params);
   } catch (error) {
-    captureTriageFailure(analytics, "publish_report_only", error);
-    throw error;
+    const err =
+      error instanceof Error
+        ? error
+        : nonErrorThrown("triage.publish_report_only_non_error_thrown");
+    captureTriageFailure(analytics, "publish_report_only", err);
+    throw err;
   }
 }
 
@@ -276,8 +282,10 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       });
     } catch (error) {
       if (!(error instanceof StaleHeadPushError)) {
-        captureTriageFailure(analytics, "publish_push", error);
-        throw error;
+        const err =
+          error instanceof Error ? error : nonErrorThrown("triage.publish_push_non_error_thrown");
+        captureTriageFailure(analytics, "publish_push", err);
+        throw err;
       }
       degraded = true;
       stalePush = true;
@@ -362,10 +370,12 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
           mutate: () => replyToThread({ ...params, thread, verdict }),
         });
       } catch (error) {
-        captureTriageFailure(analytics, "thread_reply", error, {
+        const err =
+          error instanceof Error ? error : nonErrorThrown("triage.thread_reply_non_error_thrown");
+        captureTriageFailure(analytics, "thread_reply", err, {
           thread_root_comment_id: verdict.threadRootCommentId,
         });
-        throw error;
+        throw err;
       }
       actedThreadIds.add(verdict.threadRootCommentId);
       await recordActedThreadIds(params.pool, {
@@ -393,10 +403,12 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         mutate: () => params.prSurface.resolveInlineReviewThread(resolution.threadNodeId),
       });
     } catch (error) {
-      captureTriageFailure(analytics, "thread_resolve", error, {
+      const err =
+        error instanceof Error ? error : nonErrorThrown("triage.thread_resolve_non_error_thrown");
+      captureTriageFailure(analytics, "thread_resolve", err, {
         thread_root_comment_id: verdict.threadRootCommentId,
       });
-      throw error;
+      throw err;
     }
   }
 
@@ -420,8 +432,10 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       }),
     });
   } catch (error) {
-    captureTriageFailure(analytics, "publish_report", error);
-    throw error;
+    const err =
+      error instanceof Error ? error : nonErrorThrown("triage.publish_report_non_error_thrown");
+    captureTriageFailure(analytics, "publish_report", err);
+    throw err;
   }
 
   if (params.findingHistoryCfg) {

@@ -1,47 +1,84 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  getSummaryCommentGithubId: vi.fn(async () => null),
-  shouldSkipWork: vi.fn(),
-  recordPublishStep: vi.fn(async () => undefined),
-}));
-
-vi.mock("../src/review/run/reviewRunMetrics.js", () => ({
-  snapshotReviewRunMetrics: vi.fn(() => null),
-}));
-
+import * as repo from "../src/agentWork/repository.js";
 import {
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
 } from "../src/agentWork/repository.js";
+import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
+import type { ReviewRunMetricsSnapshot } from "../src/review/run/reviewRunMetrics.js";
+import { createUnusedPool } from "./helpers/fakePool.js";
+import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 
-const pool = {} as Pool;
+const pool = createUnusedPool();
 
 function autoReviewItem(overrides: { headSha?: string } = {}): AgentWorkItem {
-  return {
+  return makeReviewWorkItem({
     id: "wi-1",
     webhookEventId: "ev-1",
-    type: "review",
     source: "auto",
     status: "running",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
     headSha: overrides.headSha ?? "sha",
-    reviewLens: "review",
-    resourceKey: "o/r#1",
     attemptCount: 1,
-    executionEpoch: 1,
-    payload: { mode: "review", source: "auto" },
     cancelRequestedAt: new Date(),
+  });
+}
+
+function metricsSnapshot(startedAtMs: number): ReviewRunMetricsSnapshot {
+  return {
+    provider: "test",
+    model: "test",
+    mode: "review",
+    startedAtMs,
+    published: false,
+    publishAttempts: 0,
+    submitCallCount: 0,
+    validationFailureCount: 0,
+    validationFailureKinds: {},
+    coercionsApplied: {},
+    toolInputRepairs: {},
+    anchorFailureCount: 0,
+    anchorFailureFiles: [],
+    proseOnlyCollapsesByPhase: {},
+    phaseRoundCounts: {},
+    phaseSpansMs: {},
+    rateLimitCircuitOpened: false,
+    tokenNearExpiryGuardHits: 0,
+    diffCacheEmptyAtFirstSubmit: false,
+    toolCallCount: 0,
+    toolCallErrors: 0,
+    lastFailure: null,
+    recentToolErrors: [],
+    toolResultBytes: 0,
+    toolResultCharacters: 0,
+    modelTurnCount: 0,
+    promptBytes: 0,
+    promptCharacters: 0,
+    estimatedInputTokens: 0,
+    estimatedOutputTokens: 0,
+    providerInputTokens: 0,
+    providerOutputTokens: 0,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+    cacheWrite1hTokens: null,
+    cacheHitRate: null,
+    cacheWriteAmplification: null,
+    estimatedTurnCount: 0,
+    findingsCount: 0,
+    severities: [],
+    wallClockMs: 0,
+    specialistOutcomes: {},
+    threadBatches: 0,
+    briefFallback: false,
+    providerSendMs: 0,
+    toolMs: 0,
+    generationMs: 0,
+    tokenCoverage: "full_run",
   };
 }
 
@@ -51,6 +88,10 @@ function fakeSurface() {
 
 describe("tryLightweightAutoReviewCompletion", () => {
   beforeEach(() => {
+    vi.spyOn(repo, "getSummaryCommentGithubId").mockResolvedValue(null);
+    vi.spyOn(repo, "shouldSkipWork");
+    vi.spyOn(repo, "recordPublishStep").mockResolvedValue(undefined);
+    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics");
     vi.clearAllMocks();
     vi.mocked(shouldSkipWork).mockResolvedValue(false);
     vi.mocked(snapshotReviewRunMetrics).mockReturnValue(null);
@@ -136,9 +177,9 @@ describe("tryLightweightAutoReviewCompletion", () => {
   it("uses worker-start metrics for the footer duration and ignores stub post time", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-22T12:10:00.000Z"));
-    vi.mocked(snapshotReviewRunMetrics).mockReturnValue({
-      startedAtMs: Date.parse("2026-07-22T12:08:00.000Z"),
-    } as ReturnType<typeof snapshotReviewRunMetrics>);
+    vi.mocked(snapshotReviewRunMetrics).mockReturnValue(
+      metricsSnapshot(Date.parse("2026-07-22T12:08:00.000Z")),
+    );
     const { surface, controls } = fakeSurface();
 
     await tryLightweightAutoReviewCompletion(pool, {

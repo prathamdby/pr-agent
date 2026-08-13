@@ -1,30 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PoolClient } from "pg";
 import { replaceAutoWorkItem } from "../src/agentWork/autoWorkEnqueue.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
+import { createQueryClient } from "./helpers/fakePool.js";
 
-function mockClient(): PoolClient & { lockKeys: unknown[] } {
-  const lockKeys: unknown[] = [];
-  return {
-    lockKeys,
-    query: vi.fn(async (sql: string, params?: unknown[]) => {
-      if (sql.includes("pg_advisory_xact_lock")) {
-        lockKeys.push(params?.[0]);
-        return { rows: [], rowCount: 0 };
-      }
-      if (sql.includes("UPDATE agent_work_items") && sql.includes("superseded")) {
-        return { rows: [], rowCount: 0 };
-      }
-      if (sql.includes("cancel_requested_at")) {
-        return { rows: [], rowCount: 0 };
-      }
-      return { rows: [], rowCount: 0 };
-    }),
-  } as unknown as PoolClient & { lockKeys: unknown[] };
+function mockClient() {
+  const lockKeys: JsonValue[] = [];
+  const query = vi.fn(async (sql: string, params?: readonly JsonValue[]) => {
+    if (sql.includes("pg_advisory_xact_lock")) {
+      lockKeys.push(params?.[0] ?? null);
+      return { rows: [] };
+    }
+    return { rows: [] };
+  });
+  return { client: createQueryClient(query), query, lockKeys };
 }
 
 describe("replaceAutoWorkItem", () => {
   it("acquires a transaction-scoped advisory lock before supersede RMW", async () => {
-    const client = mockClient();
+    const { client, query } = mockClient();
     const createWorkItem = vi.fn(async () => "work-item-id");
 
     await replaceAutoWorkItem({
@@ -33,7 +26,7 @@ describe("replaceAutoWorkItem", () => {
       createWorkItem,
     });
 
-    expect(client.query).toHaveBeenCalledWith(
+    expect(query).toHaveBeenCalledWith(
       expect.stringContaining("pg_advisory_xact_lock"),
       expect.any(Array),
     );
@@ -41,20 +34,20 @@ describe("replaceAutoWorkItem", () => {
   });
 
   it("uses distinct lock keys per resource kind", async () => {
-    const reviewClient = mockClient();
-    const descriptionClient = mockClient();
+    const review = mockClient();
+    const description = mockClient();
 
     await replaceAutoWorkItem({
-      client: reviewClient,
+      client: review.client,
       target: { kind: "review", resourceKey: "owner/repo#42" },
       createWorkItem: async () => "review-id",
     });
     await replaceAutoWorkItem({
-      client: descriptionClient,
+      client: description.client,
       target: { kind: "description", resourceKey: "owner/repo#42" },
       createWorkItem: async () => "description-id",
     });
 
-    expect(reviewClient.lockKeys[0]).not.toEqual(descriptionClient.lockKeys[0]);
+    expect(review.lockKeys[0]).not.toEqual(description.lockKeys[0]);
   });
 });

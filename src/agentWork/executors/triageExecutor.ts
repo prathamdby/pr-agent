@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { AppError } from "../../errors/appError.js";
+import { AppError, nonErrorThrown } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -60,11 +60,11 @@ type PullRequestBranchInfo = {
 
 type EmptyInventoryOutcome = "all_resolved" | "thread_not_eligible" | "no_eligible_findings";
 
-const EMPTY_INVENTORY_MESSAGES: Record<EmptyInventoryOutcome, string> = {
+const EMPTY_INVENTORY_MESSAGES = {
   all_resolved: TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   thread_not_eligible: TRIAGE_THREAD_NOT_ELIGIBLE,
   no_eligible_findings: TRIAGE_NO_ELIGIBLE_FINDINGS,
-};
+} satisfies Record<EmptyInventoryOutcome, string>;
 
 type TriageReportContext = {
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
@@ -683,8 +683,12 @@ export async function executeTriageJob(
           TRIAGE_FAILURE_MESSAGE,
         );
       } catch (error) {
-        captureTriageFailure(analytics, "failure_comment", error);
-        throw error;
+        const err =
+          error instanceof Error
+            ? error
+            : nonErrorThrown("triage.failure_comment_non_error_thrown");
+        captureTriageFailure(analytics, "failure_comment", err);
+        throw err;
       }
     },
   });

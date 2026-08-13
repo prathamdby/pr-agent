@@ -1,6 +1,16 @@
+import * as v from "valibot";
+import { nonErrorThrown } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { MAX_REVIEW_THREAD_PAGES } from "../settings/index.js";
-import { isRecord } from "../util/typeGuards.js";
+import {
+  isJsonBoolean,
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  jsonValueSchema,
+  type JsonObject,
+  type JsonValue,
+} from "../util/jsonValue.js";
 import { installationOctokit } from "./appAuth.js";
 import { classifyGithubError } from "./githubErrors.js";
 
@@ -18,30 +28,6 @@ export type ListReviewThreadResolutionResult = {
   readonly truncated?: boolean;
   /** One actionable warning when resolution is incomplete or unavailable. */
   readonly warning?: string;
-};
-
-type ReviewThreadNode = {
-  readonly id?: unknown;
-  readonly isResolved?: unknown;
-  readonly comments?: {
-    readonly nodes?: readonly {
-      readonly fullDatabaseId?: unknown;
-    }[];
-  };
-};
-
-type ReviewThreadsPage = {
-  readonly repository?: {
-    readonly pullRequest?: {
-      readonly reviewThreads?: {
-        readonly pageInfo?: {
-          readonly hasNextPage?: unknown;
-          readonly endCursor?: unknown;
-        };
-        readonly nodes?: readonly ReviewThreadNode[];
-      };
-    };
-  };
 };
 
 const REVIEW_THREADS_QUERY = `
@@ -73,58 +59,96 @@ const PERMISSION_WARNING =
   "GitHub App lacks Pull requests → read access required for reviewThreads GraphQL. " +
   "Verification continues without thread-resolution; grant the permission to restore resolve/dismiss actions.";
 
-function fullDatabaseId(value: unknown): number | null {
-  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
-  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
+function fullDatabaseId(value: JsonValue): number | null {
+  if (isJsonNumber(value) && Number.isSafeInteger(value)) return value;
+  if (isJsonString(value) && /^\d+$/.test(value)) return Number(value);
   return null;
 }
 
-function isReviewThreadsPage(value: unknown): value is ReviewThreadsPage {
-  return isRecord(value);
+function isReviewThreadsPage(value: JsonValue): value is JsonObject {
+  return isJsonObject(value);
 }
 
-function ingestThreadsPage(
-  page: ReviewThreadsPage,
-  byRootCommentId: Map<number, ReviewThreadResolution>,
-): {
+type IngestThreadsPageResult = {
   readonly hasNextPage: boolean;
   readonly endCursor: string | null;
   readonly sawMalformed: boolean;
-} {
-  const connection = page.repository?.pullRequest?.reviewThreads;
-  if (connection == null) {
-    return {
-      hasNextPage: false,
-      endCursor: null,
-      sawMalformed: page.repository?.pullRequest == null,
-    };
+};
+
+function ingestThreadsPage(
+  page: JsonObject,
+  byRootCommentId: Map<number, ReviewThreadResolution>,
+): IngestThreadsPageResult {
+  const repositoryValue = page.repository;
+  if (repositoryValue === undefined) {
+    return { hasNextPage: false, endCursor: null, sawMalformed: true };
+  }
+  if (!isJsonObject(repositoryValue)) {
+    return { hasNextPage: false, endCursor: null, sawMalformed: true };
+  }
+  const pullRequestValue = repositoryValue.pullRequest;
+  if (pullRequestValue === undefined) {
+    return { hasNextPage: false, endCursor: null, sawMalformed: true };
+  }
+  if (!isJsonObject(pullRequestValue)) {
+    return { hasNextPage: false, endCursor: null, sawMalformed: true };
+  }
+  const connectionValue = pullRequestValue.reviewThreads;
+  if (connectionValue === undefined) {
+    return { hasNextPage: false, endCursor: null, sawMalformed: false };
+  }
+  if (!isJsonObject(connectionValue)) {
+    return { hasNextPage: false, endCursor: null, sawMalformed: true };
   }
 
-  let sawMalformed = false;
-  const threads = connection.nodes;
+  const threads = connectionValue.nodes;
   if (threads != null && !Array.isArray(threads)) {
     return { hasNextPage: false, endCursor: null, sawMalformed: true };
   }
 
+  let sawMalformed = false;
   for (const thread of threads ?? []) {
-    if (typeof thread.id !== "string" || typeof thread.isResolved !== "boolean") {
+    if (!isJsonObject(thread)) {
       sawMalformed = true;
       continue;
     }
-    const rootCommentId = fullDatabaseId(thread.comments?.nodes?.[0]?.fullDatabaseId);
+    const threadId = thread.id;
+    const isResolved = thread.isResolved;
+    if (
+      threadId === undefined ||
+      isResolved === undefined ||
+      !isJsonString(threadId) ||
+      !isJsonBoolean(isResolved)
+    ) {
+      sawMalformed = true;
+      continue;
+    }
+    const comments = thread.comments;
+    let rootCommentId: number | null = null;
+    if (comments !== undefined && isJsonObject(comments) && Array.isArray(comments.nodes)) {
+      const first = comments.nodes[0];
+      if (isJsonObject(first) && first.fullDatabaseId !== undefined) {
+        rootCommentId = fullDatabaseId(first.fullDatabaseId);
+      }
+    }
     if (rootCommentId == null) {
       sawMalformed = true;
       continue;
     }
     byRootCommentId.set(rootCommentId, {
-      threadNodeId: thread.id,
-      isResolved: thread.isResolved,
+      threadNodeId: threadId,
+      isResolved,
     });
   }
 
-  const pageInfo = connection.pageInfo;
-  const hasNextPage = pageInfo?.hasNextPage === true;
-  const endCursor = typeof pageInfo?.endCursor === "string" ? pageInfo.endCursor : null;
+  const pageInfo = connectionValue.pageInfo;
+  let hasNextPage = false;
+  let endCursor: string | null = null;
+  if (pageInfo !== undefined && isJsonObject(pageInfo)) {
+    hasNextPage = pageInfo.hasNextPage === true;
+    const cursor = pageInfo.endCursor;
+    if (cursor !== undefined && isJsonString(cursor)) endCursor = cursor;
+  }
   return { hasNextPage, endCursor, sawMalformed };
 }
 
@@ -153,16 +177,17 @@ export async function listReviewThreadResolution(
   let truncated = false;
 
   for (;;) {
-    let page: unknown;
+    let graphqlRaw;
     try {
-      page = await octokit.graphql(REVIEW_THREADS_QUERY, {
+      graphqlRaw = await octokit.graphql(REVIEW_THREADS_QUERY, {
         owner,
         repo,
         pr: prNumber,
         cursor,
       });
     } catch (error) {
-      const kind = classifyGithubError(error);
+      const err = error instanceof Error ? error : nonErrorThrown("github.review_threads_list");
+      const kind = classifyGithubError(err);
       if (kind === "forbidden") {
         return permissionDeniedResult(byRootCommentId);
       }
@@ -182,7 +207,8 @@ export async function listReviewThreadResolution(
       };
     }
 
-    if (!isReviewThreadsPage(page)) {
+    const graphqlResult = v.parse(jsonValueSchema, graphqlRaw);
+    if (!isReviewThreadsPage(graphqlResult)) {
       return {
         byRootCommentId,
         status: "unavailable",
@@ -192,7 +218,7 @@ export async function listReviewThreadResolution(
     }
 
     pageCount += 1;
-    const ingested = ingestThreadsPage(page, byRootCommentId);
+    const ingested = ingestThreadsPage(graphqlResult, byRootCommentId);
     sawMalformed = sawMalformed || ingested.sawMalformed;
     if (!ingested.hasNextPage) break;
     if (!ingested.endCursor) {
@@ -253,7 +279,7 @@ export async function resolveReviewThread(
 /** Log when resolution fetch is degraded. */
 export function warnReviewThreadResolutionDegraded(
   result: ListReviewThreadResolutionResult,
-  context: Record<string, unknown>,
+  context: JsonObject,
 ): void {
   if (result.status === "ok" || result.warning == null) return;
   logWarn("review_threads_resolution_degraded", {

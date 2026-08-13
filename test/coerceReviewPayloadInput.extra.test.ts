@@ -109,7 +109,7 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
     // Object-to-array wrapping is one of the four generic tool-input repairs
     // (object_wrapped_as_array); the domain coercion no longer duplicates it.
     expect(coercions).not.toContain("findings_object_to_array");
-    expect((value as { findings: unknown }).findings).toBe(findings);
+    expect(value.findings).toBe(findings);
   });
 
   it("rescues severity aliases like P1 (High) and integer 2", () => {
@@ -202,9 +202,11 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
       followUps: [],
     });
     expect(wrapped.coercions).toContain("prCharacter_fence_strip");
-    expect(
-      (wrapped.value as { findings: Array<{ detail: string }> }).findings[0]?.detail,
-    ).toContain("```not stripped```");
+    expect(wrapped.value).toMatchObject({
+      findings: [
+        expect.objectContaining({ detail: expect.stringContaining("```not stripped```") }),
+      ],
+    });
     expect(wrapped.coercions).not.toContain("finding_detail_fence_strip");
   });
 });

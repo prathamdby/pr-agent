@@ -2,6 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import { parseToolInput } from "../tools/parseToolInput.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
@@ -29,7 +30,12 @@ export function createSubmitTriageState(): SubmitTriageState {
 
 const SUBMIT_TRIAGE_PARAMETERS = toJsonSchema(TriagePayloadSchema, {
   errorMode: "ignore",
-}) as PiTool["parameters"];
+});
+
+export type SubmitTriageTool = {
+  readonly piTool: PiTool;
+  readonly executor: AgentRunnerToolExecutor;
+};
 
 export function buildSubmitTriageTool(params: {
   readonly owner: string;
@@ -39,10 +45,7 @@ export function buildSubmitTriageTool(params: {
   readonly checkout: WritablePrCheckout;
   readonly workspaceState: TriageWorkspaceToolState;
   readonly submitState: SubmitTriageState;
-}): {
-  readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<unknown>;
-} {
+}): SubmitTriageTool {
   const piTool: PiTool = {
     name: "submitTriage",
     description:
@@ -50,7 +53,7 @@ export function buildSubmitTriageTool(params: {
     parameters: SUBMIT_TRIAGE_PARAMETERS,
   };
 
-  const executor = async (args: Record<string, unknown>) => {
+  const executor: AgentRunnerToolExecutor = async (args) => {
     if (params.submitState.submitted) {
       logDebug("triage_submit_duplicate_ignored", {
         owner: params.owner,

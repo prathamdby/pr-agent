@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PgBoss } from "pg-boss";
-import { logAgentQueueStats, retentionQueueWorkOptions } from "../src/agentWork/worker.js";
+import {
+  logAgentQueueStats,
+  retentionQueueWorkOptions,
+  type QueueStatsBoss,
+} from "../src/agentWork/worker.js";
 import * as evlog from "../src/evlog.js";
 import {
   ACK_QUEUE,
@@ -56,7 +59,11 @@ describe("logAgentQueueStats", () => {
       started.push({ queue, resolve });
       return promise;
     });
-    const boss = { getQueueStats } as unknown as PgBoss;
+    const boss: QueueStatsBoss = {
+      getQueueStats(name) {
+        return getQueueStats(name);
+      },
+    };
     const logDebug = vi.spyOn(evlog, "logDebug").mockImplementation(() => undefined);
 
     const statsPromise = logAgentQueueStats(boss);

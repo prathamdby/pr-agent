@@ -1,10 +1,13 @@
-export type AppErrorContext = Record<string, unknown>;
+import * as v from "valibot";
+import type { JsonObject } from "../util/jsonValue.js";
+
+export type AppErrorContext = JsonObject;
 
 export type AppErrorInit = {
   readonly code: string;
   readonly message: string;
   readonly context?: AppErrorContext;
-  readonly cause?: unknown;
+  readonly cause?: Error;
 };
 
 type SerializedCause =
@@ -31,80 +34,67 @@ export class AppError extends Error {
   }
 }
 
-export function isAppError(error: unknown): error is AppError {
+export function isAppError(error: Error): error is AppError {
   return error instanceof AppError;
 }
 
-function causeMessage(cause: unknown): string {
-  if (typeof cause === "string") return cause;
-  if (typeof cause === "number" || typeof cause === "boolean" || typeof cause === "bigint") {
-    return String(cause);
-  }
-  if (typeof cause === "symbol") return cause.description ?? "Symbol";
-  try {
-    return JSON.stringify(cause) ?? "null";
-  } catch {
-    return Object.prototype.toString.call(cause);
-  }
-}
-
-function jsonSafeRawValue(value: unknown): unknown {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
-    return value;
-  }
-  if (typeof value === "bigint") return value.toString();
-  try {
-    return JSON.parse(JSON.stringify(value));
-  } catch {
-    return typeof value;
-  }
+export function nonErrorThrown(code: string, context?: AppErrorContext): AppError {
+  return new AppError({ code, message: "Non-error thrown", context });
 }
 
 export function toAppError(
-  error: unknown,
+  error: Error,
   fallback: { readonly code: string; readonly context?: AppErrorContext },
 ): AppError {
-  if (isAppError(error)) return error;
-  if (error instanceof Error) {
-    return new AppError({
-      code: fallback.code,
-      message: error.message,
-      context: fallback.context,
-      cause: error,
-    });
-  }
+  if (error instanceof AppError) return error;
   return new AppError({
     code: fallback.code,
-    message: causeMessage(error),
-    context: { ...fallback.context, rawValue: jsonSafeRawValue(error) },
+    message: error.message,
+    context: fallback.context,
+    cause: error,
   });
 }
 
-function serializeCause(cause: unknown): SerializedAppError["errorCause"] {
-  if (cause === undefined || cause === null) return undefined;
-  if (isAppError(cause)) return serializeAppError(cause);
-  if (cause instanceof Error) {
-    return { errorMessage: cause.message, errorName: cause.name };
-  }
-  return { errorMessage: causeMessage(cause) };
+function serializeCause(cause: Error): SerializedCause {
+  if (cause instanceof AppError) return serializeAppError(cause);
+  return { errorMessage: cause.message, errorName: cause.name };
 }
 
 export function serializeAppError(error: AppError): SerializedAppError {
-  const errorCause = serializeCause(error.cause);
-  return {
+  const cause = error.cause;
+  const serialized: SerializedAppError = {
     errorCode: error.code,
     errorMessage: error.message,
     errorContext: error.context,
-    ...(errorCause !== undefined ? { errorCause } : {}),
+  };
+  if (!(cause instanceof Error)) return serialized;
+  return {
+    errorCode: serialized.errorCode,
+    errorMessage: serialized.errorMessage,
+    errorContext: serialized.errorContext,
+    errorCause: serializeCause(cause),
   };
 }
 
-export function errorLogFields(error: unknown): Partial<SerializedAppError> {
-  if (!isAppError(error)) return {};
+export function errorLogFields(error: Error): Partial<SerializedAppError> {
+  if (!(error instanceof AppError)) return {};
   return serializeAppError(error);
+}
+
+export function nodeErrorCode(error: Error): string | number | undefined {
+  if (!("code" in error)) return undefined;
+  const parsed = v.safeParse(v.union([v.string(), v.number()]), error.code);
+  return parsed.success ? parsed.output : undefined;
+}
+
+export function nodeErrorStdout(error: Error): string {
+  if (!("stdout" in error)) return "";
+  const parsed = v.safeParse(v.string(), error.stdout);
+  return parsed.success ? parsed.output : "";
+}
+
+export function nodeErrorStderr(error: Error): string {
+  if (!("stderr" in error)) return "";
+  const parsed = v.safeParse(v.string(), error.stderr);
+  return parsed.success ? parsed.output : "";
 }

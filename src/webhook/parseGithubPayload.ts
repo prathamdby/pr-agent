@@ -12,6 +12,7 @@ import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
 import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.js";
 import { AppError } from "../errors/appError.js";
 import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
+import { isJsonObject, isJsonString, type JsonValue } from "../util/jsonValue.js";
 
 export type WebhookSchemaError = v.ValiError<v.GenericSchema | v.GenericSchemaAsync>;
 
@@ -41,13 +42,13 @@ export type ParsedGithubEvent =
     }
   | { name: "workflow_run"; data: WorkflowRunWebhookPayload }
   | { name: "check_suite"; data: CheckSuiteWebhookPayload }
-  | { name: "ignored"; data: unknown };
+  | { name: "ignored"; data: JsonValue };
 
-function parseOrThrow<T>(
+function parseOrThrow<TSchema extends v.GenericSchema>(
   eventName: string,
-  schema: v.GenericSchema<unknown, T>,
-  payload: unknown,
-): T {
+  schema: TSchema,
+  payload: JsonValue,
+): v.InferOutput<TSchema> {
   try {
     return v.parse(schema, payload);
   } catch (e) {
@@ -58,16 +59,15 @@ function parseOrThrow<T>(
   }
 }
 
-function payloadAction(payload: unknown): string | undefined {
-  if (payload == null || typeof payload !== "object") return undefined;
-  const action = (payload as { action?: unknown }).action;
-  return typeof action === "string" ? action : undefined;
+function payloadAction(payload: JsonValue): string | undefined {
+  if (!isJsonObject(payload)) return undefined;
+  return isJsonString(payload.action) ? payload.action : undefined;
 }
 
 /**
  * Validates payloads for events we handle with strict shapes; unknown `X-GitHub-Event` values pass through as `ignored`.
  */
-export function parseGithubPayload(eventName: string, payload: unknown): ParsedGithubEvent {
+export function parseGithubPayload(eventName: string, payload: JsonValue): ParsedGithubEvent {
   switch (eventName) {
     case "pull_request":
       if (!AUTOMATED_PR_ACTIONS.has(payloadAction(payload) ?? "")) {
@@ -115,7 +115,7 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
 }
 
 /** Installation id for any App webhook JSON (extra top-level keys allowed). */
-export function parseInstallationId(payload: unknown): number | undefined {
+export function parseInstallationId(payload: JsonValue): number | undefined {
   const r = v.safeParse(installationIdPickSchema, payload);
   return r.success ? r.output.installation.id : undefined;
 }

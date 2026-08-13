@@ -18,7 +18,13 @@ import {
   stableJson,
   type PromptCost,
 } from "./helpers/promptCost.js";
-import { isRecord } from "../src/util/typeGuards.js";
+import {
+  isJsonObject,
+  isJsonString,
+  parseJsonText,
+  type JsonObject,
+  type JsonValue,
+} from "../src/util/jsonValue.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
@@ -80,7 +86,9 @@ describe("prompt cost baselines", () => {
   });
 
   it("keeps structured review schema top-level fields required", () => {
-    const jsonSchema = toJsonSchema(createReviewPayloadSchema(), { errorMode: "ignore" });
+    const jsonSchema = parseJsonText(
+      JSON.stringify(toJsonSchema(createReviewPayloadSchema(), { errorMode: "ignore" })),
+    );
     const required = requiredFields(jsonSchema);
     expect(required.toSorted()).toEqual([...REVIEW_PAYLOAD_FIELDS].toSorted());
   });
@@ -102,7 +110,7 @@ describe("prompt cost baselines", () => {
     expect(piTool.description).toContain("ReviewPayload");
     expect(piTool.description).toContain("tool schema");
     expect(piTool.description).not.toContain("Minimal valid example");
-    expect(requiredFields(piTool.parameters).toSorted()).toEqual(
+    expect(requiredFields(parseJsonText(JSON.stringify(piTool.parameters))).toSorted()).toEqual(
       [...REVIEW_PAYLOAD_FIELDS].toSorted(),
     );
   });
@@ -120,7 +128,7 @@ describe("prompt cost baselines", () => {
       },
       state: createSubmitReviewState(),
     });
-    const bytes = measurePromptCost(stableJson(piTool)).bytes;
+    const bytes = measurePromptCost(stableJson(parseJsonText(JSON.stringify(piTool)))).bytes;
     expect(bytes).toBeLessThan(2_500);
     expect(bytes).toBeLessThan(2_050);
   });
@@ -145,9 +153,9 @@ describe("prompt cost baselines", () => {
   });
 
   it("keeps stable JSON compatible with toJSON values", () => {
-    expect(stableJson({ z: 1, at: new Date("2026-06-21T00:00:00.000Z") })).toBe(
-      '{"at":"2026-06-21T00:00:00.000Z","z":1}',
-    );
+    expect(
+      stableJson(parseJsonText(JSON.stringify({ z: 1, at: new Date("2026-06-21T00:00:00.000Z") }))),
+    ).toBe('{"at":"2026-06-21T00:00:00.000Z","z":1}');
   });
 
   it("keeps representative capped tool result shape stable", async () => {
@@ -173,9 +181,9 @@ describe("prompt cost baselines", () => {
           searchMaxTotalBytes: 1_000_000,
         },
       });
-      const out = (await executors.readWorkspaceFile?.({
+      const out = await executors.readWorkspaceFile?.({
         path: "src/changed.ts",
-      })) as Record<string, unknown>;
+      });
       expect(out).toMatchObject({
         content: expect.any(String),
         path: "src/changed.ts",
@@ -231,18 +239,18 @@ function promptSurfaces(): PromptSurface[] {
     },
     {
       name: "local workspace tool definitions",
-      content: stableJson(localWorkspaceTools),
+      content: stableJson(parseJsonText(JSON.stringify(localWorkspaceTools))),
       // Enriched investigation-protocol descriptions (issue #363); resolveSymbol added for symbol index.
       budget: { bytes: 3_100, characters: 3_100, estimatedTokens: 775 },
     },
     {
       name: "Context7 tool definitions",
-      content: stableJson(context7Tools),
+      content: stableJson(parseJsonText(JSON.stringify(context7Tools))),
       budget: { bytes: 1_500, characters: 1_500, estimatedTokens: 375 },
     },
     {
       name: "structured review submission tool",
-      content: stableJson(submitReviewTool),
+      content: stableJson(parseJsonText(JSON.stringify(submitReviewTool))),
       budget: { bytes: 2_050, characters: 2_050, estimatedTokens: 513 },
     },
   ];
@@ -259,11 +267,11 @@ function representativeReviewUserContent(): string {
   });
 }
 
-function requiredFields(schema: unknown): string[] {
+function requiredFields(schema: JsonValue): string[] {
   if (!isObjectSchema(schema) || !Array.isArray(schema.required)) return [];
-  return schema.required.filter((field): field is string => typeof field === "string");
+  return schema.required.filter((field) => isJsonString(field));
 }
 
-function isObjectSchema(value: unknown): value is { readonly required?: readonly unknown[] } {
-  return isRecord(value);
+function isObjectSchema(value: JsonValue): value is JsonObject {
+  return isJsonObject(value);
 }

@@ -40,7 +40,7 @@ import type {
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
-import type { Pool } from "pg";
+import type { IntakeClient } from "../../db/postgres.js";
 import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";
 
 type StoredInlineBatch = {
@@ -90,9 +90,11 @@ export type FindingBatchContext = {
   readonly evidenceLedger?: EvidenceLedger;
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
-  readonly pool?: Pool;
+  readonly pool?: IntakeClient;
   readonly installationId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly maxInlineReviewComments?: number;
+  readonly maxThreadPublishCalls?: number;
   readonly crossPrSuppressionFingerprints?: readonly string[];
 };
 
@@ -207,10 +209,9 @@ export async function publishFindingBatch(
     });
   }
 
-  const remainingInline = Math.max(
-    0,
-    MAX_INLINE_REVIEW_COMMENTS - context.ledger.postedInlineCount,
-  );
+  const maxInlineComments = context.maxInlineReviewComments ?? MAX_INLINE_REVIEW_COMMENTS;
+  const maxThreadPublishCalls = context.maxThreadPublishCalls ?? MAX_THREAD_PUBLISH_CALLS;
+  const remainingInline = Math.max(0, maxInlineComments - context.ledger.postedInlineCount);
   const targets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
     cachedDiffIndex: context.cachedDiffIndex,
@@ -223,7 +224,7 @@ export async function publishFindingBatch(
 
   if (
     context.ledger.threadBudgetExhausted ||
-    context.ledger.threadCallCount >= MAX_THREAD_PUBLISH_CALLS
+    context.ledger.threadCallCount >= maxThreadPublishCalls
   ) {
     const accepted = acceptedSummaryPlacements({
       targets: targets.placements,

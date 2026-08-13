@@ -3,7 +3,10 @@ import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../ask/askSafety.js";
-import { buildLocalWorkspaceTools } from "../tools/localWorkspaceTools.js";
+import {
+  buildLocalWorkspaceTools,
+  type LocalWorkspaceExecutors,
+} from "../tools/localWorkspaceTools.js";
 import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
 import { buildDescriptionUserContent } from "./descriptionUserMessage.js";
 import { resolveDescriptionWritingPolicy } from "./descriptionWritingPolicy.js";
@@ -12,13 +15,19 @@ import {
   createSubmitDescriptionState,
   type SubmitDescriptionState,
 } from "./submitDescriptionTool.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
+import type { JsonObject } from "../../util/jsonValue.js";
+
+export type DescriptionRunExecutors = LocalWorkspaceExecutors & {
+  readonly submitDescription: AgentRunnerToolExecutor;
+};
 
 export type DescriptionRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
   readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly executors: DescriptionRunExecutors;
   readonly submitState: SubmitDescriptionState;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
 };
@@ -39,7 +48,7 @@ export function buildDescriptionRunSetup(params: {
   userSupplement?: string;
   workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
-  recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
+  recordPublishStep?: (detail?: JsonObject) => Promise<void>;
   operationIntent?: OperationIntentContext;
 }): DescriptionRunSetup {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, workspace } = params;
@@ -69,12 +78,14 @@ export function buildDescriptionRunSetup(params: {
     });
 
   let submitBundle = buildSubmit();
-  const executors = { ...localTools.executors };
-  executors.submitDescription = async (args) => {
-    if (submitState.published) {
-      return { ok: true, duplicate: true };
-    }
-    return submitBundle.executor(args);
+  const executors: DescriptionRunExecutors = {
+    ...localTools.executors,
+    submitDescription: async (args: JsonObject) => {
+      if (submitState.published) {
+        return { ok: true, duplicate: true };
+      }
+      return submitBundle.executor(args);
+    },
   };
 
   const refreshBeforeTool = async (toolName: string) => {

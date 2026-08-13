@@ -29,7 +29,7 @@ describe("renderTriageReport policy suggestion footer", () => {
         verdicts: [
           { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
         ],
-      } as TriagePayload,
+      } satisfies TriagePayload,
       commits: [],
       previouslyResolvedCount: 0,
     });
@@ -55,7 +55,7 @@ describe("renderTriageReport policy suggestion footer", () => {
             evidence: "fixed",
           },
         ],
-      } as TriagePayload,
+      } satisfies TriagePayload,
       commits: [],
       previouslyResolvedCount: 0,
     });

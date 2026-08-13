@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { mapSearchRowsToHints, previewForChunk } from "../src/codeIndex/search.js";
+import {
+  mapSearchRowsToHints,
+  previewForChunk,
+  searchCodeIndexFts,
+} from "../src/codeIndex/search.js";
+import { createQueryPool } from "./helpers/fakePool.js";
 
 describe("codeIndex search", () => {
   it("maps FTS rows to hints with optional preview", () => {
@@ -60,8 +65,7 @@ describe("codeIndex search", () => {
         },
       ],
     });
-    const pool = { query } as never;
-    const { searchCodeIndexFts } = await import("../src/codeIndex/search.js");
+    const pool = createQueryPool(query);
     const rows = await searchCodeIndexFts(pool, "snap-1", "function", 5);
     expect(rows).toHaveLength(1);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("plainto_tsquery"), [

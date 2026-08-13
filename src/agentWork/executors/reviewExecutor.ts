@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
+import * as v from "valibot";
 import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
 import {
@@ -8,6 +9,14 @@ import {
   classifiedFailureLogFields,
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
+import { nonErrorThrown } from "../../errors/appError.js";
+import {
+  isJsonObject,
+  isJsonString,
+  jsonObjectSchema,
+  jsonValueSchema,
+  type JsonObject,
+} from "../../util/jsonValue.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
@@ -100,7 +109,7 @@ import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: unknown };
+  | { readonly ok: false; readonly error: Error };
 
 type SettledPriorInlineFeedback = Result<string | undefined>;
 
@@ -111,14 +120,46 @@ async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string
   readonly onNonOk?: (result: Exclude<TResult, { kind: "ok" }>) => void;
 }): Promise<string | undefined> {
   const result = await params.load();
-  if (result.kind === "ok") {
-    return params.renderOk(result as Extract<TResult, { kind: "ok" }>) || undefined;
+  if (isOkKind(result)) {
+    return params.renderOk(result) || undefined;
   }
-  params.onNonOk?.(result as Exclude<TResult, { kind: "ok" }>);
+  if (isNonOkKind(result)) params.onNonOk?.(result);
   return undefined;
 }
 
+function isOkKind<TResult extends { readonly kind: string }>(
+  result: TResult,
+): result is Extract<TResult, { kind: "ok" }> {
+  return result.kind === "ok";
+}
+
+function isNonOkKind<TResult extends { readonly kind: string }>(
+  result: TResult,
+): result is Exclude<TResult, { kind: "ok" }> {
+  return result.kind !== "ok";
+}
+
 type ReviewExecutionResult = StaleReviewRescheduleResult | { readonly degraded: boolean };
+
+type PublishAbortState = {
+  staleHead?: boolean;
+};
+
+function pullRequestFields(pullRequest: PullRequestForFileList | undefined): JsonObject | null {
+  if (pullRequest === undefined) return null;
+  const parsed = v.safeParse(jsonValueSchema, pullRequest);
+  return parsed.success && isJsonObject(parsed.output) ? parsed.output : null;
+}
+
+function pullRequestTitle(pullRequest: PullRequestForFileList | undefined): string {
+  const title = pullRequestFields(pullRequest)?.title;
+  return isJsonString(title) ? title : "";
+}
+
+function pullRequestBody(pullRequest: PullRequestForFileList | undefined): string | null {
+  const body = pullRequestFields(pullRequest)?.body;
+  return isJsonString(body) ? body : null;
+}
 
 type LightweightPhaseResult =
   | { readonly done: true; readonly result: ReviewExecutionResult }
@@ -142,7 +183,7 @@ function reviewRunGate(args: {
   readonly headSha: string;
   readonly timing: ReviewRunTiming;
   readonly prSurface: PrSurface;
-  readonly publishAbortState: { staleHead?: boolean };
+  readonly publishAbortState: PublishAbortState;
   readonly staleHeadAtPublish: { value: boolean };
 }): ReviewRunGate {
   const deadlineReached = () =>
@@ -333,13 +374,13 @@ async function buildPriorInlineFeedbackPromise(args: {
   readonly prSurface: PrSurface;
 }): Promise<SettledPriorInlineFeedback> {
   const { cfg, item, reviewLens, prSurface } = args;
-  const logPriorFeedbackError = (error: unknown) => {
+  const logPriorFeedbackError = (error: Error) => {
     logWarn("prior_inline_feedback_fetch_failed", {
       owner: item.owner,
       repo: item.repo,
       pr: item.prNumber,
       reviewLens,
-      message: error instanceof Error ? error.message : String(error),
+      message: error.message,
     });
   };
   try {
@@ -352,17 +393,40 @@ async function buildPriorInlineFeedbackPromise(args: {
         onPriorFeedbackError: logPriorFeedbackError,
       }),
     };
-  } catch (error: unknown) {
-    logPriorFeedbackError(error);
-    return { ok: false, error };
+  } catch (error) {
+    const err =
+      error instanceof Error
+        ? error
+        : nonErrorThrown("review.prior_inline_feedback_non_error_thrown");
+    logPriorFeedbackError(err);
+    return { ok: false, error: err };
   }
 }
+
+type ReviewTimingPostHogProperties = {
+  provider: string;
+  model: string;
+  wall_clock_ms?: number;
+  provider_output_tokens?: number;
+  token_coverage?: string;
+  generation_ms?: number;
+  provider_output_tps?: number;
+};
+
+type ReviewFailedEventProperties = ReviewTimingPostHogProperties & {
+  owner: string;
+  repo: string;
+  pr_number: number;
+  review_lens: ReviewMode;
+  publish_attempts: number;
+  tool_call_errors?: number;
+};
 
 function reviewTimingPostHogProperties(
   snapshot: ReviewRunMetricsSnapshot | null,
   cfg: Pick<Config, "piProvider" | "piModel">,
-): Record<string, string | number> {
-  const properties: Record<string, string | number> = {
+): ReviewTimingPostHogProperties {
+  const properties: ReviewTimingPostHogProperties = {
     provider: cfg.piProvider,
     model: cfg.piModel,
   };
@@ -419,21 +483,22 @@ async function handleReviewPublishResult(args: {
         publishDegraded: true,
         ...classifiedFailureLogFields(lastFailure),
       });
+      const failedProperties: ReviewFailedEventProperties = {
+        owner: item.owner,
+        repo: item.repo,
+        pr_number: item.prNumber,
+        review_lens: reviewLens,
+        publish_attempts: result.publishAttempts,
+        ...reviewTimingPostHogProperties(snapshot, cfg),
+        ...classifiedFailurePostHogProperties(lastFailure),
+      };
+      if (snapshot?.toolCallErrors != null) {
+        failedProperties.tool_call_errors = snapshot.toolCallErrors;
+      }
       captureEvent({
         distinctId: `installation:${item.installationId}`,
         event: "review failed",
-        properties: {
-          owner: item.owner,
-          repo: item.repo,
-          pr_number: item.prNumber,
-          review_lens: reviewLens,
-          publish_attempts: result.publishAttempts,
-          ...reviewTimingPostHogProperties(snapshot, cfg),
-          ...classifiedFailurePostHogProperties(lastFailure),
-          ...(snapshot?.toolCallErrors != null
-            ? { tool_call_errors: snapshot.toolCallErrors }
-            : {}),
-        },
+        properties: failedProperties,
       });
       await completeCheckFromStoredSummary({
         pool,
@@ -480,7 +545,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly publishContext: ReviewExecutorPublishContext;
   readonly crossPrSuppressionFingerprints: readonly string[];
   readonly findingHistoryTrustedBlock?: string;
-  readonly publishAbortState: { staleHead?: boolean };
+  readonly publishAbortState: PublishAbortState;
   readonly staleHeadAtPublish: { value: boolean };
   readonly priorInlineFeedback: Promise<SettledPriorInlineFeedback>;
   readonly repositoryView: PrRepositoryView;
@@ -620,9 +685,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
     shouldLinkToSummary,
     progressCommentIdHint,
-    hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(
-      (pullRequest as { body?: string | null } | undefined)?.body,
-    ),
+    hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(pullRequestBody(pullRequest)),
     initialPublishState: {
       published: publishState.summaryPublished,
       inlineReviewIds: publishState.inlineReviewIds,
@@ -636,7 +699,7 @@ async function runFullReviewAgainstRepositoryView(args: {
           reviewLens,
           step,
           githubId: detail?.githubId,
-          detail: detail?.meta,
+          detail: detail?.meta === undefined ? undefined : v.parse(jsonObjectSchema, detail.meta),
           executionEpoch,
         }),
       {
@@ -651,8 +714,8 @@ async function runFullReviewAgainstRepositoryView(args: {
     publishAbortState,
     timing,
     gate,
-    prTitle: (pullRequest as { title?: string } | undefined)?.title ?? "",
-    prBody: (pullRequest as { body?: string | null } | undefined)?.body ?? null,
+    prTitle: pullRequestTitle(pullRequest),
+    prBody: pullRequestBody(pullRequest),
     shouldAbortPublish: async () => {
       if (signal.aborted) return true;
       if (await shouldSkipWork(pool, item)) return true;
@@ -765,7 +828,7 @@ export async function executeReviewJob(
       const prSurface = env.prSurface;
       const headSha = env.headSha;
       const staleHeadAtPublish = { value: false };
-      const publishAbortState: { staleHead?: boolean } = {};
+      const publishAbortState: PublishAbortState = {};
 
       await ensureReviewCheckRunStarted(pool, {
         prSurface,

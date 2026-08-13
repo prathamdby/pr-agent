@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../src/errors/appError.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 
+import { type JsonValue } from "../src/util/jsonValue.js";
+
 const MAX_RESPONSE_BYTES = 64_000;
 
-function jsonResponse(body: unknown, init?: ResponseInit): Response {
+function jsonResponse(body: JsonValue, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
     ...init,
     headers: { "content-type": "application/json", ...init?.headers },
@@ -49,12 +51,12 @@ describe("buildContext7Tools — surface", () => {
     const tool = piTools.find((t) => t.name === "resolveLibraryId");
     expect(tool?.parameters).toMatchObject({
       type: "object",
+      required: expect.arrayContaining(["libraryName"]),
       properties: {
         libraryName: { type: "string" },
         query: { type: "string" },
       },
     });
-    expect((tool?.parameters as { required?: string[] }).required).toContain("libraryName");
   });
 
   it("getLibraryDocs parameters declare object type and require libraryId", () => {
@@ -62,12 +64,12 @@ describe("buildContext7Tools — surface", () => {
     const tool = piTools.find((t) => t.name === "getLibraryDocs");
     expect(tool?.parameters).toMatchObject({
       type: "object",
+      required: expect.arrayContaining(["libraryId"]),
       properties: {
         libraryId: { type: "string" },
         topic: { type: "string" },
       },
     });
-    expect((tool?.parameters as { required?: string[] }).required).toContain("libraryId");
   });
 });
 
@@ -199,11 +201,12 @@ describe("buildContext7Tools — executors", () => {
         maxResponseBytes: MAX_RESPONSE_BYTES,
       });
       await expect(executors.getLibraryDocs({ libraryId: "/no/such/lib" })).rejects.toSatisfy(
-        (error: unknown) => {
+        (error) => {
           expect(error).toBeInstanceOf(AppError);
-          expect((error as AppError).code).toBe("context7.request_failed");
-          expect((error as AppError).message).toMatch(/Context7 404.*Invalid library/);
-          expect((error as AppError).context).toMatchObject({
+          if (!(error instanceof AppError)) return false;
+          expect(error.code).toBe("context7.request_failed");
+          expect(error.message).toMatch(/Context7 404.*Invalid library/);
+          expect(error.context).toMatchObject({
             status: 404,
             statusText: "Not Found",
           });

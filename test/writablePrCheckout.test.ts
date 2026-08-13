@@ -13,12 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return { ...actual, LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS: 1 };
-});
+import { describe, expect, it } from "vitest";
 import { AppError } from "../src/errors/appError.js";
 import {
   buildCommitCommandArgs,
@@ -289,10 +284,11 @@ describe("writable PR checkout", () => {
               await checkout.push();
             },
           ),
-        ).rejects.toSatisfy((error: unknown) => {
-          expect(error).toBeInstanceOf(StaleHeadPushError);
-          expect(error).toBeInstanceOf(AppError);
-          expect((error as StaleHeadPushError).code).toBe("triage.stale_head_push");
+        ).rejects.toSatisfy((cause) => {
+          expect(cause).toBeInstanceOf(StaleHeadPushError);
+          expect(cause).toBeInstanceOf(AppError);
+          if (!(cause instanceof StaleHeadPushError)) return false;
+          expect(cause.code).toBe("triage.stale_head_push");
           return true;
         });
       } finally {
@@ -315,10 +311,11 @@ describe("writable PR checkout", () => {
         },
         async () => undefined,
       ),
-    ).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("pr_workspace.invalid_sha");
-      expect((error as AppError).context).toEqual({ field: "headSha" });
+    ).rejects.toSatisfy((cause) => {
+      expect(cause).toBeInstanceOf(AppError);
+      if (!(cause instanceof AppError)) return false;
+      expect(cause.code).toBe("pr_workspace.invalid_sha");
+      expect(cause.context).toEqual({ field: "headSha" });
       return true;
     });
   });
@@ -378,7 +375,7 @@ describe("writable PR checkout", () => {
       const old = new Date(Date.now() - 10_000);
       await utimes(staleDir, old, old);
 
-      await cleanupStaleLocalPrWorkspaces();
+      await cleanupStaleLocalPrWorkspaces(1);
 
       await expect(stat(staleDir)).rejects.toThrow();
     } finally {

@@ -15,6 +15,11 @@ export type FingerprintedInlinePlacement = InlinePlacement & {
   readonly inlineFingerprint: string;
 };
 
+export type InlineCommentCapResult<TPlacement extends InlinePlacement> = {
+  readonly placements: TPlacement[];
+  readonly inlineCommentCapExcluded: number;
+};
+
 export function planInlinePlacements(
   findings: ReviewFinding[],
   diffIndex: CachedPrDiffIndex | undefined,
@@ -40,7 +45,7 @@ export function planInlinePlacements(
 export function applyInlineCommentCap<TPlacement extends InlinePlacement>(
   placements: readonly TPlacement[],
   maxInlineComments: number,
-): { placements: TPlacement[]; inlineCommentCapExcluded: number } {
+): InlineCommentCapResult<TPlacement> {
   const posted = placements
     .map((placement, index) => ({ placement, index }))
     .filter(({ placement }) => placement.inlinePosted);

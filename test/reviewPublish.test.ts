@@ -1,58 +1,13 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { COMMENTS_PAGE_SIZE } from "../src/settings/index.js";
 import { syncReviewLabels } from "../src/review/run/reviewLabels.js";
-
-const {
-  listComments,
-  updateComment,
-  createCheckRun,
-  updateCheckRun,
-  listCheckRunsForRef,
-  listLabelsOnIssue,
-  createReview,
+import * as appAuth from "../src/github/appAuth.js";
+import {
+  clearInstallationOctokitCacheForTest,
   installationOctokit,
-} = vi.hoisted(() => {
-  const listComments = vi.fn();
-  const updateComment = vi.fn();
-  const createCheckRun = vi.fn();
-  const updateCheckRun = vi.fn();
-  const listCheckRunsForRef = vi.fn();
-  const listLabelsOnIssue = vi.fn();
-  const createReview = vi.fn();
-  const installationOctokit = vi.fn(() => ({
-    rest: {
-      issues: {
-        listComments,
-        updateComment,
-        listLabelsOnIssue,
-      },
-      checks: {
-        create: createCheckRun,
-        update: updateCheckRun,
-        listForRef: listCheckRunsForRef,
-      },
-      pulls: {
-        createReview,
-      },
-    },
-  }));
-  return {
-    listComments,
-    updateComment,
-    createCheckRun,
-    updateCheckRun,
-    listCheckRunsForRef,
-    listLabelsOnIssue,
-    createReview,
-    installationOctokit,
-  };
-});
-
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit,
-}));
-
+  resetInstallationOctokitFactory,
+} from "../src/github/appAuth.js";
 import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
@@ -63,15 +18,43 @@ import {
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
 
+const listComments = vi.fn();
+const updateComment = vi.fn();
+const createCheckRun = vi.fn();
+const updateCheckRun = vi.fn();
+const listCheckRunsForRef = vi.fn();
+const listLabelsOnIssue = vi.fn();
+const createReview = vi.fn();
+
+function installOctokitSpies(): void {
+  resetInstallationOctokitFactory();
+  clearInstallationOctokitCacheForTest();
+  const octokit = installationOctokit("tok");
+  vi.spyOn(appAuth, "installationOctokit");
+  vi.spyOn(octokit.rest.issues, "listComments").mockImplementation(listComments);
+  vi.spyOn(octokit.rest.issues, "updateComment").mockImplementation(updateComment);
+  vi.spyOn(octokit.rest.issues, "listLabelsOnIssue").mockImplementation(listLabelsOnIssue);
+  vi.spyOn(octokit.rest.checks, "create").mockImplementation(createCheckRun);
+  vi.spyOn(octokit.rest.checks, "update").mockImplementation(updateCheckRun);
+  vi.spyOn(octokit.rest.checks, "listForRef").mockImplementation(listCheckRunsForRef);
+  vi.spyOn(octokit.rest.pulls, "createReview").mockImplementation(createReview);
+  listComments.mockReset();
+  updateComment.mockReset();
+  createCheckRun.mockReset();
+  updateCheckRun.mockReset();
+  listCheckRunsForRef.mockReset();
+  listLabelsOnIssue.mockReset();
+  createReview.mockReset();
+}
+
+afterEach(() => {
+  resetInstallationOctokitFactory();
+  clearInstallationOctokitCacheForTest();
+});
+
 describe("findIssueCommentBySentinel", () => {
   beforeEach(() => {
-    listComments.mockReset();
-    updateComment.mockReset();
-    createCheckRun.mockReset();
-    updateCheckRun.mockReset();
-    listLabelsOnIssue.mockReset();
-    createReview.mockReset();
-    installationOctokit.mockClear();
+    installOctokitSpies();
   });
 
   it("paginates and returns the last matching comment across pages", async () => {
@@ -133,8 +116,7 @@ describe("findIssueCommentBySentinel", () => {
 
 describe("listPullRequestLabels", () => {
   beforeEach(() => {
-    listLabelsOnIssue.mockReset();
-    installationOctokit.mockClear();
+    installOctokitSpies();
   });
 
   it("paginates and returns labels beyond the first page", async () => {
@@ -195,8 +177,7 @@ describe("listPullRequestLabels", () => {
 
 describe("createPullRequestReviewWithComments", () => {
   beforeEach(() => {
-    createReview.mockReset();
-    installationOctokit.mockClear();
+    installOctokitSpies();
   });
 
   it("forwards expiresAtTs to installationOctokit", async () => {
@@ -234,9 +215,7 @@ describe("createPullRequestReviewWithComments", () => {
 
 describe("review check runs", () => {
   beforeEach(() => {
-    createCheckRun.mockReset();
-    updateCheckRun.mockReset();
-    listCheckRunsForRef.mockReset();
+    installOctokitSpies();
   });
 
   it("creates an in-progress check run", async () => {

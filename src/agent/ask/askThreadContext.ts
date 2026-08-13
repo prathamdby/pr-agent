@@ -53,10 +53,15 @@ export function commentsInThread(
   return all.filter((c) => rootCommentId(c, byId, memo) === rootId).toSorted((a, b) => a.id - b.id);
 }
 
+export type ThreadTranscriptFormat = {
+  readonly text: string;
+  readonly truncated: boolean;
+};
+
 export function formatThreadTranscript(
   comments: readonly ThreadComment[],
   maxChars: number = MAX_ASK_THREAD_TRANSCRIPT_CHARS,
-): { text: string; truncated: boolean } {
+): ThreadTranscriptFormat {
   if (comments.length === 0) return { text: "", truncated: false };
   const lines = comments.map((c) => {
     const login = c.authorLogin.trim() || "unknown";

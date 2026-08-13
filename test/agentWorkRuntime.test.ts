@@ -1,72 +1,60 @@
 import { Context, Effect, Layer } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PgBoss } from "pg-boss";
+import { Pool } from "pg";
 import { makeTestConfig } from "./helpers/config.js";
-
-const runtimeMocks = vi.hoisted(() => {
-  const trace: string[] = [];
-  const pool = {
-    end: vi.fn(async () => {
-      trace.push("pool.end");
-    }),
-  };
-  const boss = {};
-
-  return {
-    trace,
-    pool,
-    boss,
-    createPgPool: vi.fn(() => pool),
-    runMigrations: vi.fn(async () => undefined),
-    createStartedBoss: vi.fn(async () => boss),
-    ensureAgentQueues: vi.fn(async () => undefined),
-    stopBoss: vi.fn(async () => {
-      trace.push("boss.stop");
-    }),
-    shutdownAnalytics: vi.fn(async () => {
-      trace.push("analytics.shutdown");
-    }),
-  };
-});
-
-vi.mock("../src/db/postgres.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/db/postgres.js")>();
-  return { ...actual, createPgPool: runtimeMocks.createPgPool };
-});
-
-vi.mock("../src/db/migrations.js", () => ({ runMigrations: runtimeMocks.runMigrations }));
-
-vi.mock("../src/agentWork/boss.js", () => ({
-  createStartedBoss: runtimeMocks.createStartedBoss,
-  ensureAgentQueues: runtimeMocks.ensureAgentQueues,
-  stopBoss: runtimeMocks.stopBoss,
-}));
-
-vi.mock("../src/analytics/index.js", () => ({
-  shutdownAnalytics: runtimeMocks.shutdownAnalytics,
-}));
+import * as postgres from "../src/db/postgres.js";
+import * as migrations from "../src/db/migrations.js";
+import * as bossModule from "../src/agentWork/boss.js";
+import * as analytics from "../src/analytics/index.js";
+import {
+  AgentWorkBossLive,
+  AgentWorkPoolLive,
+  agentWorkWebLive,
+} from "../src/agentWork/runtime.js";
 
 describe("agent work runtime teardown", () => {
+  const trace: string[] = [];
+  let pool: Pool;
+  let boss: PgBoss;
+
+  beforeEach(() => {
+    trace.length = 0;
+    pool = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
+    boss = new PgBoss({ connectionString: "postgres://127.0.0.1:1/unused" });
+    vi.spyOn(pool, "end").mockImplementation(async () => {
+      trace.push("pool.end");
+    });
+    vi.spyOn(postgres, "createPgPool").mockReturnValue(pool);
+    vi.spyOn(migrations, "runMigrations").mockResolvedValue(undefined);
+    vi.spyOn(bossModule, "createStartedBoss").mockResolvedValue(boss);
+    vi.spyOn(bossModule, "ensureAgentQueues").mockResolvedValue(undefined);
+    vi.spyOn(bossModule, "stopBoss").mockImplementation(async () => {
+      trace.push("boss.stop");
+    });
+    vi.spyOn(analytics, "shutdownAnalytics").mockImplementation(async () => {
+      trace.push("analytics.shutdown");
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("shuts down analytics after pg-boss drains", async () => {
-    runtimeMocks.trace.length = 0;
-    const { agentWorkWebLive } = await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig();
 
     await Effect.runPromise(Effect.scoped(Layer.build(agentWorkWebLive(cfg))));
 
-    expect(runtimeMocks.stopBoss).toHaveBeenCalledWith(
-      runtimeMocks.boss,
-      cfg.shutdownDrainTimeoutSeconds * 1000,
-    );
-    expect(runtimeMocks.trace.filter((step) => step !== "pool.end")).toEqual([
+    expect(bossModule.stopBoss).toHaveBeenCalledWith(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
+    expect(trace.filter((step) => step !== "pool.end")).toEqual([
       "boss.stop",
       "analytics.shutdown",
     ]);
-    expect(runtimeMocks.trace).toContain("pool.end");
+    expect(trace).toContain("pool.end");
   });
 
   it("releases the pool after the boss drain when Boss is provided before Pool", async () => {
-    runtimeMocks.trace.length = 0;
-    const { AgentWorkBossLive, AgentWorkPoolLive } = await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig({ role: "worker" });
 
     const Worker = Context.GenericTag<"Worker", void>("Worker");
@@ -75,18 +63,18 @@ describe("agent work runtime teardown", () => {
       Worker,
       Effect.acquireRelease(
         Effect.sync(() => {
-          runtimeMocks.trace.push("worker.start");
+          trace.push("worker.start");
         }),
         () =>
           Effect.sync(() => {
-            runtimeMocks.trace.push("worker.stop");
+            trace.push("worker.stop");
           }),
       ),
     ).pipe(Layer.provide(AgentWorkBossLive(cfg)), Layer.provide(AgentWorkPoolLive(cfg)));
 
     await Effect.runPromise(Effect.scoped(Layer.build(workerLive)));
 
-    expect(runtimeMocks.trace).toEqual([
+    expect(trace).toEqual([
       "worker.start",
       "worker.stop",
       "boss.stop",

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { AppError, isAppError } from "../../src/errors/appError.js";
+import { isJsonString, type JsonValue } from "../../src/util/jsonValue.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import {
   claimWorkForExecution,
@@ -63,7 +64,7 @@ describe.skipIf(!hasDatabase)("execution epoch fencing (integration)", () => {
         executionEpoch: 1,
       }),
     ).rejects.toSatisfy(
-      (error: unknown) => isAppError(error) && error.code === "agent_work.stale_execution_epoch",
+      (error: Error) => isAppError(error) && error.code === "agent_work.stale_execution_epoch",
     );
 
     await expect(markWorkCompleted(pool, id, 1)).resolves.toBe(false);
@@ -101,7 +102,11 @@ describe.skipIf(!hasDatabase)("execution epoch fencing (integration)", () => {
     expect(rejection?.status).toBe("rejected");
     if (rejection?.status === "rejected") {
       expect(rejection.reason).toBeInstanceOf(AppError);
-      expect((rejection.reason as AppError).code).toBe("agent_work.stale_execution_epoch");
+      expect(
+        rejection.reason instanceof Error &&
+          isAppError(rejection.reason) &&
+          rejection.reason.code === "agent_work.stale_execution_epoch",
+      ).toBe(true);
     }
 
     const { rows } = await pool.query<{ github_id: string | null }>(
@@ -119,29 +124,30 @@ describe.skipIf(!hasDatabase)("execution epoch fencing (integration)", () => {
     const operationKey = `review:summary:review:${resourceKey}`;
     let mutateCalls = 0;
 
+    // SAFETY: withOperationIntent only calls client.query; this double forwards to the real pool except the injected crash.
     const client = {
-      query: async (text: string, values?: unknown[]) => {
+      query: async (text: string, values?: readonly JsonValue[]) => {
         if (
-          typeof text === "string" &&
           text.includes("operation_intents") &&
           text.includes("detail") &&
           Array.isArray(values) &&
           values.some(
             (value) =>
-              typeof value === "string" &&
+              isJsonString(value) &&
               value.includes('"__result"') &&
               !value.includes(`"${OPERATION_INTENT_MUTATING_KEY}":true`),
           )
         ) {
           throw new Error("crash after mutate before persist __result");
         }
-        return pool.query(text, values);
+        if (values === undefined) return pool.query(text);
+        return pool.query(text, [...values]);
       },
-    };
+    } as Pool;
 
     await expect(
       withOperationIntent({
-        client: client as unknown as Pool,
+        client,
         workItemId: id,
         operationKey,
         mutationKind: "github.summary_comment",
@@ -168,7 +174,7 @@ describe.skipIf(!hasDatabase)("execution epoch fencing (integration)", () => {
         },
       }),
     ).rejects.toSatisfy(
-      (error: unknown) =>
+      (error: Error) =>
         isAppError(error) && error.code === "operation_intent.mutation_outcome_unknown",
     );
 

@@ -1,7 +1,13 @@
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../db/postgres.js";
 import { logInfo } from "../evlog.js";
 import { queryOne } from "../db/postgres.js";
-import { isRecord } from "../util/typeGuards.js";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+} from "../util/jsonValue.js";
 import {
   listPendingOperationIntents,
   reconcileOperationIntent,
@@ -38,14 +44,14 @@ function verificationThreadRootFromOperationKey(operationKey: string): number | 
  * Match on operation identity (key + kind-specific ledger shape), never on
  * shared detail alone — triage reply vs :resolve share threadRootCommentId.
  */
-export async function findCompletedPublishRecordId(
-  client: Pool | PoolClient,
+async function findCompletedPublishRecordIdSql(
+  client: IntakeClient,
   workItemId: string,
   intent: OperationIntentRow,
 ): Promise<string | null> {
   const detail = intent.detail;
   const step = detail.step;
-  if (typeof step !== "string") return null;
+  if (step === undefined || !isJsonString(step)) return null;
 
   const triageThread = triageThreadRootFromOperationKey(intent.operationKey);
   // Resolve has no publish_records row; never borrow the reply ledger.
@@ -53,7 +59,7 @@ export async function findCompletedPublishRecordId(
     return null;
   }
 
-  const values: unknown[] = [workItemId, step];
+  const values: Array<string | number> = [workItemId, step];
   let query = `SELECT id
                  FROM publish_records
                 WHERE work_item_id = $1
@@ -61,19 +67,19 @@ export async function findCompletedPublishRecordId(
                   AND status = 'completed'`;
 
   const reviewLens = detail.reviewLens;
-  if (typeof reviewLens === "string") {
+  if (reviewLens !== undefined && isJsonString(reviewLens)) {
     values.push(reviewLens);
     query += ` AND review_lens = $${values.length}`;
   }
 
   const resourceKey = detail.resourceKey;
-  if (typeof resourceKey === "string") {
+  if (resourceKey !== undefined && isJsonString(resourceKey)) {
     values.push(resourceKey);
     query += ` AND resource_key = $${values.length}`;
   }
 
   const batchId = detail.batchId;
-  if (typeof batchId === "string") {
+  if (batchId !== undefined && isJsonString(batchId)) {
     values.push(batchId);
     query += ` AND detail @> jsonb_build_object('batches', jsonb_build_array(jsonb_build_object('batchId', $${values.length}::text)))`;
   }
@@ -89,7 +95,7 @@ export async function findCompletedPublishRecordId(
       query += ` AND detail -> 'threads' ? $${values.length}::text`;
     } else {
       const threadRootCommentId = detail.threadRootCommentId;
-      if (typeof threadRootCommentId === "number") {
+      if (threadRootCommentId !== undefined && isJsonNumber(threadRootCommentId)) {
         values.push(String(threadRootCommentId));
         query += ` AND detail @> jsonb_build_object('threadRootCommentId', ($${values.length}::text)::bigint)`;
       }
@@ -102,8 +108,8 @@ export async function findCompletedPublishRecordId(
   return row?.id ?? null;
 }
 
-export async function reconcilePendingIntents(
-  client: Pool | PoolClient,
+async function reconcilePendingIntentsSql(
+  client: IntakeClient,
   workItemId: string,
 ): Promise<ReconcilePendingIntentsResult> {
   const pending = await listPendingOperationIntents(client, workItemId);
@@ -135,16 +141,47 @@ export async function reconcilePendingIntents(
   return { reconciled, stillPending };
 }
 
+export type PendingIntentReconcile = typeof reconcilePendingIntentsSql;
+export type PublishRecordLookup = typeof findCompletedPublishRecordIdSql;
+
+let activePendingIntentReconcile: PendingIntentReconcile = reconcilePendingIntentsSql;
+let activePublishRecordLookup: PublishRecordLookup = findCompletedPublishRecordIdSql;
+
+export function setPendingIntentReconcile(reconcile: PendingIntentReconcile): void {
+  activePendingIntentReconcile = reconcile;
+}
+
+export function setPublishRecordLookup(lookup: PublishRecordLookup): void {
+  activePublishRecordLookup = lookup;
+}
+
+export function resetPendingIntentRecovery(): void {
+  activePendingIntentReconcile = reconcilePendingIntentsSql;
+  activePublishRecordLookup = findCompletedPublishRecordIdSql;
+}
+
+export async function reconcilePendingIntents(
+  ...args: Parameters<PendingIntentReconcile>
+): ReturnType<PendingIntentReconcile> {
+  return activePendingIntentReconcile(...args);
+}
+
+export async function findCompletedPublishRecordId(
+  ...args: Parameters<PublishRecordLookup>
+): ReturnType<PublishRecordLookup> {
+  return activePublishRecordLookup(...args);
+}
+
 export function intentDetailMatchesPublishRecord(
-  intentDetail: Record<string, unknown>,
-  publishDetail: unknown,
+  intentDetail: JsonObject,
+  publishDetail: JsonValue,
 ): boolean {
-  if (!isRecord(publishDetail)) return false;
+  if (!isJsonObject(publishDetail)) return false;
   const batchId = intentDetail.batchId;
-  if (typeof batchId === "string") {
+  if (batchId !== undefined && isJsonString(batchId)) {
     const batches = publishDetail.batches;
     if (!Array.isArray(batches)) return false;
-    return batches.some((batch) => isRecord(batch) && batch.batchId === batchId);
+    return batches.some((batch) => isJsonObject(batch) && batch.batchId === batchId);
   }
   return true;
 }

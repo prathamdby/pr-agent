@@ -39,9 +39,17 @@ function extractBotTitleSnippet(body: string): string {
   return truncateText(firstLine ?? "Inline finding", 120);
 }
 
+const BOT_SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
+
+function isBotSeverity(value: string): value is NonNullable<BotFindingThread["severity"]> {
+  return BOT_SEVERITIES.some((severity) => severity === value);
+}
+
 function extractBotSeverity(body: string): BotFindingThread["severity"] {
   const match = /\bP([0-3])\b/.exec(body);
-  return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
+  if (match == null) return null;
+  const severity = `P${match[1]}`;
+  return isBotSeverity(severity) ? severity : null;
 }
 
 function findVerificationStubCommentId(
@@ -336,7 +344,7 @@ export async function fetchBotFindingThreads(
       root.id,
     );
     const line = root.line ?? root.originalLine ?? 1;
-    results.push({
+    const thread: BotFindingThread = {
       rootCommentId: root.id,
       lens,
       path: root.path,
@@ -345,9 +353,12 @@ export async function fetchBotFindingThreads(
       titleSnippet: extractBotTitleSnippet(root.body),
       humanReplies,
       hasTriageReply,
-      ...(verificationStubCommentId != null ? { verificationStubCommentId } : {}),
       threadUrl: root.htmlUrl,
-    });
+    };
+    if (verificationStubCommentId != null) {
+      thread.verificationStubCommentId = verificationStubCommentId;
+    }
+    results.push(thread);
   }
 
   return results.toSorted((a, b) => a.path.localeCompare(b.path) || a.line - b.line);

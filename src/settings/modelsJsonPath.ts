@@ -16,7 +16,7 @@ export function resolveModelsJsonPath(
   cwdOrOptions: string | ResolveModelsJsonPathOptions = process.cwd(),
 ): string | null {
   const options: ResolveModelsJsonPathOptions =
-    typeof cwdOrOptions === "string" ? { cwd: cwdOrOptions } : cwdOrOptions;
+    cwdOrOptions instanceof Object ? cwdOrOptions : { cwd: cwdOrOptions };
   const cwd = options.cwd ?? process.cwd();
   const explicit = options.explicitPath?.trim();
   if (explicit) {

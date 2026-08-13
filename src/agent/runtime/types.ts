@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { PromptCachePolicy } from "./promptCachePolicy.js";
@@ -55,7 +56,7 @@ export type ToolPolicy = {
 /** Server-owned structured state re-injected after compaction / fallback. */
 export type AuthoritativeStructuredState = {
   readonly version: number;
-  readonly payload: Readonly<Record<string, unknown>>;
+  readonly payload: JsonObject;
 };
 
 export type PiSessionSendOptions = {

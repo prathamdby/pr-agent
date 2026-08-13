@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
+import {
+  attachSummaryCommentCoordination,
+  publishReviewSummaryOnly,
+} from "../src/review/publish/publishSummaryOnly.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
+import { spyPublishReviewRepositories } from "./helpers/publishReviewTestSetup.js";
+import * as reviewCheckRun from "../src/agentWork/reviewCheckRun.js";
+import { createQueryPool } from "./helpers/fakePool.js";
 
 function configuredSummarySurface() {
   const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
@@ -33,50 +39,6 @@ function configuredSummarySurface() {
   return { ...bundle, upsertProgressComment, setReviewCommitStatus };
 }
 
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
-  return {
-    ...actual,
-    listPullRequestReviewComments: vi.fn(async () => ({
-      comments: [
-        {
-          path: "src/a.ts",
-          line: 10,
-          id: 41,
-          url: "https://github.com/o/r/pull/1#discussion_r41",
-        },
-        {
-          path: "src/a.ts",
-          line: 20,
-          id: 42,
-          url: "https://github.com/o/r/pull/1#discussion_r42",
-        },
-      ],
-      truncated: false,
-    })),
-    findIssueCommentBySentinel: vi.fn(async () => null),
-    resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
-    upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
-    listPullRequestLabels: vi.fn(async () => []),
-    setPullRequestLabels: vi.fn(async () => undefined),
-    setReviewCommitStatus: vi.fn(async () => undefined),
-  };
-});
-
-vi.mock("../src/agentWork/repository.js", async () => {
-  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createAgentWorkRepositoryMock();
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
-import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
-import { attachSummaryCommentCoordination } from "../src/review/publish/publishSummaryOnly.js";
-import type { Pool, PoolClient } from "pg";
-
 function finding(line: number): ReviewFinding {
   return {
     severity: "P1",
@@ -91,7 +53,7 @@ function finding(line: number): ReviewFinding {
 
 describe("publishReviewSummaryOnly", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    spyPublishReviewRepositories();
   });
 
   it("links placements to comments from every inline review batch", async () => {
@@ -189,11 +151,7 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it("forces a neutral check and error commit status for partial coverage", async () => {
-    const client = {
-      query: vi.fn(async () => ({ rows: [] })),
-      release: vi.fn(),
-    } as unknown as PoolClient;
-    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+    const pool = createQueryPool(vi.fn(async () => ({ rows: [] })));
     const recordPublishStep = attachSummaryCommentCoordination(async () => undefined, {
       pool,
       workItemId: "wi-1",
@@ -230,7 +188,7 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result.kind).toBe("published");
-    expect(completeReviewCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       recordPublishStep.summaryCommentCoordination?.pool,
       expect.objectContaining({
         prSurface: surface,

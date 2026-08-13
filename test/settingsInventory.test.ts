@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import * as v from "valibot";
 import { parse as parseYaml } from "yaml";
 import { ENV, EXTERNAL_ENV } from "../src/settings/index.js";
+import { jsonValueSchema } from "../src/util/jsonValue.js";
 
 const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
 const NUB_JSONC_PATH = path.join(process.cwd(), "nub.jsonc");
@@ -76,31 +78,42 @@ describe("settings inventory", () => {
   });
 
   it("nub.jsonc keeps a 7d cooling window with string excludes", () => {
-    const config = parseYaml(fs.readFileSync(NUB_JSONC_PATH, "utf8")) as {
-      install?: {
-        minimumReleaseAge?: unknown;
-        minimumReleaseAgeExclude?: unknown;
-      };
-    };
+    const config = v.parse(
+      v.object({
+        install: v.optional(
+          v.object({
+            minimumReleaseAge: v.optional(v.string()),
+            minimumReleaseAgeExclude: v.optional(v.array(v.string())),
+          }),
+        ),
+      }),
+      parseYaml(fs.readFileSync(NUB_JSONC_PATH, "utf8")),
+    );
     expect(config.install?.minimumReleaseAge).toBe("7d");
     const excludes = config.install?.minimumReleaseAgeExclude;
     expect(Array.isArray(excludes)).toBe(true);
-    expect((excludes as unknown[]).length).toBeGreaterThan(0);
-    for (const entry of excludes as unknown[]) {
-      expect(typeof entry).toBe("string");
-      expect((entry as string).length).toBeGreaterThan(0);
+    if (!Array.isArray(excludes)) return;
+    expect(excludes.length).toBeGreaterThan(0);
+    for (const entry of excludes) {
+      expect(entry.length).toBeGreaterThan(0);
     }
   });
 
   it("nub.lock overrides and importers match package.json", () => {
-    const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, "utf8")) as {
-      overrides?: Record<string, string>;
-      workspaces?: string[];
-    };
-    const lock = parseYaml(fs.readFileSync(NUB_LOCK_PATH, "utf8")) as {
-      overrides?: Record<string, string | number>;
-      importers?: Record<string, unknown>;
-    };
+    const pkg = v.parse(
+      v.object({
+        overrides: v.optional(v.record(v.string(), v.string())),
+        workspaces: v.optional(v.array(v.string())),
+      }),
+      JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, "utf8")),
+    );
+    const lock = v.parse(
+      v.object({
+        overrides: v.optional(v.record(v.string(), v.union([v.string(), v.number()]))),
+        importers: v.optional(v.record(v.string(), jsonValueSchema)),
+      }),
+      parseYaml(fs.readFileSync(NUB_LOCK_PATH, "utf8")),
+    );
     expect(pkg.overrides).toBeTruthy();
     expect(lock.overrides).toBeTruthy();
     const pkgOverrides = pkg.overrides!;

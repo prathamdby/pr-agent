@@ -95,7 +95,7 @@ export async function executeVerificationJob(
           ? compareFilesTruncated
             ? [...new Set([...pushDeltaFiles.files, ...prFiles.files.map((file) => file.filename)])]
             : pushDeltaFiles.files
-          : ([] as readonly string[]);
+          : [];
 
       if (compareFilesTruncated) {
         logWarn("verification_compare_files_truncated", {

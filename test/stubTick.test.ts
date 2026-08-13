@@ -1,23 +1,13 @@
-import type { Pool } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePrSurface } from "../src/github/prSurface.js";
-
-vi.mock("../src/review/publish/publishReview.js", () => ({
-  upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({
-    id: 42,
-    updated: true,
-  })),
-}));
-
-vi.mock("../src/evlog.js", () => ({
-  logWarn: vi.fn(),
-}));
-
+import * as evlog from "../src/evlog.js";
+import * as publishReview from "../src/review/publish/publishReview.js";
 import { logWarn } from "../src/evlog.js";
 import { tickProgressComment } from "../src/review/orchestrator/stubTick.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
+import { createUnusedPool } from "./helpers/fakePool.js";
 
-const pool = {} as Pool;
+const pool = createUnusedPool();
 
 function specialistTickArgs(
   prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
@@ -49,6 +39,11 @@ function specialistTickArgs(
 
 describe("tickProgressComment", () => {
   beforeEach(() => {
+    vi.spyOn(publishReview, "upsertSummaryCommentWithCreationClaim").mockResolvedValue({
+      id: 42,
+      updated: true,
+    });
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     vi.clearAllMocks();
   });
 

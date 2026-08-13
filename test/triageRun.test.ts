@@ -1,14 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { runFullPrTriage } from "../src/agent/triage/triageRun.js";
+import {
+  resetCreateFeaturePiSession,
+  setCreateFeaturePiSession,
+} from "../src/agent/runtime/createFeatureSession.js";
+import {
+  EMPTY_STRUCTURED_STATE,
+  type PiSession,
+  type PiSessionSendOptions,
+} from "../src/agent/runtime/types.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { isJsonString } from "../src/util/jsonValue.js";
 
 const providerState = vi.hoisted(() => ({
   createSession: vi.fn(),
-}));
-
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
-  createFeaturePiSession: providerState.createSession,
 }));
 
 const cfg = makeTestConfig();
@@ -38,23 +44,43 @@ const inventory = [
   },
 ];
 
+function fakeTriageSession(send: PiSession["send"]): PiSession {
+  const session: PiSession = {
+    role: "triage",
+    primary: { provider: cfg.piProvider, model: cfg.piModel },
+    send,
+    abort: async () => undefined,
+    dispose: async () => undefined,
+    restartWithFallback: async () => session,
+    getStructuredState: () => EMPTY_STRUCTURED_STATE,
+    setStructuredState: () => undefined,
+  };
+  return session;
+}
+
 describe("triage run", () => {
   beforeEach(() => {
+    setCreateFeaturePiSession(providerState.createSession);
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    resetCreateFeaturePiSession();
+  });
+
   it("submits a validated triage payload", async () => {
-    providerState.createSession.mockImplementation(async (params) => ({
-      role: "triage",
-      send: vi.fn(async () => {
-        await params.executors.submitTriage({
-          verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "needs product call" }],
-        });
-        return { text: "done" };
-      }),
-      abort: vi.fn(async () => undefined),
-      dispose: vi.fn(),
-    }));
+    providerState.createSession.mockImplementation(async (params) =>
+      fakeTriageSession(
+        vi.fn(async () => {
+          await params.executors.submitTriage({
+            verdicts: [
+              { verdict: "skipped", threadRootCommentId: 1, reason: "needs product call" },
+            ],
+          });
+          return { text: "done" };
+        }),
+      ),
+    );
 
     const result = await runFullPrTriage({
       cfg,
@@ -71,12 +97,9 @@ describe("triage run", () => {
   });
 
   it("does not publish prose-only endings", async () => {
-    providerState.createSession.mockImplementation(async () => ({
-      role: "triage",
-      send: vi.fn(async () => ({ text: "I am done" })),
-      abort: vi.fn(async () => undefined),
-      dispose: vi.fn(),
-    }));
+    providerState.createSession.mockImplementation(async () =>
+      fakeTriageSession(vi.fn(async () => ({ text: "I am done" }))),
+    );
 
     const result = await runFullPrTriage({
       cfg,
@@ -93,15 +116,10 @@ describe("triage run", () => {
   });
 
   it("pre-submit finalize keeps commitFix nudge and caps tool rounds", async () => {
-    const send = vi.fn(async (_prompt: string, _opts?: Record<string, unknown>) => ({
+    const send = vi.fn(async (_prompt: string, _opts?: PiSessionSendOptions) => ({
       text: "I am done",
     }));
-    providerState.createSession.mockImplementation(async () => ({
-      role: "triage",
-      send,
-      abort: vi.fn(async () => undefined),
-      dispose: vi.fn(),
-    }));
+    providerState.createSession.mockImplementation(async () => fakeTriageSession(send));
 
     await runFullPrTriage({
       cfg,
@@ -114,13 +132,15 @@ describe("triage run", () => {
     });
 
     expect(send.mock.calls.length).toBeGreaterThan(1);
-    const finalizeCall = send.mock.calls.find(
-      (call) =>
-        typeof call[0] === "string" &&
-        call[0].includes("You replied with text only") &&
-        call[0].includes("call commitFix") &&
-        call[0].includes("call submitTriage once"),
-    );
+    const finalizeCall = send.mock.calls.find((call) => {
+      const prompt = call[0];
+      return (
+        isJsonString(prompt) &&
+        prompt.includes("You replied with text only") &&
+        prompt.includes("call commitFix") &&
+        prompt.includes("call submitTriage once")
+      );
+    });
     expect(finalizeCall?.[1]).toMatchObject({
       phase: "triage",
       checkpointId: "triage:triage",
@@ -136,51 +156,50 @@ describe("triage run", () => {
       committed.push(sha);
       return { sha, diff: "diff --git a/x" };
     });
-    providerState.createSession.mockImplementation(async (params) => ({
-      role: "triage",
-      send: vi.fn(async (prompt: string) => {
-        if (typeof prompt === "string" && prompt.includes("You replied with text only")) {
-          submitAttempts += 1;
-          try {
+    providerState.createSession.mockImplementation(async (params) =>
+      fakeTriageSession(
+        vi.fn(async (prompt: string) => {
+          if (prompt.includes("You replied with text only")) {
+            submitAttempts += 1;
+            try {
+              await params.executors.submitTriage({
+                verdicts: [
+                  {
+                    verdict: "fixed",
+                    threadRootCommentId: 1,
+                    commitSha: "d".repeat(40),
+                    evidence: "claimed fix without commit",
+                  },
+                ],
+              });
+            } catch {
+              /* validation error recorded on submitState */
+            }
+            return { text: "nudge" };
+          }
+          if (prompt.includes("If needed")) {
+            await params.executors.commitFix({
+              threadRootCommentId: 1,
+              files: ["src/app.ts"],
+              subject: "fix: app",
+            });
+            submitAttempts += 1;
             await params.executors.submitTriage({
               verdicts: [
                 {
                   verdict: "fixed",
                   threadRootCommentId: 1,
-                  commitSha: "d".repeat(40),
-                  evidence: "claimed fix without commit",
+                  commitSha: "c".repeat(40),
+                  evidence: "committed the fix",
                 },
               ],
             });
-          } catch {
-            /* validation error recorded on submitState */
+            return { text: "repaired" };
           }
-          return { text: "nudge" };
-        }
-        if (typeof prompt === "string" && prompt.includes("If needed")) {
-          await params.executors.commitFix({
-            threadRootCommentId: 1,
-            files: ["src/app.ts"],
-            subject: "fix: app",
-          });
-          submitAttempts += 1;
-          await params.executors.submitTriage({
-            verdicts: [
-              {
-                verdict: "fixed",
-                threadRootCommentId: 1,
-                commitSha: "c".repeat(40),
-                evidence: "committed the fix",
-              },
-            ],
-          });
-          return { text: "repaired" };
-        }
-        return { text: "investigate" };
-      }),
-      abort: vi.fn(async () => undefined),
-      dispose: vi.fn(),
-    }));
+          return { text: "investigate" };
+        }),
+      ),
+    );
 
     const result = await runFullPrTriage({
       cfg,
@@ -210,41 +229,40 @@ describe("triage run", () => {
       return { sha, diff: "diff" };
     });
     const errors: string[] = [];
-    providerState.createSession.mockImplementation(async (params) => ({
-      role: "triage",
-      send: vi.fn(async (prompt: string) => {
-        if (typeof prompt === "string" && prompt.includes("You replied with text only")) {
-          await params.executors.commitFix({
-            threadRootCommentId: 1,
-            files: ["src/app.ts"],
-            subject: "fix: app",
-          });
-          try {
+    providerState.createSession.mockImplementation(async (params) =>
+      fakeTriageSession(
+        vi.fn(async (prompt: string) => {
+          if (prompt.includes("You replied with text only")) {
             await params.executors.commitFix({
               threadRootCommentId: 1,
               files: ["src/app.ts"],
-              subject: "fix: app again",
+              subject: "fix: app",
             });
-          } catch (e) {
-            errors.push(e instanceof Error ? e.message : String(e));
-          }
-          await params.executors.submitTriage({
-            verdicts: [
-              {
-                verdict: "fixed",
+            try {
+              await params.executors.commitFix({
                 threadRootCommentId: 1,
-                commitSha: "c".repeat(40),
-                evidence: "one commit is enough",
-              },
-            ],
-          });
-          return { text: "done" };
-        }
-        return { text: "investigate" };
-      }),
-      abort: vi.fn(async () => undefined),
-      dispose: vi.fn(),
-    }));
+                files: ["src/app.ts"],
+                subject: "fix: app again",
+              });
+            } catch (cause) {
+              errors.push(cause instanceof Error ? cause.message : String(cause));
+            }
+            await params.executors.submitTriage({
+              verdicts: [
+                {
+                  verdict: "fixed",
+                  threadRootCommentId: 1,
+                  commitSha: "c".repeat(40),
+                  evidence: "one commit is enough",
+                },
+              ],
+            });
+            return { text: "done" };
+          }
+          return { text: "investigate" };
+        }),
+      ),
+    );
 
     const result = await runFullPrTriage({
       cfg,

@@ -2,14 +2,21 @@ import { describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 const intakeCfg = makeTestConfig();
 import { Effect } from "effect";
-import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
 import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { MAX_ASK_QUESTION_CHARS } from "../src/agent/ask/askSafety.js";
 import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
 import { ACK_QUEUE, ASK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
+import { createJobQueue, type RecordedBossJob } from "./helpers/recordingBoss.js";
+import { createQueryClient, createUnusedPool } from "./helpers/fakePool.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
+import type { AckJobData } from "../src/agentWork/types.js";
+
+function ackJobData(data: RecordedBossJob["data"]): AckJobData {
+  if (data.kind !== "ack") throw new Error("expected ack job");
+  return data;
+}
 
 function makeSlashInput(body: string) {
   const command = body.slice(1).split(/\s+/, 1)[0] ?? "";
@@ -33,24 +40,28 @@ function makeSlashInput(body: string) {
 
 describe("makeAgentWorkScheduler /ask slash", () => {
   it("enqueues too-long hint ack without ask work", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
+    const sentJobs: RecordedBossJob[] = [];
+    const send = vi.fn(
+      async (
+        queue: string,
+        data: RecordedBossJob["data"],
+        options?: RecordedBossJob["options"],
+      ) => {
+        sentJobs.push({ queue, data, options });
         return "job-1";
-      }),
-    } as unknown as PgBoss;
-
-    const client = {
-      query: vi.fn(async (sql: string) => {
+      },
+    );
+    const boss = createJobQueue({ send });
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
+    );
 
-    const pool = {} as Pool;
+    const pool = createUnusedPool();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
@@ -65,8 +76,10 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     );
 
     expect(sentJobs).toHaveLength(1);
-    expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
-    expect(sentJobs[0]?.data.reply).toEqual({
+    const tooLongJob = sentJobs[0];
+    if (tooLongJob === undefined) throw new Error("expected ack job");
+    expect(tooLongJob.queue).toBe(ACK_QUEUE);
+    expect(ackJobData(tooLongJob.data).reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
       body: ASK_QUESTION_TOO_LONG_HINT,
     });
@@ -74,24 +87,28 @@ describe("makeAgentWorkScheduler /ask slash", () => {
   });
 
   it("enqueues usage hint ack for bare /ask", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
+    const sentJobs: RecordedBossJob[] = [];
+    const send = vi.fn(
+      async (
+        queue: string,
+        data: RecordedBossJob["data"],
+        options?: RecordedBossJob["options"],
+      ) => {
+        sentJobs.push({ queue, data, options });
         return "job-1";
-      }),
-    } as unknown as PgBoss;
-
-    const client = {
-      query: vi.fn(async (sql: string) => {
+      },
+    );
+    const boss = createJobQueue({ send });
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
+    );
 
-    const pool = {} as Pool;
+    const pool = createUnusedPool();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
@@ -103,36 +120,43 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/ask"), intakeLog));
 
     expect(sentJobs).toHaveLength(1);
-    expect(sentJobs[0]?.data.reply).toEqual({
+    const usageJob = sentJobs[0];
+    if (usageJob === undefined) throw new Error("expected ack job");
+    expect(ackJobData(usageJob.data).reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
       body: ASK_USAGE_HINT,
     });
   });
 
   it("enqueues ask work for @mention on inline review threads", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
+    const sentJobs: RecordedBossJob[] = [];
+    const send = vi.fn(
+      async (
+        queue: string,
+        data: RecordedBossJob["data"],
+        options?: RecordedBossJob["options"],
+      ) => {
+        sentJobs.push({ queue, data, options });
         return "job-1";
-      }),
-    } as unknown as PgBoss;
+      },
+    );
+    const boss = createJobQueue({ send });
 
-    const workItemInserts: unknown[][] = [];
-    const client = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+    const workItemInserts: JsonValue[][] = [];
+    const client = createQueryClient(
+      vi.fn(async (sql: string, params?: readonly JsonValue[]) => {
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
         if (sql.includes("INSERT INTO agent_work_items")) {
-          workItemInserts.push(params ?? []);
+          workItemInserts.push([...(params ?? [])]);
           return { rows: [{ id: "ask-work-1" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
+    );
 
-    const pool = {} as Pool;
+    const pool = createUnusedPool();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
@@ -170,6 +194,7 @@ describe("makeAgentWorkScheduler /ask slash", () => {
 
     expect(workItemInserts).toHaveLength(1);
     expect(sentJobs.map((j) => j.queue)).toContain(ASK_QUEUE);
-    expect(sentJobs.find((j) => j.queue === ACK_QUEUE)?.data.reply).toBeUndefined();
+    const ack = sentJobs.find((j) => j.queue === ACK_QUEUE);
+    expect(ack ? ackJobData(ack.data).reply : undefined).toBeUndefined();
   });
 });

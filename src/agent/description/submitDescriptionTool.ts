@@ -4,6 +4,8 @@ import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 import { publishDescriptionToPullRequest } from "./publishDescription.js";
 import {
   coerceDescriptionPayloadInput,
@@ -50,7 +52,12 @@ const SUBMIT_DESCRIPTION_DESCRIPTION = [
 
 const SUBMIT_DESCRIPTION_PARAMETERS = toJsonSchema(descriptionPayloadSchema, {
   errorMode: "ignore",
-}) as PiTool["parameters"];
+});
+
+export type SubmitDescriptionTool = {
+  readonly piTool: PiTool;
+  readonly executor: AgentRunnerToolExecutor;
+};
 
 export function buildSubmitDescriptionTool(params: {
   cfg: Config;
@@ -62,19 +69,16 @@ export function buildSubmitDescriptionTool(params: {
   mapMode: DescriptionMapMode;
   knownPaths?: ReadonlySet<string>;
   shouldAbortPublish?: () => Promise<boolean>;
-  recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
+  recordPublishStep?: (detail?: JsonObject) => Promise<void>;
   operationIntent?: OperationIntentContext;
-}): {
-  piTool: PiTool;
-  executor: (args: Record<string, unknown>) => Promise<unknown>;
-} {
+}): SubmitDescriptionTool {
   const piTool: PiTool = {
     name: "submitDescription",
     description: SUBMIT_DESCRIPTION_DESCRIPTION,
     parameters: SUBMIT_DESCRIPTION_PARAMETERS,
   };
 
-  const executor = async (args: Record<string, unknown>) => {
+  const executor: AgentRunnerToolExecutor = async (args) => {
     if (params.state.published) {
       logDebug("description_submit_duplicate_ignored", {
         owner: params.owner,

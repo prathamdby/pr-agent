@@ -15,6 +15,13 @@ import {
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
 import { fixDoubleEscapedString } from "../agent/tools/fixDoubleEscapedString.js";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+} from "../util/jsonValue.js";
 
 export { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
@@ -99,7 +106,7 @@ export type ReviewPublishContext = {
   hasDescriptionReviewMap: boolean;
 };
 
-const SEVERITY_ALIAS: Record<string, ReviewFinding["severity"]> = {
+const SEVERITY_ALIAS = {
   CRITICAL: "P0",
   HIGH: "P1",
   MEDIUM: "P2",
@@ -112,19 +119,19 @@ const SEVERITY_ALIAS: Record<string, ReviewFinding["severity"]> = {
   "2": "P1",
   "3": "P2",
   "4": "P3",
-};
+} satisfies Record<string, ReviewFinding["severity"]>;
 
-const SEVERITY_INTEGER_MAP: Record<number, ReviewFinding["severity"]> = {
+const SEVERITY_INTEGER_MAP = {
   0: "P0",
   1: "P0",
   2: "P1",
   3: "P2",
   4: "P3",
-};
+} satisfies Record<number, ReviewFinding["severity"]>;
 
-function coercePositiveInt(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
+function coercePositiveInt(value: JsonValue): number | undefined {
+  if (isJsonNumber(value) && Number.isInteger(value)) return value;
+  if (isJsonString(value) && value.trim() !== "") {
     const trimmed = value.trim();
     if (!/^\d+$/.test(trimmed)) return undefined;
     const n = Number(trimmed);
@@ -133,21 +140,28 @@ function coercePositiveInt(value: unknown): number | undefined {
   return undefined;
 }
 
-function stripWholeStringCodeFence(value: string): {
-  text: string;
-  stripped: boolean;
-} {
+type StripFenceResult = {
+  readonly text: string;
+  readonly stripped: boolean;
+};
+
+function stripWholeStringCodeFence(value: string): StripFenceResult {
   const trimmed = value.trim();
   const fenceMatch = /^```(?:\w+)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
   if (!fenceMatch) return { text: value, stripped: false };
   return { text: fenceMatch[1].trim(), stripped: true };
 }
 
+type CoerceTextResult = {
+  readonly text: string;
+  readonly changed: boolean;
+};
+
 function coerceReviewTextField(
   raw: string,
   coercionPrefix: string,
   coercions: string[],
-): { text: string; changed: boolean } {
+): CoerceTextResult {
   const { text: unescaped, fixed: doubleEscaped } = fixDoubleEscapedString(raw);
   const { text, stripped } = stripWholeStringCodeFence(unescaped);
   const trimmed = text.trim();
@@ -160,54 +174,60 @@ function coerceReviewTextField(
   };
 }
 
-function coerceSeverity(value: unknown): ReviewFinding["severity"] | undefined {
-  if (typeof value === "number" && Number.isInteger(value)) {
-    return SEVERITY_INTEGER_MAP[value];
+function severityFromInteger(value: number): ReviewFinding["severity"] | undefined {
+  return Object.entries(SEVERITY_INTEGER_MAP).find(([key]) => Number(key) === value)?.[1];
+}
+
+function severityFromAlias(value: string): ReviewFinding["severity"] | undefined {
+  return Object.entries(SEVERITY_ALIAS).find(([alias]) => alias === value)?.[1];
+}
+
+function coerceSeverity(value: JsonValue): ReviewFinding["severity"] | undefined {
+  if (isJsonNumber(value) && Number.isInteger(value)) {
+    return severityFromInteger(value);
   }
-  if (typeof value !== "string") return undefined;
+  if (!isJsonString(value)) return undefined;
   const trimmed = value.trim();
-  const direct = SEVERITY_ALIAS[trimmed.toUpperCase()];
+  const direct = severityFromAlias(trimmed.toUpperCase());
   if (direct) return direct;
   const pMatch = /^P([0-3])\b/i.exec(trimmed);
-  if (pMatch) return `P${pMatch[1]}` as ReviewFinding["severity"];
+  if (pMatch?.[1] === "0") return "P0";
+  if (pMatch?.[1] === "1") return "P1";
+  if (pMatch?.[1] === "2") return "P2";
+  if (pMatch?.[1] === "3") return "P3";
   const wordMatch = /^(CRITICAL|HIGH|MEDIUM|LOW)\b/i.exec(trimmed);
-  if (wordMatch) return SEVERITY_ALIAS[wordMatch[1].toUpperCase()];
+  if (wordMatch?.[1] != null) return severityFromAlias(wordMatch[1].toUpperCase());
   return undefined;
 }
 
-function unwrapPayloadEnvelope(raw: unknown): {
-  value: unknown;
-  coercions: string[];
-} {
-  if (typeof raw !== "object" || raw == null) return { value: raw, coercions: [] };
-  const obj = raw as Record<string, unknown>;
+type UnwrappedPayload = {
+  readonly value: JsonValue;
+  readonly coercions: string[];
+};
+
+function unwrapPayloadEnvelope(raw: JsonValue): UnwrappedPayload {
+  if (!isJsonObject(raw)) return { value: raw, coercions: [] };
   for (const key of ["review", "payload", "result", "data"] as const) {
-    const nested = obj[key];
-    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      const nestedObj = nested as Record<string, unknown>;
-      if ("findings" in nestedObj || "prCharacter" in nestedObj) {
-        return { value: nested, coercions: [`unwrap_${key}`] };
-      }
+    const nested = raw[key];
+    if (nested === undefined || !isJsonObject(nested)) continue;
+    if ("findings" in nested || "prCharacter" in nested) {
+      return { value: nested, coercions: [`unwrap_${key}`] };
     }
   }
   return { value: raw, coercions: [] };
 }
 
-function coerceFinding(raw: unknown, coercions: string[]): unknown {
-  if (typeof raw !== "object" || raw == null) return raw;
-  const r = raw as Record<string, unknown>;
+function coerceFinding(raw: JsonValue, coercions: string[]): JsonValue {
+  if (!isJsonObject(raw)) return raw;
   let mutated = false;
-  let f: Record<string, unknown> = r;
+  const f = { ...raw };
 
   const touch = (): void => {
-    if (!mutated) {
-      f = { ...r };
-      mutated = true;
-    }
+    mutated = true;
   };
 
-  if ("line" in r && !("startLine" in r)) {
-    const n = coercePositiveInt(r.line);
+  if ("line" in raw && !("startLine" in raw) && raw.line !== undefined) {
+    const n = coercePositiveInt(raw.line);
     if (n != null && n > 0) {
       touch();
       f.startLine = n;
@@ -216,9 +236,16 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
     }
   }
 
-  if ("lines" in r && Array.isArray(r.lines) && r.lines.length >= 1) {
-    const start = coercePositiveInt(r.lines[0]);
-    const end = r.lines.length >= 2 ? coercePositiveInt(r.lines[1]) : start;
+  if ("lines" in raw && Array.isArray(raw.lines) && raw.lines.length >= 1) {
+    const first = raw.lines[0];
+    const second = raw.lines[1];
+    const start = first === undefined ? undefined : coercePositiveInt(first);
+    const end =
+      raw.lines.length >= 2
+        ? second === undefined
+          ? undefined
+          : coercePositiveInt(second)
+        : start;
     if (start != null && start > 0 && end != null && end > 0) {
       touch();
       f.startLine = start;
@@ -227,41 +254,42 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
     }
   }
 
-  if ("severity" in r) {
-    const coerced = coerceSeverity(r.severity);
-    if (coerced && coerced !== r.severity) {
+  if ("severity" in raw && raw.severity !== undefined) {
+    const coerced = coerceSeverity(raw.severity);
+    if (coerced && coerced !== raw.severity) {
       touch();
       f.severity = coerced;
       coercions.push("finding_severity_alias");
     }
   }
-  if ("startLine" in r) {
-    const n = coercePositiveInt(r.startLine);
-    if (n != null && n > 0 && n !== r.startLine) {
+  if ("startLine" in raw && raw.startLine !== undefined) {
+    const n = coercePositiveInt(raw.startLine);
+    if (n != null && n > 0 && n !== raw.startLine) {
       touch();
       f.startLine = n;
       coercions.push("finding_startLine_number");
     }
   }
-  if ("endLine" in r) {
-    const n = coercePositiveInt(r.endLine);
-    if (n != null && n > 0 && n !== r.endLine) {
+  if ("endLine" in raw && raw.endLine !== undefined) {
+    const n = coercePositiveInt(raw.endLine);
+    if (n != null && n > 0 && n !== raw.endLine) {
       touch();
       f.endLine = n;
       coercions.push("finding_endLine_number");
     }
   }
-  if ("confidence" in r) {
-    const n = coercePositiveInt(r.confidence);
-    if (n != null && n >= 1 && n <= 5 && n !== r.confidence) {
+  if ("confidence" in raw && raw.confidence !== undefined) {
+    const n = coercePositiveInt(raw.confidence);
+    if (n != null && n >= 1 && n <= 5 && n !== raw.confidence) {
       touch();
       f.confidence = n;
       coercions.push("finding_confidence_number");
     }
   }
   for (const field of ["file", "title"] as const) {
-    if (field in r && typeof r[field] === "string") {
-      const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
+    const fieldValue = raw[field];
+    if (fieldValue !== undefined && isJsonString(fieldValue)) {
+      const { text, changed } = coerceReviewTextField(fieldValue, `finding_${field}`, coercions);
       if (changed) {
         touch();
         f[field] = text;
@@ -269,17 +297,19 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
     }
   }
   for (const field of ["detail", "fixPrompt"] as const) {
-    if (field in r && typeof r[field] === "string") {
-      const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
+    const fieldValue = raw[field];
+    if (fieldValue !== undefined && isJsonString(fieldValue)) {
+      const { text, changed } = coerceReviewTextField(fieldValue, `finding_${field}`, coercions);
       if (changed) {
         touch();
         f[field] = text;
       }
     }
   }
-  if ("fixPrompt" in r && typeof r.fixPrompt === "string") {
-    const rawFix = (mutated ? f.fixPrompt : r.fixPrompt) as string;
-    if (rawFix.trim().length === 0) {
+  const fixPromptValue = raw.fixPrompt;
+  if (fixPromptValue !== undefined && isJsonString(fixPromptValue)) {
+    const rawFix = mutated ? f.fixPrompt : fixPromptValue;
+    if (rawFix !== undefined && isJsonString(rawFix) && rawFix.trim().length === 0) {
       touch();
       delete f.fixPrompt;
       coercions.push("finding_fixPrompt_empty_removed");
@@ -288,37 +318,42 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
   return mutated ? f : raw;
 }
 
-export function coerceReviewPayloadInput(raw: unknown): {
-  value: unknown;
-  coerced: boolean;
-  coercions: string[];
-} {
+export type CoercedReviewPayloadInput = {
+  readonly value: JsonObject;
+  readonly coerced: boolean;
+  readonly coercions: string[];
+};
+
+export function coerceReviewPayloadInput(raw: JsonValue): CoercedReviewPayloadInput {
   const coercions: string[] = [];
   const unwrapped = unwrapPayloadEnvelope(raw);
   coercions.push(...unwrapped.coercions);
 
-  if (typeof unwrapped.value !== "object" || unwrapped.value == null) {
-    return { value: unwrapped.value, coerced: coercions.length > 0, coercions };
+  if (!isJsonObject(unwrapped.value)) {
+    return { value: {}, coerced: coercions.length > 0, coercions };
   }
 
-  const input = { ...(unwrapped.value as Record<string, unknown>) };
+  const input = { ...unwrapped.value };
 
-  if ("prCharacter" in input && typeof input.prCharacter === "string") {
-    const { text, changed } = coerceReviewTextField(input.prCharacter, "prCharacter", coercions);
+  const prCharacter = input.prCharacter;
+  if (prCharacter !== undefined && isJsonString(prCharacter)) {
+    const { text, changed } = coerceReviewTextField(prCharacter, "prCharacter", coercions);
     if (changed) {
       input.prCharacter = text;
     }
   }
-  if ("size" in input && typeof input.size === "string") {
-    const normalized = input.size.trim().toUpperCase();
-    if (normalized !== input.size) {
+  const size = input.size;
+  if (size !== undefined && isJsonString(size)) {
+    const normalized = size.trim().toUpperCase();
+    if (normalized !== size) {
       input.size = normalized;
       coercions.push("size_token_case");
     }
   }
-  if ("securityConcerns" in input && typeof input.securityConcerns === "string") {
+  const securityConcerns = input.securityConcerns;
+  if (securityConcerns !== undefined && isJsonString(securityConcerns)) {
     const { text, changed } = coerceReviewTextField(
-      input.securityConcerns,
+      securityConcerns,
       "securityConcerns",
       coercions,
     );
@@ -328,14 +363,14 @@ export function coerceReviewPayloadInput(raw: unknown): {
   }
   if (Array.isArray(input.followUps)) {
     input.followUps = input.followUps.map((item) => {
-      if (typeof item !== "string") return item;
+      if (!isJsonString(item)) return item;
       const { text, changed } = coerceReviewTextField(item, "followUp", coercions);
       return changed ? text : item;
     });
   }
   if (Array.isArray(input.findings)) {
     input.findings = input.findings.map((item) => coerceFinding(item, coercions));
-  } else if (typeof input.findings === "object" && input.findings != null) {
+  } else if (input.findings !== undefined && isJsonObject(input.findings)) {
     // A single finding object still needs its domain coercions here; the
     // generic object_wrapped_as_array repair does the wrapping afterwards.
     // Coercing only the array form left shape-plus-domain errors unparseable.
@@ -362,7 +397,7 @@ function valibotIssueFailureKind(issue: v.GenericIssue): ReviewValidationFailure
     case "literal":
       return "enum_mismatch";
     case "min_length":
-      return typeof issue.input === "string" ? "string_too_short" : "out_of_range";
+      return v.is(v.string(), issue.input) ? "string_too_short" : "out_of_range";
     case "max_length":
       return Array.isArray(issue.input) ? "array_too_long" : "out_of_range";
     case "min_value":
@@ -375,11 +410,15 @@ function valibotIssueFailureKind(issue: v.GenericIssue): ReviewValidationFailure
   }
 }
 
-export function formatReviewValidationError(issues: readonly v.GenericIssue[]): {
-  message: string;
-  failureKind: ReviewValidationFailureKind;
-  paths: string[];
-} {
+export type ReviewValidationErrorFormat = {
+  readonly message: string;
+  readonly failureKind: ReviewValidationFailureKind;
+  readonly paths: string[];
+};
+
+export function formatReviewValidationError(
+  issues: readonly v.GenericIssue[],
+): ReviewValidationErrorFormat {
   const paths: string[] = [];
   const lines = ["ReviewPayload validation failed:"];
   for (const issue of issues) {

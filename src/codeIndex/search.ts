@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../db/postgres.js";
 import { CODE_INDEX_MAX_RESULTS, CODE_INDEX_PREVIEW_MAX_CHARS } from "../settings/index.js";
 
 export type CodeIndexSearchHint = {
@@ -6,6 +6,10 @@ export type CodeIndexSearchHint = {
   readonly startLine: number;
   readonly endLine: number;
   readonly preview?: string;
+};
+
+type MutableCodeIndexSearchHint = {
+  -readonly [K in keyof CodeIndexSearchHint]: CodeIndexSearchHint[K];
 };
 
 export type CodeIndexSearchResult =
@@ -21,7 +25,7 @@ type SearchRow = {
 };
 
 export async function searchCodeIndexFts(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   snapshotId: string,
   query: string,
   limit = CODE_INDEX_MAX_RESULTS,
@@ -60,11 +64,12 @@ export function mapSearchRowsToHints(
 ): readonly CodeIndexSearchHint[] {
   return rows.map((row) => {
     const hashOk = verifyContent?.(row.path, row.content_hash, row) ?? true;
-    return {
+    const hint: MutableCodeIndexSearchHint = {
       path: row.path,
       startLine: row.start_line,
       endLine: row.end_line,
-      ...(hashOk ? { preview: previewForChunk(row.content) } : {}),
     };
+    if (hashOk) hint.preview = previewForChunk(row.content);
+    return hint;
   });
 }

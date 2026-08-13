@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
-import type { Pool, PoolClient } from "pg";
 import type { AgentSessionRole } from "../agent/runtime/types.js";
+import type { IntakeClient } from "../db/postgres.js";
+import { queryOne } from "../db/postgres.js";
 import {
   decryptResumeSnapshot,
   encryptResumeSnapshot,
@@ -8,10 +9,9 @@ import {
   type ResumeSnapshotPlaintext,
   RESUME_SNAPSHOT_ENVELOPE_VERSION,
 } from "../agent/runtime/resumeSnapshots.js";
-import { queryOne } from "../db/postgres.js";
 
 export async function upsertResumeSnapshot(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   params: {
     readonly keyMaterial: string;
     readonly workItemId: string;
@@ -87,7 +87,7 @@ export async function upsertResumeSnapshot(
 }
 
 export async function loadResumeSnapshot(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   params: {
     readonly keyMaterial: string;
     readonly workItemId: string;
@@ -168,7 +168,7 @@ export async function loadResumeSnapshot(
 }
 
 export async function deleteResumeSnapshot(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   workItemId: string,
   sessionRole: AgentSessionRole,
 ): Promise<void> {
@@ -179,14 +179,14 @@ export async function deleteResumeSnapshot(
 }
 
 export async function deleteResumeSnapshotsForWorkItem(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   workItemId: string,
 ): Promise<void> {
   await client.query(`DELETE FROM agent_resume_snapshots WHERE work_item_id = $1`, [workItemId]);
 }
 
 export async function deleteExpiredResumeSnapshots(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   now: Date = new Date(),
 ): Promise<number> {
   const result = await client.query(`DELETE FROM agent_resume_snapshots WHERE expires_at <= $1`, [

@@ -1,4 +1,5 @@
-import type { Pool } from "pg";
+import type { IntakeClient } from "../db/postgres.js";
+import { nonErrorThrown } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { httpStatus } from "../github/httpStatus.js";
@@ -24,11 +25,15 @@ import {
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
-/** P0–P2 findings fail the check; empty or P3-only payloads pass. */
-export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
+export type ReviewCheckRunOutcome = {
   conclusion: ReviewCheckRunConclusion;
   summary: string;
-} {
+};
+
+/** P0–P2 findings fail the check; empty or P3-only payloads pass. */
+export function reviewCheckRunOutcome(
+  findings: readonly Pick<ReviewFinding, "severity">[],
+): ReviewCheckRunOutcome {
   const bugCount = findings.filter((f) => isCheckFailingSeverity(f.severity)).length;
   return {
     conclusion: bugCount > 0 ? "failure" : "success",
@@ -37,7 +42,7 @@ export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "se
 }
 
 export async function waitForReviewCheckRunGithubId(
-  pool: Pool,
+  pool: IntakeClient,
   workItemId: string,
   reviewLens: AnyReviewLens,
   options?: { timeoutMs?: number; pollMs?: number },
@@ -55,13 +60,13 @@ export async function waitForReviewCheckRunGithubId(
 
 function logCheckRunWarning(
   event: string,
-  error: unknown,
+  error: Error,
   fields: Record<string, string | number | undefined>,
 ): void {
   if (isMissingActionsPermissionError(error)) return;
   logWarn(event, {
     ...fields,
-    message: error instanceof Error ? error.message : String(error),
+    message: error.message,
   });
 }
 
@@ -98,7 +103,7 @@ type CheckRunReservationOutcome =
   | { readonly kind: "resolved"; readonly githubId: number | null };
 
 async function reserveReviewCheckRunSlot(
-  pool: Pool,
+  pool: IntakeClient,
   params: EnsureReviewCheckRunParams,
   name: string,
 ): Promise<CheckRunReservationOutcome> {
@@ -117,7 +122,7 @@ async function reserveReviewCheckRunSlot(
 }
 
 async function recoverStaleReservationOrWaitForPeer(
-  pool: Pool,
+  pool: IntakeClient,
   params: EnsureReviewCheckRunParams,
   name: string,
 ): Promise<CheckRunReservationOutcome> {
@@ -161,7 +166,7 @@ async function recoverStaleReservationOrWaitForPeer(
 }
 
 async function createGithubCheckRunOnSurface(
-  pool: Pool,
+  pool: IntakeClient,
   params: EnsureReviewCheckRunParams,
 ): Promise<GithubCheckRunRef | null> {
   try {
@@ -171,6 +176,10 @@ async function createGithubCheckRunOnSurface(
       "PR Agent review is in progress.",
     );
   } catch (createError) {
+    const err =
+      createError instanceof Error
+        ? createError
+        : nonErrorThrown("review.check_run_start_non_error_thrown");
     // Duplicate-name 422 recovery lives in prSurfaceImpl.startReviewCheck.
     await releaseUnstartedReviewCheckRunReservation(pool, {
       workItemId: params.workItemId,
@@ -178,10 +187,10 @@ async function createGithubCheckRunOnSurface(
       reviewLens: params.reviewLens,
     });
     const event =
-      httpStatus(createError) === 422
+      httpStatus(err) === 422
         ? "review_check_run_start_duplicate_unresolved"
         : "review_check_run_start_failed";
-    logCheckRunWarning(event, createError, {
+    logCheckRunWarning(event, err, {
       owner: params.owner,
       repo: params.repo,
       pr: params.prNumber,
@@ -195,7 +204,7 @@ async function cancelOrphanedCheckRunAfterRecordFailure(
   params: EnsureReviewCheckRunParams,
   name: string,
   check: GithubCheckRunRef,
-  recordError: unknown,
+  recordError: Error,
 ): Promise<void> {
   try {
     await params.prSurface.finishReviewCheck({
@@ -205,7 +214,11 @@ async function cancelOrphanedCheckRunAfterRecordFailure(
       name,
     });
   } catch (cancelError) {
-    logCheckRunWarning("review_check_run_orphan_cancel_failed", cancelError, {
+    const err =
+      cancelError instanceof Error
+        ? cancelError
+        : nonErrorThrown("review.check_run_orphan_cancel_non_error_thrown");
+    logCheckRunWarning("review_check_run_orphan_cancel_failed", err, {
       owner: params.owner,
       repo: params.repo,
       pr: params.prNumber,
@@ -219,12 +232,12 @@ async function cancelOrphanedCheckRunAfterRecordFailure(
     pr: params.prNumber,
     reviewLens: params.reviewLens,
     checkRunId: check.id,
-    message: recordError instanceof Error ? recordError.message : String(recordError),
+    message: recordError.message,
   });
 }
 
 async function recordCreatedCheckRunOrCleanup(
-  pool: Pool,
+  pool: IntakeClient,
   params: EnsureReviewCheckRunParams,
   name: string,
   check: GithubCheckRunRef,
@@ -243,7 +256,8 @@ async function recordCreatedCheckRunOrCleanup(
       },
     });
   } catch (e) {
-    await cancelOrphanedCheckRunAfterRecordFailure(params, name, check, e);
+    const err = e instanceof Error ? e : nonErrorThrown("review.check_run_record_non_error_thrown");
+    await cancelOrphanedCheckRunAfterRecordFailure(params, name, check, err);
     await releaseUnstartedReviewCheckRunReservation(pool, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
@@ -255,7 +269,7 @@ async function recordCreatedCheckRunOrCleanup(
 }
 
 export async function ensureReviewCheckRunStarted(
-  pool: Pool,
+  pool: IntakeClient,
   params: EnsureReviewCheckRunParams,
 ): Promise<number | null> {
   const existing = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
@@ -286,7 +300,7 @@ type CompleteReviewCheckRunParams = {
 };
 
 async function applyReviewCheckRunCompletion(
-  pool: Pool,
+  pool: IntakeClient,
   params: CompleteReviewCheckRunParams,
   checkRunId: number,
 ): Promise<boolean> {
@@ -301,7 +315,9 @@ async function applyReviewCheckRunCompletion(
       name,
     });
   } catch (e) {
-    logCheckRunWarning("review_check_run_complete_failed", e, {
+    const err =
+      e instanceof Error ? e : nonErrorThrown("review.check_run_complete_non_error_thrown");
+    logCheckRunWarning("review_check_run_complete_failed", err, {
       owner: params.owner,
       repo: params.repo,
       pr: params.prNumber,
@@ -326,6 +342,8 @@ async function applyReviewCheckRunCompletion(
       },
     });
   } catch (e) {
+    const err =
+      e instanceof Error ? e : nonErrorThrown("review.check_run_complete_record_non_error_thrown");
     logWarn("review_check_run_complete_record_failed", {
       owner: params.owner,
       repo: params.repo,
@@ -333,14 +351,14 @@ async function applyReviewCheckRunCompletion(
       reviewLens: params.reviewLens,
       checkRunId,
       conclusion: params.conclusion,
-      message: e instanceof Error ? e.message : String(e),
+      message: err.message,
     });
   }
   return true;
 }
 
 export async function completeReviewCheckRun(
-  pool: Pool,
+  pool: IntakeClient,
   params: CompleteReviewCheckRunParams,
 ): Promise<boolean> {
   const checkRunId = await waitForReviewCheckRunGithubId(
@@ -363,7 +381,9 @@ async function findOpenReviewCheckRunId(
     );
     return open?.id ?? null;
   } catch (error) {
-    logCheckRunWarning("review_check_run_cancel_lookup_failed", error, {
+    const err =
+      error instanceof Error ? error : nonErrorThrown("review.check_run_lookup_non_error_thrown");
+    logCheckRunWarning("review_check_run_cancel_lookup_failed", err, {
       headSha,
     });
     return null;
@@ -372,7 +392,7 @@ async function findOpenReviewCheckRunId(
 
 /** Finish the review check as `cancelled`; recovers an open check on headSha when the id is late. */
 export async function cancelReviewCheckRun(
-  pool: Pool,
+  pool: IntakeClient,
   params: {
     prSurface: PrSurface;
     owner: string;
@@ -411,7 +431,7 @@ export async function cancelReviewCheckRun(
 }
 
 export async function cancelReviewCheckRunsForWorkItems(
-  pool: Pool,
+  pool: IntakeClient,
   params: {
     prSurface: PrSurface;
     owner: string;
@@ -447,12 +467,16 @@ export async function cancelReviewCheckRunsForWorkItems(
           ),
         });
       } catch (error) {
+        const err =
+          error instanceof Error
+            ? error
+            : nonErrorThrown("review.check_run_cancel_item_non_error_thrown");
         logWarn("review_check_run_cancel_item_failed", {
           owner: params.owner,
           repo: params.repo,
           pr: params.prNumber,
           workItemId,
-          message: error instanceof Error ? error.message : String(error),
+          message: err.message,
         });
       }
     }),

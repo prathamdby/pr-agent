@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PoolClient } from "pg";
 import { insertWebhookEvent } from "../src/agentWork/intake/webhookEvents.js";
+import { createQueryClient } from "./helpers/fakePool.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
 
 function mockClient(insertSucceeds: boolean) {
-  return {
-    query: vi.fn(async (_text: string, params: unknown[]) => ({
-      rows: insertSucceeds ? [{ id: String(params[0]) }] : [],
+  const client = createQueryClient(
+    vi.fn(async (_text: string, params?: readonly JsonValue[]) => ({
+      rows: insertSucceeds ? [{ id: String(params?.[0] ?? "") }] : [],
     })),
-  } as unknown as PoolClient & { query: ReturnType<typeof vi.fn> };
+  );
+  vi.spyOn(client, "query");
+  return client;
 }
 
 describe("insertWebhookEvent", () => {

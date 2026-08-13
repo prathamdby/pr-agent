@@ -6,6 +6,15 @@ import { captureEvent } from "../../analytics/index.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
+import {
+  asJsonObject,
+  isJsonNumber,
+  isJsonString,
+  jsonValueSchema,
+  parseJsonText,
+  type JsonValue,
+} from "../../util/jsonValue.js";
+import * as v from "valibot";
 import { toCiRefreshHeadSource } from "../../webhook/payloads/ciRefreshHead.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
@@ -15,6 +24,10 @@ type DispatchResult =
   | { readonly kind: "failed" }
   | { readonly kind: "timeout" }
   | { readonly kind: "parse_error"; readonly message: string };
+
+type MutableWebhookHeaders = {
+  -readonly [K in keyof WebhookHeaders]: WebhookHeaders[K];
+};
 
 export type WebhookPostRequest = {
   headers: Record<string, string | undefined>;
@@ -31,7 +44,7 @@ type DispatchInput = {
   readonly cfg: Config;
   readonly headers: WebhookHeaders;
   readonly intakeLog: RequestLogger;
-  readonly payload: Record<string, unknown>;
+  readonly payload: JsonValue;
 };
 
 function dispatchGithubEventEffect(
@@ -116,6 +129,7 @@ export function processWebhookPostRequestEffect(
   cfg: Config,
   req: WebhookPostRequest,
   intakeLog: RequestLogger,
+  timeoutMs = WEBHOOK_TIMEOUT_MS,
 ): Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler | WebhookHandlers> {
   return Effect.gen(function* () {
     const delivery = req.headers["x-github-delivery"];
@@ -142,9 +156,9 @@ export function processWebhookPostRequestEffect(
       return response;
     }
 
-    let payload: Record<string, unknown>;
+    let payload: JsonValue;
     try {
-      payload = JSON.parse(req.rawBody.toString("utf8")) as Record<string, unknown>;
+      payload = parseJsonText(req.rawBody.toString("utf8"));
     } catch {
       recordEvent(intakeLog, "invalid_json", undefined, "warn");
       const response = {
@@ -157,12 +171,12 @@ export function processWebhookPostRequestEffect(
     }
 
     const t0 = Date.now();
-    const responseBudgetMs = Math.max(1, WEBHOOK_TIMEOUT_MS - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
-    const headers = {
-      ...(delivery === undefined ? {} : { delivery }),
+    const responseBudgetMs = Math.max(1, timeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
+    const headers: MutableWebhookHeaders = {
       event: githubEvent,
       rawBody: req.rawBody,
-    } satisfies WebhookHeaders;
+    };
+    if (delivery !== undefined) headers.delivery = delivery;
     const dispatch = dispatchGithubEventEffect({
       cfg,
       headers,
@@ -179,7 +193,7 @@ export function processWebhookPostRequestEffect(
             {
               event: githubEvent,
               delivery: logDelivery,
-              budgetMs: WEBHOOK_TIMEOUT_MS,
+              budgetMs: timeoutMs,
               responseBudgetMs,
             },
             "warn",
@@ -277,12 +291,12 @@ export function processWebhookPostRequestEffect(
       webhook: {
         status: 200,
         elapsedMs,
-        budgetExceeded: elapsedMs > WEBHOOK_TIMEOUT_MS,
-        budgetMs: WEBHOOK_TIMEOUT_MS,
+        budgetExceeded: elapsedMs > timeoutMs,
+        budgetMs: timeoutMs,
         responseBudgetMs,
       },
     });
-    if (elapsedMs > WEBHOOK_TIMEOUT_MS) {
+    if (elapsedMs > timeoutMs) {
       recordEvent(
         intakeLog,
         "webhook_timeout_budget_exceeded",
@@ -290,7 +304,7 @@ export function processWebhookPostRequestEffect(
           event: githubEvent,
           delivery: logDelivery,
           ms: elapsedMs,
-          budgetMs: WEBHOOK_TIMEOUT_MS,
+          budgetMs: timeoutMs,
         },
         "warn",
       );
@@ -301,12 +315,17 @@ export function processWebhookPostRequestEffect(
     Effect.ensuring(
       Effect.gen(function* () {
         if (intakeLog.getContext().emitted === true) return;
-        const webhook = intakeLog.getContext().webhook as { status?: number } | undefined;
-        if (webhook?.status === 200) return;
-        const lastEvent = intakeLog.getContext().lastEvent;
+        const webhookParsed = v.safeParse(jsonValueSchema, intakeLog.getContext().webhook);
+        const webhook = webhookParsed.success ? asJsonObject(webhookParsed.output) : null;
+        if (webhook && isJsonNumber(webhook.status) && webhook.status === 200) return;
+        const lastEventParsed = v.safeParse(jsonValueSchema, intakeLog.getContext().lastEvent);
+        const lastEvent =
+          lastEventParsed.success && isJsonString(lastEventParsed.output)
+            ? lastEventParsed.output
+            : "webhook_request_aborted";
         yield* Effect.promise(() =>
           emitOperationLogger(intakeLog, {
-            event: typeof lastEvent === "string" ? lastEvent : "webhook_request_aborted",
+            event: lastEvent,
           }),
         ).pipe(Effect.catchAll(() => Effect.void));
       }),

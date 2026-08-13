@@ -3,6 +3,7 @@ import { buildAskUserContent } from "../src/agent/ask/askUserContent.js";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 function baseParams(overrides: Partial<AskRunParams> = {}): AskRunParams {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
@@ -15,7 +16,7 @@ function baseParams(overrides: Partial<AskRunParams> = {}): AskRunParams {
     headSha: "abc",
     question: "why?",
     replyTarget: { kind: "prConversation", prNumber: 1 },
-    workspace: {} as AskRunParams["workspace"],
+    workspace: mockLocalPrWorkspace(),
     ...overrides,
   };
 }

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import type { Pool, PoolClient } from "pg";
 import * as v from "valibot";
+import type { IntakeClient } from "../db/postgres.js";
 import { queryOne } from "../db/postgres.js";
 import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
 import {
@@ -16,7 +16,13 @@ import {
   VERIFICATION_PUBLISH_LENS,
 } from "../settings/index.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
-import { isRecord } from "../util/typeGuards.js";
+import {
+  isJsonObject,
+  isJsonString,
+  jsonObjectSchema,
+  type JsonObject,
+  type JsonValue,
+} from "../util/jsonValue.js";
 import { assertCurrentExecutionEpoch } from "./workItemStateRepository.js";
 
 export type PublishLens =
@@ -26,6 +32,22 @@ export type PublishLens =
   | typeof TRIAGE_PUBLISH_LENS
   | typeof VERIFICATION_PUBLISH_LENS;
 type SharedPublishLens = Exclude<PublishLens, typeof ASK_PUBLISH_LENS>;
+
+function parseOptionalJsonObject(value: JsonValue | null | undefined): JsonObject | null {
+  if (value == null) return null;
+  const parsed = v.safeParse(jsonObjectSchema, value);
+  return parsed.success ? parsed.output : null;
+}
+
+const storedPublishRowSchema = v.object({
+  step: v.string(),
+  github_id: v.optional(v.nullable(v.string())),
+  detail: v.optional(v.nullable(jsonObjectSchema)),
+});
+
+const fingerprintDetailRowSchema = v.object({
+  detail: v.optional(v.nullable(jsonObjectSchema)),
+});
 export type PublishStep =
   | "progress_comment"
   | "inline_review"
@@ -43,7 +65,7 @@ type SharedPublishStep = Exclude<PublishStep, "ask_reply" | "check_run">;
 type AskPublishStep = Extract<PublishStep, "ask_reply">;
 
 export async function hasCompletedPublishStep(
-  pool: Pool,
+  pool: IntakeClient,
   workItemId: string,
   resourceKey: string,
   reviewLens: PublishLens,
@@ -65,13 +87,13 @@ export async function hasCompletedPublishStep(
 }
 
 export async function getCompletedPublishStepDetail(
-  pool: Pool,
+  pool: IntakeClient,
   workItemId: string,
   resourceKey: string,
   reviewLens: PublishLens,
   step: PublishStep,
-): Promise<Record<string, unknown> | null> {
-  const row = await queryOne<{ detail: Record<string, unknown> | null }>(
+): Promise<JsonObject | null> {
+  const row = await queryOne<{ detail: JsonValue | null }>(
     pool,
     `SELECT detail
 		   FROM publish_records
@@ -83,17 +105,17 @@ export async function getCompletedPublishStepDetail(
 		  LIMIT 1`,
     [workItemId, resourceKey, reviewLens, step],
   );
-  return row?.detail ?? null;
+  return parseOptionalJsonObject(row?.detail);
 }
 
 export async function getCompletedPublishStepDetailWithoutNewerStep(
-  pool: Pool,
+  pool: IntakeClient,
   resourceKey: string,
   reviewLens: PublishLens,
   step: PublishStep,
   newerStep: PublishStep,
-): Promise<Record<string, unknown> | null> {
-  const row = await queryOne<{ detail: Record<string, unknown> | null }>(
+): Promise<JsonObject | null> {
+  const row = await queryOne<{ detail: JsonValue | null }>(
     pool,
     `SELECT current_step.detail
        FROM publish_records current_step
@@ -114,12 +136,12 @@ export async function getCompletedPublishStepDetailWithoutNewerStep(
       LIMIT 1`,
     [resourceKey, reviewLens, step, newerStep],
   );
-  return row?.detail ?? null;
+  return parseOptionalJsonObject(row?.detail);
 }
 
 /** Returns true exactly once per (resourceKey, lens) until the claim row is deleted. */
 export async function claimSummaryCommentCreation(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   workItemId: string,
   resourceKey: string,
   reviewLens: AnyReviewLens,
@@ -135,7 +157,7 @@ export async function claimSummaryCommentCreation(
 }
 
 export async function getSummaryCommentGithubId(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
 ): Promise<number | null> {
@@ -159,7 +181,7 @@ export async function getSummaryCommentGithubId(
 
 /** Current progress-comment owner for a PR resource (any status). */
 export async function getProgressCommentOwner(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
 ): Promise<{ readonly workItemId: string; readonly generation: number } | null> {
@@ -181,7 +203,7 @@ export async function getProgressCommentOwner(
 }
 
 export async function getProgressCommentRevision(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
 ): Promise<{ readonly workItemId: string; readonly revision: number } | null> {
@@ -202,7 +224,7 @@ export async function getProgressCommentRevision(
 
 /** Epoch ms when the progress stub (revision 0) was first recorded, if known. */
 export async function getProgressStubPostedAtMs(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
 ): Promise<number | null> {
@@ -224,7 +246,7 @@ export async function getProgressStubPostedAtMs(
 }
 
 export async function getReviewCheckRunGithubId(
-  pool: Pool,
+  pool: IntakeClient,
   workItemId: string,
   reviewLens: AnyReviewLens,
 ): Promise<number | null> {
@@ -245,12 +267,12 @@ export async function getReviewCheckRunGithubId(
 }
 
 export async function reserveReviewCheckRun(
-  pool: Pool,
+  pool: IntakeClient,
   params: {
     workItemId: string;
     resourceKey: string;
     reviewLens: AnyReviewLens;
-    detail?: Record<string, unknown>;
+    detail?: JsonObject;
   },
 ): Promise<boolean> {
   const result = await pool.query(
@@ -270,13 +292,13 @@ export async function reserveReviewCheckRun(
 }
 
 export async function recordReviewCheckRun(
-  pool: Pool,
+  pool: IntakeClient,
   params: {
     workItemId: string;
     resourceKey: string;
     reviewLens: AnyReviewLens;
     githubId: string | number;
-    detail?: Record<string, unknown>;
+    detail?: JsonObject;
   },
 ): Promise<void> {
   await pool.query(
@@ -300,7 +322,7 @@ export async function recordReviewCheckRun(
 }
 
 export async function releaseUnstartedReviewCheckRunReservation(
-  pool: Pool,
+  pool: IntakeClient,
   params: {
     workItemId: string;
     resourceKey: string;
@@ -308,7 +330,7 @@ export async function releaseUnstartedReviewCheckRunReservation(
     staleBefore?: Date;
   },
 ): Promise<boolean> {
-  const values: unknown[] = [params.workItemId, params.resourceKey, params.reviewLens];
+  const values: Array<string | Date> = [params.workItemId, params.resourceKey, params.reviewLens];
   const staleClause =
     params.staleBefore == null
       ? ""
@@ -331,7 +353,7 @@ export async function releaseUnstartedReviewCheckRunReservation(
 }
 
 export async function listTriageEligibleInlineReviews(
-  pool: Pool,
+  pool: IntakeClient,
   resourceKey: string,
 ): Promise<Map<number, AnyReviewLens>> {
   const result = await pool.query<{ github_id: string; review_lens: AnyReviewLens }>(
@@ -354,9 +376,7 @@ export async function listTriageEligibleInlineReviews(
   return reviewLenses;
 }
 
-function mergeStoredInlineFingerprints(
-  rows: readonly { detail: Record<string, unknown> }[],
-): string[] {
+function mergeStoredInlineFingerprints(rows: readonly { detail: JsonObject }[]): string[] {
   const merged = new Set<string>();
   for (const row of rows) {
     for (const fingerprint of parseStoredInlineFingerprints(row.detail).fingerprints) {
@@ -383,42 +403,46 @@ type StoredInlineBatchRef = {
   }[];
 };
 
-function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"][number] | null {
-  if (!isRecord(value)) return null;
+function parseStoredPlacement(value: JsonValue): StoredInlineBatchRef["placements"][number] | null {
+  if (!isJsonObject(value)) return null;
   const finding = v.safeParse(reviewFindingSchema, value.finding);
   const resolvedLine = Number(value.resolvedLine);
+  const fingerprint = value.canonicalFingerprint;
   if (
     !finding.success ||
     !Number.isInteger(resolvedLine) ||
     resolvedLine <= 0 ||
-    typeof value.canonicalFingerprint !== "string"
+    !v.is(v.string(), fingerprint)
   ) {
     return null;
   }
   return {
     finding: finding.output,
     resolvedLine,
-    canonicalFingerprint: value.canonicalFingerprint,
+    canonicalFingerprint: fingerprint,
   };
 }
 
-export function parseStoredInlineBatches(detail: Record<string, unknown>): StoredInlineBatchRef[] {
+export function parseStoredInlineBatches(detail: JsonObject): StoredInlineBatchRef[] {
   if (!Array.isArray(detail.batches)) return [];
   const batches: StoredInlineBatchRef[] = [];
   for (const value of detail.batches) {
-    if (!isRecord(value)) continue;
-    const batch = value;
-    if (typeof batch.workItemId !== "string") continue;
-    const reviewId = Number(batch.reviewId);
+    if (!isJsonObject(value)) continue;
+    const workItemId = value.workItemId;
+    if (!v.is(v.string(), workItemId)) continue;
+    const reviewId = Number(value.reviewId);
     batches.push({
-      workItemId: batch.workItemId,
+      workItemId,
       reviewId: Number.isFinite(reviewId) && reviewId > 0 ? reviewId : null,
-      fingerprints: Array.isArray(batch.fingerprints)
-        ? batch.fingerprints.filter((entry): entry is string => typeof entry === "string")
+      fingerprints: Array.isArray(value.fingerprints)
+        ? value.fingerprints.filter((entry): entry is string => isJsonString(entry))
         : [],
-      source: isFindingSource(batch.specialist) ? batch.specialist : null,
-      placements: Array.isArray(batch.placements)
-        ? batch.placements.flatMap((placement) => {
+      source:
+        value.specialist !== undefined && isFindingSource(value.specialist)
+          ? value.specialist
+          : null,
+      placements: Array.isArray(value.placements)
+        ? value.placements.flatMap((placement) => {
             const parsed = parseStoredPlacement(placement);
             return parsed == null ? [] : [parsed];
           })
@@ -429,7 +453,7 @@ export function parseStoredInlineBatches(detail: Record<string, unknown>): Store
 }
 
 function parseResumedPlacements(
-  rows: readonly { step: string; detail?: Record<string, unknown> | null }[],
+  rows: readonly { step: string; detail?: JsonObject | null }[],
   workItemId: string,
 ): AcceptedPlacement[] {
   const inlineRow = rows.find((row) => row.step === "inline_review");
@@ -456,18 +480,20 @@ function parseResumedPlacements(
   return accepted;
 }
 
+type ReviewPublishState = {
+  summaryPublished: boolean;
+  inlineReviewIds: number[];
+  threadCallCount: number;
+};
+
 function parseReviewPublishStateRows(
   rows: readonly {
     step: string;
     github_id: string | null;
-    detail?: Record<string, unknown> | null;
+    detail?: JsonObject | null;
   }[],
   workItemId: string,
-): {
-  summaryPublished: boolean;
-  inlineReviewIds: number[];
-  threadCallCount: number;
-} {
+): ReviewPublishState {
   const steps = new Set(rows.map((row) => row.step));
   const inlineRow = rows.find((row) => row.step === "inline_review");
   const inlineReviewIds = new Set<number>();
@@ -493,11 +519,7 @@ function parseReviewPublishStateRows(
 }
 
 export type ReviewExecutorPublishContext = {
-  publishState: {
-    summaryPublished: boolean;
-    inlineReviewIds: number[];
-    threadCallCount: number;
-  };
+  publishState: ReviewPublishState;
   shouldLinkToSummary: boolean;
   storedInlineFingerprints: string[];
   resumedPlacements: AcceptedPlacement[];
@@ -505,17 +527,15 @@ export type ReviewExecutorPublishContext = {
 };
 
 export async function loadReviewExecutorPublishContext(
-  pool: Pool,
+  pool: IntakeClient,
   workItemId: string,
   resourceKey: string,
   reviewLens: AnyReviewLens,
 ): Promise<ReviewExecutorPublishContext> {
   const row = await queryOne<{
-    current_publish:
-      | { step: string; github_id: string | null; detail: Record<string, unknown> | null }[]
-      | null;
+    current_publish: JsonValue | null;
     prior_summary_exists: boolean;
-    fingerprint_details: { detail: Record<string, unknown> }[] | null;
+    fingerprint_details: JsonValue | null;
     latest_progress_comment_github_id: string | null;
   }>(
     pool,
@@ -565,7 +585,16 @@ export async function loadReviewExecutorPublishContext(
        ) AS latest_progress_comment_github_id`,
     [resourceKey, reviewLens, workItemId],
   );
-  const currentPublish = row?.current_publish ?? [];
+  const currentPublish = v
+    .parse(v.array(storedPublishRowSchema), row?.current_publish ?? [])
+    .map((entry) => ({
+      step: entry.step,
+      github_id: entry.github_id ?? null,
+      detail: entry.detail ?? null,
+    }));
+  const fingerprintDetails = v
+    .parse(v.array(fingerprintDetailRowSchema), row?.fingerprint_details ?? [])
+    .map((entry) => ({ detail: entry.detail ?? {} }));
   const shouldLinkToSummary = row?.prior_summary_exists ?? false;
   const progressCommentGithubId =
     row?.latest_progress_comment_github_id != null
@@ -574,7 +603,7 @@ export async function loadReviewExecutorPublishContext(
   return {
     publishState: parseReviewPublishStateRows(currentPublish, workItemId),
     shouldLinkToSummary,
-    storedInlineFingerprints: mergeStoredInlineFingerprints(row?.fingerprint_details ?? []),
+    storedInlineFingerprints: mergeStoredInlineFingerprints(fingerprintDetails),
     resumedPlacements: parseResumedPlacements(currentPublish, workItemId),
     progressCommentGithubId:
       progressCommentGithubId != null && Number.isFinite(progressCommentGithubId)
@@ -584,14 +613,14 @@ export async function loadReviewExecutorPublishContext(
 }
 
 export async function recordPublishStep(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   params: {
     workItemId: string;
     resourceKey: string;
     reviewLens: SharedPublishLens;
     step: SharedPublishStep;
     githubId?: string | number;
-    detail?: Record<string, unknown>;
+    detail?: JsonObject;
     /**
      * Claim epoch that owns this write. Pass `null` only for pre-claim writers
      * (e.g. ack progress stubs); durable executors must pass the live epoch.
@@ -602,10 +631,14 @@ export async function recordPublishStep(
   if (params.executionEpoch != null) {
     await assertCurrentExecutionEpoch(pool, params.workItemId, params.executionEpoch);
   }
-  const detail =
-    params.step === "inline_review" && typeof params.detail?.batchId === "string"
-      ? { batches: [params.detail] }
-      : (params.detail ?? {});
+  let detail: JsonObject = params.detail ?? {};
+  if (
+    params.step === "inline_review" &&
+    params.detail != null &&
+    v.is(v.string(), params.detail.batchId)
+  ) {
+    detail = { batches: [params.detail] };
+  }
   await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
 			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
@@ -650,13 +683,13 @@ export async function recordPublishStep(
 }
 
 export async function recordAskPublishStep(
-  pool: Pool,
+  pool: IntakeClient,
   params: {
     workItemId: string;
     resourceKey: string;
     step: AskPublishStep;
     githubId?: string | number;
-    detail?: Record<string, unknown>;
+    detail?: JsonObject;
     executionEpoch: number | null;
   },
 ): Promise<void> {

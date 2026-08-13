@@ -1,34 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
+import { createUnusedPool } from "./helpers/fakePool.js";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
 } from "../src/agent/description/submitDescriptionTool.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
-
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
-  persistOperationIntent: vi.fn(),
-  mergeOperationIntentDetail: vi.fn(),
-  reconcileOperationIntent: vi.fn(),
-}));
-
-vi.mock("../src/agent/description/publishDescription.js", () => ({
-  publishDescriptionToPullRequest: vi.fn(),
-}));
-
+import * as operationIntentRepository from "../src/agentWork/operationIntentRepository.js";
 import {
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
 } from "../src/agentWork/operationIntentRepository.js";
+import * as publishDescription from "../src/agent/description/publishDescription.js";
 import { publishDescriptionToPullRequest } from "../src/agent/description/publishDescription.js";
+import type { OperationIntentContext } from "../src/agentWork/withOperationIntent.js";
 
-const pool = {} as Pool;
+const pool = createUnusedPool();
 
 function buildTool(
-  operationIntent?: { client: Pool; workItemId: string; resourceKey: string },
+  operationIntent?: OperationIntentContext,
   extras?: { mapMode?: "omit" | "read_first"; knownPaths?: ReadonlySet<string> },
 ) {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
@@ -47,6 +39,10 @@ function buildTool(
 
 describe("submitDescription tool", () => {
   beforeEach(() => {
+    vi.spyOn(operationIntentRepository, "persistOperationIntent");
+    vi.spyOn(operationIntentRepository, "mergeOperationIntentDetail");
+    vi.spyOn(operationIntentRepository, "reconcileOperationIntent");
+    vi.spyOn(publishDescription, "publishDescriptionToPullRequest");
     vi.clearAllMocks();
     vi.mocked(persistOperationIntent).mockResolvedValue({
       id: "intent-1",

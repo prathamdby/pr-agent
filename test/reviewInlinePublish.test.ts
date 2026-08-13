@@ -66,10 +66,10 @@ describe("publishInlineReviewComments", () => {
     const prSurface = surfaceWithPublish(async () => {
       callCount += 1;
       if (callCount === 1) {
-        throw {
-          message: "Line could not be resolved",
+        const error = Object.assign(new Error("Line could not be resolved"), {
           response: { data: { errors: [{ path: "src/a.ts", line: 1 }] } },
-        };
+        });
+        throw error;
       }
       return { reviewId: 9, reviewUrl: "https://example.com/review/9" };
     });

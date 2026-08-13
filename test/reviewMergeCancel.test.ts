@@ -1,6 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
 import { cancelActiveReviews } from "../src/agentWork/intake/workItemRepository.js";
 import { applyAutomatedPullRequestIntake } from "../src/agentWork/intake/applier.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -8,6 +6,9 @@ import { createOperationLogger } from "../src/evlog.js";
 import * as postgres from "../src/db/postgres.js";
 import * as evlog from "../src/evlog.js";
 import { ACK_QUEUE, REVIEW_CANCELLED_PR_MERGED, REVIEW_QUEUE } from "../src/settings/index.js";
+import { createJobQueue } from "./helpers/recordingBoss.js";
+import { createQueryClient, createQueryPool, createUnusedPool } from "./helpers/fakePool.js";
+import type { QueueJob } from "../src/agentWork/intake/queueing.js";
 
 const intakeCfg = makeTestConfig();
 const mergedAttribution = { kind: "merged" as const };
@@ -66,7 +67,7 @@ describe("cancelActiveReviews (merge)", () => {
       }
       throw new Error(`unexpected sql: ${sql}`);
     });
-    const client = { query } as unknown as PoolClient;
+    const client = createQueryClient(query);
 
     const cancelled = await cancelActiveReviews(client, "acme/app#7", mergedAttribution);
 
@@ -93,18 +94,11 @@ describe("cancelActiveReviews (merge)", () => {
 
 describe("applyAutomatedPullRequestIntake merge cancel", () => {
   it("cancels active review jobs and enqueues cancelProgress ack when the PR is merged", async () => {
-    const poolQuery = vi.fn(async (sql: string) => {
-      if (sql.includes("INSERT INTO webhook_events")) {
-        return { rows: [{ id: "event-merged" }] };
-      }
-      throw new Error(`unexpected pool query: ${sql.slice(0, 120)}`);
-    });
     const clientQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-merged" }] };
       }
       if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
-        // Merge cancel terminalises queued/running; only the foreign holder stays active.
         return { rows: [{ id: "wi-other" }] };
       }
       if (sql.includes("status = 'queued'")) {
@@ -133,25 +127,27 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
       }
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
-    const findJobs = vi.fn(async () => [
-      { id: "job-queued", state: "created", data: { workItemId: "wi-queued" } },
-      { id: "job-running", state: "active", data: { workItemId: "wi-running" } },
-      { id: "job-other", state: "created", data: { workItemId: "wi-other" } },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "job-queued", state: "created", data: { workItemId: "wi-queued" } },
+        { id: "job-running", state: "active", data: { workItemId: "wi-running" } },
+        { id: "job-other", state: "created", data: { workItemId: "wi-other" } },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
     const send = vi.fn(async () => "ack-job");
-    const boss = { findJobs, cancel, deleteJob, send } as unknown as PgBoss;
-    const pool = { query: poolQuery } as unknown as Pool;
+    const boss = createJobQueue({ findJobs, cancel, deleteJob, send });
+    const client = createQueryClient(clientQuery);
     const txSpy = vi
       .spyOn(postgres, "inTransaction")
-      .mockImplementation(async (_pool, fn) => fn({ query: clientQuery } as unknown as PoolClient));
+      .mockImplementation(async (_pool, fn) => fn(client));
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {
       await applyAutomatedPullRequestIntake(
         boss,
-        pool,
+        createUnusedPool(),
         makeHeaders(),
         makePrRef(),
         "closed",
@@ -197,8 +193,9 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
       throw new Error(`unexpected pool query: ${sql.slice(0, 120)}`);
     });
     const findJobs = vi.fn(async () => []);
-    const boss = { findJobs, cancel: vi.fn(), send: vi.fn() } as unknown as PgBoss;
-    const pool = { query: poolQuery } as unknown as Pool;
+    const send = vi.fn();
+    const boss = createJobQueue({ findJobs, cancel: vi.fn(), send });
+    const pool = createQueryPool(poolQuery);
     const txSpy = vi.spyOn(postgres, "inTransaction");
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
@@ -227,7 +224,7 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
         ],
       );
       expect(findJobs).not.toHaveBeenCalled();
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
     } finally {
       txSpy.mockRestore();
     }
@@ -241,23 +238,23 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
     const findJobs = vi.fn(async () => []);
-    const boss = {
+    const boss = createJobQueue({
       findJobs,
       cancel: vi.fn(),
       deleteJob: vi.fn(),
       send: vi.fn(),
-    } as unknown as PgBoss;
-    const pool = { query: vi.fn() } as unknown as Pool;
+    });
+    const client = createQueryClient(clientQuery);
     const txSpy = vi
       .spyOn(postgres, "inTransaction")
-      .mockImplementation(async (_pool, fn) => fn({ query: clientQuery } as unknown as PoolClient));
+      .mockImplementation(async (_pool, fn) => fn(client));
     const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {
       await applyAutomatedPullRequestIntake(
         boss,
-        pool,
+        createUnusedPool(),
         makeHeaders("d-dup"),
         makePrRef(),
         "closed",
@@ -288,7 +285,6 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
         return { rows: [{ id: "event-zero" }] };
       }
       if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
-        // Failed blocker is not active; keep the unrelated live holder.
         return { rows: [{ id: "wi-live" }] };
       }
       if (sql.includes("status = 'queued'") || sql.includes("status = 'running'")) {
@@ -296,24 +292,27 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
       }
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
-    const findJobs = vi.fn(async () => [
-      { id: "job-failed", state: "failed", data: { workItemId: "wi-old" } },
-      { id: "job-live", state: "created", data: { workItemId: "wi-live" } },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { findJobs, cancel, deleteJob, send: vi.fn() } as unknown as PgBoss;
-    const pool = { query: vi.fn() } as unknown as Pool;
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "job-failed", state: "failed", data: { workItemId: "wi-old" } },
+        { id: "job-live", state: "created", data: { workItemId: "wi-live" } },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const send = vi.fn();
+    const boss = createJobQueue({ findJobs, cancel, deleteJob, send });
+    const client = createQueryClient(clientQuery);
     const txSpy = vi
       .spyOn(postgres, "inTransaction")
-      .mockImplementation(async (_pool, fn) => fn({ query: clientQuery } as unknown as PoolClient));
+      .mockImplementation(async (_pool, fn) => fn(client));
     const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {
       await applyAutomatedPullRequestIntake(
         boss,
-        pool,
+        createUnusedPool(),
         makeHeaders("d-zero"),
         makePrRef(),
         "closed",
@@ -324,7 +323,7 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
 
       expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "job-failed", expect.anything());
       expect(cancel).not.toHaveBeenCalled();
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
       expect(recordSpy).toHaveBeenCalledWith(
         intakeLog,
         REVIEW_CANCELLED_PR_MERGED,

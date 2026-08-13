@@ -2,13 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { classifyFailure } from "../src/errors/classifiedFailure.js";
 import * as evlog from "../src/evlog.js";
 import { publishReviewRunFailureNotice } from "../src/review/run/reviewRunFallback.js";
-import type { ReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
-
-vi.mock("../src/github/reviewPublish.js", () => ({
-  upsertReviewSummaryComment: vi.fn(async () => ({ id: 1 })),
-}));
+import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
+import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.js";
 
 describe("publishReviewRunFailureNotice", () => {
   afterEach(() => {
@@ -23,8 +20,12 @@ describe("publishReviewRunFailureNotice", () => {
     await publishReviewRunFailureNotice({
       cfg: makeTestConfig(),
       setup: {
+        orchestratorUserContent: "",
+        workspaceTools: { piTools: [], executors: {} },
+        cachedDiffIndex: createCachedPrDiffIndex(),
+        evidenceLedger: createEvidenceLedger("sha"),
         prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
-      } as ReviewRunSetup,
+      },
       owner: "o",
       repo: "r",
       prNumber: 1,

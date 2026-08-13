@@ -40,7 +40,7 @@ import {
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
 } from "../settings/index.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
-import { AppError } from "../errors/appError.js";
+import { AppError, nodeErrorCode, nodeErrorStdout, nonErrorThrown } from "../errors/appError.js";
 import {
   buildSymbolIndex,
   formatSymbolIndexStatusLine,
@@ -76,6 +76,10 @@ export type CheckoutCoverage = {
   readonly warning?: string;
 };
 
+type MutableCheckoutCoverage = {
+  -readonly [K in keyof CheckoutCoverage]: CheckoutCoverage[K];
+};
+
 export function buildCheckoutCoverage(workspace: {
   readonly checkoutMode: LocalPrWorkspaceCheckoutMode;
   readonly checkoutPaths: ReadonlySet<string>;
@@ -86,14 +90,15 @@ export function buildCheckoutCoverage(workspace: {
   };
   readonly searchTruncated?: boolean;
 }): CheckoutCoverage {
-  return {
+  const coverage: MutableCheckoutCoverage = {
     mode: workspace.checkoutMode,
     pathsInCheckout: workspace.checkoutPaths.size,
     changedFileCount: workspace.changedFiles.length,
     changeSetTruncated: workspace.stats.truncated,
-    ...(workspace.searchTruncated ? { searchTruncated: true } : {}),
-    ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
   };
+  if (workspace.searchTruncated) coverage.searchTruncated = true;
+  if (workspace.stats.warning) coverage.warning = workspace.stats.warning;
+  return coverage;
 }
 
 type LocalPrChangedFile = {
@@ -160,6 +165,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly prFiles: ListPullRequestFilesResult;
   readonly repositorySizeKb?: number;
   readonly remoteUrlOverride?: string;
+  readonly maxFetchBytes?: number;
 };
 
 function assertSha(value: string, field: string): void {
@@ -211,9 +217,10 @@ export async function assertContainedWorkspacePath(
   requestedPath: string,
 ): Promise<string> {
   const fullPath = assertWorkspacePath(root, requestedPath);
-  const entry = await lstat(fullPath).catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
-    throw error;
+  const entry = await lstat(fullPath).catch((error) => {
+    const err = error instanceof Error ? error : nonErrorThrown("pr_workspace.lstat_failed");
+    if (nodeErrorCode(err) === "ENOENT") return null;
+    throw err;
   });
   if (entry == null) return fullPath;
   if (entry.isSymbolicLink()) {
@@ -302,15 +309,18 @@ async function execGit(
     maxBufferBytes?: number;
   },
 ): Promise<{ stdout: string; stderr: string }> {
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     GIT_LFS_SKIP_SMUDGE: "1",
     GIT_DIR: opts.cwd,
-    ...(opts.workTree ? { GIT_WORK_TREE: opts.workTree } : {}),
-    ...(opts.askpass ? { GIT_ASKPASS: opts.askpass, GIT_TOKEN_FILE: opts.tokenFile ?? "" } : {}),
   };
+  if (opts.workTree) env.GIT_WORK_TREE = opts.workTree;
+  if (opts.askpass) {
+    env.GIT_ASKPASS = opts.askpass;
+    env.GIT_TOKEN_FILE = opts.tokenFile ?? "";
+  }
   return exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
     cwd: opts.processCwd ?? opts.cwd,
     env,
@@ -319,14 +329,12 @@ async function execGit(
   });
 }
 
-function errorCode(error: unknown): unknown {
-  if (typeof error !== "object" || error === null || !("code" in error)) return null;
-  return error.code;
+function errorCode(error: Error): string | number | undefined {
+  return nodeErrorCode(error);
 }
 
-function errorStdout(error: unknown): string {
-  if (typeof error !== "object" || error === null || !("stdout" in error)) return "";
-  return typeof error.stdout === "string" ? error.stdout : "";
+function errorStdout(error: Error): string {
+  return nodeErrorStdout(error);
 }
 
 function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
@@ -397,16 +405,17 @@ async function gitGrepWorkspaceChunk(
       stdoutBytes: Buffer.byteLength(stdout),
     };
   } catch (error) {
-    if (errorCode(error) === 1) return { matches: [], truncated: false, stdoutBytes: 0 };
-    if (errorCode(error) === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-      const stdout = errorStdout(error);
+    const err = error instanceof Error ? error : nonErrorThrown("pr_workspace.git_grep_failed");
+    if (errorCode(err) === 1) return { matches: [], truncated: false, stdoutBytes: 0 };
+    if (errorCode(err) === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+      const stdout = errorStdout(err);
       return {
         matches: parseGitGrepOutput(stdout),
         truncated: true,
         stdoutBytes: Buffer.byteLength(stdout),
       };
     }
-    throw error;
+    throw err;
   }
 }
 
@@ -555,7 +564,7 @@ export function unregisterLiveLocalPrWorkspace(rootDir: string): void {
   liveLocalPrWorkspaceRoots.delete(rootDir);
 }
 
-async function cleanupStalePiAgentDirs(): Promise<void> {
+async function cleanupStalePiAgentDirs(staleAgeSeconds: number): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;
@@ -563,21 +572,24 @@ async function cleanupStalePiAgentDirs(): Promise<void> {
     const entryStat = await statIfPresent(full);
     if (!entryStat) continue;
     const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
+    if (ageMs > staleAgeSeconds * 1000) {
       await rm(full, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 }
 
 async function statIfPresent(path: string) {
-  return stat(path).catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
-    throw error;
+  return stat(path).catch((error) => {
+    const err = error instanceof Error ? error : nonErrorThrown("pr_workspace.stat_failed");
+    if (nodeErrorCode(err) === "ENOENT") return null;
+    throw err;
   });
 }
 
-export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
-  await cleanupStalePiAgentDirs();
+export async function cleanupStaleLocalPrWorkspaces(
+  staleAgeSeconds = LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
+): Promise<void> {
+  await cleanupStalePiAgentDirs(staleAgeSeconds);
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (
@@ -592,7 +604,7 @@ export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
     if (!entryStat) continue;
     if (liveLocalPrWorkspaceRoots.has(full)) continue;
     const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
+    if (ageMs > staleAgeSeconds * 1000) {
       await removeWorkspace(full).catch(() => undefined);
     }
   }
@@ -740,7 +752,7 @@ export async function prepareLocalPrWorkspace(
     await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await enforceMaxFetchBytes(
       git,
-      LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+      params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES,
       LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);

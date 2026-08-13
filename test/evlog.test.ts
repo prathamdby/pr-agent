@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as v from "valibot";
 import * as evlog from "../src/evlog.js";
+import { jsonObjectSchema, type JsonObject } from "../src/util/jsonValue.js";
+
+function contextEvents(logger: ReturnType<typeof evlog.createOperationLogger>): JsonObject[] {
+  const events = logger.getContext().events;
+  if (events === undefined) return [];
+  return v.parse(v.array(jsonObjectSchema), events);
+}
 
 describe("evlog wide events", () => {
   afterEach(() => {
@@ -20,7 +28,7 @@ describe("evlog wide events", () => {
     for (let i = 0; i < 50; i++) {
       evlog.recordEvent(logger, `evt_${i}`, { i }, "info");
     }
-    const events = logger.getContext().events as Array<Record<string, unknown>>;
+    const events = contextEvents(logger);
     expect(events).toHaveLength(50);
     expect(events[49]?.event).toBe("evt_49");
   });
@@ -35,9 +43,7 @@ describe("evlog wide events", () => {
     evlog.recordEvent(logger, "info_evt", {}, "info");
     vi.spyOn(logger, "emit").mockResolvedValue(null);
     await evlog.emitOperationLogger(logger);
-    const names = (logger.getContext().events as Array<Record<string, unknown>>).map(
-      (e) => e.event,
-    );
+    const names = contextEvents(logger).map((e) => e.event);
     expect(names).toEqual(["info_evt"]);
   });
 
@@ -55,7 +61,7 @@ describe("evlog wide events", () => {
       evlog.recordEvent(logger, `evt_${i}`, {}, "info");
     }
     const ctx = logger.getContext();
-    expect((ctx.events as unknown[]).length).toBe(5);
+    expect(contextEvents(logger).length).toBe(5);
     expect(ctx.eventsDropped).toBe(2);
   });
 
@@ -73,7 +79,7 @@ describe("evlog wide events", () => {
     for (let i = 0; i < 10; i++) {
       evlog.recordEvent(logger, `evt_${i}`, {}, "info");
     }
-    expect((logger.getContext().events as unknown[]).length).toBe(10);
+    expect(contextEvents(logger).length).toBe(10);
   });
 
   it("recordEvent accepts undefined fields without throwing", () => {
@@ -84,7 +90,7 @@ describe("evlog wide events", () => {
     });
     expect(() => evlog.recordEvent(logger, "no_fields")).not.toThrow();
     expect(() => evlog.recordEvent(logger, "explicit_undefined", undefined)).not.toThrow();
-    const events = logger.getContext().events as Array<Record<string, unknown>>;
+    const events = contextEvents(logger);
     expect(events).toHaveLength(2);
     expect(events[0]?.event).toBe("no_fields");
     expect(events[1]?.event).toBe("explicit_undefined");
@@ -97,11 +103,9 @@ describe("evlog wide events", () => {
       path: "/test",
     });
     evlog.recordEvent(logger, "skipped", {}, "debug");
-    expect((logger.getContext().events as unknown[] | undefined)?.length ?? 0).toBe(0);
+    expect(contextEvents(logger).length).toBe(0);
     evlog.recordEvent(logger, "kept", {}, "info");
-    expect(
-      (logger.getContext().events as Array<Record<string, unknown>>).map((e) => e.event),
-    ).toEqual(["kept"]);
+    expect(contextEvents(logger).map((e) => e.event)).toEqual(["kept"]);
   });
 });
 

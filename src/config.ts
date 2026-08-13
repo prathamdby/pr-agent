@@ -116,14 +116,15 @@ function readNonNegativeNumber(name: string, defaultValue: number): number {
 
 function readEnum<T extends string>(name: string, allowed: readonly T[], defaultValue: T): T {
   const value = optionalEnv(name, defaultValue);
-  if (!allowed.includes(value as T)) {
+  const matched = allowed.find((item) => item === value);
+  if (matched === undefined) {
     throw new AppError({
       code: "config.invalid_enum",
       message: `${name} must be one of ${allowed.join(", ")}`,
       context: { name, allowed },
     });
   }
-  return value as T;
+  return matched;
 }
 
 /**

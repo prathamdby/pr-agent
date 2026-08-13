@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
+import { PgBoss } from "pg-boss";
+import type { JobWithMetadata } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AskJobData } from "../src/agentWork/types.js";
 import { askReplyOperationKey } from "../src/agentWork/withOperationIntent.js";
@@ -8,121 +9,60 @@ import { makeTestConfig } from "./helpers/config.js";
 import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
+  makeDurableJobMetadata,
   resetDurablePrSurface,
 } from "./helpers/executorDurableHarness.js";
 import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
-
-const mocks = vi.hoisted(() => ({
-  hasCompletedPublishStep: vi.fn(),
-  recordAskPublishStep: vi.fn(),
-  runAskRun: vi.fn(),
-  runDurableWorkItem: vi.fn(),
-  withPrRepositoryView: vi.fn(),
-  getAppBotIdentity: vi.fn(),
-  findExistingAskReplyComment: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
-  recordAskPublishStep: mocks.recordAskPublishStep,
-}));
-
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
-  return {
-    ...actual,
-    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
-    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
-  };
-});
-
-vi.mock("../src/agent/ask/askRun.js", () => ({
-  runAskRun: mocks.runAskRun,
-}));
-
-vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
-  return {
-    ...actual,
-    runDurableWorkItem: mocks.runDurableWorkItem,
-  };
-});
-
-vi.mock("../src/prWorkspace/index.js", () => ({
-  withPrRepositoryView: mocks.withPrRepositoryView,
-}));
-
-vi.mock("../src/github/appAuth.js", () => ({
-  getAppBotIdentity: mocks.getAppBotIdentity,
-}));
-
-vi.mock("../src/agent/ask/recoverAskReply.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/ask/recoverAskReply.js")>();
-  return {
-    ...actual,
-    findExistingAskReplyComment: mocks.findExistingAskReplyComment,
-  };
-});
-
-vi.mock("../src/evlog.js", () => ({
-  logWarn: vi.fn(),
-}));
-
+import { resetCreatePrSurface, setCreatePrSurface } from "../src/github/prSurface.js";
 import { executeAskJob } from "../src/agentWork/executors/askExecutor.js";
+import * as workItemState from "../src/agentWork/workItemStateRepository.js";
 import { assertCurrentExecutionEpoch } from "../src/agentWork/workItemStateRepository.js";
 import { AppError } from "../src/errors/appError.js";
+import * as repo from "../src/agentWork/repository.js";
+import * as askRun from "../src/agent/ask/askRun.js";
+import * as durableJob from "../src/agentWork/durableJob.js";
+import * as prWorkspace from "../src/prWorkspace/index.js";
+import * as appAuth from "../src/github/appAuth.js";
+import * as recoverAskReply from "../src/agent/ask/recoverAskReply.js";
+import * as evlog from "../src/evlog.js";
+import type { PrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
-const pool = {} as Pool;
-const boss = {} as PgBoss;
+const pool = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
+const boss = new PgBoss({ connectionString: "postgres://127.0.0.1:1/unused" });
+
+const emptyPreflight = {
+  files: [] as const,
+  truncated: false,
+  fileCount: 0,
+  totalChanges: 0,
+};
+
+function repositoryView(): PrRepositoryView {
+  return {
+    agentCwd: "/tmp/pr-agent",
+    workspace: mockLocalPrWorkspace(),
+    preflight: emptyPreflight,
+  };
+}
 
 function askItem() {
   return makeAskWorkItem({ headSha: "head" });
 }
 
 function askJob(): JobWithMetadata<AskJobData> {
-  const now = new Date();
   return {
-    id: "job-1",
+    ...makeDurableJobMetadata(),
     name: "agent-work-ask",
     data: { kind: "ask", workItemId: "wi-1" },
-    expireInSeconds: 3600,
-    heartbeatSeconds: null,
-    signal: new AbortController().signal,
-    priority: 0,
-    state: "active",
-    retryLimit: 3,
-    retryCount: 0,
-    retryDelay: 0,
-    retryBackoff: false,
-    startAfter: now,
-    startedOn: now,
-    singletonKey: null,
-    singletonOn: null,
-    deleteAfterSeconds: 0,
-    createdOn: now,
-    completedOn: null,
-    keepUntil: now,
-    policy: "standard",
-    heartbeatOn: null,
-    blocked: false,
-    blocking: false,
-    pendingDependencies: 0,
-    deadLetter: "",
-    output: {},
-    sourceName: null,
-    sourceId: null,
-    sourceCreatedOn: null,
-    sourceRetryCount: null,
   };
 }
 
 function mockDurableExecution(): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+  vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+    if (spec.type !== "ask") return;
     await spec.execute(askItem(), {
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
@@ -133,36 +73,45 @@ function mockDurableExecution(): void {
 }
 
 function mockRepositoryView(): void {
-  mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
-    run({
-      agentCwd: "/tmp/pr-agent",
-      workspace: mockLocalPrWorkspace(),
-    }),
+  vi.mocked(prWorkspace.withPrRepositoryView).mockImplementation(async (_params, run) =>
+    run(repositoryView()),
   );
 }
 
 describe("executeAskJob", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     resetDurablePrSurface();
-    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
-    mocks.recordAskPublishStep.mockResolvedValue(undefined);
-    mocks.runAskRun.mockResolvedValue({ answer: "answer" });
-    mocks.getAppBotIdentity.mockResolvedValue({ userId: 1, login: "pr-agent[bot]" });
-    mocks.findExistingAskReplyComment.mockResolvedValue(null);
+    setCreatePrSurface(() => fakeDurablePrSurface());
+    vi.spyOn(repo, "hasCompletedPublishStep").mockResolvedValue(false);
+    vi.spyOn(repo, "recordAskPublishStep").mockResolvedValue(undefined);
+    vi.spyOn(workItemState, "assertCurrentExecutionEpoch").mockResolvedValue(undefined);
+    vi.spyOn(workItemState, "isExecutionEpochCurrent").mockResolvedValue(true);
+    vi.spyOn(askRun, "runAskRun").mockResolvedValue({ answer: "answer", replied: false });
+    vi.spyOn(durableJob, "runDurableWorkItem");
+    vi.spyOn(prWorkspace, "withPrRepositoryView");
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 1,
+      login: "pr-agent[bot]",
+    });
+    vi.spyOn(recoverAskReply, "findExistingAskReplyComment").mockResolvedValue(null);
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     mockDurableExecution();
     mockRepositoryView();
+  });
+
+  afterEach(() => {
+    resetCreatePrSurface();
+    vi.restoreAllMocks();
   });
 
   it("runs the agent and records first answer publish", async () => {
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
+    expect(askRun.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toBe("answer");
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
+    expect(repo.recordAskPublishStep).toHaveBeenCalledTimes(1);
+    expect(repo.recordAskPublishStep).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
@@ -180,20 +129,21 @@ describe("executeAskJob", () => {
   });
 
   it("skips agent and answer publish when the ask reply was already recorded", async () => {
-    mocks.hasCompletedPublishStep.mockResolvedValue(true);
+    vi.mocked(repo.hasCompletedPublishStep).mockResolvedValue(true);
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
-    expect(mocks.runAskRun).not.toHaveBeenCalled();
+    expect(prWorkspace.withPrRepositoryView).not.toHaveBeenCalled();
+    expect(askRun.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
-    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
+    expect(repo.recordAskPublishStep).not.toHaveBeenCalled();
   });
 
   it("returns degraded when the publish record fails after answer delivery", async () => {
-    let result: unknown;
-    mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    let result: Awaited<ReturnType<DurableJobSpec<"ask">["execute"]>> | undefined;
+    vi.mocked(repo.recordAskPublishStep).mockRejectedValue(new Error("record failed"));
+    vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+      if (spec.type !== "ask") return;
       result = await spec.execute(askItem(), {
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
@@ -205,14 +155,15 @@ describe("executeAskJob", () => {
     await executeAskJob(cfg, pool, boss, askJob());
 
     expect(result).toEqual({ degraded: true });
-    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
+    expect(askRun.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
+    expect(repo.recordAskPublishStep).toHaveBeenCalledTimes(1);
   });
 
   it("skips terminal failure reply after the answer was delivered", async () => {
-    mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    vi.mocked(repo.recordAskPublishStep).mockRejectedValue(new Error("record failed"));
+    vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+      if (spec.type !== "ask") return;
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await spec.execute(item, {
@@ -231,8 +182,9 @@ describe("executeAskJob", () => {
   });
 
   it("skips terminal failure reply when durable ask_reply is already published", async () => {
-    mocks.hasCompletedPublishStep.mockResolvedValue(true);
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    vi.mocked(repo.hasCompletedPublishStep).mockResolvedValue(true);
+    vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+      if (spec.type !== "ask") return;
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
@@ -257,7 +209,8 @@ describe("executeAskJob", () => {
       },
     });
     durablePrSurfaceControls().rejectNextInlineReviewReply(new Error("thread unavailable"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+      if (spec.type !== "ask") return;
       await spec.execute(item, {
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
@@ -277,7 +230,7 @@ describe("executeAskJob", () => {
       "Could not reply in the review thread",
     );
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+    expect(repo.recordAskPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         detail: expect.objectContaining({ commentId: expect.any(Number) }),
@@ -286,8 +239,9 @@ describe("executeAskJob", () => {
   });
 
   it("posts terminal failure reply when the ask never delivered an answer", async () => {
-    mocks.runAskRun.mockRejectedValue(new Error("agent failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    vi.mocked(askRun.runAskRun).mockRejectedValue(new Error("agent failed"));
+    vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+      if (spec.type !== "ask") return;
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await expect(
@@ -311,8 +265,9 @@ describe("executeAskJob", () => {
   });
 
   it("does not post terminal failure reply on non-terminal retry", async () => {
-    mocks.runAskRun.mockRejectedValue(new Error("transient"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    vi.mocked(askRun.runAskRun).mockRejectedValue(new Error("transient"));
+    vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+      if (spec.type !== "ask") return;
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await expect(
@@ -337,25 +292,25 @@ describe("executeAskJob", () => {
       "crash before reconcile",
     );
 
-    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
+    expect(askRun.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     const operationKey = askReplyOperationKey("o/r#1");
     const pending = memoryOperationIntentStore.get("wi-1", operationKey);
     expect(pending?.status).toBe("pending");
     expect(pending?.detail.__result).toEqual({ commentId: expect.any(Number) });
-    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
+    expect(repo.recordAskPublishStep).not.toHaveBeenCalled();
 
-    mocks.runAskRun.mockClear();
-    mocks.findExistingAskReplyComment.mockClear();
+    vi.mocked(askRun.runAskRun).mockClear();
+    vi.mocked(recoverAskReply.findExistingAskReplyComment).mockClear();
     resetDurablePrSurface();
-    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
+    setCreatePrSurface(() => fakeDurablePrSurface());
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.runAskRun).not.toHaveBeenCalled();
+    expect(askRun.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
-    expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
+    expect(recoverAskReply.findExistingAskReplyComment).not.toHaveBeenCalled();
+    expect(repo.recordAskPublishStep).toHaveBeenCalledTimes(1);
     expect(memoryOperationIntentStore.get("wi-1", operationKey)?.status).toBe("reconciled");
   });
 
@@ -366,14 +321,14 @@ describe("executeAskJob", () => {
       mutationKind: "github.ask_reply",
       detail: { step: "ask_reply" },
     });
-    mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 4242 });
+    vi.mocked(recoverAskReply.findExistingAskReplyComment).mockResolvedValue({ commentId: 4242 });
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.runAskRun).not.toHaveBeenCalled();
+    expect(askRun.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
-    expect(mocks.findExistingAskReplyComment).toHaveBeenCalledTimes(1);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
+    expect(recoverAskReply.findExistingAskReplyComment).toHaveBeenCalledTimes(1);
+    expect(repo.recordAskPublishStep).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
@@ -398,13 +353,13 @@ describe("executeAskJob", () => {
       operationKey,
       status: "outcome_unknown",
     });
-    mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 5151 });
+    vi.mocked(recoverAskReply.findExistingAskReplyComment).mockResolvedValue({ commentId: 5151 });
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.runAskRun).not.toHaveBeenCalled();
+    expect(askRun.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+    expect(repo.recordAskPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         detail: expect.objectContaining({ commentId: 5151 }),
@@ -427,16 +382,16 @@ describe("executeAskJob", () => {
     await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toMatchObject({
       code: "agent_work.stale_execution_epoch",
     });
-    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
+    expect(repo.recordAskPublishStep).not.toHaveBeenCalled();
   });
 
   it("does not scan remote comments when no pending intent exists for this ask", async () => {
-    mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 9999 });
+    vi.mocked(recoverAskReply.findExistingAskReplyComment).mockResolvedValue({ commentId: 9999 });
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
-    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
+    expect(recoverAskReply.findExistingAskReplyComment).not.toHaveBeenCalled();
+    expect(askRun.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
   });
 });

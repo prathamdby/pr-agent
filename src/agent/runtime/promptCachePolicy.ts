@@ -22,6 +22,10 @@ export type AgentSessionCacheIdentity = {
   readonly model: string;
 };
 
+type MutableAgentSessionCacheIdentity = {
+  -readonly [K in keyof AgentSessionCacheIdentity]: AgentSessionCacheIdentity[K];
+};
+
 /**
  * Build a stable in-memory session id for OpenAI-style prompt cache keys.
  * Same identity → same id. Clamped to provider key length; charset safe for
@@ -45,12 +49,13 @@ export function cacheIdentityFromAssignment(
   assignment: ModelAssignment,
   specialistId?: string,
 ): AgentSessionCacheIdentity {
-  return {
+  const identity: MutableAgentSessionCacheIdentity = {
     role,
-    ...(specialistId ? { specialistId } : {}),
     provider: assignment.provider,
     model: assignment.model,
   };
+  if (specialistId) identity.specialistId = specialistId;
+  return identity;
 }
 
 function sanitizeSessionCacheIdPart(part: string): string {

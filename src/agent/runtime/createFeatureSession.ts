@@ -21,8 +21,13 @@ import {
   type AgentSessionRole,
   type AuthoritativeStructuredState,
   type PiSession,
+  type PiSessionCreateParams,
   type PiSessionSendOptions,
 } from "./types.js";
+
+type MutablePiSessionCreateParams = {
+  -readonly [K in keyof PiSessionCreateParams]: PiSessionCreateParams[K];
+};
 
 export type { FeatureSessionDurability } from "./sessionDurability.js";
 
@@ -88,7 +93,7 @@ function wrapSessionWithDurability(
   };
 }
 
-export async function createFeaturePiSession(params: {
+export type CreateFeaturePiSessionParams = {
   readonly role: AgentSessionRole;
   readonly specialistId?: string;
   readonly cfg: Config;
@@ -100,7 +105,13 @@ export async function createFeaturePiSession(params: {
   readonly eventSink?: (event: AgentLifecycleEvent) => void;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
-}): Promise<PiSession> {
+};
+
+export type CreateFeaturePiSession = (params: CreateFeaturePiSessionParams) => Promise<PiSession>;
+
+async function createFeaturePiSessionImpl(
+  params: CreateFeaturePiSessionParams,
+): Promise<PiSession> {
   const policy = resolveModelPolicy(params.cfg);
   const primary = modelAssignmentForRole(policy, params.role);
   const structuredState = await resolveInitialStructuredState(params);
@@ -115,9 +126,8 @@ export async function createFeaturePiSession(params: {
           durableEventSink(event);
         }
       : (durableEventSink ?? params.eventSink ?? (() => undefined));
-  const session = await createPiSession({
+  const sessionParams: MutablePiSessionCreateParams = {
     role: params.role,
-    ...(params.specialistId ? { specialistId: params.specialistId } : {}),
     primary,
     fallback: policy.fallback,
     thinkingPolicy: thinkingPolicyFromCeiling(params.cfg.piThinkingCeiling),
@@ -132,7 +142,25 @@ export async function createFeaturePiSession(params: {
     tools: params.tools,
     executors: params.executors,
     refreshBeforeTool: params.refreshBeforeTool,
-  });
+  };
+  if (params.specialistId) sessionParams.specialistId = params.specialistId;
+  const session = await createPiSession(sessionParams);
   if (!params.durability) return session;
   return wrapSessionWithDurability(session, params.cfg, params.durability);
+}
+
+let activeCreateFeaturePiSession: CreateFeaturePiSession = createFeaturePiSessionImpl;
+
+export function setCreateFeaturePiSession(create: CreateFeaturePiSession): void {
+  activeCreateFeaturePiSession = create;
+}
+
+export function resetCreateFeaturePiSession(): void {
+  activeCreateFeaturePiSession = createFeaturePiSessionImpl;
+}
+
+export async function createFeaturePiSession(
+  params: CreateFeaturePiSessionParams,
+): Promise<PiSession> {
+  return activeCreateFeaturePiSession(params);
 }

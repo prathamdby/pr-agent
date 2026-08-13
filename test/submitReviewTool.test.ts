@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { AppError } from "../src/errors/appError.js";
@@ -16,25 +16,11 @@ import {
 } from "../src/review/run/reviewRunMetrics.js";
 import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, type ReviewFinding } from "../src/review/reviewSchema.js";
 import type { AcceptedPlacement } from "../src/review/orchestrator/orchestratorTypes.js";
-
-const settingsOverrides: { maxReviewPublishCalls?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get MAX_REVIEW_PUBLISH_CALLS() {
-      return settingsOverrides.maxReviewPublishCalls ?? actual.MAX_REVIEW_PUBLISH_CALLS;
-    },
-  };
-});
-
-vi.mock("../src/review/publish/publishReview.js", () => ({
-  publishReview: vi.fn(async () => undefined),
-}));
-
+import * as publishReviewModule from "../src/review/publish/publishReview.js";
 import { publishReview } from "../src/review/publish/publishReview.js";
+import type { JsonObject } from "../src/util/jsonValue.js";
 
 const cfg = makeTestConfig({
   port: 3000,
@@ -43,21 +29,21 @@ const cfg = makeTestConfig({
   logLevel: "info",
 });
 
-function validPayload(overrides: Record<string, unknown> = {}) {
+function validPayload(overrides: JsonObject = {}): JsonObject {
   return {
     prCharacter: "Does things.",
     findings: [],
     size: "XS",
-    relevantTests: "no" as const,
+    relevantTests: "no",
     securityConcerns: null,
     followUps: [],
     ...overrides,
   };
 }
 
-function finding(overrides: Record<string, unknown> = {}) {
+function reviewFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
-    severity: "P1" as const,
+    severity: "P1",
     file: "a.ts",
     startLine: 99,
     endLine: 99,
@@ -68,14 +54,17 @@ function finding(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("submitReview tool", () => {
-  afterEach(() => {
-    delete settingsOverrides.maxReviewPublishCalls;
-  });
+function finding(overrides: JsonObject = {}): JsonObject {
+  return {
+    ...reviewFinding(),
+    ...overrides,
+  };
+}
 
+describe("submitReview tool", () => {
   beforeEach(() => {
+    vi.spyOn(publishReviewModule, "publishReview").mockResolvedValue(undefined);
     vi.clearAllMocks();
-    vi.mocked(publishReview).mockResolvedValue(undefined);
   });
 
   it("seeds every resumed inline review id", () => {
@@ -95,7 +84,7 @@ describe("submitReview tool", () => {
       kind: "resumed",
       source: "review",
       placement: {
-        finding: finding({ startLine: 4, endLine: 4 }),
+        finding: reviewFinding({ startLine: 4, endLine: 4 }),
         inlineLine: 4,
         inlinePosted: true,
       },
@@ -158,7 +147,6 @@ describe("submitReview tool", () => {
   });
 
   it("caps valid publish executions at MAX_REVIEW_PUBLISH_CALLS", async () => {
-    settingsOverrides.maxReviewPublishCalls = 1;
     vi.mocked(publishReview).mockRejectedValue(new Error("publish failed"));
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
@@ -166,13 +154,15 @@ describe("submitReview tool", () => {
       prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
+      maxReviewPublishCalls: 1,
     });
     const valid = validPayload();
 
-    await expect(executor(valid)).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("review.publish_exhausted");
-      expect((error as Error).message).toMatch(/publish budget exhausted/i);
+    await expect(executor(valid)).rejects.toSatisfy((cause) => {
+      expect(cause).toBeInstanceOf(AppError);
+      if (!(cause instanceof AppError)) return false;
+      expect(cause.code).toBe("review.publish_exhausted");
+      expect(cause.message).toMatch(/publish budget exhausted/i);
       return true;
     });
     expect(publishReview).toHaveBeenCalledTimes(1);
@@ -180,7 +170,6 @@ describe("submitReview tool", () => {
   });
 
   it("uses review.publish_failed when publish budget remains", async () => {
-    settingsOverrides.maxReviewPublishCalls = 2;
     vi.mocked(publishReview).mockRejectedValue(new Error("publish failed"));
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
@@ -188,13 +177,15 @@ describe("submitReview tool", () => {
       prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
+      maxReviewPublishCalls: 2,
     });
     const valid = validPayload();
 
-    await expect(executor(valid)).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("review.publish_failed");
-      expect((error as AppError).cause).toBeInstanceOf(Error);
+    await expect(executor(valid)).rejects.toSatisfy((cause) => {
+      expect(cause).toBeInstanceOf(AppError);
+      if (!(cause instanceof AppError)) return false;
+      expect(cause.code).toBe("review.publish_failed");
+      expect(cause.cause).toBeInstanceOf(Error);
       return true;
     });
     expect(state.publishCallsExhausted).toBe(false);

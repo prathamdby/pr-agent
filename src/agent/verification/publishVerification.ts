@@ -20,6 +20,7 @@ import {
   verificationThreadOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 import {
   safeRecordThreadFindingHistoryOutcome,
   type FindingHistoryOutcome,
@@ -149,8 +150,15 @@ function terminalThreadState(
   stubCommentId?: number,
 ): VerificationThreadState {
   const resolvedStubId = stubCommentId ?? prior?.stubCommentId;
+  if (resolvedStubId != null) {
+    return {
+      stubCommentId: resolvedStubId,
+      lastVerdict,
+      lastHeadSha,
+      terminal: true,
+    };
+  }
   return {
-    ...(resolvedStubId != null ? { stubCommentId: resolvedStubId } : {}),
     lastVerdict,
     lastHeadSha,
     terminal: true,
@@ -161,7 +169,7 @@ function verificationIntentDetail(
   params: PublishVerificationParams,
   threadRootCommentId: number,
   verdict: string,
-): Record<string, unknown> {
+): JsonObject {
   return {
     step: "verification_thread_actions",
     resourceKey: params.resourceKey,

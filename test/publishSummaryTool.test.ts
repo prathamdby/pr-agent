@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createFindingLedger,
   type AcceptedPlacement,
@@ -12,24 +12,18 @@ import {
 import {
   buildPublishSummaryTool,
   createPublishSummaryState,
+  type PublishSummaryState,
 } from "../src/review/orchestrator/publishSummaryTool.js";
+import * as publishSummaryOnly from "../src/review/publish/publishSummaryOnly.js";
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import type { CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 function reviewPrSurface() {
   return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
 }
-
-vi.mock("../src/review/publish/publishSummaryOnly.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/review/publish/publishSummaryOnly.js")>();
-  return {
-    ...actual,
-    publishReviewSummaryOnly: vi.fn(async () => ({ kind: "published", summaryCommentId: 91 })),
-  };
-});
 
 function finding(line: number, severity: ReviewFinding["severity"] = "P1"): ReviewFinding {
   return {
@@ -91,12 +85,14 @@ function summaryInput(ids: readonly string[]) {
   };
 }
 
-function buildTool(params: {
-  getLedger: () => FindingLedger;
-  getCoverage?: () => ReviewCoverage;
-  state?: ReturnType<typeof createPublishSummaryState>;
-  ciAuthor?: Parameters<typeof buildPublishSummaryTool>[0]["ciAuthor"];
-}) {
+type BuildPublishSummaryToolTestParams = {
+  readonly getLedger: () => FindingLedger;
+  readonly getCoverage?: () => ReviewCoverage;
+  readonly state?: PublishSummaryState;
+  readonly ciAuthor?: CiSummaryAuthor;
+};
+
+function buildTool(params: BuildPublishSummaryToolTestParams) {
   return buildPublishSummaryTool({
     phaseRef: createOrchestratorPhaseRef("synthesis"),
     cfg: makeTestConfig(),
@@ -117,11 +113,14 @@ function buildTool(params: {
 
 describe("buildPublishSummaryTool", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(publishReviewSummaryOnly).mockResolvedValue({
+    vi.spyOn(publishSummaryOnly, "publishReviewSummaryOnly").mockResolvedValue({
       kind: "published",
       summaryCommentId: 91,
     });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("rejects wrong-phase calls before publish with a structured shape", async () => {

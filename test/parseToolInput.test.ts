@@ -143,7 +143,7 @@ describe("parseToolInput", () => {
 
 describe("toExecutor tool-input repair", () => {
   function echoTool() {
-    const run = vi.fn(async (parsed: unknown) => parsed);
+    const run = vi.fn(async (parsed: v.InferOutput<typeof schema>) => parsed);
     const tool = defineLocalTool({ description: "echo", schema, run });
     return { run, executor: toExecutor("echo", tool) };
   }

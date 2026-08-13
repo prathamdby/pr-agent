@@ -1,37 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
-
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  ModelRuntime: {
-    create: vi.fn(async () => {
-      const streamSimple = vi.fn();
-      const stream = vi.fn();
-      return {
-        setRuntimeApiKey: vi.fn(async () => undefined),
-        getError: vi.fn(() => undefined),
-        getModel: vi.fn(() => ({
-          id: "gpt-4o-mini",
-          provider: "openai",
-          api: "openai-responses",
-        })),
-        streamSimple,
-        stream,
-        completeSimple: vi.fn(),
-        complete: vi.fn(),
-      };
-    }),
-  },
-  createAgentSession: vi.fn(),
-  createExtensionRuntime: vi.fn(),
-  defineTool: vi.fn((tool: unknown) => tool),
-  DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
-    return { reload: vi.fn(async () => undefined) };
-  }),
-  SessionManager: { inMemory: vi.fn(() => ({})) },
-  SettingsManager: { inMemory: vi.fn(() => ({})) },
-}));
-
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import {
   compactionPolicyForRole,
   createPiSession,
@@ -39,31 +7,66 @@ import {
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   EMPTY_STRUCTURED_STATE,
+  resetPiSessionRuntime,
+  setPiSessionRuntime,
 } from "../src/agent/runtime/piSession.js";
+import type {
+  PiDefineToolInput,
+  PiSdkEvent,
+  PiSdkSession,
+} from "../src/agent/runtime/piSession.js";
+
+const createAgentSession = vi.fn();
+
+function installTestPiSessionRuntime(): void {
+  setPiSessionRuntime({
+    ModelRuntime: {
+      create: vi.fn(async () => ({
+        setRuntimeApiKey: vi.fn(async () => undefined),
+        getError: vi.fn(() => undefined),
+        getModel: vi.fn(() => ({
+          id: "gpt-4o-mini",
+          provider: "openai",
+          api: "openai-responses",
+        })),
+        streamSimple: vi.fn(),
+        stream: vi.fn(),
+        completeSimple: vi.fn(),
+        complete: vi.fn(),
+      })),
+    },
+    createAgentSession,
+    createExtensionRuntime: vi.fn(() => ({})),
+    defineTool: vi.fn((tool: PiDefineToolInput) => tool),
+    DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
+      return { reload: vi.fn(async () => undefined) };
+    }),
+    SessionManager: { inMemory: vi.fn(() => ({})) },
+    SettingsManager: { inMemory: vi.fn(() => ({})) },
+  });
+}
 
 describe("createPiSession seam", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    installTestPiSessionRuntime();
+  });
+
+  afterEach(() => {
+    resetPiSessionRuntime();
   });
 
   it("creates a session with role, model assignment, and send options", async () => {
     const events: Array<{ kind: string }> = [];
-    const mockSession = {
-      subscribe: vi.fn(
-        (
-          listener: (event: {
-            type: string;
-            toolResults?: unknown[];
-            message?: { role: string; content: unknown[] };
-          }) => void,
-        ) => {
-          // emit terminal turn on prompt
-          (mockSession as { _listener?: typeof listener })._listener = listener;
-          return () => undefined;
-        },
-      ),
+    let listener: ((event: PiSdkEvent) => void) | undefined;
+    const mockSession: PiSdkSession = {
+      subscribe: vi.fn((next: (event: PiSdkEvent) => void) => {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      }),
       prompt: vi.fn(async () => {
-        const listener = (mockSession as { _listener?: (event: unknown) => void })._listener;
         listener?.({
           type: "turn_end",
           toolResults: [],
@@ -75,7 +78,7 @@ describe("createPiSession seam", () => {
       setThinkingLevel: vi.fn(),
       dispose: vi.fn(),
     };
-    vi.mocked(createAgentSession).mockResolvedValue({ session: mockSession } as never);
+    createAgentSession.mockResolvedValue({ session: mockSession });
 
     const session = await createPiSession({
       role: "orchestrator",
@@ -110,8 +113,6 @@ describe("createPiSession seam", () => {
   });
 
   it("does not import createAgentSession from feature harness paths (grep gate)", async () => {
-    // Only src/agent/runtime may construct Pi sessions (createPiSession seam).
-    // Feature packages and agent/providers must go through that seam.
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     async function walk(dir: string): Promise<string[]> {

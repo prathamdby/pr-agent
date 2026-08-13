@@ -1,15 +1,16 @@
 import crypto from "node:crypto";
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../../src/db/postgres.js";
 import type {
   OperationIntentRow,
   OperationIntentStatus,
 } from "../../src/agentWork/operationIntentRepository.js";
+import type { JsonObject } from "../../src/util/jsonValue.js";
 
 type PersistParams = {
   readonly workItemId: string;
   readonly operationKey: string;
   readonly mutationKind: string;
-  readonly detail?: Record<string, unknown>;
+  readonly detail?: JsonObject;
 };
 
 type ReconcileParams = {
@@ -17,13 +18,13 @@ type ReconcileParams = {
   readonly operationKey: string;
   readonly status: Exclude<OperationIntentStatus, "pending">;
   readonly publishRecordId?: string | null;
-  readonly detail?: Record<string, unknown>;
+  readonly detail?: JsonObject;
 };
 
 type MergeDetailParams = {
   readonly workItemId: string;
   readonly operationKey: string;
-  readonly detail: Record<string, unknown>;
+  readonly detail: JsonObject;
 };
 
 type StoredIntent = {
@@ -33,7 +34,7 @@ type StoredIntent = {
   mutationKind: string;
   status: OperationIntentStatus;
   publishRecordId: string | null;
-  detail: Record<string, unknown>;
+  detail: JsonObject;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -96,7 +97,7 @@ export function createMemoryOperationIntentStore() {
     },
 
     async getOperationIntent(
-      _client: Pool | PoolClient,
+      _client: IntakeClient,
       workItemId: string,
       operationKey: string,
     ): Promise<OperationIntentRow | null> {
@@ -104,7 +105,7 @@ export function createMemoryOperationIntentStore() {
       return stored ? toRow(stored) : null;
     },
 
-    async persist(_client: Pool | PoolClient, params: PersistParams): Promise<OperationIntentRow> {
+    async persist(_client: IntakeClient, params: PersistParams): Promise<OperationIntentRow> {
       const key = rowKey(params.workItemId, params.operationKey);
       const existing = rows.get(key);
       if (existing) {
@@ -128,7 +129,7 @@ export function createMemoryOperationIntentStore() {
     },
 
     async mergeDetail(
-      _client: Pool | PoolClient,
+      _client: IntakeClient,
       params: MergeDetailParams,
     ): Promise<OperationIntentRow | null> {
       const key = rowKey(params.workItemId, params.operationKey);
@@ -145,7 +146,7 @@ export function createMemoryOperationIntentStore() {
     },
 
     async reconcile(
-      _client: Pool | PoolClient,
+      _client: IntakeClient,
       params: ReconcileParams,
     ): Promise<OperationIntentRow | null> {
       if (failNextReconcileRemaining > 0 && failNextReconcileError) {
@@ -171,7 +172,7 @@ export function createMemoryOperationIntentStore() {
     },
 
     async listPending(
-      _client: Pool | PoolClient,
+      _client: IntakeClient,
       workItemId: string,
     ): Promise<readonly OperationIntentRow[]> {
       return [...rows.values()]
@@ -179,5 +180,19 @@ export function createMemoryOperationIntentStore() {
         .sort((a, b) => a.createdAtMs - b.createdAtMs)
         .map(toRow);
     },
+  };
+}
+
+export type MemoryOperationIntentStore = ReturnType<typeof createMemoryOperationIntentStore>;
+
+export function memoryOperationIntentRepository(
+  store: MemoryOperationIntentStore,
+): import("../../src/agentWork/operationIntentRepository.js").OperationIntentRepository {
+  return {
+    persistOperationIntent: store.persist,
+    mergeOperationIntentDetail: store.mergeDetail,
+    reconcileOperationIntent: store.reconcile,
+    getOperationIntent: store.getOperationIntent,
+    listPendingOperationIntents: store.listPending,
   };
 }

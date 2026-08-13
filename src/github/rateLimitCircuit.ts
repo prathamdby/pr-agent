@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { logWarn } from "../evlog.js";
+import type {
+  AgentRunnerToolExecutor,
+  AgentRunnerToolExecutorMap,
+} from "../agent/providers/interface.js";
 import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.js";
 
 export const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
@@ -138,19 +142,18 @@ export function shouldShortCircuitGithubTool(toolName: string): boolean {
 }
 
 export function wrapExecutorsWithRateLimitCircuit(
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
-): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
-  const wrapped: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
-    ...executors,
-  };
-  for (const [name, executor] of Object.entries(executors)) {
-    wrapped[name] = async (args) => {
-      if (shouldShortCircuitGithubTool(name)) {
-        logWarn("github_tool_circuit_short_circuit", { tool: name });
-        return { error: true, message: CIRCUIT_OPEN_TOOL_RESULT };
-      }
-      return executor(args);
-    };
-  }
-  return wrapped;
+  executors: AgentRunnerToolExecutorMap,
+): AgentRunnerToolExecutorMap {
+  return Object.fromEntries(
+    Object.entries(executors).map(([name, executor]) => [
+      name,
+      async (args: Parameters<AgentRunnerToolExecutor>[0]) => {
+        if (shouldShortCircuitGithubTool(name)) {
+          logWarn("github_tool_circuit_short_circuit", { tool: name });
+          return { error: true, message: CIRCUIT_OPEN_TOOL_RESULT };
+        }
+        return executor(args);
+      },
+    ]),
+  );
 }

@@ -10,7 +10,7 @@ import {
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
-import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
+import { AppError, errorLogFields, nonErrorThrown, toAppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import {
@@ -22,7 +22,10 @@ import {
 import { createAgentCiSummaryAuthor } from "../ci/authorCiSummary.js";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
 import type { ReviewPayload } from "../reviewSchema.js";
-import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.js";
+import {
+  publishReviewRunFailureNotice,
+  type ReviewRunFailureNoticeParams,
+} from "../run/reviewRunFallback.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -66,13 +69,21 @@ export type OrchestratedReviewRunParams = ReviewRunParams & {
   readonly prBody: string | null;
 };
 
+type MutableReviewRunFailureNoticeParams = {
+  -readonly [K in keyof ReviewRunFailureNoticeParams]: ReviewRunFailureNoticeParams[K];
+};
+
+type MutableReviewRunResult = {
+  -readonly [K in keyof ReviewRunResult]: ReviewRunResult[K];
+};
+
 type SendResult =
   | { readonly kind: "sent"; readonly text: string }
   | { readonly kind: "failed"; readonly error: AppError };
 
 type DeadlineResult<T> =
   | { readonly kind: "settled"; readonly value: T }
-  | { readonly kind: "rejected"; readonly error: unknown }
+  | { readonly kind: "rejected"; readonly error: Error }
   | { readonly kind: "deadline" };
 
 async function settleBefore<T>(
@@ -87,7 +98,11 @@ async function settleBefore<T>(
   });
   const settled: Promise<DeadlineResult<T>> = promise.then(
     (value) => ({ kind: "settled", value }),
-    (error: unknown) => ({ kind: "rejected", error }),
+    (error) => ({
+      kind: "rejected",
+      error:
+        error instanceof Error ? error : nonErrorThrown("review.orchestrator_promise_rejected"),
+    }),
   );
   const result = await Promise.race([settled, deadline]);
   if (timer) clearTimeout(timer);
@@ -250,7 +265,9 @@ export async function runOrchestratedPrReview(
           commentId = params.progressCommentIdHint;
         }
       } catch (error) {
-        const appError = toAppError(error, {
+        const err =
+          error instanceof Error ? error : nonErrorThrown("review.progress_comment_lookup_failed");
+        const appError = toAppError(err, {
           code: "review.progress_comment_lookup_failed",
         });
         logWarn("review_progress_comment_lookup_failed", errorLogFields(appError));
@@ -395,7 +412,9 @@ export async function runOrchestratedPrReview(
     }
   } catch (error) {
     state.judgment = "degraded";
-    const appError = toAppError(error, {
+    const err =
+      error instanceof Error ? error : nonErrorThrown("review.orchestrator_session_create_failed");
+    const appError = toAppError(err, {
       code: "review.orchestrator_session_create_failed",
       context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
     });
@@ -524,7 +543,9 @@ export async function runOrchestratedPrReview(
         recordAgentTurnMetrics(send.value);
         return { kind: "sent", text: send.value.text };
       } catch (error) {
-        const appError = toAppError(error, {
+        const err =
+          error instanceof Error ? error : nonErrorThrown("review.orchestrator_send_failed");
+        const appError = toAppError(err, {
           code: "review.orchestrator_send_failed",
           context: { phase, attempt },
         });
@@ -577,18 +598,26 @@ export async function runOrchestratedPrReview(
             return { kind: "sent", text: send.value.text };
           }
           void sendPromise.catch((fallbackSendError) => {
+            const err =
+              fallbackSendError instanceof Error
+                ? fallbackSendError
+                : nonErrorThrown("review.orchestrator_fallback_send_abandoned");
             logWarn("review_orchestrator_fallback_send_abandoned", {
               phase,
               reason: fallback.reason,
               settleKind: send.kind,
-              ...errorLogFields(fallbackSendError),
+              ...errorLogFields(err),
             });
           });
         } catch (fallbackError) {
+          const err =
+            fallbackError instanceof Error
+              ? fallbackError
+              : nonErrorThrown("review.orchestrator_fallback_failed");
           logWarn("review_orchestrator_fallback_failed", {
             phase,
             reason: fallback.reason,
-            ...errorLogFields(fallbackError),
+            ...errorLogFields(err),
           });
         }
       }
@@ -759,7 +788,7 @@ export async function runOrchestratedPrReview(
 
   const degradeReport = async (
     outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
-    error?: unknown,
+    error?: Error,
   ): Promise<void> => {
     state.judgment = "degraded";
     if (agentEvents) {
@@ -787,7 +816,11 @@ export async function runOrchestratedPrReview(
     try {
       await publishReportDeterministically(outcome);
     } catch (publishError) {
-      fatalError = toAppError(publishError, {
+      const err =
+        publishError instanceof Error
+          ? publishError
+          : nonErrorThrown("review.deterministic_finding_publish_failed");
+      fatalError = toAppError(err, {
         code: "review.deterministic_finding_publish_failed",
         context: { specialist: outcome.specialist },
       });
@@ -837,7 +870,7 @@ export async function runOrchestratedPrReview(
 
   const publishFailureNotice = async (): Promise<void> => {
     const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
-    await publishReviewRunFailureNotice({
+    const notice: MutableReviewRunFailureNoticeParams = {
       cfg: params.cfg,
       setup,
       owner: params.owner,
@@ -845,8 +878,9 @@ export async function runOrchestratedPrReview(
       prNumber: params.prNumber,
       reviewMode,
       publishAttempts,
-      ...(lastFailure != null ? { lastFailure } : {}),
-    });
+    };
+    if (lastFailure != null) notice.lastFailure = lastFailure;
+    await publishReviewRunFailureNotice(notice);
     state.summary = { kind: "failed" };
   };
 
@@ -973,12 +1007,16 @@ export async function runOrchestratedPrReview(
           );
           await writeTick();
         } catch (error) {
+          const err =
+            error instanceof Error
+              ? error
+              : nonErrorThrown("review.orchestrator_report_handler_failed");
           await recordOutcome(outcome);
           if (outcome.kind === "report") {
-            await degradeReport(outcome, error);
+            await degradeReport(outcome, err);
             return;
           }
-          throw error;
+          throw err;
         }
       },
     });
@@ -1080,15 +1118,22 @@ export async function runOrchestratedPrReview(
         // Salvage accepted findings the same way as the degraded path instead of a hard fail.
         if (state.judgment !== "degraded" && !sessionRetired) {
           const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
-          logWarn("review_synthesis_publish_salvage", {
+          const salvageMeta = {
             owner: params.owner,
             repo: params.repo,
             pr: params.prNumber,
             publishAttempts,
             judgment: state.judgment,
             lastValidationError: summaryState.lastValidationError,
-            ...(lastFailure != null ? classifiedFailureLogFields(lastFailure) : {}),
-          });
+          };
+          if (lastFailure != null) {
+            logWarn("review_synthesis_publish_salvage", {
+              ...salvageMeta,
+              ...classifiedFailureLogFields(lastFailure),
+            });
+          } else {
+            logWarn("review_synthesis_publish_salvage", salvageMeta);
+          }
         }
         await publishDeterministicSummary();
       }
@@ -1097,7 +1142,8 @@ export async function runOrchestratedPrReview(
   } catch (error) {
     abortSpecialists();
     await retireSession();
-    throw toAppError(error, {
+    const err = error instanceof Error ? error : nonErrorThrown("review.orchestrator_run_failed");
+    throw toAppError(err, {
       code: "review.orchestrator_run_failed",
       context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
     });
@@ -1139,11 +1185,12 @@ export async function runOrchestratedPrReview(
     params.cfg.piProvider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
-  return {
+  const result: MutableReviewRunResult = {
     lastAssistant,
     published: summaryState.published,
     publishAttempts,
     publishSuperseded: state.lifecycle.kind === "stopped",
-    ...(lastFailure != null ? { lastFailure } : {}),
   };
+  if (lastFailure != null) result.lastFailure = lastFailure;
+  return result;
 }

@@ -1,5 +1,4 @@
-import type { PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { IntakeClient } from "../../db/postgres.js";
 import { AppError } from "../../errors/appError.js";
 import {
   DEFERRED_HEAD_SHA,
@@ -34,6 +33,7 @@ import {
   enqueueReview,
   enqueueTriage,
   jobCorrelation,
+  type JobQueue,
 } from "./queueing.js";
 import { promoteAskFromWebhookEvent } from "./askIntake.js";
 import { releaseReviewQueueSlotInTx } from "../reviewQueueSlot.js";
@@ -72,8 +72,8 @@ function clampStoredCommentText(text: string): string {
 }
 
 type SlashIntakeContext = {
-  readonly boss: PgBoss;
-  readonly client: PoolClient;
+  readonly boss: JobQueue;
+  readonly client: IntakeClient;
   readonly input: SlashCommandInput;
   readonly eventId: string;
   readonly correlation: JobCorrelation;
@@ -393,18 +393,38 @@ async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Pro
 
 type SlashIntakeHandler = (ctx: SlashIntakeContext) => Promise<void>;
 
-const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
+const SLASH_INTAKE_HANDLERS = {
   help: handleSlashHelp,
   ask: handleSlashAsk,
   describe: handleSlashDescribe,
   triage: handleSlashTriage,
   review: handleSlashReview,
   cancel: handleSlashCancel,
-};
+} satisfies Record<
+  "help" | "ask" | "describe" | "triage" | "review" | "cancel",
+  SlashIntakeHandler
+>;
+
+function slashIntakeHandler(command: string): SlashIntakeHandler | undefined {
+  if (command === "help") return SLASH_INTAKE_HANDLERS.help;
+  if (command === "ask") return SLASH_INTAKE_HANDLERS.ask;
+  if (command === "describe") return SLASH_INTAKE_HANDLERS.describe;
+  if (command === "triage") return SLASH_INTAKE_HANDLERS.triage;
+  if (command === "review") return SLASH_INTAKE_HANDLERS.review;
+  if (command === "cancel") return SLASH_INTAKE_HANDLERS.cancel;
+  return undefined;
+}
+
+function slashCommandDisabled(command: string, features: Features): boolean {
+  if (command === "ask") return features.ask === "off";
+  if (command === "describe") return features.describe === "off";
+  if (command === "triage") return features.triage === "off";
+  return false;
+}
 
 export async function applySlashCommandIntake(
-  boss: PgBoss,
-  client: PoolClient,
+  boss: JobQueue,
+  client: IntakeClient,
   input: SlashCommandInput,
   features: Features,
 ): Promise<DeferredIntakeEvent[]> {
@@ -456,14 +476,9 @@ export async function applySlashCommandIntake(
     events,
   };
 
-  const handler = SLASH_INTAKE_HANDLERS[command];
+  const handler = slashIntakeHandler(command);
   if (handler) {
-    const disabledByFeature: Record<string, boolean> = {
-      ask: features.ask === "off",
-      describe: features.describe === "off",
-      triage: features.triage === "off",
-    };
-    if (disabledByFeature[command]) {
+    if (slashCommandDisabled(command, features)) {
       await enqueueSlashAck(ctx, {
         reply: { target: input.replyTarget, body: slashDisabledBody(command) },
       });

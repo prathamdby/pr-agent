@@ -6,18 +6,9 @@ import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
+  spyPublishReviewRepositories,
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
-
-vi.mock("../src/agentWork/repository.js", async () => {
-  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createAgentWorkRepositoryMock();
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
 
 const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
@@ -25,6 +16,7 @@ let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
 describe("publishReview labels and token expiry", () => {
   beforeEach(() => {
+    spyPublishReviewRepositories();
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
@@ -171,7 +163,7 @@ describe("publishReview labels and token expiry", () => {
     {
       name: "string",
       rejection: "labels exploded",
-      message: "listPullRequestLabels returned non-array: labels exploded",
+      message: "Non-error thrown",
     },
     {
       name: "Error",

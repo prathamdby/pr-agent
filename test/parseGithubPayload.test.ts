@@ -315,9 +315,10 @@ describe("parseGithubPayload", () => {
     } catch (e) {
       expect(e).toBeInstanceOf(WebhookParseError);
       expect(e).toBeInstanceOf(AppError);
-      expect((e as WebhookParseError).code).toBe("webhook.parse_failed");
-      expect((e as WebhookParseError).eventName).toBe("pull_request");
-      expect((e as WebhookParseError).valibotError).toBeInstanceOf(v.ValiError);
+      if (!(e instanceof WebhookParseError)) throw e;
+      expect(e.code).toBe("webhook.parse_failed");
+      expect(e.eventName).toBe("pull_request");
+      expect(e.valibotError).toBeInstanceOf(v.ValiError);
     }
   });
 

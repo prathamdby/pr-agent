@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
@@ -6,30 +6,30 @@ import {
 } from "../src/settings/index.js";
 import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
 import { renderReviewPointerLensMarker } from "../src/review/run/reviewRender.js";
-
-const [, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] = LEGACY_REVIEW_POINTER_BODIES;
-
-const mocks = vi.hoisted(() => ({
-  listReviews: vi.fn(),
-  listReviewComments: vi.fn(),
-}));
-
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: vi.fn(() => ({
-    rest: {
-      pulls: {
-        listReviews: mocks.listReviews,
-        listReviewComments: mocks.listReviewComments,
-      },
-    },
-  })),
-}));
-
+import {
+  clearInstallationOctokitCacheForTest,
+  installationOctokit,
+  resetInstallationOctokitFactory,
+  type InstallationOctokit,
+} from "../src/github/appAuth.js";
 import {
   classifyReviewLensFromPointerBody,
   parseReviewPointerLensMarker,
 } from "../src/review/run/reviewPriorFeedback.js";
 import { fetchBotFindingThreads } from "../src/github/reviewPriorFeedbackIo.js";
+
+const [, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] = LEGACY_REVIEW_POINTER_BODIES;
+
+const mocks = {
+  listReviews: vi.fn(),
+  listReviewComments: vi.fn(),
+};
+
+function bindTestOctokit(): InstallationOctokit {
+  resetInstallationOctokitFactory();
+  clearInstallationOctokitCacheForTest();
+  return installationOctokit("tok");
+}
 
 describe("classifyReviewLensFromPointerBody", () => {
   it("prefers the HTML lens marker over legacy strings", () => {
@@ -69,7 +69,15 @@ describe("parseReviewPointerLensMarker", () => {
 
 describe("fetchBotFindingThreads", () => {
   beforeEach(() => {
+    const octokit = bindTestOctokit();
+    vi.spyOn(octokit.rest.pulls, "listReviews").mockImplementation(mocks.listReviews);
+    vi.spyOn(octokit.rest.pulls, "listReviewComments").mockImplementation(mocks.listReviewComments);
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetInstallationOctokitFactory();
+    clearInstallationOctokitCacheForTest();
   });
 
   it("collects bot-rooted findings for all four lenses including review-tests", async () => {

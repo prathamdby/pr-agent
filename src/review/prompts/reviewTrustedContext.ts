@@ -14,6 +14,7 @@ import { formatSymbolIndexStatusLine } from "../../prWorkspace/symbolIndex.js";
 import type { CodeIndexPrepareResult } from "../../codeIndex/buildJob.js";
 import { formatCodeIndexStatusLine } from "../../codeIndex/buildJob.js";
 import type { PrSurface } from "../../github/prSurface.js";
+import { nonErrorThrown } from "../../errors/appError.js";
 import { formatPriorInlineFeedbackBlock } from "../run/reviewPriorFeedback.js";
 
 function buildTrustedReviewContextBlock(
@@ -89,7 +90,7 @@ export function buildTrustedReviewContextForReview(params: {
 export async function fetchPriorInlineFeedbackBlockForReview(params: {
   prSurface: PrSurface;
   botUserId: number;
-  onPriorFeedbackError?: (error: unknown) => void;
+  onPriorFeedbackError?: (error: Error) => void;
 }): Promise<string | undefined> {
   try {
     const threads = await params.prSurface.fetchPriorInlineFeedback(params.botUserId);
@@ -102,7 +103,11 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
       ) || undefined
     );
   } catch (error) {
-    params.onPriorFeedbackError?.(error);
+    const err =
+      error instanceof Error
+        ? error
+        : nonErrorThrown("review.prior_inline_feedback_block_non_error_thrown");
+    params.onPriorFeedbackError?.(err);
     return undefined;
   }
 }

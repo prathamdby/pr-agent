@@ -16,6 +16,8 @@ import {
   SECONDARY_RATE_LIMIT_MAX_RETRIES,
 } from "../src/settings/index.js";
 import * as evlog from "../src/evlog.js";
+import { Octokit } from "@octokit/core";
+import type { EndpointDefaults } from "@octokit/types";
 
 describe("rateLimitCircuit", () => {
   afterEach(() => {
@@ -84,10 +86,23 @@ describe("rateLimitCircuit", () => {
     vi.spyOn(evlog, "logInfo").mockImplementation(() => undefined);
     vi.spyOn(evlog, "logDebug").mockImplementation(() => undefined);
     const circuit = createRateLimitCircuit({ installationId: 9, threshold: 1 });
-    const options = { method: "GET", url: "/rate" } as never;
+    const options: Required<EndpointDefaults> = {
+      baseUrl: "https://api.github.com",
+      method: "GET",
+      url: "/rate",
+      headers: {
+        accept: "application/vnd.github+json",
+        "user-agent": "pr-agent-test",
+      },
+      mediaType: { format: "json" },
+      operationName: "",
+      query: "",
+      request: {},
+    };
+    const octokit = new Octokit();
 
     runWithRateLimitCircuit(circuit, () => {
-      expect(onRateLimit(1, options, {} as never, PRIMARY_RATE_LIMIT_MAX_RETRIES)).toBe(false);
+      expect(onRateLimit(1, options, octokit, PRIMARY_RATE_LIMIT_MAX_RETRIES)).toBe(false);
       expect(circuit.isOpen()).toBe(true);
       expect(logWarn).toHaveBeenCalledWith(
         "github_rate_limit_circuit_opened",
@@ -97,9 +112,9 @@ describe("rateLimitCircuit", () => {
 
     const secondary = createRateLimitCircuit({ installationId: 10, threshold: 1 });
     runWithRateLimitCircuit(secondary, () => {
-      expect(
-        onSecondaryRateLimit(0, options, {} as never, SECONDARY_RATE_LIMIT_MAX_RETRIES - 1),
-      ).toBe(false);
+      expect(onSecondaryRateLimit(0, options, octokit, SECONDARY_RATE_LIMIT_MAX_RETRIES - 1)).toBe(
+        false,
+      );
       expect(secondary.isOpen()).toBe(true);
     });
   });

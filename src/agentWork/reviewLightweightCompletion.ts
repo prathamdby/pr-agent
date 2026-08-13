@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { IntakeClient } from "../db/postgres.js";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
@@ -24,7 +24,7 @@ export type LightweightAutoReviewResult =
 
 /** Auto-review docs-only path: publish lightweight summary or skip when work is cancelled. */
 export async function tryLightweightAutoReviewCompletion(
-  pool: Pool,
+  pool: IntakeClient,
   params: {
     item: AgentWorkItem;
     reviewLens: ReviewMode;

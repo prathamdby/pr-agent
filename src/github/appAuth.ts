@@ -1,9 +1,12 @@
-import { createAppAuth, type InstallationAccessTokenAuthentication } from "@octokit/auth-app";
+import {
+  createAppAuth as octokitCreateAppAuth,
+  type InstallationAccessTokenAuthentication,
+} from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
 import type { Config } from "../config.js";
-import { AppError } from "../errors/appError.js";
+import { AppError, nonErrorThrown } from "../errors/appError.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { noteGithubRequestSuccess } from "./rateLimitCircuit.js";
@@ -11,6 +14,151 @@ import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
+
+export type OctokitReactionParams = {
+  readonly owner?: string;
+  readonly repo?: string;
+  readonly issue_number?: number;
+  readonly comment_id?: number;
+  readonly content?: string;
+  readonly reaction_id?: number;
+  readonly per_page?: number;
+};
+
+export type OctokitReactionRow = {
+  readonly id: number;
+  readonly content: string;
+  readonly user: { readonly id: number } | null;
+};
+
+export type OctokitReactionPage = {
+  readonly data: readonly OctokitReactionRow[];
+};
+
+export type InstallationOctokitClient = {
+  readonly rest: {
+    readonly reactions?: {
+      createForIssue(params: OctokitReactionParams): Promise<void>;
+      listForIssue(params: OctokitReactionParams): Promise<OctokitReactionPage>;
+      deleteForIssue(params: OctokitReactionParams): Promise<void>;
+      createForIssueComment(params: OctokitReactionParams): Promise<void>;
+      listForIssueComment(params: OctokitReactionParams): Promise<OctokitReactionPage>;
+      deleteForIssueComment(params: OctokitReactionParams): Promise<void>;
+      createForPullRequestReviewComment(params: OctokitReactionParams): Promise<void>;
+      listForPullRequestReviewComment(params: OctokitReactionParams): Promise<OctokitReactionPage>;
+      deleteForPullRequestComment(params: OctokitReactionParams): Promise<void>;
+    };
+    readonly pulls?: {
+      get?(params: {
+        readonly owner: string;
+        readonly repo: string;
+        readonly pull_number: number;
+      }): Promise<{
+        readonly data: {
+          readonly base?: { readonly sha?: string; readonly ref?: string };
+          readonly head?: { readonly sha?: string | null } | null;
+          readonly additions?: number;
+          readonly deletions?: number;
+          readonly changed_files?: number;
+        };
+      }>;
+      listFiles?(params: {
+        readonly owner: string;
+        readonly repo: string;
+        readonly pull_number: number;
+        readonly per_page?: number;
+        readonly page?: number;
+      }): Promise<{ readonly data: readonly { readonly filename?: string }[] }>;
+    };
+    readonly issues?: {
+      listComments?(params: {
+        readonly owner: string;
+        readonly repo: string;
+        readonly issue_number: number;
+        readonly since?: string;
+        readonly per_page?: number;
+        readonly page?: number;
+      }): Promise<{
+        readonly data: readonly {
+          readonly id: number;
+          readonly body?: string;
+          readonly html_url?: string;
+        }[];
+      }>;
+      createComment?(params: {
+        readonly owner: string;
+        readonly repo: string;
+        readonly issue_number: number;
+        readonly body: string;
+      }): Promise<{
+        readonly data: {
+          readonly id: number;
+          readonly body?: string;
+          readonly html_url?: string;
+        };
+      }>;
+      updateComment?(params: {
+        readonly owner: string;
+        readonly repo: string;
+        readonly comment_id: number;
+        readonly body: string;
+      }): Promise<{ readonly data: { readonly id?: number } }>;
+    };
+    readonly apps?: {
+      getAuthenticated?(): Promise<{
+        readonly data: { readonly slug?: string } | null;
+      }>;
+    };
+    readonly users?: {
+      getByUsername?(params: { readonly username: string }): Promise<{
+        readonly data: { readonly id: number; readonly login: string } | null;
+      }>;
+    };
+  };
+  readonly hook: {
+    after(event: string, listener: () => void): void;
+  };
+  readonly graphql?: InstallationOctokit["graphql"];
+  paginate?(
+    fn: (params: OctokitReactionParams) => Promise<OctokitReactionPage>,
+    params: OctokitReactionParams,
+  ): Promise<readonly OctokitReactionRow[]>;
+  readonly token?: string;
+};
+
+export type InstallationOctokitFactory = {
+  bivarianceHack(token: string | undefined): InstallationOctokit | InstallationOctokitClient;
+}["bivarianceHack"];
+
+export type CreateAppAuth = {
+  bivarianceHack(options: {
+    readonly appId: string | number;
+    readonly privateKey: string;
+  }): (auth: {
+    readonly type: "app" | "installation";
+    readonly installationId?: number;
+  }) => Promise<{ readonly token: string }>;
+}["bivarianceHack"];
+
+const octokitThrottle = { onRateLimit, onSecondaryRateLimit };
+
+const defaultInstallationOctokitFactory: InstallationOctokitFactory = (token) => {
+  if (token === undefined) {
+    return new ThrottledOctokit({ throttle: octokitThrottle });
+  }
+  return new ThrottledOctokit({ auth: token, throttle: octokitThrottle });
+};
+
+let installationOctokitFactory: InstallationOctokitFactory = defaultInstallationOctokitFactory;
+
+export function setInstallationOctokitFactory(factory: InstallationOctokitFactory): void {
+  installationOctokitFactory = factory;
+}
+
+export function resetInstallationOctokitFactory(): void {
+  installationOctokitFactory = defaultInstallationOctokitFactory;
+}
+
 type CachedInstallationOctokit = {
   readonly octokit: InstallationOctokit;
   expiresAtTs: number;
@@ -29,11 +177,22 @@ export type InstallationToken = {
   readonly ttlMs: number;
 };
 
+let createAppAuthFn: typeof octokitCreateAppAuth = octokitCreateAppAuth;
+
+export function setCreateAppAuth(create: CreateAppAuth): void {
+  // SAFETY: tests inject a strategy that returns { token } for type:"app"; production uses createAppAuth.
+  createAppAuthFn = create as typeof octokitCreateAppAuth;
+}
+
+export function resetCreateAppAuth(): void {
+  createAppAuthFn = octokitCreateAppAuth;
+}
+
 export async function mintInstallationAuth(
   cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
   installationId: number,
 ): Promise<InstallationAccessTokenAuthentication> {
-  const auth = createAppAuth({
+  const auth = createAppAuthFn({
     appId: cfg.githubAppId,
     privateKey: cfg.githubAppPrivateKey,
   });
@@ -44,7 +203,7 @@ export async function mintInstallationAuth(
 }
 
 function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
-  if (typeof timer === "object" && "unref" in timer) {
+  if (timer instanceof Object && "unref" in timer) {
     timer.unref();
   }
 }
@@ -70,8 +229,24 @@ function scheduleInstallationOctokitEviction(
   unrefTimer(timer);
 }
 
-export function installationOctokit(token: string, expiresAtTs?: number): InstallationOctokit {
+function bindInstallationOctokit(
+  client: InstallationOctokit | InstallationOctokitClient,
+): InstallationOctokit {
+  client.hook.after("request", () => {
+    noteGithubRequestSuccess();
+  });
+  // SAFETY: production factory returns ThrottledOctokit; tests inject rest stubs for the path under test.
+  return client as InstallationOctokit;
+}
+
+export function installationOctokit(
+  token: string | undefined,
+  expiresAtTs?: number,
+): InstallationOctokit {
   const now = Date.now();
+  if (token === undefined) {
+    return bindInstallationOctokit(installationOctokitFactory(undefined));
+  }
   const cached = installationOctokitByToken.get(token);
   if (cached) {
     if (cached.expiresAtTs <= now) {
@@ -86,13 +261,7 @@ export function installationOctokit(token: string, expiresAtTs?: number): Instal
     }
   }
 
-  const octokit = new ThrottledOctokit({
-    auth: token,
-    throttle: { onRateLimit, onSecondaryRateLimit },
-  });
-  octokit.hook.after("request", () => {
-    noteGithubRequestSuccess();
-  });
+  const octokit = bindInstallationOctokit(installationOctokitFactory(token));
   const entry = {
     octokit,
     expiresAtTs: expiresAtTs ?? now + INSTALLATION_TOKEN_FALLBACK_TTL_MS,
@@ -115,7 +284,7 @@ export function clearInstallationOctokitCacheForTest(): void {
 async function mintAppJwtToken(
   cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
 ): Promise<string> {
-  const authFn = createAppAuth({
+  const authFn = createAppAuthFn({
     appId: cfg.githubAppId,
     privateKey: cfg.githubAppPrivateKey,
   });
@@ -137,10 +306,12 @@ export function clearAppBotIdentityCacheForTest(): void {
 export function prewarmAppBotIdentity(
   cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
 ): void {
-  void getAppBotIdentity(cfg).catch((error: unknown) => {
+  void getAppBotIdentity(cfg).catch((error) => {
+    const err =
+      error instanceof Error ? error : nonErrorThrown("github.app_bot_identity_prewarm_failed");
     logDebug("app_bot_identity_prewarm_failed", {
       githubAppId: cfg.githubAppId,
-      message: error instanceof Error ? error.message : String(error),
+      message: err.message,
     });
   });
 }
@@ -170,10 +341,7 @@ async function resolveBotIdentityViaAppSlug(
   cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
 ): Promise<BotIdentity> {
   const jwtToken = await mintAppJwtToken(cfg);
-  const jwtOctokit = new ThrottledOctokit({
-    auth: jwtToken,
-    throttle: { onRateLimit, onSecondaryRateLimit },
-  });
+  const jwtOctokit = installationOctokit(jwtToken);
   const { data } = await jwtOctokit.rest.apps.getAuthenticated();
   if (!data?.slug) {
     throw new AppError({
@@ -182,9 +350,7 @@ async function resolveBotIdentityViaAppSlug(
     });
   }
   const slug = data.slug;
-  const anon = new ThrottledOctokit({
-    throttle: { onRateLimit, onSecondaryRateLimit },
-  });
+  const anon = installationOctokit(undefined);
   const { data: user } = await anon.rest.users.getByUsername({
     username: `${slug}[bot]`,
   });

@@ -62,12 +62,12 @@ export type SpecialistTickState =
       readonly reason: "superseded" | "stale_head";
     } & ProgressRoster);
 
-const SPECIALIST_LABELS: Record<SpecialistId, string> = {
+const SPECIALIST_LABELS = {
   correctness: "Correctness",
   security: "Security",
   quality: "Quality",
   tests: "Tests",
-};
+} satisfies Record<SpecialistId, string>;
 
 function renderReconPhase(phase: ReconPhase): string {
   switch (phase) {

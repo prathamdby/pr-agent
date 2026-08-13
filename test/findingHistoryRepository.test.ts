@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import {
   formatFindingHistoryTrustedBlock,
   loadCrossPrSuppressionFingerprints,
@@ -8,6 +7,8 @@ import {
   safeLoadCrossPrSuppressionFingerprints,
   upsertFindingHistoryOpen,
 } from "../src/agentWork/findingHistoryRepository.js";
+import { createQueryClient } from "./helpers/fakePool.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
 
 const cfg = {
   findingHistoryEnabled: true,
@@ -17,8 +18,11 @@ const cfg = {
 
 describe("upsertFindingHistoryOpen", () => {
   it("upserts open outcomes with idempotent increment on conflict", async () => {
-    const query = vi.fn(async () => ({ rowCount: 1 }));
-    const pool = { query } as unknown as Pool;
+    const query = vi.fn(async (_sql: string, _values?: readonly JsonValue[]) => ({
+      rows: [],
+      rowCount: 1,
+    }));
+    const pool = createQueryClient(query);
 
     await upsertFindingHistoryOpen(
       pool,
@@ -34,18 +38,22 @@ describe("upsertFindingHistoryOpen", () => {
     );
 
     expect(query).toHaveBeenCalledTimes(2);
-    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
-    expect(sql).toContain("INSERT INTO repo_finding_history");
-    expect(sql).toContain("last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id");
-    expect(sql).toContain("repo_finding_history.open_count + 1");
-    expect(values).toEqual([9, "acme", "app", "fp-a", 12, "wi-1", "abc123"]);
+    expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO repo_finding_history");
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id",
+    );
+    expect(query.mock.calls[0]?.[0]).toContain("repo_finding_history.open_count + 1");
+    expect(query.mock.calls[0]?.[1]).toEqual([9, "acme", "app", "fp-a", 12, "wi-1", "abc123"]);
   });
 });
 
 describe("recordFindingHistoryOutcome", () => {
   it("increments dismiss_count for dismissed outcomes", async () => {
-    const query = vi.fn(async () => ({ rowCount: 1 }));
-    const pool = { query } as unknown as Pool;
+    const query = vi.fn(async (_sql: string, _values?: readonly JsonValue[]) => ({
+      rows: [],
+      rowCount: 1,
+    }));
+    const pool = createQueryClient(query);
 
     await recordFindingHistoryOutcome(
       pool,
@@ -61,21 +69,24 @@ describe("recordFindingHistoryOutcome", () => {
       "dismissed",
     );
 
-    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
-    expect(sql).toContain("last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id");
-    expect(sql).toContain("repo_finding_history.dismiss_count + EXCLUDED.dismiss_count");
-    expect(values[4]).toBe("dismissed");
-    expect(values[5]).toBe(1);
-    expect(values[6]).toBe(0);
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id",
+    );
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "repo_finding_history.dismiss_count + EXCLUDED.dismiss_count",
+    );
+    expect(query.mock.calls[0]?.[1]?.[4]).toBe("dismissed");
+    expect(query.mock.calls[0]?.[1]?.[5]).toBe(1);
+    expect(query.mock.calls[0]?.[1]?.[6]).toBe(0);
   });
 });
 
 describe("loadCrossPrSuppressionFingerprints", () => {
   it("queries dismissed rows meeting dismiss threshold within lookback", async () => {
-    const query = vi.fn(async () => ({
+    const query = vi.fn(async (_sql: string, _values?: readonly JsonValue[]) => ({
       rows: [{ fingerprint: "fp-hot" }],
     }));
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
 
     const fingerprints = await loadCrossPrSuppressionFingerprints(pool, cfg, {
       installationId: 1,
@@ -84,17 +95,16 @@ describe("loadCrossPrSuppressionFingerprints", () => {
     });
 
     expect(fingerprints).toEqual(["fp-hot"]);
-    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
-    expect(sql).toContain("dismiss_count >=");
-    expect(sql).toContain("last_outcome = 'dismissed'");
-    expect(values).toEqual([1, "o", "r", 3, "180"]);
+    expect(query.mock.calls[0]?.[0]).toContain("dismiss_count >=");
+    expect(query.mock.calls[0]?.[0]).toContain("last_outcome = 'dismissed'");
+    expect(query.mock.calls[0]?.[1]).toEqual([1, "o", "r", 3, "180"]);
   });
 });
 
 describe("safeLoadCrossPrSuppressionFingerprints", () => {
   it("returns empty when disabled", async () => {
     const query = vi.fn();
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
     const result = await safeLoadCrossPrSuppressionFingerprints(
       pool,
       { ...cfg, findingHistoryEnabled: false },
@@ -108,7 +118,7 @@ describe("safeLoadCrossPrSuppressionFingerprints", () => {
     const query = vi.fn(async () => {
       throw new Error("db down");
     });
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
     const result = await safeLoadCrossPrSuppressionFingerprints(pool, cfg, {
       installationId: 1,
       owner: "o",
@@ -152,7 +162,7 @@ describe("lookupThreadFingerprint", () => {
         },
       ],
     }));
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
 
     const fingerprint = await lookupThreadFingerprint(pool, {
       resourceKey: "owner/repo#1",

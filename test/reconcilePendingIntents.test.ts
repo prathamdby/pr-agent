@@ -1,21 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
+import * as postgres from "../src/db/postgres.js";
+import { queryOne } from "../src/db/postgres.js";
+import {
+  findCompletedPublishRecordId,
+  intentDetailMatchesPublishRecord,
+  reconcilePendingIntents,
+  resetPendingIntentRecovery,
+} from "../src/agentWork/reconcilePendingIntents.js";
+import { createUnusedPool } from "./helpers/fakePool.js";
 
-vi.mock("../src/db/postgres.js", () => ({
-  queryOne: vi.fn(),
-}));
-
-vi.unmock("../src/agentWork/reconcilePendingIntents.js");
-
-const { queryOne } = await import("../src/db/postgres.js");
-const { reconcilePendingIntents, intentDetailMatchesPublishRecord, findCompletedPublishRecordId } =
-  await import("../src/agentWork/reconcilePendingIntents.js");
-
-const pool = {} as Pool;
+const pool = createUnusedPool();
 
 describe("reconcilePendingIntents", () => {
   beforeEach(() => {
+    resetPendingIntentRecovery();
+    vi.spyOn(postgres, "queryOne");
     vi.clearAllMocks();
     memoryOperationIntentStore.reset();
   });

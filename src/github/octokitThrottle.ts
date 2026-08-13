@@ -1,5 +1,4 @@
 import type { Octokit } from "@octokit/core";
-import type { EndpointDefaults } from "@octokit/types";
 import { logDebug } from "../evlog.js";
 
 import {
@@ -8,9 +7,14 @@ import {
 } from "../settings/index.js";
 import { noteRateLimitRetryExhausted } from "./rateLimitCircuit.js";
 
+export type OctokitThrottleRequest = {
+  readonly method: string;
+  readonly url: string;
+};
+
 export function onRateLimit(
   retryAfter: number,
-  options: Required<EndpointDefaults>,
+  options: OctokitThrottleRequest,
   _octokit: Octokit,
   retryCount: number,
 ): boolean {
@@ -30,7 +34,7 @@ export function onRateLimit(
 
 export function onSecondaryRateLimit(
   retryAfter: number,
-  options: Required<EndpointDefaults>,
+  options: OctokitThrottleRequest,
   _octokit: Octokit,
   retryCount: number,
 ): boolean {

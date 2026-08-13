@@ -1,6 +1,7 @@
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { AppError } from "../../errors/appError.js";
 import { BOT_META_PATTERNS, SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
+import { asJsonObject, type JsonValue } from "../../util/jsonValue.js";
 
 export { redactOutboundSecrets };
 
@@ -51,25 +52,25 @@ export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
   });
 }
 
-function redactEmailsInJson(value: unknown): unknown {
+function redactEmailsInJson(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(redactEmailsInJson);
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (k === "authorEmail" || k === "email") {
-        out[k] = v == null ? v : "[redacted]";
-      } else {
-        out[k] = redactEmailsInJson(v);
-      }
+  const obj = asJsonObject(value);
+  if (obj === null) return value;
+  const out: { [key: string]: JsonValue | undefined } = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === "authorEmail" || k === "email") {
+      out[k] = v == null ? v : "[redacted]";
+    } else if (v !== undefined) {
+      out[k] = redactEmailsInJson(v);
     }
-    return out;
   }
-  return value;
+  return out;
 }
 
-export function sanitizeToolResultForAsk(toolName: string, result: unknown): unknown {
-  if (toolName === "getBlame" || toolName === "getWorkspaceBlame")
+export function sanitizeToolResultForAsk(toolName: string, result: JsonValue): JsonValue {
+  if (toolName === "getBlame" || toolName === "getWorkspaceBlame") {
     return redactEmailsInJson(result);
+  }
   return result;
 }
 

@@ -1,10 +1,73 @@
+import * as v from "valibot";
 import { logWarn } from "../../evlog.js";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
-import { isPlainObject } from "../../util/typeGuards.js";
+import {
+  isJsonBoolean,
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  jsonValueSchema,
+  type JsonValue,
+} from "../../util/jsonValue.js";
 import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
 
-const SESSION_ROLES = new Set<AgentSessionRole>([
+type ToolEventDraft = {
+  kind: "tool";
+  role: AgentSessionRole;
+  phase?: AgentSessionPhase;
+  checkpointId?: string;
+  toolName: string;
+  ok?: boolean;
+  provider: string;
+  model: string;
+};
+
+type RetryEventDraft = {
+  kind: "retry";
+  role: AgentSessionRole;
+  checkpointId?: string;
+  provider: string;
+  model: string;
+  attempt?: number;
+  reason: string;
+};
+
+type UsageEventDraft = {
+  kind: "usage";
+  role: AgentSessionRole;
+  phase?: AgentSessionPhase;
+  provider: string;
+  model: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+};
+
+type CompletionEventDraft = {
+  kind: "completion";
+  role: AgentSessionRole;
+  phase?: AgentSessionPhase;
+  checkpointId?: string;
+  provider: string;
+  model: string;
+  ok: true;
+};
+
+type FailureEventDraft = {
+  kind: "failure";
+  role: AgentSessionRole;
+  phase?: AgentSessionPhase;
+  checkpointId?: string;
+  provider: string;
+  model: string;
+  ok: false;
+  failureCode: string;
+  failureDomain?: string;
+  errorKind?: string;
+};
+
+const sessionRoleSchema = v.picklist([
   "orchestrator",
   "specialist",
   "ask",
@@ -14,7 +77,7 @@ const SESSION_ROLES = new Set<AgentSessionRole>([
   "ci_summary",
 ]);
 
-const SESSION_PHASES = new Set<AgentSessionPhase>([
+const sessionPhaseSchema = v.picklist([
   "recon",
   "specialist",
   "judgment",
@@ -31,15 +94,15 @@ const SESSION_PHASES = new Set<AgentSessionPhase>([
 const FORBIDDEN_KEY_RE =
   /prompt|message|text|reasoning|content|argument|result|payload|token|secret|key|authorization|cookie|body|diff|patch|errorMessage|stack|cause/i;
 
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
+function asString(value: JsonValue): string | undefined {
+  return isJsonString(value) && value.length > 0 ? value : undefined;
 }
 
-function asFiniteNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function asFiniteNumber(value: JsonValue): number | undefined {
+  return isJsonNumber(value) && Number.isFinite(value) ? value : undefined;
 }
 
-function sanitizeStableCode(value: unknown): string | undefined {
+function sanitizeStableCode(value: JsonValue): string | undefined {
   const raw = asString(value);
   if (!raw) return undefined;
   // Stable codes are dotted identifiers — reject free-form exception text.
@@ -47,14 +110,14 @@ function sanitizeStableCode(value: unknown): string | undefined {
   return raw;
 }
 
-function sanitizeToolName(value: unknown): string | undefined {
+function sanitizeToolName(value: JsonValue): string | undefined {
   const raw = asString(value);
   if (!raw) return undefined;
   if (!/^[A-Za-z][A-Za-z0-9_./:-]{0,127}$/.test(raw)) return undefined;
   return raw;
 }
 
-function sanitizeReason(value: unknown): string | undefined {
+function sanitizeReason(value: JsonValue): string | undefined {
   const raw = asString(value);
   if (!raw) return undefined;
   const cleaned = sanitizeLogMessage(raw);
@@ -64,123 +127,97 @@ function sanitizeReason(value: unknown): string | undefined {
   return cleaned;
 }
 
+function fieldOrNull(value: JsonValue | undefined): JsonValue {
+  return value === undefined ? null : value;
+}
+
 /**
  * Allowlist + redact Agent lifecycle events before they leave the Pi session seam.
  * Returns null when the event cannot be represented safely.
  */
-export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent | null {
-  if (!isPlainObject(raw)) return null;
+export function sanitizeAgentLifecycleEvent(raw: JsonValue): AgentLifecycleEvent | null {
+  if (!isJsonObject(raw)) return null;
   for (const key of Object.keys(raw)) {
     if (FORBIDDEN_KEY_RE.test(key)) return null;
   }
 
-  const kind = asString(raw.kind);
+  const kind = asString(fieldOrNull(raw.kind));
   if (!kind || !isAgentLifecycleEventKind(kind)) return null;
 
-  const role = asString(raw.role);
-  if (!role || !SESSION_ROLES.has(role as AgentSessionRole)) return null;
-  const typedRole = role as AgentSessionRole;
+  const roleRaw = asString(fieldOrNull(raw.role));
+  if (!roleRaw || !v.is(sessionRoleSchema, roleRaw)) return null;
+  const role: AgentSessionRole = roleRaw;
 
-  const provider = asString(raw.provider);
-  const model = asString(raw.model);
+  const provider = asString(fieldOrNull(raw.provider));
+  const model = asString(fieldOrNull(raw.model));
   if (!provider || !model) return null;
 
-  const phaseRaw = asString(raw.phase);
-  const phase =
-    phaseRaw && SESSION_PHASES.has(phaseRaw as AgentSessionPhase)
-      ? (phaseRaw as AgentSessionPhase)
-      : undefined;
-  const checkpointId = asString(raw.checkpointId);
+  const phaseRaw = asString(fieldOrNull(raw.phase));
+  const phase: AgentSessionPhase | undefined =
+    phaseRaw && v.is(sessionPhaseSchema, phaseRaw) ? phaseRaw : undefined;
+  const checkpointId = asString(fieldOrNull(raw.checkpointId));
 
   switch (kind) {
     case "turn": {
       if (!phase || !checkpointId) return null;
-      return { kind, role: typedRole, phase, checkpointId, provider, model };
+      return { kind, role, phase, checkpointId, provider, model };
     }
     case "tool": {
-      const toolName = sanitizeToolName(raw.toolName);
+      const toolName = sanitizeToolName(fieldOrNull(raw.toolName));
       if (!toolName) return null;
-      return {
-        kind,
-        role: typedRole,
-        ...(phase ? { phase } : {}),
-        ...(checkpointId ? { checkpointId } : {}),
-        toolName,
-        ...(typeof raw.ok === "boolean" ? { ok: raw.ok } : {}),
-        provider,
-        model,
-      };
+      const event: ToolEventDraft = { kind, role, toolName, provider, model };
+      if (phase) event.phase = phase;
+      if (checkpointId) event.checkpointId = checkpointId;
+      const okRaw = raw.ok;
+      if (okRaw !== undefined && isJsonBoolean(okRaw)) event.ok = okRaw;
+      return event;
     }
     case "retry": {
-      const reason = sanitizeReason(raw.reason);
+      const reason = sanitizeReason(fieldOrNull(raw.reason));
       if (!reason) return null;
-      return {
-        kind,
-        role: typedRole,
-        ...(checkpointId ? { checkpointId } : {}),
-        provider,
-        model,
-        ...(asFiniteNumber(raw.attempt) != null ? { attempt: asFiniteNumber(raw.attempt) } : {}),
-        reason,
-      };
+      const event: RetryEventDraft = { kind, role, provider, model, reason };
+      if (checkpointId) event.checkpointId = checkpointId;
+      const attempt = asFiniteNumber(fieldOrNull(raw.attempt));
+      if (attempt !== undefined) event.attempt = attempt;
+      return event;
     }
     case "compaction": {
-      const reason = sanitizeReason(raw.reason);
+      const reason = sanitizeReason(fieldOrNull(raw.reason));
       if (!reason) return null;
-      return { kind, role: typedRole, provider, model, reason };
+      return { kind, role, provider, model, reason };
     }
     case "usage": {
-      return {
-        kind,
-        role: typedRole,
-        ...(phase ? { phase } : {}),
-        provider,
-        model,
-        ...(asFiniteNumber(raw.inputTokens) != null
-          ? { inputTokens: asFiniteNumber(raw.inputTokens) }
-          : {}),
-        ...(asFiniteNumber(raw.outputTokens) != null
-          ? { outputTokens: asFiniteNumber(raw.outputTokens) }
-          : {}),
-        ...(asFiniteNumber(raw.totalTokens) != null
-          ? { totalTokens: asFiniteNumber(raw.totalTokens) }
-          : {}),
-      };
+      const event: UsageEventDraft = { kind, role, provider, model };
+      if (phase) event.phase = phase;
+      const inputTokens = asFiniteNumber(fieldOrNull(raw.inputTokens));
+      if (inputTokens !== undefined) event.inputTokens = inputTokens;
+      const outputTokens = asFiniteNumber(fieldOrNull(raw.outputTokens));
+      if (outputTokens !== undefined) event.outputTokens = outputTokens;
+      const totalTokens = asFiniteNumber(fieldOrNull(raw.totalTokens));
+      if (totalTokens !== undefined) event.totalTokens = totalTokens;
+      return event;
     }
     case "cancellation": {
-      const reason = sanitizeReason(raw.reason) ?? "abort";
-      return { kind, role: typedRole, provider, model, reason };
+      const reason = sanitizeReason(fieldOrNull(raw.reason)) ?? "abort";
+      return { kind, role, provider, model, reason };
     }
     case "completion": {
-      return {
-        kind,
-        role: typedRole,
-        ...(phase ? { phase } : {}),
-        ...(checkpointId ? { checkpointId } : {}),
-        provider,
-        model,
-        ok: true,
-      };
+      const event: CompletionEventDraft = { kind, role, provider, model, ok: true };
+      if (phase) event.phase = phase;
+      if (checkpointId) event.checkpointId = checkpointId;
+      return event;
     }
     case "failure": {
-      const failureCode = sanitizeStableCode(raw.failureCode);
+      const failureCode = sanitizeStableCode(fieldOrNull(raw.failureCode));
       if (!failureCode) return null;
-      return {
-        kind,
-        role: typedRole,
-        ...(phase ? { phase } : {}),
-        ...(checkpointId ? { checkpointId } : {}),
-        provider,
-        model,
-        ok: false,
-        failureCode,
-        ...(sanitizeStableCode(raw.failureDomain)
-          ? { failureDomain: sanitizeStableCode(raw.failureDomain) }
-          : {}),
-        ...(sanitizeStableCode(raw.errorKind)
-          ? { errorKind: sanitizeStableCode(raw.errorKind) }
-          : {}),
-      };
+      const event: FailureEventDraft = { kind, role, provider, model, ok: false, failureCode };
+      if (phase) event.phase = phase;
+      if (checkpointId) event.checkpointId = checkpointId;
+      const failureDomain = sanitizeStableCode(fieldOrNull(raw.failureDomain));
+      if (failureDomain) event.failureDomain = failureDomain;
+      const errorKind = sanitizeStableCode(fieldOrNull(raw.errorKind));
+      if (errorKind) event.errorKind = errorKind;
+      return event;
     }
     default: {
       const _exhaustive: never = kind;
@@ -192,9 +229,11 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
 
 export function createSanitizedEventSink(
   sink: (event: AgentLifecycleEvent) => void,
-): (raw: unknown) => void {
+): (raw: JsonValue) => void {
   return (raw) => {
-    const sanitized = sanitizeAgentLifecycleEvent(raw);
+    const parsed = v.safeParse(jsonValueSchema, raw);
+    if (!parsed.success) return;
+    const sanitized = sanitizeAgentLifecycleEvent(parsed.output);
     if (sanitized) sink(sanitized);
   };
 }

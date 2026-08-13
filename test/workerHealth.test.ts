@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PgBoss } from "pg-boss";
 import {
   collectQueueDiagnostics,
   evaluateWorkerReadiness,
   probeWorkerDependencies,
   startPeriodicQueueDiagnostics,
   WORKER_CONSUMER_QUEUES,
+  type InjectedClearInterval,
+  type InjectedClearTimeout,
+  type InjectedSetInterval,
+  type InjectedSetTimeout,
 } from "../src/agentWork/workerHealth.js";
 import { REVIEW_QUEUE } from "../src/settings/index.js";
 import * as evlog from "../src/evlog.js";
+import { createQueryClient } from "./helpers/fakePool.js";
 
 describe("evaluateWorkerReadiness", () => {
   it("is ready when consumers are registered and dependencies respond", () => {
@@ -52,14 +56,14 @@ describe("evaluateWorkerReadiness", () => {
 describe("probeWorkerDependencies", () => {
   it("times out a hung postgres ping without sleeping the test clock", async () => {
     const timers: Array<{ ms: number; cb: () => void }> = [];
-    const setTimeoutFn = ((cb: () => void, ms?: number) => {
+    const setTimeoutFn: InjectedSetTimeout = (cb, ms) => {
       timers.push({ ms: ms ?? 0, cb });
-      return timers.length as unknown as ReturnType<typeof setTimeout>;
-    }) as typeof setTimeout;
-    const clearTimeoutFn = vi.fn() as unknown as typeof clearTimeout;
+      return timers.length;
+    };
+    const clearTimeoutFn: InjectedClearTimeout = vi.fn((_handle) => undefined);
 
     const pending = probeWorkerDependencies(
-      { query: () => new Promise(() => undefined) } as unknown as Pick<import("pg").Pool, "query">,
+      { query: () => new Promise(() => undefined) },
       { isInstalled: async () => true },
       { pingTimeoutMs: 25, setTimeoutFn, clearTimeoutFn },
     );
@@ -95,12 +99,10 @@ describe("collectQueueDiagnostics", () => {
         createdOn: new Date("2026-07-26T11:59:00.000Z"),
       },
     ]);
-    const pool = {
-      query: vi.fn(async () => ({ rows: [{ age_ms: "45000" }] })),
-    } as unknown as Pick<import("pg").Pool, "query">;
+    const pool = createQueryClient(vi.fn(async () => ({ rows: [{ age_ms: "45000" }] })));
 
     const report = await collectQueueDiagnostics({
-      boss: { getQueueStats, getBlockedKeys, findJobs } as unknown as PgBoss,
+      boss: { getQueueStats, getBlockedKeys, findJobs },
       pool,
       now,
       diagnosticQueues: [REVIEW_QUEUE],
@@ -128,11 +130,11 @@ describe("startPeriodicQueueDiagnostics", () => {
   it("fires ticks on the injected interval without real sleeps", async () => {
     const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     const callbacks: Array<() => void> = [];
-    const setIntervalFn = ((cb: () => void) => {
+    const setIntervalFn: InjectedSetInterval = (cb) => {
       callbacks.push(cb);
-      return 1 as unknown as ReturnType<typeof setInterval>;
-    }) as typeof setInterval;
-    const clearIntervalFn = vi.fn() as unknown as typeof clearInterval;
+      return 1;
+    };
+    const clearIntervalFn: InjectedClearInterval = vi.fn((_handle) => undefined);
     const tick = vi.fn(async () => undefined);
     const now = new Date("2026-07-26T12:00:00.000Z");
 

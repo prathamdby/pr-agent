@@ -26,7 +26,7 @@ export function buildRepositoryViewParams(
   payload: RepositoryViewPayload,
   extra?: Pick<PreparePrRepositoryViewParams, "prFiles">,
 ): PreparePrRepositoryViewParams {
-  return {
+  const params: MutablePreparePrRepositoryViewParams = {
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,
@@ -34,6 +34,11 @@ export function buildRepositoryViewParams(
     gitCredentialAuth: env.gitCredentialAuth,
     pullRequest: env.pullRequest,
     repositorySizeKb: payload.repositorySizeKb,
-    ...(extra?.prFiles !== undefined ? { prFiles: extra.prFiles } : {}),
   };
+  if (extra?.prFiles !== undefined) params.prFiles = extra.prFiles;
+  return params;
 }
+
+type MutablePreparePrRepositoryViewParams = {
+  -readonly [K in keyof PreparePrRepositoryViewParams]: PreparePrRepositoryViewParams[K];
+};

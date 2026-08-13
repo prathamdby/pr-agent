@@ -31,12 +31,53 @@ import type { QueueConfig } from "../../src/agentWork/types.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
 import { makeReviewWorkItem } from "../helpers/agentWorkItems.js";
 import { hasDatabase, integrationPool } from "./db.js";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  parseJsonText,
+  type JsonObject,
+} from "../../src/util/jsonValue.js";
 
 const testFeatures = makeTestConfig().features;
 
 const OWNER = "slash-uniq-it";
 const EVENT = "slash-uniq-it";
 const DATABASE_URL = process.env.DATABASE_URL!;
+
+function parseQueuedJobData(raw: string): JsonObject {
+  const parsed = parseJsonText(raw);
+  if (!isJsonObject(parsed)) {
+    throw new Error("expected pg-boss job data object");
+  }
+  return parsed;
+}
+
+function jobWorkItemId(raw: string): string | undefined {
+  const data = parseQueuedJobData(raw);
+  return isJsonString(data.workItemId) ? data.workItemId : undefined;
+}
+
+function jobMatchesAckResource(
+  raw: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+): boolean {
+  const data = parseQueuedJobData(raw);
+  return (
+    data.owner === owner &&
+    data.repo === repo &&
+    isJsonNumber(data.prNumber) &&
+    data.prNumber === prNumber
+  );
+}
+
+function jobReplyBody(raw: string): string | undefined {
+  const data = parseQueuedJobData(raw);
+  if (!isJsonObject(data.reply)) return undefined;
+  return isJsonString(data.reply.body) ? data.reply.body : undefined;
+}
 const CLEANUP_QUEUES = [
   ACK_QUEUE,
   REVIEW_QUEUE,
@@ -141,26 +182,22 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
 
     const descriptionJobs = await boss.findJobs(DESCRIPTION_QUEUE, {});
     const matching = descriptionJobs.filter(
-      (job) => (job.data as { workItemId?: string }).workItemId === workItems.rows[0]?.id,
+      (job) => jobWorkItemId(JSON.stringify(job.data)) === workItems.rows[0]?.id,
     );
     expect(matching).toHaveLength(1);
 
     const ackJobs = await boss.findJobs(ACK_QUEUE, {});
-    const ackForResource = ackJobs.filter(
-      (job) =>
-        (job.data as { owner?: string; repo?: string; prNumber?: number }).owner === OWNER &&
-        (job.data as { repo?: string }).repo === repo &&
-        (job.data as { prNumber?: number }).prNumber === 77,
+    const ackForResource = ackJobs.filter((job) =>
+      jobMatchesAckResource(JSON.stringify(job.data), OWNER, repo, 77),
     );
     expect(ackForResource.length).toBeGreaterThanOrEqual(1);
     const winnerAcks = ackForResource.filter(
-      (job) => (job.data as { workItemId?: string }).workItemId === workItems.rows[0]?.id,
+      (job) => jobWorkItemId(JSON.stringify(job.data)) === workItems.rows[0]?.id,
     );
-    const loserAcks = ackForResource.filter(
-      (job) =>
-        (job.data as { workItemId?: string }).workItemId == null &&
-        (job.data as { reply?: { body?: string } }).reply?.body?.includes("already"),
-    );
+    const loserAcks = ackForResource.filter((job) => {
+      const raw = JSON.stringify(job.data);
+      return jobWorkItemId(raw) == null && jobReplyBody(raw)?.includes("already") === true;
+    });
     expect(winnerAcks).toHaveLength(1);
     expect(loserAcks.length).toBe(ackForResource.length - 1);
   });
@@ -227,7 +264,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     const reviewJobs = await boss.findJobs(REVIEW_QUEUE, { key: singletonKey });
     const live = reviewJobs.filter((job) => job.state === "created");
     expect(live).toHaveLength(1);
-    expect((live[0]?.data as { workItemId?: string }).workItemId).not.toBe(failedWorkItemId);
+    expect(jobWorkItemId(JSON.stringify(live[0]?.data ?? {}))).not.toBe(failedWorkItemId);
     await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.not.toContain(singletonKey);
   });
 

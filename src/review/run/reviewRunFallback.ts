@@ -9,7 +9,7 @@ import type { ReviewRunSetup } from "./reviewRunSetup.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
-export async function publishReviewRunFailureNotice(params: {
+export type ReviewRunFailureNoticeParams = {
   readonly cfg: Config;
   readonly setup: ReviewRunSetup;
   readonly owner: string;
@@ -18,12 +18,19 @@ export async function publishReviewRunFailureNotice(params: {
   readonly reviewMode: AnyReviewLens;
   readonly publishAttempts: number;
   readonly lastFailure?: ClassifiedFailure;
-}): Promise<void> {
-  logWarn("agent_publish_fallback", {
+};
+
+export async function publishReviewRunFailureNotice(
+  params: ReviewRunFailureNoticeParams,
+): Promise<void> {
+  const meta = {
     mode: params.reviewMode,
     publishAttempts: params.publishAttempts,
-    ...(params.lastFailure != null ? classifiedFailureLogFields(params.lastFailure) : {}),
-  });
+  };
+  if (params.lastFailure != null) {
+    Object.assign(meta, classifiedFailureLogFields(params.lastFailure));
+  }
+  logWarn("agent_publish_fallback", meta);
   const sentinel = REVIEW_SUMMARY_SENTINEL;
   try {
     await params.setup.prSurface.upsertProgressComment(

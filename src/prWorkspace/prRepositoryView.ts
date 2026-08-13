@@ -8,6 +8,7 @@ import {
   type ListPullRequestFilesResult,
   type PullRequestForFileList,
 } from "../github/listPullRequestFiles.js";
+import { nonErrorThrown } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import {
   PR_REPOSITORY_VIEW_RELEASE_GRACE_MS,
@@ -60,7 +61,7 @@ function cancelReleaseTimer(entry: CacheEntry): void {
 }
 
 function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
-  if (typeof timer === "object" && "unref" in timer) {
+  if (timer instanceof Object && "unref" in timer) {
     timer.unref();
   }
 }
@@ -171,13 +172,17 @@ async function releasePrRepositoryView(
     cache.delete(key);
     entry.view = null;
     entry.prepare = null;
-    void view.cleanup().catch((error: unknown) => {
+    void view.cleanup().catch((error) => {
+      const err =
+        error instanceof Error
+          ? error
+          : nonErrorThrown("pr_workspace.repository_view_cleanup_non_error_thrown");
       logWarn("pr_repository_view_cleanup_failed", {
         owner: params.owner,
         repo: params.repo,
         pr: params.prNumber,
         headSha: params.headSha,
-        message: error instanceof Error ? error.message : String(error),
+        message: err.message,
       });
     });
   }, PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);

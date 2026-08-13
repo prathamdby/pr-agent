@@ -2,12 +2,14 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { Config } from "../../config.js";
-import { AppError } from "../../errors/appError.js";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
+import { AppError, nonErrorThrown } from "../../errors/appError.js";
 import { logInfo, logWarn, logDebug } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { publishReview } from "./publishReview.js";
 import { createAgentCiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 import { prepareReviewPayloadForPublish } from "../findings/findingPipeline.js";
 import {
   PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
@@ -42,9 +44,9 @@ export type SubmitReviewState = {
 };
 
 const SUBMIT_REVIEW_SCHEMA = createReviewPayloadSchema();
-const SUBMIT_REVIEW_PARAMETERS = toJsonSchema(SUBMIT_REVIEW_SCHEMA, {
+const SUBMIT_REVIEW_PARAMETERS: PiTool["parameters"] = toJsonSchema(SUBMIT_REVIEW_SCHEMA, {
   errorMode: "ignore",
-}) as PiTool["parameters"];
+});
 
 export function createSubmitReviewState(initial?: {
   readonly published?: boolean;
@@ -62,6 +64,11 @@ export function createSubmitReviewState(initial?: {
   };
 }
 
+export type SubmitReviewTool = {
+  readonly piTool: PiTool;
+  readonly executor: AgentRunnerToolExecutor;
+};
+
 export function buildSubmitReviewTool(params: {
   cfg: Config;
   prSurface: PrSurface;
@@ -74,7 +81,7 @@ export function buildSubmitReviewTool(params: {
   progressCommentIdHint?: number | null;
   recordPublishStep?: (
     step: "inline_review" | "summary_comment" | "labels",
-    detail?: { githubId?: string | number; meta?: Record<string, unknown> },
+    detail?: { githubId?: string | number; meta?: JsonObject },
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
@@ -85,11 +92,10 @@ export function buildSubmitReviewTool(params: {
   evidenceLedger?: EvidenceLedger;
   checkoutCoverage?: CheckoutCoverage;
   isPathInCheckout?: (path: string) => boolean;
-}): {
-  piTool: PiTool;
-  executor: (args: Record<string, unknown>) => Promise<unknown>;
-} {
+  maxReviewPublishCalls?: number;
+}): SubmitReviewTool {
   const mode = params.mode ?? "review";
+  const maxReviewPublishCalls = params.maxReviewPublishCalls ?? MAX_REVIEW_PUBLISH_CALLS;
 
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const piTool: PiTool = {
@@ -103,7 +109,7 @@ export function buildSubmitReviewTool(params: {
     parameters: SUBMIT_REVIEW_PARAMETERS,
   };
 
-  const executor = async (args: Record<string, unknown>) => {
+  const executor: AgentRunnerToolExecutor = async (args) => {
     if (params.state.published) {
       logDebug("review_submit_duplicate_ignored", {
         mode,
@@ -247,7 +253,7 @@ export function buildSubmitReviewTool(params: {
       }
     }
 
-    if (params.state.publishCallCount >= MAX_REVIEW_PUBLISH_CALLS) {
+    if (params.state.publishCallCount >= maxReviewPublishCalls) {
       params.state.publishCallsExhausted = true;
       throw new AppError({
         code: "review.publish_exhausted",
@@ -280,15 +286,16 @@ export function buildSubmitReviewTool(params: {
         ciSummaryAuthor: createAgentCiSummaryAuthor(params.cfg),
       });
     } catch (e) {
+      const err = e instanceof Error ? e : nonErrorThrown("review.publish_failed");
       logWarn("review_publish_failed", {
         mode,
         owner: params.ctx.owner,
         repo: params.ctx.repo,
         pr: params.ctx.prNumber,
-        message: e instanceof Error ? e.message : String(e),
+        message: err.message,
         publishCallCount: params.state.publishCallCount,
       });
-      if (params.state.publishCallCount >= MAX_REVIEW_PUBLISH_CALLS) {
+      if (params.state.publishCallCount >= maxReviewPublishCalls) {
         params.state.publishCallsExhausted = true;
       }
       throw new AppError({
@@ -298,7 +305,7 @@ export function buildSubmitReviewTool(params: {
         message: params.state.publishCallsExhausted
           ? PUBLISH_BUDGET_EXHAUSTED_MESSAGE
           : "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
-        cause: e,
+        cause: err,
       });
     }
 

@@ -9,12 +9,13 @@ import {
   createSubmitVerificationState,
   type SubmitVerificationState,
 } from "./submitVerificationTool.js";
+import type { AgentRunnerToolExecutorMap } from "../providers/interface.js";
 
 export type VerificationRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
   readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly executors: AgentRunnerToolExecutorMap;
   readonly submitState: SubmitVerificationState;
 };
 

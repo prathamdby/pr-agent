@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
-import type { TriageJobData } from "../src/agentWork/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
+import { PgBoss } from "pg-boss";
+import type { JobWithMetadata } from "pg-boss";
+import type { TriageJobData, TriageWorkItem, TriageWorkPayload } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_FAILURE_MESSAGE,
@@ -12,89 +12,78 @@ import { makeTestConfig } from "./helpers/config.js";
 import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
+  makeDurableJobMetadata,
   resetDurablePrSurface,
 } from "./helpers/executorDurableHarness.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
-
-const mocks = vi.hoisted(() => ({
-  runDurableWorkItem: vi.fn(),
-  getAppBotIdentity: vi.fn(),
-  withWritablePrCheckout: vi.fn(),
-  runFullPrTriage: vi.fn(),
-  parseStoredTriagePushDetail: vi.fn(),
-  publishTriage: vi.fn(),
-  publishTriageReportOnly: vi.fn(),
-  getCompletedPublishStepDetail: vi.fn(),
-  getCompletedPublishStepDetailWithoutNewerStep: vi.fn(),
-  hasCompletedPublishStep: vi.fn(),
-  listTriageEligibleInlineReviews: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
-  return { ...actual, runDurableWorkItem: mocks.runDurableWorkItem };
-});
-
-vi.mock("../src/github/appAuth.js", () => ({
-  getAppBotIdentity: mocks.getAppBotIdentity,
-}));
-
-vi.mock("../src/github/reviewThreadResolution.js", () => ({
-  warnReviewThreadResolutionDegraded: vi.fn(),
-}));
-
-vi.mock("../src/prWorkspace/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/prWorkspace/index.js")>();
-  return {
-    ...actual,
-    withWritablePrCheckout: mocks.withWritablePrCheckout,
-  };
-});
-
-vi.mock("../src/agent/triage/triageRun.js", () => ({
-  runFullPrTriage: mocks.runFullPrTriage,
-}));
-
-vi.mock("../src/agent/triage/publishTriage.js", () => ({
-  parseStoredTriagePushDetail: mocks.parseStoredTriagePushDetail,
-  publishTriage: mocks.publishTriage,
-  publishTriageReportOnly: mocks.publishTriageReportOnly,
-}));
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
-  getCompletedPublishStepDetailWithoutNewerStep:
-    mocks.getCompletedPublishStepDetailWithoutNewerStep,
-  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
-  listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
-}));
-
+import { resetCreatePrSurface, setCreatePrSurface } from "../src/github/prSurface.js";
 import { executeTriageJob } from "../src/agentWork/executors/triageExecutor.js";
 import { makeTriageWorkItem } from "./helpers/agentWorkItems.js";
+import * as durableJob from "../src/agentWork/durableJob.js";
+import * as appAuth from "../src/github/appAuth.js";
+import * as reviewThreadResolution from "../src/github/reviewThreadResolution.js";
+import * as prWorkspace from "../src/prWorkspace/index.js";
+import * as triageRun from "../src/agent/triage/triageRun.js";
+import * as publishTriage from "../src/agent/triage/publishTriage.js";
+import * as repo from "../src/agentWork/repository.js";
+import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
+import type { TriageRunResult } from "../src/agent/triage/triageRun.js";
+import { assistantFromText } from "../src/agentRun/sessionHelpers.js";
 
 const cfg = makeTestConfig();
-const pool = {} as Pool;
-const boss = {} as PgBoss;
+const pool = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
+const boss = new PgBoss({ connectionString: "postgres://127.0.0.1:1/unused" });
 
-function item(overrides: Parameters<typeof makeTriageWorkItem>[0] = {}) {
+type TriageItemOverrides = Omit<
+  Partial<TriageWorkItem>,
+  "type" | "payload" | "reviewLens" | "source"
+> & {
+  payload?: Partial<TriageWorkPayload>;
+};
+
+function fakeCheckout(): WritablePrCheckout {
+  return {
+    dir: "/tmp/checkout",
+    headRef: "branch",
+    baseSha: "a".repeat(40),
+    commit: vi.fn(),
+    push: vi.fn(),
+    listCommittedShas: () => [],
+    listCommittedDetails: () => [],
+  };
+}
+
+function triageResult(overrides: Partial<TriageRunResult> = {}): TriageRunResult {
+  return {
+    submitted: true,
+    payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "later" }] },
+    lastAssistant: assistantFromText(cfg, "", cfg.piProvider),
+    commitByThreadRootCommentId: new Map(),
+    ...overrides,
+  };
+}
+
+function item(overrides: TriageItemOverrides = {}) {
   return makeTriageWorkItem({ headSha: "head", ...overrides });
 }
 
 function job(): JobWithMetadata<TriageJobData> {
   return {
+    ...makeDurableJobMetadata("wi-1"),
+    name: "agent-work-triage",
     data: { kind: "triage", workItemId: "wi-1" },
-  } as JobWithMetadata<TriageJobData>;
+  };
 }
 
 function mockDurableExecution(workItem = item()): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) =>
-    spec.execute(workItem, {
+  vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+    if (spec.type !== "triage") return;
+    await spec.execute(workItem, {
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       executionEpoch: 1,
       signal: new AbortController().signal,
-    }),
-  );
+    });
+  });
 }
 
 function configureDefaultThreads(
@@ -105,12 +94,28 @@ function configureDefaultThreads(
 
 describe("executeTriageJob", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     resetDurablePrSurface();
-    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
+    setCreatePrSurface(() => fakeDurablePrSurface());
+    vi.spyOn(durableJob, "runDurableWorkItem");
     mockDurableExecution();
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 999,
+      login: "pr-agent[bot]",
+    });
+    vi.spyOn(reviewThreadResolution, "warnReviewThreadResolutionDegraded").mockImplementation(
+      () => undefined,
+    );
+    vi.spyOn(prWorkspace, "withWritablePrCheckout").mockImplementation(async (_params, run) =>
+      run(fakeCheckout()),
+    );
+    vi.spyOn(triageRun, "runFullPrTriage").mockResolvedValue(triageResult());
+    vi.spyOn(publishTriage, "publishTriage").mockResolvedValue({ degraded: false });
+    vi.spyOn(publishTriage, "publishTriageReportOnly").mockResolvedValue(undefined);
+    vi.spyOn(repo, "getCompletedPublishStepDetail").mockResolvedValue(null);
+    vi.spyOn(repo, "getCompletedPublishStepDetailWithoutNewerStep").mockResolvedValue(null);
+    vi.spyOn(repo, "hasCompletedPublishStep").mockResolvedValue(false);
+    vi.spyOn(repo, "listTriageEligibleInlineReviews").mockResolvedValue(new Map());
     configureDefaultThreads([[1, { threadNodeId: "node", isResolved: false }]]);
-    mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
     durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 1,
@@ -123,34 +128,6 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/thread",
       },
     ]);
-    mocks.withWritablePrCheckout.mockImplementation(async (_params, run) =>
-      run({
-        dir: "/tmp/checkout",
-        headRef: "branch",
-        baseSha: "a".repeat(40),
-        commit: vi.fn(),
-        push: vi.fn(),
-        listCommittedShas: () => [],
-        listCommittedDetails: () => [],
-      }),
-    );
-    mocks.runFullPrTriage.mockResolvedValue({
-      submitted: true,
-      payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "later" }] },
-    });
-    mocks.parseStoredTriagePushDetail.mockImplementation((detail) => ({
-      payload: detail.payload,
-      commits: detail.commits,
-      pushed: detail.staleHead !== true,
-      degraded: detail.staleHead === true,
-      pushedHeadSha: detail.pushedHeadSha,
-    }));
-    mocks.publishTriage.mockResolvedValue({ degraded: false });
-    mocks.publishTriageReportOnly.mockResolvedValue(undefined);
-    mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
-    mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     durablePrSurfaceControls().setReviewCommentParentGraph([]);
     durablePrSurfaceControls().setGithubUser(42, {
       id: 42,
@@ -161,12 +138,17 @@ describe("executeTriageJob", () => {
     });
   });
 
+  afterEach(() => {
+    resetCreatePrSurface();
+    vi.restoreAllMocks();
+  });
+
   it("runs triage and publishes", async () => {
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalled();
+    expect(triageRun.runFullPrTriage).toHaveBeenCalled();
+    expect(publishTriage.publishTriage).toHaveBeenCalled();
   });
 
   it("passes human commit attribution when commenter resolves", async () => {
@@ -189,7 +171,7 @@ describe("executeTriageJob", () => {
         (event) => event.kind === "lookupGitHubUser" && event.userId === 42,
       ),
     ).toBe(true);
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         commitAttribution: expect.objectContaining({
           source: "human",
@@ -227,7 +209,7 @@ describe("executeTriageJob", () => {
     expect(
       durablePrSurfaceControls().events.some((event) => event.kind === "lookupGitHubUser"),
     ).toBe(false);
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         commitAttribution: expect.objectContaining({
           source: "app",
@@ -254,7 +236,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         commitAttribution: expect.objectContaining({
           source: "app",
@@ -270,8 +252,8 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.publishTriageReportOnly).toHaveBeenCalled();
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(vi.mocked(publishTriage.publishTriageReportOnly)).toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
   it("reports already-resolved threads without implying no review ran", async () => {
@@ -279,25 +261,27 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+    expect(vi.mocked(publishTriage.publishTriageReportOnly)).toHaveBeenCalledWith(
       expect.objectContaining({
         inventory: [],
         previouslyResolvedCount: 1,
         body: expect.stringContaining(TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED),
       }),
     );
-    expect(mocks.publishTriageReportOnly.mock.calls[0]?.[0].body).toContain("Inventory items: 1");
-    expect(mocks.publishTriageReportOnly.mock.calls[0]?.[0].body).toContain(
+    expect(vi.mocked(publishTriage.publishTriageReportOnly).mock.calls[0]?.[0].body).toContain(
+      "Inventory items: 1",
+    );
+    expect(vi.mocked(publishTriage.publishTriageReportOnly).mock.calls[0]?.[0].body).toContain(
       "Previously resolved: 1",
     );
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
   it("resumes publish from stored push detail without rerunning agent", async () => {
     const payload = {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
     };
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    vi.mocked(repo.getCompletedPublishStepDetail).mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -306,9 +290,9 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
+    expect(prWorkspace.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(triageRun.runFullPrTriage).not.toHaveBeenCalled();
+    expect(publishTriage.publishTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         payload,
         priorPush: expect.objectContaining({ pushed: true, degraded: false }),
@@ -317,7 +301,7 @@ describe("executeTriageJob", () => {
   });
 
   it("runs a fresh agent pass when same-work-item push detail is stale", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    vi.mocked(repo.getCompletedPublishStepDetail).mockResolvedValue({
       staleHead: true,
       attemptedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
@@ -328,12 +312,12 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalled();
+    expect(triageRun.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("runs a fresh agent pass when same-work-item push detail has stale head", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    vi.mocked(repo.getCompletedPublishStepDetail).mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "b".repeat(40),
@@ -344,15 +328,15 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalled();
+    expect(triageRun.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("resumes latest unreported push from a prior triage work item", async () => {
     const payload = {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
     };
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+    vi.mocked(repo.getCompletedPublishStepDetailWithoutNewerStep).mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -361,9 +345,9 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
+    expect(prWorkspace.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(triageRun.runFullPrTriage).not.toHaveBeenCalled();
+    expect(publishTriage.publishTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         payload,
         priorPush: expect.objectContaining({ pushed: true, degraded: false }),
@@ -398,7 +382,7 @@ describe("executeTriageJob", () => {
       [1, { threadNodeId: "node-1", isResolved: false }],
       [2, { threadNodeId: "node-2", isResolved: false }],
     ]);
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+    vi.mocked(repo.getCompletedPublishStepDetailWithoutNewerStep).mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -409,12 +393,12 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalled();
+    expect(triageRun.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("runs a fresh agent pass when cross-work-item push detail has extra verdicts", async () => {
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+    vi.mocked(repo.getCompletedPublishStepDetailWithoutNewerStep).mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -428,8 +412,8 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).toHaveBeenCalled();
+    expect(triageRun.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("filters inventory to one thread when scope is thread", async () => {
@@ -482,7 +466,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
+    expect(triageRun.runFullPrTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         inventory: [expect.objectContaining({ rootCommentId: 1 })],
         scope: "thread",
@@ -527,7 +511,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
+    expect(triageRun.runFullPrTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         inventory: [expect.objectContaining({ rootCommentId: 9 })],
         scope: "thread",
@@ -567,12 +551,12 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+    expect(vi.mocked(publishTriage.publishTriageReportOnly)).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(TRIAGE_THREAD_NOT_ELIGIBLE),
       }),
     );
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
   it("reports already-resolved scoped thread without calling it ineligible", async () => {
@@ -612,15 +596,15 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+    expect(vi.mocked(publishTriage.publishTriageReportOnly)).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED),
       }),
     );
-    expect(mocks.publishTriageReportOnly.mock.calls[0]?.[0].body).not.toContain(
+    expect(vi.mocked(publishTriage.publishTriageReportOnly).mock.calls[0]?.[0].body).not.toContain(
       TRIAGE_THREAD_NOT_ELIGIBLE,
     );
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
   it("does not fall back to full PR triage when thread scope lacks an anchor", async () => {
@@ -656,16 +640,17 @@ describe("executeTriageJob", () => {
     expect(
       durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
     ).toBe(false);
-    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+    expect(vi.mocked(publishTriage.publishTriageReportOnly)).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(TRIAGE_THREAD_NOT_ELIGIBLE),
       }),
     );
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(prWorkspace.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
   it("posts terminal failure comment when no report exists", async () => {
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
+    vi.mocked(durableJob.runDurableWorkItem).mockImplementation(async (spec) => {
+      if (spec.type !== "triage") return;
       await spec.onTerminalFailure?.(item(), fakeDurablePrSurface(), new Error("boom"));
     });
 

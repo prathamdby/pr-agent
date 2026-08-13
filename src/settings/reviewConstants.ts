@@ -89,9 +89,7 @@ export const MAX_AGENT_INSTRUCTION_BYTES = 64 * 1024;
 export const MAX_AGENT_INSTRUCTION_FILE_BYTES = 32 * 1024;
 
 /** Risk path hints for trusted review context (prompt guidance). */
-export const REVIEW_RISK_PATH_PATTERNS: Readonly<
-  Record<"auth" | "migration" | "config" | "security" | "test", readonly RegExp[]>
-> = {
+export const REVIEW_RISK_PATH_PATTERNS = {
   auth: [/(^|\/)auth(?:\/|$)/i, /(^|\/)login(?:\/|$)/i, /(^|\/)session(?:\/|$)/i],
   migration: [/(^|\/)migrations?\//i, /\.sql$/i],
   config: [
@@ -103,7 +101,7 @@ export const REVIEW_RISK_PATH_PATTERNS: Readonly<
   ],
   security: [/(^|\/)security(?:\/|$)/i, /(^|\/)crypto(?:\/|$)/i, /(^|\/)secrets?\//i],
   test: [/(^|\/)test(?:s)?\//i, /\.test\.[a-z]+$/i, /\.spec\.[a-z]+$/i],
-};
+} satisfies Record<"auth" | "migration" | "config" | "security" | "test", readonly RegExp[]>;
 
 export const MAX_REVIEW_FOLLOW_UPS = 5;
 

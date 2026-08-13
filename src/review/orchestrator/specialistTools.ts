@@ -37,10 +37,7 @@ export function buildSpecialistSessionTools(
     readonly piTool: PiTool;
     readonly executor: AgentRunnerToolExecutor;
   },
-): {
-  readonly piTools: readonly PiTool[];
-  readonly executors: Record<string, AgentRunnerToolExecutor>;
-} {
+): SpecialistWorkspaceTools {
   if (submit.piTool.name !== SUBMIT_FINDINGS_REPORT_NAME) {
     throw new AppError({
       code: "review.submit_tool_mismatch",

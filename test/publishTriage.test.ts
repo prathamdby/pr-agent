@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
@@ -10,28 +10,39 @@ import {
   resolveThreadIds,
   upsertProgressBody,
 } from "./helpers/publishPrSurface.js";
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  recordPublishStep: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
-  return {
-    ...actual,
-    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
-    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
-  };
-});
-
-vi.mock("../src/agentWork/triageAnalytics.js", () => ({
-  captureTriageEvent: vi.fn(),
-  captureTriageFailure: vi.fn(),
-}));
-
 import { publishTriage, publishTriageReportOnly } from "../src/agent/triage/publishTriage.js";
 import { TRIAGE_SUMMARY_SENTINEL } from "../src/settings/index.js";
+import * as repo from "../src/agentWork/repository.js";
+import * as workItemState from "../src/agentWork/workItemStateRepository.js";
+import * as triageAnalytics from "../src/agentWork/triageAnalytics.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
+import type { QueryResult, QueryResultRow } from "pg";
+
+function unusedQueryResult(rows: QueryResultRow[]): QueryResult {
+  return {
+    rows,
+    command: "SELECT",
+    rowCount: rows.length,
+    oid: 0,
+    fields: [],
+  };
+}
+
+function pool(detail?: JsonValue): Pool {
+  const client = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
+  vi.spyOn(client, "query").mockImplementation(async () =>
+    unusedQueryResult(detail === undefined ? [] : [{ detail }]),
+  );
+  return client;
+}
+
+function poolWithPriorRunActedIds(): Pool {
+  const client = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
+  vi.spyOn(client, "query").mockImplementation(async (_sql, args?: readonly JsonValue[]) =>
+    unusedQueryResult(args?.[0] === "wi" ? [] : [{ detail: { actedThreadIds: [1] } }]),
+  );
+  return client;
+}
 
 const thread = {
   rootCommentId: 1,
@@ -71,26 +82,20 @@ function emptyCheckout(push: () => Promise<void>): WritablePrCheckout {
   };
 }
 
-function pool(detail?: unknown): Pool {
-  return {
-    query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
-  } as unknown as Pool;
-}
-
-function poolWithPriorRunActedIds(): Pool {
-  return {
-    query: vi.fn(async (_sql, args: readonly unknown[]) => ({
-      rows: args[0] === "wi" ? [] : [{ detail: { actedThreadIds: [1] } }],
-    })),
-  } as unknown as Pool;
-}
-
 describe("publishTriage", () => {
   let controls: import("../src/github/fakePrSurface.js").FakePrSurfaceControls;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.spyOn(repo, "recordPublishStep").mockResolvedValue(undefined);
+    vi.spyOn(workItemState, "assertCurrentExecutionEpoch").mockResolvedValue(undefined);
+    vi.spyOn(workItemState, "isExecutionEpochCurrent").mockResolvedValue(true);
+    vi.spyOn(triageAnalytics, "captureTriageEvent").mockImplementation(() => undefined);
+    vi.spyOn(triageAnalytics, "captureTriageFailure").mockImplementation(() => undefined);
     controls = publishTestPrSurface().controls;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("posts no thread replies when push is stale", async () => {

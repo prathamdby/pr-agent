@@ -8,7 +8,8 @@ import {
   type GithubErrorKind,
 } from "../github/githubErrors.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { isAppError } from "./appError.js";
+import type { JsonObject } from "../util/jsonValue.js";
+import { AppError } from "./appError.js";
 
 export type FailureDomain = "provider" | "github" | "internal" | "unknown";
 
@@ -34,6 +35,23 @@ export type ClassifiedFailure = {
   readonly errorCount?: number;
 };
 
+type MutableClassifiedFailure = {
+  -readonly [K in keyof ClassifiedFailure]: ClassifiedFailure[K];
+};
+
+type ClassifiedFailurePostHogProperties = {
+  failure_domain: FailureDomain;
+  error_kind: ClassifiedErrorKind;
+  error_message: string;
+  error_code?: string;
+  phase?: string;
+  tool_name?: string;
+  provider?: string;
+  model?: string;
+  cause_chain?: readonly string[];
+  error_count?: number;
+};
+
 export type ClassifyFailureHints = {
   readonly domain?: FailureDomain;
   readonly phase?: string;
@@ -46,43 +64,35 @@ export type ClassifyFailureHints = {
 
 const MAX_CAUSE_CHAIN = 5;
 
-function rawMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string") return error;
-  try {
-    return JSON.stringify(error) ?? String(error);
-  } catch {
-    return String(error);
-  }
-}
-
-function collectCauseChain(error: unknown): string[] {
+function collectCauseChain(error: Error): string[] {
   const out: string[] = [];
-  let current: unknown = error instanceof Error ? error.cause : undefined;
-  while (current != null && out.length < MAX_CAUSE_CHAIN) {
-    const msg = sanitizeLogMessage(rawMessage(current));
+  let current = error.cause instanceof Error ? error.cause : undefined;
+  while (current !== undefined && out.length < MAX_CAUSE_CHAIN) {
+    const msg = sanitizeLogMessage(current.message);
     if (msg.length > 0) out.push(msg);
-    current = current instanceof Error ? current.cause : undefined;
+    current = current.cause instanceof Error ? current.cause : undefined;
   }
   return out;
 }
 
-function walkErrors(error: unknown): unknown[] {
-  const out: unknown[] = [];
-  let current: unknown = error;
+function walkErrors(error: Error): Error[] {
+  const out: Error[] = [];
+  let current: Error | undefined = error;
   let depth = 0;
-  while (current != null && depth < MAX_CAUSE_CHAIN + 1) {
+  while (current !== undefined && depth < MAX_CAUSE_CHAIN + 1) {
     out.push(current);
-    current = current instanceof Error ? current.cause : undefined;
+    current = current.cause instanceof Error ? current.cause : undefined;
     depth += 1;
   }
   return out;
 }
 
-function classifyFromErrorChain(error: unknown): {
-  domain: FailureDomain;
-  kind: ClassifiedErrorKind;
-} {
+type ErrorChainClassification = {
+  readonly domain: FailureDomain;
+  readonly kind: ClassifiedErrorKind;
+};
+
+function classifyFromErrorChain(error: Error): ErrorChainClassification {
   const nodes = walkErrors(error);
   for (const node of nodes) {
     if (looksLikeGithubError(node)) {
@@ -94,7 +104,7 @@ function classifyFromErrorChain(error: unknown): {
     const kind = classifyProviderError(node);
     if (kind !== "unknown") return { domain: "provider", kind };
   }
-  if (isAppError(error)) {
+  if (error instanceof AppError) {
     const code = error.code;
     if (code.startsWith("review.") && /validation/.test(code)) {
       return { domain: "internal", kind: "validation" };
@@ -112,7 +122,7 @@ function classifyFromErrorChain(error: unknown): {
  * Precedence: lifecycle hint → explicit domain hint → GitHub-shaped (incl. cause)
  * → provider → AppError/internal → unknown.
  */
-export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): ClassifiedFailure {
+export function classifyFailure(error: Error, hints?: ClassifyFailureHints): ClassifiedFailure {
   if (hints?.lifecycle === "superseded") {
     return finalize(error, "internal", "superseded", hints);
   }
@@ -141,52 +151,55 @@ export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): C
 }
 
 function finalize(
-  error: unknown,
+  error: Error,
   failureDomain: FailureDomain,
   errorKind: ClassifiedErrorKind,
   hints?: ClassifyFailureHints,
 ): ClassifiedFailure {
   const causeChain = collectCauseChain(error);
-  return {
+  const result: ClassifiedFailure = {
     failureDomain,
     errorKind,
-    ...(isAppError(error) ? { errorCode: error.code } : {}),
-    errorMessage: sanitizeLogMessage(rawMessage(error)),
-    ...(hints?.phase != null ? { phase: hints.phase } : {}),
-    ...(hints?.toolName != null ? { toolName: hints.toolName } : {}),
-    ...(hints?.provider != null ? { provider: hints.provider } : {}),
-    ...(hints?.model != null ? { model: hints.model } : {}),
-    ...(causeChain.length > 0 ? { causeChain } : {}),
-    ...(hints?.errorCount != null ? { errorCount: hints.errorCount } : {}),
+    errorMessage: sanitizeLogMessage(error.message),
   };
+  const withCode = error instanceof AppError ? { ...result, errorCode: error.code } : result;
+  const withPhase = hints?.phase != null ? { ...withCode, phase: hints.phase } : withCode;
+  const withTool = hints?.toolName != null ? { ...withPhase, toolName: hints.toolName } : withPhase;
+  const withProvider =
+    hints?.provider != null ? { ...withTool, provider: hints.provider } : withTool;
+  const withModel = hints?.model != null ? { ...withProvider, model: hints.model } : withProvider;
+  const withChain = causeChain.length > 0 ? { ...withModel, causeChain } : withModel;
+  return hints?.errorCount != null ? { ...withChain, errorCount: hints.errorCount } : withChain;
 }
 
-export function classifiedFailureLogFields(f: ClassifiedFailure): Record<string, unknown> {
-  return {
+export function classifiedFailureLogFields(f: ClassifiedFailure): JsonObject {
+  const fields: MutableClassifiedFailure = {
     failureDomain: f.failureDomain,
     errorKind: f.errorKind,
     errorMessage: f.errorMessage,
-    ...(f.errorCode != null ? { errorCode: f.errorCode } : {}),
-    ...(f.phase != null ? { phase: f.phase } : {}),
-    ...(f.toolName != null ? { toolName: f.toolName } : {}),
-    ...(f.provider != null ? { provider: f.provider } : {}),
-    ...(f.model != null ? { model: f.model } : {}),
-    ...(f.causeChain != null ? { causeChain: f.causeChain } : {}),
-    ...(f.errorCount != null ? { errorCount: f.errorCount } : {}),
   };
+  if (f.errorCode != null) fields.errorCode = f.errorCode;
+  if (f.phase != null) fields.phase = f.phase;
+  if (f.toolName != null) fields.toolName = f.toolName;
+  if (f.provider != null) fields.provider = f.provider;
+  if (f.model != null) fields.model = f.model;
+  if (f.causeChain != null) fields.causeChain = f.causeChain;
+  if (f.errorCount != null) fields.errorCount = f.errorCount;
+  return fields;
 }
 
-export function classifiedFailurePostHogProperties(f: ClassifiedFailure): Record<string, unknown> {
-  return {
+export function classifiedFailurePostHogProperties(f: ClassifiedFailure): JsonObject {
+  const fields: ClassifiedFailurePostHogProperties = {
     failure_domain: f.failureDomain,
     error_kind: f.errorKind,
     error_message: f.errorMessage,
-    ...(f.errorCode != null ? { error_code: f.errorCode } : {}),
-    ...(f.phase != null ? { phase: f.phase } : {}),
-    ...(f.toolName != null ? { tool_name: f.toolName } : {}),
-    ...(f.provider != null ? { provider: f.provider } : {}),
-    ...(f.model != null ? { model: f.model } : {}),
-    ...(f.causeChain != null ? { cause_chain: f.causeChain } : {}),
-    ...(f.errorCount != null ? { error_count: f.errorCount } : {}),
   };
+  if (f.errorCode != null) fields.error_code = f.errorCode;
+  if (f.phase != null) fields.phase = f.phase;
+  if (f.toolName != null) fields.tool_name = f.toolName;
+  if (f.provider != null) fields.provider = f.provider;
+  if (f.model != null) fields.model = f.model;
+  if (f.causeChain != null) fields.cause_chain = f.causeChain;
+  if (f.errorCount != null) fields.error_count = f.errorCount;
+  return fields;
 }

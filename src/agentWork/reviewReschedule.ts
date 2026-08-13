@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
-import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { IntakeClient, IntakePool } from "../db/postgres.js";
+import type { JobQueue } from "./intake/queueing.js";
 import { inTransaction, pgBossDb } from "../db/postgres.js";
-import { AppError, isAppError } from "../errors/appError.js";
+import { AppError, isAppError, nonErrorThrown } from "../errors/appError.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
@@ -24,9 +24,9 @@ export const STALE_HEAD_REPLACEMENT_EXHAUSTED = "review.stale_head_replacement_e
 export type StaleReviewRescheduleResult = {
   readonly rescheduled: true;
   readonly replacementWorkItemId: string;
-  readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+  readonly afterComplete: (boss: JobQueue, activePgBossJobId: string) => Promise<void>;
   /** Cancel a persisted-but-not-enqueued replacement when the parent fails terminally. */
-  readonly onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
+  readonly onRescheduleAbort: (boss: JobQueue, error: Error) => Promise<void>;
 };
 
 type ReviewRescheduleWorkItem = {
@@ -34,11 +34,11 @@ type ReviewRescheduleWorkItem = {
   readonly headSha: string;
 };
 
-export function isStaleHeadParentNotReschedulable(error: unknown): boolean {
+export function isStaleHeadParentNotReschedulable(error: Error): boolean {
   return isAppError(error) && error.code === STALE_HEAD_PARENT_NOT_RESCHEDULABLE;
 }
 
-export function isStaleHeadReplacementExhausted(error: unknown): boolean {
+export function isStaleHeadReplacementExhausted(error: Error): boolean {
   return isAppError(error) && error.code === STALE_HEAD_REPLACEMENT_EXHAUSTED;
 }
 
@@ -57,11 +57,11 @@ export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppErr
  * No-ops when enqueue succeeded in this attempt or a replacement review job is live.
  */
 export async function cancelUnenqueuedStaleHeadReplacement(
-  pool: Pool,
-  boss: PgBoss,
+  pool: IntakePool,
+  boss: JobQueue,
   parent: ReviewWorkItem,
   replacementWorkItemId: string,
-  error: unknown,
+  error: Error,
   replacementEnqueued: boolean,
 ): Promise<void> {
   if (replacementEnqueued) return;
@@ -76,13 +76,15 @@ export async function cancelUnenqueuedStaleHeadReplacement(
       });
     }
   } catch (cancelError) {
+    const err =
+      cancelError instanceof Error
+        ? cancelError
+        : nonErrorThrown("agent_work.replacement_cancel_non_error_thrown");
     logWarn("agent_work_replacement_cancel_failed", {
       type: "review",
       workItemId: parent.id,
       replacementWorkItemId,
-      message: sanitizeLogMessage(
-        cancelError instanceof Error ? cancelError.message : String(cancelError),
-      ),
+      message: sanitizeLogMessage(err.message),
     });
   }
 }
@@ -94,10 +96,10 @@ export async function cancelUnenqueuedStaleHeadReplacement(
  * before `execute` returns a reschedule result, so the abort hook never attaches.
  */
 export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-  pool: Pool,
-  boss: PgBoss,
+  pool: IntakePool,
+  boss: JobQueue,
   parent: ReviewWorkItem,
-  error: unknown,
+  error: Error,
 ): Promise<void> {
   const replacementWorkItemId = parent.payload.staleHeadReplacementWorkItemId;
   if (!replacementWorkItemId) return;
@@ -112,7 +114,7 @@ export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
 }
 
 export async function buildStaleReviewRescheduleResult(
-  pool: Pool,
+  pool: IntakePool,
   item: ReviewWorkItem,
 ): Promise<StaleReviewRescheduleResult> {
   const replacement = await createReviewRescheduleWorkItem(pool, item);
@@ -146,19 +148,23 @@ export async function buildStaleReviewRescheduleResult(
 
 /** Like buildStaleReviewRescheduleResult, but null when the parent can no longer own a replacement. */
 export async function tryBuildStaleReviewRescheduleResult(
-  pool: Pool,
+  pool: IntakePool,
   item: ReviewWorkItem,
 ): Promise<StaleReviewRescheduleResult | null> {
   try {
     return await buildStaleReviewRescheduleResult(pool, item);
   } catch (error) {
-    if (isStaleHeadParentNotReschedulable(error)) return null;
-    throw error;
+    const err =
+      error instanceof Error
+        ? error
+        : nonErrorThrown("agent_work.stale_head_reschedule_non_error_thrown");
+    if (isStaleHeadParentNotReschedulable(err)) return null;
+    throw err;
   }
 }
 
 export async function createReviewRescheduleWorkItem(
-  pool: Pool,
+  pool: IntakePool,
   item: ReviewWorkItem,
 ): Promise<ReviewRescheduleWorkItem> {
   return inTransaction(pool, async (client) => {
@@ -256,7 +262,7 @@ export async function createReviewRescheduleWorkItem(
 }
 
 async function markStaleHeadReplacementEnqueued(
-  client: PoolClient,
+  client: IntakeClient,
   parentId: string,
 ): Promise<void> {
   await client.query(
@@ -269,27 +275,26 @@ async function markStaleHeadReplacementEnqueued(
 }
 
 async function replacementReviewJobExists(
-  boss: PgBoss,
+  boss: JobQueue,
   singletonKey: string,
   workItemId: string,
 ): Promise<boolean> {
-  const jobs = await boss.findJobs<ReviewJobData>(REVIEW_QUEUE, { key: singletonKey });
+  const jobs = await boss.findJobs(REVIEW_QUEUE, { key: singletonKey });
   return jobs.some((job) => {
-    const state = job.state as string;
     return (
       job.data.workItemId === workItemId &&
-      state !== "cancelled" &&
-      state !== "completed" &&
-      state !== "failed"
+      job.state !== "cancelled" &&
+      job.state !== "completed" &&
+      job.state !== "failed"
     );
   });
 }
 
 async function ensureDeterministicJob(
-  boss: PgBoss,
+  boss: JobQueue,
   queue: string,
   data: ReviewJobData | AckJobData,
-  options: Parameters<PgBoss["send"]>[2],
+  options: Parameters<JobQueue["send"]>[2],
   db: ReturnType<typeof pgBossDb>,
 ): Promise<void> {
   const workItemId = data.workItemId;
@@ -307,15 +312,14 @@ async function ensureDeterministicJob(
 }
 
 export async function enqueueReviewReschedule(
-  pool: Pool,
-  boss: PgBoss,
+  pool: IntakePool,
+  boss: JobQueue,
   item: ReviewWorkItem,
   workItemId: string,
   replacementHeadSha: string,
   activePgBossJobId?: string,
 ): Promise<void> {
   const reviewLens = item.reviewLens;
-  const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
   const reviewKey = reviewSingletonKey(item.resourceKey);
 
   await inTransaction(pool, async (client) => {
@@ -325,11 +329,9 @@ export async function enqueueReviewReschedule(
       skipWorkItemId: workItemId,
     });
 
-    const reviewData: ReviewJobData = {
-      kind: "review",
-      workItemId,
-      ...correlation,
-    };
+    const reviewData: ReviewJobData = item.webhookEventId
+      ? { kind: "review", workItemId, webhookEventId: item.webhookEventId }
+      : { kind: "review", workItemId };
     await ensureDeterministicJob(
       boss,
       REVIEW_QUEUE,
@@ -343,17 +345,28 @@ export async function enqueueReviewReschedule(
       db,
     );
 
-    const ackData: AckJobData = {
-      kind: "ack",
-      workItemId,
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-      prNumber: item.prNumber,
-      targets: [],
-      progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
-      ...correlation,
-    };
+    const ackData: AckJobData = item.webhookEventId
+      ? {
+          kind: "ack",
+          workItemId,
+          installationId: item.installationId,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          targets: [],
+          progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
+          webhookEventId: item.webhookEventId,
+        }
+      : {
+          kind: "ack",
+          workItemId,
+          installationId: item.installationId,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          targets: [],
+          progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
+        };
     await ensureDeterministicJob(
       boss,
       ACK_QUEUE,

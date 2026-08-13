@@ -1,15 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-
-const mocks = vi.hoisted(() => ({
-  logWarn: vi.fn(),
-}));
-
-vi.mock("../src/evlog.js", () => ({
-  logWarn: mocks.logWarn,
-}));
-
+import * as evlog from "../src/evlog.js";
 import { reapStrandedWorkItems } from "../src/agentWork/strandedWorkReaper.js";
+import { createQueryPool } from "./helpers/fakePool.js";
 import {
   STRANDED_WORK_REAPER_BATCH_SIZE,
   STRANDED_WORK_REAPER_GRACE_SECONDS,
@@ -17,6 +9,7 @@ import {
 
 describe("reapStrandedWorkItems", () => {
   beforeEach(() => {
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     vi.clearAllMocks();
   });
 
@@ -31,7 +24,7 @@ describe("reapStrandedWorkItems", () => {
         },
       ],
     });
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryPool(query);
 
     await expect(reapStrandedWorkItems(pool)).resolves.toEqual({ reaped: 1 });
 
@@ -45,7 +38,7 @@ describe("reapStrandedWorkItems", () => {
       STRANDED_WORK_REAPER_GRACE_SECONDS,
       STRANDED_WORK_REAPER_BATCH_SIZE,
     ]);
-    expect(mocks.logWarn).toHaveBeenCalledWith("stranded_work_item_reaped", {
+    expect(evlog.logWarn).toHaveBeenCalledWith("stranded_work_item_reaped", {
       workItemId: "wi-1",
       type: "review",
       priorStatus: "queued",
@@ -55,9 +48,9 @@ describe("reapStrandedWorkItems", () => {
 
   it("returns zero when no stranded rows match the safety predicates", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryPool(query);
 
     await expect(reapStrandedWorkItems(pool)).resolves.toEqual({ reaped: 0 });
-    expect(mocks.logWarn).not.toHaveBeenCalled();
+    expect(evlog.logWarn).not.toHaveBeenCalled();
   });
 });

@@ -1,14 +1,25 @@
+import * as v from "valibot";
 import { githubErrorMessage } from "./githubErrors.js";
 import { httpStatus } from "./httpStatus.js";
+import { isJsonNumber, isJsonString, jsonValueSchema } from "../util/jsonValue.js";
 
-function objectValue(value: unknown, key: string): unknown {
-  if (typeof value !== "object" || value == null) return undefined;
-  return (value as Record<string, unknown>)[key];
-}
+const githubReviewErrorDetailSchema = v.object({
+  path: v.optional(v.string()),
+  line: v.optional(v.union([v.number(), v.string()])),
+  original_line: v.optional(v.union([v.number(), v.string()])),
+});
 
-function numericValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value !== "string") return null;
+const githubReviewErrorResponseSchema = v.object({
+  response: v.object({
+    data: v.object({
+      errors: v.array(jsonValueSchema),
+    }),
+  }),
+});
+
+function numericValue(value: string | number): number | null {
+  if (isJsonNumber(value) && Number.isFinite(value)) return value;
+  if (!isJsonString(value)) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -19,24 +30,29 @@ export type LineResolutionPublishErrorHint = {
 };
 
 export function lineResolutionPublishErrorHint(
-  error: unknown,
+  error: Error,
 ): LineResolutionPublishErrorHint | null {
-  const errors = objectValue(objectValue(objectValue(error, "response"), "data"), "errors");
-  if (!Array.isArray(errors)) return null;
+  const parsed = v.safeParse(githubReviewErrorResponseSchema, error);
+  if (!parsed.success) return null;
 
-  for (const detail of errors) {
-    const path = objectValue(detail, "path");
-    const line = objectValue(detail, "line") ?? objectValue(detail, "original_line");
+  for (const item of parsed.output.response.data.errors) {
+    const detail = v.safeParse(githubReviewErrorDetailSchema, item);
+    if (!detail.success) continue;
     const hint: LineResolutionPublishErrorHint = {};
-    if (typeof path === "string" && path.length > 0) hint.path = path;
-    const parsedLine = numericValue(line);
-    if (parsedLine != null) hint.line = parsedLine;
+    if (detail.output.path != null && detail.output.path.length > 0) {
+      hint.path = detail.output.path;
+    }
+    const line = detail.output.line ?? detail.output.original_line;
+    if (line !== undefined) {
+      const parsedLine = numericValue(line);
+      if (parsedLine != null) hint.line = parsedLine;
+    }
     if (hint.path != null || hint.line != null) return hint;
   }
   return null;
 }
 
-export function isLineResolutionPublishError(error: unknown): boolean {
+export function isLineResolutionPublishError(error: Error): boolean {
   const message = githubErrorMessage(error);
   return (
     /line could not be resolved/i.test(message) ||
@@ -46,7 +62,7 @@ export function isLineResolutionPublishError(error: unknown): boolean {
 }
 
 /** GitHub 422/502/503 errors worth retrying (excludes anchor and validation failures). */
-export function isTransientGitHubReviewError(error: unknown): boolean {
+export function isTransientGitHubReviewError(error: Error): boolean {
   const status = httpStatus(error);
   if (status !== 422 && status !== 503 && status !== 502) return false;
   if (isLineResolutionPublishError(error)) return false;

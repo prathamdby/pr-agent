@@ -3,7 +3,7 @@ import { AppError } from "../src/errors/appError.js";
 import { classifyFallbackEligibility } from "../src/agent/runtime/fallbackClassification.js";
 
 describe("classifyFallbackEligibility", () => {
-  const eligible: Array<[string, unknown]> = [
+  const eligible: Array<[string, Error]> = [
     ["transport", new Error("fetch failed: ECONNRESET")],
     ["rate_limit", new Error("429 Too Many Requests: rate limit exceeded")],
     ["provider_5xx", new Error("502 Bad Gateway")],
@@ -13,7 +13,7 @@ describe("classifyFallbackEligibility", () => {
     ],
   ];
 
-  const ineligible: Array<[string, unknown]> = [
+  const ineligible: Array<[string, Error]> = [
     ["auth", new Error("401 Unauthorized invalid api key")],
     [
       "config",

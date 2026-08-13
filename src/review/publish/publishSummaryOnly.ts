@@ -1,6 +1,7 @@
 import type { Config } from "../../config.js";
-import type { Pool, PoolClient } from "pg";
-import { AppError } from "../../errors/appError.js";
+import type { IntakeClient, IntakePool } from "../../db/postgres.js";
+import { AppError, nonErrorThrown } from "../../errors/appError.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 import {
   reviewSummaryOperationKey,
   withOperationIntent,
@@ -51,7 +52,7 @@ import {
 } from "../reviewSchema.js";
 
 export type SummaryCommentCoordination = {
-  pool: Pool;
+  pool: IntakePool;
   workItemId: string;
   resourceKey: string;
   executionEpoch?: number;
@@ -59,7 +60,7 @@ export type SummaryCommentCoordination = {
 
 export type RecordPublishStepFn = (
   step: "inline_review" | "summary_comment" | "labels",
-  detail?: { githubId?: string | number; meta?: Record<string, unknown> },
+  detail?: { githubId?: string | number; meta?: JsonObject },
 ) => Promise<void>;
 
 export type RecordPublishStepWithCoordination = RecordPublishStepFn & {
@@ -90,8 +91,14 @@ type SummaryCommentUpsertResult = {
   readonly skipped?: true;
 };
 
+type ProgressCommentStepDetail = {
+  progressRevision: ProgressCommentRevision;
+  updated: boolean;
+  stubPostedAtMs?: number;
+};
+
 type SummaryCommentUpsertParams = {
-  pool: Pool | PoolClient;
+  pool: IntakeClient;
   workItemId?: string;
   resourceKey: string;
   reviewLens: AnyReviewLens;
@@ -149,7 +156,7 @@ async function upsertSummaryCommentAtRevision(
   params: Omit<SummaryCommentUpsertParams, "pool" | "progressRevision"> & {
     readonly progressRevision: ProgressCommentRevision;
   },
-  client: PoolClient,
+  client: IntakeClient,
 ): Promise<SummaryCommentUpsertResult> {
   const [progressOwner, storedRevision, currentComment] = await Promise.all([
     getProgressCommentOwner(client, params.resourceKey, params.reviewLens),
@@ -226,6 +233,11 @@ async function upsertSummaryCommentAtRevision(
     hintCommentId: currentComment?.id ?? params.hintCommentId,
   });
   if (params.workItemId != null) {
+    const detail: ProgressCommentStepDetail = {
+      progressRevision: params.progressRevision,
+      updated: result.updated,
+    };
+    if (stubPostedAtMs != null) detail.stubPostedAtMs = stubPostedAtMs;
     await recordAgentWorkPublishStep(client, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
@@ -233,18 +245,14 @@ async function upsertSummaryCommentAtRevision(
       step: "progress_comment",
       githubId: result.id,
       executionEpoch: null,
-      detail: {
-        progressRevision: params.progressRevision,
-        updated: result.updated,
-        ...(stubPostedAtMs != null ? { stubPostedAtMs } : {}),
-      },
+      detail,
     });
   }
   return result;
 }
 
 export async function upsertSummaryCommentWithCreationClaim(
-  params: Omit<SummaryCommentUpsertParams, "pool"> & { readonly pool: Pool },
+  params: Omit<SummaryCommentUpsertParams, "pool"> & { readonly pool: IntakePool },
 ): Promise<SummaryCommentUpsertResult> {
   if (params.progressRevision == null) {
     return upsertSummaryCommentWithoutRevision(params);
@@ -421,7 +429,11 @@ export async function publishReviewSummaryOnly(params: {
       : null;
   }
 
-  const labelsPromise = params.prSurface.getLabels().catch((error: unknown) => error);
+  const labelsPromise = params.prSurface
+    .getLabels()
+    .catch((error) =>
+      error instanceof Error ? error : nonErrorThrown("review.labels_fetch_non_error_thrown"),
+    );
   const runSummaryUpsert = () =>
     summaryCoordination
       ? upsertSummaryCommentWithCreationClaim({

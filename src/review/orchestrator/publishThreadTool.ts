@@ -1,8 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import { AppError, toAppError } from "../../errors/appError.js";
+import { AppError, nonErrorThrown, toAppError } from "../../errors/appError.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
 import type { Config } from "../../config.js";
@@ -76,14 +77,16 @@ function overlapHints(
   });
 }
 
-export function buildPublishThreadTool(params: PublishThreadToolParams): {
+export type PublishThreadTool = {
   readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<PublishThreadToolResult>;
+  readonly executor: (args: JsonObject) => Promise<PublishThreadToolResult>;
   readonly setSource: (source: SpecialistId) => void;
   readonly getLedger: () => FindingLedger;
   readonly getPublishedBatchCount: () => number;
   readonly getStopReason: () => "superseded" | "stale_head" | null;
-} {
+};
+
+export function buildPublishThreadTool(params: PublishThreadToolParams): PublishThreadTool {
   let source: SpecialistId | null = null;
   let stopReason: "superseded" | "stale_head" | null = null;
   let publishedBatchCount = 0;
@@ -95,7 +98,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       "Publish one judged batch of review findings. An empty findings array is valid when no candidate survives judgment.",
     parameters: toJsonSchema(publishThreadSchema, { errorMode: "ignore" }),
   };
-  const executor = async (args: Record<string, unknown>): Promise<PublishThreadToolResult> => {
+  const executor = async (args: JsonObject): Promise<PublishThreadToolResult> => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_thread");
     if (!gate.ok) {
       return {
@@ -131,7 +134,8 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         ledger,
       });
     } catch (error) {
-      throw toAppError(error, {
+      const err = error instanceof Error ? error : nonErrorThrown("review.publish_thread_failed");
+      throw toAppError(err, {
         code: "review.publish_thread_failed",
         context: {
           owner: params.ctx.owner,

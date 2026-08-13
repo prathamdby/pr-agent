@@ -1,10 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Pool } from "pg";
 
-vi.mock("../src/db/postgres.js", () => ({
-  queryOne: vi.fn(),
-}));
-
+import * as postgres from "../src/db/postgres.js";
 import { queryOne } from "../src/db/postgres.js";
 import {
   listTriageEligibleInlineReviews,
@@ -21,8 +17,35 @@ import {
   hasActiveReviewWorkItem,
 } from "../src/agentWork/repository.js";
 import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
+import type { WorkStatus, WorkType } from "../src/agentWork/types.js";
+import type { AnyReviewLens } from "../src/settings/legacyReviewLenses.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
+import { createQueryPool, createUnusedPool } from "./helpers/fakePool.js";
 
-const pool = {} as Pool;
+const pool = createUnusedPool();
+
+type TestWorkItemRow = {
+  id: string;
+  webhook_event_id: string | null;
+  type: WorkType;
+  source: "auto" | "slash";
+  status: WorkStatus;
+  owner: string;
+  repo: string;
+  pr_number: number;
+  installation_id: string;
+  head_sha: string;
+  review_lens: AnyReviewLens | "description" | "ask" | "triage" | "verification" | null;
+  resource_key: string;
+  attempt_count: number;
+  execution_epoch: number;
+  payload: JsonValue;
+  cancel_requested_at: Date | null;
+};
+
+beforeEach(() => {
+  vi.spyOn(postgres, "queryOne");
+});
 
 describe("loadReviewExecutorPublishContext", () => {
   beforeEach(() => {
@@ -137,7 +160,7 @@ describe("listTriageEligibleInlineReviews", () => {
         { github_id: "0", review_lens: "review-security" },
       ],
     });
-    const scopedPool = { query } as unknown as Pool;
+    const scopedPool = createQueryPool(query);
 
     await expect(listTriageEligibleInlineReviews(scopedPool, "o/r#1")).resolves.toEqual(
       new Map([
@@ -207,8 +230,8 @@ describe("publish records", () => {
   });
 
   it("atomically appends unique inline batches in one publish record row", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
+    const scopedPool = createQueryPool(query);
     const batch = {
       batchId: "batch-1",
       workItemId: "wi-1",
@@ -235,8 +258,8 @@ describe("publish records", () => {
   });
 
   it("uses the shared-step conflict predicate that matches the partial index", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
+    const scopedPool = createQueryPool(query);
 
     vi.mocked(queryOne).mockResolvedValue({ execution_epoch: 1 });
     await recordPublishStep(scopedPool, {
@@ -256,8 +279,8 @@ describe("publish records", () => {
   });
 
   it("uses the shared-step conflict predicate for summary creation claims", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
+    const scopedPool = createQueryPool(query);
 
     await claimSummaryCommentCreation(scopedPool, "wi-1", "o/r#1", "review");
 
@@ -270,8 +293,8 @@ describe("publish records", () => {
   });
 
   it("reserves check runs with the work-item scoped conflict target", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
+    const scopedPool = createQueryPool(query);
 
     await expect(
       reserveReviewCheckRun(scopedPool, {
@@ -288,8 +311,8 @@ describe("publish records", () => {
   });
 
   it("records check run ids with the work-item scoped conflict target", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
+    const scopedPool = createQueryPool(query);
 
     await recordReviewCheckRun(scopedPool, {
       workItemId: "wi-1",
@@ -321,7 +344,7 @@ describe("active review work", () => {
   });
 });
 
-function reviewRow(overrides: Record<string, unknown> = {}) {
+function reviewRow(overrides: Partial<TestWorkItemRow> = {}): TestWorkItemRow {
   return {
     id: "wi-1",
     webhook_event_id: "ev-1",
@@ -336,6 +359,7 @@ function reviewRow(overrides: Record<string, unknown> = {}) {
     review_lens: "review",
     resource_key: "o/r#1",
     attempt_count: 1,
+    execution_epoch: 1,
     payload: { mode: "review", source: "auto", legacyFlag: true },
     cancel_requested_at: null,
     ...overrides,
@@ -377,11 +401,11 @@ describe("mapWorkItem payload boundary", () => {
   });
 
   it("marks claimed work failed when RETURNING payload is malformed", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const query = vi.fn().mockResolvedValue({ rows: [], rowCount: 1 });
     vi.mocked(queryOne).mockResolvedValueOnce(
       reviewRow({ status: "running", payload: { mode: "review" } }),
     );
-    const scopedPool = { query } as unknown as Pool;
+    const scopedPool = createQueryPool(query);
 
     await expect(claimQueuedWorkItem(scopedPool, "wi-1", "review")).rejects.toBeInstanceOf(
       WorkItemPayloadValidationError,

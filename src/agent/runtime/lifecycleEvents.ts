@@ -90,7 +90,7 @@ export type AgentLifecycleEvent =
   | AgentLifecycleCompletionEvent
   | AgentLifecycleFailureEvent;
 
-const ALLOWED_KINDS = new Set<AgentLifecycleEvent["kind"]>([
+const ALLOWED_KINDS = [
   "turn",
   "tool",
   "retry",
@@ -99,8 +99,8 @@ const ALLOWED_KINDS = new Set<AgentLifecycleEvent["kind"]>([
   "cancellation",
   "completion",
   "failure",
-]);
+] as const satisfies readonly AgentLifecycleEvent["kind"][];
 
 export function isAgentLifecycleEventKind(value: string): value is AgentLifecycleEvent["kind"] {
-  return ALLOWED_KINDS.has(value as AgentLifecycleEvent["kind"]);
+  return ALLOWED_KINDS.some((kind) => kind === value);
 }

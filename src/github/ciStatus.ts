@@ -14,7 +14,7 @@ const ANNOTATIONS_MAX_PAGES = 2;
 
 export const isMissingChecksPermissionError = isMissingActionsPermissionError;
 
-export async function listCheckRunsForHead(
+async function listCheckRunsForHeadFromGithub(
   token: string,
   owner: string,
   repo: string,
@@ -52,7 +52,7 @@ export async function listCheckRunsForHead(
     }));
 }
 
-export async function listCheckRunAnnotations(
+async function listCheckRunAnnotationsFromGithub(
   token: string,
   owner: string,
   repo: string,
@@ -85,7 +85,7 @@ export async function listCheckRunAnnotations(
   }));
 }
 
-export async function listLegacyCommitStatusesForHead(
+async function listLegacyCommitStatusesForHeadFromGithub(
   token: string,
   owner: string,
   repo: string,
@@ -106,7 +106,47 @@ export async function listLegacyCommitStatusesForHead(
       targetUrl: status.target_url ?? null,
     }));
   } catch (error) {
-    if (isMissingChecksPermissionError(error)) return [];
+    if (error instanceof Error && isMissingChecksPermissionError(error)) return [];
     throw error;
   }
+}
+
+export type CiStatusQueries = {
+  readonly listCheckRunsForHead: typeof listCheckRunsForHeadFromGithub;
+  readonly listCheckRunAnnotations: typeof listCheckRunAnnotationsFromGithub;
+  readonly listLegacyCommitStatusesForHead: typeof listLegacyCommitStatusesForHeadFromGithub;
+};
+
+const githubCiStatusQueries: CiStatusQueries = {
+  listCheckRunsForHead: listCheckRunsForHeadFromGithub,
+  listCheckRunAnnotations: listCheckRunAnnotationsFromGithub,
+  listLegacyCommitStatusesForHead: listLegacyCommitStatusesForHeadFromGithub,
+};
+
+let activeCiStatusQueries: CiStatusQueries = githubCiStatusQueries;
+
+export function setCiStatusQueries(queries: CiStatusQueries): void {
+  activeCiStatusQueries = queries;
+}
+
+export function resetCiStatusQueries(): void {
+  activeCiStatusQueries = githubCiStatusQueries;
+}
+
+export async function listCheckRunsForHead(
+  ...args: Parameters<typeof listCheckRunsForHeadFromGithub>
+): ReturnType<typeof listCheckRunsForHeadFromGithub> {
+  return activeCiStatusQueries.listCheckRunsForHead(...args);
+}
+
+export async function listCheckRunAnnotations(
+  ...args: Parameters<typeof listCheckRunAnnotationsFromGithub>
+): ReturnType<typeof listCheckRunAnnotationsFromGithub> {
+  return activeCiStatusQueries.listCheckRunAnnotations(...args);
+}
+
+export async function listLegacyCommitStatusesForHead(
+  ...args: Parameters<typeof listLegacyCommitStatusesForHeadFromGithub>
+): ReturnType<typeof listLegacyCommitStatusesForHeadFromGithub> {
+  return activeCiStatusQueries.listLegacyCommitStatusesForHead(...args);
 }

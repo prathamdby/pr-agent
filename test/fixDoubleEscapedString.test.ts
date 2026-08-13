@@ -128,8 +128,9 @@ describe("coerceReviewPayloadInput double escape", () => {
       securityConcerns: null,
       followUps: [],
     });
-    const finding = (value as { findings: Array<{ detail: string }> }).findings[0];
-    expect(finding?.detail).toBe("first\nsecond");
+    expect(value).toMatchObject({
+      findings: [expect.objectContaining({ detail: "first\nsecond" })],
+    });
     expect(coercions).toContain("finding_detail_double_escape");
   });
 });

@@ -17,6 +17,7 @@ import {
 } from "../../errors/classifiedFailure.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
+import { nonErrorThrown } from "../../errors/appError.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
@@ -42,14 +43,15 @@ async function publishAskAnswer(
   try {
     return await prSurface.replyAt(replyTarget, body);
   } catch (e) {
-    if (replyTarget.kind !== "inlineReviewThread") throw e;
-    const failure = classifyFailure(e, { phase: "publish", toolName: "ask_inline_reply" });
+    const err = e instanceof Error ? e : nonErrorThrown("ask.inline_reply_non_error_thrown");
+    if (replyTarget.kind !== "inlineReviewThread") throw err;
+    const failure = classifyFailure(err, { phase: "publish", toolName: "ask_inline_reply" });
     logWarn("ask_inline_reply_failed", {
       owner: item.owner,
       repo: item.repo,
       pr: replyTarget.prNumber,
       inReplyToCommentId: replyTarget.inReplyToCommentId,
-      message: e instanceof Error ? e.message : String(e),
+      message: err.message,
       ...classifiedFailureLogFields(failure),
     });
     return await prSurface.replyAt(
@@ -182,13 +184,14 @@ async function finalizeAskReplyPublish(params: {
     });
     return "ok";
   } catch (e) {
-    const failure = classifyFailure(e, { phase: "publish" });
+    const err = e instanceof Error ? e : nonErrorThrown("ask.publish_record_non_error_thrown");
+    const failure = classifyFailure(err, { phase: "publish" });
     logWarn("ask_publish_record_failed", {
       owner: item.owner,
       repo: item.repo,
       pr: item.prNumber,
       workItemId: item.id,
-      message: e instanceof Error ? e.message : String(e),
+      message: err.message,
       ...classifiedFailureLogFields(failure),
     });
     captureEvent({
@@ -322,13 +325,15 @@ export async function executeAskJob(
                 executionEpoch: env.executionEpoch,
               });
             } catch (e) {
-              const failure = classifyFailure(e, { phase: "publish" });
+              const err =
+                e instanceof Error ? e : nonErrorThrown("ask.publish_record_non_error_thrown");
+              const failure = classifyFailure(err, { phase: "publish" });
               logWarn("ask_publish_record_failed", {
                 owner: item.owner,
                 repo: item.repo,
                 pr: item.prNumber,
                 workItemId: item.id,
-                message: e instanceof Error ? e.message : String(e),
+                message: err.message,
                 ...classifiedFailureLogFields(failure),
               });
               captureEvent({
@@ -352,7 +357,7 @@ export async function executeAskJob(
       );
     },
     onTerminalFailure: async (item, prSurface, error) => {
-      const failure = classifyFailure(error ?? new Error("Ask failed after retries"), {
+      const failure = classifyFailure(error, {
         phase: "ask",
       });
       captureEvent({

@@ -1,14 +1,21 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
+import * as v from "valibot";
 import { AppError } from "../../errors/appError.js";
+import { jsonValueSchema, type JsonValue } from "../../util/jsonValue.js";
 import type { AgentSessionRole, ModelAssignment } from "./types.js";
 
 export const RESUME_SNAPSHOT_ENVELOPE_VERSION = 1;
 export const DEFAULT_RESUME_SNAPSHOT_MARGIN_SECONDS = 600;
 
 export type ResumeSnapshotPlaintext = {
-  readonly conversation: unknown;
-  readonly structuredState: unknown;
+  readonly conversation: JsonValue;
+  readonly structuredState: JsonValue;
 };
+
+const resumeSnapshotPlaintextSchema = v.object({
+  conversation: jsonValueSchema,
+  structuredState: jsonValueSchema,
+});
 
 export type ResumeSnapshotEnvelopeMeta = {
   readonly envelopeVersion: number;
@@ -145,7 +152,7 @@ export function decryptResumeSnapshot(params: {
       decipher.update(params.envelope.ciphertext),
       decipher.final(),
     ]);
-    return JSON.parse(plaintext.toString("utf8")) as ResumeSnapshotPlaintext;
+    return v.parse(resumeSnapshotPlaintextSchema, JSON.parse(plaintext.toString("utf8")));
   } catch (error) {
     throw new AppError({
       code: "runtime.resume_snapshot_auth_failed",

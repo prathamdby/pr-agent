@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { isPlainObject } from "../../src/util/typeGuards.js";
+import { isJsonObject, type JsonValue } from "../../src/util/jsonValue.js";
 
 export type PromptCost = {
   readonly bytes: number;
@@ -16,7 +16,7 @@ export function measurePromptCost(content: string): PromptCost {
   };
 }
 
-export function stableJson(value: unknown): string {
+export function stableJson(value: JsonValue): string {
   return JSON.stringify(sortJson(value));
 }
 
@@ -52,20 +52,14 @@ function assertDimension(
   }
 }
 
-function sortJson(value: unknown): unknown {
-  if (
-    typeof value === "object" &&
-    value != null &&
-    "toJSON" in value &&
-    typeof value.toJSON === "function"
-  ) {
-    return sortJson(value.toJSON());
-  }
+function sortJson(value: JsonValue): JsonValue {
   if (Array.isArray(value)) return value.map(sortJson);
-  if (!isPlainObject(value)) return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .toSorted()
-      .map((key) => [key, sortJson(value[key])]),
-  );
+  if (!isJsonObject(value)) return value;
+  const sorted: { [key: string]: JsonValue } = {};
+  for (const key of Object.keys(value).toSorted()) {
+    const child = value[key];
+    if (child === undefined) continue;
+    sorted[key] = sortJson(child);
+  }
+  return sorted;
 }

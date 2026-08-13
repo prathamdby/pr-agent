@@ -2,6 +2,7 @@ import type { Config } from "../../config.js";
 import * as v from "valibot";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logWarn } from "../../evlog.js";
+import { parseJsonText, type JsonValue } from "../../util/jsonValue.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
 import { buildCiContextUserMessage, CI_SUMMARY_SYSTEM_PROMPT } from "./ciGatePrompt.js";
@@ -19,7 +20,7 @@ export type CiAuthorInput = {
 
 export type CiSummaryAuthor = (input: CiAuthorInput) => Promise<CiSummaryLlmFields | null>;
 
-function extractJsonObject(text: string): unknown {
+function extractJsonObject(text: string): JsonValue {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced?.[1]?.trim() ?? trimmed;
@@ -31,7 +32,7 @@ function extractJsonObject(text: string): unknown {
       message: "CI summary LLM response contained no JSON object",
     });
   }
-  return JSON.parse(candidate.slice(start, end + 1)) as unknown;
+  return parseJsonText(candidate.slice(start, end + 1));
 }
 
 export function parseCiSummaryLlmText(text: string): CiSummaryLlmFields {

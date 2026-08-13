@@ -1,20 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PgBoss } from "pg-boss";
 import { releaseSingletonSlot } from "../src/agentWork/singletonQueue.js";
 import { DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
+import { createJobQueue } from "./helpers/recordingBoss.js";
+import type { QueueJob } from "../src/agentWork/intake/queueing.js";
 
-type JobStub = {
-  id: string;
-  state: string;
-  data: { workItemId?: string };
-};
-
-function makeBoss(jobs: JobStub[]) {
+function makeBoss(jobs: QueueJob[]) {
   const findJobs = vi.fn(async () => jobs);
   const cancel = vi.fn(async () => ({ rows: [] }));
   const deleteJob = vi.fn(async () => ({ rows: [] }));
   return {
-    boss: { findJobs, cancel, deleteJob } as unknown as PgBoss,
+    boss: createJobQueue({ findJobs, cancel, deleteJob }),
     findJobs,
     cancel,
     deleteJob,

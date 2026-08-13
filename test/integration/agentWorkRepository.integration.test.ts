@@ -13,6 +13,7 @@ import {
   recordReviewCheckRun,
 } from "../../src/agentWork/repository.js";
 import type { WorkStatus } from "../../src/agentWork/types.js";
+import type { JsonObject } from "../../src/util/jsonValue.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "repo-it";
@@ -21,7 +22,7 @@ type InsertWorkItemInput = {
   readonly status?: WorkStatus;
   readonly attemptCount?: number;
   readonly cancelRequestedAt?: string | null;
-  readonly payload?: Record<string, unknown>;
+  readonly payload?: JsonObject;
   readonly resourceKey?: string;
 };
 

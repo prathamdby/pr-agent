@@ -1,17 +1,28 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
+import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
+import * as localPrWorkspace from "../src/prWorkspace/localPrWorkspace.js";
+import * as reviewPreflightFiles from "../src/review/placement/reviewPreflightFiles.js";
+import {
+  resetInstallationOctokitFactory,
+  setInstallationOctokitFactory,
+  type InstallationOctokitClient,
+} from "../src/github/appAuth.js";
+import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../src/settings/index.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
-const state = vi.hoisted(() => ({
+const state = {
   prepareCalls: 0,
   failNext: false,
   cleanup: vi.fn(async () => {}),
   pullsGetCalls: 0,
-}));
+};
 
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: () => ({
+function fakeOctokit(): InstallationOctokitClient {
+  return {
     rest: {
       pulls: {
-        get: async () => {
+        get: vi.fn(async () => {
           state.pullsGetCalls += 1;
           return {
             data: {
@@ -22,50 +33,15 @@ vi.mock("../src/github/appAuth.js", () => ({
               changed_files: 0,
             },
           };
-        },
-        listFiles: async () => ({ data: [] }),
+        }),
+        listFiles: vi.fn(async () => ({ data: [] })),
       },
     },
-  }),
-}));
-
-vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.js")>();
-  return {
-    assertPullRequestFilesHeadSha: actual.assertPullRequestFilesHeadSha,
-    fetchPullRequestFiles: (...args: Parameters<typeof actual.fetchPullRequestFiles>) =>
-      actual.fetchPullRequestFiles(...args),
+    hook: { after: vi.fn() },
   };
-});
-
-vi.mock("../src/review/placement/reviewPreflightFiles.js", () => ({
-  buildReviewPreflightMetadataFromWorkspace: () => ({ preflight: true }),
-}));
-
-vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
-  selectLocalPrWorkspaceCheckoutMode: (repositorySizeKb?: number) =>
-    repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
-      ? "sparse"
-      : "full",
-  prepareLocalPrWorkspace: async () => {
-    state.prepareCalls += 1;
-    if (state.failNext) {
-      state.failNext = false;
-      throw new Error("clone failed");
-    }
-    return { agentCwd: "/tmp/x", cleanup: state.cleanup };
-  },
-}));
-
-import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
-import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
-import {
-  LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
-  PR_REPOSITORY_VIEW_RELEASE_GRACE_MS,
-} from "../src/settings/index.js";
+}
 
 const params = {
-  cfg: {} as never,
   owner: "o",
   repo: "r",
   prNumber: 1,
@@ -83,9 +59,25 @@ const prFiles = {
 describe("prRepositoryView cache", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setInstallationOctokitFactory(fakeOctokit);
+    vi.spyOn(reviewPreflightFiles, "buildReviewPreflightMetadataFromWorkspace").mockReturnValue({
+      files: [],
+      truncated: false,
+      fileCount: 0,
+      totalChanges: 0,
+    });
+    vi.spyOn(localPrWorkspace, "prepareLocalPrWorkspace").mockImplementation(async () => {
+      state.prepareCalls += 1;
+      if (state.failNext) {
+        state.failNext = false;
+        throw new Error("clone failed");
+      }
+      return { ...mockLocalPrWorkspace("/tmp/x"), cleanup: state.cleanup };
+    });
   });
 
   afterEach(async () => {
+    resetInstallationOctokitFactory();
     await vi.runOnlyPendingTimersAsync();
     vi.useRealTimers();
     state.prepareCalls = 0;

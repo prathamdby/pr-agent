@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { Pool } from "pg";
 import {
   deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
@@ -23,29 +23,6 @@ import {
   createPublishReviewTestHarness,
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
-
-const settingsOverrides = vi.hoisted(
-  (): {
-    maxInlineReviewComments: number | undefined;
-    maxThreadPublishCalls: number | undefined;
-  } => ({
-    maxInlineReviewComments: undefined,
-    maxThreadPublishCalls: undefined,
-  }),
-);
-
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get MAX_INLINE_REVIEW_COMMENTS() {
-      return settingsOverrides.maxInlineReviewComments ?? actual.MAX_INLINE_REVIEW_COMMENTS;
-    },
-    get MAX_THREAD_PUBLISH_CALLS() {
-      return settingsOverrides.maxThreadPublishCalls ?? actual.MAX_THREAD_PUBLISH_CALLS;
-    },
-  };
-});
 
 const finding: ReviewFinding = {
   severity: "P1",
@@ -107,8 +84,6 @@ describe("publishFindingBatch", () => {
   beforeEach(() => {
     harness = createPublishReviewTestHarness();
     vi.clearAllMocks();
-    settingsOverrides.maxInlineReviewComments = undefined;
-    settingsOverrides.maxThreadPublishCalls = undefined;
   });
 
   it("does not create a GitHub review when suppression empties the batch", async () => {
@@ -175,13 +150,13 @@ describe("publishFindingBatch", () => {
   });
 
   it("applies the remaining global inline cap", async () => {
-    settingsOverrides.maxInlineReviewComments = 3;
     const findings = [findingAt(10), findingAt(20), findingAt(30), findingAt(40)];
     const result = await publishFindingBatch(
       findings,
       batchContext(createFindingLedger({ postedInlineCount: 2 }), undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20, 30, 40]),
         seedFindings: findings,
+        maxInlineReviewComments: 3,
       }),
     );
 
@@ -291,13 +266,14 @@ describe("publishFindingBatch", () => {
   });
 
   it("downgrades later calls to summary-only after the thread budget", async () => {
-    settingsOverrides.maxThreadPublishCalls = 1;
     const result = await publishFindingBatch(
       [finding],
       batchContext(
         createFindingLedger({
           threadCallCount: 1,
         }),
+        undefined,
+        { maxThreadPublishCalls: 1 },
       ),
     );
 
@@ -347,7 +323,12 @@ describe("publishFindingBatch", () => {
   });
 
   it("uses a stable batch id and operation key across retries", async () => {
-    const pool = {} as Pool;
+    const pool = new Pool({
+      connectionString: "postgres://127.0.0.1:1/pr-agent-unused",
+      max: 1,
+      connectionTimeoutMillis: 1,
+      idleTimeoutMillis: 1,
+    });
     const fingerprint = fingerprintFinding(finding, "review");
     const expectedBatchId = deterministicInlineBatchId({
       workItemId: "wi-1",
@@ -385,7 +366,12 @@ describe("publishFindingBatch", () => {
   });
 
   it("does not remutate after crash between GitHub accept and reconcile", async () => {
-    const pool = {} as Pool;
+    const pool = new Pool({
+      connectionString: "postgres://127.0.0.1:1/pr-agent-unused",
+      max: 1,
+      connectionTimeoutMillis: 1,
+      idleTimeoutMillis: 1,
+    });
     const fingerprint = fingerprintFinding(finding, "review");
     const batchId = deterministicInlineBatchId({
       workItemId: "wi-crash",

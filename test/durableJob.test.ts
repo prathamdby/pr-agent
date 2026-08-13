@@ -1,114 +1,85 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Pool } from "pg";
-import type { Config } from "../src/config.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PgBoss } from "pg-boss";
+import { Pool } from "pg";
+import type { InstallationAccessTokenAuthentication } from "@octokit/auth-app";
 import {
   clearDurableAuthCachesForTest,
   mintInstallationToken,
   runDurableWorkItem,
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
-import type { AgentWorkItem } from "../src/agentWork/types.js";
+import type { AgentWorkItem, ReviewWorkItem, ReviewWorkPayload } from "../src/agentWork/types.js";
 import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js";
-import { coreOf } from "./helpers/executorDurableHarness.js";
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  getWorkItem: vi.fn(),
-  getWorkItemCore: vi.fn(),
-  getWorkItemPayload: vi.fn(),
-  shouldSkipWork: vi.fn(),
-  markWorkCancelled: vi.fn(),
-  markQueuedWorkCancelled: vi.fn(),
-  claimQueuedWorkItem: vi.fn(),
-  claimWorkForExecution: vi.fn(),
-  isExecutionEpochCurrent: vi.fn(),
-  markWorkCompleted: vi.fn(),
-  forceMarkRescheduledParentCompleted: vi.fn(),
-  markWorkFailed: vi.fn(),
-  markWorkPublishDegraded: vi.fn(),
-  markWorkRetrying: vi.fn(),
-  updateRunningWorkHeadSha: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/reviewReschedule.js")>();
-  return {
-    ...actual,
-    cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
-  };
-});
-
-vi.mock("../src/github/appAuth.js", () => ({
-  mintInstallationAuth: vi.fn(),
-  getAppBotIdentity: vi.fn(),
-}));
-
-const prSurfaceMocks = vi.hoisted(() => ({
-  setAcknowledgementReaction: vi.fn().mockResolvedValue(undefined),
-  getHead: vi.fn(async () => ({ headSha: "x", pullRequest: {} })),
-}));
-
-vi.mock("../src/github/prSurface.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/prSurface.js")>();
-  return {
-    ...actual,
-    createPrSurface: vi.fn(() => ({
-      owner: "o",
-      repo: "r",
-      prNumber: 1,
-      getHead: prSurfaceMocks.getHead,
-      setAcknowledgementReaction: prSurfaceMocks.setAcknowledgementReaction,
-    })),
-  };
-});
-
-vi.mock("../src/evlog.js", () => ({
-  logInfo: vi.fn(),
-  logWarn: vi.fn(),
-  logError: vi.fn(),
-}));
-
+import { makeTestConfig } from "./helpers/config.js";
+import {
+  coreOf,
+  fakeDurablePrSurface,
+  makeDurableJobMetadata,
+  mockFetchedWorkItem,
+  resetDurablePrSurface,
+  durablePrSurfaceControls,
+  setupDefaultDurableAuthMocks,
+  setupDefaultDurableRepositoryMocks,
+} from "./helpers/executorDurableHarness.js";
 import * as repo from "../src/agentWork/repository.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
 import * as evlog from "../src/evlog.js";
+import { resetCreatePrSurface, setCreatePrSurface } from "../src/github/prSurface.js";
 import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
 
-const cfg = {} as Config;
-const pool = {} as Pool;
-const boss = {} as PgBoss;
+const cfg = makeTestConfig();
+const pool = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
+const boss = new PgBoss({ connectionString: "postgres://127.0.0.1:1/unused" });
 
-function makeItem(
-  overrides: Parameters<typeof makeReviewWorkItem>[0] & { status?: AgentWorkItem["status"] } = {},
-): AgentWorkItem {
+type ReviewItemTestOverrides = Omit<
+  Partial<ReviewWorkItem>,
+  "type" | "payload" | "reviewLens" | "source"
+> & {
+  reviewLens?: ReviewWorkItem["reviewLens"];
+  source?: ReviewWorkItem["source"];
+  payload?: Partial<ReviewWorkPayload>;
+  status?: AgentWorkItem["status"];
+};
+
+function installationAuth(token: string, expiresAt: string): InstallationAccessTokenAuthentication {
+  return {
+    type: "token",
+    tokenType: "installation",
+    token,
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    permissions: {},
+    repositorySelection: "all",
+    installationId: 42,
+  };
+}
+
+function makeItem(overrides: ReviewItemTestOverrides = {}): AgentWorkItem {
   return makeReviewWorkItem({ status: "queued", ...overrides });
 }
 
 function mockFetchedItem(item: AgentWorkItem | null): void {
-  vi.mocked(repo.getWorkItem).mockResolvedValue(item);
-  vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
-  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
+  vi.spyOn(repo, "getWorkItem").mockResolvedValue(item);
+  mockFetchedWorkItem(item);
 }
 
 function mockFetchedItems(...items: AgentWorkItem[]): void {
-  vi.mocked(repo.getWorkItem).mockReset();
-  vi.mocked(repo.getWorkItemCore).mockReset();
-  vi.mocked(repo.getWorkItemPayload).mockReset();
+  const getWorkItem = vi.spyOn(repo, "getWorkItem");
+  const getWorkItemCore = vi.spyOn(repo, "getWorkItemCore");
+  const getWorkItemPayload = vi.spyOn(repo, "getWorkItemPayload");
+  getWorkItem.mockReset();
+  getWorkItemCore.mockReset();
+  getWorkItemPayload.mockReset();
   for (const item of items) {
-    vi.mocked(repo.getWorkItem).mockResolvedValueOnce(item);
-    vi.mocked(repo.getWorkItemCore).mockResolvedValueOnce(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload).mockResolvedValueOnce(item.payload);
+    getWorkItem.mockResolvedValueOnce(item);
+    getWorkItemCore.mockResolvedValueOnce(coreOf(item));
+    getWorkItemPayload.mockResolvedValueOnce(item.payload);
   }
 }
 
-function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: string }> {
-  return {
-    id: "job-1",
-    data: { workItemId: "wi-1" },
-    retryCount,
-    retryLimit,
-    signal: new AbortController().signal,
-  } as unknown as JobWithMetadata<{ workItemId: string }>;
+function makeJob(retryCount = 0, retryLimit = 3) {
+  return makeDurableJobMetadata("wi-1", retryCount, retryLimit);
 }
 
 function runReviewWorkItem(
@@ -126,38 +97,33 @@ function runReviewWorkItem(
 }
 
 function defaultMocks() {
-  vi.mocked(repo.getWorkItem).mockReset();
-  vi.mocked(repo.getWorkItemCore).mockReset();
-  vi.mocked(repo.getWorkItemPayload).mockReset();
-  vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(null);
-  vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-  vi.mocked(repo.claimWorkForExecution).mockResolvedValue({ executionEpoch: 1 });
-  vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(true);
-  vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
-  vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
-  vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCancelled).mockResolvedValue();
-  vi.mocked(repo.markQueuedWorkCancelled).mockResolvedValue(true);
-  vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue();
-  vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
-    type: "token",
-    tokenType: "installation",
-    token: "tok",
-    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-    installationId: 42,
-  } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-  clearDurableAuthCachesForTest();
-  vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
-    userId: 999,
-    login: "pr-agent[bot]",
-  } as Awaited<ReturnType<typeof appAuth.getAppBotIdentity>>);
+  resetDurablePrSurface();
+  setCreatePrSurface(() => fakeDurablePrSurface());
+  setupDefaultDurableRepositoryMocks();
+  setupDefaultDurableAuthMocks();
+  vi.spyOn(repo, "getWorkItem").mockResolvedValue(null);
+  vi.spyOn(repo, "getWorkItemCore").mockResolvedValue(null);
+  vi.spyOn(repo, "getWorkItemPayload").mockResolvedValue(undefined);
+  vi.spyOn(repo, "claimQueuedWorkItem").mockResolvedValue(null);
+  vi.spyOn(repo, "markQueuedWorkCancelled").mockResolvedValue(true);
+  vi.spyOn(repo, "forceMarkRescheduledParentCompleted").mockResolvedValue(false);
+  vi.spyOn(
+    reviewReschedule,
+    "cancelOrphanedStaleHeadReplacementOnTerminalFailure",
+  ).mockResolvedValue(undefined);
+  vi.spyOn(evlog, "logInfo").mockImplementation(() => undefined);
+  vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+  vi.spyOn(evlog, "logError").mockImplementation(() => undefined);
 }
 
 describe("runDurableWorkItem", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     defaultMocks();
+  });
+
+  afterEach(() => {
+    resetCreatePrSurface();
+    vi.restoreAllMocks();
   });
 
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {
@@ -374,13 +340,7 @@ describe("runDurableWorkItem", () => {
       () =>
         new Promise((resolve) => {
           mintGate.then(() =>
-            resolve({
-              type: "token",
-              tokenType: "installation",
-              token: "tok",
-              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-              installationId: 42,
-            } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>),
+            resolve(installationAuth("tok", new Date(Date.now() + 3_600_000).toISOString())),
           );
         }),
     );
@@ -416,20 +376,12 @@ describe("runDurableWorkItem", () => {
   it("refreshes stale installation tokens", async () => {
     clearDurableAuthCachesForTest();
     vi.mocked(appAuth.mintInstallationAuth)
-      .mockResolvedValueOnce({
-        type: "token",
-        tokenType: "installation",
-        token: "old-token",
-        expiresAt: new Date(Date.now() + 1_000).toISOString(),
-        installationId: 42,
-      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>)
-      .mockResolvedValueOnce({
-        type: "token",
-        tokenType: "installation",
-        token: "new-token",
-        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-        installationId: 42,
-      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
+      .mockResolvedValueOnce(
+        installationAuth("old-token", new Date(Date.now() + 1_000).toISOString()),
+      )
+      .mockResolvedValueOnce(
+        installationAuth("new-token", new Date(Date.now() + 3_600_000).toISOString()),
+      );
 
     const first = await mintInstallationToken(cfg, 42);
     const second = await mintInstallationToken(cfg, 42);
@@ -493,10 +445,9 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ execute });
 
-    expect(prSurfaceMocks.setAcknowledgementReaction).toHaveBeenCalledWith(
-      [{ kind: "pr", prNumber: 1 }],
-      GITHUB_REACTION_PLUS_ONE,
-    );
+    expect(durablePrSurfaceControls().reactions).toEqual([
+      { targets: [{ kind: "pr", prNumber: 1 }], kind: GITHUB_REACTION_PLUS_ONE },
+    ]);
   });
 
   it("publishes minus-one outcome reaction after terminal failure", async () => {
@@ -513,10 +464,9 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
-    expect(prSurfaceMocks.setAcknowledgementReaction).toHaveBeenCalledWith(
-      [{ kind: "pr", prNumber: 1 }],
-      GITHUB_REACTION_MINUS_ONE,
-    );
+    expect(durablePrSurfaceControls().reactions).toEqual([
+      { targets: [{ kind: "pr", prNumber: 1 }], kind: GITHUB_REACTION_MINUS_ONE },
+    ]);
   });
 
   it("does not publish outcome reaction when cancelled after execute", async () => {
@@ -527,7 +477,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(repo.markWorkCancelled).toHaveBeenCalled();
-    expect(prSurfaceMocks.setAcknowledgementReaction).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().reactions).toEqual([]);
   });
 
   it("on non-terminal pg-boss attempt: marks retrying and rethrows", async () => {

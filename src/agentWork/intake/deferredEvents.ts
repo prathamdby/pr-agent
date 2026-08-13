@@ -1,8 +1,9 @@
 import { recordEvent, type RequestLogger, type WideEventLevel } from "../../evlog.js";
+import type { JsonObject } from "../../util/jsonValue.js";
 
 export type DeferredIntakeEvent = {
   readonly name: string;
-  readonly fields?: Record<string, unknown>;
+  readonly fields?: JsonObject;
   readonly level?: WideEventLevel;
 };
 

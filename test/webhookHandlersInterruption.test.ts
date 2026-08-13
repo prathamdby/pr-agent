@@ -1,34 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import type { SlashCommandInput } from "../src/agentWork/intake/slashIntake.js";
 import { createOperationLogger } from "../src/evlog.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import type { IssueCommentWebhookPayload } from "../src/webhook/payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "../src/webhook/payloads/pullRequestReviewCommentEvent.js";
 import { makeTestConfig } from "./helpers/config.js";
-
-const mocks = vi.hoisted(() => ({
-  fetchReviewCommentParentGraph: vi.fn(),
-  getAppBotIdentity: vi.fn(),
-  mintInstallationAuth: vi.fn(),
-}));
-
-vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/run/reviewPriorFeedback.js")>();
-  return {
-    ...actual,
-    fetchReviewCommentParentGraph: mocks.fetchReviewCommentParentGraph,
-  };
-});
-
-vi.mock("../src/github/appAuth.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/appAuth.js")>();
-  return {
-    ...actual,
-    getAppBotIdentity: mocks.getAppBotIdentity,
-    mintInstallationAuth: mocks.mintInstallationAuth,
-  };
-});
+import * as reviewPriorFeedbackIo from "../src/github/reviewPriorFeedbackIo.js";
+import * as appAuth from "../src/github/appAuth.js";
+import type { ReplyTarget } from "../src/commands/replyTarget.js";
 
 const cfg = makeTestConfig({
   askConcurrency: 1,
@@ -58,27 +39,25 @@ const reviewCommentData: PullRequestReviewCommentWebhookPayload = {
   },
 };
 
+type SlashTraceInput = {
+  replyTarget: ReplyTarget;
+  triageScope?: SlashCommandInput["triageScope"];
+  needsThreadRootResolution?: boolean;
+};
+
+type SlashTrace = {
+  decision?: string;
+  ignored: boolean;
+  slash: boolean;
+  slashInput?: SlashTraceInput;
+};
+
 function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
   return WebhookHandlersCore.pipe(Layer.provide(scheduler));
 }
 
-function slashTraceLayers(
-  captureSlash?: (input: {
-    replyTarget?: unknown;
-    triageScope?: string;
-    needsThreadRootResolution?: boolean;
-  }) => void,
-) {
-  const trace: {
-    decision?: string;
-    ignored: boolean;
-    slash: boolean;
-    slashInput?: {
-      replyTarget?: unknown;
-      triageScope?: string;
-      needsThreadRootResolution?: boolean;
-    };
-  } = { ignored: false, slash: false };
+function slashTraceLayers(captureSlash?: (input: SlashTraceInput) => void) {
+  const trace: SlashTrace = { ignored: false, slash: false };
   const scheduler = Layer.succeed(
     AgentWorkScheduler,
     AgentWorkScheduler.of({
@@ -91,16 +70,15 @@ function slashTraceLayers(
       submitSlashCommand: (input) =>
         Effect.sync(() => {
           trace.slash = true;
-          trace.slashInput = {
+          const slashInput: SlashTraceInput = {
             replyTarget: input.replyTarget,
-            triageScope: input.triageScope,
-            needsThreadRootResolution: input.needsThreadRootResolution,
           };
-          captureSlash?.({
-            replyTarget: input.replyTarget,
-            triageScope: input.triageScope,
-            needsThreadRootResolution: input.needsThreadRootResolution,
-          });
+          if (input.triageScope !== undefined) slashInput.triageScope = input.triageScope;
+          if (input.needsThreadRootResolution !== undefined) {
+            slashInput.needsThreadRootResolution = input.needsThreadRootResolution;
+          }
+          trace.slashInput = slashInput;
+          captureSlash?.(slashInput);
         }),
       submitCiRefresh: () => Effect.void,
       ping: () => Effect.succeed(true),
@@ -137,7 +115,7 @@ async function runIssueComment(data: IssueCommentWebhookPayload, runCfg = cfg) {
 
 async function runReviewComment(
   data: PullRequestReviewCommentWebhookPayload,
-  captureSlash?: (input: { replyTarget?: unknown; triageScope?: string }) => void,
+  captureSlash?: (input: SlashTraceInput) => void,
 ) {
   const { trace, handlers } = slashTraceLayers(captureSlash);
   const intakeLog = createOperationLogger({
@@ -165,17 +143,28 @@ async function runReviewComment(
 
 describe("WebhookHandlers Effect resolution", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.getAppBotIdentity.mockResolvedValue({ userId: 42, login: "pr-agent[bot]" });
-    mocks.mintInstallationAuth.mockResolvedValue({
-      token: "tok",
-      expiresAtTs: Date.now() + 60_000,
-      ttlMs: 60_000,
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 42,
+      login: "pr-agent[bot]",
     });
-    mocks.fetchReviewCommentParentGraph.mockResolvedValue([
+    vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
+      type: "token",
+      tokenType: "installation",
+      token: "tok",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      permissions: {},
+      repositorySelection: "all",
+      installationId: 1,
+    });
+    vi.spyOn(reviewPriorFeedbackIo, "fetchReviewCommentParentGraph").mockResolvedValue([
       { id: 1, inReplyToId: null },
       { id: 2, inReplyToId: 1 },
     ]);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("propagates scheduler failure through Effect's error channel (no Promise escape)", async () => {
@@ -415,7 +404,7 @@ describe("WebhookHandlers Effect resolution", () => {
       prNumber: 1,
       inReplyToCommentId: 2,
     });
-    expect(mocks.mintInstallationAuth).not.toHaveBeenCalled();
-    expect(mocks.fetchReviewCommentParentGraph).not.toHaveBeenCalled();
+    expect(appAuth.mintInstallationAuth).not.toHaveBeenCalled();
+    expect(reviewPriorFeedbackIo.fetchReviewCommentParentGraph).not.toHaveBeenCalled();
   });
 });

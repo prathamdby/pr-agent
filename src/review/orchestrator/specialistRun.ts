@@ -1,5 +1,5 @@
 import type { Config } from "../../config.js";
-import { AppError } from "../../errors/appError.js";
+import { AppError, nonErrorThrown } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
@@ -109,6 +109,11 @@ async function waitBeforeStage(
   assertCanContinue(params, deadlineMs);
 }
 
+type SubmitTool = {
+  readonly piTool: ReturnType<typeof buildSubmitFindingsReportPiTool>;
+  readonly executor: AgentRunnerToolExecutor;
+};
+
 function buildSubmitTool(
   state: SubmissionState,
   evidence?: {
@@ -120,10 +125,7 @@ function buildSubmitTool(
     readonly agentEvents?: AgentEventsContext;
     readonly cfg: Config;
   },
-): {
-  readonly piTool: ReturnType<typeof buildSubmitFindingsReportPiTool>;
-  readonly executor: AgentRunnerToolExecutor;
-} {
+): SubmitTool {
   const piTool = buildSubmitFindingsReportPiTool();
   const executor: AgentRunnerToolExecutor = async (args) => {
     const parsed = parseToolInput(specialistReportSchema, args, {
@@ -182,7 +184,7 @@ async function runWithinDeadline<T>(params: {
   let onExternalAbort: (() => void) | undefined;
   type OperationResult =
     | { readonly kind: "settled"; readonly value: T }
-    | { readonly kind: "rejected"; readonly error: unknown }
+    | { readonly kind: "rejected"; readonly error: Error }
     | { readonly kind: "cancelled"; readonly error: Error };
   const cancelled = new Promise<OperationResult>((resolve) => {
     timer = setTimeout(() => resolve({ kind: "cancelled", error: timeoutError() }), remainingMs);
@@ -194,7 +196,10 @@ async function runWithinDeadline<T>(params: {
   const operation = params.run();
   const settled: Promise<OperationResult> = operation.then(
     (value) => ({ kind: "settled", value }),
-    (error: unknown) => ({ kind: "rejected", error }),
+    (error) => ({
+      kind: "rejected",
+      error: error instanceof Error ? error : nonErrorThrown("review.specialist_rejected"),
+    }),
   );
   try {
     const result = await Promise.race([settled, cancelled]);
@@ -338,7 +343,7 @@ function failureOutcome(params: {
   readonly startedAtMs: number;
   readonly attempts: number;
   readonly classification: ProviderErrorKind;
-  readonly cause: unknown;
+  readonly cause: Error;
 }): SpecialistOutcome {
   return {
     kind: "error",
@@ -362,7 +367,7 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
   const deadlineMs = startedAtMs + params.timeoutMs;
   let attempts = 0;
   let ordinaryRetryUsed = false;
-  let lastError: unknown = new AppError({
+  let lastError: Error = new AppError({
     code: "review.specialist_not_started",
     message: "Specialist did not start",
   });
@@ -372,8 +377,8 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
     const jitterMs = Math.floor(Math.random() * INITIAL_JITTER_MAX_MS);
     await waitBeforeStage(jitterMs, params, deadlineMs);
   } catch (error) {
-    lastError = error;
-    classification = classifyProviderError(error);
+    lastError = error instanceof Error ? error : nonErrorThrown("review.specialist_failed");
+    classification = classifyProviderError(lastError);
     return failureOutcome({
       specialist: params.specialist,
       startedAtMs,
@@ -399,8 +404,8 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
         durationMs,
       };
     } catch (error) {
-      lastError = error;
-      classification = classifyProviderError(error);
+      lastError = error instanceof Error ? error : nonErrorThrown("review.specialist_failed");
+      classification = classifyProviderError(lastError);
     }
 
     if (attempts >= MAX_SESSION_ATTEMPTS || !canContinue(params, deadlineMs)) break;
@@ -413,8 +418,8 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
           deadlineMs,
         );
       } catch (error) {
-        lastError = error;
-        classification = classifyProviderError(error);
+        lastError = error instanceof Error ? error : nonErrorThrown("review.specialist_failed");
+        classification = classifyProviderError(lastError);
         break;
       }
       continue;

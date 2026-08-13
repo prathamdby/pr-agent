@@ -1,30 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import { AppError } from "../src/errors/appError.js";
-
-// File-local repository stubs: exercise withOperationIntent control flow without
-// the shared memory store (see memoryOperationIntentStore.test.ts for that path).
-vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
-  persistOperationIntent: vi.fn(),
-  mergeOperationIntentDetail: vi.fn(),
-  reconcileOperationIntent: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
-  findCompletedPublishRecordId: vi.fn(),
-  reconcilePendingIntents: vi.fn(),
-  intentDetailMatchesPublishRecord: vi.fn(),
-}));
-
+import { createUnusedPool } from "./helpers/fakePool.js";
+import * as operationIntentRepository from "../src/agentWork/operationIntentRepository.js";
 import {
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
 } from "../src/agentWork/operationIntentRepository.js";
+import * as reconcilePendingIntents from "../src/agentWork/reconcilePendingIntents.js";
 import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.js";
 import { withOperationIntent } from "../src/agentWork/withOperationIntent.js";
 
-const pool = {} as Pool;
+const pool = createUnusedPool();
 const baseParams = {
   client: pool,
   workItemId: "wi-1",
@@ -35,6 +22,10 @@ const baseParams = {
 
 describe("withOperationIntent", () => {
   beforeEach(() => {
+    vi.spyOn(operationIntentRepository, "persistOperationIntent");
+    vi.spyOn(operationIntentRepository, "mergeOperationIntentDetail");
+    vi.spyOn(operationIntentRepository, "reconcileOperationIntent");
+    vi.spyOn(reconcilePendingIntents, "findCompletedPublishRecordId");
     vi.clearAllMocks();
     vi.mocked(persistOperationIntent).mockResolvedValue({
       id: "intent-1",

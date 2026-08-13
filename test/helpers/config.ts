@@ -32,7 +32,7 @@ const baseTestConfig: Config = {
   agentResumeSnapshotMarginSeconds: 600,
   agentEventsEnabled: true,
   agentEventsRetentionSeconds: 0,
-  findingHistoryEnabled: true,
+  findingHistoryEnabled: false,
   findingHistoryDismissSuppressAfter: 3,
   findingHistoryLookbackDays: 180,
   codeIndexMode: "off",

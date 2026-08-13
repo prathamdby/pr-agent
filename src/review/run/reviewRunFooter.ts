@@ -39,7 +39,7 @@ export function resolveReviewWallClockMs(params: {
 }
 
 function finiteTimestampMs(value: number | null | undefined): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return value != null && Number.isFinite(value) ? value : null;
 }
 
 /** Normalized 7–40 hex SHA, or null when invalid. */

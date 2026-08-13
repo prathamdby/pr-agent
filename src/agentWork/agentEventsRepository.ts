@@ -1,6 +1,9 @@
-import type { Pool, PoolClient } from "pg";
+import * as v from "valibot";
+import type { IntakeClient } from "../db/postgres.js";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
+import { nonErrorThrown } from "../errors/appError.js";
+import { jsonObjectSchema, type JsonObject, type JsonValue } from "../util/jsonValue.js";
 
 export type AgentEventInsertRow = {
   readonly workItemId?: string | null;
@@ -17,7 +20,7 @@ export type AgentEventInsertRow = {
   readonly model?: string | null;
   readonly ok?: boolean | null;
   readonly failureCode?: string | null;
-  readonly detail?: Readonly<Record<string, unknown>>;
+  readonly detail?: JsonObject;
 };
 
 export type AgentEventRow = {
@@ -36,7 +39,7 @@ export type AgentEventRow = {
   readonly model: string | null;
   readonly ok: boolean | null;
   readonly failureCode: string | null;
-  readonly detail: Readonly<Record<string, unknown>>;
+  readonly detail: JsonObject;
   readonly recordedAt: Date;
 };
 
@@ -56,7 +59,7 @@ function mapAgentEventRow(row: {
   model: string | null;
   ok: boolean | null;
   failure_code: string | null;
-  detail: Readonly<Record<string, unknown>>;
+  detail: unknown;
   recorded_at: Date;
 }): AgentEventRow {
   return {
@@ -75,18 +78,18 @@ function mapAgentEventRow(row: {
     model: row.model,
     ok: row.ok,
     failureCode: row.failure_code,
-    detail: row.detail ?? {},
+    detail: v.parse(jsonObjectSchema, row.detail ?? {}),
     recordedAt: new Date(row.recorded_at),
   };
 }
 
-export async function appendAgentEvents(
-  client: Pool | PoolClient,
+async function appendAgentEventsSql(
+  client: IntakeClient,
   rows: readonly AgentEventInsertRow[],
 ): Promise<void> {
   if (rows.length === 0) return;
 
-  const values: unknown[] = [];
+  const values: JsonValue[] = [];
   const placeholders = rows.map((row, index) => {
     const base = index * 15;
     values.push(
@@ -119,24 +122,45 @@ export async function appendAgentEvents(
   );
 }
 
+export type AppendAgentEvents = typeof appendAgentEventsSql;
+
+let appendAgentEventsFn: AppendAgentEvents = appendAgentEventsSql;
+
+export function setAppendAgentEvents(append: AppendAgentEvents): void {
+  appendAgentEventsFn = append;
+}
+
+export function resetAppendAgentEvents(): void {
+  appendAgentEventsFn = appendAgentEventsSql;
+}
+
+export async function appendAgentEvents(
+  client: IntakeClient,
+  rows: readonly AgentEventInsertRow[],
+): Promise<void> {
+  return appendAgentEventsFn(client, rows);
+}
+
 /** Fire-and-forget append that never throws into the review hot path. */
 export function safeAppendAgentEvents(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: Pick<Config, "agentEventsEnabled">,
   rows: readonly AgentEventInsertRow[],
 ): void {
   if (!cfg.agentEventsEnabled || rows.length === 0) return;
-  void appendAgentEvents(client, rows).catch((error) => {
+  void appendAgentEventsFn(client, rows).catch((error) => {
+    const err =
+      error instanceof Error ? error : nonErrorThrown("agent_events.append_non_error_thrown");
     logWarn("agent_events_append_failed", {
       count: rows.length,
       eventKinds: rows.map((row) => row.eventKind),
-      message: error instanceof Error ? error.message : String(error),
+      message: err.message,
     });
   });
 }
 
 export async function listAgentEventsByWorkItem(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   workItemId: string,
 ): Promise<readonly AgentEventRow[]> {
   const result = await client.query<{
@@ -155,7 +179,7 @@ export async function listAgentEventsByWorkItem(
     model: string | null;
     ok: boolean | null;
     failure_code: string | null;
-    detail: Readonly<Record<string, unknown>>;
+    detail: unknown;
     recorded_at: Date;
   }>(
     `SELECT id, work_item_id, installation_id, owner, repo, pr_number,

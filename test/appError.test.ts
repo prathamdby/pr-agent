@@ -3,6 +3,7 @@ import {
   AppError,
   errorLogFields,
   isAppError,
+  nonErrorThrown,
   serializeAppError,
   toAppError,
 } from "../src/errors/appError.js";
@@ -34,7 +35,6 @@ describe("AppError", () => {
   it("isAppError narrows only AppError instances", () => {
     expect(isAppError(new AppError({ code: "x.y", message: "m" }))).toBe(true);
     expect(isAppError(new Error("plain"))).toBe(false);
-    expect(isAppError("nope")).toBe(false);
   });
 
   it("toAppError returns the same instance for AppError", () => {
@@ -51,17 +51,11 @@ describe("AppError", () => {
     expect(wrapped.cause).toBe(plain);
   });
 
-  it("toAppError keeps rawValue for non-Error primitives and objects", () => {
-    const fromNumber = toAppError(404, { code: "http.status" });
-    expect(fromNumber.message).toBe("404");
-    expect(fromNumber.context).toEqual({ rawValue: 404 });
-
-    const fromObject = toAppError(
-      { status: 404 },
-      { code: "http.status", context: { path: "/x" } },
-    );
-    expect(fromObject.message).toBe('{"status":404}');
-    expect(fromObject.context).toEqual({ path: "/x", rawValue: { status: 404 } });
+  it("nonErrorThrown is the catch-site fallback for non-Error throws", () => {
+    const err = nonErrorThrown("http.status", { path: "/x" });
+    expect(err.code).toBe("http.status");
+    expect(err.message).toBe("Non-error thrown");
+    expect(err.context).toEqual({ path: "/x" });
   });
 
   it("serializeAppError and errorLogFields expose log fields", () => {

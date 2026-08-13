@@ -27,6 +27,17 @@ export type WorkspaceTextFileReadResult =
       readonly note?: string;
     };
 
+type WorkspaceTextFileContent = {
+  size: number;
+  content: string;
+  note?: string;
+  refused?: undefined;
+};
+
+type MutableFileReadOutput = {
+  -readonly [K in keyof FileReadOutput]: FileReadOutput[K];
+};
+
 type StatReadTarget =
   | WorkspaceTextFileRefusal
   | { readonly refused?: undefined; readonly size: number };
@@ -109,11 +120,12 @@ export async function readWorkspaceTextFile(
     return target;
   }
   const content = normalizeTextFileEncoding(await readFile(fullPath, "utf8"));
-  return {
+  const result: WorkspaceTextFileContent = {
     size: target.size,
     content,
-    ...(target.size === 0 ? { note: "File is empty (0 bytes)." } : {}),
   };
+  if (target.size === 0) result.note = "File is empty (0 bytes).";
+  return result;
 }
 
 export type BudgetedWorkspaceTextFileRead =
@@ -143,5 +155,7 @@ export async function readBudgetedWorkspaceTextFile(
   }
   const readOutput = readTextWithOutputBudget(result.content, opts.maxResponseBytes, opts.window);
   const note = [result.note, readOutput.note].filter(Boolean).join(" ");
-  return { ...readOutput, ...(note ? { note } : {}) };
+  const output: MutableFileReadOutput = { ...readOutput };
+  if (note) output.note = note;
+  return output;
 }

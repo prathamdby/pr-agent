@@ -85,10 +85,15 @@ export function chunkFileContent(path: string, content: string): CodeIndexChunk[
   return chunks;
 }
 
+export type ChunkFilesResult = {
+  readonly chunks: readonly CodeIndexChunk[];
+  readonly truncated: boolean;
+};
+
 export function chunkFiles(
   files: readonly ChunkFileContent[],
   maxChunks: number,
-): { readonly chunks: readonly CodeIndexChunk[]; readonly truncated: boolean } {
+): ChunkFilesResult {
   const chunks: CodeIndexChunk[] = [];
   for (const file of files) {
     if (!isIndexableSourcePath(file.path)) continue;

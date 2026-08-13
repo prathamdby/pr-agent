@@ -1,5 +1,6 @@
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../db/postgres.js";
 import { queryOne } from "../db/postgres.js";
+import { nonErrorThrown } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.js";
@@ -10,7 +11,7 @@ export type SharedRateLimitCircuitRow = {
 };
 
 export async function upsertSharedRateLimitCircuit(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   params: {
     readonly installationId: number;
     readonly openUntil: Date;
@@ -32,7 +33,7 @@ export async function upsertSharedRateLimitCircuit(
 }
 
 export async function getSharedRateLimitCircuit(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   installationId: number,
 ): Promise<SharedRateLimitCircuitRow | null> {
   const row = await queryOne<{
@@ -55,7 +56,7 @@ export async function getSharedRateLimitCircuit(
 }
 
 export async function isSharedRateLimitCircuitOpen(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   installationId: number,
   now: Date = new Date(),
 ): Promise<boolean> {
@@ -66,7 +67,7 @@ export async function isSharedRateLimitCircuitOpen(
 
 /** Mark shared circuit open for the default MVP cooldown window. */
 export async function openSharedRateLimitCircuit(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   params: {
     readonly installationId: number;
     readonly lastErrorKind: string;
@@ -90,7 +91,7 @@ export async function openSharedRateLimitCircuit(
  * Failures must not break the local circuit or the GitHub call path.
  */
 export function openSharedRateLimitCircuitBestEffort(
-  client: Pool | PoolClient | undefined,
+  client: IntakeClient | undefined,
   params: {
     readonly installationId: number;
     readonly lastErrorKind: string;
@@ -100,11 +101,15 @@ export function openSharedRateLimitCircuitBestEffort(
   if (client == null || !Number.isFinite(params.installationId) || params.installationId <= 0) {
     return;
   }
-  void openSharedRateLimitCircuit(client, params).catch((error: unknown) => {
+  void openSharedRateLimitCircuit(client, params).catch((error) => {
+    const err =
+      error instanceof Error
+        ? error
+        : nonErrorThrown("github.shared_rate_limit_circuit_upsert_non_error_thrown");
     logWarn("github_shared_rate_limit_circuit_upsert_failed", {
       installationId: params.installationId,
       kind: params.lastErrorKind,
-      message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+      message: sanitizeLogMessage(err.message),
     });
   });
 }

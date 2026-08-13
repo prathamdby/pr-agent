@@ -10,6 +10,13 @@ import {
   buildLocalWorkspaceTools,
   type LocalWorkspaceToolLimits,
 } from "../src/agent/tools/localWorkspaceTools.js";
+import {
+  isJsonNumber,
+  isJsonObject,
+  isJsonString,
+  type JsonObject,
+  type JsonValue,
+} from "../src/util/jsonValue.js";
 import { createAskPathGate } from "../src/agent/ask/askSafety.js";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
 import {
@@ -30,6 +37,32 @@ import {
 } from "../src/prWorkspace/symbolIndex.js";
 
 const exec = promisify(execFile);
+
+function requireJsonObject(value: JsonValue | undefined): JsonObject {
+  if (value === undefined || !isJsonObject(value)) {
+    throw new Error("expected json object tool result");
+  }
+  return value;
+}
+
+function jsonNumber(value: JsonValue | undefined): number {
+  if (!isJsonNumber(value)) {
+    throw new Error("expected json number");
+  }
+  return value;
+}
+
+function jsonObjects(value: JsonValue | undefined): readonly JsonObject[] {
+  if (!Array.isArray(value)) {
+    throw new Error("expected json array");
+  }
+  return value.map((item) => {
+    if (!isJsonObject(item)) {
+      throw new Error("expected json object array item");
+    }
+    return item;
+  });
+}
 
 function testLimits(overrides: Partial<LocalWorkspaceToolLimits> = {}): LocalWorkspaceToolLimits {
   return {
@@ -93,7 +126,9 @@ function mockWorkspace(
   };
 }
 
-async function writeWorkspaceFiles(root: string, files: Readonly<Record<string, string>>) {
+type WorkspaceFileContents = { [path: string]: string };
+
+async function writeWorkspaceFiles(root: string, files: WorkspaceFileContents) {
   for (const [path, content] of Object.entries(files)) {
     await mkdir(dirname(join(root, path)), { recursive: true });
     await writeFile(join(root, path), content);
@@ -127,14 +162,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/small.ts" })) as {
-        content: string;
-        size: number;
-        startLine: number;
-        endLine: number;
-        truncated: boolean;
-        returnedBytes: number;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "src/small.ts" }));
 
       expect(out).toMatchObject({
         content: "hello\n",
@@ -162,13 +190,7 @@ describe("local workspace tools", () => {
       const { executors } = buildLocalWorkspaceTools(workspace, {
         limits: testLimits({ readResponseBytes: 500 }),
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
-        truncated: boolean;
-        returnedBytes: number;
-        truncationReason?: string;
-        startLine: number;
-        endLine: number;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "src/large.ts" }));
 
       expect(out.truncated).toBe(true);
       expect(out.returnedBytes).toBeLessThanOrEqual(500);
@@ -191,11 +213,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/bundle.js"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/bundle.js" })) as {
-        content: string;
-        truncated: boolean;
-        endLine: number;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "src/bundle.js" }));
 
       expect(out.truncated).toBe(false);
       expect(out.content).toBe(
@@ -217,11 +235,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/legacy.ts"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/legacy.ts" })) as {
-        content: string;
-        startLine: number;
-        endLine: number;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "src/legacy.ts" }));
 
       expect(out.content).toBe("one\ntwo\n");
       expect(out.startLine).toBe(1);
@@ -241,17 +255,13 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({
-        path: "src/window.ts",
-        startLine: 2,
-        maxLines: 2,
-      })) as {
-        content: string;
-        startLine: number;
-        endLine: number;
-        truncated: boolean;
-        truncationReason?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({
+          path: "src/window.ts",
+          startLine: 2,
+          maxLines: 2,
+        }),
+      );
 
       expect(out).toMatchObject({
         content: "b\nc",
@@ -277,10 +287,7 @@ describe("local workspace tools", () => {
       const { executors } = buildLocalWorkspaceTools(workspace, {
         limits: testLimits({ maxFileBytes: 100, readResponseBytes: 50 }),
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/huge.ts" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "src/huge.ts" }));
 
       expect(out).toMatchObject({
         refused: true,
@@ -301,10 +308,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/binary.bin"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/binary.bin" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: "src/binary.bin" }),
+      );
 
       expect(out).toMatchObject({
         refused: true,
@@ -325,16 +331,12 @@ describe("local workspace tools", () => {
       const { executors } = buildLocalWorkspaceTools(workspace, {
         limits: testLimits({ diffResponseBytes: 100 }),
       });
-      const out = (await executors.getWorkspaceDiff?.({ path: "src/changed.ts" })) as {
-        diff: string;
-        truncated: boolean;
-        returnedBytes: number;
-        truncationReason?: string;
-      };
+      const out = requireJsonObject(await executors.getWorkspaceDiff?.({ path: "src/changed.ts" }));
 
       expect(out.truncated).toBe(true);
       expect(out.returnedBytes).toBeLessThanOrEqual(100);
       expect(out.truncationReason).toBe("response byte budget exceeded");
+      if (!isJsonString(out.diff)) throw new Error("expected diff string");
       expect(out.diff.length).toBeGreaterThan(0);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -351,12 +353,9 @@ describe("local workspace tools", () => {
       const { executors } = buildLocalWorkspaceTools(workspace, {
         limits: testLimits({ diffResponseBytes: 100 }),
       });
-      const out = (await executors.getWorkspaceBlame?.({ path: "src/changed.ts" })) as {
-        blame: string;
-        truncated: boolean;
-        returnedBytes: number;
-        truncationReason?: string;
-      };
+      const out = requireJsonObject(
+        await executors.getWorkspaceBlame?.({ path: "src/changed.ts" }),
+      );
 
       expect(out.truncated).toBe(true);
       expect(out.returnedBytes).toBeLessThanOrEqual(100);
@@ -382,11 +381,7 @@ describe("local workspace tools", () => {
         "lib/helper.ts",
       ]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
-        matches: Array<{ path: string; line: number; text: string }>;
-        truncated: boolean;
-        filesScanned: number;
-      };
+      const out = requireJsonObject(await executors.searchWorkspace?.({ query: "needle" }));
 
       expect(out).toEqual({
         matches: [
@@ -417,11 +412,9 @@ describe("local workspace tools", () => {
         limits: testLimits(),
         pathGate,
       });
-      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
-        matches: Array<{ path: string }>;
-      };
+      const out = requireJsonObject(await executors.searchWorkspace?.({ query: "needle" }));
 
-      expect(out.matches.map((m) => m.path)).toEqual(["src/ok.ts"]);
+      expect(jsonObjects(out.matches).map((m) => m.path)).toEqual(["src/ok.ts"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -443,10 +436,7 @@ describe("local workspace tools", () => {
         limits: testLimits({ searchMaxTotalBytes: 500 }),
         pathGate,
       });
-      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
-        matches: Array<{ path: string; text: string }>;
-        truncated: boolean;
-      };
+      const out = requireJsonObject(await executors.searchWorkspace?.({ query: "needle" }));
 
       expect(out).toMatchObject({
         matches: [{ path: "zzz/allowed.ts", text: "export const needle = true;" }],
@@ -468,13 +458,12 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/a.ts", "src/b.ts"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.searchWorkspace?.({
-        query: "needle",
-        maxResults: 2,
-      })) as {
-        matches: Array<{ path: string }>;
-        truncated: boolean;
-      };
+      const out = requireJsonObject(
+        await executors.searchWorkspace?.({
+          query: "needle",
+          maxResults: 2,
+        }),
+      );
 
       expect(out.matches).toHaveLength(2);
       expect(out.truncated).toBe(true);
@@ -493,9 +482,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/flag.ts"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.searchWorkspace?.({ query: "--max-count=1" })) as {
-        matches: Array<{ path: string; text: string }>;
-      };
+      const out = requireJsonObject(await executors.searchWorkspace?.({ query: "--max-count=1" }));
 
       expect(out.matches).toEqual([
         { path: "src/flag.ts", line: 1, text: "const literal = '--max-count=1';" },
@@ -530,9 +517,8 @@ describe("local workspace tools", () => {
   it("searchWorkspace returns partial truncated output when git grep exceeds the output cap", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
-      const files: Record<string, string> = {
-        "src/changed.ts": "export const changed = true;\n",
-      };
+      const files: WorkspaceFileContents = {};
+      files["src/changed.ts"] = "export const changed = true;\n";
       for (let i = 0; i < 30; i++) {
         files[`src/file-${i}.ts`] = `const value = "needle ${"x".repeat(80)}";\n`;
       }
@@ -542,17 +528,16 @@ describe("local workspace tools", () => {
       const { executors } = buildLocalWorkspaceTools(workspace, {
         limits: testLimits({ searchMaxTotalBytes: 200 }),
       });
-      const out = (await executors.searchWorkspace?.({
-        query: "needle",
-        maxResults: 20,
-      })) as {
-        matches: Array<{ path: string }>;
-        truncated: boolean;
-      };
+      const out = requireJsonObject(
+        await executors.searchWorkspace?.({
+          query: "needle",
+          maxResults: 20,
+        }),
+      );
 
       expect(out.truncated).toBe(true);
-      expect(out.matches.length).toBeGreaterThan(0);
-      expect(out.matches.length).toBeLessThanOrEqual(20);
+      expect(jsonObjects(out.matches).length).toBeGreaterThan(0);
+      expect(jsonObjects(out.matches).length).toBeLessThanOrEqual(20);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -569,9 +554,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/worktree.ts"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
-        matches: Array<{ path: string; text: string }>;
-      };
+      const out = requireJsonObject(await executors.searchWorkspace?.({ query: "needle" }));
 
       expect(out.matches).toEqual([
         { path: "src/worktree.ts", line: 1, text: "const value = 'needle';" },
@@ -584,9 +567,8 @@ describe("local workspace tools", () => {
   it("searchWorkspace handles a 1000-file fixture without JS file scans", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
-      const files: Record<string, string> = {
-        "src/changed.ts": "export const changed = true;\n",
-      };
+      const files: WorkspaceFileContents = {};
+      files["src/changed.ts"] = "export const changed = true;\n";
       for (let i = 0; i < 1000; i++) {
         files[`src/file-${i}.ts`] = i === 999 ? "const needle = true;\n" : "const other = true;\n";
       }
@@ -595,12 +577,10 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, Object.keys(files));
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const startedAt = performance.now();
-      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
-        matches: Array<{ path: string }>;
-      };
+      const out = requireJsonObject(await executors.searchWorkspace?.({ query: "needle" }));
       const durationMs = performance.now() - startedAt;
 
-      expect(out.matches.map((match) => match.path)).toEqual(["src/file-999.ts"]);
+      expect(jsonObjects(out.matches).map((match) => match.path)).toEqual(["src/file-999.ts"]);
       expect(durationMs).toBeLessThan(1000);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -610,9 +590,8 @@ describe("local workspace tools", () => {
   it("searchWorkspace searches allowed paths across grep pathspec chunks", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
-      const files: Record<string, string> = {
-        "src/changed.ts": "export const changed = true;\n",
-      };
+      const files: WorkspaceFileContents = {};
+      files["src/changed.ts"] = "export const changed = true;\n";
       const fileCount = LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE + 5;
       for (let i = 0; i < fileCount; i++) {
         files[`src/chunk-${i.toString().padStart(4, "0")}.ts`] =
@@ -622,11 +601,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, Object.keys(files));
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
-        matches: Array<{ path: string }>;
-      };
+      const out = requireJsonObject(await executors.searchWorkspace?.({ query: "needle" }));
 
-      expect(out.matches.map((match) => match.path)).toEqual([
+      expect(jsonObjects(out.matches).map((match) => match.path)).toEqual([
         `src/chunk-${(fileCount - 1).toString().padStart(4, "0")}.ts`,
       ]);
     } finally {
@@ -724,10 +701,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts"], { checkoutMode: "sparse" });
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/missing.ts" })) as {
-        refused?: boolean;
-        coverage?: { mode: string };
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: "src/missing.ts" }),
+      );
 
       expect(out.refused).toBe(true);
       expect(out.coverage).toMatchObject({ mode: "sparse" });
@@ -739,9 +715,8 @@ describe("local workspace tools", () => {
   it("searchWorkspace reports pathsSearched separately from filesScanned and sets truncated on caps", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
-      const files: Record<string, string> = {
-        "src/changed.ts": "export const changed = true;\n",
-      };
+      const files: WorkspaceFileContents = {};
+      files["src/changed.ts"] = "export const changed = true;\n";
       for (let i = 0; i < 30; i++) {
         files[`src/file-${i}.ts`] = `const value = "needle ${"x".repeat(80)}";\n`;
       }
@@ -751,22 +726,17 @@ describe("local workspace tools", () => {
       const { executors } = buildLocalWorkspaceTools(workspace, {
         limits: testLimits({ searchMaxTotalBytes: 200 }),
       });
-      const out = (await executors.searchWorkspace?.({
-        query: "needle",
-        maxResults: 20,
-      })) as {
-        matches: Array<{ path: string }>;
-        truncated: boolean;
-        pathsSearched: number;
-        filesScanned: number;
-        coverage?: { searchTruncated?: boolean };
-        warning?: string;
-      };
+      const out = requireJsonObject(
+        await executors.searchWorkspace?.({
+          query: "needle",
+          maxResults: 20,
+        }),
+      );
 
       expect(out.truncated).toBe(true);
-      expect(out.pathsSearched).toBe(Object.keys(files).length);
-      expect(out.filesScanned).toBeGreaterThan(0);
-      expect(out.filesScanned).toBeLessThanOrEqual(out.pathsSearched);
+      expect(jsonNumber(out.pathsSearched)).toBe(Object.keys(files).length);
+      expect(jsonNumber(out.filesScanned)).toBeGreaterThan(0);
+      expect(jsonNumber(out.filesScanned)).toBeLessThanOrEqual(jsonNumber(out.pathsSearched));
       expect(out.coverage).toBeDefined();
       expect(out.warning).toBeDefined();
     } finally {
@@ -791,10 +761,7 @@ describe("local workspace tools", () => {
         getSymbolIndexStatus: () => symbolIndexStatus(index),
       });
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.resolveSymbol?.({ name: "foo" })) as {
-        available: boolean;
-        matches: Array<{ path: string; line: number; kind: string }>;
-      };
+      const out = requireJsonObject(await executors.resolveSymbol?.({ name: "foo" }));
 
       expect(out.available).toBe(true);
       expect(out.matches).toEqual([{ path: "src/symbols.ts", line: 1, kind: "function" }]);
@@ -822,12 +789,8 @@ describe("local workspace tools", () => {
       });
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
 
-      const foo = (await executors.resolveSymbol?.({ name: "foo" })) as {
-        matches: Array<{ path: string }>;
-      };
-      const bar = (await executors.resolveSymbol?.({ name: "bar" })) as {
-        matches: Array<{ path: string }>;
-      };
+      const foo = requireJsonObject(await executors.resolveSymbol?.({ name: "foo" }));
+      const bar = requireJsonObject(await executors.resolveSymbol?.({ name: "bar" }));
 
       expect(foo.matches).toEqual([{ path: "src/on-disk.ts", line: 1, kind: "function" }]);
       expect(bar.matches).toEqual([]);
@@ -885,10 +848,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "logs/live.pipe" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: "logs/live.pipe" }),
+      );
 
       expect(out.refused).toBe(true);
       expect(out.reason).toContain("FIFO");
@@ -907,10 +869,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "docs-link"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "docs-link" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "docs-link" }));
 
       expect(out.refused).toBe(true);
       expect(out.reason).toContain("directory");
@@ -930,10 +889,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/innocent.txt"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "logs/innocent.txt" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: "logs/innocent.txt" }),
+      );
 
       expect(out.refused).toBe(true);
       expect(out.reason).toContain("FIFO");
@@ -958,10 +916,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/agent.sock"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "logs/agent.sock" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: "logs/agent.sock" }),
+      );
 
       expect(out.refused).toBe(true);
       expect(out.reason).toContain("socket");
@@ -987,13 +944,9 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "docs/caf\u0065\u0301.md" })) as {
-        path: string;
-        refused?: boolean;
-        reason?: string;
-        note?: string;
-        content?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: "docs/caf\u0065\u0301.md" }),
+      );
 
       expect(out.path).toBe(nfcPath);
       expect(out.refused).toBe(true);
@@ -1017,10 +970,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "cd.yml"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "ci.yml" })) as {
-        refused?: boolean;
-        similarPaths?: string[];
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "ci.yml" }));
 
       expect(out.refused).toBe(true);
       expect(out.similarPaths).toEqual(["cd.yml"]);
@@ -1050,10 +1000,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", ...siblings]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "config.ts" })) as {
-        refused?: boolean;
-        similarPaths?: string[];
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "config.ts" }));
 
       expect(out.refused).toBe(true);
       expect(out.similarPaths).toHaveLength(5);
@@ -1079,11 +1026,9 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({ path: `notes/${CLEAN_NAME}` })) as {
-        path: string;
-        content?: string;
-        note?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: `notes/${CLEAN_NAME}` }),
+      );
 
       expect(out.path).toBe(hostilePath);
       expect(out.content).toContain("rotate the keys");
@@ -1106,10 +1051,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: hostilePath })) as {
-        content?: string;
-        note?: string;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: hostilePath }));
 
       expect(out.content).toContain("rotate the keys");
       expect(out.note).toBeUndefined();
@@ -1130,10 +1072,7 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, ["src/changed.ts", "a\u2019b.txt", "a'b.txt"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       // Left single quote canonicalizes to the same spelling as both twins.
-      const out = (await executors.readWorkspaceFile?.({ path: "a\u2018b.txt" })) as {
-        refused?: boolean;
-        note?: string;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "a\u2018b.txt" }));
 
       expect(out.refused).toBe(true);
       expect(out.note ?? "").not.toContain("unicode-equivalent");
@@ -1153,13 +1092,11 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({
-        path: "notes/Meeting notes' resume 3.04 PM.txt",
-      })) as {
-        refused?: boolean;
-        note?: string;
-        similarPaths?: string[];
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({
+          path: "notes/Meeting notes' resume 3.04 PM.txt",
+        }),
+      );
 
       expect(out.refused).toBe(true);
       expect(out.note ?? "").not.toContain("unicode-equivalent");
@@ -1179,10 +1116,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "AGENT.md" })) as {
-        refused?: boolean;
-        similarPaths?: string[];
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "AGENT.md" }));
 
       expect(out.refused).toBe(true);
       expect(out.similarPaths).toEqual(["AGENTS.md"]);
@@ -1201,10 +1135,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "zzz_qqq.bin" })) as {
-        refused?: boolean;
-        similarPaths?: string[];
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "zzz_qqq.bin" }));
 
       expect(out.refused).toBe(true);
       expect(out.similarPaths).toBeUndefined();
@@ -1223,10 +1154,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "config/keys.pem"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({ path: "config/keys.pub" })) as {
-        refused?: boolean;
-        similarPaths?: string[];
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({ path: "config/keys.pub" }),
+      );
 
       expect(out.refused).toBe(true);
       expect(out.similarPaths).toBeUndefined();
@@ -1250,11 +1180,7 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({ path: "src/empty.ts" })) as {
-        content?: string;
-        note?: string;
-        refused?: boolean;
-      };
+      const out = requireJsonObject(await executors.readWorkspaceFile?.({ path: "src/empty.ts" }));
 
       expect(out.content).toBe("");
       expect(out.note).toBe("File is empty (0 bytes).");
@@ -1280,15 +1206,13 @@ describe("local workspace tools", () => {
         evidenceLedger,
         headSha: "deadbeef",
       });
-      const out = (await executors.readWorkspaceFile?.({
-        path: "src/window.ts",
-        startLine: 900,
-        maxLines: 50,
-      })) as {
-        content?: string;
-        note?: string;
-        truncated?: boolean;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({
+          path: "src/window.ts",
+          startLine: 900,
+          maxLines: 50,
+        }),
+      );
 
       expect(out.content).toBe("");
       expect(out.note).toContain("beyond the end of the file (3 lines total)");
@@ -1309,11 +1233,9 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.getWorkspaceBlame?.({ path: "logs/live.pipe" })) as {
-        refused?: boolean;
-        reason?: string;
-        blame?: string | null;
-      };
+      const out = requireJsonObject(
+        await executors.getWorkspaceBlame?.({ path: "logs/live.pipe" }),
+      );
 
       expect(out.refused).toBe(true);
       expect(out.reason).toContain("FIFO");
@@ -1333,16 +1255,13 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
       const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.readWorkspaceFile?.({
-        path: "src/window.ts",
-        startLine: 3,
-        maxLines: 10,
-      })) as {
-        content?: string;
-        startLine?: number;
-        endLine?: number;
-        note?: string;
-      };
+      const out = requireJsonObject(
+        await executors.readWorkspaceFile?.({
+          path: "src/window.ts",
+          startLine: 3,
+          maxLines: 10,
+        }),
+      );
 
       expect(out.content).toBe("c");
       expect(out.startLine).toBe(3);

@@ -1,6 +1,8 @@
 import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../../settings/index.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { escapeTableHtml } from "../../github/markdownFormat.js";
+import type { AgentRunnerToolExecutorMap } from "../../agent/providers/interface.js";
+import * as v from "valibot";
 
 export type CommentableRightLineRanges = Array<[number, number]>;
 
@@ -114,6 +116,21 @@ export type ListPullRequestFilesToolResult = {
   }>;
 };
 
+const listPullRequestFilesResultSchema = v.object({
+  truncated: v.optional(v.boolean()),
+  files: v.optional(
+    v.array(
+      v.object({
+        filename: v.string(),
+        patch: v.optional(v.string()),
+        patchOmitted: v.optional(v.boolean()),
+        additions: v.optional(v.number()),
+        deletions: v.optional(v.number()),
+      }),
+    ),
+  ),
+});
+
 export function ingestListPullRequestFilesResult(
   index: CachedPrDiffIndex,
   result: ListPullRequestFilesToolResult,
@@ -137,18 +154,22 @@ export function ingestListPullRequestFilesResult(
 }
 
 export function wrapListPullRequestFilesDiffIngestion(
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+  executors: AgentRunnerToolExecutorMap,
   cachedDiffIndex: CachedPrDiffIndex,
-): void {
+): AgentRunnerToolExecutorMap {
   const original = executors.listPullRequestFiles;
-  if (!original) return;
-  executors.listPullRequestFiles = async (args) => {
-    const out = await original(args);
-    cachedDiffIndex.listPullRequestFilesIngested = true;
-    if (out && typeof out === "object") {
-      ingestListPullRequestFilesResult(cachedDiffIndex, out as ListPullRequestFilesToolResult);
-    }
-    return out;
+  if (!original) return executors;
+  return {
+    ...executors,
+    listPullRequestFiles: async (args) => {
+      const out = await original(args);
+      cachedDiffIndex.listPullRequestFilesIngested = true;
+      const parsed = v.safeParse(listPullRequestFilesResultSchema, out);
+      if (parsed.success) {
+        ingestListPullRequestFilesResult(cachedDiffIndex, parsed.output);
+      }
+      return out;
+    },
   };
 }
 

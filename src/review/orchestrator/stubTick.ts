@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { IntakePool } from "../../db/postgres.js";
 import { logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
@@ -17,7 +17,7 @@ type SpecialistStatusTick = Extract<SpecialistTickState, { readonly kind: "speci
 type TerminalTick = Extract<SpecialistTickState, { readonly kind: "terminal" }>;
 
 type TickProgressCommentBase = {
-  readonly pool: Pool;
+  readonly pool: IntakePool;
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly owner: string;
@@ -44,7 +44,7 @@ export type TickProgressCommentArgs = TickProgressCommentBase &
   );
 
 export type WriteCancelledProgressCommentArgs = {
-  readonly pool: Pool;
+  readonly pool: IntakePool;
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly owner: string;

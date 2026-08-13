@@ -1,5 +1,4 @@
-import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { IntakeClient, IntakePool } from "../../db/postgres.js";
 import type { Config } from "../../config.js";
 import { inTransaction, pgBossDb } from "../../db/postgres.js";
 import {
@@ -33,6 +32,7 @@ import {
   enqueueReview,
   enqueueVerification,
   jobCorrelation,
+  type JobQueue,
 } from "./queueing.js";
 import type { CiRefreshJobData } from "../types.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
@@ -58,8 +58,8 @@ type AutomatedKindDispatchDescriptor = {
 };
 
 async function dispatchAutomatedKind(
-  boss: PgBoss,
-  client: PoolClient,
+  boss: JobQueue,
+  client: IntakeClient,
   slotDb: SingletonSlotDb,
   resourceKey: string,
   correlation: JobCorrelation,
@@ -102,7 +102,7 @@ async function dispatchAutomatedKind(
 }
 
 export async function recordIgnoredWebhook(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   headers: WebhookHeaders,
   decision: string,
   intakeLog: RequestLogger,
@@ -117,8 +117,8 @@ export async function recordIgnoredWebhook(
 }
 
 async function applyPlannedAutomatedPullRequestIntake(
-  boss: PgBoss,
-  client: PoolClient,
+  boss: JobQueue,
+  client: IntakeClient,
   headers: WebhookHeaders,
   ref: PrRef,
   plan: AutomatedPrIntakePlan,
@@ -231,8 +231,8 @@ async function applyPlannedAutomatedPullRequestIntake(
 }
 
 async function applyReviewMergeCancelIntake(
-  boss: PgBoss,
-  client: PoolClient,
+  boss: JobQueue,
+  client: IntakeClient,
   headers: WebhookHeaders,
   ref: PrRef,
 ): Promise<DeferredIntakeEvent[]> {
@@ -292,8 +292,8 @@ export type AutomatedPullRequestIntakeOpts = {
 };
 
 export async function applyAutomatedPullRequestIntake(
-  boss: PgBoss,
-  pool: Pool,
+  boss: JobQueue,
+  pool: IntakePool,
   headers: WebhookHeaders,
   ref: PrRef,
   action: string,
@@ -328,8 +328,8 @@ export async function applyAutomatedPullRequestIntake(
  * No agent_work_item row — fire-and-forget like ack (ADR 0026).
  */
 export async function applyCiRefreshIntake(
-  boss: PgBoss,
-  pool: Pool,
+  boss: JobQueue,
+  pool: IntakePool,
   headers: WebhookHeaders,
   data: {
     readonly installationId: number;

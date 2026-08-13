@@ -6,34 +6,22 @@ import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
+  spyPublishReviewRepositories,
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
 
-vi.mock("../src/agentWork/repository.js", async () => {
-  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createAgentWorkRepositoryMock();
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
 import { attachSummaryCommentCoordination } from "../src/review/publish/publishReview.js";
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
+import { createQueryPool } from "./helpers/fakePool.js";
 
 const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
-const pool = {
-  connect: vi.fn(async () => ({
-    query: vi.fn(async () => undefined),
-    release: vi.fn(),
-  })),
-} as unknown as import("pg").Pool;
+const pool = createQueryPool(async () => ({ rows: [] }));
 
 describe("publishReview check run completion", () => {
   beforeEach(() => {
+    spyPublishReviewRepositories();
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
@@ -142,6 +130,7 @@ describe("publishReview check run completion", () => {
 
 describe("publishReview commit status", () => {
   beforeEach(() => {
+    spyPublishReviewRepositories();
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();

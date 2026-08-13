@@ -1,5 +1,7 @@
+import * as v from "valibot";
 import { getAppBotIdentity, installationOctokit } from "./appAuth.js";
 import type { InstallationToken } from "./appAuth.js";
+import { nonErrorThrown } from "../errors/appError.js";
 import { logDebug, logWarn } from "../evlog.js";
 import { mintInstallationToken } from "./installationToken.js";
 import { isInstallationTokenNearExpiry } from "./installationTokenExpiry.js";
@@ -84,7 +86,7 @@ async function listConversationCommentsForPr(
   return rows.map((comment) => ({
     id: comment.id,
     inReplyToId:
-      "in_reply_to_id" in comment && typeof comment.in_reply_to_id === "number"
+      "in_reply_to_id" in comment && v.is(v.number(), comment.in_reply_to_id)
         ? comment.in_reply_to_id
         : null,
     authorLogin: comment.user?.login ?? "unknown",
@@ -208,6 +210,12 @@ type ListedReaction = {
   readonly user: { readonly id: number } | null;
 };
 
+const listedReactionSchema = v.object({
+  id: v.number(),
+  content: v.string(),
+  user: v.nullable(v.object({ id: v.number() })),
+});
+
 async function safeReaction(
   token: string,
   owner: string,
@@ -240,8 +248,9 @@ async function safeReaction(
         content,
       });
     }
-  } catch (e: unknown) {
-    const status = httpStatus(e);
+  } catch (error) {
+    const err = error instanceof Error ? error : nonErrorThrown("github.reaction_create");
+    const status = httpStatus(err);
     if (status === 403) {
       logDebug("reaction_suppressed_forbidden", {
         owner,
@@ -253,7 +262,7 @@ async function safeReaction(
       return;
     }
     if (status === 422) return;
-    throw e;
+    throw err;
   }
 }
 
@@ -265,28 +274,28 @@ async function listLifecycleReactions(
   expiresAtTs?: number,
 ): Promise<readonly ListedReaction[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  if (target.kind === "pr") {
-    return octokit.paginate(octokit.rest.reactions.listForIssue, {
-      owner,
-      repo,
-      issue_number: target.prNumber,
-      per_page: 100,
-    }) as Promise<readonly ListedReaction[]>;
-  }
-  if (target.kind === "issueComment") {
-    return octokit.paginate(octokit.rest.reactions.listForIssueComment, {
-      owner,
-      repo,
-      comment_id: target.commentId,
-      per_page: 100,
-    }) as Promise<readonly ListedReaction[]>;
-  }
-  return octokit.paginate(octokit.rest.reactions.listForPullRequestReviewComment, {
-    owner,
-    repo,
-    comment_id: target.commentId,
-    per_page: 100,
-  }) as Promise<readonly ListedReaction[]>;
+  const rows =
+    target.kind === "pr"
+      ? await octokit.paginate(octokit.rest.reactions.listForIssue, {
+          owner,
+          repo,
+          issue_number: target.prNumber,
+          per_page: 100,
+        })
+      : target.kind === "issueComment"
+        ? await octokit.paginate(octokit.rest.reactions.listForIssueComment, {
+            owner,
+            repo,
+            comment_id: target.commentId,
+            per_page: 100,
+          })
+        : await octokit.paginate(octokit.rest.reactions.listForPullRequestReviewComment, {
+            owner,
+            repo,
+            comment_id: target.commentId,
+            per_page: 100,
+          });
+  return v.parse(v.array(listedReactionSchema), rows);
 }
 
 async function deleteReaction(
@@ -446,7 +455,9 @@ async function createGithubCheckRunOrRecoverDuplicate(
       expiresAtTs,
     );
   } catch (createError) {
-    if (httpStatus(createError) !== 422) throw createError;
+    const err =
+      createError instanceof Error ? createError : nonErrorThrown("github.check_run_create");
+    if (httpStatus(err) !== 422) throw err;
     const duplicate = await findReviewCheckRunByName(
       token,
       owner,
@@ -455,7 +466,7 @@ async function createGithubCheckRunOrRecoverDuplicate(
       REVIEW_CHECK_RUN_NAME,
       expiresAtTs,
     );
-    if (duplicate == null) throw createError;
+    if (duplicate == null) throw err;
     return duplicate;
   }
 }
@@ -745,8 +756,9 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         });
         return true;
       } catch (error) {
-        if (httpStatus(error) === 404) return false;
-        throw error;
+        const err = error instanceof Error ? error : nonErrorThrown("github.review_comment_update");
+        if (httpStatus(err) === 404) return false;
+        throw err;
       }
     },
 

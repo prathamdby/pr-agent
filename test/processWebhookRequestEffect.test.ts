@@ -6,29 +6,7 @@ import { processWebhookPostRequestEffect } from "../src/effect/programs/processW
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import { makeTestConfig } from "./helpers/config.js";
-
-const mocks = vi.hoisted(() => ({
-  getAppBotIdentity: vi.fn(),
-}));
-
-const settingsOverrides: { webhookTimeoutMs?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get WEBHOOK_TIMEOUT_MS() {
-      return settingsOverrides.webhookTimeoutMs ?? actual.WEBHOOK_TIMEOUT_MS;
-    },
-  };
-});
-
-vi.mock("../src/github/appAuth.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/appAuth.js")>();
-  return {
-    ...actual,
-    getAppBotIdentity: mocks.getAppBotIdentity,
-  };
-});
+import * as appAuth from "../src/github/appAuth.js";
 
 const cfg = makeTestConfig({
   webhookSecret: "secret",
@@ -43,12 +21,15 @@ function runWithIntake(
   req: Parameters<typeof processWebhookPostRequestEffect>[1],
   layer: Layer.Layer<AgentWorkScheduler | WebhookHandlers>,
   runCfg = cfg,
+  timeoutMs?: number,
 ) {
   const intakeLog = evlog.createOperationLogger({
     method: "POST",
     path: "/webhooks",
   });
-  return processWebhookPostRequestEffect(runCfg, req, intakeLog).pipe(Effect.provide(layer));
+  return processWebhookPostRequestEffect(runCfg, req, intakeLog, timeoutMs).pipe(
+    Effect.provide(layer),
+  );
 }
 
 function slashGateLayer(
@@ -88,8 +69,10 @@ function slashGateLayer(
 
 describe("processWebhookPostRequestEffect", () => {
   beforeEach(() => {
-    mocks.getAppBotIdentity.mockReset();
-    mocks.getAppBotIdentity.mockResolvedValue({ userId: 42, login: "pr-agent[bot]" });
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 42,
+      login: "pr-agent[bot]",
+    });
   });
 
   const stubLayer = Layer.mergeAll(
@@ -248,7 +231,7 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(decisions).toEqual(["ignored_no_slash_command"]);
     expect(slashCalls).toEqual([]);
-    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
+    expect(appAuth.getAppBotIdentity).toHaveBeenCalled();
   });
 
   it("submits ask for inline thread reply with @mention", async () => {
@@ -306,7 +289,7 @@ describe("processWebhookPostRequestEffect", () => {
         botLogin: "pr-agent[bot]",
       },
     ]);
-    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
+    expect(appAuth.getAppBotIdentity).toHaveBeenCalled();
   });
 
   it("ignores bot-authored mention replies", async () => {
@@ -348,7 +331,7 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(decisions).toEqual(["ignored_bot_slash_command"]);
     expect(slashCalls).toEqual([]);
-    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
+    expect(appAuth.getAppBotIdentity).toHaveBeenCalled();
   });
 
   it("rejects unauthorized mention replies", async () => {
@@ -390,7 +373,7 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(decisions).toEqual(["ignored_unauthorized_slash"]);
     expect(slashCalls).toEqual([]);
-    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
+    expect(appAuth.getAppBotIdentity).toHaveBeenCalled();
   });
 
   it("submits ask for issue comment @mention without slash", async () => {
@@ -442,7 +425,7 @@ describe("processWebhookPostRequestEffect", () => {
         botLogin: "pr-agent[bot]",
       },
     ]);
-    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
+    expect(appAuth.getAppBotIdentity).toHaveBeenCalled();
   });
 
   it("ignores issue_comment reply without @mention", async () => {
@@ -654,7 +637,6 @@ describe("processWebhookPostRequestEffect", () => {
     );
 
     const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
-    settingsOverrides.webhookTimeoutMs = 1;
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
     try {
@@ -669,6 +651,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           slowLayer,
           cfg,
+          1,
         ),
       );
 
@@ -679,7 +662,6 @@ describe("processWebhookPostRequestEffect", () => {
       expect(budgetWarn).toBeDefined();
       expect(budgetWarn?.[2]).toMatchObject({ budgetMs: 1, responseBudgetMs: 1 });
     } finally {
-      delete settingsOverrides.webhookTimeoutMs;
       recordSpy.mockRestore();
     }
   });

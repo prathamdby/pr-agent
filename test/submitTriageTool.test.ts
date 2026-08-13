@@ -22,10 +22,18 @@ function inventoryThread(): BotFindingThread {
 
 function buildTool() {
   const submitState = createSubmitTriageState();
-  const checkout = { listCommittedShas: () => [] } as unknown as WritablePrCheckout;
-  const workspaceState = {
+  const checkout: WritablePrCheckout = {
+    dir: "/tmp/checkout",
+    headRef: "main",
+    baseSha: "a".repeat(40),
+    commit: async () => ({ sha: "b".repeat(40), diff: "" }),
+    push: async () => undefined,
+    listCommittedShas: () => [],
+    listCommittedDetails: () => [],
+  };
+  const workspaceState: TriageWorkspaceToolState = {
     commitByThreadRootCommentId: new Map(),
-  } as unknown as TriageWorkspaceToolState;
+  };
   const tool = buildSubmitTriageTool({
     owner: "o",
     repo: "r",

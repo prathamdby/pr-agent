@@ -1,11 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListFailingActionsJobsResult } from "../src/github/actionsLogs.js";
-
-vi.mock("../src/github/ciStatus.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/ciStatus.js")>();
-  return actual;
-});
-
 import {
   buildCiSummaryForSurface,
   isOwnCiCheckName,

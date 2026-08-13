@@ -1,12 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
-import { promoteAskFromWebhookEvent } from "../src/agentWork/intake/askIntake.js";
+import {
+  promoteAskFromWebhookEvent,
+  type AskIntakeInput,
+} from "../src/agentWork/intake/askIntake.js";
+import type { BossJobData } from "../src/agentWork/intake/queueing.js";
 import { ACK_QUEUE, ASK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
 import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
 import { MAX_ASK_QUESTION_CHARS } from "../src/agent/ask/askSafety.js";
+import {
+  createJobQueue,
+  createRecordingBoss,
+  type RecordedBossJob,
+} from "./helpers/recordingBoss.js";
+import { createQueryClient } from "./helpers/fakePool.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
 
-function baseInput(overrides: Record<string, unknown> = {}) {
+function baseInput(overrides: Partial<AskIntakeInput> = {}): AskIntakeInput {
   return {
     webhookEventId: "event-1",
     correlation: { webhookEventId: "event-1", delivery: "d1" },
@@ -28,14 +37,9 @@ function baseInput(overrides: Record<string, unknown> = {}) {
 
 describe("promoteAskFromWebhookEvent", () => {
   it("acks usage hint without creating work", async () => {
-    const sent: { queue: string; data: Record<string, unknown>; options?: unknown }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>, options?: unknown) => {
-        sent.push({ queue, data, options });
-        return "jid";
-      }),
-    } as unknown as PgBoss;
-    const client = { query: vi.fn() } as unknown as PoolClient;
+    const sent: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sent);
+    const client = createQueryClient(vi.fn());
 
     const outcome = await promoteAskFromWebhookEvent(
       boss,
@@ -47,23 +51,20 @@ describe("promoteAskFromWebhookEvent", () => {
     expect(outcome).toEqual({ kind: "hint_acked", reason: "usage" });
     expect(sent).toHaveLength(1);
     expect(sent[0]?.queue).toBe(ACK_QUEUE);
-    expect(sent[0]?.data.reply).toEqual({
-      target: { kind: "prConversation", prNumber: 7 },
-      body: ASK_USAGE_HINT,
+    expect(sent[0]?.data).toMatchObject({
+      reply: {
+        target: { kind: "prConversation", prNumber: 7 },
+        body: ASK_USAGE_HINT,
+      },
     });
     expect(sent[0]?.options).toEqual(expect.objectContaining({ id: "event-1", priority: 100 }));
     expect(client.query).not.toHaveBeenCalled();
   });
 
   it("acks too-long hint for @mention inline-thread body", async () => {
-    const sent: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sent.push({ queue, data });
-        return "jid";
-      }),
-    } as unknown as PgBoss;
-    const client = { query: vi.fn() } as unknown as PoolClient;
+    const sent: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sent);
+    const client = createQueryClient(vi.fn());
     const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
 
     const outcome = await promoteAskFromWebhookEvent(
@@ -82,49 +83,51 @@ describe("promoteAskFromWebhookEvent", () => {
     );
 
     expect(outcome).toEqual({ kind: "hint_acked", reason: "too_long" });
-    expect(sent[0]?.data.reply).toEqual({
-      target: {
-        kind: "inlineReviewThread",
-        prNumber: 7,
-        inReplyToCommentId: 100,
+    expect(sent[0]?.data).toMatchObject({
+      reply: {
+        target: {
+          kind: "inlineReviewThread",
+          prNumber: 7,
+          inReplyToCommentId: 100,
+        },
+        body: ASK_QUESTION_TOO_LONG_HINT,
       },
-      body: ASK_QUESTION_TOO_LONG_HINT,
     });
   });
 
   it("skips enqueue when existing ask work item and policy is skip", async () => {
-    const boss = {
-      send: vi.fn(async () => "jid"),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+    const send = vi.fn(async () => "jid");
+    const boss = createJobQueue({ send });
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id")) return { rows: [{ id: "ask-existing" }] };
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
+    );
 
     const outcome = await promoteAskFromWebhookEvent(boss, client, baseInput(), "skip");
 
     expect(outcome).toEqual({ kind: "already_exists_skipped", workItemId: "ask-existing" });
-    expect(boss.send).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("recover-enqueues idempotently when existing ask work item", async () => {
-    const sent: { queue: string; data: Record<string, unknown>; options?: unknown }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>, options?: unknown) => {
+    const sent: RecordedBossJob[] = [];
+    const send = vi.fn(
+      async (queue: string, data: BossJobData, options?: RecordedBossJob["options"]) => {
         sent.push({ queue, data, options });
         return null;
-      }),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+      },
+    );
+    const boss = createJobQueue({ send }, sent);
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id")) return { rows: [{ id: "ask-existing" }] };
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
+    );
 
     const outcome = await promoteAskFromWebhookEvent(boss, client, baseInput(), "recover");
 
@@ -139,19 +142,20 @@ describe("promoteAskFromWebhookEvent", () => {
   });
 
   it("promotes a new ask with singleton keys", async () => {
-    const sent: { queue: string; options?: unknown }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, _data: unknown, options?: unknown) => {
+    const sent: { queue: string; options?: RecordedBossJob["options"] }[] = [];
+    const send = vi.fn(
+      async (queue: string, _data: BossJobData, options?: RecordedBossJob["options"]) => {
         sent.push({ queue, options });
         return "jid";
-      }),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string) => {
+      },
+    );
+    const boss = createJobQueue({ send });
+    const client = createQueryClient(
+      vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "ask-new" }] };
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
+    );
 
     const outcome = await promoteAskFromWebhookEvent(
       boss,
@@ -176,18 +180,16 @@ describe("promoteAskFromWebhookEvent", () => {
 
   it("redacts secret-shaped question text before durable insert", async () => {
     let payloadJson = "";
-    const boss = {
-      send: vi.fn(async () => "jid"),
-    } as unknown as PgBoss;
-    const client = {
-      query: vi.fn(async (sql: string, values?: unknown[]) => {
+    const boss = createRecordingBoss([]);
+    const client = createQueryClient(
+      vi.fn(async (sql: string, values?: JsonValue[]) => {
         if (sql.includes("INSERT INTO agent_work_items")) {
           payloadJson = String(values?.[12] ?? "");
           return { rows: [{ id: "ask-redacted" }] };
         }
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as PoolClient;
+    );
 
     const token = "ghp_1234567890123456789012345678901234";
     const outcome = await promoteAskFromWebhookEvent(

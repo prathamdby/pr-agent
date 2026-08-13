@@ -1,39 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 import type { PrSurface } from "../src/github/prSurface.js";
 import { createFakePrSurface, createPrSurface } from "../src/github/prSurface.js";
 import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
-
-const reviewPublishMocks = vi.hoisted(() => ({
-  createReviewCheckRun: vi.fn(),
-  findReviewCheckRunByName: vi.fn(),
-}));
-
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: vi.fn(),
-  getAppBotIdentity: vi.fn(async () => ({ userId: 99, login: "pr-agent[bot]" })),
-  mintInstallationAuth: vi.fn(),
-}));
-
-vi.mock("../src/github/installationToken.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/installationToken.js")>();
-  return {
-    ...actual,
-    mintInstallationToken: vi.fn(),
-  };
-});
-
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
-  return {
-    ...actual,
-    createReviewCheckRun: reviewPublishMocks.createReviewCheckRun,
-    findReviewCheckRunByName: reviewPublishMocks.findReviewCheckRunByName,
-  };
-});
-
-import { installationOctokit } from "../src/github/appAuth.js";
+import * as appAuth from "../src/github/appAuth.js";
+import {
+  clearInstallationOctokitCacheForTest,
+  installationOctokit,
+  resetInstallationOctokitFactory,
+  setInstallationOctokitFactory,
+} from "../src/github/appAuth.js";
+import * as installationToken from "../src/github/installationToken.js";
 import { mintInstallationToken } from "../src/github/installationToken.js";
+import * as reviewPublish from "../src/github/reviewPublish.js";
 import { createReviewCheckRun, findReviewCheckRunByName } from "../src/github/reviewPublish.js";
 
 const SENTINEL = "<!-- pr-agent-progress -->";
@@ -49,9 +28,22 @@ async function sharedProgressCommentScenarios(surface: PrSurface): Promise<void>
 
 describe("PrSurface seam", () => {
   beforeEach(() => {
+    vi.spyOn(appAuth, "installationOctokit");
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 99,
+      login: "pr-agent[bot]",
+    });
+    vi.spyOn(appAuth, "mintInstallationAuth");
+    vi.spyOn(installationToken, "mintInstallationToken");
+    vi.spyOn(reviewPublish, "createReviewCheckRun");
+    vi.spyOn(reviewPublish, "findReviewCheckRunByName");
     vi.clearAllMocks();
-    reviewPublishMocks.createReviewCheckRun.mockReset();
-    reviewPublishMocks.findReviewCheckRunByName.mockReset();
+    clearInstallationOctokitCacheForTest();
+  });
+
+  afterEach(() => {
+    resetInstallationOctokitFactory();
+    clearInstallationOctokitCacheForTest();
   });
 
   it("createPrSurface with seed token uses installationOctokit with token and expiry on getHeadSha", async () => {
@@ -64,9 +56,10 @@ describe("PrSurface seam", () => {
         changed_files: 1,
       },
     }));
-    vi.mocked(installationOctokit).mockReturnValue({
+    setInstallationOctokitFactory(() => ({
       rest: { pulls: { get: pullsGet } },
-    } as never);
+      hook: { after: vi.fn() },
+    }));
     vi.mocked(mintInstallationToken).mockResolvedValue({
       token: "should-not-mint",
       expiresAtTs,
@@ -121,7 +114,7 @@ describe("PrSurface seam", () => {
       return { data: {} };
     });
 
-    vi.mocked(installationOctokit).mockReturnValue({
+    setInstallationOctokitFactory(() => ({
       rest: {
         issues: {
           listComments,
@@ -129,7 +122,8 @@ describe("PrSurface seam", () => {
           updateComment,
         },
       },
-    } as never);
+      hook: { after: vi.fn() },
+    }));
 
     const expiresAtTs = Date.now() + 3_600_000;
     const real = createPrSurface({
@@ -157,9 +151,10 @@ describe("PrSurface seam", () => {
         changed_files: 1,
       },
     }));
-    vi.mocked(installationOctokit).mockReturnValue({
+    setInstallationOctokitFactory(() => ({
       rest: { pulls: { get: pullsGet } },
-    } as never);
+      hook: { after: vi.fn() },
+    }));
     vi.mocked(mintInstallationToken).mockResolvedValue({
       token: "fresh-token",
       expiresAtTs: freshExpiry,

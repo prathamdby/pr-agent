@@ -1,18 +1,9 @@
 import http from "node:http";
 import net from "node:net";
 import crypto from "node:crypto";
+import type { AddressInfo } from "node:net";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-
-const settingsOverrides: { webhookMaxBodyBytes?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get WEBHOOK_MAX_BODY_BYTES() {
-      return settingsOverrides.webhookMaxBodyBytes ?? actual.WEBHOOK_MAX_BODY_BYTES;
-    },
-  };
-});
+import * as v from "valibot";
 
 import { Effect, Fiber, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
@@ -20,6 +11,13 @@ import type { Config } from "../src/config.js";
 import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
 import { makeTestConfig } from "./helpers/config.js";
+
+const addressInfoSchema = v.object({ port: v.number() });
+function listeningPort(addr: string | AddressInfo | null): number {
+  const parsed = v.safeParse(addressInfoSchema, addr);
+  if (!parsed.success) throw new Error("no port");
+  return parsed.output.port;
+}
 
 const testCfg = makeTestConfig({
   webhookSecret: "secret",
@@ -197,10 +195,12 @@ function startEffectServer({
   pingResult = true,
   cfg = testCfg,
   recordIgnored = () => Effect.void,
+  maxBodyBytes,
 }: {
   readonly pingResult?: boolean;
   readonly cfg?: Config;
   readonly recordIgnored?: () => Effect.Effect<void>;
+  readonly maxBodyBytes?: number;
 } = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
@@ -225,6 +225,7 @@ function startEffectServer({
         return captured;
       },
       schedulerLayer,
+      maxBodyBytes,
     );
     const fiber = Effect.runFork(Layer.launch(layer));
   });
@@ -245,7 +246,6 @@ describe("effect webhook server (end-to-end)", () => {
   let handle: Handle | undefined;
 
   afterEach(async () => {
-    delete settingsOverrides.webhookMaxBodyBytes;
     if (!handle) return;
     await stopEffectServer(handle);
     handle = undefined;
@@ -253,46 +253,37 @@ describe("effect webhook server (end-to-end)", () => {
 
   it("returns 200 plain ok for GET /health", async () => {
     handle = await startEffectServer();
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/health");
+    const res = await get(listeningPort(handle.server.address()), "/health");
     expect(res.status).toBe(200);
     expect(res.body).toBe("ok");
   });
 
   it("returns 200 ready for GET /ready when the DB ping succeeds", async () => {
     handle = await startEffectServer({ pingResult: true });
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/ready");
+    const res = await get(listeningPort(handle.server.address()), "/ready");
     expect(res.status).toBe(200);
     expect(res.body).toBe("ready");
   });
 
   it("returns 503 not ready for GET /ready when the DB ping fails", async () => {
     handle = await startEffectServer({ pingResult: false });
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/ready");
+    const res = await get(listeningPort(handle.server.address()), "/ready");
     expect(res.status).toBe(503);
     expect(res.body).toBe("not ready");
   });
 
   it("returns 404 for unknown GET path", async () => {
     handle = await startEffectServer();
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/nope");
+    const res = await get(listeningPort(handle.server.address()), "/nope");
     expect(res.status).toBe(404);
   });
 
   it("accepts a signed ping webhook end-to-end and returns 200 ok", async () => {
     handle = await startEffectServer();
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const port = listeningPort(handle.server.address());
 
     const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
-    const res = await postSigned(addr.port, "/webhooks", body, {
+    const res = await postSigned(port, "/webhooks", body, {
       "x-hub-signature-256": signBody(testCfg.webhookSecret, body),
       "x-github-event": "ping",
       "x-github-delivery": "e2e-ping-1",
@@ -303,30 +294,29 @@ describe("effect webhook server (end-to-end)", () => {
 
   it("rejects an unsigned POST with 401 end-to-end", async () => {
     handle = await startEffectServer();
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const port = listeningPort(handle.server.address());
 
     const body = Buffer.from(JSON.stringify({ zen: "no-sig" }));
-    const res = await postSigned(addr.port, "/webhooks", body, {});
+    const res = await postSigned(port, "/webhooks", body, {});
     expect(res.status).toBe(401);
     expect(res.body).toBe("invalid signature");
   });
 
   it("rejects bodies over the configured Content-Length before signature checks", async () => {
-    settingsOverrides.webhookMaxBodyBytes = 8;
     let recordIgnoredCalls = 0;
     handle = await startEffectServer({
       cfg: makeTestConfig(),
+      maxBodyBytes: 8,
       recordIgnored: () =>
         Effect.sync(() => {
           recordIgnoredCalls += 1;
         }),
     });
     const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const port = listeningPort(addr);
 
     const body = Buffer.from(JSON.stringify({ zen: "too large" }));
-    const res = await postSigned(addr.port, "/webhooks", body, {
+    const res = await postSigned(port, "/webhooks", body, {
       "x-hub-signature-256": "sha256=bad",
       "x-github-event": "ping",
       "x-github-delivery": "too-large-content-length",
@@ -337,22 +327,21 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("closes chunked bodies over the configured limit while reading", async () => {
-    settingsOverrides.webhookMaxBodyBytes = 8;
     let recordIgnoredCalls = 0;
     const destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
     handle = await startEffectServer({
       cfg: makeTestConfig(),
+      maxBodyBytes: 8,
       recordIgnored: () =>
         Effect.sync(() => {
           recordIgnoredCalls += 1;
         }),
     });
     try {
-      const addr = handle.server.address();
-      if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+      const port = listeningPort(handle.server.address());
 
       await expect(
-        postChunked(addr.port, "/webhooks", [Buffer.from('{"zen":'), Buffer.from('"too large"}')], {
+        postChunked(port, "/webhooks", [Buffer.from('{"zen":'), Buffer.from('"too large"}')], {
           "x-hub-signature-256": "sha256=bad",
           "x-github-event": "ping",
           "x-github-delivery": "too-large-chunked",
@@ -367,15 +356,14 @@ describe("effect webhook server (end-to-end)", () => {
 
   it("handles duplicate x-hub-signature-256 headers gracefully (no crash; 401)", async () => {
     handle = await startEffectServer();
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const port = listeningPort(handle.server.address());
 
     const body = Buffer.from(JSON.stringify({ zen: "dup-headers" }));
     // Real sig under the correct secret + a second junk sig. @effect/platform's Headers
     // coalesces duplicates with `, ` so the verifier sees a garbage value and returns 401
     // without throwing on `.startsWith()`.
     const realSig = signBody(testCfg.webhookSecret, body);
-    const res = await postRaw(addr.port, "/webhooks", body, [
+    const res = await postRaw(port, "/webhooks", body, [
       "x-hub-signature-256",
       realSig,
       "x-hub-signature-256",

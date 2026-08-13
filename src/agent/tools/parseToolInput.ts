@@ -2,6 +2,13 @@ import * as v from "valibot";
 import { logDebug } from "../../evlog.js";
 import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
 import { formatValidationIssues } from "../../util/formatValidationIssues.js";
+import {
+  asJsonObject,
+  isJsonString,
+  parseJsonText,
+  type JsonArray,
+  type JsonValue,
+} from "../../util/jsonValue.js";
 
 /**
  * Validate-then-repair parse seam for tool inputs. Valid input passes
@@ -25,23 +32,26 @@ export type ParsedToolInput<T> =
   | { readonly ok: true; readonly value: T; readonly repairs: readonly ToolInputRepairKind[] }
   | { readonly ok: false; readonly error: string; readonly issues: readonly v.GenericIssue[] };
 
-type SchemaNode = {
+type ValibotWalkNode = {
   readonly type?: string;
-  readonly wrapped?: unknown;
-  readonly entries?: Record<string, unknown>;
-  readonly item?: unknown;
+  readonly wrapped?: ValibotWalkNode;
+  readonly entries?: { readonly [key: string]: ValibotWalkNode };
+  readonly item?: ValibotWalkNode;
 };
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+type MutableJsonObject = { [key: string]: JsonValue };
+type MutableJsonArray = JsonValue[];
+
+function isWalkNode(value: ValibotWalkNode | JsonValue | undefined): value is ValibotWalkNode {
+  return value instanceof Object && !Array.isArray(value);
 }
 
 /** Unwrap optional/nullish/nullable layers to reach the base node. */
-function baseNode(node: SchemaNode): SchemaNode {
+function baseNode(node: ValibotWalkNode): ValibotWalkNode {
   let current = node;
   while (
     (current.type === "optional" || current.type === "nullish" || current.type === "nullable") &&
-    isPlainObject(current.wrapped)
+    isWalkNode(current.wrapped)
   ) {
     current = current.wrapped;
   }
@@ -53,17 +63,18 @@ function baseNode(node: SchemaNode): SchemaNode {
  * into array item schemas. Returns null for unions, unknown keys, or any
  * shape we cannot walk — an unresolvable path is simply never repaired.
  */
-function schemaNodeAtPath(schema: v.GenericSchema, dotPath: string): SchemaNode | null {
-  let current: SchemaNode = schema as unknown as SchemaNode;
+function schemaNodeAtPath(schema: v.GenericSchema, dotPath: string): ValibotWalkNode | null {
+  // SAFETY: Valibot GenericSchema instances expose type, wrapped, entries, and item for this repair walk.
+  let current = schema as ValibotWalkNode;
   if (dotPath === "") return current;
   for (const segment of dotPath.split(".")) {
     const base = baseNode(current);
-    if (base.type === "object" && isPlainObject(base.entries)) {
-      const next: unknown = base.entries[segment];
-      if (!isPlainObject(next)) return null;
+    if (base.type === "object" && isWalkNode(base.entries)) {
+      const next = base.entries[segment];
+      if (!isWalkNode(next)) return null;
       current = next;
     } else if (base.type === "array" && /^\d+$/.test(segment)) {
-      if (!isPlainObject(base.item)) return null;
+      if (!isWalkNode(base.item)) return null;
       current = base.item;
     } else {
       return null;
@@ -72,11 +83,11 @@ function schemaNodeAtPath(schema: v.GenericSchema, dotPath: string): SchemaNode 
   return current;
 }
 
-function tryParseJsonArray(value: string): unknown[] | null {
+function tryParseJsonArray(value: string): JsonArray | null {
   const trimmed = value.trim();
   if (!trimmed.startsWith("[")) return null;
   try {
-    const parsed: unknown = JSON.parse(trimmed);
+    const parsed = parseJsonText(trimmed);
     return Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -85,7 +96,7 @@ function tryParseJsonArray(value: string): unknown[] | null {
 
 type AppliedRepair = {
   readonly kind: ToolInputRepairKind;
-  readonly value?: unknown;
+  readonly value?: JsonValue;
 };
 
 /**
@@ -93,22 +104,23 @@ type AppliedRepair = {
  * so a stringified array is parsed, never double-wrapped. At most one repair
  * applies per path.
  */
-function repairAt(node: SchemaNode, value: unknown): AppliedRepair | null {
+function repairAt(node: ValibotWalkNode, value: JsonValue): AppliedRepair | null {
   if (value === null && (node.type === "optional" || node.type === "nullish")) {
     return { kind: "null_optional_dropped" };
   }
   const base = baseNode(node);
   if (base.type !== "array") return null;
-  if (typeof value === "string") {
+  if (isJsonString(value)) {
     const parsed = tryParseJsonArray(value);
     if (parsed !== null) {
       return { kind: "stringified_json_array", value: parsed };
     }
   }
-  if (isPlainObject(value)) {
-    return { kind: "object_wrapped_as_array", value: [value] };
+  const objectValue = asJsonObject(value);
+  if (objectValue !== null) {
+    return { kind: "object_wrapped_as_array", value: [objectValue] };
   }
-  if (typeof value === "string" && isPlainObject(base.item)) {
+  if (isJsonString(value) && isWalkNode(base.item)) {
     const item = baseNode(base.item);
     if (item.type === "string") {
       return { kind: "string_wrapped_as_array", value: [value] };
@@ -118,41 +130,49 @@ function repairAt(node: SchemaNode, value: unknown): AppliedRepair | null {
 }
 
 type RepairTarget =
-  | { readonly parent: Record<string, unknown>; readonly key: string }
-  | { readonly parent: unknown[]; readonly key: number }
-  | { readonly parent: null; readonly key: null };
+  | { readonly kind: "root" }
+  | { readonly kind: "object"; readonly parent: MutableJsonObject; readonly key: string }
+  | { readonly kind: "array"; readonly parent: MutableJsonArray; readonly key: number };
 
 /** Locate the writable parent container for a dot path inside the cloned args. */
-function resolveRepairTarget(root: unknown, segments: readonly string[]): RepairTarget | null {
-  if (segments.length === 0) return { parent: null, key: null };
-  let current: unknown = root;
+function resolveRepairTarget(root: JsonValue, segments: readonly string[]): RepairTarget | null {
+  if (segments.length === 0) return { kind: "root" };
+  let current: JsonValue = root;
   for (const segment of segments.slice(0, -1)) {
     if (Array.isArray(current) && /^\d+$/.test(segment)) {
-      current = current[Number(segment)];
-    } else if (isPlainObject(current)) {
-      current = current[segment];
+      const next = current[Number(segment)];
+      if (next === undefined) return null;
+      current = next;
     } else {
-      return null;
+      const objectCurrent = asJsonObject(current);
+      if (objectCurrent === null) return null;
+      const next = objectCurrent[segment];
+      if (next === undefined) return null;
+      current = next;
     }
   }
   const last = segments[segments.length - 1];
+  if (last === undefined) return null;
   if (Array.isArray(current) && /^\d+$/.test(last)) {
-    return { parent: current, key: Number(last) };
+    // SAFETY: structuredClone of a JsonValue array is a mutable JSON array used only for in-place repair.
+    return { kind: "array", parent: current as MutableJsonArray, key: Number(last) };
   }
-  if (isPlainObject(current)) {
-    return { parent: current, key: last };
+  const objectCurrent = asJsonObject(current);
+  if (objectCurrent !== null) {
+    // SAFETY: structuredClone of a JsonObject is a mutable JSON object used only for in-place repair.
+    return { kind: "object", parent: objectCurrent as MutableJsonObject, key: last };
   }
   return null;
 }
 
 export function parseToolInput<TSchema extends v.GenericSchema>(
   schema: TSchema,
-  raw: unknown,
+  raw: JsonValue,
   opts: { readonly toolName: string; readonly errorTitle?: string },
 ): ParsedToolInput<v.InferOutput<TSchema>> {
   const first = v.safeParse(schema, raw);
   if (first.success) {
-    return { ok: true, value: first.output as v.InferOutput<TSchema>, repairs: [] };
+    return { ok: true, value: first.output, repairs: [] };
   }
 
   const title = opts.errorTitle ?? "Tool input validation failed:";
@@ -161,7 +181,7 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
     failingPaths.add(v.getDotPath(issue) ?? "");
   }
 
-  let candidate: unknown = structuredClone(raw);
+  let candidate: JsonValue = structuredClone(raw);
   const repairs: ToolInputRepairKind[] = [];
   for (const path of failingPaths) {
     const node = schemaNodeAtPath(schema, path);
@@ -170,18 +190,26 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
     const target = resolveRepairTarget(candidate, segments);
     if (target === null) continue;
     const value =
-      target.parent === null ? candidate : (target.parent as Record<string, unknown>)[target.key];
+      target.kind === "root"
+        ? candidate
+        : target.kind === "array"
+          ? target.parent[target.key]
+          : target.parent[target.key];
+    if (value === undefined) continue;
     const repair = repairAt(node, value);
     if (repair === null) continue;
     if (repair.kind === "null_optional_dropped") {
-      // Deleting a key only makes sense on an object parent; a null array
-      // item is never spliced out from under the model's ordering.
-      if (!isPlainObject(target.parent)) continue;
-      delete target.parent[target.key as string];
-    } else if (target.parent === null) {
+      if (target.kind !== "object") continue;
+      delete target.parent[target.key];
+    } else if (target.kind === "root") {
+      if (repair.value === undefined) continue;
       candidate = repair.value;
+    } else if (target.kind === "array") {
+      if (repair.value === undefined) continue;
+      target.parent[target.key] = repair.value;
     } else {
-      (target.parent as Record<string, unknown>)[target.key] = repair.value;
+      if (repair.value === undefined) continue;
+      target.parent[target.key] = repair.value;
     }
     repairs.push(repair.kind);
   }
@@ -202,5 +230,5 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
       issues: second.issues,
     };
   }
-  return { ok: true, value: second.output as v.InferOutput<TSchema>, repairs };
+  return { ok: true, value: second.output, repairs };
 }

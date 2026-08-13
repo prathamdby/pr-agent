@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
-import type { Pool, PoolClient } from "pg";
-import { AppError, isAppError, toAppError } from "../errors/appError.js";
+import type { IntakeClient } from "../db/postgres.js";
+import { AppError, isAppError, nonErrorThrown, toAppError } from "../errors/appError.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { parseJsonText, type JsonObject, type JsonValue } from "../util/jsonValue.js";
 import {
   mergeOperationIntentDetail,
   persistOperationIntent,
@@ -12,7 +13,7 @@ import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
 import { assertCurrentExecutionEpoch } from "./workItemStateRepository.js";
 
 export type OperationIntentContext = {
-  readonly client: Pool | PoolClient;
+  readonly client: IntakeClient;
   readonly workItemId: string;
   readonly resourceKey: string;
   /** When set, mutate/publish is rejected if a newer claim owns the work item. */
@@ -20,14 +21,14 @@ export type OperationIntentContext = {
 };
 
 export type WithOperationIntentParams<T> = {
-  readonly client: Pool | PoolClient;
+  readonly client: IntakeClient;
   readonly workItemId: string;
   readonly operationKey: string;
   readonly mutationKind: string;
-  readonly detail?: Record<string, unknown>;
+  readonly detail?: JsonObject;
   readonly mutate: () => Promise<T>;
   readonly publishRecordId?: string | null;
-  readonly reconcileDetail?: Record<string, unknown>;
+  readonly reconcileDetail?: JsonObject;
   readonly executionEpoch?: number;
 };
 
@@ -81,13 +82,14 @@ export function verificationThreadOperationKey(rootCommentId: number): string {
   return `verification:thread:${rootCommentId}`;
 }
 
-function hasStashedResult(detail: Record<string, unknown>): boolean {
+function hasStashedResult(detail: JsonObject): boolean {
   return Object.prototype.hasOwnProperty.call(detail, OPERATION_INTENT_RESULT_KEY);
 }
 
-function stashedResultValue<T>(detail: Record<string, unknown>): T {
+function stashedResultValue<T>(detail: JsonObject): T {
   // null is the durable sentinel for a successful void mutate() return.
   const value = detail[OPERATION_INTENT_RESULT_KEY];
+  // SAFETY: jsonb __result is the mutate() return persisted by this helper; callers recover that T.
   return (value === null ? undefined : value) as T;
 }
 
@@ -118,10 +120,12 @@ async function recoverAfterMutatingWithoutResult<T>(
   try {
     publishRecordId = await findCompletedPublishRecordId(params.client, params.workItemId, intent);
   } catch (error) {
+    const err =
+      error instanceof Error ? error : nonErrorThrown("operation_intent.non_error_thrown");
     throw new AppError({
       code: "operation_intent.publish_record_lookup_failed",
       message: "Failed to look up publish_records while recovering after __mutating",
-      cause: error,
+      cause: err,
       context: {
         workItemId: params.workItemId,
         operationKey: params.operationKey,
@@ -198,6 +202,7 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
   // Reconciled without a return value (void mutate, or recovered publish_records):
   // side effect is done — idempotent completion, never remutate.
   if (intent.status === "reconciled") {
+    // SAFETY: reconciled-without-__result is the void/idempotent completion path; callers ignore the value.
     return undefined as T;
   }
 
@@ -227,9 +232,11 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
     const result = await params.mutate();
     mutateSucceeded = true;
     // Always stash __result (null = void) so redelivery is idempotent without remutate.
-    const resultDetail = {
+    const resultValue: JsonValue =
+      result === undefined ? null : parseJsonText(JSON.stringify(result));
+    const resultDetail: JsonObject = {
       ...params.reconcileDetail,
-      [OPERATION_INTENT_RESULT_KEY]: result === undefined ? null : (result as unknown),
+      [OPERATION_INTENT_RESULT_KEY]: resultValue,
     };
     await mergeOperationIntentDetail(params.client, {
       workItemId: params.workItemId,
@@ -245,6 +252,8 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
     });
     return result;
   } catch (error) {
+    const err =
+      error instanceof Error ? error : nonErrorThrown("operation_intent.non_error_thrown");
     // After mutate() returns, never mark failed — leave __mutating so redelivery
     // takes the no-remutate recovery path instead of calling mutate() again.
     if (!mutateSucceeded) {
@@ -256,12 +265,12 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
           ...params.reconcileDetail,
           // Clear marker so a known thrown mutate remains retryable on redelivery.
           [OPERATION_INTENT_MUTATING_KEY]: false,
-          errorMessage: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+          errorMessage: sanitizeLogMessage(err.message),
         },
       });
     }
-    if (isAppError(error)) throw error;
-    throw toAppError(error, {
+    if (isAppError(err)) throw err;
+    throw toAppError(err, {
       code: mutateSucceeded
         ? "operation_intent.mutation_outcome_unknown"
         : "operation_intent.mutation_failed",

@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import * as v from "valibot";
 import { logWarn } from "../evlog.js";
+import { nodeErrorCode, nonErrorThrown } from "../errors/appError.js";
+import { isJsonObject, isJsonString, jsonValueSchema, type JsonValue } from "../util/jsonValue.js";
 import {
   MAX_REPO_POLICY_BYTES,
   MAX_REPO_POLICY_FILE_BYTES,
@@ -97,16 +99,20 @@ function parseMdcContent(
   let alwaysApply: boolean | undefined;
   let globs: string[] = [];
   if (frontmatterRaw != null && frontmatterRaw.trim().length > 0) {
-    let parsed: unknown;
+    let parsedYaml: JsonValue;
     try {
-      parsed = parseYaml(frontmatterRaw);
+      const yamlParsed = v.safeParse(jsonValueSchema, parseYaml(frontmatterRaw));
+      if (!yamlParsed.success) {
+        return { kind: "invalid", reason: "frontmatter must be a mapping" };
+      }
+      parsedYaml = yamlParsed.output;
     } catch {
       return { kind: "invalid", reason: "malformed frontmatter yaml" };
     }
-    if (parsed != null && (typeof parsed !== "object" || Array.isArray(parsed))) {
+    if (parsedYaml !== null && !isJsonObject(parsedYaml)) {
       return { kind: "invalid", reason: "frontmatter must be a mapping" };
     }
-    const validated = v.safeParse(frontmatterSchema, parsed ?? {});
+    const validated = v.safeParse(frontmatterSchema, parsedYaml ?? {});
     if (!validated.success) {
       return { kind: "invalid", reason: "frontmatter schema validation failed" };
     }
@@ -149,12 +155,10 @@ function defaultGlobsForPath(filePath: string): string[] {
   return [sanitized];
 }
 
-function errnoCode(error: unknown): string | undefined {
-  if (error && typeof error === "object" && "code" in error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    return typeof code === "string" ? code : undefined;
-  }
-  return undefined;
+function errnoCode(error: Error): string | undefined {
+  const code = nodeErrorCode(error);
+  if (code === undefined) return undefined;
+  return isJsonString(code) ? code : undefined;
 }
 
 export async function loadRepoPolicy(
@@ -166,15 +170,16 @@ export async function loadRepoPolicy(
   try {
     entries = await readdir(policyDir, { withFileTypes: true });
   } catch (error) {
-    const code = errnoCode(error);
+    const err =
+      error instanceof Error ? error : nonErrorThrown("review.repo_policy_readdir_failed");
+    const code = errnoCode(err);
     if (code === "ENOENT") {
       return { kind: "absent" };
     }
     if (code === "ENOTDIR") {
       return { kind: "invalid", reason: "not a directory" };
     }
-    const message = error instanceof Error ? error.message : String(error);
-    return { kind: "invalid", reason: message };
+    return { kind: "invalid", reason: err.message };
   }
 
   const candidates = entries

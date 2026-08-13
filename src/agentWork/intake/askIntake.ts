@@ -1,12 +1,11 @@
-import type { PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { IntakeClient } from "../../db/postgres.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/parseAskQuestion.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import type { AckJobData, AckTarget, JobCorrelation, PrRef } from "../types.js";
-import { enqueueAsk, enqueueAskAckIdempotent } from "./queueing.js";
+import { enqueueAsk, enqueueAskAckIdempotent, type BossSender } from "./queueing.js";
 import { createAskWorkItem } from "./workItemRepository.js";
 
 export type AskIntakeInput = {
@@ -69,8 +68,8 @@ function baseAck(input: AskIntakeInput): AckJobData {
  * work-item ensure, ack enqueue, and ask enqueue.
  */
 export async function promoteAskFromWebhookEvent(
-  boss: PgBoss,
-  client: PoolClient,
+  boss: BossSender,
+  client: IntakeClient,
   input: AskIntakeInput,
   existingWorkItemPolicy: ExistingAskWorkItemPolicy,
 ): Promise<AskIntakeOutcome> {

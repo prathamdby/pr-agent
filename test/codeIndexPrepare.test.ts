@@ -1,22 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import { prepareCodeIndexForReview } from "../src/codeIndex/buildJob.js";
-import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
-
-vi.mock("../src/codeIndex/repository.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/codeIndex/repository.js")>();
-  return {
-    ...actual,
-    waitForReadySnapshot: vi.fn(),
-    ensureBuildingSnapshot: vi.fn(),
-    getSnapshotById: vi.fn(),
-    replaceSnapshotChunks: vi.fn(),
-    markSnapshotReady: vi.fn(),
-    markSnapshotFailed: vi.fn(),
-  };
-});
-
+import type {
+  CodeIndexBoss,
+  CodeIndexPool,
+  CodeIndexWorkspace,
+} from "../src/codeIndex/buildJob.js";
+import * as codeIndexRepository from "../src/codeIndex/repository.js";
 import {
   ensureBuildingSnapshot,
   getSnapshotById,
@@ -24,6 +13,18 @@ import {
   markSnapshotReady,
   replaceSnapshotChunks,
 } from "../src/codeIndex/repository.js";
+import { makeTestConfig } from "./helpers/config.js";
+
+function unusedCodeIndexPool(): CodeIndexPool {
+  return {
+    query: async () => {
+      throw new Error("test pool: unused");
+    },
+    connect: async () => {
+      throw new Error("test pool: unused");
+    },
+  };
+}
 
 const scope = {
   installationId: 1,
@@ -33,11 +34,11 @@ const scope = {
   prNumber: 9,
 };
 
-const workspace = {
+const workspace: CodeIndexWorkspace = {
   sortedCheckoutPaths: [],
   isPathInCheckout: () => false,
   agentCwd: "/tmp/ws",
-} as unknown as LocalPrWorkspace;
+};
 
 const pathGate = {
   prChangedPaths: new Set<string>(),
@@ -46,6 +47,12 @@ const pathGate = {
 
 describe("prepareCodeIndexForReview", () => {
   beforeEach(() => {
+    vi.spyOn(codeIndexRepository, "waitForReadySnapshot");
+    vi.spyOn(codeIndexRepository, "ensureBuildingSnapshot");
+    vi.spyOn(codeIndexRepository, "getSnapshotById");
+    vi.spyOn(codeIndexRepository, "replaceSnapshotChunks");
+    vi.spyOn(codeIndexRepository, "markSnapshotReady");
+    vi.spyOn(codeIndexRepository, "markSnapshotFailed");
     vi.clearAllMocks();
   });
 
@@ -56,14 +63,14 @@ describe("prepareCodeIndexForReview", () => {
       chunkerVersion: "1",
     });
     const send = vi.fn();
-    const boss = {
+    const boss: CodeIndexBoss = {
       createQueue: vi.fn(async () => undefined),
       send,
-    } as unknown as PgBoss;
+    };
 
     const result = await prepareCodeIndexForReview({
-      cfg: { codeIndexMode: "fts", codeIndexWaitMs: 50 } as never,
-      pool: {} as Pool,
+      cfg: makeTestConfig({ codeIndexMode: "fts", codeIndexWaitMs: 50 }),
+      pool: unusedCodeIndexPool(),
       boss,
       scope,
       workspace,
@@ -88,26 +95,26 @@ describe("prepareCodeIndexForReview", () => {
       chunkerVersion: "1",
     });
     vi.mocked(replaceSnapshotChunks).mockResolvedValue(undefined);
-    // Inline build never finishes (markSnapshotReady hangs forever).
-    vi.mocked(markSnapshotReady).mockImplementation(
-      () => new Promise(() => undefined) as Promise<void>,
-    );
+    vi.mocked(markSnapshotReady).mockImplementation(() => new Promise(() => undefined));
 
-    const connect = vi.fn(async () => ({
+    const client = {
       query: vi.fn(async () => ({ rows: [] })),
       release: vi.fn(),
-    }));
-    const pool = { connect, query: vi.fn() } as unknown as Pool;
+    };
+    const pool: CodeIndexPool = {
+      query: vi.fn(async () => ({ rows: [] })),
+      connect: vi.fn(async () => client),
+    };
 
     const send = vi.fn(async () => "job-1");
-    const boss = {
+    const boss: CodeIndexBoss = {
       createQueue: vi.fn(async () => undefined),
       send,
-    } as unknown as PgBoss;
+    };
 
     const started = Date.now();
     const result = await prepareCodeIndexForReview({
-      cfg: { codeIndexMode: "fts", codeIndexWaitMs: 40 } as never,
+      cfg: makeTestConfig({ codeIndexMode: "fts", codeIndexWaitMs: 40 }),
       pool,
       boss,
       scope,
@@ -123,8 +130,8 @@ describe("prepareCodeIndexForReview", () => {
 
   it("returns unavailable when mode is off without querying", async () => {
     const result = await prepareCodeIndexForReview({
-      cfg: { codeIndexMode: "off", codeIndexWaitMs: 3_000 } as never,
-      pool: { query: vi.fn() } as unknown as Pool,
+      cfg: makeTestConfig({ codeIndexMode: "off", codeIndexWaitMs: 3_000 }),
+      pool: unusedCodeIndexPool(),
       scope,
       workspace,
       pathGate,

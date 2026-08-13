@@ -88,7 +88,7 @@ function readNodeRawBody(req: IncomingMessage, maxBodyBytes: number): Promise<Bo
   });
 }
 
-function buildEffectWebhookApp(cfg: Config) {
+function buildEffectWebhookApp(cfg: Config, maxBodyBytes = WEBHOOK_MAX_BODY_BYTES) {
   return HttpRouter.empty.pipe(
     HttpRouter.all(
       "*",
@@ -116,7 +116,7 @@ function buildEffectWebhookApp(cfg: Config) {
           return HttpServerResponse.text("", { status: 404 });
         }
 
-        const body = yield* readRawBody(req, WEBHOOK_MAX_BODY_BYTES);
+        const body = yield* readRawBody(req, maxBodyBytes);
         if (body.kind === "too_large") {
           return HttpServerResponse.text("payload too large", {
             status: 413,
@@ -157,13 +157,14 @@ export function buildEffectWebhookLayer(
   cfg: Config,
   serverFactory: () => Server = createServer,
   schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = agentWorkWebLive(cfg),
+  maxBodyBytes = WEBHOOK_MAX_BODY_BYTES,
 ) {
   const appLayer = Layer.mergeAll(
     schedulerLayer,
     WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)),
   );
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
-  return buildEffectWebhookApp(cfg).pipe(
+  return buildEffectWebhookApp(cfg, maxBodyBytes).pipe(
     HttpServer.serve(),
     Layer.provide(serverLayer),
     Layer.provide(appLayer),

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
 import {
   createRateLimitCircuit,
   shouldShortCircuitGithubTool,
@@ -14,6 +13,8 @@ import {
 } from "../src/github/sharedRateLimitCircuit.js";
 import * as evlog from "../src/evlog.js";
 import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../src/settings/index.js";
+import { createQueryPool } from "./helpers/fakePool.js";
+import { isJsonNumber, isJsonString } from "../src/util/jsonValue.js";
 
 type CircuitRow = {
   installation_id: number;
@@ -22,42 +23,58 @@ type CircuitRow = {
 };
 
 /** Minimal in-memory stand-in for two logical workers sharing one DB. */
-function createMemorySharedCircuitStore(): {
-  poolA: Pool;
-  poolB: Pool;
-} {
+function createMemorySharedCircuitStore() {
   const rows = new Map<number, CircuitRow>();
 
-  function makePool(): Pool {
-    return {
-      query: async (text: string, values: unknown[] = []) => {
-        if (text.includes("INSERT INTO github_installation_rate_limit_circuits")) {
-          const installationId = Number(values[0]);
-          const openUntil = values[1] as Date;
-          const lastErrorKind = String(values[2]);
-          const existing = rows.get(installationId);
-          if (!existing || openUntil.getTime() >= existing.open_until.getTime()) {
-            rows.set(installationId, {
-              installation_id: installationId,
-              open_until: openUntil,
-              last_error_kind: lastErrorKind,
-            });
-          } else if (existing) {
-            rows.set(installationId, {
-              ...existing,
-              last_error_kind: lastErrorKind,
-            });
-          }
-          return { rows: [], rowCount: 1 };
+  function makePool() {
+    return createQueryPool(async (text, values = []) => {
+      if (text.includes("INSERT INTO github_installation_rate_limit_circuits")) {
+        const installationIdRaw = values[0];
+        const openUntilRaw = values[1];
+        const lastErrorKindRaw = values[2];
+        if (installationIdRaw instanceof Date || Buffer.isBuffer(installationIdRaw)) {
+          throw new Error("expected numeric installation_id");
         }
-        if (text.includes("FROM github_installation_rate_limit_circuits")) {
-          const installationId = Number(values[0]);
-          const row = rows.get(installationId);
-          return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+        if (!isJsonNumber(installationIdRaw)) {
+          throw new Error("expected numeric installation_id");
         }
-        throw new Error(`unexpected SQL in memory store: ${text.slice(0, 80)}`);
-      },
-    } as unknown as Pool;
+        if (!(openUntilRaw instanceof Date)) {
+          throw new Error("expected Date open_until");
+        }
+        if (lastErrorKindRaw instanceof Date || Buffer.isBuffer(lastErrorKindRaw)) {
+          throw new Error("expected string last_error_kind");
+        }
+        if (!isJsonString(lastErrorKindRaw)) {
+          throw new Error("expected string last_error_kind");
+        }
+        const existing = rows.get(installationIdRaw);
+        if (!existing || openUntilRaw.getTime() >= existing.open_until.getTime()) {
+          rows.set(installationIdRaw, {
+            installation_id: installationIdRaw,
+            open_until: openUntilRaw,
+            last_error_kind: lastErrorKindRaw,
+          });
+        } else if (existing) {
+          rows.set(installationIdRaw, {
+            ...existing,
+            last_error_kind: lastErrorKindRaw,
+          });
+        }
+        return { rows: [], rowCount: 1 };
+      }
+      if (text.includes("FROM github_installation_rate_limit_circuits")) {
+        const installationIdRaw = values[0];
+        if (installationIdRaw instanceof Date || Buffer.isBuffer(installationIdRaw)) {
+          throw new Error("expected numeric installation_id");
+        }
+        if (!isJsonNumber(installationIdRaw)) {
+          throw new Error("expected numeric installation_id");
+        }
+        const row = rows.get(installationIdRaw);
+        return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
+      }
+      throw new Error(`unexpected SQL in memory store: ${text.slice(0, 80)}`);
+    });
   }
 
   return { poolA: makePool(), poolB: makePool() };
@@ -153,7 +170,7 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
   it("best-effort open guards invalid input and swallows write failure", async () => {
     const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
     const query = vi.fn().mockRejectedValue(new Error("db down"));
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryPool(query);
 
     openSharedRateLimitCircuitBestEffort(undefined, {
       installationId: 42,

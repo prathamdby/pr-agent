@@ -20,12 +20,21 @@ import {
   DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
 } from "../src/settings/index.js";
 
-const basePayload = (prFiles?: DescriptionPayload["prFiles"]): DescriptionPayload => ({
-  title: "t",
-  type: ["Enhancement"],
-  description: "- Main",
-  ...(prFiles ? { prFiles } : {}),
-});
+const basePayload = (prFiles?: DescriptionPayload["prFiles"]): DescriptionPayload => {
+  if (prFiles) {
+    return {
+      title: "t",
+      type: ["Enhancement"],
+      description: "- Main",
+      prFiles,
+    };
+  }
+  return {
+    title: "t",
+    type: ["Enhancement"],
+    description: "- Main",
+  };
+};
 
 const mapEntry = (filename: string) => ({
   filename,

@@ -1,7 +1,9 @@
 import { createServer, type Server } from "node:http";
-import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
+import * as v from "valibot";
 import { logDebug, logWarn } from "../evlog.js";
+import type { IntakeClient } from "../db/postgres.js";
+import { isJsonNumber, isJsonString, jsonValueSchema } from "../util/jsonValue.js";
 import {
   ACK_DEAD_LETTER_QUEUE,
   ACK_QUEUE,
@@ -61,6 +63,13 @@ export const WORKER_DLQ_QUEUES = [
 /** Default interval for continuous queue/DLQ/blocked-key diagnostics. */
 export const QUEUE_DIAGNOSTICS_INTERVAL_MS = 60_000;
 
+/** Timer handles accepted by injected clock fakes (Node Timeout or numeric ids). */
+export type InjectedTimerHandle = ReturnType<typeof setTimeout> | number;
+export type InjectedSetTimeout = (callback: () => void, delayMs?: number) => InjectedTimerHandle;
+export type InjectedClearTimeout = (handle: InjectedTimerHandle) => void;
+export type InjectedSetInterval = (callback: () => void, delayMs?: number) => InjectedTimerHandle;
+export type InjectedClearInterval = (handle: InjectedTimerHandle) => void;
+
 export type WorkerReadinessInput = {
   readonly registeredQueues: ReadonlySet<string>;
   readonly requiredQueues?: readonly string[];
@@ -89,12 +98,12 @@ export function evaluateWorkerReadiness(input: WorkerReadinessInput): WorkerRead
 }
 
 export async function probeWorkerDependencies(
-  pool: Pick<Pool, "query">,
+  pool: IntakeClient,
   boss: Pick<PgBoss, "isInstalled">,
   options?: {
     readonly pingTimeoutMs?: number;
-    readonly setTimeoutFn?: typeof setTimeout;
-    readonly clearTimeoutFn?: typeof clearTimeout;
+    readonly setTimeoutFn?: InjectedSetTimeout;
+    readonly clearTimeoutFn?: InjectedClearTimeout;
   },
 ): Promise<{ readonly postgresOk: boolean; readonly pgBossInstalled: boolean }> {
   const pingTimeoutMs = options?.pingTimeoutMs ?? HEALTH_DB_PING_TIMEOUT_MS;
@@ -161,7 +170,25 @@ export type QueueDiagnosticsReport = {
   readonly oldestRunningWorkItemAgeMs: number | null;
 };
 
-type DiagnosticsBoss = Pick<PgBoss, "getQueueStats" | "getBlockedKeys" | "findJobs">;
+export type QueueStatsSnapshot = {
+  readonly name: string;
+  readonly deferredCount: number;
+  readonly queuedCount: number;
+  readonly readyCount: number;
+  readonly activeCount: number;
+  readonly failedCount: number;
+  readonly totalCount: number;
+  readonly capturedOn: Date;
+};
+
+export type DiagnosticsBoss = {
+  getQueueStats(queue: string): Promise<readonly QueueStatsSnapshot[]>;
+  getBlockedKeys(queue: string): Promise<readonly string[]>;
+  findJobs(
+    queue: string,
+    options: { readonly key: string },
+  ): Promise<readonly { readonly createdOn?: Date }[]>;
+};
 
 async function laneStats(boss: DiagnosticsBoss, queue: string): Promise<QueueLaneDiagnostic> {
   const [stats] = await boss.getQueueStats(queue);
@@ -195,7 +222,7 @@ async function blockedKeyAgeMs(
 
 export async function collectQueueDiagnostics(params: {
   readonly boss: DiagnosticsBoss;
-  readonly pool: Pick<Pool, "query">;
+  readonly pool: IntakeClient;
   readonly now: Date;
   readonly diagnosticQueues?: readonly string[];
   readonly dlqQueues?: readonly string[];
@@ -232,7 +259,12 @@ export async function collectQueueDiagnostics(params: {
     );
     const raw = result.rows[0]?.age_ms;
     if (raw != null) {
-      const age = typeof raw === "number" ? raw : Number(raw);
+      const ageValue = v.parse(jsonValueSchema, raw);
+      const age = isJsonNumber(ageValue)
+        ? ageValue
+        : isJsonString(ageValue)
+          ? Number(ageValue)
+          : NaN;
       if (Number.isFinite(age)) oldestRunningWorkItemAgeMs = Math.max(0, age);
     }
   } catch {
@@ -281,13 +313,17 @@ export function logQueueDiagnosticsReport(report: QueueDiagnosticsReport): void 
   });
 }
 
+export type PeriodicQueueDiagnosticsHandle = {
+  readonly stop: () => void;
+};
+
 export function startPeriodicQueueDiagnostics(params: {
   readonly intervalMs: number;
   readonly now: () => Date;
   readonly tick: (now: Date) => Promise<void>;
-  readonly setIntervalFn?: typeof setInterval;
-  readonly clearIntervalFn?: typeof clearInterval;
-}): { readonly stop: () => void } {
+  readonly setIntervalFn?: InjectedSetInterval;
+  readonly clearIntervalFn?: InjectedClearInterval;
+}): PeriodicQueueDiagnosticsHandle {
   const setIntervalFn = params.setIntervalFn ?? setInterval;
   const clearIntervalFn = params.clearIntervalFn ?? clearInterval;
   let inFlight = false;
@@ -312,13 +348,15 @@ export function startPeriodicQueueDiagnostics(params: {
   };
 }
 
+export type WorkerHealthServerHandle = {
+  readonly server: Server;
+  readonly close: () => Promise<void>;
+};
+
 export function startWorkerHealthServer(params: {
   readonly port: number;
   readonly getReadiness: () => Promise<WorkerReadinessSnapshot>;
-}): {
-  readonly server: Server;
-  readonly close: () => Promise<void>;
-} {
+}): WorkerHealthServerHandle {
   const server = createServer((req, res) => {
     const path = req.url?.split("?")[0] ?? "/";
     if (req.method === "GET" && path === "/health") {

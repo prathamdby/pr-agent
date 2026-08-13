@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../../db/postgres.js";
 import type { Config } from "../../config.js";
 import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.js";
 import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.js";
@@ -7,9 +7,40 @@ import { agentAuditRecordFromLifecycleEvent } from "./agentAudit.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { AgentSessionRole } from "./types.js";
 import type { FindingSource } from "../../review/orchestrator/orchestratorTypes.js";
+import type { JsonObject } from "../../util/jsonValue.js";
+
+type LifecycleAuditDetail = {
+  attempt?: number;
+  reason?: string;
+  failureDomain?: string;
+  errorKind?: string;
+};
+
+type DecisionEventDetail = {
+  specialist: FindingSource;
+  submittedCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  degraded?: boolean;
+};
+
+type PublishEventDetail = {
+  specialist: FindingSource;
+  batchId: string;
+  postedCount: number;
+  suppressedCount?: number;
+  capDowngraded?: number;
+  anchorDropped?: number;
+};
+
+type EvidenceRejectEventDetail = {
+  rejectedCount: number;
+  reasonCode: string;
+  specialist?: FindingSource;
+};
 
 export type AgentEventsContext = {
-  readonly pool: Pool | PoolClient;
+  readonly pool: IntakeClient;
   readonly workItemId: string;
   readonly installationId: number;
   readonly owner: string;
@@ -32,7 +63,7 @@ export function lifecycleAuditToInsertRow(
   record: AgentAuditRecord,
   sessionRole?: AgentSessionRole,
 ): AgentEventInsertRow {
-  const detail: Record<string, unknown> = {};
+  const detail: LifecycleAuditDetail = {};
   if (record.attempt != null) detail.attempt = record.attempt;
   if (record.reason != null) detail.reason = record.reason;
   if (record.failureDomain != null) detail.failureDomain = record.failureDomain;
@@ -65,7 +96,7 @@ export function decisionEventRow(
     readonly degraded?: boolean;
   },
 ): AgentEventInsertRow {
-  const detail: Record<string, unknown> = {
+  const detail: DecisionEventDetail = {
     specialist: params.specialist,
     submittedCount: params.submittedCount,
     acceptedCount: params.acceptedCount,
@@ -95,7 +126,7 @@ export function publishEventRow(
     readonly anchorDropped?: number;
   },
 ): AgentEventInsertRow {
-  const detail: Record<string, unknown> = {
+  const detail: PublishEventDetail = {
     specialist: params.specialist,
     batchId: params.batchId,
     postedCount: params.postedCount,
@@ -123,7 +154,7 @@ export function checkoutCoverageEventRow(
     readonly truncated: boolean;
   },
 ): AgentEventInsertRow {
-  const detail: Record<string, unknown> = {
+  const detail: JsonObject = {
     coverageMode: params.coverageMode,
     pathsInCheckout: params.pathsInCheckout,
     truncated: params.truncated,
@@ -148,7 +179,7 @@ export function evidenceRejectEventRow(
     readonly reasonCode: string;
   },
 ): AgentEventInsertRow {
-  const detail: Record<string, unknown> = {
+  const detail: EvidenceRejectEventDetail = {
     rejectedCount: params.rejectedCount,
     reasonCode: params.reasonCode,
   };
@@ -217,7 +248,7 @@ export function safeEmitEvidenceRejectEvent(
 export function resolveAgentEventsContext(
   cfg: Pick<Config, "agentEventsEnabled">,
   durability?: {
-    readonly pool: Pool | PoolClient;
+    readonly pool: IntakeClient;
     readonly workItemId: string;
     readonly installationId: number;
     readonly owner?: string;

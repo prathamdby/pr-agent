@@ -8,13 +8,19 @@ import {
 
 export type ReviewLens = "review" | "review-security" | "review-quality";
 
-const SENTINEL: Record<ReviewLens, string> = {
+type ReviewLensCopy = {
+  readonly review: string;
+  readonly "review-security": string;
+  readonly "review-quality": string;
+};
+
+const SENTINEL: ReviewLensCopy = {
   review: "PR Agent Review",
   "review-security": "PR Agent Security Review",
   "review-quality": "PR Agent Quality Review",
 };
 
-const OVERVIEW: Record<ReviewLens, string> = {
+const OVERVIEW: ReviewLensCopy = {
   review:
     "Adds a retry wrapper around the webhook dispatcher so transient GitHub failures do not drop deliveries.",
   "review-security":
@@ -31,7 +37,13 @@ type Finding = {
   readonly marker: "On the diff" | "Summary only";
 };
 
-const FINDINGS: Record<ReviewLens, readonly Finding[]> = {
+type FindingsByLens = {
+  readonly review: readonly Finding[];
+  readonly "review-security": readonly Finding[];
+  readonly "review-quality": readonly Finding[];
+};
+
+const FINDINGS: FindingsByLens = {
   review: [
     {
       severity: "P1",
@@ -88,7 +100,7 @@ const FINDINGS: Record<ReviewLens, readonly Finding[]> = {
   ],
 };
 
-const SECURITY_ROW: Record<ReviewLens, string> = {
+const SECURITY_ROW: ReviewLensCopy = {
   review: "None found on this pass",
   "review-security": "Timing-safe compare gap on webhook verification.",
   "review-quality": "None found on this pass",

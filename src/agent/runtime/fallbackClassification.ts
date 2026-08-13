@@ -1,4 +1,4 @@
-import { isAppError } from "../../errors/appError.js";
+import { AppError } from "../../errors/appError.js";
 import { classifyProviderError } from "../providers/providerErrors.js";
 
 /** Failures that may activate the shared fallback model after retry exhaustion. */
@@ -24,20 +24,19 @@ export type FallbackClassification =
   | { readonly eligible: true; readonly reason: FallbackEligibleReason }
   | { readonly eligible: false; readonly reason: FallbackIneligibleReason };
 
-function textOf(error: unknown): string {
-  if (error instanceof Error) return `${error.name} ${error.message}`.toLowerCase();
-  return String(error).toLowerCase();
+function textOf(error: Error): string {
+  return `${error.name} ${error.message}`.toLowerCase();
 }
 
-function codeOf(error: unknown): string | undefined {
-  return isAppError(error) ? error.code.toLowerCase() : undefined;
+function codeOf(error: Error): string | undefined {
+  return error instanceof AppError ? error.code.toLowerCase() : undefined;
 }
 
 /**
  * Classify whether a session failure may start fallback recovery.
  * Call only after the normal retry budget for the primary model is exhausted.
  */
-export function classifyFallbackEligibility(error: unknown): FallbackClassification {
+export function classifyFallbackEligibility(error: Error): FallbackClassification {
   const text = textOf(error);
   const code = codeOf(error) ?? "";
 
@@ -122,6 +121,5 @@ export function classifyFallbackEligibility(error: unknown): FallbackClassificat
     return { eligible: true, reason: "transport" };
   }
 
-  // Default: do not hide unknown defects behind fallback.
   return { eligible: false, reason: "internal" };
 }

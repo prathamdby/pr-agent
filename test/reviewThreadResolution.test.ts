@@ -1,34 +1,26 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  graphql: vi.fn(),
-  logWarn: vi.fn(),
-}));
-
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: vi.fn(() => ({
-    graphql: mocks.graphql,
-  })),
-}));
-
-vi.mock("../src/evlog.js", () => ({
-  logWarn: mocks.logWarn,
-  logInfo: vi.fn(),
-  logError: vi.fn(),
-  logDebug: vi.fn(),
-}));
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  clearInstallationOctokitCacheForTest,
+  installationOctokit,
+  resetInstallationOctokitFactory,
+} from "../src/github/appAuth.js";
+import * as evlog from "../src/evlog.js";
 import {
   listReviewThreadResolution,
   resolveReviewThread,
   warnReviewThreadResolutionDegraded,
 } from "../src/github/reviewThreadResolution.js";
 import { MAX_REVIEW_THREAD_PAGES } from "../src/settings/index.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
+
+const mocks = {
+  graphql: vi.fn(),
+};
 
 function page(params: {
   readonly hasNextPage?: boolean;
   readonly endCursor?: string | null;
-  readonly nodes: readonly unknown[];
+  readonly nodes: readonly JsonValue[];
 }) {
   return {
     repository: {
@@ -47,7 +39,20 @@ function page(params: {
 
 describe("review thread resolution", () => {
   beforeEach(() => {
+    resetInstallationOctokitFactory();
+    clearInstallationOctokitCacheForTest();
+    const octokit = installationOctokit("tok");
+    vi.spyOn(octokit, "graphql").mockImplementation(mocks.graphql);
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    vi.spyOn(evlog, "logInfo").mockImplementation(() => undefined);
+    vi.spyOn(evlog, "logError").mockImplementation(() => undefined);
+    vi.spyOn(evlog, "logDebug").mockImplementation(() => undefined);
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetInstallationOctokitFactory();
+    clearInstallationOctokitCacheForTest();
   });
 
   it("paginates thread resolution by root comment database id", async () => {
@@ -186,7 +191,7 @@ describe("review thread resolution", () => {
       { workItemId: "wi-1" },
     );
 
-    expect(mocks.logWarn).toHaveBeenCalledWith(
+    expect(evlog.logWarn).toHaveBeenCalledWith(
       "review_threads_resolution_degraded",
       expect.objectContaining({
         workItemId: "wi-1",
@@ -198,7 +203,7 @@ describe("review thread resolution", () => {
 
   it("caps reviewThreads pagination and reports truncated partial coverage", async () => {
     mocks.graphql.mockImplementation(async (_query: string, vars: { cursor?: string | null }) => {
-      const pageIndex = vars.cursor == null ? 0 : Number(String(vars.cursor).replace("c", "")) + 1;
+      const pageIndex = vars.cursor == null ? 0 : Number(vars.cursor.replace("c", "")) + 1;
       return page({
         hasNextPage: true,
         endCursor: `c${pageIndex}`,

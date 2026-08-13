@@ -15,6 +15,16 @@ const BASE_ENV = {
   DATABASE_URL: "postgres://u:p@localhost/db",
 };
 
+type EnvOverrides = { readonly [key: string]: string };
+
+function assignProcessEnv(values: EnvOverrides): void {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of Object.keys(values)) {
+    env[key] = values[key];
+  }
+  process.env = env;
+}
+
 describe("modelsJson helpers", () => {
   const dirs: string[] = [];
 
@@ -227,13 +237,13 @@ describe("loadConfig models.json", () => {
     return dir;
   }
 
-  async function loadWithCwd(cwd: string, extra: Record<string, string> = {}) {
+  async function loadWithCwd(cwd: string, extra: EnvOverrides = {}) {
     process.cwd = () => cwd;
-    process.env = {
+    assignProcessEnv({
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       ...extra,
-    } as NodeJS.ProcessEnv;
+    });
     const { loadConfig } = await import("../src/config.js");
     return loadConfig();
   }

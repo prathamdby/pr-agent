@@ -1,6 +1,6 @@
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { isRecord } from "../../util/typeGuards.js";
+import { isJsonNumber, isJsonObject, type JsonObject } from "../../util/jsonValue.js";
 import { redactOutboundSecrets } from "./askSafety.js";
 
 export type RecoveredAskReply = {
@@ -8,13 +8,13 @@ export type RecoveredAskReply = {
 };
 
 /** Extract a stashed GitHub comment id from operation-intent detail. */
-export function askReplyCommentIdFromIntentDetail(
-  detail: Record<string, unknown> | undefined,
-): number | null {
+export function askReplyCommentIdFromIntentDetail(detail: JsonObject | undefined): number | null {
   if (!detail || !("__result" in detail)) return null;
   const result = detail.__result;
-  if (!isRecord(result)) return null;
-  return typeof result.commentId === "number" ? result.commentId : null;
+  if (result === undefined || !isJsonObject(result)) return null;
+  const commentId = result.commentId;
+  if (commentId === undefined || !isJsonNumber(commentId)) return null;
+  return commentId;
 }
 
 export function askReplyBodyMatchesQuestion(

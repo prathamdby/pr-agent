@@ -1,7 +1,8 @@
-import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { IntakeClient } from "../db/postgres.js";
+import * as v from "valibot";
 import { captureEvent } from "../analytics/index.js";
 import { pgBossDb } from "../db/postgres.js";
+import type { JobQueue } from "./intake/queueing.js";
 import { logWarn } from "../evlog.js";
 import {
   REVIEW_QUEUE,
@@ -10,6 +11,13 @@ import {
 } from "../settings/index.js";
 import type { SingletonSlotDb } from "./singletonQueue.js";
 import { ACTIVE_WORK_STATUSES, reviewSingletonKey } from "./types.js";
+import {
+  asJsonObject,
+  isJsonNumber,
+  isJsonString,
+  jsonValueSchema,
+  type JsonValue,
+} from "../util/jsonValue.js";
 
 export type ReviewQueueSlotReleaseResult = {
   readonly released: number;
@@ -20,16 +28,29 @@ export type ReviewQueueOrphanReapResult = {
   readonly staleQueuedLogged: number;
 };
 
+function parseJobWorkItemId(data: JsonValue): string | undefined {
+  const obj = asJsonObject(data);
+  const id = obj?.workItemId;
+  return isJsonString(id) && id.length > 0 ? id : undefined;
+}
+
+function parseJobState(state: JsonValue): string | undefined {
+  return isJsonString(state) ? state : undefined;
+}
+
 /** Non-empty string work item ids from holding jobs (candidates for an active-row lookup). */
 function holdingWorkItemIdCandidates(
-  jobs: readonly { readonly state: unknown; readonly data: { readonly workItemId?: unknown } }[],
+  jobs: readonly { readonly state: JsonValue; readonly data: JsonValue }[],
 ): string[] {
   return [
     ...new Set(
       jobs
-        .filter((job) => isHoldingState(job.state as string))
-        .map((job) => job.data.workItemId)
-        .filter((id): id is string => typeof id === "string" && id.length > 0),
+        .filter((job) => {
+          const state = parseJobState(job.state);
+          return state !== undefined && isHoldingState(state);
+        })
+        .map((job) => parseJobWorkItemId(job.data))
+        .filter((id): id is string => id !== undefined),
     ),
   ];
 }
@@ -39,7 +60,7 @@ function holdingWorkItemIdCandidates(
  * cannot abort an intake transaction.
  */
 async function loadActiveWorkItemIds(
-  db: Pick<Pool, "query"> | PoolClient,
+  db: IntakeClient,
   workItemIds: readonly string[],
 ): Promise<Set<string>> {
   if (workItemIds.length === 0) return new Set();
@@ -57,8 +78,11 @@ function isHoldingState(state: string): boolean {
   return state === "created" || state === "active" || state === "retry" || state === "failed";
 }
 
-function isOrphanWorkItemId(workItemId: unknown, activeIds: ReadonlySet<string>): boolean {
-  return typeof workItemId !== "string" || workItemId.length === 0 || !activeIds.has(workItemId);
+function isOrphanWorkItemId(
+  workItemId: string | undefined,
+  activeIds: ReadonlySet<string>,
+): boolean {
+  return workItemId === undefined || workItemId.length === 0 || !activeIds.has(workItemId);
 }
 
 /**
@@ -69,8 +93,8 @@ function isOrphanWorkItemId(workItemId: unknown, activeIds: ReadonlySet<string>)
  * ids (slash/merge cancel after those rows are terminalised).
  */
 export async function releaseReviewQueueSlot(
-  boss: PgBoss,
-  db: Pick<Pool, "query"> | PoolClient,
+  boss: JobQueue,
+  db: IntakeClient,
   resourceKey: string,
   opts?: {
     readonly connection?: SingletonSlotDb;
@@ -82,25 +106,27 @@ export async function releaseReviewQueueSlot(
   const connection = opts?.connection ? { db: opts.connection } : undefined;
   const cancelWorkItemIds =
     opts?.cancelWorkItemIds != null ? new Set(opts.cancelWorkItemIds) : null;
-  const jobs = await boss.findJobs<{ workItemId?: unknown }>(REVIEW_QUEUE, {
+  const rawJobs = await boss.findJobs(REVIEW_QUEUE, {
     key: reviewSingletonKey(resourceKey),
     ...connection,
   });
+  const jobs = rawJobs.map((job) => ({
+    id: job.id,
+    state: v.parse(jsonValueSchema, job.state),
+    data: v.parse(jsonValueSchema, job.data),
+  }));
 
   const activeIds = await loadActiveWorkItemIds(db, holdingWorkItemIdCandidates(jobs));
 
   let released = 0;
   for (const job of jobs) {
     if (opts?.skipJobId && job.id === opts.skipJobId) continue;
-    if (
-      opts?.skipWorkItemId &&
-      typeof job.data.workItemId === "string" &&
-      job.data.workItemId === opts.skipWorkItemId
-    ) {
+    const workItemId = parseJobWorkItemId(job.data);
+    if (opts?.skipWorkItemId && workItemId === opts.skipWorkItemId) {
       continue;
     }
-    const state = job.state as string;
-    if (state === "cancelled" || state === "completed") continue;
+    const state = parseJobState(job.state);
+    if (state === undefined || state === "cancelled" || state === "completed") continue;
 
     if (state === "failed") {
       await boss.deleteJob(REVIEW_QUEUE, job.id, connection);
@@ -109,18 +135,15 @@ export async function releaseReviewQueueSlot(
         resourceKey,
         jobId: job.id,
         state,
-        workItemId: typeof job.data.workItemId === "string" ? job.data.workItemId : null,
+        workItemId: workItemId ?? null,
         reason: "failed_blocker",
       });
       continue;
     }
 
     if (state !== "created" && state !== "active" && state !== "retry") continue;
-    const workItemId = job.data.workItemId;
     const explicitCancel =
-      typeof workItemId === "string" &&
-      cancelWorkItemIds != null &&
-      cancelWorkItemIds.has(workItemId);
+      workItemId !== undefined && cancelWorkItemIds != null && cancelWorkItemIds.has(workItemId);
     const orphan = isOrphanWorkItemId(workItemId, activeIds);
     if (!explicitCancel && !orphan) continue;
 
@@ -130,10 +153,10 @@ export async function releaseReviewQueueSlot(
       resourceKey,
       jobId: job.id,
       state,
-      workItemId: typeof workItemId === "string" ? workItemId : null,
+      workItemId: workItemId ?? null,
       reason: explicitCancel
         ? "cancel_requested"
-        : typeof workItemId !== "string" || workItemId.length === 0
+        : workItemId === undefined || workItemId.length === 0
           ? "missing_work_item"
           : "inactive_work_item",
     });
@@ -143,8 +166,8 @@ export async function releaseReviewQueueSlot(
 
 /** Intake helper using the ambient transaction connection for pg-boss lookups. */
 export async function releaseReviewQueueSlotInTx(
-  boss: PgBoss,
-  client: PoolClient,
+  boss: JobQueue,
+  client: IntakeClient,
   resourceKey: string,
   opts?: {
     readonly skipJobId?: string;
@@ -168,8 +191,8 @@ export async function releaseReviewQueueSlotInTx(
  * jobs whose work item id is missing/empty or not in an active status.
  */
 export async function reapReviewQueueOrphans(
-  boss: PgBoss,
-  pool: Pool,
+  boss: JobQueue,
+  pool: IntakeClient,
 ): Promise<ReviewQueueOrphanReapResult> {
   const holders = await pool.query<{
     job_id: string;
@@ -234,8 +257,12 @@ export async function reapReviewQueueOrphans(
   );
 
   for (const row of staleQueued.rows) {
-    const ageSeconds =
-      typeof row.age_seconds === "number" ? row.age_seconds : Number(row.age_seconds);
+    const ageValue = v.parse(jsonValueSchema, row.age_seconds);
+    const ageSeconds = isJsonNumber(ageValue)
+      ? ageValue
+      : isJsonString(ageValue)
+        ? Number(ageValue)
+        : Number.NaN;
     logWarn("review_queued_stale", {
       workItemId: row.id,
       resourceKey: row.resource_key,

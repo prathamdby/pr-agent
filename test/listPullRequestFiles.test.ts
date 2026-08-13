@@ -1,15 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { listPullRequestFilesPaginated } from "../src/github/listPullRequestFiles.js";
-import { installationOctokit } from "../src/github/appAuth.js";
+import {
+  listPullRequestFilesPaginated,
+  type PullRequestFilesOctokit,
+} from "../src/github/listPullRequestFiles.js";
 
-function makeOctokitStub(pullsListFiles: ReturnType<typeof vi.fn>) {
+type ListFilesFn = PullRequestFilesOctokit["rest"]["pulls"]["listFiles"];
+
+function makeOctokitStub(pullsListFiles: ListFilesFn): PullRequestFilesOctokit {
   return {
     rest: {
       pulls: {
-        listFiles: pullsListFiles,
+        get() {
+          throw new Error("unexpected pulls.get");
+        },
+        listFiles(params) {
+          return pullsListFiles(params);
+        },
       },
     },
-  } as unknown as ReturnType<typeof installationOctokit>;
+  };
 }
 
 describe("listPullRequestFilesPaginated", () => {
@@ -30,10 +39,8 @@ describe("listPullRequestFilesPaginated", () => {
       changes: 1,
       patch: `@@b${i}`,
     }));
-    const pullsListFiles = vi
-      .fn()
-      .mockResolvedValueOnce({ data: page1 })
-      .mockResolvedValueOnce({ data: page2 });
+    const pullsListFiles = vi.fn<ListFilesFn>(async () => ({ data: [] }));
+    pullsListFiles.mockResolvedValueOnce({ data: page1 }).mockResolvedValueOnce({ data: page2 });
 
     const out = await listPullRequestFilesPaginated(
       makeOctokitStub(pullsListFiles),

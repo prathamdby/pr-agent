@@ -1,6 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { IntakeClient } from "../db/postgres.js";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
 import { mintInstallationToken } from "../agentWork/durableJob.js";
@@ -35,6 +34,32 @@ export type CodeIndexBuildJobData = {
   readonly headSha: string;
 };
 
+export type CodeIndexClient = IntakeClient & {
+  release(): void;
+};
+
+export type CodeIndexPool = IntakeClient & {
+  connect(): Promise<CodeIndexClient>;
+};
+
+export type CodeIndexBoss = {
+  createQueue: {
+    bivarianceHack(name: string, options?: { readonly policy: string }): Promise<void>;
+  }["bivarianceHack"];
+  send: {
+    bivarianceHack(
+      name: string,
+      data: CodeIndexBuildJobData,
+      options?: { readonly singletonKey: string; readonly expireInSeconds: number },
+    ): Promise<string | null | undefined>;
+  }["bivarianceHack"];
+};
+
+export type CodeIndexWorkspace = Pick<
+  LocalPrWorkspace,
+  "sortedCheckoutPaths" | "isPathInCheckout" | "agentCwd"
+>;
+
 export type CodeIndexPrepareResult =
   | { readonly available: true; readonly snapshotId: string }
   | { readonly available: false };
@@ -45,7 +70,7 @@ function codeIndexSingletonKey(scope: CodeIndexRepoScope): string {
 
 function pathAllowedForIndexing(
   path: string,
-  workspace: LocalPrWorkspace,
+  workspace: CodeIndexWorkspace,
   pathGate: AskPathGate,
 ): boolean {
   const normalized = path.replace(/\\/g, "/");
@@ -55,7 +80,7 @@ function pathAllowedForIndexing(
 }
 
 async function readIndexableWorkspaceFile(
-  workspace: LocalPrWorkspace,
+  workspace: CodeIndexWorkspace,
   path: string,
 ): Promise<string | null> {
   const normalized = path.replace(/\\/g, "/");
@@ -69,9 +94,9 @@ async function readIndexableWorkspaceFile(
 }
 
 export async function buildCodeIndexFromWorkspace(
-  pool: Pool,
+  pool: CodeIndexPool,
   scope: CodeIndexRepoScope,
-  workspace: LocalPrWorkspace,
+  workspace: CodeIndexWorkspace,
   pathGate: AskPathGate,
 ): Promise<void> {
   const snapshot = await ensureBuildingSnapshot(pool, scope);
@@ -111,7 +136,7 @@ export async function buildCodeIndexFromWorkspace(
 }
 
 export async function enqueueCodeIndexBuildJob(
-  boss: PgBoss,
+  boss: CodeIndexBoss,
   data: CodeIndexBuildJobData,
 ): Promise<void> {
   const scope: CodeIndexRepoScope = {
@@ -129,7 +154,7 @@ export async function enqueueCodeIndexBuildJob(
 
 export async function executeCodeIndexBuildJob(
   cfg: Config,
-  pool: Pool,
+  pool: CodeIndexPool,
   data: CodeIndexBuildJobData,
 ): Promise<void> {
   if (cfg.codeIndexMode !== "fts") return;
@@ -172,10 +197,10 @@ export async function executeCodeIndexBuildJob(
 
 export async function prepareCodeIndexForReview(args: {
   readonly cfg: Config;
-  readonly pool: Pool;
-  readonly boss?: PgBoss;
+  readonly pool: CodeIndexPool;
+  readonly boss?: CodeIndexBoss;
   readonly scope: CodeIndexRepoScope & { readonly prNumber: number };
-  readonly workspace: LocalPrWorkspace;
+  readonly workspace: CodeIndexWorkspace;
   readonly pathGate: AskPathGate;
 }): Promise<CodeIndexPrepareResult> {
   if (args.cfg.codeIndexMode !== "fts") return { available: false };

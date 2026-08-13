@@ -1,7 +1,9 @@
-import type { Pool, PoolClient } from "pg";
-import { AppError } from "../errors/appError.js";
+import type { IntakeClient } from "../db/postgres.js";
+import * as v from "valibot";
+import { AppError, nonErrorThrown } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { jsonValueSchema, type JsonValue } from "../util/jsonValue.js";
 import {
   isAnyReviewLens,
   normalizeReviewLens,
@@ -123,20 +125,20 @@ function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore 
 }
 
 function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
-  return attachWorkItemPayload(mapWorkItemCore(row), row.payload);
+  return attachWorkItemPayload(mapWorkItemCore(row), v.parse(jsonValueSchema, row.payload));
 }
 
 async function terminalizeInvalidClaimedWorkItem(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
-  error: unknown,
+  error: Error,
   executionEpoch: number,
 ): Promise<never> {
   await markWorkFailed(pool, id, error, executionEpoch);
   throw error;
 }
 
-export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem | null> {
+export async function getWorkItem(pool: IntakeClient, id: string): Promise<AgentWorkItem | null> {
   const row = await queryOne<AgentWorkRow>(
     pool,
     `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
@@ -148,7 +150,10 @@ export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem
   return row ? mapWorkItem(row) : null;
 }
 
-export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWorkItemCore | null> {
+export async function getWorkItemCore(
+  pool: IntakeClient,
+  id: string,
+): Promise<AgentWorkItemCore | null> {
   const row = await queryOne<Omit<AgentWorkRow, "payload">>(
     pool,
     `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
@@ -172,7 +177,7 @@ export type ReviewQueuePosition = {
  * `(type, status, created_at)` covering index lands; no migration in this change.
  */
 export async function getReviewQueuePosition(
-  pool: Pool,
+  pool: IntakeClient,
   workItemId: string,
 ): Promise<ReviewQueuePosition | null> {
   const row = await queryOne<{ position: number; total: number }>(
@@ -211,17 +216,21 @@ export async function getReviewQueuePosition(
   return { position, total };
 }
 
-export async function getWorkItemPayload(pool: Pool, id: string): Promise<unknown> {
-  const row = await queryOne<{ payload: unknown }>(
+export async function getWorkItemPayload(
+  pool: IntakeClient,
+  id: string,
+): Promise<JsonValue | undefined> {
+  const row = await queryOne<{ payload: JsonValue }>(
     pool,
     "SELECT payload FROM agent_work_items WHERE id = $1",
     [id],
   );
-  return row == null ? undefined : row.payload;
+  if (row == null) return undefined;
+  return v.parse(jsonValueSchema, row.payload);
 }
 
-function sanitizeWorkError(error: unknown): string {
-  return sanitizeLogMessage(error instanceof Error ? error.message : String(error));
+function sanitizeWorkError(error: Error): string {
+  return sanitizeLogMessage(error.message);
 }
 
 const CLAIM_QUEUED_WORK_ITEM_RETURNING = `id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
@@ -229,7 +238,7 @@ const CLAIM_QUEUED_WORK_ITEM_RETURNING = `id, webhook_event_id, type, source, st
 
 /** One-query claim: UPDATE queued→running and return the full item; null = not claimable this way. */
 export async function claimQueuedWorkItem<T extends WorkType>(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
   type: T,
 ): Promise<Extract<AgentWorkItem, { type: T }> | null> {
@@ -261,7 +270,8 @@ export async function claimQueuedWorkItem<T extends WorkType>(
     }
     return item;
   } catch (error) {
-    return await terminalizeInvalidClaimedWorkItem(pool, id, error, claimedEpoch);
+    const err = error instanceof Error ? error : nonErrorThrown("agent_work.non_error_thrown");
+    return await terminalizeInvalidClaimedWorkItem(pool, id, err, claimedEpoch);
   }
 }
 
@@ -271,7 +281,7 @@ export async function claimQueuedWorkItem<T extends WorkType>(
  * cannot both own the row.
  */
 export async function claimWorkForExecution(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
 ): Promise<{ readonly executionEpoch: number } | null> {
   const row = await queryOne<{ execution_epoch: string | number }>(
@@ -296,7 +306,7 @@ export async function claimWorkForExecution(
 
 /** True when this claim still owns the row (no newer claim took the epoch). */
 export async function isExecutionEpochCurrent(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   id: string,
   executionEpoch: number,
 ): Promise<boolean> {
@@ -310,7 +320,7 @@ export async function isExecutionEpochCurrent(
 
 /** Reject durable writes/publishes from a superseded claim. */
 export async function assertCurrentExecutionEpoch(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   id: string,
   executionEpoch: number,
 ): Promise<void> {
@@ -322,7 +332,7 @@ export async function assertCurrentExecutionEpoch(
   });
 }
 
-export async function markWorkPublishDegraded(pool: Pool, id: string): Promise<void> {
+export async function markWorkPublishDegraded(pool: IntakeClient, id: string): Promise<void> {
   await pool.query(
     `UPDATE agent_work_items
 		    SET payload = payload || '{"publishDegraded": true}'::jsonb,
@@ -333,7 +343,7 @@ export async function markWorkPublishDegraded(pool: Pool, id: string): Promise<v
 }
 
 export async function markWorkCompleted(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
   executionEpoch: number,
 ): Promise<boolean> {
@@ -353,7 +363,7 @@ export async function markWorkCompleted(
 
 /** Complete a parent work item that already persisted a stale-head replacement marker. */
 export async function forceMarkRescheduledParentCompleted(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
 ): Promise<boolean> {
   const result = await pool.query(
@@ -371,7 +381,7 @@ export async function forceMarkRescheduledParentCompleted(
 }
 
 export async function updateRunningWorkHeadSha(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
   headSha: string,
   executionEpoch: number,
@@ -390,9 +400,9 @@ export async function updateRunningWorkHeadSha(
 }
 
 export async function markWorkFailed(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
-  error: unknown,
+  error: Error,
   executionEpoch?: number,
 ): Promise<boolean> {
   const message = sanitizeWorkError(error);
@@ -426,9 +436,9 @@ export async function markWorkFailed(
 
 /** Cancel a still-queued work item and persist a sanitized failure reason. */
 export async function markQueuedWorkCancelled(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
-  error: unknown,
+  error: Error,
 ): Promise<boolean> {
   const message = sanitizeWorkError(error);
   const result = await pool.query(
@@ -445,9 +455,9 @@ export async function markQueuedWorkCancelled(
 }
 
 export async function markWorkRetrying(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
-  error: unknown,
+  error: Error,
   executionEpoch: number,
 ): Promise<boolean> {
   const message = sanitizeWorkError(error);
@@ -466,7 +476,7 @@ export async function markWorkRetrying(
 }
 
 export async function markWorkCancelled(
-  pool: Pool,
+  pool: IntakeClient,
   id: string,
   executionEpoch?: number,
 ): Promise<void> {
@@ -495,7 +505,7 @@ export async function markWorkCancelled(
 }
 
 export async function shouldSkipWork(
-  pool: Pool,
+  pool: IntakeClient,
   item: Pick<AgentWorkItem, "id">,
 ): Promise<boolean> {
   const row = await queryOne<{
@@ -508,7 +518,10 @@ export async function shouldSkipWork(
   );
 }
 
-export async function hasActiveReviewWorkItem(pool: Pool, resourceKey: string): Promise<boolean> {
+export async function hasActiveReviewWorkItem(
+  pool: IntakeClient,
+  resourceKey: string,
+): Promise<boolean> {
   const row = await queryOne<{ active: boolean }>(
     pool,
     `SELECT EXISTS (

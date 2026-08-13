@@ -1,3 +1,5 @@
+import * as v from "valibot";
+import { nonErrorThrown } from "../errors/appError.js";
 import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
@@ -22,10 +24,10 @@ export type DownloadActionsJobLogsResult =
   | { readonly ok: true; readonly text: string }
   | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
 
-export function isMissingActionsPermissionError(error: unknown): boolean {
+export function isMissingActionsPermissionError(error: Error): boolean {
   const status = httpStatus(error);
   if (status !== 403 && status !== 404) return false;
-  const message = error instanceof Error ? error.message : String(error);
+  const message = error.message;
   return (
     message.includes("Resource not accessible by integration") ||
     message.includes("Not Found") ||
@@ -86,10 +88,11 @@ export async function listFailingActionsJobsForHead(
     }
     return { ok: true, jobs };
   } catch (error) {
-    if (isMissingActionsPermissionError(error)) {
+    const err = error instanceof Error ? error : nonErrorThrown("github.actions_list_jobs");
+    if (isMissingActionsPermissionError(err)) {
       return { ok: false, reason: "actions_permission" };
     }
-    throw error;
+    throw err;
   }
 }
 
@@ -109,7 +112,7 @@ export async function downloadActionsJobLogs(
     });
     const data = response.data;
     let text: string | null = null;
-    if (typeof data === "string") text = data;
+    if (v.is(v.string(), data)) text = data;
     else if (data instanceof ArrayBuffer) text = Buffer.from(data).toString("utf8");
     else if (ArrayBuffer.isView(data)) {
       text = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8");
@@ -119,9 +122,10 @@ export async function downloadActionsJobLogs(
     }
     return { ok: true, text };
   } catch (error) {
-    if (isMissingActionsPermissionError(error)) {
+    const err = error instanceof Error ? error : nonErrorThrown("github.actions_download_logs");
+    if (isMissingActionsPermissionError(err)) {
       return { ok: false, reason: "actions_permission" };
     }
-    throw error;
+    throw err;
   }
 }

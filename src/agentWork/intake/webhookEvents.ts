@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../../db/postgres.js";
 import type { WebhookHeaders } from "../types.js";
 
 type EventRecord =
@@ -14,10 +14,12 @@ type EventRecord =
       readonly dedupeKey: string;
     };
 
-function webhookEventKeys(headers: WebhookHeaders): {
+type WebhookEventKeys = {
   readonly dedupeKey: string;
   readonly bodySha256: string;
-} {
+};
+
+function webhookEventKeys(headers: WebhookHeaders): WebhookEventKeys {
   const bodySha256 = crypto.createHash("sha256").update(headers.rawBody).digest("hex");
   return {
     dedupeKey: headers.delivery ? `delivery:${headers.delivery}` : `body:${bodySha256}`,
@@ -26,7 +28,7 @@ function webhookEventKeys(headers: WebhookHeaders): {
 }
 
 export async function insertWebhookEvent(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   headers: WebhookHeaders,
   decision: string,
 ): Promise<EventRecord> {

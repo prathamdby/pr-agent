@@ -9,6 +9,7 @@ export default defineConfig({
       "test/setup/evlog.ts",
       "test/setup/ciStatus-mock.ts",
       "test/setup/operationIntent-memory.ts",
+      "test/setup/appendAgentEvents-noop.ts",
     ],
   },
 });

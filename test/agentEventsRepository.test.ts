@@ -1,11 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendAgentEvents,
   listAgentEventsByWorkItem,
+  resetAppendAgentEvents,
   safeAppendAgentEvents,
   type AgentEventInsertRow,
 } from "../src/agentWork/agentEventsRepository.js";
+import { createQueryClient } from "./helpers/fakePool.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
 
 function sampleRow(overrides: Partial<AgentEventInsertRow> = {}): AgentEventInsertRow {
   return {
@@ -25,10 +27,17 @@ function sampleRow(overrides: Partial<AgentEventInsertRow> = {}): AgentEventInse
   };
 }
 
+beforeEach(() => {
+  resetAppendAgentEvents();
+});
+
 describe("appendAgentEvents", () => {
   it("batch inserts rows with metadata detail", async () => {
-    const query = vi.fn(async () => ({ rowCount: 2 }));
-    const pool = { query } as unknown as Pool;
+    const query = vi.fn(async (_sql: string, _values?: readonly JsonValue[]) => ({
+      rows: [],
+      rowCount: 2,
+    }));
+    const pool = createQueryClient(query);
 
     await appendAgentEvents(pool, [
       sampleRow(),
@@ -38,16 +47,15 @@ describe("appendAgentEvents", () => {
     expect(query).toHaveBeenCalledTimes(1);
     const call = query.mock.calls[0];
     expect(call).toBeDefined();
-    const [sql, values] = call as unknown as [string, unknown[]];
-    expect(sql).toContain("INSERT INTO agent_events");
-    expect(values).toHaveLength(30);
-    expect(values[6]).toBe("turn");
-    expect(values[14]).toBe('{"attempt":1}');
+    expect(call?.[0]).toContain("INSERT INTO agent_events");
+    expect(call?.[1]).toHaveLength(30);
+    expect(call?.[1]?.[6]).toBe("turn");
+    expect(call?.[1]?.[14]).toBe('{"attempt":1}');
   });
 
   it("skips empty batches", async () => {
     const query = vi.fn();
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
     await appendAgentEvents(pool, []);
     expect(query).not.toHaveBeenCalled();
   });
@@ -56,7 +64,7 @@ describe("appendAgentEvents", () => {
 describe("safeAppendAgentEvents", () => {
   it("does nothing when disabled", () => {
     const query = vi.fn();
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
     safeAppendAgentEvents(pool, { agentEventsEnabled: false }, [sampleRow()]);
     expect(query).not.toHaveBeenCalled();
   });
@@ -65,7 +73,7 @@ describe("safeAppendAgentEvents", () => {
     const query = vi.fn(async () => {
       throw new Error("db down");
     });
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
     safeAppendAgentEvents(pool, { agentEventsEnabled: true }, [sampleRow()]);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(query).toHaveBeenCalledTimes(1);
@@ -98,7 +106,7 @@ describe("listAgentEventsByWorkItem", () => {
         },
       ],
     }));
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryClient(query);
 
     const rows = await listAgentEventsByWorkItem(pool, "wi-1");
     expect(rows).toEqual([

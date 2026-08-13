@@ -1,47 +1,41 @@
 import { access, constants } from "node:fs/promises";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { AgentRunnerToolExecutorMap } from "../src/agent/providers/interface.js";
+import {
+  compactionPolicyForRole,
+  createPiSession,
+  DEFAULT_PROMPT_CACHE_POLICY,
+  DEFAULT_THINKING_POLICY,
+  DEFAULT_TOOL_POLICY,
+  EMPTY_STRUCTURED_STATE,
+  resetPiSessionRuntime,
+  sessionCacheIdFromIdentity,
+  setPiSessionRuntime,
+} from "../src/agent/runtime/piSession.js";
+import type {
+  PiDefinedTool,
+  PiDefineToolInput,
+  PiModelRuntime,
+  PiSdkEvent,
+  PiSdkSession,
+  PiSdkTurnEndEvent,
+  PiToolExecuteContext,
+} from "../src/agent/runtime/piSession.js";
+import type { Config } from "../src/config.js";
+import { isJsonString } from "../src/util/jsonValue.js";
 import { makeTestConfig } from "./helpers/config.js";
 
-type MockTurnEndEvent = {
-  type: "turn_end";
-  toolResults: unknown[];
-  message: {
-    role: "assistant";
-    usage?: {
-      input: number;
-      output: number;
-      cacheRead: number;
-      cacheWrite: number;
-      totalTokens: number;
-      cost: {
-        input: number;
-        output: number;
-        cacheRead: number;
-        cacheWrite: number;
-        total: number;
-      };
-    };
-    content: Array<
-      | { type: "text"; text: string }
-      | { type: "thinking"; thinking: string }
-      | {
-          type: "toolCall";
-          id: string;
-          name: string;
-          arguments: Record<string, unknown>;
-        }
-    >;
-  };
-};
+type MockTurnEndEvent = PiSdkTurnEndEvent;
 
 function makeAssistantMessage(text: string): MockTurnEndEvent["message"] {
   return { role: "assistant", content: [{ type: "text", text }] };
 }
 
-function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => void) {
-  const listeners = new Set<(event: MockTurnEndEvent) => void>();
+function buildMockSession(script: (emit: (event: PiSdkEvent) => void) => void): PiSdkSession {
+  const listeners = new Set<(event: PiSdkEvent) => void>();
   return {
-    subscribe(listener: (event: MockTurnEndEvent) => void) {
+    subscribe(listener: (event: PiSdkEvent) => void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
@@ -57,63 +51,62 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
   };
 }
 
-const createDefaultModelRuntimeMock = vi.hoisted(() => {
-  return () => {
-    const streamSimple = vi.fn((_model, _context, options) => ({
-      options,
-      result: async () => undefined,
-    }));
-    const stream = vi.fn((_model, _context, options) => ({
-      options,
-      result: async () => undefined,
-    }));
-    return {
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      getError: vi.fn(() => undefined),
-      getModel: vi.fn(() => ({
-        id: "gpt-4o-mini",
-        provider: "openai",
-        api: "openai-responses",
-      })),
-      streamSimple,
-      stream,
-      completeSimple: vi.fn(async (model, context, options) =>
-        streamSimple(model, context, options).result(),
-      ),
-      complete: vi.fn(async (model, context, options) => stream(model, context, options).result()),
-    };
+const createDefaultModelRuntimeMock = (): PiModelRuntime => {
+  const streamSimple = vi.fn((_model, _context, options) => {
+    void options;
+  });
+  const stream = vi.fn((_model, _context, options) => {
+    void options;
+  });
+  return {
+    setRuntimeApiKey: vi.fn(async () => undefined),
+    getError: vi.fn(() => undefined),
+    getModel: vi.fn(() => ({
+      id: "gpt-4o-mini",
+      provider: "openai",
+      api: "openai-responses",
+    })),
+    streamSimple,
+    stream,
+    completeSimple: vi.fn((model, context, options) => {
+      streamSimple(model, context, options);
+    }),
+    complete: vi.fn((model, context, options) => {
+      stream(model, context, options);
+    }),
   };
+};
+
+const ModelRuntime = {
+  create: vi.fn(async () => createDefaultModelRuntimeMock()),
+};
+const createAgentSession = vi.fn();
+const defineTool = vi.fn((tool: PiDefineToolInput): PiDefinedTool => tool);
+const DefaultResourceLoader = vi.fn(function DefaultResourceLoader() {
+  return { reload: vi.fn(async () => undefined) };
 });
+type SessionManagerOptions = { readonly id?: string };
+const SessionManager = {
+  inMemory: vi.fn((_cwd: string, _options?: SessionManagerOptions) => ({})),
+};
+const SettingsManager = { inMemory: vi.fn(() => ({})) };
+const createExtensionRuntime = vi.fn(() => ({}));
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  ModelRuntime: {
-    create: vi.fn(async () => createDefaultModelRuntimeMock()),
-  },
-  createAgentSession: vi.fn(),
-  createExtensionRuntime: vi.fn(),
-  defineTool: vi.fn((tool: unknown) => tool),
-  DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
-    return { reload: vi.fn(async () => undefined) };
-  }),
-  SessionManager: { inMemory: vi.fn(() => ({})) },
-  SettingsManager: { inMemory: vi.fn(() => ({})) },
-}));
+function installTestPiSessionRuntime(): void {
+  setPiSessionRuntime({
+    ModelRuntime,
+    createAgentSession,
+    createExtensionRuntime,
+    defineTool,
+    DefaultResourceLoader,
+    SessionManager,
+    SettingsManager,
+  });
+}
 
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
-import {
-  compactionPolicyForRole,
-  createPiSession,
-  DEFAULT_PROMPT_CACHE_POLICY,
-  DEFAULT_THINKING_POLICY,
-  DEFAULT_TOOL_POLICY,
-  EMPTY_STRUCTURED_STATE,
-  sessionCacheIdFromIdentity,
-} from "../src/agent/runtime/piSession.js";
-import type { Config } from "../src/config.js";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+afterEach(() => {
+  resetPiSessionRuntime();
+});
 
 const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
@@ -128,7 +121,7 @@ async function createPiRunnerSession(params: {
   cwd?: string;
   systemPrompt: string;
   tools: readonly PiTool[];
-  executors: Record<string, AgentRunnerToolExecutor>;
+  executors: AgentRunnerToolExecutorMap;
 }) {
   return createPiSession({
     role: "ask",
@@ -149,15 +142,14 @@ async function createPiRunnerSession(params: {
 
 describe("createPiSession models.json", () => {
   beforeEach(() => {
+    installTestPiSessionRuntime();
     vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+    vi.mocked(ModelRuntime.create).mockImplementation(async () => createDefaultModelRuntimeMock());
   });
 
   it("uses ModelRuntime with modelsJsonPath when set", async () => {
     const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
     const getModel = vi.fn(() => ({
       id: "llama3.1:8b",
       provider: "ollama",
@@ -167,7 +159,7 @@ describe("createPiSession models.json", () => {
       ...createDefaultModelRuntimeMock(),
       getError: () => undefined,
       getModel,
-    } as never);
+    });
 
     await createPiRunnerSession({
       cfg: makeTestConfig({
@@ -195,7 +187,7 @@ describe("createPiSession models.json", () => {
 
   it("uses ModelRuntime with null modelsPath when modelsJsonPath is null", async () => {
     const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     await createPiRunnerSession({
       cfg,
@@ -214,10 +206,10 @@ describe("createPiSession models.json", () => {
 
   it("throws when models.json runtime reports a load error", async () => {
     vi.mocked(ModelRuntime.create).mockResolvedValue({
-      setRuntimeApiKey: vi.fn(async () => undefined),
+      ...createDefaultModelRuntimeMock(),
       getError: () => "Invalid models.json schema",
       getModel: vi.fn(),
-    } as never);
+    });
 
     await expect(
       createPiRunnerSession({
@@ -237,10 +229,9 @@ describe("createPiSession models.json", () => {
 
 describe("createPiSession.send", () => {
   beforeEach(() => {
+    installTestPiSessionRuntime();
     vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+    vi.mocked(ModelRuntime.create).mockImplementation(async () => createDefaultModelRuntimeMock());
   });
 
   it("returns terminal answer-turn text and ignores commentary from tool-using turns", async () => {
@@ -256,7 +247,7 @@ describe("createPiSession.send", () => {
         message: makeAssistantMessage("End-user summary and testing checklist."),
       });
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg,
@@ -283,7 +274,7 @@ describe("createPiSession.send", () => {
           releaseAbort = resolve;
         }),
     );
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg,
@@ -318,7 +309,7 @@ describe("createPiSession.send", () => {
         },
       });
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg,
@@ -351,7 +342,7 @@ describe("createPiSession.send", () => {
         message: makeAssistantMessage("Let me check more files."),
       });
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg,
@@ -385,7 +376,7 @@ describe("createPiSession.send", () => {
         },
       });
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg,
@@ -400,7 +391,7 @@ describe("createPiSession.send", () => {
 
   it("serializes object tool results as compact JSON", async () => {
     const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     await createPiRunnerSession({
       cfg,
@@ -409,11 +400,11 @@ describe("createPiSession.send", () => {
       executors: { object: async () => ({ answer: 42, nested: { ok: true } }) },
     });
 
-    const tool = vi.mocked(defineTool).mock.calls.at(-1)?.[0];
+    const tool = defineTool.mock.calls.at(-1)?.[0];
     expect(tool).toBeDefined();
     if (!tool) throw new Error("expected Pi tool");
     await expect(
-      tool.execute("tool-call-id", {}, undefined, undefined, {} as ExtensionContext),
+      tool.execute("tool-call-id", {}, undefined, undefined, {} satisfies PiToolExecuteContext),
     ).resolves.toMatchObject({
       content: [{ type: "text", text: '{"answer":42,"nested":{"ok":true}}' }],
     });
@@ -421,14 +412,15 @@ describe("createPiSession.send", () => {
 
   it("aborts and rejects when a prompt exceeds the configured timeout", async () => {
     const abort = vi.fn();
-    const session = {
+    const session: PiSdkSession = {
       subscribe: () => () => {},
       prompt: () => new Promise<void>(() => {}),
       abort,
       setActiveToolsByName: vi.fn(),
       setThinkingLevel: vi.fn(),
+      dispose: vi.fn(),
     };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg: { ...cfg, providerPromptTimeoutMs: 20 },
@@ -443,10 +435,10 @@ describe("createPiSession.send", () => {
 
   it("does not abort while the provider keeps streaming activity within the idle window", async () => {
     const abort = vi.fn();
-    const listeners = new Set<(event: unknown) => void>();
+    const listeners = new Set<(event: PiSdkEvent) => void>();
     let resolvePrompt: (() => void) | undefined;
-    const session = {
-      subscribe(listener: (event: unknown) => void) {
+    const session: PiSdkSession = {
+      subscribe(listener: (event: PiSdkEvent) => void) {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
@@ -457,11 +449,12 @@ describe("createPiSession.send", () => {
       abort,
       setActiveToolsByName: vi.fn(),
       setThinkingLevel: vi.fn(),
+      dispose: vi.fn(),
     };
-    const emit = (event: unknown) => {
+    const emit = (event: PiSdkEvent) => {
       for (const listener of listeners) listener(event);
     };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg: { ...cfg, providerPromptTimeoutMs: 100 },
@@ -501,7 +494,7 @@ describe("createPiSession.send", () => {
     const dispose = vi.fn();
     const session = buildMockSession(() => undefined);
     session.dispose = dispose;
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg,
@@ -510,8 +503,8 @@ describe("createPiSession.send", () => {
       executors: {},
     });
     const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
-    expect(typeof agentDir).toBe("string");
-    if (typeof agentDir !== "string") throw new Error("expected agentDir");
+    expect(isJsonString(agentDir)).toBe(true);
+    if (!isJsonString(agentDir)) throw new Error("expected agentDir");
     await expect(access(agentDir, constants.F_OK)).resolves.toBeUndefined();
 
     await runnerSession.dispose();
@@ -531,7 +524,7 @@ describe("createPiSession.send", () => {
       setThinkingLevel: vi.fn(),
       dispose,
     };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     const runnerSession = await createPiRunnerSession({
       cfg,
@@ -540,8 +533,8 @@ describe("createPiSession.send", () => {
       executors: {},
     });
     const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
-    expect(typeof agentDir).toBe("string");
-    if (typeof agentDir !== "string") throw new Error("expected agentDir");
+    expect(isJsonString(agentDir)).toBe(true);
+    if (!isJsonString(agentDir)) throw new Error("expected agentDir");
 
     await expect(runnerSession.dispose()).rejects.toThrow("sdk dispose failed");
     expect(dispose).toHaveBeenCalledTimes(1);
@@ -561,23 +554,22 @@ describe("createPiSession.send", () => {
     ).rejects.toThrow("session setup failed");
 
     const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
-    expect(typeof agentDir).toBe("string");
-    if (typeof agentDir !== "string") throw new Error("expected agentDir");
+    expect(isJsonString(agentDir)).toBe(true);
+    if (!isJsonString(agentDir)) throw new Error("expected agentDir");
     await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
 describe("createPiSession prompt cache identity", () => {
   beforeEach(() => {
+    installTestPiSessionRuntime();
     vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+    vi.mocked(ModelRuntime.create).mockImplementation(async () => createDefaultModelRuntimeMock());
   });
 
   it("uses a stable SessionManager id for the same role and model", async () => {
     const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     await createPiRunnerSession({
       cfg,
@@ -602,13 +594,13 @@ describe("createPiSession prompt cache identity", () => {
     expect(SessionManager.inMemory).toHaveBeenCalledWith("/tmp/pr-agent-cache-id", {
       id: expectedId,
     });
-    const ids = vi.mocked(SessionManager.inMemory).mock.calls.map((call) => call[1]?.id);
+    const ids = SessionManager.inMemory.mock.calls.map((call) => call[1]?.id);
     expect(ids).toEqual([expectedId, expectedId]);
   });
 
   it("includes specialistId in the session cache identity", async () => {
     const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     await createPiSession({
       role: "specialist",
@@ -640,9 +632,9 @@ describe("createPiSession prompt cache identity", () => {
   it("injects short cacheRetention on ModelRuntime stream entry", async () => {
     const runtime = createDefaultModelRuntimeMock();
     const originalStreamSimple = runtime.streamSimple;
-    vi.mocked(ModelRuntime.create).mockResolvedValue(runtime as never);
+    vi.mocked(ModelRuntime.create).mockResolvedValue(runtime);
     const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    vi.mocked(createAgentSession).mockResolvedValue({ session });
 
     await createPiRunnerSession({
       cfg,
@@ -666,14 +658,14 @@ describe("createPiSession prompt cache identity", () => {
     const primaryStreamSimple = primaryRuntime.streamSimple;
     const fallbackStreamSimple = fallbackRuntime.streamSimple;
     vi.mocked(ModelRuntime.create)
-      .mockResolvedValueOnce(primaryRuntime as never)
-      .mockResolvedValueOnce(fallbackRuntime as never);
+      .mockResolvedValueOnce(primaryRuntime)
+      .mockResolvedValueOnce(fallbackRuntime);
 
     const primarySession = buildMockSession(() => undefined);
     const fallbackSession = buildMockSession(() => undefined);
     vi.mocked(createAgentSession)
-      .mockResolvedValueOnce({ session: primarySession } as never)
-      .mockResolvedValueOnce({ session: fallbackSession } as never);
+      .mockResolvedValueOnce({ session: primarySession })
+      .mockResolvedValueOnce({ session: fallbackSession });
 
     const session = await createPiSession({
       role: "ask",

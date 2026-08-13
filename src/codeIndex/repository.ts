@@ -1,4 +1,4 @@
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient, IntakeQueryValue } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
 import { CODE_INDEX_CHUNKER_VERSION } from "../settings/index.js";
 import type { CodeIndexChunk } from "./chunker.js";
@@ -31,7 +31,7 @@ function mapSnapshot(row: {
 }
 
 export async function getReadySnapshot(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   scope: CodeIndexRepoScope,
 ): Promise<CodeIndexSnapshot | null> {
   const { rows } = await pool.query<{
@@ -54,7 +54,7 @@ export async function getReadySnapshot(
 }
 
 export async function ensureBuildingSnapshot(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   scope: CodeIndexRepoScope,
 ): Promise<CodeIndexSnapshot> {
   await pool.query(
@@ -93,7 +93,7 @@ export async function ensureBuildingSnapshot(
 }
 
 export async function getSnapshotById(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   snapshotId: string,
 ): Promise<CodeIndexSnapshot | null> {
   const { rows } = await pool.query<{
@@ -112,7 +112,7 @@ export async function getSnapshotById(
 }
 
 export async function replaceSnapshotChunks(
-  pool: Pool | PoolClient,
+  pool: IntakeClient,
   snapshotId: string,
   chunks: readonly CodeIndexChunk[],
 ): Promise<void> {
@@ -122,7 +122,7 @@ export async function replaceSnapshotChunks(
   const batchSize = 200;
   for (let offset = 0; offset < chunks.length; offset += batchSize) {
     const batch = chunks.slice(offset, offset + batchSize);
-    const values: unknown[] = [];
+    const values: IntakeQueryValue[] = [];
     const placeholders = batch.map((chunk, index) => {
       const base = index * 7;
       values.push(
@@ -145,10 +145,7 @@ export async function replaceSnapshotChunks(
   }
 }
 
-export async function markSnapshotReady(
-  pool: Pool | PoolClient,
-  snapshotId: string,
-): Promise<void> {
+export async function markSnapshotReady(pool: IntakeClient, snapshotId: string): Promise<void> {
   await pool.query(
     `UPDATE code_index_snapshots
         SET status = 'ready', updated_at = now()
@@ -157,10 +154,7 @@ export async function markSnapshotReady(
   );
 }
 
-export async function markSnapshotFailed(
-  pool: Pool | PoolClient,
-  snapshotId: string,
-): Promise<void> {
+export async function markSnapshotFailed(pool: IntakeClient, snapshotId: string): Promise<void> {
   await pool.query(
     `UPDATE code_index_snapshots
         SET status = 'failed', updated_at = now()
@@ -170,7 +164,7 @@ export async function markSnapshotFailed(
 }
 
 export async function waitForReadySnapshot(
-  pool: Pool,
+  pool: IntakeClient,
   scope: CodeIndexRepoScope,
   waitMs: number,
   pollMs = 100,
@@ -186,7 +180,7 @@ export async function waitForReadySnapshot(
 }
 
 export async function deleteExpiredCodeIndexSnapshots(
-  pool: Pool,
+  pool: IntakeClient,
   retentionSeconds: number,
   batchSize: number,
 ): Promise<number> {
@@ -210,7 +204,7 @@ export async function deleteExpiredCodeIndexSnapshots(
 }
 
 export async function safeDeleteExpiredCodeIndexSnapshots(
-  pool: Pool,
+  pool: IntakeClient,
   retentionSeconds: number,
   batchSize: number,
 ): Promise<number> {

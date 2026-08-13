@@ -7,12 +7,22 @@ const BASE_ENV = {
   DATABASE_URL: "postgres://u:p@localhost/db",
 };
 
-async function load(extra: Record<string, string>) {
-  process.env = {
+type EnvOverrides = { readonly [key: string]: string };
+
+function assignProcessEnv(values: EnvOverrides): void {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of Object.keys(values)) {
+    env[key] = values[key];
+  }
+  process.env = env;
+}
+
+async function load(extra: EnvOverrides) {
+  assignProcessEnv({
     ...BASE_ENV,
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
-  } as NodeJS.ProcessEnv;
+  });
   const { loadConfig } = await import("../src/config.js");
   return loadConfig();
 }

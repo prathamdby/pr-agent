@@ -22,9 +22,10 @@ export async function listCommitCompareFiles(params: {
     repo: params.repo,
     basehead: `${params.base}...${params.head}`,
   });
-  const files = (data.files ?? [])
-    .map((file) => file.filename)
-    .filter((filename): filename is string => typeof filename === "string" && filename.length > 0);
+  const files = (data.files ?? []).flatMap((file) => {
+    const filename = file.filename;
+    return filename != null && filename.length > 0 ? [filename] : [];
+  });
   return {
     files,
     truncated: files.length >= GITHUB_COMPARE_FILES_PAGE_CAP,

@@ -1,6 +1,8 @@
-import type { Pool, PoolClient } from "pg";
 import type { Config } from "../config.js";
+import type { IntakeClient } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
+import * as v from "valibot";
+import { jsonObjectSchema, type JsonValue } from "../util/jsonValue.js";
 import { parseStoredInlineBatches } from "./publishRecordRepository.js";
 import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
 
@@ -63,7 +65,7 @@ function mapFindingHistoryRow(row: {
 }
 
 export async function upsertFindingHistoryOpen(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   scope: FindingHistoryWriteScope,
   fingerprints: readonly string[],
 ): Promise<void> {
@@ -103,7 +105,7 @@ export async function upsertFindingHistoryOpen(
 }
 
 export async function recordFindingHistoryOutcome(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   scope: FindingHistoryWriteScope,
   fingerprint: string,
   outcome: Exclude<FindingHistoryOutcome, "open">,
@@ -152,7 +154,7 @@ export async function recordFindingHistoryOutcome(
 }
 
 export async function loadCrossPrSuppressionFingerprints(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly string[]> {
@@ -179,7 +181,7 @@ export async function loadCrossPrSuppressionFingerprints(
 }
 
 export async function loadFindingHistoryCandidates(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly FindingHistoryRow[]> {
@@ -215,14 +217,14 @@ function normalizeRepoPath(path: string): string {
 }
 
 export async function lookupThreadFingerprint(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   params: {
     readonly resourceKey: string;
     readonly thread: Pick<BotFindingThread, "path" | "line">;
   },
 ): Promise<string | null> {
   const threadPath = normalizeRepoPath(params.thread.path);
-  const result = await client.query<{ detail: Record<string, unknown> | null }>(
+  const result = await client.query<{ detail: JsonValue | null }>(
     `SELECT detail
        FROM publish_records
       WHERE resource_key = $1
@@ -231,7 +233,9 @@ export async function lookupThreadFingerprint(
     [params.resourceKey],
   );
   for (const row of result.rows) {
-    for (const batch of parseStoredInlineBatches(row.detail ?? {})) {
+    const parsed = v.safeParse(jsonObjectSchema, row.detail ?? {});
+    if (!parsed.success) continue;
+    for (const batch of parseStoredInlineBatches(parsed.output)) {
       for (const placement of batch.placements) {
         if (
           normalizeRepoPath(placement.finding.file) === threadPath &&
@@ -247,7 +251,7 @@ export async function lookupThreadFingerprint(
 
 /** Fire-and-forget open upsert that never throws into the publish hot path. */
 export function safeUpsertFindingHistoryOpen(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: Pick<Config, "findingHistoryEnabled">,
   scope: FindingHistoryWriteScope,
   fingerprints: readonly string[],
@@ -265,7 +269,7 @@ export function safeUpsertFindingHistoryOpen(
 
 /** Fire-and-forget outcome write that never throws into verification/triage hot paths. */
 export function safeRecordFindingHistoryOutcome(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: Pick<Config, "findingHistoryEnabled">,
   scope: FindingHistoryWriteScope,
   fingerprint: string,
@@ -285,7 +289,7 @@ export function safeRecordFindingHistoryOutcome(
 
 /** Fire-and-forget thread outcome write resolved from publish-record placements. */
 export function safeRecordThreadFindingHistoryOutcome(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: Pick<Config, "findingHistoryEnabled">,
   params: {
     readonly scope: FindingHistoryWriteScope;
@@ -314,7 +318,7 @@ export function safeRecordThreadFindingHistoryOutcome(
 }
 
 export async function safeLoadCrossPrSuppressionFingerprints(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly string[]> {
@@ -332,7 +336,7 @@ export async function safeLoadCrossPrSuppressionFingerprints(
 }
 
 export async function safeLoadFindingHistoryCandidates(
-  client: Pool | PoolClient,
+  client: IntakeClient,
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly FindingHistoryRow[]> {

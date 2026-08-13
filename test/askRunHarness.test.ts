@@ -1,24 +1,14 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { ASK_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
-vi.mock("../src/agent/tools/context7Tools.js", () => ({
-  buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
-}));
-
-const sendMock = vi.fn();
-const disposeMock = vi.fn(async () => undefined);
-
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
-  createFeaturePiSession: vi.fn(async () => ({
-    role: "ask",
-    send: sendMock,
-    abort: vi.fn(async () => undefined),
-    dispose: disposeMock,
-  })),
-}));
-
+import {
+  resetCreateFeaturePiSession,
+  setCreateFeaturePiSession,
+} from "../src/agent/runtime/createFeatureSession.js";
+import { EMPTY_STRUCTURED_STATE, type PiSession } from "../src/agent/runtime/types.js";
+import * as context7Tools from "../src/agent/tools/context7Tools.js";
 import { runAskRun } from "../src/agent/ask/askRun.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
@@ -28,6 +18,9 @@ const cfg = makeTestConfig({
 });
 
 const { surface: prSurface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 459 });
+
+const sendMock = vi.fn();
+const disposeMock = vi.fn(async () => undefined);
 
 const askParams = {
   cfg,
@@ -41,9 +34,35 @@ const askParams = {
   workspace: mockLocalPrWorkspace(),
 };
 
+function fakeAskSession(): PiSession {
+  const session: PiSession = {
+    role: "ask",
+    primary: { provider: cfg.piProvider, model: cfg.piModel },
+    send: sendMock,
+    abort: async () => undefined,
+    dispose: disposeMock,
+    restartWithFallback: async () => session,
+    getStructuredState: () => EMPTY_STRUCTURED_STATE,
+    setStructuredState: () => undefined,
+  };
+  return session;
+}
+
 describe("runAskRun finalize", () => {
   beforeEach(() => {
+    vi.spyOn(context7Tools, "buildContext7Tools").mockReturnValue({
+      piTools: [],
+      executors: {
+        resolveLibraryId: async () => ({ content: "", truncated: false, returnedBytes: 0 }),
+        getLibraryDocs: async () => ({ content: "", truncated: false, returnedBytes: 0 }),
+      },
+    });
+    setCreateFeaturePiSession(vi.fn(async () => fakeAskSession()));
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    resetCreateFeaturePiSession();
   });
 
   it("prompt-only finalize runs when investigation returns empty text", async () => {

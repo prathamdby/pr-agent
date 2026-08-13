@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Pool } from "pg";
+import type { IntakeClient } from "../../db/postgres.js";
 import * as v from "valibot";
 import { assertPathAllowedForAsk, pathAllowedForAsk, type AskPathGate } from "../ask/askSafety.js";
 import { assertWorkspacePath, type LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { CODE_INDEX_MAX_RESULTS } from "../../settings/index.js";
 import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import type { AgentRunnerToolExecutorMap } from "../providers/interface.js";
 import {
   searchCodeIndexFts,
   previewForChunk,
@@ -39,27 +40,35 @@ async function verifyChunkHash(
   return createHash("sha256").update(slice).digest().equals(contentHash);
 }
 
-function toCodeIndexBundle(tool: LocalTool): {
+export type CodeIndexToolBundle = {
   readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const tools = { searchCodeIndex: tool };
+  readonly executors: AgentRunnerToolExecutorMap;
+};
+
+type CodeIndexHint = {
+  path: string;
+  startLine: number;
+  endLine: number;
+  preview?: string;
+};
+
+function toCodeIndexBundle<TSchema extends v.GenericSchema>(
+  tool: LocalTool<TSchema>,
+): CodeIndexToolBundle {
   return {
-    piTools: Object.entries(tools).map(([name, entry]) => toPiTool(name, entry)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, entry]) => [name, toExecutor(name, entry)]),
-    ),
+    piTools: [toPiTool("searchCodeIndex", tool)],
+    executors: { searchCodeIndex: toExecutor("searchCodeIndex", tool) },
   };
 }
 
 export function buildCodeIndexTools(params: {
-  readonly pool: Pool;
+  readonly pool: IntakeClient;
   readonly snapshotId: string;
   readonly workspace: LocalPrWorkspace;
   readonly pathGate: AskPathGate;
 }): {
   readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly executors: AgentRunnerToolExecutorMap;
 } {
   const allowedPaths = new Set<string>();
   for (const path of params.workspace.sortedCheckoutPaths) {
@@ -97,12 +106,15 @@ export function buildCodeIndexTools(params: {
           }
         }),
       );
-      const hints = verifiedRows.map(({ row, hashOk }) => ({
-        path: row.path,
-        startLine: row.start_line,
-        endLine: row.end_line,
-        ...(hashOk ? { preview: previewForChunk(row.content) } : {}),
-      }));
+      const hints = verifiedRows.map(({ row, hashOk }) => {
+        const hint: CodeIndexHint = {
+          path: row.path,
+          startLine: row.start_line,
+          endLine: row.end_line,
+        };
+        if (hashOk) hint.preview = previewForChunk(row.content);
+        return hint;
+      });
       return { hints };
     },
   });
@@ -110,7 +122,7 @@ export function buildCodeIndexTools(params: {
 
 export function buildUnavailableCodeIndexTools(): {
   readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly executors: AgentRunnerToolExecutorMap;
 } {
   return toCodeIndexBundle({
     description: SEARCH_CODE_INDEX_DESCRIPTION,

@@ -55,7 +55,7 @@ type BodyScaleSpec = {
   readonly technicalDepth: DescriptionTechnicalDepth;
 };
 
-const BODY_SCALE_SPEC: Record<DescriptionBodyScale, BodyScaleSpec> = {
+const BODY_SCALE_SPEC = {
   brief: {
     bulletMin: DESCRIPTION_BODY_BRIEF_BULLET_MIN,
     bulletMax: DESCRIPTION_BODY_BRIEF_BULLET_MAX,
@@ -74,7 +74,7 @@ const BODY_SCALE_SPEC: Record<DescriptionBodyScale, BodyScaleSpec> = {
     maxWordsPerBullet: DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET,
     technicalDepth: "what_why_how",
   },
-};
+} satisfies Record<DescriptionBodyScale, BodyScaleSpec>;
 
 export function resolveDescriptionBodyScale(input: DescriptionSizeInput): DescriptionBodyScale {
   if (input.truncated) return "detailed";
@@ -128,13 +128,13 @@ export function resolveDescriptionWritingPolicy(
 
 /** Hard-rule prose for technical depth; shared by description body and review overview. */
 export function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
-  const rules: Record<DescriptionTechnicalDepth, string> = {
+  const rules = {
     what_why: "Cover what changed and why it matters for reviewers.",
     what_why_risk:
       "Cover what changed, why it matters, and notable risks or contracts the diff touches.",
     what_why_how:
       "Cover what changed, why it matters, how key modules or paths interact, and review risks.",
-  };
+  } satisfies Record<DescriptionTechnicalDepth, string>;
   return rules[depth];
 }
 
@@ -143,11 +143,17 @@ export type EnforceDescriptionMapOptions = {
   readonly knownPaths?: ReadonlySet<string>;
 };
 
+export type EnforceDescriptionMapResult = {
+  readonly payload: DescriptionPayload;
+  readonly strippedCount: number;
+  readonly cappedFrom?: number;
+};
+
 export function enforceDescriptionMapPayload(
   payload: DescriptionPayload,
   mode: DescriptionMapMode,
   opts: EnforceDescriptionMapOptions = {},
-): { payload: DescriptionPayload; strippedCount: number; cappedFrom?: number } {
+): EnforceDescriptionMapResult {
   const maxEntries = opts.maxEntries ?? DESCRIPTION_MAP_MAX_ENTRIES;
 
   if (mode === "omit") {

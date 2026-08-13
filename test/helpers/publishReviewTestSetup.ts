@@ -2,8 +2,11 @@ import { vi, type Mock } from "vitest";
 import type { ReviewPayload } from "../../src/review/reviewSchema.js";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
 import type { PrSurface, ThreadBatchReview } from "../../src/github/prSurface.js";
+import * as repo from "../../src/agentWork/repository.js";
+import * as reviewCheckRun from "../../src/agentWork/reviewCheckRun.js";
 import { makeReviewPayload } from "./reviewPayloadFactory.js";
 import { makeTestConfig } from "./config.js";
+import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 
 export const publishReviewTestPayload: ReviewPayload = makeReviewPayload({
   prCharacter: "Test PR.",
@@ -92,10 +95,25 @@ export function makePublishReviewTestPrSurface() {
   return createPublishReviewTestHarness().surface;
 }
 
+export type PublishReviewTestBaseParams = {
+  prSurface: PrSurface;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  headSha: string;
+  hasDescriptionReviewMap: boolean;
+  progressCommentIdHint: number;
+  cfg: {
+    piModel: string;
+    features: ReturnType<typeof makeTestConfig>["features"];
+  };
+  payload: ReviewPayload;
+  mode?: AnyReviewLens;
+};
+
 export function publishReviewTestBaseParams(
   harness: PublishReviewTestHarness,
-  overrides: Record<string, unknown> = {},
-) {
+): PublishReviewTestBaseParams {
   return {
     prSurface: harness.surface,
     owner: "o",
@@ -109,25 +127,15 @@ export function publishReviewTestBaseParams(
       features: { ...makeTestConfig().features, reviewLabels: "off" as const },
     },
     payload: publishReviewTestPayload,
-    ...overrides,
   };
 }
 
-export function createAgentWorkRepositoryMock() {
-  return {
-    claimSummaryCommentCreation: vi.fn(async () => true),
-    getProgressCommentOwner: vi.fn(async () => null),
-    getProgressCommentRevision: vi.fn(async () => null),
-    getProgressStubPostedAtMs: vi.fn(async () => null),
-    getSummaryCommentGithubId: vi.fn(async () => null),
-    recordPublishStep: vi.fn(),
-  };
-}
-
-export async function createReviewCheckRunMock() {
-  const actual = await import("../../src/agentWork/reviewCheckRun.js");
-  return {
-    ...actual,
-    completeReviewCheckRun: vi.fn(async () => true),
-  };
+export function spyPublishReviewRepositories(): void {
+  vi.spyOn(repo, "claimSummaryCommentCreation").mockResolvedValue(true);
+  vi.spyOn(repo, "getProgressCommentOwner").mockResolvedValue(null);
+  vi.spyOn(repo, "getProgressCommentRevision").mockResolvedValue(null);
+  vi.spyOn(repo, "getProgressStubPostedAtMs").mockResolvedValue(null);
+  vi.spyOn(repo, "getSummaryCommentGithubId").mockResolvedValue(null);
+  vi.spyOn(repo, "recordPublishStep").mockResolvedValue(undefined);
+  vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockResolvedValue(true);
 }

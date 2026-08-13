@@ -1,20 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrSurface } from "../src/github/prSurface.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  getReviewCheckRunGithubId: vi.fn(async () => null),
-  getSummaryCommentGithubId: vi.fn(async () => null),
-  getWorkItemCore: vi.fn(async () => null),
-  recordReviewCheckRun: vi.fn(async () => undefined),
-  releaseUnstartedReviewCheckRunReservation: vi.fn(async () => true),
-  reserveReviewCheckRun: vi.fn(async () => true),
-}));
-
-vi.mock("../src/evlog.js", () => ({
-  logWarn: vi.fn(),
-}));
-
+import * as repo from "../src/agentWork/repository.js";
 import {
   getReviewCheckRunGithubId,
   getSummaryCommentGithubId,
@@ -23,6 +10,7 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "../src/agentWork/repository.js";
+import * as evlog from "../src/evlog.js";
 import { logWarn } from "../src/evlog.js";
 import {
   REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
@@ -35,8 +23,11 @@ import {
   waitForReviewCheckRunGithubId,
 } from "../src/agentWork/reviewCheckRun.js";
 import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
+import { createUnusedPool } from "./helpers/fakePool.js";
+import { coreOf } from "./helpers/executorDurableHarness.js";
+import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 
-const pool = {} as never;
+const pool = createUnusedPool();
 
 const startParamsBase = {
   owner: "o",
@@ -71,6 +62,13 @@ function startParams(prSurface = makePrSurface()) {
 
 describe("review check run lifecycle", () => {
   beforeEach(() => {
+    vi.spyOn(repo, "getReviewCheckRunGithubId").mockResolvedValue(null);
+    vi.spyOn(repo, "getSummaryCommentGithubId").mockResolvedValue(null);
+    vi.spyOn(repo, "getWorkItemCore").mockResolvedValue(null);
+    vi.spyOn(repo, "recordReviewCheckRun").mockResolvedValue(undefined);
+    vi.spyOn(repo, "releaseUnstartedReviewCheckRunReservation").mockResolvedValue(true);
+    vi.spyOn(repo, "reserveReviewCheckRun").mockResolvedValue(true);
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     vi.clearAllMocks();
   });
 
@@ -582,20 +580,12 @@ describe("review check run lifecycle", () => {
 
   it("cancels check runs for every cancelled work item", async () => {
     vi.mocked(getWorkItemCore)
-      .mockResolvedValueOnce({
-        id: "wi-a",
-        type: "review",
-        reviewLens: "review",
-        resourceKey: "o/r#1",
-        headSha: "sha-a",
-      } as never)
-      .mockResolvedValueOnce({
-        id: "wi-b",
-        type: "review",
-        reviewLens: "review",
-        resourceKey: "o/r#1",
-        headSha: "sha-b",
-      } as never);
+      .mockResolvedValueOnce(
+        coreOf(makeReviewWorkItem({ id: "wi-a", headSha: "sha-a", resourceKey: "o/r#1" })),
+      )
+      .mockResolvedValueOnce(
+        coreOf(makeReviewWorkItem({ id: "wi-b", headSha: "sha-b", resourceKey: "o/r#1" })),
+      );
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(9);
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(11).mockResolvedValueOnce(22);
     const prSurface = makePrSurface();
@@ -621,37 +611,17 @@ describe("review check run lifecycle", () => {
     vi.mocked(getWorkItemCore).mockImplementation(async (_pool, workItemId) => {
       switch (workItemId) {
         case "wi-ask":
-          return {
-            id: "wi-ask",
-            type: "ask",
-            reviewLens: null,
-            resourceKey: "o/r#1",
-            headSha: "sha-ask",
-          } as never;
+          return coreOf(makeAskWorkItem({ id: "wi-ask", headSha: "sha-ask" }));
         case "wi-null-lens":
-          return {
-            id: "wi-null-lens",
-            type: "review",
-            reviewLens: null,
-            resourceKey: "o/r#1",
-            headSha: "sha-null",
-          } as never;
+          return coreOf(makeAskWorkItem({ id: "wi-null-lens", headSha: "sha-null" }));
         case "wi-a":
-          return {
-            id: "wi-a",
-            type: "review",
-            reviewLens: "review",
-            resourceKey: "o/r#1:a",
-            headSha: "sha-a",
-          } as never;
+          return coreOf(
+            makeReviewWorkItem({ id: "wi-a", headSha: "sha-a", resourceKey: "o/r#1:a" }),
+          );
         case "wi-b":
-          return {
-            id: "wi-b",
-            type: "review",
-            reviewLens: "review",
-            resourceKey: "o/r#1:b",
-            headSha: "sha-b",
-          } as never;
+          return coreOf(
+            makeReviewWorkItem({ id: "wi-b", headSha: "sha-b", resourceKey: "o/r#1:b" }),
+          );
         default:
           return null;
       }
@@ -701,13 +671,7 @@ describe("review check run lifecycle", () => {
     vi.mocked(getWorkItemCore).mockImplementation(async (_pool, workItemId) => {
       if (workItemId === "wi-a") throw new Error("db read boom");
       if (workItemId === "wi-b") {
-        return {
-          id: "wi-b",
-          type: "review",
-          reviewLens: "review",
-          resourceKey: "o/r#1",
-          headSha: "sha-b",
-        } as never;
+        return coreOf(makeReviewWorkItem({ id: "wi-b", headSha: "sha-b" }));
       }
       return null;
     });

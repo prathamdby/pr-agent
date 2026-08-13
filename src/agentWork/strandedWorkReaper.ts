@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { IntakeClient } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
 import {
   STRANDED_WORK_REAPER_BATCH_SIZE,
@@ -14,7 +14,7 @@ export type StrandedWorkReaperResult = {
  * Cancelled/dead-lettered jobs never redeliver, so stranded rows would otherwise
  * occupy the slash uniqueness slot forever.
  */
-export async function reapStrandedWorkItems(pool: Pool): Promise<StrandedWorkReaperResult> {
+export async function reapStrandedWorkItems(pool: IntakeClient): Promise<StrandedWorkReaperResult> {
   const result = await pool.query<{
     id: string;
     type: string;

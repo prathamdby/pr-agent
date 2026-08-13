@@ -2,6 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import { parseToolInput } from "../tools/parseToolInput.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
@@ -27,7 +28,12 @@ export function createSubmitVerificationState(): SubmitVerificationState {
 
 const SUBMIT_VERIFICATION_PARAMETERS = toJsonSchema(VerificationPayloadSchema, {
   errorMode: "ignore",
-}) as PiTool["parameters"];
+});
+
+export type SubmitVerificationTool = {
+  readonly piTool: PiTool;
+  readonly executor: AgentRunnerToolExecutor;
+};
 
 export function buildSubmitVerificationTool(params: {
   readonly owner: string;
@@ -36,10 +42,7 @@ export function buildSubmitVerificationTool(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly pushedShas: readonly string[];
   readonly submitState: SubmitVerificationState;
-}): {
-  readonly piTool: PiTool;
-  readonly executor: (args: Record<string, unknown>) => Promise<unknown>;
-} {
+}): SubmitVerificationTool {
   const piTool: PiTool = {
     name: "submitVerification",
     description:
@@ -47,7 +50,7 @@ export function buildSubmitVerificationTool(params: {
     parameters: SUBMIT_VERIFICATION_PARAMETERS,
   };
 
-  const executor = async (args: Record<string, unknown>) => {
+  const executor: AgentRunnerToolExecutor = async (args) => {
     if (params.submitState.submitted) {
       logDebug("verification_submit_duplicate_ignored", {
         owner: params.owner,

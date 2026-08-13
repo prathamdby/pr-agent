@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
-import type { Pool, PoolClient } from "pg";
+import type { IntakeClient } from "../db/postgres.js";
+import * as v from "valibot";
 import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
+import { jsonObjectSchema, type JsonObject, type JsonValue } from "../util/jsonValue.js";
 
 export type OperationIntentStatus = "pending" | "reconciled" | "failed" | "outcome_unknown";
 
@@ -12,28 +14,30 @@ export type OperationIntentRow = {
   readonly mutationKind: string;
   readonly status: OperationIntentStatus;
   readonly publishRecordId: string | null;
-  readonly detail: Record<string, unknown>;
+  readonly detail: JsonObject;
 };
 
-export async function persistOperationIntent(
-  client: Pool | PoolClient,
+type OperationIntentDbRow = {
+  id: string;
+  work_item_id: string;
+  operation_key: string;
+  mutation_kind: string;
+  status: OperationIntentStatus;
+  publish_record_id: string | null;
+  detail: JsonValue;
+};
+
+async function persistOperationIntentSql(
+  client: IntakeClient,
   params: {
     readonly workItemId: string;
     readonly operationKey: string;
     readonly mutationKind: string;
-    readonly detail?: Record<string, unknown>;
+    readonly detail?: JsonObject;
   },
 ): Promise<OperationIntentRow> {
   const id = crypto.randomUUID();
-  const row = await queryOne<{
-    id: string;
-    work_item_id: string;
-    operation_key: string;
-    mutation_kind: string;
-    status: OperationIntentStatus;
-    publish_record_id: string | null;
-    detail: Record<string, unknown>;
-  }>(
+  const row = await queryOne<OperationIntentDbRow>(
     client,
     `INSERT INTO operation_intents (
        id, work_item_id, operation_key, mutation_kind, status, detail
@@ -67,23 +71,15 @@ export async function persistOperationIntent(
  * Failed rows reopen to pending so the in-flight marker can re-arm across retries.
  * Reconciled / outcome_unknown rows are left untouched (never auto-remutate).
  */
-export async function mergeOperationIntentDetail(
-  client: Pool | PoolClient,
+async function mergeOperationIntentDetailSql(
+  client: IntakeClient,
   params: {
     readonly workItemId: string;
     readonly operationKey: string;
-    readonly detail: Record<string, unknown>;
+    readonly detail: JsonObject;
   },
 ): Promise<OperationIntentRow | null> {
-  const row = await queryOne<{
-    id: string;
-    work_item_id: string;
-    operation_key: string;
-    mutation_kind: string;
-    status: OperationIntentStatus;
-    publish_record_id: string | null;
-    detail: Record<string, unknown>;
-  }>(
+  const row = await queryOne<OperationIntentDbRow>(
     client,
     `UPDATE operation_intents
         SET status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END,
@@ -99,25 +95,17 @@ export async function mergeOperationIntentDetail(
   return row ? mapRow(row) : null;
 }
 
-export async function reconcileOperationIntent(
-  client: Pool | PoolClient,
+async function reconcileOperationIntentSql(
+  client: IntakeClient,
   params: {
     readonly workItemId: string;
     readonly operationKey: string;
     readonly status: Exclude<OperationIntentStatus, "pending">;
     readonly publishRecordId?: string | null;
-    readonly detail?: Record<string, unknown>;
+    readonly detail?: JsonObject;
   },
 ): Promise<OperationIntentRow | null> {
-  const row = await queryOne<{
-    id: string;
-    work_item_id: string;
-    operation_key: string;
-    mutation_kind: string;
-    status: OperationIntentStatus;
-    publish_record_id: string | null;
-    detail: Record<string, unknown>;
-  }>(
+  const row = await queryOne<OperationIntentDbRow>(
     client,
     `UPDATE operation_intents
         SET status = $3,
@@ -142,20 +130,12 @@ export async function reconcileOperationIntent(
   return row ? mapRow(row) : null;
 }
 
-export async function getOperationIntent(
-  client: Pool | PoolClient,
+async function getOperationIntentSql(
+  client: IntakeClient,
   workItemId: string,
   operationKey: string,
 ): Promise<OperationIntentRow | null> {
-  const row = await queryOne<{
-    id: string;
-    work_item_id: string;
-    operation_key: string;
-    mutation_kind: string;
-    status: OperationIntentStatus;
-    publish_record_id: string | null;
-    detail: Record<string, unknown>;
-  }>(
+  const row = await queryOne<OperationIntentDbRow>(
     client,
     `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail
        FROM operation_intents
@@ -167,19 +147,11 @@ export async function getOperationIntent(
   return row ? mapRow(row) : null;
 }
 
-export async function listPendingOperationIntents(
-  client: Pool | PoolClient,
+async function listPendingOperationIntentsSql(
+  client: IntakeClient,
   workItemId: string,
 ): Promise<readonly OperationIntentRow[]> {
-  const result = await client.query<{
-    id: string;
-    work_item_id: string;
-    operation_key: string;
-    mutation_kind: string;
-    status: OperationIntentStatus;
-    publish_record_id: string | null;
-    detail: Record<string, unknown>;
-  }>(
+  const result = await client.query<OperationIntentDbRow>(
     `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail
        FROM operation_intents
       WHERE work_item_id = $1
@@ -190,15 +162,7 @@ export async function listPendingOperationIntents(
   return result.rows.map(mapRow);
 }
 
-function mapRow(row: {
-  id: string;
-  work_item_id: string;
-  operation_key: string;
-  mutation_kind: string;
-  status: OperationIntentStatus;
-  publish_record_id: string | null;
-  detail: Record<string, unknown>;
-}): OperationIntentRow {
+function mapRow(row: OperationIntentDbRow): OperationIntentRow {
   return {
     id: row.id,
     workItemId: row.work_item_id,
@@ -206,6 +170,62 @@ function mapRow(row: {
     mutationKind: row.mutation_kind,
     status: row.status,
     publishRecordId: row.publish_record_id,
-    detail: row.detail,
+    detail: v.parse(jsonObjectSchema, row.detail),
   };
+}
+
+export type OperationIntentRepository = {
+  readonly persistOperationIntent: typeof persistOperationIntentSql;
+  readonly mergeOperationIntentDetail: typeof mergeOperationIntentDetailSql;
+  readonly reconcileOperationIntent: typeof reconcileOperationIntentSql;
+  readonly getOperationIntent: typeof getOperationIntentSql;
+  readonly listPendingOperationIntents: typeof listPendingOperationIntentsSql;
+};
+
+const postgresOperationIntentRepository: OperationIntentRepository = {
+  persistOperationIntent: persistOperationIntentSql,
+  mergeOperationIntentDetail: mergeOperationIntentDetailSql,
+  reconcileOperationIntent: reconcileOperationIntentSql,
+  getOperationIntent: getOperationIntentSql,
+  listPendingOperationIntents: listPendingOperationIntentsSql,
+};
+
+let activeOperationIntentRepository: OperationIntentRepository = postgresOperationIntentRepository;
+
+export function setOperationIntentRepository(repository: OperationIntentRepository): void {
+  activeOperationIntentRepository = repository;
+}
+
+export function resetOperationIntentRepository(): void {
+  activeOperationIntentRepository = postgresOperationIntentRepository;
+}
+
+export async function persistOperationIntent(
+  ...args: Parameters<typeof persistOperationIntentSql>
+): ReturnType<typeof persistOperationIntentSql> {
+  return activeOperationIntentRepository.persistOperationIntent(...args);
+}
+
+export async function mergeOperationIntentDetail(
+  ...args: Parameters<typeof mergeOperationIntentDetailSql>
+): ReturnType<typeof mergeOperationIntentDetailSql> {
+  return activeOperationIntentRepository.mergeOperationIntentDetail(...args);
+}
+
+export async function reconcileOperationIntent(
+  ...args: Parameters<typeof reconcileOperationIntentSql>
+): ReturnType<typeof reconcileOperationIntentSql> {
+  return activeOperationIntentRepository.reconcileOperationIntent(...args);
+}
+
+export async function getOperationIntent(
+  ...args: Parameters<typeof getOperationIntentSql>
+): ReturnType<typeof getOperationIntentSql> {
+  return activeOperationIntentRepository.getOperationIntent(...args);
+}
+
+export async function listPendingOperationIntents(
+  ...args: Parameters<typeof listPendingOperationIntentsSql>
+): ReturnType<typeof listPendingOperationIntentsSql> {
+  return activeOperationIntentRepository.listPendingOperationIntents(...args);
 }

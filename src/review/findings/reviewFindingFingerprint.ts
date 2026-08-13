@@ -6,6 +6,7 @@ import type {
 } from "../placement/reviewDiffPlacement.js";
 import type { ReviewFinding } from "../reviewSchema.js";
 import { LEGACY_REVIEW_LENSES, type AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import { isJsonString, type JsonObject } from "../../util/jsonValue.js";
 
 export function normalizeFindingSubstance(text: string): string {
   return text
@@ -51,12 +52,12 @@ export type StoredInlineFingerprints = {
 };
 
 export function parseStoredInlineFingerprints(
-  detail: Record<string, unknown> | null | undefined,
+  detail: JsonObject | null | undefined,
 ): StoredInlineFingerprints {
   const raw = detail?.fingerprints;
   if (!Array.isArray(raw)) return { fingerprints: [] };
   return {
-    fingerprints: raw.filter((entry): entry is string => typeof entry === "string"),
+    fingerprints: raw.filter((entry): entry is string => isJsonString(entry)),
   };
 }
 
@@ -70,10 +71,15 @@ export function fingerprintInlinePlacements(
   }));
 }
 
+export type SuppressInlinePlacementsResult = {
+  readonly placements: FingerprintedInlinePlacement[];
+  readonly suppressedInlineCount: number;
+};
+
 export function suppressInlinePlacementsByFingerprint(
   placements: readonly FingerprintedInlinePlacement[],
   storedFingerprints: readonly string[],
-): { placements: FingerprintedInlinePlacement[]; suppressedInlineCount: number } {
+): SuppressInlinePlacementsResult {
   const stored = new Set(storedFingerprints);
   let suppressedInlineCount = 0;
   const next = placements.map((placement) => {

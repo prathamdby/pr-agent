@@ -1,49 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
 import { makeTestConfig } from "./helpers/config.js";
 import type { CiRefreshJobData } from "../src/agentWork/types.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/settings/index.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
-import * as prSurfaceModule from "../src/github/prSurface.js";
-
-let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 7 });
-
-const mocks = vi.hoisted(() => ({
-  mintInstallationToken: vi.fn(),
-  hasActiveReviewWorkItem: vi.fn(),
-  buildCiSummaryForSurface: vi.fn(),
-  createAgentCiSummaryAuthor: vi.fn(),
-  shouldRenderCiSummaryRow: vi.fn(),
-  parseReviewMetaFromCommentBody: vi.fn(),
-  commentBodyHasCiSummaryCell: vi.fn(),
-  patchCiSummaryCellInCommentBody: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/durableJob.js", () => ({
-  mintInstallationToken: mocks.mintInstallationToken,
-}));
-vi.mock("../src/agentWork/repository.js", () => ({
-  hasActiveReviewWorkItem: mocks.hasActiveReviewWorkItem,
-}));
-vi.mock("../src/review/ci/analyzeCi.js", () => ({
-  buildCiSummaryForSurface: mocks.buildCiSummaryForSurface,
-}));
-vi.mock("../src/review/ci/authorCiSummary.js", () => ({
-  createAgentCiSummaryAuthor: mocks.createAgentCiSummaryAuthor,
-}));
-vi.mock("../src/review/ci/renderCiSummary.js", () => ({
-  shouldRenderCiSummaryRow: mocks.shouldRenderCiSummaryRow,
-  commentBodyHasCiSummaryCell: mocks.commentBodyHasCiSummaryCell,
-  patchCiSummaryCellInCommentBody: mocks.patchCiSummaryCellInCommentBody,
-}));
-vi.mock("../src/review/ci/reviewMetaParse.js", () => ({
-  parseReviewMetaFromCommentBody: mocks.parseReviewMetaFromCommentBody,
-}));
-
+import {
+  createFakePrSurface,
+  resetCreatePrSurface,
+  setCreatePrSurface,
+} from "../src/github/prSurface.js";
 import { executeCiRefreshJob } from "../src/agentWork/executors/ciRefreshExecutor.js";
+import * as durableJob from "../src/agentWork/durableJob.js";
+import * as repo from "../src/agentWork/repository.js";
+import * as analyzeCi from "../src/review/ci/analyzeCi.js";
+import * as authorCiSummary from "../src/review/ci/authorCiSummary.js";
+import * as renderCiSummary from "../src/review/ci/renderCiSummary.js";
+import * as reviewMetaParse from "../src/review/ci/reviewMetaParse.js";
 
 const cfg = makeTestConfig();
-const pool = {} as Pool;
+const pool = new Pool({ connectionString: "postgres://127.0.0.1:1/unused" });
 const data: CiRefreshJobData = {
   kind: "ci_refresh",
   installationId: 42,
@@ -53,30 +27,45 @@ const data: CiRefreshJobData = {
   headSha: "head",
 };
 
+let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 7 });
+
 describe("executeCiRefreshJob", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 7 });
-    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
-    mocks.mintInstallationToken.mockResolvedValue({
+    setCreatePrSurface(() => surfaceBundle.surface);
+    vi.spyOn(durableJob, "mintInstallationToken").mockResolvedValue({
       token: "tok",
       expiresAtTs: Date.now() + 60_000,
+      ttlMs: 60_000,
     });
-    mocks.createAgentCiSummaryAuthor.mockReturnValue({});
-    mocks.buildCiSummaryForSurface.mockResolvedValue({ status: "success" });
-    mocks.shouldRenderCiSummaryRow.mockReturnValue(true);
-    mocks.hasActiveReviewWorkItem.mockResolvedValue(false);
-    mocks.parseReviewMetaFromCommentBody.mockReturnValue({ headSha: "head" });
-    mocks.commentBodyHasCiSummaryCell.mockReturnValue(true);
-    mocks.patchCiSummaryCellInCommentBody.mockReturnValue("patched body");
+    vi.spyOn(repo, "hasActiveReviewWorkItem").mockResolvedValue(false);
+    vi.spyOn(authorCiSummary, "createAgentCiSummaryAuthor").mockReturnValue(async () => null);
+    vi.spyOn(analyzeCi, "buildCiSummaryForSurface").mockResolvedValue({
+      status: "passing",
+      headline: "ok",
+      failures: [],
+    });
+    vi.spyOn(renderCiSummary, "shouldRenderCiSummaryRow").mockReturnValue(true);
+    vi.spyOn(renderCiSummary, "commentBodyHasCiSummaryCell").mockReturnValue(true);
+    vi.spyOn(renderCiSummary, "patchCiSummaryCellInCommentBody").mockReturnValue("patched body");
+    vi.spyOn(reviewMetaParse, "parseReviewMetaFromCommentBody").mockReturnValue({
+      headSha: "head",
+      lens: "review",
+      stale: false,
+    });
+  });
+
+  afterEach(() => {
+    resetCreatePrSurface();
+    vi.restoreAllMocks();
   });
 
   it("skips summary refresh while a matching review work item is active", async () => {
-    mocks.hasActiveReviewWorkItem.mockResolvedValue(true);
+    vi.mocked(repo.hasActiveReviewWorkItem).mockResolvedValue(true);
 
     await executeCiRefreshJob(cfg, pool, data);
 
-    expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
+    expect(repo.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
     expect(
       surfaceBundle.controls.events.some((event) => event.kind === "findProgressComment"),
     ).toBe(false);
@@ -88,7 +77,7 @@ describe("executeCiRefreshJob", () => {
 
     await executeCiRefreshJob(cfg, pool, data);
 
-    expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
+    expect(repo.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
     expect(
       surfaceBundle.controls.events.some((event) => event.kind === "findProgressComment"),
     ).toBe(true);

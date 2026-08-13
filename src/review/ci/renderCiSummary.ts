@@ -19,16 +19,23 @@ export type CiSummarySections = {
   readonly permissionNote?: string;
 };
 
+type MutableCiSummarySections = {
+  -readonly [K in keyof CiSummarySections]: CiSummarySections[K];
+};
+
 /** Shared field selection for the CI table cell and agent-fix plain-text digest. */
 export function selectCiSummarySections(summary: CiSummary): CiSummarySections {
   const failures =
     summary.status === "failing" && summary.failures.length > 0 ? [...summary.failures] : [];
   const permissionNote = summary.permissionNote?.trim();
-  return {
+  const sections: MutableCiSummarySections = {
     headline: summary.headline,
     failures,
-    ...(permissionNote != null && permissionNote.length > 0 ? { permissionNote } : {}),
   };
+  if (permissionNote != null && permissionNote.length > 0) {
+    sections.permissionNote = permissionNote;
+  }
+  return sections;
 }
 
 /**

@@ -1,16 +1,18 @@
 import type { Pool } from "pg";
+import * as v from "valibot";
 import { TRIAGE_PUBLISH_LENS, VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
+import { isJsonObject, jsonValueSchema, type JsonValue } from "../util/jsonValue.js";
 import { recordPublishStep } from "./repository.js";
 
 export type ThreadActionPublishLens = typeof TRIAGE_PUBLISH_LENS | typeof VERIFICATION_PUBLISH_LENS;
 
 export type ThreadActionPublishStep = "triage_thread_actions" | "verification_thread_actions";
 
-function actedThreadIdsFromDetail(detail: unknown): number[] {
-  if (!detail || typeof detail !== "object" || !("actedThreadIds" in detail)) return [];
+function actedThreadIdsFromDetail(detail: JsonValue): number[] {
+  if (!isJsonObject(detail)) return [];
   const value = detail.actedThreadIds;
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is number => Number.isInteger(item));
+  return value.filter((item) => Number.isInteger(item));
 }
 
 export async function loadActedThreadIds(
@@ -33,7 +35,9 @@ export async function loadActedThreadIds(
       LIMIT 1`,
     [params.workItemId, params.resourceKey, params.reviewLens, params.step],
   );
-  return actedThreadIdsFromDetail(row.rows[0]?.detail);
+  const raw = row.rows[0]?.detail;
+  if (raw === undefined) return [];
+  return actedThreadIdsFromDetail(v.parse(jsonValueSchema, raw));
 }
 
 export async function recordActedThreadIds(

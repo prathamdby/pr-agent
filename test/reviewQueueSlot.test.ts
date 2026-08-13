@@ -1,51 +1,35 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import {
   reapReviewQueueOrphans,
   releaseReviewQueueSlot,
 } from "../src/agentWork/reviewQueueSlot.js";
 import { ACTIVE_WORK_STATUSES } from "../src/agentWork/types.js";
+import * as analytics from "../src/analytics/index.js";
+import * as evlog from "../src/evlog.js";
 import { initEvlog } from "../src/evlog.js";
 import { REVIEW_QUEUE, STRANDED_WORK_REAPER_GRACE_SECONDS } from "../src/settings/index.js";
+import type { IntakeClient } from "../src/db/postgres.js";
+import type { QueueJob } from "../src/agentWork/intake/queueing.js";
+import { createJobQueue } from "./helpers/recordingBoss.js";
+import { createQueryPool } from "./helpers/fakePool.js";
+import type { JsonValue } from "../src/util/jsonValue.js";
 
-const analyticsMocks = vi.hoisted(() => ({
-  captureEvent: vi.fn(),
-}));
-
-vi.mock("../src/analytics/index.js", () => ({
-  captureEvent: analyticsMocks.captureEvent,
-  captureException: vi.fn(),
-}));
-
-const logMocks = vi.hoisted(() => ({
-  logWarn: vi.fn(),
-}));
-
-vi.mock("../src/evlog.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/evlog.js")>("../src/evlog.js");
-  return {
-    ...actual,
-    logWarn: logMocks.logWarn,
-  };
-});
-
-function activeIdPool(activeIds: readonly string[]): Pool {
-  return {
-    query: vi.fn(async (sql: string, params: unknown[]) => {
+function activeIdPool(activeIds: readonly string[]): IntakeClient {
+  return createQueryPool(
+    vi.fn(async (sql: string, params?: JsonValue[]) => {
       expect(sql).toContain("id::text = ANY($1::text[])");
       expect(sql).toContain("status = ANY($2::text[])");
-      expect(params[1]).toEqual([...ACTIVE_WORK_STATUSES]);
+      expect(params?.[1]).toEqual([...ACTIVE_WORK_STATUSES]);
       return { rows: activeIds.map((id) => ({ id })) };
     }),
-  } as unknown as Pool;
+  );
 }
 
 describe("releaseReviewQueueSlot", () => {
   beforeEach(() => {
     initEvlog("info", { silent: true, suppressDrainWarning: true });
-    analyticsMocks.captureEvent.mockReset();
-    logMocks.logWarn.mockReset();
+    vi.spyOn(analytics, "captureEvent").mockImplementation(() => undefined);
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -54,15 +38,17 @@ describe("releaseReviewQueueSlot", () => {
   });
 
   it("releases failed blockers and inactive-work-item holders, keeps live queued jobs", async () => {
-    const findJobs = vi.fn(async () => [
-      { id: "failed-1", state: "failed", data: { workItemId: "wi-fail" } },
-      { id: "orphan-active", state: "active", data: { workItemId: "wi-done" } },
-      { id: "live-created", state: "created", data: { workItemId: "wi-live" } },
-      { id: "missing-item", state: "retry", data: {} },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { findJobs, cancel, deleteJob } as unknown as PgBoss;
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "failed-1", state: "failed", data: { workItemId: "wi-fail" } },
+        { id: "orphan-active", state: "active", data: { workItemId: "wi-done" } },
+        { id: "live-created", state: "created", data: { workItemId: "wi-live" } },
+        { id: "missing-item", state: "retry", data: {} },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const boss = createJobQueue({ findJobs, cancel, deleteJob });
     const pool = activeIdPool(["wi-live"]);
 
     await expect(releaseReviewQueueSlot(boss, pool, "acme/app#7")).resolves.toEqual({
@@ -74,14 +60,14 @@ describe("releaseReviewQueueSlot", () => {
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "orphan-active", undefined);
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "missing-item", undefined);
     expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "live-created", undefined);
-    expect(logMocks.logWarn).toHaveBeenCalledWith(
+    expect(evlog.logWarn).toHaveBeenCalledWith(
       "review_queue_slot_released",
       expect.objectContaining({
         jobId: "orphan-active",
         reason: "inactive_work_item",
       }),
     );
-    expect(logMocks.logWarn).toHaveBeenCalledWith(
+    expect(evlog.logWarn).toHaveBeenCalledWith(
       "review_queue_slot_released",
       expect.objectContaining({
         jobId: "missing-item",
@@ -92,27 +78,29 @@ describe("releaseReviewQueueSlot", () => {
 
   it("treats deleted, non-UUID, and non-string workItemIds as orphans without uuid cast", async () => {
     const liveId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
-    const findJobs = vi.fn(async () => [
-      {
-        id: "deleted-row",
-        state: "created",
-        data: { workItemId: "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee" },
-      },
-      { id: "bad-uuid", state: "active", data: { workItemId: "not-a-uuid" } },
-      { id: "non-string", state: "retry", data: { workItemId: 42 } },
-      { id: "live", state: "created", data: { workItemId: liveId } },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { findJobs, cancel, deleteJob } as unknown as PgBoss;
-    const query = vi.fn(async (sql: string, params: unknown[]) => {
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        {
+          id: "deleted-row",
+          state: "created",
+          data: { workItemId: "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee" },
+        },
+        { id: "bad-uuid", state: "active", data: { workItemId: "not-a-uuid" } },
+        { id: "non-string", state: "retry", data: { workItemId: 42 } },
+        { id: "live", state: "created", data: { workItemId: liveId } },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const boss = createJobQueue({ findJobs, cancel, deleteJob });
+    const query = vi.fn(async (sql: string, params?: JsonValue[]) => {
       expect(sql).toContain("id::text = ANY($1::text[])");
       expect(sql).not.toContain("ANY($1::uuid[])");
-      expect(params[0]).toEqual(["bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee", "not-a-uuid", liveId]);
-      expect(params[1]).toEqual([...ACTIVE_WORK_STATUSES]);
+      expect(params?.[0]).toEqual(["bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee", "not-a-uuid", liveId]);
+      expect(params?.[1]).toEqual([...ACTIVE_WORK_STATUSES]);
       return { rows: [{ id: liveId }] };
     });
-    const pool = { query } as unknown as Pool;
+    const pool = createQueryPool(query);
 
     await expect(releaseReviewQueueSlot(boss, pool, "acme/app#7")).resolves.toEqual({
       released: 3,
@@ -123,7 +111,7 @@ describe("releaseReviewQueueSlot", () => {
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "non-string", undefined);
     expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "live", undefined);
     expect(deleteJob).not.toHaveBeenCalled();
-    expect(logMocks.logWarn).toHaveBeenCalledWith(
+    expect(evlog.logWarn).toHaveBeenCalledWith(
       "review_queue_slot_released",
       expect.objectContaining({
         jobId: "non-string",
@@ -134,14 +122,16 @@ describe("releaseReviewQueueSlot", () => {
   });
 
   it("skips skipJobId and skipWorkItemId while releasing other holders", async () => {
-    const findJobs = vi.fn(async () => [
-      { id: "active-keep", state: "active", data: { workItemId: "wi-active" } },
-      { id: "replacement", state: "created", data: { workItemId: "wi-replacement" } },
-      { id: "failed-orphan", state: "failed", data: { workItemId: "wi-old" } },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { findJobs, cancel, deleteJob } as unknown as PgBoss;
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "active-keep", state: "active", data: { workItemId: "wi-active" } },
+        { id: "replacement", state: "created", data: { workItemId: "wi-replacement" } },
+        { id: "failed-orphan", state: "failed", data: { workItemId: "wi-old" } },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const boss = createJobQueue({ findJobs, cancel, deleteJob });
     const pool = activeIdPool(["wi-active", "wi-replacement"]);
 
     await expect(
@@ -158,13 +148,15 @@ describe("releaseReviewQueueSlot", () => {
   });
 
   it("also cancels explicit cancelWorkItemIds", async () => {
-    const findJobs = vi.fn(async () => [
-      { id: "live-slash", state: "created", data: { workItemId: "wi-slash" } },
-      { id: "other-live", state: "active", data: { workItemId: "wi-other" } },
-    ]);
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { findJobs, cancel, deleteJob } as unknown as PgBoss;
+    const findJobs = vi.fn(
+      async (): Promise<QueueJob[]> => [
+        { id: "live-slash", state: "created", data: { workItemId: "wi-slash" } },
+        { id: "other-live", state: "active", data: { workItemId: "wi-other" } },
+      ],
+    );
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const boss = createJobQueue({ findJobs, cancel, deleteJob });
     const pool = activeIdPool(["wi-slash", "wi-other"]);
 
     await releaseReviewQueueSlot(boss, pool, "acme/app#7", {
@@ -180,8 +172,8 @@ describe("releaseReviewQueueSlot", () => {
 describe("reapReviewQueueOrphans", () => {
   beforeEach(() => {
     initEvlog("info", { silent: true, suppressDrainWarning: true });
-    analyticsMocks.captureEvent.mockReset();
-    logMocks.logWarn.mockReset();
+    vi.spyOn(analytics, "captureEvent").mockImplementation(() => undefined);
+    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -190,12 +182,12 @@ describe("reapReviewQueueOrphans", () => {
   });
 
   it("cancels orphan holders and emits stale-queued telemetry", async () => {
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { cancel, deleteJob } as unknown as PgBoss;
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const boss = createJobQueue({ cancel, deleteJob });
     let holderSql = "";
-    const pool = {
-      query: vi.fn(async (sql: string) => {
+    const pool = createQueryPool(
+      vi.fn(async (sql: string) => {
         if (sql.includes("FROM pgboss.job")) {
           holderSql = sql;
           return {
@@ -228,7 +220,7 @@ describe("reapReviewQueueOrphans", () => {
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
-    } as unknown as Pool;
+    );
 
     await expect(reapReviewQueueOrphans(boss, pool)).resolves.toEqual({
       released: 2,
@@ -240,14 +232,14 @@ describe("reapReviewQueueOrphans", () => {
 
     expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "j-fail");
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "j-orphan");
-    expect(logMocks.logWarn).toHaveBeenCalledWith(
+    expect(evlog.logWarn).toHaveBeenCalledWith(
       "review_queued_stale",
       expect.objectContaining({
         workItemId: "wi-stale",
         resourceKey: "acme/app#9",
       }),
     );
-    expect(analyticsMocks.captureEvent).toHaveBeenCalledWith({
+    expect(analytics.captureEvent).toHaveBeenCalledWith({
       distinctId: "server",
       event: "review queued stale",
       properties: expect.objectContaining({
@@ -258,12 +250,10 @@ describe("reapReviewQueueOrphans", () => {
   });
 
   it("returns zeros when no holders or stale queued rows", async () => {
-    const cancel = vi.fn(async () => ({ rows: [] }));
-    const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { cancel, deleteJob } as unknown as PgBoss;
-    const pool = {
-      query: vi.fn(async () => ({ rows: [] })),
-    } as unknown as Pool;
+    const cancel = vi.fn(async () => ({}));
+    const deleteJob = vi.fn(async () => ({}));
+    const boss = createJobQueue({ cancel, deleteJob });
+    const pool = createQueryPool(vi.fn(async () => ({ rows: [] })));
 
     await expect(reapReviewQueueOrphans(boss, pool)).resolves.toEqual({
       released: 0,

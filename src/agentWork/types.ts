@@ -17,7 +17,7 @@ export const TERMINAL_WORK_STATUSES = [
 ] as const satisfies readonly WorkStatus[];
 
 export function isTerminalWorkStatus(status: string): boolean {
-  return (TERMINAL_WORK_STATUSES as readonly string[]).includes(status);
+  return TERMINAL_WORK_STATUSES.some((value) => value === status);
 }
 
 export type WebhookHeaders = {

@@ -1,5 +1,6 @@
 import type { AppError } from "../../errors/appError.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
+import type { JsonValue } from "../../util/jsonValue.js";
 import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
@@ -86,7 +87,7 @@ export type OrchestratedRunState = {
   summary: OrchestratedSummaryState;
 };
 
-export function isFindingSource(value: unknown): value is FindingSource {
+export function isFindingSource(value: JsonValue): value is FindingSource {
   return value === "review" || SPECIALIST_IDS.some((specialist) => specialist === value);
 }
 

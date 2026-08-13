@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
+import { getModels, getProviders } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { AppError } from "../errors/appError.js";
 import { defaultModelsJsonCandidatePath, MODELS_JSON_FILENAME } from "./modelsJsonPath.js";
@@ -13,10 +13,22 @@ export {
   type ResolveModelsJsonPathOptions,
 } from "./modelsJsonPath.js";
 
+function builtinProvider(piProvider: string) {
+  return getProviders().find((provider) => provider === piProvider);
+}
+
 function builtinPiApi(piProvider: string, piModel: string): string {
-  const model = getModel(piProvider as never, piModel as never);
+  const provider = builtinProvider(piProvider);
+  if (provider === undefined) {
+    throw new AppError({
+      code: "settings.models_json_unresolvable_api",
+      message: `PI_PROVIDER "${piProvider}" has no resolvable API type`,
+      context: { piProvider },
+    });
+  }
+  const model = getModels(provider).find((entry) => entry.id === piModel);
   if (model?.api) return model.api;
-  const fallback = getModels(piProvider as never)[0];
+  const fallback = getModels(provider)[0];
   if (fallback?.api) return fallback.api;
   throw new AppError({
     code: "settings.models_json_unresolvable_api",
@@ -26,8 +38,8 @@ function builtinPiApi(piProvider: string, piModel: string): string {
 }
 
 export function assertBuiltinPiProvider(piProvider: string): void {
-  const providers = getProviders() as readonly string[];
-  if (!providers.includes(piProvider)) {
+  const providers = getProviders();
+  if (builtinProvider(piProvider) === undefined) {
     throw new AppError({
       code: "settings.models_json_unknown_provider",
       message: `PI_PROVIDER "${piProvider}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
@@ -50,8 +62,8 @@ export async function assertPiModelSelection(options: {
   const { modelsJsonPath, piProvider, piModel } = options;
 
   if (!modelsJsonPath) {
-    const providers = getProviders() as readonly string[];
-    if (!providers.includes(piProvider)) {
+    const providers = getProviders();
+    if (builtinProvider(piProvider) === undefined) {
       const lookedFor = options.catalogCandidatePath ?? defaultModelsJsonCandidatePath();
       throw new AppError({
         code: "settings.models_json_unknown_provider_no_catalog",

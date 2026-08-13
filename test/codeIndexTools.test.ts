@@ -2,7 +2,6 @@ import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   SEARCH_CODE_INDEX_DESCRIPTION,
-  buildCodeIndexTools,
   buildUnavailableCodeIndexTools,
   searchCodeIndexSchema,
 } from "../src/agent/tools/codeIndexTools.js";
@@ -29,9 +28,6 @@ describe("codeIndex tools", () => {
       JSON.stringify(availableDefinition.parameters),
     );
     expect(unavailable?.description).toBe(availableDefinition.description);
-
-    // buildCodeIndexTools shares the same exported description/schema constants.
-    expect(typeof buildCodeIndexTools).toBe("function");
     expect(v.safeParse(searchCodeIndexSchema, { query: "x" }).success).toBe(true);
   });
 });

@@ -8,22 +8,16 @@ export type GithubErrorKind =
   | "rate_limit"
   | "unknown";
 
-/** Message string for unknown errors (GitHub helpers share this). */
-export function githubErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error != null && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return String(error);
+export function githubErrorMessage(error: Error): string {
+  return error.message;
 }
 
-function githubErrorText(error: unknown): string {
-  if (error instanceof Error) return `${error.name} ${error.message}`.toLowerCase();
-  return githubErrorMessage(error).toLowerCase();
+function githubErrorText(error: Error): string {
+  return `${error.name} ${error.message}`.toLowerCase();
 }
 
 /** Logs/analytics-only classification for GitHub API failures. */
-export function classifyGithubError(error: unknown): GithubErrorKind {
+export function classifyGithubError(error: Error): GithubErrorKind {
   const text = githubErrorText(error);
   const status = httpStatus(error);
 
@@ -53,11 +47,9 @@ export function classifyGithubError(error: unknown): GithubErrorKind {
   return "unknown";
 }
 
-export function looksLikeGithubError(error: unknown): boolean {
+export function looksLikeGithubError(error: Error): boolean {
   if (httpStatus(error) != null) return true;
   const text = githubErrorText(error);
-  // Require GitHub-shaped signals — do not treat bare 401/403 strings as GitHub
-  // (provider adapters often surface those without an HTTP status field).
   return /resource not accessible by integration|graphqlresponseerror|octokit|github api|secondary rate|api rate limit exceeded/.test(
     text,
   );

@@ -9,12 +9,22 @@ const BASE_ENV = {
   DATABASE_URL: "postgres://u:p@localhost/db",
 };
 
-async function load(extra: Record<string, string>) {
-  process.env = {
+type EnvOverrides = { readonly [key: string]: string };
+
+function assignProcessEnv(values: EnvOverrides): void {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of Object.keys(values)) {
+    env[key] = values[key];
+  }
+  process.env = env;
+}
+
+async function load(extra: EnvOverrides) {
+  assignProcessEnv({
     ...BASE_ENV,
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
-  } as NodeJS.ProcessEnv;
+  });
   const { loadConfig } = await import("../src/config.js");
   return loadConfig();
 }
@@ -73,10 +83,11 @@ describe("loadConfig validation", () => {
   ])("parses boolean knob %s as strict true/false", async (name, field) => {
     expect((await load({ [name]: "false" }))[field]).toBe(false);
     expect((await load({ [name]: "true" }))[field]).toBe(true);
-    await expect(load({ [name]: "1" })).rejects.toSatisfy((error: unknown) => {
+    await expect(load({ [name]: "1" })).rejects.toSatisfy((error) => {
       expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("config.invalid_enum");
-      expect((error as AppError).context).toMatchObject({ name });
+      if (!(error instanceof AppError)) return false;
+      expect(error.code).toBe("config.invalid_enum");
+      expect(error.context).toMatchObject({ name });
       return true;
     });
   });
@@ -123,16 +134,17 @@ describe("loadConfig validation", () => {
   });
 
   it("throws config.missing_env with the variable name in context", async () => {
-    process.env = {
+    assignProcessEnv({
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-    } as NodeJS.ProcessEnv;
+    });
     delete process.env[ENV.DATABASE_URL];
     const { loadConfig } = await import("../src/config.js");
-    await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
+    await expect(loadConfig()).rejects.toSatisfy((error) => {
       expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("config.missing_env");
-      expect((error as AppError).context).toEqual({ name: ENV.DATABASE_URL });
+      if (!(error instanceof AppError)) return false;
+      expect(error.code).toBe("config.missing_env");
+      expect(error.context).toEqual({ name: ENV.DATABASE_URL });
       return true;
     });
   });

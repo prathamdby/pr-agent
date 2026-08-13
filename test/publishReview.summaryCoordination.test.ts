@@ -1,4 +1,3 @@
-import type { Pool, PoolClient } from "pg";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
@@ -6,23 +5,11 @@ import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTes
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,
+  spyPublishReviewRepositories,
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
-
-vi.mock("../src/agentWork/repository.js", async () => {
-  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createAgentWorkRepositoryMock();
-});
-
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
-vi.mock("../src/evlog.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/evlog.js")>();
-  return { ...actual, logWarn: vi.fn() };
-});
+import { createQueryPool } from "./helpers/fakePool.js";
+import { isJsonString, type JsonValue } from "../src/util/jsonValue.js";
 
 import {
   attachSummaryCommentCoordination,
@@ -37,16 +24,21 @@ import {
   recordPublishStep,
 } from "../src/agentWork/repository.js";
 import { logWarn } from "../src/evlog.js";
+import * as evlog from "../src/evlog.js";
 
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
 function createLockedPool() {
-  const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({ rows: [] }));
-  const release = vi.fn();
-  const client = { query, release } as unknown as PoolClient;
-  const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
-  return { client, pool, query, release };
+  const query = vi.fn(async (_sql: string, _values?: readonly JsonValue[]) => ({ rows: [] }));
+  const pool = createQueryPool(query);
+  return { pool, query };
+}
+
+async function spyLockedClient(pool: ReturnType<typeof createQueryPool>) {
+  const client = await pool.connect();
+  const release = vi.spyOn(client, "release");
+  return { client, release };
 }
 
 const { pool, query: lockQuery } = createLockedPool();
@@ -65,6 +57,8 @@ function claimBase() {
 
 describe("upsertSummaryCommentWithCreationClaim", () => {
   beforeEach(() => {
+    spyPublishReviewRepositories();
+    vi.spyOn(evlog, "logWarn");
     harness = createPublishReviewTestHarness();
     vi.clearAllMocks();
     vi.mocked(getProgressCommentOwner).mockResolvedValue(null);
@@ -149,7 +143,8 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("does not let a delayed specialist tick overwrite the final summary", async () => {
-    const { pool: lockedPool, query, release } = createLockedPool();
+    const { pool: lockedPool, query } = createLockedPool();
+    const { release } = await spyLockedClient(lockedPool);
     vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 5 });
     harness.findProgressComment.mockResolvedValue({
       id: 88,
@@ -285,7 +280,9 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       progressRevision: 1,
     });
 
-    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0] as string;
+    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0];
+    expect(isJsonString(writtenBody)).toBe(true);
+    if (!isJsonString(writtenBody)) return;
     expect(writtenBody).toContain("<strong>CI</strong>");
     expect(writtenBody).toContain("CI is still running");
     expect(writtenBody.indexOf("<strong>Source</strong>")).toBeLessThan(
@@ -356,7 +353,8 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("recovers from a crash after the GitHub write using the body revision marker", async () => {
-    const { pool: lockedPool, release } = createLockedPool();
+    const { pool: lockedPool } = createLockedPool();
+    const { release } = await spyLockedClient(lockedPool);
     vi.mocked(getProgressCommentRevision).mockResolvedValue(null);
     harness.findProgressComment.mockResolvedValue(null);
     vi.mocked(recordPublishStep).mockRejectedValueOnce(new Error("record failed"));
@@ -391,7 +389,8 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("records a revision after the GitHub upsert and unlocks on failure", async () => {
-    const { client, pool: lockedPool, query, release } = createLockedPool();
+    const { pool: lockedPool, query } = createLockedPool();
+    const { client, release } = await spyLockedClient(lockedPool);
     vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 0 });
     harness.findProgressComment.mockResolvedValue({
       id: 88,
@@ -415,7 +414,8 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("releases the client when advisory lock acquisition fails", async () => {
-    const { pool: lockedPool, query, release } = createLockedPool();
+    const { pool: lockedPool, query } = createLockedPool();
+    const { release } = await spyLockedClient(lockedPool);
     query.mockRejectedValueOnce(new Error("lock failed"));
 
     await expect(
@@ -432,7 +432,8 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("destroys the client and surfaces an unlock-only failure", async () => {
-    const { pool: lockedPool, query, release } = createLockedPool();
+    const { pool: lockedPool, query } = createLockedPool();
+    const { release } = await spyLockedClient(lockedPool);
     query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("unlock failed"));
     vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 5 });
     harness.findProgressComment.mockResolvedValue({
@@ -457,7 +458,8 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("preserves the operation error when unlock also fails", async () => {
-    const { pool: lockedPool, query, release } = createLockedPool();
+    const { pool: lockedPool, query } = createLockedPool();
+    const { release } = await spyLockedClient(lockedPool);
     query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("unlock failed"));
     vi.mocked(getProgressCommentRevision).mockRejectedValueOnce(new Error("operation failed"));
 
@@ -479,6 +481,8 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
 
 describe("publishReview summary coordination", () => {
   beforeEach(() => {
+    spyPublishReviewRepositories();
+    vi.spyOn(evlog, "logWarn");
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();

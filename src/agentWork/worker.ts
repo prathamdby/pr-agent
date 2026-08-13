@@ -2,7 +2,7 @@ import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
 import type { Config } from "../config.js";
-import { errorLogFields } from "../errors/appError.js";
+import { errorLogFields, nonErrorThrown } from "../errors/appError.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
@@ -61,7 +61,20 @@ const AGENT_QUEUE_STATS_QUEUES = [
   CI_REFRESH_QUEUE,
 ] as const;
 
-export async function logAgentQueueStats(boss: PgBoss): Promise<void> {
+export type AgentQueueStatsSnapshot = {
+  readonly queuedCount?: number;
+  readonly activeCount?: number;
+  readonly totalCount?: number;
+};
+
+export type QueueStatsBoss = {
+  getQueueStats(
+    name: string,
+    options?: Parameters<PgBoss["getQueueStats"]>[1],
+  ): Promise<readonly AgentQueueStatsSnapshot[]>;
+};
+
+export async function logAgentQueueStats(boss: QueueStatsBoss): Promise<void> {
   const results = await Promise.all(
     AGENT_QUEUE_STATS_QUEUES.map(async (queue) => {
       const [stats] = await boss.getQueueStats(queue);
@@ -103,10 +116,16 @@ function registerPlainQueue<T>(
   queue: string,
   options: Parameters<PgBoss["work"]>[1],
   dispatch: (job: Job<T>) => Promise<void>,
-): Promise<unknown> {
+): Promise<string> {
   return boss.work<T>(queue, options, async ([job]) => {
-    await runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
-      dispatch(job),
+    // SAFETY: log metadata only reads optional correlation strings; other queue payloads leave them undefined.
+    await runWithOperationLogger(
+      workerJobMeta(
+        queue,
+        job.data as { workItemId?: string; webhookEventId?: string; delivery?: string },
+        job.id,
+      ),
+      () => dispatch(job),
     );
   });
 }
@@ -118,11 +137,20 @@ function registerMetadataQueue<T>(
   queue: string,
   options: Omit<WorkOptions, "includeMetadata">,
   dispatch: (job: JobWithMetadata<T>) => Promise<void>,
-): Promise<unknown> {
+): Promise<string> {
   const workOptions = { ...options, includeMetadata: true } satisfies MetadataWorkOptions;
   return boss.work<T>(queue, workOptions, async ([job]) => {
-    await runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
-      dispatch(job as JobWithMetadata<T>),
+    // SAFETY: log metadata only reads optional correlation strings; other queue payloads leave them undefined.
+    await runWithOperationLogger(
+      workerJobMeta(
+        queue,
+        job.data as { workItemId?: string; webhookEventId?: string; delivery?: string },
+        job.id,
+      ),
+      () => {
+        // SAFETY: workOptions sets includeMetadata: true, so pg-boss yields JobWithMetadata.
+        return dispatch(job as JobWithMetadata<T>);
+      },
     );
   });
 }
@@ -138,7 +166,11 @@ export function retentionQueueWorkOptions(): Parameters<PgBoss["work"]>[1] {
  * Stop accepting new jobs without waiting for in-flight handlers.
  * `stopBoss`'s drain timeout bounds how long those handlers may finish.
  */
-export async function stopWorkerConsumers(boss: PgBoss): Promise<void> {
+export type WorkerConsumerBoss = {
+  offWork(name: string, options?: Parameters<PgBoss["offWork"]>[1]): ReturnType<PgBoss["offWork"]>;
+};
+
+export async function stopWorkerConsumers(boss: WorkerConsumerBoss): Promise<void> {
   await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q, { wait: false })));
 }
 
@@ -232,11 +264,15 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 const result = await runRetention(pool, cfg);
                 logInfo("retention_cleanup", result);
               } catch (e) {
+                const err =
+                  e instanceof Error
+                    ? e
+                    : nonErrorThrown("agent_work.retention_cleanup_non_error_thrown");
                 logError("retention_cleanup_failed", {
-                  message: e instanceof Error ? e.message : String(e),
-                  ...errorLogFields(e),
+                  message: err.message,
+                  ...errorLogFields(err),
                 });
-                throw e;
+                throw err;
               }
             }).then(() => {
               registeredQueues.add(RETENTION_QUEUE);
@@ -266,9 +302,13 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             try {
               await cleanupStaleLocalPrWorkspaces();
             } catch (e) {
+              const err =
+                e instanceof Error
+                  ? e
+                  : nonErrorThrown("agent_work.workspace_sweep_non_error_thrown");
               logWarn("local_pr_workspace_sweep_failed", {
-                message: e instanceof Error ? e.message : String(e),
-                ...errorLogFields(e),
+                message: err.message,
+                ...errorLogFields(err),
               });
             }
             try {
@@ -277,9 +317,13 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 logInfo("stranded_work_reaper_tick", reaped);
               }
             } catch (e) {
+              const err =
+                e instanceof Error
+                  ? e
+                  : nonErrorThrown("agent_work.stranded_reaper_non_error_thrown");
               logWarn("stranded_work_reaper_failed", {
-                message: e instanceof Error ? e.message : String(e),
-                ...errorLogFields(e),
+                message: err.message,
+                ...errorLogFields(err),
               });
             }
             try {
@@ -288,9 +332,13 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 logInfo("review_queue_orphan_reaper_tick", orphans);
               }
             } catch (e) {
+              const err =
+                e instanceof Error
+                  ? e
+                  : nonErrorThrown("agent_work.review_queue_reaper_non_error_thrown");
               logWarn("review_queue_orphan_reaper_failed", {
-                message: e instanceof Error ? e.message : String(e),
-                ...errorLogFields(e),
+                message: err.message,
+                ...errorLogFields(err),
               });
             }
           };
@@ -317,7 +365,8 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 
           return { diagnostics, health };
         },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: (error) =>
+          error instanceof Error ? error : nonErrorThrown("agent_work.worker_start_failed"),
       }),
       (handles) =>
         Effect.tryPromise({
@@ -326,7 +375,8 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             await handles.health.close().catch(() => undefined);
             await stopWorkerConsumers(boss);
           },
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+          catch: (error) =>
+            error instanceof Error ? error : nonErrorThrown("agent_work.worker_stop_failed"),
         }).pipe(Effect.orDie),
     ).pipe(Effect.zipRight(Effect.never)),
   );

@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 const intakeCfg = makeTestConfig();
 import { Effect } from "effect";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
 import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import * as postgres from "../src/db/postgres.js";
+import { createJobQueue } from "./helpers/recordingBoss.js";
+import { createQueryPool } from "./helpers/fakePool.js";
 
 function makeHeaders(event = "ping") {
   return {
@@ -34,9 +34,7 @@ function makePool() {
     throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
   });
   return {
-    pool: {
-      query,
-    } as unknown as Pool,
+    pool: createQueryPool(query),
     query,
   };
 }
@@ -44,7 +42,8 @@ function makePool() {
 describe("makeAgentWorkScheduler ignored intake", () => {
   it("records ignored events with a direct pool insert", async () => {
     const { pool, query } = makePool();
-    const boss = { send: vi.fn() } as unknown as PgBoss;
+    const send = vi.fn();
+    const boss = createJobQueue({ send });
     const txSpy = vi.spyOn(postgres, "inTransaction");
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
@@ -63,7 +62,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
         expect.any(String),
         "ignored_event_ping",
       ]);
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
     } finally {
       txSpy.mockRestore();
     }
@@ -71,7 +70,8 @@ describe("makeAgentWorkScheduler ignored intake", () => {
 
   it("records ignored pull request actions without a transaction", async () => {
     const { pool, query } = makePool();
-    const boss = { send: vi.fn() } as unknown as PgBoss;
+    const send = vi.fn();
+    const boss = createJobQueue({ send });
     const txSpy = vi.spyOn(postgres, "inTransaction");
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
@@ -95,7 +95,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
         expect.any(String),
         "ignored_pull_request_labeled",
       ]);
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
     } finally {
       txSpy.mockRestore();
     }
@@ -103,7 +103,8 @@ describe("makeAgentWorkScheduler ignored intake", () => {
 
   it("records close-without-merge as ignored without a transaction", async () => {
     const { pool, query } = makePool();
-    const boss = { send: vi.fn() } as unknown as PgBoss;
+    const send = vi.fn();
+    const boss = createJobQueue({ send });
     const txSpy = vi.spyOn(postgres, "inTransaction");
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
@@ -128,7 +129,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
         expect.any(String),
         "ignored_pull_request_closed",
       ]);
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
     } finally {
       txSpy.mockRestore();
     }

@@ -1,6 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
 import {
   applySlashCommandIntake,
   type SlashCommandInput,
@@ -8,6 +6,8 @@ import {
 import type { AckJobData } from "../src/agentWork/types.js";
 import { slashDisabledBody } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createQueryClient } from "./helpers/fakePool.js";
+import { createRecordingBoss, type RecordedBossJob } from "./helpers/recordingBoss.js";
 
 const features = makeTestConfig().features;
 
@@ -30,9 +30,9 @@ function makeInput(command: string): SlashCommandInput {
   };
 }
 
-function makeClient(): PoolClient {
-  return {
-    query: vi.fn(async (sql: string) => {
+function makeClient() {
+  return createQueryClient(
+    vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-1" }] };
       }
@@ -41,27 +41,24 @@ function makeClient(): PoolClient {
       }
       return { rows: [] };
     }),
-  } as unknown as PoolClient;
+  );
 }
 
-function makeBoss(sent: { queue: string; data: unknown }[]): PgBoss {
-  return {
-    send: vi.fn(async (queue: string, data: unknown) => {
-      sent.push({ queue, data });
-      return "job-1";
-    }),
-    findJobs: vi.fn(async () => []),
-    deleteJob: vi.fn(async () => ({ rows: [] })),
-    cancel: vi.fn(async () => ({ rows: [] })),
-  } as unknown as PgBoss;
+function ackData(jobs: readonly RecordedBossJob[]): AckJobData {
+  const data = jobs[0]?.data;
+  expect(data?.kind).toBe("ack");
+  if (data?.kind !== "ack") {
+    throw new Error("expected ack job");
+  }
+  return data;
 }
 
 describe("slash command feature gating", () => {
   it.each(["ask", "describe", "triage"] as const)(
     "replies with a disabled notice for /%s when its feature is off",
     async (command) => {
-      const sent: { queue: string; data: unknown }[] = [];
-      const boss = makeBoss(sent);
+      const sent: RecordedBossJob[] = [];
+      const boss = createRecordingBoss(sent);
       const offFeatures = {
         ...features,
         ask: "off",
@@ -77,14 +74,14 @@ describe("slash command feature gating", () => {
       );
 
       expect(events.map((event) => event.name)).toContain("ignored_disabled_slash_command");
-      const ack = sent[0]?.data as AckJobData;
+      const ack = ackData(sent);
       expect(ack.reply?.body).toBe(slashDisabledBody(command));
     },
   );
 
   it("still enqueues /review when all other features are off", async () => {
-    const sent: { queue: string; data: unknown }[] = [];
-    const boss = makeBoss(sent);
+    const sent: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sent);
 
     const events = await applySlashCommandIntake(boss, makeClient(), makeInput("review"), {
       ...features,
@@ -97,8 +94,8 @@ describe("slash command feature gating", () => {
   });
 
   it("enqueues /describe normally when the feature is manual", async () => {
-    const sent: { queue: string; data: unknown }[] = [];
-    const boss = makeBoss(sent);
+    const sent: RecordedBossJob[] = [];
+    const boss = createRecordingBoss(sent);
 
     const events = await applySlashCommandIntake(boss, makeClient(), makeInput("describe"), {
       ...features,

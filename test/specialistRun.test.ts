@@ -1,32 +1,39 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PiSession } from "../src/agent/runtime/types.js";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { EMPTY_STRUCTURED_STATE, type PiSession } from "../src/agent/runtime/types.js";
+import {
+  resetCreateFeaturePiSession,
+  setCreateFeaturePiSession,
+} from "../src/agent/runtime/createFeatureSession.js";
 import { makeTestConfig } from "./helpers/config.js";
+import type { JsonObject } from "../src/util/jsonValue.js";
 
 type AttemptBehavior =
-  | { readonly kind: "report"; readonly report: Record<string, unknown> }
+  | { readonly kind: "report"; readonly report: JsonObject }
   | { readonly kind: "error"; readonly error: Error }
   | { readonly kind: "pending_create"; readonly settleAfterMs: number }
   | { readonly kind: "pending_send"; readonly settleAfterMs: number }
   | { readonly kind: "no_report" }
   | { readonly kind: "pending" };
 
-type TestSession = Pick<PiSession, "role" | "send" | "abort" | "dispose"> & {
-  readonly send: ReturnType<typeof vi.fn>;
-  readonly abort: ReturnType<typeof vi.fn>;
-  readonly dispose: ReturnType<typeof vi.fn>;
+type TestSession = PiSession & {
+  readonly send: Mock<PiSession["send"]>;
+  readonly abort: Mock<PiSession["abort"]>;
+  readonly dispose: Mock<PiSession["dispose"]>;
 };
 
-const runnerMocks = vi.hoisted(() => ({
-  createSession: vi.fn(),
-  behaviors: [] as AttemptBehavior[],
-  sessions: [] as TestSession[],
-}));
-
-vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
-  createFeaturePiSession: runnerMocks.createSession,
-}));
+const runnerMocks = vi.hoisted(() => {
+  const behaviors: AttemptBehavior[] = [];
+  const sessions: TestSession[] = [];
+  return {
+    createSession: vi.fn(),
+    behaviors,
+    sessions,
+  };
+});
 
 import { runSpecialist } from "../src/review/orchestrator/specialistRun.js";
+
+const cfg = makeTestConfig();
 
 const finding = {
   severity: "P2",
@@ -41,9 +48,27 @@ const finding = {
 const findingsReport = { status: "findings", findings: [finding] } as const;
 const emptyReport = { status: "no_findings", findings: [] } as const;
 
+function makeSession(
+  send: Mock<PiSession["send"]>,
+  abort: Mock<PiSession["abort"]>,
+  dispose: Mock<PiSession["dispose"]>,
+): TestSession {
+  const session: TestSession = {
+    role: "specialist",
+    primary: { provider: cfg.piProvider, model: cfg.piModel },
+    send,
+    abort,
+    dispose,
+    restartWithFallback: async () => session,
+    getStructuredState: () => EMPTY_STRUCTURED_STATE,
+    setStructuredState: () => undefined,
+  };
+  return session;
+}
+
 function specialistArgs(overrides: Partial<Parameters<typeof runSpecialist>[0]> = {}) {
   return {
-    cfg: makeTestConfig(),
+    cfg,
     cwd: "/tmp/pr-agent-specialist-test",
     specialist: "correctness" as const,
     briefMessage: "Review this pull request.",
@@ -56,6 +81,7 @@ function specialistArgs(overrides: Partial<Parameters<typeof runSpecialist>[0]> 
 
 describe("runSpecialist", () => {
   beforeEach(() => {
+    setCreateFeaturePiSession(runnerMocks.createSession);
     vi.clearAllMocks();
     runnerMocks.behaviors.length = 0;
     runnerMocks.sessions.length = 0;
@@ -64,12 +90,11 @@ describe("runSpecialist", () => {
       const behavior = runnerMocks.behaviors.shift();
       if (!behavior) throw new Error("missing specialist test behavior");
       if (behavior.kind === "pending_create") {
-        const session: TestSession = {
-          role: "specialist",
-          send: vi.fn(async () => ({ text: "" })),
-          abort: vi.fn(async () => undefined),
-          dispose: vi.fn(async () => undefined),
-        };
+        const session = makeSession(
+          vi.fn(async () => ({ text: "" })),
+          vi.fn(async () => undefined),
+          vi.fn(async () => undefined),
+        );
         runnerMocks.sessions.push(session);
         return new Promise<TestSession>((resolve) => {
           setTimeout(() => resolve(session), behavior.settleAfterMs);
@@ -79,9 +104,8 @@ describe("runSpecialist", () => {
       const abort = vi.fn(async () => {
         rejectPending?.(new Error("specialist session aborted"));
       });
-      const session: TestSession = {
-        role: "specialist",
-        send: vi.fn(async () => {
+      const session = makeSession(
+        vi.fn(async () => {
           if (behavior.kind === "error") throw behavior.error;
           if (behavior.kind === "pending_send") {
             return new Promise<{ readonly text: string }>((resolve) => {
@@ -94,18 +118,21 @@ describe("runSpecialist", () => {
             });
           }
           if (behavior.kind === "no_report") return { text: "" };
-          await params.executors.submit_findings_report(behavior.report);
+          const submit = params.executors.submit_findings_report;
+          if (!submit) throw new Error("missing submit_findings_report");
+          await submit(behavior.report);
           return { text: "" };
         }),
         abort,
-        dispose: vi.fn(async () => undefined),
-      };
+        vi.fn(async () => undefined),
+      );
       runnerMocks.sessions.push(session);
       return session;
     });
   });
 
   afterEach(() => {
+    resetCreateFeaturePiSession();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
