@@ -104,6 +104,7 @@ describe("publishReviewSummaryOnly", () => {
       relevantTests: "yes",
       securityConcerns: null,
       followUps: [],
+      judgmentCalls: [],
     };
     const ledger = createFindingLedger({
       accepted: [
@@ -178,6 +179,7 @@ describe("publishReviewSummaryOnly", () => {
         relevantTests: "no",
         securityConcerns: null,
         followUps: [],
+        judgmentCalls: [],
       },
       ledger: createFindingLedger(),
       shouldAbortPublish: async () => true,
@@ -219,6 +221,7 @@ describe("publishReviewSummaryOnly", () => {
         relevantTests: "partial",
         securityConcerns: null,
         followUps: [],
+        judgmentCalls: [],
       },
       ledger: createFindingLedger(),
       recordPublishStep,
@@ -266,6 +269,7 @@ describe("publishReviewSummaryOnly", () => {
           relevantTests: "no",
           securityConcerns: null,
           followUps: [],
+          judgmentCalls: [],
         },
         ledger: createFindingLedger(),
         coverage: {

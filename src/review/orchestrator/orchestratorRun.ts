@@ -207,6 +207,7 @@ function deterministicPayload(params: {
     relevantTests: "partial",
     securityConcerns: null,
     followUps: [],
+    judgmentCalls: [],
   };
 }
 
@@ -1032,6 +1033,8 @@ export async function runOrchestratedPrReview(
         fileCount: params.workspace.stats.fileCount,
         totalChanges: params.workspace.stats.totalChanges,
         truncated: params.workspace.stats.truncated,
+        prIntent: brief.prIntent,
+        architectureNotes: brief.architectureNotes,
       });
       const synthesis = await sendWithRetry("synthesis", synthesisPrompt);
       if (synthesis.kind === "sent") lastText = synthesis.text;

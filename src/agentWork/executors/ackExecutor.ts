@@ -1,14 +1,14 @@
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
 import { logWarn } from "../../evlog.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
 import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_PLUS_ONE,
 } from "../../settings/index.js";
-import { createPrSurface } from "../../github/prSurface.js";
+import { createPrSurface, type PrSurface } from "../../github/prSurface.js";
 import { mintInstallationToken } from "../durableJob.js";
 import {
   getProgressCommentOwner,
@@ -27,8 +27,13 @@ import {
   renderReviewProgressComment,
 } from "../../review/run/progressComment.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
-import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { AckJobData, WorkStatus } from "../types.js";
+import {
+  countOpenFindingSeverities,
+  evaluateMergeLoop,
+  renderMergeLoopComment,
+  reviewStateFromProgressComment,
+} from "../../review/loop.js";
 
 const ACK_PROGRESS_ACTIVE_STATUSES = new Set<WorkStatus>(["queued", "running"]);
 
@@ -188,10 +193,43 @@ async function publishCancelProgress(
   });
 }
 
+async function publishLoopStatus(
+  data: AckJobData & { readonly loopStatus: NonNullable<AckJobData["loopStatus"]> },
+  prSurface: PrSurface,
+  botUserId: number | null,
+): Promise<void> {
+  const currentHeadSha = await prSurface.getHeadSha();
+  const progress = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
+  const review = reviewStateFromProgressComment(progress?.body, currentHeadSha);
+  let openP0P1 = 0;
+  let openP2P3 = 0;
+  if (botUserId != null) {
+    const threads = await prSurface.fetchBotFindingThreads(botUserId);
+    const resolution = await prSurface.listInlineReviewThreads();
+    const counts = countOpenFindingSeverities(threads, resolution);
+    openP0P1 = counts.openP0P1;
+    openP2P3 = counts.openP2P3;
+  }
+  const ciSummary = await buildCiSummaryForSurface(prSurface, {
+    headSha: currentHeadSha,
+    lightweight: true,
+    waitMs: 0,
+  });
+  const briefing = evaluateMergeLoop({
+    review,
+    openP0P1,
+    openP2P3,
+    ciStatus: ciSummary?.status,
+  });
+  await prSurface.replyAt(data.loopStatus.replyTarget, renderMergeLoopComment(briefing));
+}
+
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
+  let botUserId: number | null = null;
   try {
     const bot = await getAppBotIdentity(cfg);
+    botUserId = bot.userId;
     if (data.commenterId != null && bot.userId === data.commenterId) return;
   } catch (e) {
     logWarn("ack_bot_identity_check_failed", {
@@ -245,12 +283,16 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
     }
   }
 
+  if (data.loopStatus) {
+    await publishLoopStatus({ ...data, loopStatus: data.loopStatus }, prSurface, botUserId);
+  }
+
   if (data.reply) {
     await prSurface.replyAt(data.reply.target, data.reply.body);
   }
 
-  // Ack-only interactions (help / disabled / usage / cancel) finish here — no durable work item.
-  if (data.reply && data.workItemId == null) {
+  // Ack-only interactions (help / disabled / usage / cancel / loop) finish here — no durable work item.
+  if ((data.reply || data.loopStatus) && data.workItemId == null) {
     await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_PLUS_ONE);
   }
 }

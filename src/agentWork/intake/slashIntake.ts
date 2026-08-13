@@ -86,7 +86,9 @@ type SlashIntakeContext = {
 
 async function enqueueSlashAck(
   ctx: SlashIntakeContext,
-  extra: Partial<Pick<AckJobData, "workItemId" | "progress" | "cancelProgress" | "reply">>,
+  extra: Partial<
+    Pick<AckJobData, "workItemId" | "progress" | "cancelProgress" | "reply" | "loopStatus">
+  >,
 ): Promise<void> {
   await enqueueAck(ctx.boss, ctx.client, {
     ...ctx.baseAck,
@@ -376,6 +378,18 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
+async function handleSlashLoop(ctx: SlashIntakeContext): Promise<void> {
+  await enqueueSlashAck(ctx, {
+    loopStatus: { replyTarget: ctx.input.replyTarget },
+  });
+  ctx.events.push({
+    name: "slash_loop_requested",
+    fields: {
+      resourceKey: prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber),
+    },
+  });
+}
+
 async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
   await enqueueSlashAck(ctx, {
     reply: {
@@ -400,6 +414,7 @@ const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
   triage: handleSlashTriage,
   review: handleSlashReview,
   cancel: handleSlashCancel,
+  loop: handleSlashLoop,
 };
 
 export async function applySlashCommandIntake(

@@ -24,6 +24,7 @@ sets are intentionally not supported.
 Notes:
 
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
+- `/loop` is always available (like `/help` and `/cancel`). It spends no tokens.
 - Describe, verification, ask, and triage can be turned `off` to stop those
   surfaces from spending tokens at all.
 - Invalid values fail startup with the allowed list; typos never silently

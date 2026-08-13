@@ -71,6 +71,10 @@ export type AckJobData = JobCorrelation & {
     readonly target: ReplyTarget;
     readonly body: string;
   };
+  /** LLM-free merge-loop status; ack worker gathers evidence and replies. */
+  readonly loopStatus?: {
+    readonly replyTarget: ReplyTarget;
+  };
   readonly commenterId?: number;
 };
 

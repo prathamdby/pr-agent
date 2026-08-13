@@ -660,6 +660,46 @@ describe("applySlashCommandIntake", () => {
     expect(SLASH_HELP_BODY).toContain("`/cancel`");
   });
 
+  it("lists /loop in /help", () => {
+    expect(SLASH_HELP_BODY).toContain("`/loop`");
+    expect(SLASH_HELP_BODY).toContain("never merges");
+  });
+
+  it("enqueues an ack-only /loop job", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const client = makeClient();
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/loop"), intakeLog));
+
+    expect(sentJobs).toEqual([
+      expect.objectContaining({
+        queue: ACK_QUEUE,
+        data: expect.objectContaining({
+          loopStatus: {
+            replyTarget: { kind: "prConversation", prNumber: 7 },
+          },
+        }),
+      }),
+    ]);
+    expect(sentJobs[0]?.data).not.toHaveProperty("workItemId");
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({ event: "slash_loop_requested" }),
+    );
+  });
+
   it("prefers a running review as cancelProgress primary over queued", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
     const boss = {

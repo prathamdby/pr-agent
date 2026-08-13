@@ -198,9 +198,10 @@ Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/featur
 | Ask                 | On demand when `FEATURE_ASK=manual`               | `/ask …` or `@bot …` |
 | Triage autofix      | On demand when `FEATURE_TRIAGE=manual`            | `/triage`            |
 | Cancel review       | On demand                                         | `/cancel`            |
+| Merge-loop status   | On demand                                         | `/loop`              |
 | Help                | On demand                                         | `/help`              |
 
-Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0014](docs/adr/0014-lightweight-review-completion.md)).
+Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. Specialists hunt objective defects. Synthesis may add **Needs a human** rows for product or architecture decisions. The summary **Next** row and `/loop` are derived evidence, not a merge verdict. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0014](docs/adr/0014-lightweight-review-completion.md)).
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`).
 

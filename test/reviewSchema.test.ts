@@ -482,6 +482,22 @@ describe("reviewPayload unknown fields", () => {
       }
     }
   });
+
+  it("defaults omitted judgmentCalls to an empty array", () => {
+    const parsed = v.safeParse(reviewPayloadSchema, baseInput);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.output.judgmentCalls).toEqual([]);
+    }
+  });
+
+  it("rejects more than three judgmentCalls", () => {
+    const parsed = v.safeParse(reviewPayloadSchema, {
+      ...baseInput,
+      judgmentCalls: ["a", "b", "c", "d"],
+    });
+    expect(parsed.success).toBe(false);
+  });
 });
 
 describe("formatReviewValidationError", () => {

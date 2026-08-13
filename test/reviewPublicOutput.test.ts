@@ -53,6 +53,7 @@ describe("reviewPublicOutput", () => {
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
+      judgmentCalls: ["Token ghp_1234567890123456789012345678901234567890 is leaked."],
     };
 
     const redacted = redactReviewPayloadSecrets(payload);
@@ -62,5 +63,7 @@ describe("reviewPublicOutput", () => {
     expect(redacted.findings[0]?.suggestedCode).not.toContain("sk-");
     expect(redacted.findings[0]?.violatedRule).toContain("[redacted]");
     expect(redacted.findings[0]?.violatedRule).not.toContain("ghp_");
+    expect(redacted.judgmentCalls[0]).toContain("[redacted]");
+    expect(redacted.judgmentCalls[0]).not.toContain("ghp_");
   });
 });

@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import {
   MAX_REVIEW_FOLLOW_UPS,
+  MAX_REVIEW_JUDGMENT_CALLS,
   MAX_REVIEW_PAYLOAD_FINDINGS,
   REVIEW_FINDING_DETAIL_MAX_CHARS,
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
@@ -8,6 +9,7 @@ import {
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
+  REVIEW_JUDGMENT_CALL_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
   REVIEW_SIZES,
@@ -82,6 +84,13 @@ export function createReviewPayloadSchema() {
     followUps: v.pipe(
       v.array(v.pipe(v.string(), v.maxLength(REVIEW_FOLLOW_UP_MAX_CHARS))),
       v.maxLength(MAX_REVIEW_FOLLOW_UPS),
+    ),
+    judgmentCalls: v.optional(
+      v.pipe(
+        v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_JUDGMENT_CALL_MAX_CHARS))),
+        v.maxLength(MAX_REVIEW_JUDGMENT_CALLS),
+      ),
+      [],
     ),
   });
 }
@@ -333,6 +342,15 @@ export function coerceReviewPayloadInput(raw: unknown): {
       return changed ? text : item;
     });
   }
+  if (input.judgmentCalls == null) {
+    delete input.judgmentCalls;
+  } else if (Array.isArray(input.judgmentCalls)) {
+    input.judgmentCalls = input.judgmentCalls.map((item) => {
+      if (typeof item !== "string") return item;
+      const { text, changed } = coerceReviewTextField(item, "judgmentCall", coercions);
+      return changed ? text : item;
+    });
+  }
   if (Array.isArray(input.findings)) {
     input.findings = input.findings.map((item) => coerceFinding(item, coercions));
   } else if (typeof input.findings === "object" && input.findings != null) {
@@ -388,7 +406,7 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
+    `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}). Optional: judgmentCalls (max ${MAX_REVIEW_JUDGMENT_CALLS}).`,
   );
   lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
   const firstIssue = issues[0];
@@ -423,5 +441,8 @@ export function normalizeReviewPayload(raw: ReviewPayload): ReviewPayload {
     raw.securityConcerns == null || raw.securityConcerns.trim().length === 0
       ? null
       : raw.securityConcerns.trim();
-  return { ...raw, securityConcerns: security };
+  const judgmentCalls = (raw.judgmentCalls ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return { ...raw, securityConcerns: security, judgmentCalls };
 }

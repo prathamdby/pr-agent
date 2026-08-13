@@ -204,6 +204,8 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `REVIEW_SECURITY_DEFAULT`                                                                                              | Default security row when null                                                                 |
 | `AGENT_FIX_PROMPT_ACCORDION_SUMMARY`                                                                                   | Review summary accordion title for the aggregate agent fix prompt                              |
 | `MAX_REVIEW_FOLLOW_UPS`                                                                                                | 5                                                                                              |
+| `MAX_REVIEW_JUDGMENT_CALLS` / `REVIEW_JUDGMENT_CALL_MAX_CHARS`                                                         | 3 / 200 — synthesis judgment calls (Needs a human)                                             |
+| `REVIEW_LOOP_*`                                                                                                        | `/loop` sentinel, lead, and derived Next-action copy (never a merge verdict)                   |
 | `REVIEW_FINDING_TITLE_MAX_CHARS`                                                                                       | 80                                                                                             |
 | `REVIEW_FINDING_DETAIL_MAX_CHARS`                                                                                      | 4000                                                                                           |
 | `REVIEW_FINDING_FIX_PROMPT_MAX_CHARS`                                                                                  | 2000                                                                                           |
@@ -424,21 +426,21 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### Other
 
-| Symbol                                              | Role                                                          |
-| --------------------------------------------------- | ------------------------------------------------------------- |
-| `CONTEXT7_BASE_URL`                                 | Context7 API                                                  |
-| `MAX_LOG_MESSAGE_LEN`                               | 2000                                                          |
-| `MAX_LOG_REDACTION_SCAN_LEN`                        | 8000                                                          |
-| `SLASH_HELP_BODY`                                   | `/help` text                                                  |
-| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY` | `/cancel` ack replies when no review is active / after cancel |
-| `MIGRATIONS_DIR_NAME`                               | `migrations`                                                  |
-| `MIGRATION_ADVISORY_LOCK_KEY`                       | runMigrations cross-process lock                              |
-| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                 | 2000ms margin before GitHub's webhook timeout                 |
-| `WEBHOOK_MAX_BODY_BYTES`                            | 25000000 (GitHub payload cap)                                 |
-| `WEBHOOK_TIMEOUT_MS`                                | 10000 (intake 503 budget)                                     |
-| `CONTEXT7_RESPONSE_BYTES`                           | 64000                                                         |
-| `LOG_MAX_WIDE_EVENTS`                               | 128                                                           |
-| `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/ready` Postgres ping budget)                          |
+| Symbol                                                                           | Role                                                            |
+| -------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `CONTEXT7_BASE_URL`                                                              | Context7 API                                                    |
+| `MAX_LOG_MESSAGE_LEN`                                                            | 2000                                                            |
+| `MAX_LOG_REDACTION_SCAN_LEN`                                                     | 8000                                                            |
+| `SLASH_HELP_BODY`                                                                | `/help` text                                                    |
+| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY`                              | `/cancel` ack replies when no review is active / after cancel   |
+| `MIGRATIONS_DIR_NAME`                                                            | `migrations`                                                    |
+| `MIGRATION_ADVISORY_LOCK_KEY`                                                    | runMigrations cross-process lock                                |
+| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                                              | 2000ms margin before GitHub's webhook timeout                   |
+| `WEBHOOK_MAX_BODY_BYTES`                                                         | 25000000 (GitHub payload cap)                                   |
+| `WEBHOOK_TIMEOUT_MS`                                                             | 10000 (intake 503 budget)                                       |
+| `CONTEXT7_RESPONSE_BYTES`                                                        | 64000                                                           |
+| `LOG_MAX_WIDE_EVENTS`                                                            | 128                                                             |
+| `HEALTH_DB_PING_TIMEOUT_MS`                                                      | 2000 (`/ready` Postgres ping budget)                            |
 
 Prompt prose (investigator contracts) remains in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`.
 

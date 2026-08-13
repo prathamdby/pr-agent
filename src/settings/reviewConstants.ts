@@ -106,6 +106,27 @@ export const REVIEW_RISK_PATH_PATTERNS: Readonly<
 };
 
 export const MAX_REVIEW_FOLLOW_UPS = 5;
+export const MAX_REVIEW_JUDGMENT_CALLS = 3;
+export const REVIEW_JUDGMENT_CALL_MAX_CHARS = 200;
+
+/** Slash `/loop` and the review-summary Next row (derived; never a merge verdict). */
+export const REVIEW_LOOP_SENTINEL = "## PR Agent Loop";
+export const REVIEW_LOOP_LEAD =
+  "Derived from current evidence. A human decides merge. This is not an approval.";
+export const REVIEW_LOOP_NEXT_HUMAN = "A human decides merge.";
+export const REVIEW_LOOP_NEXT_WAIT_REVIEW = "Wait for the review to finish.";
+export const REVIEW_LOOP_NEXT_RUN_REVIEW = "Run `/review`.";
+export const REVIEW_LOOP_NEXT_STALE_REVIEW = "Run `/review` on the current head.";
+export const REVIEW_LOOP_NEXT_LIGHTWEIGHT =
+  "A human decides merge. Use `/review` for a full review.";
+export const REVIEW_LOOP_NEXT_TRIAGE_BLOCKING = "Fix P0/P1 with `/triage`. A human decides merge.";
+export const REVIEW_LOOP_NEXT_TRIAGE_OPTIONAL = "Optional `/triage`. A human decides merge.";
+export const REVIEW_LOOP_NEXT_FIX_CI = "Fix CI. A human decides merge.";
+export const REVIEW_LOOP_NEXT_WAIT_CI = "Wait for CI. A human decides merge.";
+export const REVIEW_LOOP_REVIEW_NONE = "No completed review on this pull request.";
+export const REVIEW_LOOP_REVIEW_IN_PROGRESS = "Review in progress.";
+export const REVIEW_LOOP_LABEL_NEEDS_HUMAN = "Needs a human";
+export const REVIEW_LOOP_LABEL_NEXT = "Next";
 
 /** Review size scale (t-shirt sizes), ordered smallest to largest. */
 export const REVIEW_SIZES = ["XS", "S", "M", "L", "XL", "XXL"] as const;

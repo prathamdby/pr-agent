@@ -243,6 +243,8 @@ describe("orchestrator prompts", () => {
       fileCount: 12,
       totalChanges: 500,
       truncated: false,
+      prIntent: "Route reviews through one orchestrator.",
+      architectureNotes: "Web intake, worker publish.",
     });
 
     expect(prompt).toContain("sole source of review findings");
@@ -252,6 +254,9 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain("Hard rule (overview scale: standard)");
     expect(prompt).toContain("Overview scale: standard");
     expect(prompt).toContain("notable risks or contracts");
+    expect(prompt).toContain("judgmentCalls");
+    expect(prompt).toContain("<recon_brief>");
+    expect(prompt).toContain("Route reviews through one orchestrator.");
   });
 
   it("injects brief overview hard rule for small change sets", () => {
@@ -295,5 +300,7 @@ describe("orchestrator prompts", () => {
     expect(orchestratorSystemPrompt).toContain("## Writing style (ASD-STE100)");
     expect(orchestratorSystemPrompt).toContain("## Review overview (prCharacter)");
     expect(orchestratorSystemPrompt).toContain("Do not report specialist lane status");
+    expect(orchestratorSystemPrompt).toContain("Specialists are Deep Reviewers");
+    expect(orchestratorSystemPrompt).toContain("judgmentCalls");
   });
 });

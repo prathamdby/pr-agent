@@ -7,6 +7,7 @@ const DEFAULT_REVIEW_PAYLOAD: ReviewPayload = {
   relevantTests: "no",
   securityConcerns: null,
   followUps: [],
+  judgmentCalls: [],
 };
 
 export function makeReviewPayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {

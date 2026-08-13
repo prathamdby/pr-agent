@@ -20,6 +20,8 @@ import {
   REVIEW_FINDING_FOOTNOTE_SUMMARY,
   REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
+  REVIEW_LOOP_LABEL_NEEDS_HUMAN,
+  REVIEW_LOOP_LABEL_NEXT,
   REVIEW_OVERVIEW_ALERT,
   REVIEW_OVERVIEW_COMPACT_MAX_CHARS,
   REVIEW_POINTER_BODY,
@@ -48,6 +50,7 @@ import {
   renderCiSummaryCell,
   shouldRenderCiSummaryRow,
 } from "../ci/renderCiSummary.js";
+import { mergeLoopNextActionForSummary } from "../loop.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -97,6 +100,14 @@ export function renderLightweightReviewCompletion(
       [renderTableStrong("Reason"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_REASON)],
       [renderTableStrong("Next step"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_HINT)],
     ]),
+  );
+  rows.push("");
+  rows.push(
+    renderStaleReviewMetadataComment({
+      headSha: footer.headSha,
+      mode: "review",
+      stale: false,
+    }),
   );
   rows.push("");
   rows.push(
@@ -410,9 +421,25 @@ function buildReviewSummaryBody(
     tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary)]);
   }
 
+  for (const item of payload.judgmentCalls ?? []) {
+    tableRows.push([renderTableStrong(REVIEW_LOOP_LABEL_NEEDS_HUMAN), escapeTablePlainCell(item)]);
+  }
+
   for (const item of payload.followUps) {
     tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);
   }
+
+  tableRows.push([
+    renderTableStrong(REVIEW_LOOP_LABEL_NEXT),
+    escapeTablePlainCell(
+      mergeLoopNextActionForSummary({
+        findings: payload.findings,
+        ciStatus: ctx.ciSummary?.status,
+        staleReview: ctx.staleReview,
+        headSha: ctx.headSha,
+      }),
+    ),
+  ]);
 
   rows.push(renderKeyValueTable(tableRows));
 

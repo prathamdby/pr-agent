@@ -12,6 +12,7 @@ export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayloa
     securityConcerns:
       payload.securityConcerns == null ? null : redactReviewText(payload.securityConcerns),
     followUps: payload.followUps.map((item) => redactReviewText(item)),
+    judgmentCalls: (payload.judgmentCalls ?? []).map((item) => redactReviewText(item)),
     findings: payload.findings.map((finding) => ({
       ...finding,
       title: redactReviewText(finding.title),

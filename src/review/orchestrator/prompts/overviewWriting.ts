@@ -33,6 +33,8 @@ export const reviewOverviewWritingGuidance = [
   "- size: XS | S | M | L | XL | XXL for the scale of the change set, not code quality.",
   "- relevantTests: yes | no | partial from the accepted evidence only.",
   "- followUps: short STE100 lines for deferred non-blocking work; empty when none.",
+  "- judgmentCalls: 0–3 product or architecture decisions a human must make. Not bugs. Empty when the change is mechanical.",
+  "- Never write merge, approve, or safe-to-merge wording in any overview field.",
 ].join("\n");
 
 export function formatOverviewWritingHardRule(policy: DescriptionWritingPolicy): string {

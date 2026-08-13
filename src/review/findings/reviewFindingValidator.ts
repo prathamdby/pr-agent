@@ -123,6 +123,15 @@ export function validateReviewPayload(params: {
       };
     }
   }
+  for (const [index, item] of (params.payload.judgmentCalls ?? []).entries()) {
+    if (containsInternalFailurePhrasing(item)) {
+      return {
+        ok: false,
+        message: `judgmentCalls[${index}] contains banned public-output phrasing`,
+        anchorFailures: [],
+      };
+    }
+  }
 
   const enforceInlineAnchorValidation = params.enforceInlineAnchorValidation ?? true;
   const placements = planInlinePlacements(params.payload.findings, params.cachedDiffIndex);

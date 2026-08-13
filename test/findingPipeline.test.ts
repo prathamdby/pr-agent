@@ -37,6 +37,7 @@ function payload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
     relevantTests: "no",
     securityConcerns: null,
     followUps: [],
+    judgmentCalls: [],
     ...overrides,
   };
 }

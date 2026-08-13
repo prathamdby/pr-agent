@@ -62,6 +62,9 @@ describe("renderReviewSummaryComment", () => {
     expect(body).not.toContain("_No findings._");
     expect(body).not.toContain("### Findings");
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
+    expect(body).toContain("<strong>Next</strong>");
+    expect(body).toContain("A human decides merge.");
+    expect(body.toLowerCase()).not.toContain("safe to merge");
   });
 
   it("renders a CI gate row when a CI summary is provided", () => {
@@ -99,9 +102,8 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Unexpected any");
     expect(body).toContain("re-push");
     // CI sits after Security in the overview gate table.
-    expect(body.indexOf("<strong>Security</strong>")).toBeLessThan(
-      body.indexOf("<strong>CI</strong>"),
-    );
+    expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(body.indexOf("<strong>Next</strong>"));
+    expect(body).toContain("Fix P0/P1 with `/triage`");
     const fixAll = body.indexOf(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
     expect(fixAll).toBeGreaterThan(-1);
     expect(body.indexOf("❌ CI failing — lint", fixAll)).toBeGreaterThan(fixAll);
@@ -121,6 +123,23 @@ describe("renderReviewSummaryComment", () => {
     });
     expect(body).toContain("<strong>CI</strong>");
     expect(body).toContain("Checks to Read");
+  });
+
+  it("renders judgment calls as Needs a human rows", () => {
+    const body = renderReviewSummaryComment(
+      basePayload({
+        judgmentCalls: ["Should rate-limit live in the worker or at the ingress?"],
+      }),
+      {
+        ...ctx,
+        placements: testPlacements(basePayload().findings),
+      },
+    );
+    expect(body).toContain("<strong>Needs a human</strong>");
+    expect(body).toContain("rate-limit live in the worker");
+    expect(body.indexOf("<strong>Needs a human</strong>")).toBeLessThan(
+      body.indexOf("<strong>Next</strong>"),
+    );
   });
 
   it("links inline findings to review comment URLs when provided", () => {
@@ -1229,6 +1248,9 @@ describe("renderLightweightReviewCompletion", () => {
     expect(body).toContain("Use /review for a full review.");
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 12s ⋅ grok-4.5</sub>");
     expect(body).toContain(REVIEW_SUMMARY_SENTINEL);
+    expect(body).toContain(
+      "<!-- pr-agent:review-meta headSha=abc123def456 lens=review stale=false -->",
+    );
   });
 });
 

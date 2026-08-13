@@ -104,6 +104,7 @@ function batchPayload(findings: readonly ReviewFinding[]): ReviewPayload {
     relevantTests: "no",
     securityConcerns: null,
     followUps: [],
+    judgmentCalls: [],
   };
 }
 

@@ -70,7 +70,12 @@ import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
 } from "../src/review/run/progressComment.js";
-import { REVIEW_PROGRESS_QUEUE_LABEL, reviewProgressCancelledNote } from "../src/settings/index.js";
+import { renderStaleReviewMetadataComment } from "../src/review/run/reviewRender.js";
+import {
+  REVIEW_LOOP_SENTINEL,
+  REVIEW_PROGRESS_QUEUE_LABEL,
+  reviewProgressCancelledNote,
+} from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
 
 const cfg = {} as Config;
@@ -115,6 +120,29 @@ describe("executeAckJob", () => {
     expect(surfaceBundle.controls.replies).toHaveLength(1);
     expect(surfaceBundle.controls.replies[0]?.body).toBe("help");
     expect(surfaceBundle.controls.reactions).toHaveLength(2);
+    expect(surfaceBundle.controls.reactions[1]?.kind).toBe(GITHUB_REACTION_PLUS_ONE);
+  });
+
+  it("replies with a derived merge-loop briefing for loopStatus acks", async () => {
+    const headSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    surfaceBundle.controls.setHeadSha(headSha);
+    surfaceBundle.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      [
+        "## PR Agent Review",
+        renderStaleReviewMetadataComment({ headSha, mode: "review", stale: false }),
+      ].join("\n"),
+    );
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      loopStatus: { replyTarget: { kind: "prConversation", prNumber: 1 } },
+    });
+
+    expect(surfaceBundle.controls.replies).toHaveLength(1);
+    expect(surfaceBundle.controls.replies[0]?.body).toContain(REVIEW_LOOP_SENTINEL);
+    expect(surfaceBundle.controls.replies[0]?.body).toContain("A human decides merge.");
+    expect(surfaceBundle.controls.replies[0]?.body.toLowerCase()).not.toContain("safe to merge");
     expect(surfaceBundle.controls.reactions[1]?.kind).toBe(GITHUB_REACTION_PLUS_ONE);
   });
 
