@@ -39,6 +39,7 @@ jobs:
               - "nub.lock"
               - "nub.jsonc"
               - "scripts/**"
+              - "tools/**"
               - "src/**"
               - "test/**"
               - "tsconfig*.json"

@@ -134,7 +134,7 @@ Canonical quick start steps live in [README.md](../README.md) **Host with Docker
 | `nub run site:build`                   | Landing site production build                                           |
 | `nub run site:generate-og`             | Generate landing OG assets                                              |
 
-Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry cooling-window settings live only in [`nub.jsonc`](../nub.jsonc) (`install.minimumReleaseAge`, `install.minimumReleaseAgeExclude`); edit that file when adding or removing temporary excludes.
+Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). The local anti-slop jsPlugin lives at [`tools/oxlint/anti-slop`](../tools/oxlint/anti-slop). Its rules are enabled in [`.oxlintrc.json`](../.oxlintrc.json). Registry cooling-window settings live only in [`nub.jsonc`](../nub.jsonc) (`install.minimumReleaseAge`, `install.minimumReleaseAgeExclude`); edit that file when adding or removing temporary excludes.
 
 ### Effect version gate
 
