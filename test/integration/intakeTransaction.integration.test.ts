@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { PgBoss, SendOptions } from "pg-boss";
+import type { PgBoss } from "pg-boss";
 import { applyAutomatedPullRequestIntake } from "../../src/agentWork/intake/applier.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import type { PrRef, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
@@ -86,12 +86,12 @@ function intakeLog() {
 function withSendFailOnNth(realBoss: PgBoss, failOnSend: number): { restore: () => void } {
   let sendCount = 0;
   const originalSend = realBoss.send.bind(realBoss);
-  realBoss.send = (async (name: string, data?: object | null, options?: SendOptions) => {
+  realBoss.send = (async (...args: Parameters<PgBoss["send"]>) => {
     sendCount += 1;
     if (sendCount >= failOnSend) {
       throw new Error("injected send failure");
     }
-    return originalSend(name, data, options);
+    return originalSend(...args);
   }) as PgBoss["send"];
   return {
     restore: () => {

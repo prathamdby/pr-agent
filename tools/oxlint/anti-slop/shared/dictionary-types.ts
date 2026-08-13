@@ -131,7 +131,7 @@ function isNeverType(type: ESTree.TSType): boolean {
 function isEffectivelyEmptyMember(member: ESTree.TSSignature): boolean {
   return (
     member.type === "TSPropertySignature" &&
-    member.optional === true &&
+    member.optional &&
     member.typeAnnotation !== null &&
     member.typeAnnotation !== undefined &&
     isNeverType(member.typeAnnotation.typeAnnotation)
@@ -176,10 +176,10 @@ function aliasSubstitution(
   base: TypeAliasEnvironment,
 ): TypeAliasEnvironment | null {
   const parameters = alias.typeParameters?.params ?? [];
-  const arguments_ = type.typeArguments?.params ?? [];
+  const substitutionArguments = type.typeArguments?.params ?? [];
   const next = new Map(base);
   for (const [index, parameter] of parameters.entries()) {
-    const argument = arguments_[index] ?? parameter.default;
+    const argument = substitutionArguments[index] ?? parameter.default;
     if (argument === null || argument === undefined) return null;
     next.set(parameter.name.name, resolvedSubstitutionArgument(argument, next));
   }

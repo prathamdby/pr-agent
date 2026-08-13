@@ -46,11 +46,14 @@ export function jobCorrelation(
   };
 }
 
+type BossSendData = Parameters<PgBoss["send"]>[1];
+type BossSendOptions = Parameters<PgBoss["send"]>[2];
+
 async function requireBossJobSend(
   boss: PgBoss,
   queue: string,
-  data: object,
-  options: Parameters<PgBoss["send"]>[2],
+  data: BossSendData,
+  options: BossSendOptions,
 ): Promise<void> {
   const jobId = await boss.send(queue, data, options);
   if (jobId == null) {
@@ -69,8 +72,8 @@ async function requireBossJobSend(
 async function sendBossJobIdempotent(
   boss: PgBoss,
   queue: string,
-  data: object,
-  options: Parameters<PgBoss["send"]>[2],
+  data: BossSendData,
+  options: BossSendOptions,
 ): Promise<"enqueued" | "already_present"> {
   const jobId = await boss.send(queue, data, options);
   return jobId == null ? "already_present" : "enqueued";
