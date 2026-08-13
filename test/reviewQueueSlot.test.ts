@@ -193,9 +193,11 @@ describe("reapReviewQueueOrphans", () => {
     const cancel = vi.fn(async () => ({ rows: [] }));
     const deleteJob = vi.fn(async () => ({ rows: [] }));
     const boss = { cancel, deleteJob } as unknown as PgBoss;
+    let holderSql = "";
     const pool = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("FROM pgboss.job")) {
+          holderSql = sql;
           return {
             rows: [
               {
@@ -232,6 +234,9 @@ describe("reapReviewQueueOrphans", () => {
       released: 2,
       staleQueuedLogged: 1,
     });
+
+    expect(holderSql).toContain("j.singleton_key");
+    expect(holderSql).not.toContain("j.key");
 
     expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "j-fail");
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "j-orphan");
