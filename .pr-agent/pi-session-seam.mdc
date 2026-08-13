@@ -7,4 +7,4 @@ globs:
   - "test/createPiSession.test.ts"
 ---
 
-Feature harnesses must call `createFeaturePiSession` → `createPiSession` (`src/agent/runtime/createFeatureSession.ts`, `piSession.ts`). Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep built-in shell/write/edit/filesystem tools disabled (`ToolPolicy.allowBuiltin: false` in `src/agent/runtime/types.ts`). Web import graph must stay free of Pi/models (`test/webImportGraph.test.ts`, ADR 0031).
+Feature harnesses must call `createFeaturePiSession` → `createPiSession` (`src/agent/runtime/createFeatureSession.ts`, `piSession.ts`). Type the SDK behind `PiSessionRuntime` in `piSessionImpl.ts`. Inject replacements with `setPiSessionRuntime` / `setCreatePiSession`. Do not import `piSessionImpl.ts` from feature modules, do not construct raw Pi SDK sessions there, and do not alias the runtime as `typeof` the Pi SDK. Keep built-in shell/write/edit/filesystem tools disabled (`ToolPolicy.allowBuiltin: false` in `src/agent/runtime/types.ts`). Web import graph must stay free of Pi/models (`test/webImportGraph.test.ts`, ADR 0031).
