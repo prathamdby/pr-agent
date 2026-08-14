@@ -14,10 +14,23 @@ function emitLlmsTxt(): Plugin {
   const write = () => {
     writeFileSync(resolve(siteDir, "public/llms.txt"), renderLlmsTxt());
   };
+  const watched = [
+    resolve(siteDir, "lib/llmsKnowledge.ts"),
+    resolve(siteDir, "lib/content.ts"),
+    resolve(siteDir, "lib/site.ts"),
+  ];
   return {
     name: "emit-llms-txt",
     buildStart: write,
-    configureServer: write,
+    configureServer(server) {
+      write();
+      server.watcher.add(watched);
+      server.watcher.on("change", (file) => {
+        if (watched.includes(file)) {
+          write();
+        }
+      });
+    },
   };
 }
 

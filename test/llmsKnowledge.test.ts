@@ -5,6 +5,8 @@ import {
   FEATURE_KEYS,
   KNOWLEDGE_CHUNKS,
   LLMS_TXT_TOKEN_ESTIMATE,
+  MAX_HITS,
+  MAX_QUERY_CHARS,
   answerAgentQuery,
   llmsNudgeTitle,
   parseAgentQuery,
@@ -23,6 +25,44 @@ describe("parseAgentQuery", () => {
   it("treats all/everything/full/profile as broad", () => {
     expect(parseAgentQuery("everything")).toEqual({ kind: "broad", raw: "everything" });
     expect(parseAgentQuery("full profile")).toEqual({ kind: "broad", raw: "full profile" });
+  });
+
+  it("keeps mixed queries as terms when a non-broad token is present", () => {
+    expect(parseAgentQuery("about pricing")).toMatchObject({
+      kind: "terms",
+      tokens: ["about", "pricing"],
+    });
+    expect(parseAgentQuery("profile deploy")).toMatchObject({
+      kind: "terms",
+      tokens: ["profile", "deploy"],
+    });
+  });
+
+  it("clips raw input at MAX_QUERY_CHARS", () => {
+    const prefix = "x".repeat(MAX_QUERY_CHARS);
+    const over = `${prefix} deploy`;
+    const parsed = parseAgentQuery(over);
+    expect(parsed.kind).toBe("terms");
+    if (parsed.kind !== "terms") {
+      return;
+    }
+    expect(parsed.raw.length).toBeLessThanOrEqual(MAX_QUERY_CHARS);
+    expect(parsed.tokens).not.toContain("deploy");
+    expect(parseAgentQuery(`${prefix}everything`).kind).toBe("terms");
+    expect(parseAgentQuery(prefix).kind).toBe("terms");
+  });
+
+  it("strips control characters from echoed raw", () => {
+    const parsed = parseAgentQuery("deploy\n\n## Fake Heading");
+    expect(parsed.kind).toBe("terms");
+    if (parsed.kind !== "terms") {
+      return;
+    }
+    expect(parsed.raw).toBe("deploy ## Fake Heading");
+    expect(parsed.raw).not.toMatch(/[\r\n]/);
+    const text = renderAnswerText(answerAgentQuery(parsed));
+    expect(text.startsWith("# query: deploy ## Fake Heading\n")).toBe(true);
+    expect(text).not.toContain("\n## Fake Heading");
   });
 
   it("keeps specific tokens", () => {
@@ -72,6 +112,25 @@ describe("answerAgentQuery", () => {
       return;
     }
     expect(answer.hits[0]?.chunk.id).toBe("commands");
+  });
+
+  it("caps hits at MAX_HITS and breaks score ties by chunk id", () => {
+    const answer = answerAgentQuery({
+      kind: "terms",
+      raw: "wide",
+      tokens: ["review", "github", "agent", "feature", "command", "deploy", "price"],
+    });
+    expect(answer.kind).toBe("hits");
+    if (answer.kind !== "hits") {
+      return;
+    }
+    expect(answer.hits.length).toBe(MAX_HITS);
+    expect(answer.hits.length).toBeLessThan(KNOWLEDGE_CHUNKS.length);
+    const scores = answer.hits.map((hit) => hit.score);
+    expect(scores).toEqual([...scores].toSorted((left, right) => right - left));
+    const tied = answer.hits.filter((hit) => hit.score === answer.hits[0]?.score);
+    const tiedIds = tied.map((hit) => hit.chunk.id);
+    expect(tiedIds).toEqual([...tiedIds].toSorted((left, right) => left.localeCompare(right)));
   });
 });
 

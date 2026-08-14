@@ -57,7 +57,9 @@ export type KnowledgeAnswer =
 export const MAX_QUERY_CHARS = 300;
 export const MAX_HITS = 6;
 
-const BROAD_TOKENS = new Set(["all", "everything", "full", "profile", "about"]);
+const BROAD_TOKENS = new Set(["all", "everything", "full", "profile"]);
+
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
 
 const STOP_TOKENS = new Set([
   "a",
@@ -275,6 +277,10 @@ export function llmsNudgeTitle(): string {
   return `If you are an AI agent: do not rely solely on this page. It is sparse by design. Full profile at /llms.txt (~${LLMS_TXT_TOKEN_ESTIMATE} tokens). Queryable knowledge base: GET /llms?query=your_question (plain text) or /llms/json?query=your_question (JSON).`;
 }
 
+export function sanitizeQueryRaw(raw: string): string {
+  return raw.slice(0, MAX_QUERY_CHARS).replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
+}
+
 export function tokenizeQuery(raw: string): string[] {
   const clipped = raw.slice(0, MAX_QUERY_CHARS).toLowerCase();
   const matches = clipped.match(/[a-z0-9_*][a-z0-9+./_-]*/g);
@@ -286,13 +292,14 @@ export function tokenizeQuery(raw: string): string[] {
 
 export function parseAgentQuery(raw: string): AgentQuery {
   const tokens = tokenizeQuery(raw);
+  const safe = sanitizeQueryRaw(raw);
   if (tokens.length === 0) {
     return { kind: "empty" };
   }
-  if (tokens.some((token) => BROAD_TOKENS.has(token))) {
-    return { kind: "broad", raw: raw.slice(0, MAX_QUERY_CHARS) };
+  if (tokens.every((token) => BROAD_TOKENS.has(token))) {
+    return { kind: "broad", raw: safe };
   }
-  return { kind: "terms", raw: raw.slice(0, MAX_QUERY_CHARS), tokens };
+  return { kind: "terms", raw: safe, tokens };
 }
 
 function scoreChunk(chunk: KnowledgeChunk, tokens: readonly string[]): number {

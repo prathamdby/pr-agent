@@ -9,11 +9,13 @@ import {
 const TEXT_HEADERS = {
   "Content-Type": "text/plain; charset=utf-8",
   "Cache-Control": "public, max-age=300",
+  "X-Content-Type-Options": "nosniff",
 } as const;
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
   "Cache-Control": "public, max-age=300",
+  "X-Content-Type-Options": "nosniff",
 } as const;
 
 export function llmsTxtResponse(): Response {
