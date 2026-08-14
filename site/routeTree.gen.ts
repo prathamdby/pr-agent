@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './app/__root'
 import { Route as IndexRouteImport } from './app/index'
 import { Route as RobotsDottxtRouteImport } from './app/robots[.]txt'
 import { Route as SitemapDotxmlRouteImport } from './app/sitemap[.]xml'
+import { Route as LlmsIndexRouteImport } from './app/llms/index'
+import { Route as LlmsJsonRouteImport } from './app/llms/json'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +30,54 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LlmsIndexRoute = LlmsIndexRouteImport.update({
+  id: '/llms/',
+  path: '/llms/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LlmsJsonRoute = LlmsJsonRouteImport.update({
+  id: '/llms/json',
+  path: '/llms/json',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/llms/json': typeof LlmsJsonRoute
+  '/llms/': typeof LlmsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/llms/json': typeof LlmsJsonRoute
+  '/llms': typeof LlmsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/llms/json': typeof LlmsJsonRoute
+  '/llms/': typeof LlmsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/robots.txt' | '/sitemap.xml'
+  fullPaths: '/' | '/robots.txt' | '/sitemap.xml' | '/llms/json' | '/llms/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/robots.txt' | '/sitemap.xml'
-  id: '__root__' | '/' | '/robots.txt' | '/sitemap.xml'
+  to: '/' | '/robots.txt' | '/sitemap.xml' | '/llms/json' | '/llms'
+  id:
+    '__root__' | '/' | '/robots.txt' | '/sitemap.xml' | '/llms/json' | '/llms/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  LlmsJsonRoute: typeof LlmsJsonRoute
+  LlmsIndexRoute: typeof LlmsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +103,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/llms/': {
+      id: '/llms/'
+      path: '/llms'
+      fullPath: '/llms/'
+      preLoaderRoute: typeof LlmsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/llms/json': {
+      id: '/llms/json'
+      path: '/llms/json'
+      fullPath: '/llms/json'
+      preLoaderRoute: typeof LlmsJsonRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +124,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  LlmsJsonRoute: LlmsJsonRoute,
+  LlmsIndexRoute: LlmsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -102,6 +102,12 @@ export const Route = createRootRoute({
         rel: "apple-touch-icon",
         href: "/apple-touch-icon.png",
       },
+      {
+        rel: "alternate",
+        type: "text/plain",
+        href: `${SITE_ORIGIN}/llms.txt`,
+        title: "LLM profile",
+      },
     ],
   }),
   component: RootLayout,
