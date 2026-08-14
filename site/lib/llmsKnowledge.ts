@@ -59,8 +59,6 @@ export const MAX_HITS = 6;
 
 const BROAD_TOKENS = new Set(["all", "everything", "full", "profile"]);
 
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
-
 const STOP_TOKENS = new Set([
   "a",
   "an",
@@ -277,8 +275,17 @@ export function llmsNudgeTitle(): string {
   return `If you are an AI agent: do not rely solely on this page. It is sparse by design. Full profile at /llms.txt (~${LLMS_TXT_TOKEN_ESTIMATE} tokens). Queryable knowledge base: GET /llms?query=your_question (plain text) or /llms/json?query=your_question (JSON).`;
 }
 
+function isControlChar(code: number): boolean {
+  return code <= 0x1f || code === 0x7f;
+}
+
 export function sanitizeQueryRaw(raw: string): string {
-  return raw.slice(0, MAX_QUERY_CHARS).replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim();
+  let cleaned = "";
+  const clipped = raw.slice(0, MAX_QUERY_CHARS);
+  for (const char of clipped) {
+    cleaned += isControlChar(char.charCodeAt(0)) ? " " : char;
+  }
+  return cleaned.replace(/\s+/g, " ").trim();
 }
 
 export function tokenizeQuery(raw: string): string[] {
