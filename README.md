@@ -313,7 +313,7 @@ Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for inte
 
 More scripts and edge cases: [docs/operations.md](docs/operations.md#development), [docs/cursor-cloud.md](docs/cursor-cloud.md).
 
-The marketing site under `site/` is a separate workspace package (`pr-agent-landing`). It is not required to run the bot.
+The marketing site under `site/` is a separate workspace package (`pr-agent-landing`). It is not required to run the bot. The human page is a short overview. Agents should read `/llms.txt` or query `GET /llms?query=` / `GET /llms/json?query=`.
 
 ## Data privacy
 
