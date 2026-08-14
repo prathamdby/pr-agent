@@ -22,6 +22,12 @@ Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/) — this guide i
 
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
+## Landing site
+
+The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot.
+
+Agent-facing copy lives in [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts). The human page stays a short overview. Agents read `/llms.txt`, `GET /llms?query=`, and `GET /llms/json?query=`.
+
 ## Internal errors (`AppError`)
 
 Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Field rules, helpers, domain subclasses, and the AppError-never-on-PR rule: [`.pr-agent/structured-errors.mdc`](../.pr-agent/structured-errors.mdc).

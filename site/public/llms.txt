@@ -2,26 +2,150 @@
 
 > Self-hosted GitHub App for AI pull request reviews. You run webhook intake, Postgres, and workers. MIT licensed. No per-seat fee. You pay hosting and model usage.
 
-PR Agent accepts signed GitHub webhooks, records them in Postgres, and enqueues durable work with pg-boss. Workers run review, describe, ask, triage, and verification agents, then publish results back on the pull request. Slash commands are /review, /describe, /ask, and /triage. Automated review can also run on pull_request events.
-
-You keep model keys and review traffic in your own environment. Supported backends include OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and other Pi catalog providers.
-
-## Docs
-
-- [Host with Docker Compose](https://github.com/prathamdby/pr-agent#host-with-docker-compose): GitHub App setup and Docker Compose deploy
-- [Features](https://github.com/prathamdby/pr-agent/blob/main/docs/features.md): FEATURE_* catalog and capability modes (off, manual, auto)
-- [Configuration](https://github.com/prathamdby/pr-agent/blob/main/docs/configuration.md): Environment variables and knobs
-- [Operations](https://github.com/prathamdby/pr-agent/blob/main/docs/operations.md): Deploy steps, runtime behaviour, and scripts
-- [Domain vocabulary](https://github.com/prathamdby/pr-agent/blob/main/CONTEXT.md): Product terms used in code and docs
+The human landing page is sparse by design. This file is the full offering layer.
+Queryable knowledge: GET /llms?query=your_question (plain text) or GET /llms/json?query=your_question (JSON).
+Broad queries such as all or everything return this whole file. Specific queries return matching sections.
 
 ## Product
 
-- [Landing page](https://pr-agent-site.vercel.app/): Product overview, pricing, FAQ, and deploy steps
-- [Repository](https://github.com/prathamdby/pr-agent): Source, issues, and releases
-- [How it works](https://github.com/prathamdby/pr-agent#how-it-works): Web intake vs worker topology
+PR Agent is a self-hosted GitHub App for AI pull request reviews.
+You run webhook intake, Postgres, and workers. MIT licensed. No per-seat fee.
+You pay hosting and model usage.
+Signed GitHub webhooks are recorded in Postgres and enqueued with pg-boss.
+Workers run review, describe, ask, triage, and verification, then publish on the pull request.
+You keep model keys and review traffic in your own environment.
+GitHub only for now. GitLab and Bitbucket are not supported.
 
-## Optional
+## Slash commands
 
-- [Agent work ops](https://github.com/prathamdby/pr-agent/blob/main/docs/agent-work-ops.md): Queue health and recovery runbook
-- [Architecture decisions](https://github.com/prathamdby/pr-agent/tree/main/docs/adr): ADRs for major design choices
-- [License](https://github.com/prathamdby/pr-agent/blob/main/LICENSE): MIT
+Slash commands are case-sensitive. The command must be the first non-empty line of a new (created) comment.
+Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMBER,COLLABORATOR).
+/review: run an orchestrated review. Always available. FEATURE_REVIEW has no off mode.
+/describe: write summary bullets and an optional diagram into the PR body.
+/ask … or @bot …: answer a code question in the same thread.
+/triage: recheck open bot findings and push fixes for valid same-repo issues.
+/cancel: cancel a queued or running orchestrated review.
+/help: list available commands.
+Verification has no slash command. It runs on pull_request synchronize when FEATURE_VERIFICATION=auto.
+
+## FEATURE_* settings
+
+Eight FEATURE_* settings are the user-facing configuration. Invalid values fail startup.
+Modes: off = disabled (slash replies with a notice), manual = slash only, auto = slash plus a fixed trigger.
+Auto triggers: review and describe on pull_request opened; verification on synchronize.
+FEATURE_REVIEW: manual | auto. Default auto. Orchestrated review. /review always works.
+FEATURE_DESCRIBE: off | manual | auto. Default auto. PR description generation.
+FEATURE_VERIFICATION: off | auto. Default auto. Rechecks open findings on new pushes.
+FEATURE_ASK: off | manual. Default manual. /ask and @bot questions.
+FEATURE_TRIAGE: off | manual. Default manual. /triage autofix checkout, commit, and push.
+FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Review labels on the PR. No model tokens.
+FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review commit status. No model tokens.
+FEATURE_TITLE_REWRITE: false | true. Default false. Allows /describe to rewrite the PR title.
+Landing-page capability copy:
+- Catch basics before a human opens the change. Runs when a pull request opens, or when you comment /review. Comments land next to the lines that need attention.
+- Turn a blank PR body into a readable summary. Runs when a pull request opens, or when you comment /describe. Summary bullets and an optional diagram go into the PR body.
+- Ask code questions without leaving GitHub. Comment /ask … or mention the bot with your question. Get an answer in the same thread, right where the code lives.
+- Revisit earlier findings on the pull request. Comment /triage on the pull request or on a finding thread. Checks open findings and can push fixes for valid same-repo issues.
+- Skip AI review when the PR is only docs. Runs automatically on small documentation-only changes. Docs-only pull requests take a lighter path instead of a full review.
+Landing-page review flow copy:
+- Deploy once on servers you control: Install PR Agent beside the rest of your stack. Your GitHub credentials and AI keys stay in your account, not a vendor dashboard.
+- Someone opens a pull request: PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.
+- It reads what actually changed: PR Agent looks at the branch and the changes, then hunts for bugs and correctness issues. When risky APIs show up, it also checks for security problems.
+- Feedback shows up on the pull request: Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, or mention the bot. Replies stay in the same thread.
+- Honest limits when the change is huge: Docs-only pull requests can take a lighter path. Very large changes may get a partial review, and PR Agent says what it could not cover instead of faking completeness.
+
+## Deploy with Docker Compose
+
+Need Docker Engine with Compose v2 and a host GitHub can reach over HTTPS.
+Clone https://github.com/prathamdby/pr-agent, then cp .env.example .env.
+Set at least GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, WEBHOOK_SECRET, PI_PROVIDER, PI_MODEL, and the matching provider API key.
+Compose overrides ROLE and DATABASE_URL per service. Default published HTTP port is 7224.
+GITHUB_APP_PRIVATE_KEY accepts one-line PEM with \n, real multi-line PEM, or base64-encoded PEM.
+Start with: docker compose build && docker compose up -d
+Services: postgres (durable state), pr-agent-web (ROLE=web, POST /webhooks, GET /health, GET /ready), pr-agent-worker (queue consumers).
+Migrations run when each process opens its Postgres pool.
+GitHub App webhook URL: https://<host>/webhooks. Webhook secret must match WEBHOOK_SECRET.
+Subscribe to pull_request, issue_comment, pull_request_review_comment, workflow_run, and check_suite.
+Permissions: Issues read/write, Pull requests read/write, Contents read/write, Metadata read, Checks read/write, Actions read.
+Commit statuses read/write only if FEATURE_COMMIT_STATUS=true.
+Install the app on the orgs or repos to review, then recreate web and worker so they pick up credentials.
+Check web with curl http://127.0.0.1:7224/health (ok) and /ready (ready when Postgres is up).
+Both web and worker must run. If webhooks return 200 and the PR stays quiet, the worker is down or misconfigured.
+
+## How it works
+
+Two processes must run together.
+ROLE=web accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns 200 once that write succeeds.
+ROLE=worker runs the queues: reactions, progress comments, model sessions, and everything posted back to the PR.
+Flow: GitHub webhooks → web /webhooks → Postgres webhook_events dedupe → agent_work_items → pg-boss enqueue.
+Queues: ack, ci-refresh, review, ask, description, triage, verification, retention.
+Ack worker posts the eyes reaction and the review progress stub.
+Review runs four specialists (correctness, security, quality, tests) under one orchestrator.
+P0-P2 findings fail the review check run. P3 does not.
+Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.
+Web does not create installation tokens or post to the PR. Workers do that.
+
+## Pricing
+
+Software is free. $0 from PR Agent. No credit card. No per-seat fee. Open source under MIT.
+You pay your own vendors. Hosting and AI usage only. Cover your server, database, and model bills. Add more developers without raising your PR Agent bill.
+You own the full stack. Your security rules apply. Run it inside your network, choose your AI provider, and keep review traffic under your policies.
+
+## Model providers
+
+Many model providers. Use OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more with your own API keys.
+LLM calls run on the worker only, through the Pi coding-agent runtime.
+PI_PROVIDER and PI_MODEL are the general primary (default openai / gpt-4o-mini).
+Optional PI_ORCHESTRATOR_PROVIDER and PI_ORCHESTRATOR_MODEL override the review orchestrator session.
+Optional PI_FALLBACK_PROVIDER and PI_FALLBACK_MODEL cover availability failures. Both must be set to enable fallback.
+pr-agent loads OPENAI_API_KEY, ANTHROPIC_API_KEY, and GOOGLE_GENERATIVE_AI_API_KEY in config.
+Other Pi providers use their usual env vars on the worker (DEEPSEEK_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY).
+
+## Compared to hosted reviewers
+
+PR Agent: Self-hosted, MIT-licensed. You run the reviewer, hold the model keys, and keep the review data.
+CodeRabbit: Cloud SaaS (self-host enterprise). Hosted reviewer with subscription pricing and a managed data path.
+Greptile: Cloud SaaS (self-host option). Managed full-repo indexing for cross-file context.
+Cursor Bugbot: Cloud (Cursor ecosystem). Bug-focused review tied to the Cursor ecosystem.
+Macroscope: Cloud SaaS. Hosted GitHub PR review with a managed pipeline.
+
+## FAQ
+
+Q: What is PR Agent?
+A: PR Agent is open-source software that reviews GitHub pull requests on servers you run. You deploy it once, connect GitHub and an AI provider, and it posts reviews, summaries, and answers back on the pull request.
+Q: Is PR Agent a self-hosted alternative to CodeRabbit?
+A: Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit's hosted product, PR Agent runs on your servers with your credentials and your AI keys.
+Q: How does PR Agent compare to Greptile?
+A: Greptile is a cloud reviewer that indexes whole repositories. PR Agent is self-hosted and looks at each pull request from the branch and what changed. Pick it when you want the review data and models under your control, not another managed subscription.
+Q: Does PR Agent replace Cursor Bugbot?
+A: PR Agent fits teams that want bug and correctness reviews on GitHub without sending that work through a hosted IDE-tied review service. Bugbot stays tied to the Cursor IDE. PR Agent is a review system you operate with your own model keys.
+Q: How does PR Agent compare to Macroscope?
+A: Macroscope is a hosted AI code review product for GitHub pull requests. PR Agent offers a similar automatic review flow as MIT-licensed software you deploy yourself. You choose the models and where review data is processed.
+Q: Is PR Agent free?
+A: Yes. PR Agent is MIT-licensed with no per-seat fee from us. You pay for hosting and AI usage. Add 50 developers and the PR Agent software bill stays at $0.
+Q: Which AI models does PR Agent support?
+A: PR Agent works with OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more via the Pi provider catalog. You pick the provider and set your own API key on the machine that runs reviews.
+Q: Does PR Agent only work with GitHub?
+A: Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and replies in GitHub comments. GitLab and Bitbucket are not supported yet.
+
+## Data privacy
+
+Self-hosted. Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure.
+You own the GitHub App credentials.
+Review, description, ask, triage, verification, and CI-summary text leave your network only when the worker calls your configured provider.
+Optional CONTEXT7_API_KEY may call https://context7.com/api for library lookup.
+Structured logs use evlog. LOG_REDACT defaults to true and strips secret-shaped substrings.
+/ask applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call.
+
+## Docs and links
+
+Repository: https://github.com/prathamdby/pr-agent
+Host with Docker Compose: https://github.com/prathamdby/pr-agent#host-with-docker-compose
+Features catalog: https://github.com/prathamdby/pr-agent/blob/main/docs/features.md
+Configuration: https://github.com/prathamdby/pr-agent/blob/main/docs/configuration.md
+Operations: https://github.com/prathamdby/pr-agent/blob/main/docs/operations.md
+Domain vocabulary: https://github.com/prathamdby/pr-agent/blob/main/CONTEXT.md
+Agent work ops: https://github.com/prathamdby/pr-agent/blob/main/docs/agent-work-ops.md
+Architecture decisions: https://github.com/prathamdby/pr-agent/tree/main/docs/adr
+License: https://github.com/prathamdby/pr-agent/blob/main/LICENSE
+
