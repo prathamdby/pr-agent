@@ -28,7 +28,7 @@ import {
 } from "../../review/run/progressComment.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
-import type { AckJobData, WorkStatus } from "../types.js";
+import { prResourceKey, type AckJobData, type WorkStatus } from "../types.js";
 
 const ACK_PROGRESS_ACTIVE_STATUSES = new Set<WorkStatus>(["queued", "running"]);
 
@@ -200,13 +200,13 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   }
   const installation = await mintInstallationToken(cfg, data.installationId);
   const prSurface = ackPrSurface(cfg, data, installation);
+  const resourceKey = prResourceKey(data.owner, data.repo, data.prNumber);
 
   await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_EYES);
 
   // Cancel before progress: `/review force` acks carry both, and the new run's
   // queued stub must be the final state after the cancelled notice lands.
   if (data.cancelProgress) {
-    const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
     try {
       await publishCancelProgress(
         cfg,
@@ -226,7 +226,6 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
 
   if (data.progress) {
     const progressData = { ...data, progress: data.progress };
-    const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
     if (data.workItemId != null) {
       const mayPublish = await canAckPublishProgress(pool, {
         workItemId: data.workItemId,

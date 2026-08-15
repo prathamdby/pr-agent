@@ -561,4 +561,133 @@ describe("executeAckJob", () => {
       .invocationCallOrder[0]!;
     expect(cancelOrder).toBeLessThan(progressOrder);
   });
+
+  it("still publishes the queued stub and reply when the cancel comment edit fails on a force ack", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha-old",
+      source: "slash",
+      progressRevision: 1,
+      progressWorkItemId: "wi-old",
+    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
+    vi.spyOn(surfaceBundle.surface, "editComment").mockRejectedValueOnce(new Error("edit 403"));
+    // A persistent getWorkItemCore implementation from an earlier test outlives
+    // clearAllMocks, so pin this test's row with a consumed once-value.
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+      id: "wi-new",
+      status: "queued",
+      type: "review",
+    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-new",
+      progress: { lens: "review", headSha: "sha-new", source: "slash" },
+      cancelProgress: {
+        workItemId: "wi-old",
+        cancelledWorkItemIds: ["wi-old"],
+        attribution: { kind: "user", login: "alice" },
+      },
+      reply: { target: { kind: "prConversation", prNumber: 1 }, body: "restarted" },
+    });
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "ack_cancel_comment_failed",
+      expect.objectContaining({ workItemId: "wi-old", message: "edit 403" }),
+    );
+    // Comment I/O failure must not block check cancellation or the new stub.
+    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ workItemIds: ["wi-old"] }),
+    );
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-new",
+        body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
+      }),
+    );
+    expect(surfaceBundle.controls.replies.map((reply) => reply.body)).toContain("restarted");
+  });
+
+  it("still publishes the queued stub and reply when check cancellation rejects on a force ack", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha-old",
+      source: "slash",
+      progressRevision: 1,
+      progressWorkItemId: "wi-old",
+    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
+    vi.mocked(cancelReviewCheckRunsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+      id: "wi-new",
+      status: "queued",
+      type: "review",
+    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-new",
+      progress: { lens: "review", headSha: "sha-new", source: "slash" },
+      cancelProgress: {
+        workItemId: "wi-old",
+        cancelledWorkItemIds: ["wi-old"],
+        attribution: { kind: "user", login: "alice" },
+      },
+      reply: { target: { kind: "prConversation", prNumber: 1 }, body: "restarted" },
+    });
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "ack_cancel_progress_failed",
+      expect.objectContaining({ workItemId: "wi-old", message: "cancel boom" }),
+    );
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-new",
+        body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
+      }),
+    );
+    expect(surfaceBundle.controls.replies.map((reply) => reply.body)).toContain("restarted");
+  });
+
+  it("still publishes the queued stub and reply when the cancel progress lookup throws", async () => {
+    vi.spyOn(surfaceBundle.surface, "findProgressComment").mockRejectedValueOnce(
+      new Error("lookup boom"),
+    );
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+      id: "wi-new",
+      status: "queued",
+      type: "review",
+    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-new",
+      progress: { lens: "review", headSha: "sha-new", source: "slash" },
+      cancelProgress: {
+        workItemId: "wi-old",
+        cancelledWorkItemIds: ["wi-old"],
+        attribution: { kind: "user", login: "alice" },
+      },
+      reply: { target: { kind: "prConversation", prNumber: 1 }, body: "restarted" },
+    });
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "ack_cancel_progress_failed",
+      expect.objectContaining({ workItemId: "wi-old", message: "lookup boom" }),
+    );
+    // The throw happens before check cancellation; only the new stub and reply land.
+    expect(cancelReviewCheckRunsForWorkItems).not.toHaveBeenCalled();
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-new",
+        body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
+      }),
+    );
+    expect(surfaceBundle.controls.replies.map((reply) => reply.body)).toContain("restarted");
+  });
 });

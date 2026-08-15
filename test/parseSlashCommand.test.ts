@@ -32,6 +32,16 @@ describe("isReviewForceCommand", () => {
     expect(isReviewForceCommand("/review force\nmore context")).toBe(true);
   });
 
+  it("pins whitespace boundaries around the tokens", () => {
+    // Anchored to the start of the first non-empty line: leading whitespace rejects.
+    expect(isReviewForceCommand("   /review force")).toBe(false);
+    expect(isReviewForceCommand("\t/review force")).toBe(false);
+    // Trailing whitespace after `force` still matches.
+    expect(isReviewForceCommand("/review force ")).toBe(true);
+    expect(isReviewForceCommand("/review force\t")).toBe(true);
+    expect(isReviewForceCommand("/review force\n")).toBe(true);
+  });
+
   it("rejects non-force and non-review text", () => {
     expect(isReviewForceCommand("/review")).toBe(false);
     expect(isReviewForceCommand("/review please")).toBe(false);
