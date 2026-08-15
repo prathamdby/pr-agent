@@ -231,6 +231,186 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.not.toContain(singletonKey);
   });
 
+  it("/review force cancels the active review and enqueues a replacement in one tx", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 44);
+    const singletonKey = `${resourceKey}:review`;
+    const webhookEventId = randomUUID();
+    const oldWorkItemId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, 'sha', 'accepted')`,
+      [webhookEventId, `force-${webhookEventId}`, EVENT],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       ) VALUES (
+         $1, $2, 'review', 'slash', 'running', $3, $4, 44, 4242, 'sha-old', 'review', $5, 0,
+         '{}'::jsonb
+       )`,
+      [oldWorkItemId, webhookEventId, OWNER, repo, resourceKey],
+    );
+    const oldJobId = await boss.send(
+      REVIEW_QUEUE,
+      { kind: "review", workItemId: oldWorkItemId },
+      { singletonKey },
+    );
+    expect(oldJobId).toBeTruthy();
+
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(
+        boss,
+        client,
+        {
+          headers: {
+            event: EVENT,
+            delivery: `force-${randomUUID().slice(0, 8)}`,
+            rawBody: Buffer.from("{}"),
+          },
+          installationId: 4242,
+          owner: OWNER,
+          repo,
+          prNumber: 44,
+          commentId: 4400,
+          commenterId: 11,
+          commenterLogin: "alice",
+          body: "/review force",
+          command: "review",
+          replyTarget: { kind: "prConversation" as const, prNumber: 44 },
+        },
+        testFeatures,
+      ),
+    );
+
+    const { rows } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND type = 'review' AND source = 'slash'`,
+      [resourceKey],
+    );
+    expect(rows).toHaveLength(2);
+    const newRow = rows.find((row) => row.id !== oldWorkItemId);
+    expect(rows).toEqual(expect.arrayContaining([{ id: oldWorkItemId, status: "cancelled" }]));
+    expect(newRow?.status).toBe("queued");
+
+    const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId!);
+    expect(oldJob?.state).toBe("cancelled");
+    const live = (await boss.findJobs(REVIEW_QUEUE, { key: singletonKey })).filter(
+      (job) => job.state === "created",
+    );
+    expect(live).toHaveLength(1);
+    expect((live[0]?.data as { workItemId?: string }).workItemId).toBe(newRow?.id);
+
+    const ackJobs = await boss.findJobs(ACK_QUEUE, {});
+    const ack = ackJobs.find(
+      (job) => (job.data as { workItemId?: string }).workItemId === newRow?.id,
+    );
+    const ackData = ack?.data as {
+      progress?: unknown;
+      cancelProgress?: { workItemId: string; cancelledWorkItemIds: readonly string[] };
+      reply?: { body: string };
+    };
+    expect(ackData.progress).toBeTruthy();
+    expect(ackData.cancelProgress?.workItemId).toBe(oldWorkItemId);
+    expect(ackData.cancelProgress?.cancelledWorkItemIds).toEqual([oldWorkItemId]);
+    expect(ackData.reply?.body).toContain("latest commit");
+  });
+
+  it("/review force leaves a sibling PR's active review untouched", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const key44 = prResourceKey(OWNER, repo, 44);
+    const key45 = prResourceKey(OWNER, repo, 45);
+    const webhookEventId = randomUUID();
+    const oldWorkItemId = randomUUID();
+    const siblingWorkItemId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, 'sha', 'accepted')`,
+      [webhookEventId, `force-iso-${webhookEventId}`, EVENT],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       ) VALUES
+         ($1, $2, 'review', 'slash', 'running', $3, $4, 44, 4242, 'sha-old', 'review', $5, 0,
+           '{}'::jsonb),
+         ($6, $2, 'review', 'slash', 'running', $3, $4, 45, 4242, 'sha-sib', 'review', $7, 0,
+           '{}'::jsonb)`,
+      [oldWorkItemId, webhookEventId, OWNER, repo, key44, siblingWorkItemId, key45],
+    );
+    const oldJobId = await boss.send(
+      REVIEW_QUEUE,
+      { kind: "review", workItemId: oldWorkItemId },
+      { singletonKey: `${key44}:review` },
+    );
+    const siblingJobId = await boss.send(
+      REVIEW_QUEUE,
+      { kind: "review", workItemId: siblingWorkItemId },
+      { singletonKey: `${key45}:review` },
+    );
+    expect(oldJobId).toBeTruthy();
+    expect(siblingJobId).toBeTruthy();
+
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(
+        boss,
+        client,
+        {
+          headers: {
+            event: EVENT,
+            delivery: `force-iso-${randomUUID().slice(0, 8)}`,
+            rawBody: Buffer.from("{}"),
+          },
+          installationId: 4242,
+          owner: OWNER,
+          repo,
+          prNumber: 44,
+          commentId: 4401,
+          commenterId: 11,
+          commenterLogin: "alice",
+          body: "/review force",
+          command: "review",
+          replyTarget: { kind: "prConversation" as const, prNumber: 44 },
+        },
+        testFeatures,
+      ),
+    );
+
+    const { rows: rows44 } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND type = 'review' AND source = 'slash'`,
+      [key44],
+    );
+    expect(rows44).toHaveLength(2);
+    const newRow = rows44.find((row) => row.id !== oldWorkItemId);
+    expect(rows44).toEqual(expect.arrayContaining([{ id: oldWorkItemId, status: "cancelled" }]));
+    expect(newRow?.status).toBe("queued");
+
+    const { rows: rows45 } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items WHERE id = $1`,
+      [siblingWorkItemId],
+    );
+    expect(rows45).toEqual([{ id: siblingWorkItemId, status: "running" }]);
+
+    const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId!);
+    expect(oldJob?.state).toBe("cancelled");
+    const siblingJob = await boss.getJobById(REVIEW_QUEUE, siblingJobId!);
+    expect(siblingJob?.state).toBe("created");
+
+    const ackJobs = await boss.findJobs(ACK_QUEUE, {});
+    const ack = ackJobs.find(
+      (job) => (job.data as { workItemId?: string }).workItemId === newRow?.id,
+    );
+    const ackData = ack?.data as {
+      cancelProgress?: { workItemId: string; cancelledWorkItemIds: readonly string[] };
+    };
+    expect(ackData.cancelProgress?.cancelledWorkItemIds).toEqual([oldWorkItemId]);
+  });
+
   it("keeps one review when a removed lens command arrives concurrently", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
     const lenses = ["review", "review-security"] as const;

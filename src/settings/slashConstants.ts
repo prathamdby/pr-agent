@@ -7,6 +7,7 @@ export const SLASH_HELP_BODY = [
   "- `/ask <question>` - ask about this PR or a specific line (or `@`-mention the bot for the same Q&A)",
   "- `/describe` - refresh the PR title and body summary (also runs when a PR opens)",
   "- `/review` - review the PR for bugs (also runs when a PR opens; later reviews need `/review`)",
+  "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
   "- `/cancel` - cancel a queued or in-progress review on this PR",
   "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
   "",
@@ -17,6 +18,14 @@ export const SLASH_HELP_BODY = [
   "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
   "- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");
+
+/** Ack reply when `/review` finds an active review (and no `force` restart was requested). */
+export const SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY =
+  "A `/review` run is already queued or in progress for this pull request.";
+
+/** Ack reply when `/review force` cancelled an active review and queued a replacement. */
+export const SLASH_REVIEW_FORCE_RESTARTED_BODY =
+  "Cancelled the previous review and started a new one on the latest commit.";
 
 /** Ack reply when `/cancel` finds no queued/running review. */
 export const SLASH_CANCEL_NONE_BODY = "No review is queued or in progress for this pull request.";

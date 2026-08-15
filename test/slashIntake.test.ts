@@ -14,6 +14,8 @@ import {
   SLASH_CANCEL_DONE_BODY,
   SLASH_CANCEL_NONE_BODY,
   SLASH_HELP_BODY,
+  SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+  SLASH_REVIEW_FORCE_RESTARTED_BODY,
   TRIAGE_QUEUE,
 } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
@@ -729,5 +731,584 @@ describe("applySlashCommandIntake", () => {
       "Cancelled by slash /cancel",
       attributionPatch,
     ]);
+  });
+
+  it("force-restarts an active review on /review force", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const findJobs = vi.fn(async () => [
+      { id: "old-job", state: "active", data: { workItemId: "wi-running" } },
+    ]);
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs,
+      cancel,
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
+          return { rows: [] };
+        }
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "old-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/review force"), intakeLog),
+    );
+
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "old-job", expect.anything());
+    expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, REVIEW_QUEUE]);
+    const ack = sentJobs[0]?.data;
+    expect(ack?.workItemId).toBe("wi-new");
+    expect(ack?.progress).toBeDefined();
+    expect(ack?.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running"],
+      attribution: { kind: "user", login: "alice" },
+    });
+    expect(ack?.reply).toEqual({
+      target: { kind: "prConversation", prNumber: 7 },
+      body: SLASH_REVIEW_FORCE_RESTARTED_BODY,
+    });
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_cancel_requested",
+        type: "review",
+        force: true,
+        cancelledByLogin: "alice",
+      }),
+    );
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_enqueued",
+        type: "review",
+        force: true,
+      }),
+    );
+  });
+
+  it("treats /review force with no active review like a plain /review", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs: vi.fn(async () => []),
+      cancel: vi.fn(async () => ({ rows: [] })),
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/review force"), intakeLog),
+    );
+
+    expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, REVIEW_QUEUE]);
+    const ack = sentJobs[0]?.data;
+    expect(ack?.workItemId).toBe("wi-new");
+    expect(ack?.progress).toBeDefined();
+    expect(ack?.cancelProgress).toBeUndefined();
+    expect(ack?.reply).toBeUndefined();
+    expect(intakeLog.getContext().events ?? []).not.toContainEqual(
+      expect.objectContaining({ event: "agent_work_cancel_requested" }),
+    );
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_enqueued",
+        type: "review",
+        force: true,
+      }),
+    );
+  });
+
+  it("keeps check-run cleanup when /review force loses the uniqueness race", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const findJobs = vi.fn(async () => [
+      { id: "old-job", state: "active", data: { workItemId: "wi-running" } },
+      { id: "live-created", state: "created", data: { workItemId: "winner-review" } },
+    ]);
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs,
+      cancel,
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
+          return { rows: [] };
+        }
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "old-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
+        if (sql.includes("staleHeadRescheduled")) return { rows: [{ id: "winner-review" }] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          const ids = params?.[0] as string[];
+          expect(ids).toEqual(expect.arrayContaining(["wi-running", "winner-review"]));
+          return { rows: [{ id: "winner-review" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/review force"), intakeLog),
+    );
+
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "old-job", expect.anything());
+    expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "live-created", expect.anything());
+    expect(sentJobs).toHaveLength(1);
+    expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
+    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running"],
+      attribution: { kind: "user", login: "alice" },
+    });
+    expect(sentJobs[0]?.data.reply).toEqual({
+      target: { kind: "prConversation", prNumber: 7 },
+      body: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+    });
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({ event: "agent_work_cancel_requested", force: true }),
+    );
+    expect(intakeLog.getContext().events ?? []).not.toContainEqual(
+      expect.objectContaining({ event: "agent_work_enqueued" }),
+    );
+  });
+
+  it("force with queued and running rows cancels both with the running row as primary", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const findJobs = vi.fn(async () => [
+      { id: "job-queued", state: "created", data: { workItemId: "wi-queued" } },
+      { id: "job-running", state: "active", data: { workItemId: "wi-running" } },
+    ]);
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs,
+      cancel,
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-queued",
+                source: "auto",
+                head_sha: "queued-sha",
+                created_at: "2026-01-01T00:00:02Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "running-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          // Rows still read active, so only the explicit cancel set can release the jobs.
+          return { rows: [{ id: "wi-queued" }, { id: "wi-running" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/review force"), intakeLog),
+    );
+
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "job-running", expect.anything());
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "job-queued", expect.anything());
+    expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, REVIEW_QUEUE]);
+    const ack = sentJobs[0]?.data;
+    expect(ack?.workItemId).toBe("wi-new");
+    expect(ack?.progress).toBeDefined();
+    expect(ack?.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running", "wi-queued"],
+      attribution: { kind: "user", login: "alice" },
+    });
+    expect(ack?.reply).toEqual({
+      target: { kind: "prConversation", prNumber: 7 },
+      body: SLASH_REVIEW_FORCE_RESTARTED_BODY,
+    });
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_cancel_requested",
+        type: "review",
+        force: true,
+        cancelledCount: 2,
+      }),
+    );
+  });
+
+  it("force with queued and running rows keeps both cancelled ids when the insert loses the race", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const findJobs = vi.fn(async () => [
+      { id: "job-queued", state: "created", data: { workItemId: "wi-queued" } },
+      { id: "old-job", state: "active", data: { workItemId: "wi-running" } },
+      { id: "live-created", state: "created", data: { workItemId: "winner-review" } },
+    ]);
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs,
+      cancel,
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-queued",
+                source: "auto",
+                head_sha: "queued-sha",
+                created_at: "2026-01-01T00:00:02Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "running-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
+        if (sql.includes("staleHeadRescheduled")) return { rows: [{ id: "winner-review" }] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          const ids = params?.[0] as string[];
+          expect(ids).toEqual(expect.arrayContaining(["wi-queued", "wi-running", "winner-review"]));
+          return { rows: [{ id: "winner-review" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/review force"), intakeLog),
+    );
+
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "old-job", expect.anything());
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "job-queued", expect.anything());
+    expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "live-created", expect.anything());
+    expect(sentJobs).toHaveLength(1);
+    expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
+    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running", "wi-queued"],
+      attribution: { kind: "user", login: "alice" },
+    });
+    expect(sentJobs[0]?.data.reply).toEqual({
+      target: { kind: "prConversation", prNumber: 7 },
+      body: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+    });
+  });
+
+  it("force attribution falls back to user for an empty commenter login", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs: vi.fn(async () => [
+        { id: "old-job", state: "active", data: { workItemId: "wi-running" } },
+      ]),
+      cancel: vi.fn(async () => ({ rows: [] })),
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
+          return { rows: [] };
+        }
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "old-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(
+        { ...makeSlashInput("/review force"), commenterLogin: "" },
+        intakeLog,
+      ),
+    );
+
+    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running"],
+      attribution: { kind: "user", login: "user" },
+    });
+    const attributionPatch = JSON.stringify({
+      cancelAttribution: { kind: "user", login: "user" },
+    });
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'running'"), [
+      "acme/app#7",
+      "Cancelled by slash /cancel",
+      attributionPatch,
+    ]);
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_cancel_requested",
+        cancelledByLogin: "user",
+      }),
+    );
+  });
+
+  it("force attribution falls back to user for an invalid commenter login", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs: vi.fn(async () => [
+        { id: "old-job", state: "active", data: { workItemId: "wi-running" } },
+      ]),
+      cancel: vi.fn(async () => ({ rows: [] })),
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
+          return { rows: [] };
+        }
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "old-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(
+        { ...makeSlashInput("/review force"), commenterLogin: "@!invalid" },
+        intakeLog,
+      ),
+    );
+
+    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running"],
+      attribution: { kind: "user", login: "user" },
+    });
+    const attributionPatch = JSON.stringify({
+      cancelAttribution: { kind: "user", login: "user" },
+    });
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'running'"), [
+      "acme/app#7",
+      "Cancelled by slash /cancel",
+      attributionPatch,
+    ]);
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_cancel_requested",
+        cancelledByLogin: "user",
+      }),
+    );
+  });
+
+  it("scopes force cancellation to the PR resource key", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const findJobs = vi.fn(async (_queue: string, opts?: { key?: string }) => {
+      expect(opts?.key).toBe("acme/app#7:review");
+      return [{ id: "old-job", state: "active", data: { workItemId: "wi-running" } }];
+    });
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs,
+      cancel: vi.fn(async () => ({ rows: [] })),
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("SET status = 'cancelled'")) {
+          // The WHERE resource_key predicate must always carry this PR's key.
+          expect(params?.[0]).toBe("acme/app#7");
+          if (sql.includes("status = 'queued'")) return { rows: [] };
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "old-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/review force"), intakeLog),
+    );
+
+    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      cancelledWorkItemIds: ["wi-running"],
+      attribution: { kind: "user", login: "alice" },
+    });
+  });
+
+  it("lists /review force in /help", async () => {
+    expect(SLASH_HELP_BODY).toContain("`/review force`");
   });
 });

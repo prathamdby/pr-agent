@@ -431,6 +431,8 @@ Writing policy is computed once per description run from workspace size stats (`
 | `MAX_LOG_REDACTION_SCAN_LEN`                        | 8000                                                          |
 | `SLASH_HELP_BODY`                                   | `/help` text                                                  |
 | `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY` | `/cancel` ack replies when no review is active / after cancel |
+| `SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY`             | `/review` ack reply when a run is already active              |
+| `SLASH_REVIEW_FORCE_RESTARTED_BODY`                 | `/review force` ack reply after a force restart               |
 | `MIGRATIONS_DIR_NAME`                               | `migrations`                                                  |
 | `MIGRATION_ADVISORY_LOCK_KEY`                       | runMigrations cross-process lock                              |
 | `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                 | 2000ms margin before GitHub's webhook timeout                 |

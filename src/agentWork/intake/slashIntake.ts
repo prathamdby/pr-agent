@@ -8,6 +8,8 @@ import {
   SLASH_CANCEL_DONE_BODY,
   SLASH_CANCEL_NONE_BODY,
   SLASH_HELP_BODY,
+  SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+  SLASH_REVIEW_FORCE_RESTARTED_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
@@ -25,6 +27,7 @@ import {
   prResourceKey,
 } from "../types.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
+import { isReviewForceCommand } from "../../commands/parseSlashCommand.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import { captureTriageEvent } from "../triageAnalytics.js";
@@ -292,8 +295,37 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  const alreadyInProgressBody =
-    "A `/review` run is already queued or in progress for this pull request.";
+  // `/review force`: cancel any queued/running review first so the fresh run
+  // below always starts on the latest head.
+  const force = isReviewForceCommand(ctx.input.body);
+  let cancelProgress: AckJobData["cancelProgress"];
+  if (force) {
+    const attribution = {
+      kind: "user" as const,
+      login: sanitizeGithubLogin(ctx.input.commenterLogin ?? ""),
+    };
+    const cancelled = await cancelActiveReviews(ctx.client, resourceKey, attribution);
+    if (cancelled.length > 0) {
+      cancelProgress = {
+        workItemId: cancelled[0]!.id,
+        cancelledWorkItemIds: cancelled.map((row) => row.id),
+        attribution,
+      };
+      ctx.events.push({
+        name: "agent_work_cancel_requested",
+        fields: {
+          type: "review",
+          source: "slash",
+          workItemId: cancelled[0]!.id,
+          resourceKey,
+          cancelledCount: cancelled.length,
+          cancelledByLogin: attribution.login,
+          force: true,
+          ...ctx.correlation,
+        },
+      });
+    }
+  }
   const insert = await createReviewWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
@@ -303,20 +335,29 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
-    await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey);
+    await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey, {
+      cancelWorkItemIds: cancelProgress?.cancelledWorkItemIds,
+    });
     await enqueueSlashAck(ctx, {
+      ...(cancelProgress ? { cancelProgress } : {}),
       reply: {
         target: ctx.input.replyTarget,
-        body: alreadyInProgressBody,
+        body: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
       },
     });
     return;
   }
   const workItemId = insert.id;
-  await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey);
+  await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey, {
+    cancelWorkItemIds: cancelProgress?.cancelledWorkItemIds,
+  });
   await enqueueSlashAck(ctx, {
     workItemId,
     progress: { lens: "review", headSha: ctx.ref.headSha, source: "slash" },
+    ...(cancelProgress ? { cancelProgress } : {}),
+    ...(cancelProgress
+      ? { reply: { target: ctx.input.replyTarget, body: SLASH_REVIEW_FORCE_RESTARTED_BODY } }
+      : {}),
   });
   await enqueueReview(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   ctx.events.push({
@@ -327,6 +368,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
       workItemId,
       resourceKey,
       lens: "review",
+      force,
       ...ctx.correlation,
     },
   });
