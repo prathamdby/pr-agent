@@ -179,10 +179,9 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     const restore = new Map(before.map((row) => [row.name, row.policy]));
 
     try {
-      await pool.query(
-        `UPDATE pgboss.queue SET policy = 'key_strict_fifo' WHERE name = ANY($1)`,
-        [LEASED_QUEUES],
-      );
+      await pool.query(`UPDATE pgboss.queue SET policy = 'key_strict_fifo' WHERE name = ANY($1)`, [
+        LEASED_QUEUES,
+      ]);
 
       const sql = await readFile(
         path.join(process.cwd(), MIGRATIONS_DIR_NAME, "023_pr_actor_leases.sql"),
