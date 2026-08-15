@@ -213,6 +213,11 @@ describe("runDurableWorkItem", () => {
       holderId: expect.stringContaining(String(process.pid)),
       ttlSeconds: 900,
     });
+    const acquireOrder = vi.mocked(prActorLease.acquirePrActorLease).mock.invocationCallOrder[0];
+    const claimOrder = vi.mocked(repo.claimWorkForExecution).mock.invocationCallOrder[0];
+    expect(acquireOrder).toBeDefined();
+    expect(claimOrder).toBeDefined();
+    expect(acquireOrder).toBeLessThan(claimOrder ?? 0);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[1].leaseEpoch).toBe(1);
     expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
@@ -222,7 +227,7 @@ describe("runDurableWorkItem", () => {
     });
   });
 
-  it("skips execution and defers a redelivery when another work item holds the lease", async () => {
+  it("defers a redelivery without claiming when another work item holds the lease", async () => {
     const item = makeItem();
     mockFetchedItem(item);
     vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
@@ -235,17 +240,24 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
     expect(boss.send).toHaveBeenCalledWith(
       "agent-work-review",
       { workItemId: "wi-1" },
-      expect.objectContaining({ startAfter: prActorLease.PR_ACTOR_LEASE_DEFER_SECONDS }),
+      expect.objectContaining({
+        singletonKey: "wi-1",
+        singletonSeconds: prActorLease.PR_ACTOR_LEASE_DEFER_SECONDS,
+        singletonNextSlot: true,
+        startAfter: prActorLease.PR_ACTOR_LEASE_DEFER_SECONDS,
+        group: { id: expect.any(String) },
+      }),
     );
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
     expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
   });
 
-  it("completes as a no-op without deferring when the same item already holds the lease", async () => {
+  it("defers a redelivery when its own lease is still held, so a crashed execution is retried", async () => {
     const item = makeItem();
     mockFetchedItem(item);
     vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
@@ -258,7 +270,16 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(boss.send).not.toHaveBeenCalled();
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    expect(boss.send).toHaveBeenCalledWith(
+      "agent-work-review",
+      { workItemId: "wi-1" },
+      expect.objectContaining({
+        singletonKey: "wi-1",
+        singletonSeconds: prActorLease.PR_ACTOR_LEASE_DEFER_SECONDS,
+        singletonNextSlot: true,
+      }),
+    );
     expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
   });
 
@@ -441,8 +462,9 @@ describe("runDurableWorkItem", () => {
     );
   });
 
-  it("returns without executing when claim fails", async () => {
-    mockFetchedItem(makeItem());
+  it("releases the lease and returns without executing when claim fails", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue(false);
     const execute = vi.fn();
 
@@ -450,6 +472,11 @@ describe("runDurableWorkItem", () => {
 
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 1,
+    });
   });
 
   it("cancels when payload.commenterId matches bot identity", async () => {

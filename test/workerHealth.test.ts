@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collectQueueDiagnostics,
   evaluateWorkerReadiness,
+  logQueueDiagnosticsReport,
   probeWorkerDependencies,
   startPeriodicQueueDiagnostics,
   WORKER_CONSUMER_QUEUES,
@@ -89,7 +90,10 @@ describe("collectQueueDiagnostics", () => {
       },
     ]);
     const pool = {
-      query: vi.fn(async () => ({ rows: [{ age_ms: "45000" }] })),
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [{ age_ms: "45000" }] })
+        .mockResolvedValueOnce({ rows: [] }),
     } as unknown as Pick<import("pg").Pool, "query">;
 
     const report = await collectQueueDiagnostics({
@@ -112,7 +116,50 @@ describe("collectQueueDiagnostics", () => {
     ]);
     expect(report.deadLetters).toEqual([{ queue: "agent-work-review-dead", queued: 2, total: 5 }]);
     expect(report.oldestRunningWorkItemAgeMs).toBe(45_000);
+    expect(report.staleQueuedWorkItems).toEqual([]);
     expect(report.at).toBe(now.toISOString());
+  });
+
+  it("warns on queued leased work whose resource has no live lease", async () => {
+    const now = new Date("2026-07-26T12:00:00.000Z");
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    const pool = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "wi-stale",
+              resource_key: "o/r#5",
+              work_type: "review",
+              age_seconds: "612.5",
+            },
+          ],
+        }),
+    } as unknown as Pick<import("pg").Pool, "query">;
+
+    const report = await collectQueueDiagnostics({
+      boss: { getQueueStats: vi.fn(async () => []) },
+      pool,
+      now,
+      diagnosticQueues: [],
+      dlqQueues: [],
+    });
+
+    expect(report.staleQueuedWorkItems).toEqual([
+      { workItemId: "wi-stale", resourceKey: "o/r#5", workType: "review", ageSeconds: 612 },
+    ]);
+    logQueueDiagnosticsReport(report);
+    expect(logWarn).toHaveBeenCalledWith(
+      "agent_work_queued_stale",
+      expect.objectContaining({
+        workItemId: "wi-stale",
+        resourceKey: "o/r#5",
+        workType: "review",
+        ageSeconds: 612,
+      }),
+    );
   });
 });
 

@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
+import { captureEvent } from "../analytics/index.js";
 import { logDebug, logWarn } from "../evlog.js";
 import {
   ACK_DEAD_LETTER_QUEUE,
@@ -16,6 +17,8 @@ import {
   RETENTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
+  STALE_QUEUED_WORK_BATCH_SIZE,
+  STALE_QUEUED_WORK_GRACE_SECONDS,
   TRIAGE_DEAD_LETTER_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_DEAD_LETTER_QUEUE,
@@ -148,11 +151,19 @@ export type DeadLetterDiagnostic = {
   readonly total: number;
 };
 
+export type StaleQueuedWorkItem = {
+  readonly workItemId: string;
+  readonly resourceKey: string;
+  readonly workType: string;
+  readonly ageSeconds: number | null;
+};
+
 export type QueueDiagnosticsReport = {
   readonly at: string;
   readonly queues: readonly QueueLaneDiagnostic[];
   readonly deadLetters: readonly DeadLetterDiagnostic[];
   readonly oldestRunningWorkItemAgeMs: number | null;
+  readonly staleQueuedWorkItems: readonly StaleQueuedWorkItem[];
 };
 
 type DiagnosticsBoss = Pick<PgBoss, "getQueueStats">;
@@ -188,6 +199,7 @@ export async function collectQueueDiagnostics(params: {
   );
 
   let oldestRunningWorkItemAgeMs: number | null = null;
+  let staleQueuedWorkItems: StaleQueuedWorkItem[] = [];
   try {
     const result = await params.pool.query<{ age_ms: string | number | null }>(
       `SELECT EXTRACT(EPOCH FROM ($1::timestamptz - started_at)) * 1000 AS age_ms
@@ -202,8 +214,46 @@ export async function collectQueueDiagnostics(params: {
       const age = typeof raw === "number" ? raw : Number(raw);
       if (Number.isFinite(age)) oldestRunningWorkItemAgeMs = Math.max(0, age);
     }
+
+    // A queued leased-type item with no live lease row has no holder to wait behind
+    // and no watchdog chain that can still fire: its delivery chain died.
+    const stale = await params.pool.query<{
+      id: string;
+      resource_key: string;
+      work_type: string;
+      age_seconds: string | number;
+    }>(
+      `SELECT w.id::text AS id,
+              w.resource_key,
+              w.type AS work_type,
+              EXTRACT(EPOCH FROM ($1::timestamptz - w.created_at)) AS age_seconds
+         FROM agent_work_items w
+        WHERE w.type IN ('review', 'description', 'triage', 'verification')
+          AND w.status = 'queued'
+          AND w.created_at < $1::timestamptz - ($2 * interval '1 second')
+          AND NOT EXISTS (
+            SELECT 1 FROM pr_actor_leases l
+             WHERE l.resource_key = w.resource_key
+               AND l.work_type = w.type
+               AND l.work_item_id IS NOT NULL
+               AND l.expires_at > $1::timestamptz
+          )
+        ORDER BY w.created_at ASC
+        LIMIT $3::int`,
+      [params.now.toISOString(), STALE_QUEUED_WORK_GRACE_SECONDS, STALE_QUEUED_WORK_BATCH_SIZE],
+    );
+    staleQueuedWorkItems = stale.rows.map((row) => {
+      const age = typeof row.age_seconds === "number" ? row.age_seconds : Number(row.age_seconds);
+      return {
+        workItemId: row.id,
+        resourceKey: row.resource_key,
+        workType: row.work_type,
+        ageSeconds: Number.isFinite(age) ? Math.floor(age) : null,
+      };
+    });
   } catch {
     oldestRunningWorkItemAgeMs = null;
+    staleQueuedWorkItems = [];
   }
 
   return {
@@ -211,6 +261,7 @@ export async function collectQueueDiagnostics(params: {
     queues,
     deadLetters,
     oldestRunningWorkItemAgeMs,
+    staleQueuedWorkItems,
   };
 }
 
@@ -238,6 +289,26 @@ export function logQueueDiagnosticsReport(report: QueueDiagnosticsReport): void 
     oldestRunningWorkItemAgeMs: report.oldestRunningWorkItemAgeMs,
     at: report.at,
   });
+  for (const stale of report.staleQueuedWorkItems) {
+    logWarn("agent_work_queued_stale", {
+      workItemId: stale.workItemId,
+      resourceKey: stale.resourceKey,
+      workType: stale.workType,
+      ageSeconds: stale.ageSeconds,
+      graceSeconds: STALE_QUEUED_WORK_GRACE_SECONDS,
+    });
+    captureEvent({
+      distinctId: "server",
+      event: "work item queued stale",
+      properties: {
+        work_item_id: stale.workItemId,
+        resource_key: stale.resourceKey,
+        work_type: stale.workType,
+        age_seconds: stale.ageSeconds,
+        grace_seconds: STALE_QUEUED_WORK_GRACE_SECONDS,
+      },
+    });
+  }
 }
 
 export function startPeriodicQueueDiagnostics(params: {

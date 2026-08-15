@@ -19,6 +19,18 @@ export const VERIFICATION_DEAD_LETTER_QUEUE = "agent-work-verification-dead";
 export const CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
+/** Queues whose work types execute under a PR actor lease (see migration 023, ADR 0038). */
+export const LEASED_WORK_QUEUES = [
+  REVIEW_QUEUE,
+  DESCRIPTION_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+] as const;
+
+/** A leased-type item queued this long with no live lease means its delivery chain died. */
+export const STALE_QUEUED_WORK_GRACE_SECONDS = 300;
+export const STALE_QUEUED_WORK_BATCH_SIZE = 10;
+
 export const IGNORED_BOT_SLASH_COMMAND = "ignored_bot_slash_command";
 export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";
 /** Intake decision + deferred log event when closed+merged cancels active reviews. */

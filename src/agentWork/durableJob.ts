@@ -47,7 +47,6 @@ import {
   renewPrActorLease,
   type PrActorLeaseKey,
 } from "./prActorLease.js";
-import { uuidv5 } from "../util/uuidv5.js";
 import { createPrSurface, type PrSurface } from "../github/prSurface.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import {
@@ -72,9 +71,6 @@ export type DurableExecutionContext = {
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
 const leaseHolderId = `${os.hostname()}:${process.pid}`;
-
-/** uuidv5 namespace for deferred redelivery job ids (`<workItemId>:<observedEpoch>` names). */
-const PR_ACTOR_LEASE_DEFER_NAMESPACE = "6f1c4c3e-3f6a-4f5a-9d2b-2b6f0d2f6f2a";
 
 /**
  * Cooperative renewal loop. A failed renewal only warns; the fencing checks before
@@ -164,10 +160,11 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: T;
   /**
-   * Leased work types acquire the PR actor lease before executing, renew it while
-   * running, and fence durable writes on the lease epoch. `queue` receives one
-   * deferred redelivery when another work item holds the lease, so queued-behind
-   * work (e.g. `/review force`, stale-head replacements) retries acquisition.
+   * Leased work types acquire the PR actor lease before claiming, renew it while
+   * running, and fence durable writes on the lease epoch. Every blocked delivery
+   * arms one throttled redelivery on `queue`, so queued-behind work (e.g.
+   * `/review force`, stale-head replacements) and dead-holder recovery both
+   * retry acquisition until the lease frees or lapses.
    */
   readonly prActorLease?: { readonly queue: string };
   readonly acceptItem?: (item: Extract<AgentWorkItemCore, { type: T }>) => boolean;
@@ -411,9 +408,9 @@ export async function runDurableWorkItem<T extends WorkType>(
     await markCancelledAndInvokeHook(core, "job_aborted_before_claim");
     return;
   }
-  if (!(await claimWorkForExecution(spec.pool, core.id))) return;
-  enterExecutingPhase(phaseState);
-
+  // Acquire before claiming: a waiting item stays queued so queue-rank display and
+  // stale-queued diagnostics keep their meaning, and only the lease holder flips
+  // the row to running.
   if (spec.prActorLease) {
     leaseKey = { resourceKey: core.resourceKey, workType: spec.type };
     const acquisition = await acquirePrActorLease(spec.pool, {
@@ -423,18 +420,19 @@ export async function runDurableWorkItem<T extends WorkType>(
       ttlSeconds: spec.cfg.prActorLeaseTtlSeconds,
     });
     if (!acquisition.acquired) {
-      // A live duplicate of this same item needs nothing; a different holder arms one
-      // deferred redelivery so queued-behind work retries instead of stranding.
-      if (acquisition.heldByWorkItemId !== core.id) {
-        await spec.boss.send(spec.prActorLease.queue, spec.job.data, {
-          id: uuidv5(
-            PR_ACTOR_LEASE_DEFER_NAMESPACE,
-            `pr-actor-lease-defer:${core.id}:${acquisition.leaseEpoch}`,
-          ),
-          startAfter: PR_ACTOR_LEASE_DEFER_SECONDS,
-          group: { id: installationGroupId(core.installationId) },
-        });
-      }
+      // Every failed acquire arms one watchdog hop, self-held included: after a crash the
+      // redelivery finds its own lease mid-TTL, and this chain steals it once it lapses.
+      // singletonSeconds dedups pending copies per slot; singletonNextSlot lands the re-arm
+      // past the firing copy's own row, which outlives completion (job_i4 covers all
+      // non-cancelled states).
+      await spec.boss.send(spec.prActorLease.queue, spec.job.data, {
+        singletonKey: core.id,
+        singletonSeconds: PR_ACTOR_LEASE_DEFER_SECONDS,
+        singletonNextSlot: true,
+        startAfter: PR_ACTOR_LEASE_DEFER_SECONDS,
+        priority: spec.job.priority,
+        group: { id: installationGroupId(core.installationId) },
+      });
       logInfo("pr_actor_lease_unavailable", {
         type: spec.type,
         workItemId: core.id,
@@ -447,6 +445,12 @@ export async function runDurableWorkItem<T extends WorkType>(
     leaseEpoch = acquisition.leaseEpoch;
     stopLeaseRenewal = startLeaseRenewal(spec.pool, spec.cfg, leaseKey, core.id, leaseEpoch);
   }
+
+  if (!(await claimWorkForExecution(spec.pool, core.id))) {
+    await releaseLeaseQuietly();
+    return;
+  }
+  enterExecutingPhase(phaseState);
 
   const rawPayload = await getWorkItemPayload(spec.pool, core.id);
   if (rawPayload === undefined) {

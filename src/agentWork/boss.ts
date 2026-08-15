@@ -11,6 +11,7 @@ import {
   CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
+  LEASED_WORK_QUEUES,
   PG_BOSS_POOL_MAX_WEB,
   PG_BOSS_POOL_MAX_WORKER,
   REVIEW_DEAD_LETTER_QUEUE,
@@ -103,6 +104,16 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     ...defaults,
     policy: "standard",
   });
+
+  // pg-boss never changes an existing queue's policy (createQueue is insert-only);
+  // migration 023 flips pre-lease deployments. Loudly catch a queue whose flip was
+  // skipped, since key_strict_fifo would silently re-block PRs with no repair left.
+  for (const name of LEASED_WORK_QUEUES) {
+    const queue = await boss.getQueue(name);
+    if (queue?.policy !== "standard") {
+      logError("agent_queue_policy_mismatch", { queue: name, policy: queue?.policy });
+    }
+  }
 }
 
 export async function stopBoss(boss: PgBoss, drainTimeoutMs: number): Promise<void> {
