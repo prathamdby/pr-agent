@@ -21,6 +21,7 @@ GitHub only for now. GitLab and Bitbucket are not supported.
 Slash commands are case-sensitive. The command must be the first non-empty line of a new (created) comment.
 Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMBER,COLLABORATOR).
 /review: run an orchestrated review. Always available. FEATURE_REVIEW has no off mode.
+/review force: cancel any queued or running review and start a new one on the latest commit.
 /describe: write summary bullets and an optional diagram into the PR body.
 /ask … or @bot …: answer a code question in the same thread.
 /triage: recheck open bot findings and push fixes for valid same-repo issues.

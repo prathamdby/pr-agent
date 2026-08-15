@@ -203,6 +203,27 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
 
   await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_EYES);
 
+  // Cancel before progress: `/review force` acks carry both, and the new run's
+  // queued stub must be the final state after the cancelled notice lands.
+  if (data.cancelProgress) {
+    const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
+    try {
+      await publishCancelProgress(
+        cfg,
+        pool,
+        { ...data, cancelProgress: data.cancelProgress },
+        installation,
+        resourceKey,
+      );
+    } catch (error) {
+      logWarn("ack_cancel_progress_failed", {
+        workItemId: data.cancelProgress.workItemId,
+        resourceKey,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (data.progress) {
     const progressData = { ...data, progress: data.progress };
     const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
@@ -223,25 +244,6 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
       }
     } else {
       await publishAckProgress(cfg, pool, progressData, installation, resourceKey);
-    }
-  }
-
-  if (data.cancelProgress) {
-    const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
-    try {
-      await publishCancelProgress(
-        cfg,
-        pool,
-        { ...data, cancelProgress: data.cancelProgress },
-        installation,
-        resourceKey,
-      );
-    } catch (error) {
-      logWarn("ack_cancel_progress_failed", {
-        workItemId: data.cancelProgress.workItemId,
-        resourceKey,
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
   }
 

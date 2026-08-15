@@ -70,7 +70,11 @@ import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
 } from "../src/review/run/progressComment.js";
-import { REVIEW_PROGRESS_QUEUE_LABEL, reviewProgressCancelledNote } from "../src/settings/index.js";
+import {
+  REVIEW_PROGRESS_QUEUE_LABEL,
+  REVIEW_PROGRESS_QUEUED_NOTE,
+  reviewProgressCancelledNote,
+} from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
 
 const cfg = {} as Config;
@@ -244,9 +248,9 @@ describe("executeAckJob", () => {
         ReturnType<typeof getWorkItemCore>
       >;
     });
-    vi.mocked(getProgressCommentOwner)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({ workItemId: "wi-b", generation: 1 });
+    // wi-a is superseded, so it never reaches the owner lookup; a second
+    // once-value here would leak into later tests.
+    vi.mocked(getProgressCommentOwner).mockResolvedValueOnce(null);
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -508,5 +512,53 @@ describe("executeAckJob", () => {
         workItemIds: ["wi-cancel"],
       }),
     );
+  });
+
+  it("runs cancelProgress before progress when a force ack carries both", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha-old",
+      source: "slash",
+      progressRevision: 1,
+      progressWorkItemId: "wi-old",
+    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+      id: "wi-new",
+      status: "queued",
+      type: "review",
+    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-new",
+      progress: { lens: "review", headSha: "sha-new", source: "slash" },
+      cancelProgress: {
+        workItemId: "wi-old",
+        cancelledWorkItemIds: ["wi-old"],
+        attribution: { kind: "user", login: "alice" },
+      },
+    });
+
+    // The cancelled notice lands on the old stub first, then the new run's queued stub wins.
+    const edit = surfaceBundle.controls.events.find((event) => event.kind === "editComment");
+    expect(edit).toMatchObject({ kind: "editComment", commentId: 99 });
+    const editBody = edit?.kind === "editComment" ? edit.body : "";
+    expect(editBody).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
+    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ workItemIds: ["wi-old"] }),
+    );
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-new",
+        body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
+      }),
+    );
+    const cancelOrder = vi.mocked(cancelReviewCheckRunsForWorkItems).mock.invocationCallOrder[0]!;
+    const progressOrder = vi.mocked(upsertSummaryCommentWithCreationClaim).mock
+      .invocationCallOrder[0]!;
+    expect(cancelOrder).toBeLessThan(progressOrder);
   });
 });
