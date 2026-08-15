@@ -12,6 +12,7 @@ import {
 import {
   claimWorkForExecution,
   markWorkCompleted,
+  markWorkPublishDegraded,
   updateRunningWorkHeadSha,
 } from "../../src/agentWork/repository.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -143,6 +144,20 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     await expect(
       assertPrActorLeaseHeld(pool, deadWorkerItem, dead.leaseEpoch),
     ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+
+    await markWorkPublishDegraded(pool, deadWorkerItem, dead.leaseEpoch);
+    const { rows: deadPayload } = await pool.query<{ payload: { publishDegraded?: boolean } }>(
+      `SELECT payload FROM agent_work_items WHERE id = $1`,
+      [deadWorkerItem],
+    );
+    expect(deadPayload[0]?.payload.publishDegraded).toBeUndefined();
+
+    await markWorkPublishDegraded(pool, successorItem, 2);
+    const { rows: livePayload } = await pool.query<{ payload: { publishDegraded?: boolean } }>(
+      `SELECT payload FROM agent_work_items WHERE id = $1`,
+      [successorItem],
+    );
+    expect(livePayload[0]?.payload.publishDegraded).toBe(true);
 
     await expect(markWorkCompleted(pool, successorItem, 2)).resolves.toBe(true);
     const { rows } = await pool.query<{ status: string }>(

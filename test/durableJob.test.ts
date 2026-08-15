@@ -604,7 +604,7 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ execute });
 
-    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCompleted).toHaveBeenCalled();
   });
 

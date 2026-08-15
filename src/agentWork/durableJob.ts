@@ -587,7 +587,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
     if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
-    if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
+    if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id, leaseEpoch);
     if (!(await markWorkCompleted(spec.pool, item.id, leaseEpoch))) {
       await recheckSkippableAndCancel("completion_race", false);
       return;

@@ -132,7 +132,7 @@ function mockDurableExecution(item = descriptionItem()): void {
       signal: new AbortController().signal,
     });
     if (result?.degraded) {
-      await repo.markWorkPublishDegraded(pool, item.id);
+      await repo.markWorkPublishDegraded(pool, item.id, 1);
     }
   });
 }
@@ -195,7 +195,7 @@ describe("executeDescriptionJob", () => {
 
     await executeDescriptionJob(cfg, pool, boss, descriptionJob());
 
-    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1", 1);
   });
 
   it("does not mark publish degraded when description publishes successfully", async () => {
@@ -239,7 +239,7 @@ describe("executeDescriptionJob", () => {
       },
     });
 
-    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1", 1);
   });
 
   it("treats a lost PR actor lease as publish superseded", async () => {

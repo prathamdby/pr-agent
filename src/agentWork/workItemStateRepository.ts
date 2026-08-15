@@ -244,13 +244,18 @@ function leaseFenceSql(paramIndex: number): string {
 	          WHERE l.work_item_id = agent_work_items.id AND l.lease_epoch = $${paramIndex}))`;
 }
 
-export async function markWorkPublishDegraded(pool: Pool, id: string): Promise<void> {
+export async function markWorkPublishDegraded(
+  pool: Pool,
+  id: string,
+  leaseEpoch: number | null,
+): Promise<void> {
   await pool.query(
     `UPDATE agent_work_items
 		    SET payload = payload || '{"publishDegraded": true}'::jsonb,
 		        updated_at = now()
-		  WHERE id = $1`,
-    [id],
+		  WHERE id = $1
+		    ${leaseFenceSql(2)}`,
+    [id, leaseEpoch],
   );
 }
 
