@@ -48,6 +48,8 @@ import {
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+  DEFAULT_PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS,
+  DEFAULT_PR_ACTOR_LEASE_TTL_SECONDS,
   DEFAULT_QUEUE_HEARTBEAT_SECONDS,
   DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
   DEFAULT_QUEUE_RETENTION_SECONDS,
@@ -377,6 +379,26 @@ export async function loadConfig() {
     DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
   );
 
+  const prActorLeaseTtlSeconds = readPositiveNumber(
+    ENV.PR_ACTOR_LEASE_TTL_SECONDS,
+    DEFAULT_PR_ACTOR_LEASE_TTL_SECONDS,
+  );
+  const prActorLeaseRenewalIntervalSeconds = readPositiveNumber(
+    ENV.PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS,
+    DEFAULT_PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS,
+  );
+  if (prActorLeaseRenewalIntervalSeconds >= prActorLeaseTtlSeconds) {
+    throw new AppError({
+      code: "config.invalid_number",
+      message: `${ENV.PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS} must be less than ${ENV.PR_ACTOR_LEASE_TTL_SECONDS}`,
+      context: {
+        name: ENV.PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS,
+        prActorLeaseTtlSeconds,
+        prActorLeaseRenewalIntervalSeconds,
+      },
+    });
+  }
+
   const queueHeartbeatSeconds = Number(
     optionalEnv(ENV.QUEUE_HEARTBEAT_SECONDS, String(DEFAULT_QUEUE_HEARTBEAT_SECONDS)),
   );
@@ -501,6 +523,8 @@ export async function loadConfig() {
     queueRetryDelaySeconds,
     queueRetryDelayMaxSeconds,
     queueExpireInSeconds,
+    prActorLeaseTtlSeconds,
+    prActorLeaseRenewalIntervalSeconds,
     queueHeartbeatSeconds,
     queuePollingIntervalSeconds,
     queueRetentionSeconds,

@@ -30,6 +30,7 @@ const EXPECTED_MIGRATIONS = [
   "020_github_installation_rate_limit_circuits.sql",
   "021_operation_intent_outcome_unknown.sql",
   "022_execution_epoch.sql",
+  "023_pr_actor_leases.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {

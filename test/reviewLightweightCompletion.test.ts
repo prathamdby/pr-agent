@@ -39,7 +39,6 @@ function autoReviewItem(overrides: { headSha?: string } = {}): AgentWorkItem {
     reviewLens: "review",
     resourceKey: "o/r#1",
     attemptCount: 1,
-    executionEpoch: 1,
     payload: { mode: "review", source: "auto" },
     cancelRequestedAt: new Date(),
   };
@@ -65,7 +64,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      executionEpoch: 1,
+      leaseEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -92,7 +91,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      executionEpoch: 1,
+      leaseEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -116,7 +115,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      executionEpoch: 1,
+      leaseEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -146,7 +145,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      executionEpoch: 1,
+      leaseEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -172,7 +171,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      executionEpoch: 1,
+      leaseEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,

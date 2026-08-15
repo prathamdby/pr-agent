@@ -80,11 +80,12 @@ import {
   loadReviewExecutorPublishContext,
   getSummaryCommentGithubId,
   getWorkItem,
-  isExecutionEpochCurrent,
   recordPublishStep,
   shouldSkipWork,
   type ReviewExecutorPublishContext,
 } from "../repository.js";
+import { isPrActorLeaseHeld } from "../prActorLease.js";
+import { REVIEW_QUEUE } from "../../settings/index.js";
 import {
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
@@ -263,9 +264,9 @@ async function runLightweightCompletionOrSkip(args: {
   readonly payload: ReviewWorkPayload;
   readonly prSurface: PrSurface;
   readonly headSha: string;
-  readonly executionEpoch: number;
+  readonly leaseEpoch: number | null;
 }): Promise<LightweightPhaseResult> {
-  const { cfg, pool, item, reviewLens, payload, prSurface, headSha, executionEpoch } = args;
+  const { cfg, pool, item, reviewLens, payload, prSurface, headSha, leaseEpoch } = args;
   if (payload.source !== "auto") {
     return { done: false, prefetchedPrFiles: undefined };
   }
@@ -286,7 +287,7 @@ async function runLightweightCompletionOrSkip(args: {
     prSurface,
     preflight,
     model: cfg.piModel,
-    executionEpoch,
+    leaseEpoch,
   });
   if (!lightweightResult.handled) {
     return { done: false, prefetchedPrFiles };
@@ -484,7 +485,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly staleHeadAtPublish: { value: boolean };
   readonly priorInlineFeedback: Promise<SettledPriorInlineFeedback>;
   readonly repositoryView: PrRepositoryView;
-  readonly executionEpoch: number;
+  readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
 }): Promise<ReviewExecutionResult> {
   const {
@@ -504,7 +505,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     staleHeadAtPublish,
     priorInlineFeedback,
     repositoryView,
-    executionEpoch,
+    leaseEpoch,
     signal,
   } = args;
   const {
@@ -637,13 +638,13 @@ async function runFullReviewAgainstRepositoryView(args: {
           step,
           githubId: detail?.githubId,
           detail: detail?.meta,
-          executionEpoch,
+          leaseEpoch,
         }),
       {
         pool,
         workItemId: item.id,
         resourceKey: item.resourceKey,
-        executionEpoch,
+        leaseEpoch,
       },
     ),
     reviewSource: payload.source,
@@ -656,7 +657,9 @@ async function runFullReviewAgainstRepositoryView(args: {
     shouldAbortPublish: async () => {
       if (signal.aborted) return true;
       if (await shouldSkipWork(pool, item)) return true;
-      if (!(await isExecutionEpochCurrent(pool, item.id, executionEpoch))) return true;
+      if (leaseEpoch != null && !(await isPrActorLeaseHeld(pool, item.id, leaseEpoch))) {
+        return true;
+      }
       const latestHeadSha = await prSurface.getHeadSha();
       if (latestHeadSha !== headSha) {
         staleHeadAtPublish.value = true;
@@ -721,6 +724,7 @@ export async function executeReviewJob(
     boss,
     job,
     type: "review",
+    prActorLease: { queue: REVIEW_QUEUE },
     acceptItem: (item) => item.reviewLens != null,
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
@@ -786,7 +790,7 @@ export async function executeReviewJob(
         payload,
         prSurface,
         headSha,
-        executionEpoch: env.executionEpoch,
+        leaseEpoch: env.leaseEpoch,
       });
       if (lightweight.done) return lightweight.result;
 
@@ -860,7 +864,7 @@ export async function executeReviewJob(
               staleHeadAtPublish,
               priorInlineFeedback,
               repositoryView,
-              executionEpoch: env.executionEpoch,
+              leaseEpoch: env.leaseEpoch,
               signal: env.signal,
             }),
         ),

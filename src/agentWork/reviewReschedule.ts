@@ -8,10 +8,8 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
 import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
-import { releaseReviewQueueSlotInTx } from "./reviewQueueSlot.js";
 import {
   installationGroupId,
-  reviewSingletonKey,
   type ReviewWorkItem,
   type AckJobData,
   type ReviewJobData,
@@ -24,7 +22,7 @@ export const STALE_HEAD_REPLACEMENT_EXHAUSTED = "review.stale_head_replacement_e
 export type StaleReviewRescheduleResult = {
   readonly rescheduled: true;
   readonly replacementWorkItemId: string;
-  readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+  readonly afterComplete: (boss: PgBoss) => Promise<void>;
   /** Cancel a persisted-but-not-enqueued replacement when the parent fails terminally. */
   readonly onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
 };
@@ -66,8 +64,7 @@ export async function cancelUnenqueuedStaleHeadReplacement(
 ): Promise<void> {
   if (replacementEnqueued) return;
   try {
-    const reviewKey = reviewSingletonKey(parent.resourceKey);
-    if (await replacementReviewJobExists(boss, reviewKey, replacementWorkItemId)) return;
+    if (await replacementReviewJobExists(boss, replacementWorkItemId)) return;
     if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
       logWarn("agent_work_replacement_cancel_failed", {
         type: "review",
@@ -120,14 +117,13 @@ export async function buildStaleReviewRescheduleResult(
   return {
     rescheduled: true,
     replacementWorkItemId: replacement.replacementWorkItemId,
-    afterComplete: async (boss, activePgBossJobId) => {
+    afterComplete: async (boss) => {
       await enqueueReviewReschedule(
         pool,
         boss,
         item,
         replacement.replacementWorkItemId,
         replacement.headSha,
-        activePgBossJobId,
       );
       replacementEnqueued = true;
     },
@@ -268,20 +264,11 @@ async function markStaleHeadReplacementEnqueued(
   );
 }
 
-async function replacementReviewJobExists(
-  boss: PgBoss,
-  singletonKey: string,
-  workItemId: string,
-): Promise<boolean> {
-  const jobs = await boss.findJobs<ReviewJobData>(REVIEW_QUEUE, { key: singletonKey });
+async function replacementReviewJobExists(boss: PgBoss, workItemId: string): Promise<boolean> {
+  const jobs = await boss.findJobs<ReviewJobData>(REVIEW_QUEUE, { id: workItemId });
   return jobs.some((job) => {
     const state = job.state as string;
-    return (
-      job.data.workItemId === workItemId &&
-      state !== "cancelled" &&
-      state !== "completed" &&
-      state !== "failed"
-    );
+    return state !== "cancelled" && state !== "completed" && state !== "failed";
   });
 }
 
@@ -312,18 +299,12 @@ export async function enqueueReviewReschedule(
   item: ReviewWorkItem,
   workItemId: string,
   replacementHeadSha: string,
-  activePgBossJobId?: string,
 ): Promise<void> {
   const reviewLens = item.reviewLens;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
-  const reviewKey = reviewSingletonKey(item.resourceKey);
 
   await inTransaction(pool, async (client) => {
     const db = pgBossDb(client);
-    await releaseReviewQueueSlotInTx(boss, client, item.resourceKey, {
-      skipJobId: activePgBossJobId,
-      skipWorkItemId: workItemId,
-    });
 
     const reviewData: ReviewJobData = {
       kind: "review",
@@ -337,7 +318,6 @@ export async function enqueueReviewReschedule(
       {
         db,
         id: workItemId,
-        singletonKey: reviewKey,
         group: { id: installationGroupId(item.installationId) },
       },
       db,

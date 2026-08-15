@@ -95,15 +95,15 @@ describe("ensureAgentQueues", () => {
     expect(parentStarted.map((entry) => entry.name)).toEqual(parentQueues);
     expect(parentStarted.map((entry) => entry.options)).toEqual([
       expect.objectContaining({ policy: "standard", deadLetter: ACK_DEAD_LETTER_QUEUE }),
-      expect.objectContaining({ policy: "key_strict_fifo", deadLetter: REVIEW_DEAD_LETTER_QUEUE }),
+      expect.objectContaining({ policy: "standard", deadLetter: REVIEW_DEAD_LETTER_QUEUE }),
       expect.objectContaining({ policy: "standard", deadLetter: ASK_DEAD_LETTER_QUEUE }),
       expect.objectContaining({
-        policy: "key_strict_fifo",
+        policy: "standard",
         deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE,
       }),
-      expect.objectContaining({ policy: "key_strict_fifo", deadLetter: TRIAGE_DEAD_LETTER_QUEUE }),
+      expect.objectContaining({ policy: "standard", deadLetter: TRIAGE_DEAD_LETTER_QUEUE }),
       expect.objectContaining({
-        policy: "key_strict_fifo",
+        policy: "standard",
         deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
       }),
       expect.objectContaining({

@@ -174,8 +174,6 @@ type WorkItemBase = PrRef & {
   readonly status: WorkStatus;
   readonly resourceKey: string;
   readonly attemptCount: number;
-  /** Monotonic fencing token; durable writes from a stale claim are rejected. */
-  readonly executionEpoch: number;
   readonly cancelRequestedAt: Date | null;
 };
 
@@ -261,22 +259,6 @@ export type QueueConfig = Pick<
 
 export function prResourceKey(owner: string, repo: string, prNumber: number): string {
   return `${owner}/${repo}#${prNumber}`;
-}
-
-export function reviewSingletonKey(resourceKey: string): string {
-  return `${resourceKey}:review`;
-}
-
-export function descriptionSingletonKey(resourceKey: string): string {
-  return `${resourceKey}:description`;
-}
-
-export function triageSingletonKey(resourceKey: string): string {
-  return `${resourceKey}:triage`;
-}
-
-export function verificationSingletonKey(resourceKey: string): string {
-  return `${resourceKey}:verification`;
 }
 
 export function installationGroupId(installationId: number): string {

@@ -83,7 +83,7 @@ function mockDurableExecution(workItem = item()): void {
     spec.execute(workItem, {
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
-      executionEpoch: 1,
+      leaseEpoch: 1,
       signal: new AbortController().signal,
     }),
   );
@@ -413,7 +413,7 @@ describe("executeVerificationJob", () => {
       executeResult = await spec.execute(item(), {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
-        executionEpoch: 1,
+        leaseEpoch: 1,
         signal: new AbortController().signal,
       });
     });
@@ -447,7 +447,7 @@ describe("executeVerificationJob", () => {
       executeResult = await spec.execute(item(), {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
-        executionEpoch: 1,
+        leaseEpoch: 1,
         signal: new AbortController().signal,
       });
     });
@@ -516,7 +516,7 @@ describe("executeVerificationJob", () => {
         {
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
-          executionEpoch: 1,
+          leaseEpoch: 1,
           signal: new AbortController().signal,
         },
       );

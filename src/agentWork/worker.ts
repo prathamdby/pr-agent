@@ -38,8 +38,6 @@ import {
   type VerificationJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
-import { reapReviewQueueOrphans } from "./reviewQueueSlot.js";
-import { reapStrandedWorkItems } from "./strandedWorkReaper.js";
 import {
   collectQueueDiagnostics,
   evaluateWorkerReadiness,
@@ -267,28 +265,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               await cleanupStaleLocalPrWorkspaces();
             } catch (e) {
               logWarn("local_pr_workspace_sweep_failed", {
-                message: e instanceof Error ? e.message : String(e),
-                ...errorLogFields(e),
-              });
-            }
-            try {
-              const reaped = await reapStrandedWorkItems(pool);
-              if (reaped.reaped > 0) {
-                logInfo("stranded_work_reaper_tick", reaped);
-              }
-            } catch (e) {
-              logWarn("stranded_work_reaper_failed", {
-                message: e instanceof Error ? e.message : String(e),
-                ...errorLogFields(e),
-              });
-            }
-            try {
-              const orphans = await reapReviewQueueOrphans(boss, pool);
-              if (orphans.released > 0 || orphans.staleQueuedLogged > 0) {
-                logInfo("review_queue_orphan_reaper_tick", orphans);
-              }
-            } catch (e) {
-              logWarn("review_queue_orphan_reaper_failed", {
                 message: e instanceof Error ? e.message : String(e),
                 ...errorLogFields(e),
               });

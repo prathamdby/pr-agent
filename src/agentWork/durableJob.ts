@@ -1,3 +1,4 @@
+import os from "node:os";
 import type { JobWithMetadata } from "pg-boss";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -25,13 +26,11 @@ import {
   type GithubReactionContent,
 } from "../settings/index.js";
 import {
-  claimQueuedWorkItem,
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
   getWorkItem,
   getWorkItemCore,
   getWorkItemPayload,
-  isExecutionEpochCurrent,
   markWorkCancelled,
   markWorkCompleted,
   markWorkFailed,
@@ -40,6 +39,15 @@ import {
   shouldSkipWork,
   updateRunningWorkHeadSha,
 } from "./repository.js";
+import {
+  acquirePrActorLease,
+  isPrActorLeaseHeld,
+  PR_ACTOR_LEASE_DEFER_SECONDS,
+  releasePrActorLease,
+  renewPrActorLease,
+  type PrActorLeaseKey,
+} from "./prActorLease.js";
+import { uuidv5 } from "../util/uuidv5.js";
 import { createPrSurface, type PrSurface } from "../github/prSurface.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import {
@@ -47,7 +55,7 @@ import {
   isStaleHeadReplacementExhausted,
 } from "./reviewReschedule.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
-import { isWorkItemType } from "./types.js";
+import { installationGroupId, isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
 import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
@@ -56,11 +64,60 @@ export type DurableExecutionContext = {
   prSurface: PrSurface;
   headSha: string;
   pullRequest?: PullRequestForFileList;
-  /** Fencing token from the claim that owns this execution. */
-  executionEpoch: number;
+  /** Fencing token of the PR actor lease owning this execution; null for unleased work types. */
+  leaseEpoch: number | null;
   /** pg-boss job abort signal; aborted when the worker is stopped or the job is cancelled. */
   signal: AbortSignal;
 };
+
+/** Per-process identity recorded on lease rows so operators can see who owns a PR. */
+const leaseHolderId = `${os.hostname()}:${process.pid}`;
+
+/** uuidv5 namespace for deferred redelivery job ids (`<workItemId>:<observedEpoch>` names). */
+const PR_ACTOR_LEASE_DEFER_NAMESPACE = "6f1c4c3e-3f6a-4f5a-9d2b-2b6f0d2f6f2a";
+
+/**
+ * Cooperative renewal loop. A failed renewal only warns; the fencing checks before
+ * durable writes are what stop the holder at its next checkpoint.
+ */
+function startLeaseRenewal(
+  pool: Pool,
+  cfg: Config,
+  key: PrActorLeaseKey,
+  workItemId: string,
+  leaseEpoch: number,
+): () => void {
+  const timer = setInterval(() => {
+    void renewPrActorLease(pool, {
+      ...key,
+      leaseEpoch,
+      ttlSeconds: cfg.prActorLeaseTtlSeconds,
+    }).then(
+      (renewed) => {
+        if (!renewed) {
+          logWarn("pr_actor_lease_lost", {
+            workItemId,
+            resourceKey: key.resourceKey,
+            workType: key.workType,
+            leaseEpoch,
+          });
+          clearInterval(timer);
+        }
+      },
+      (error: unknown) => {
+        logWarn("pr_actor_lease_renewal_failed", {
+          workItemId,
+          resourceKey: key.resourceKey,
+          workType: key.workType,
+          leaseEpoch,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+  }, cfg.prActorLeaseRenewalIntervalSeconds * 1000);
+  timer.unref();
+  return () => clearInterval(timer);
+}
 
 let botIdentityCache: Promise<BotIdentity> | undefined;
 
@@ -90,7 +147,7 @@ type DurableExecutionResult = {
   readonly degraded?: boolean;
   readonly rescheduled?: boolean;
   readonly replacementWorkItemId?: string;
-  readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+  readonly afterComplete?: (boss: PgBoss) => Promise<void>;
   /** Review-owned: cancel a persisted-but-not-enqueued replacement on terminal parent failure. */
   readonly onRescheduleAbort?: (boss: PgBoss, error: unknown) => Promise<void>;
 };
@@ -106,6 +163,13 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: T;
+  /**
+   * Leased work types acquire the PR actor lease before executing, renew it while
+   * running, and fence durable writes on the lease epoch. `queue` receives one
+   * deferred redelivery when another work item holds the lease, so queued-behind
+   * work (e.g. `/review force`, stale-head replacements) retries acquisition.
+   */
+  readonly prActorLease?: { readonly queue: string };
   readonly acceptItem?: (item: Extract<AgentWorkItemCore, { type: T }>) => boolean;
   readonly resolveHeadSha: (
     prSurface: PrSurface,
@@ -160,9 +224,9 @@ async function finishRescheduledParentWorkItem(
   itemId: string,
   type: WorkType,
   replacementWorkItemId: string | undefined,
-  executionEpoch: number,
+  leaseEpoch: number | null,
 ): Promise<void> {
-  if (await markWorkCompleted(pool, itemId, executionEpoch)) {
+  if (await markWorkCompleted(pool, itemId, leaseEpoch)) {
     await clearResumeSnapshotsBestEffort(pool, itemId);
     logInfo("agent_work_completed", {
       type,
@@ -198,7 +262,7 @@ async function finishRescheduledParentWorkItem(
     });
   }
   if (await shouldSkipWork(pool, refreshed ?? { id: itemId })) {
-    await markWorkCancelled(pool, itemId, executionEpoch);
+    await markWorkCancelled(pool, itemId, leaseEpoch);
     await clearResumeSnapshotsBestEffort(pool, itemId);
   }
 }
@@ -251,7 +315,8 @@ export async function runDurableWorkItem<T extends WorkType>(
   type TypedCore = Extract<AgentWorkItemCore, { type: T }>;
 
   let workItem: TypedItem | undefined;
-  let executionEpoch = 0;
+  let leaseEpoch: number | null = null;
+  let leaseKey: PrActorLeaseKey | undefined;
   const jobSignal = spec.job.signal;
   const phaseState: WorkItemPhaseState = { phase: "claiming" };
   let seededInstallation: InstallationToken | undefined;
@@ -292,90 +357,133 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function markCancelledAndInvokeHook(
     itemCore: TypedCore,
     reason: string,
-    /** When set, only this claim may terminalise the row. */
-    cancelEpoch?: number,
+    /** When set, cancel only while this lease epoch still owns the row. */
+    cancelLeaseEpoch?: number | null,
     installation?: InstallationToken,
   ): Promise<void> {
     if (
-      cancelEpoch != null &&
-      !(await isExecutionEpochCurrent(spec.pool, itemCore.id, cancelEpoch))
+      cancelLeaseEpoch != null &&
+      !(await isPrActorLeaseHeld(spec.pool, itemCore.id, cancelLeaseEpoch))
     ) {
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,
         workItemId: itemCore.id,
-        executionEpoch: cancelEpoch,
+        leaseEpoch: cancelLeaseEpoch,
         reason,
       });
       return;
     }
-    if (cancelEpoch != null) {
-      await markWorkCancelled(spec.pool, itemCore.id, cancelEpoch);
-    } else {
-      await markWorkCancelled(spec.pool, itemCore.id);
-    }
+    await markWorkCancelled(spec.pool, itemCore.id, cancelLeaseEpoch);
     await clearResumeSnapshotsBestEffort(spec.pool, itemCore.id);
     await invokeCancelledHook(itemCore, reason, installation);
   }
 
-  if (spec.acceptItem == null) {
-    workItem =
-      (await claimQueuedWorkItem(spec.pool, spec.job.data.workItemId, spec.type)) ?? undefined;
-    if (workItem) {
-      executionEpoch = workItem.executionEpoch;
-      enterExecutingPhase(phaseState);
+  let stopLeaseRenewal: (() => void) | undefined;
+  /** Stop renewal and clear the lease holder in place; safe to call more than once. */
+  const releaseLeaseQuietly = async (): Promise<void> => {
+    stopLeaseRenewal?.();
+    stopLeaseRenewal = undefined;
+    if (leaseKey == null || leaseEpoch == null) return;
+    const key = leaseKey;
+    const epoch = leaseEpoch;
+    leaseKey = undefined;
+    try {
+      await releasePrActorLease(spec.pool, { ...key, leaseEpoch: epoch });
+    } catch (error) {
+      logWarn("pr_actor_lease_release_failed", {
+        type: spec.type,
+        workItemId: spec.job.data.workItemId,
+        resourceKey: key.resourceKey,
+        leaseEpoch: epoch,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
+  };
+
+  const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
+  if (!workItemAccepted(core, spec)) return;
+
+  if (await shouldSkipWork(spec.pool, core)) {
+    await markCancelledAndInvokeHook(core, "skipped_before_claim");
+    return;
   }
+  if (jobSignal.aborted) {
+    await markCancelledAndInvokeHook(core, "job_aborted_before_claim");
+    return;
+  }
+  if (!(await claimWorkForExecution(spec.pool, core.id))) return;
+  enterExecutingPhase(phaseState);
 
-  if (workItem === undefined) {
-    const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
-    if (!workItemAccepted(core, spec)) return;
-
-    const cancelBeforeClaim = async () => {
-      if (isSkipCheckSuppressed(phaseState)) return false;
-      if (!(await shouldSkipWork(spec.pool, core))) return false;
-      await markCancelledAndInvokeHook(core, "skipped_before_claim");
-      return true;
-    };
-
-    if (await cancelBeforeClaim()) return;
-    if (jobSignal.aborted) {
-      await markCancelledAndInvokeHook(core, "job_aborted_before_claim");
+  if (spec.prActorLease) {
+    leaseKey = { resourceKey: core.resourceKey, workType: spec.type };
+    const acquisition = await acquirePrActorLease(spec.pool, {
+      ...leaseKey,
+      workItemId: core.id,
+      holderId: leaseHolderId,
+      ttlSeconds: spec.cfg.prActorLeaseTtlSeconds,
+    });
+    if (!acquisition.acquired) {
+      // A live duplicate of this same item needs nothing; a different holder arms one
+      // deferred redelivery so queued-behind work retries instead of stranding.
+      if (acquisition.heldByWorkItemId !== core.id) {
+        await spec.boss.send(spec.prActorLease.queue, spec.job.data, {
+          id: uuidv5(
+            PR_ACTOR_LEASE_DEFER_NAMESPACE,
+            `pr-actor-lease-defer:${core.id}:${acquisition.leaseEpoch}`,
+          ),
+          startAfter: PR_ACTOR_LEASE_DEFER_SECONDS,
+          group: { id: installationGroupId(core.installationId) },
+        });
+      }
+      logInfo("pr_actor_lease_unavailable", {
+        type: spec.type,
+        workItemId: core.id,
+        resourceKey: core.resourceKey,
+        heldByWorkItemId: acquisition.heldByWorkItemId,
+        leaseEpoch: acquisition.leaseEpoch,
+      });
       return;
     }
-    const claim = await claimWorkForExecution(spec.pool, core.id);
-    if (!claim) return;
-    executionEpoch = claim.executionEpoch;
-    enterExecutingPhase(phaseState);
-    const rawPayload = await getWorkItemPayload(spec.pool, core.id);
-    if (rawPayload === undefined) return;
-    try {
-      workItem = attachWorkItemPayload({ ...core, executionEpoch }, rawPayload) as TypedItem;
-    } catch (error) {
-      await markWorkFailed(spec.pool, core.id, error, executionEpoch);
-      throw error;
-    }
+    leaseEpoch = acquisition.leaseEpoch;
+    stopLeaseRenewal = startLeaseRenewal(spec.pool, spec.cfg, leaseKey, core.id, leaseEpoch);
   }
 
-  if (workItem === undefined) return;
+  const rawPayload = await getWorkItemPayload(spec.pool, core.id);
+  if (rawPayload === undefined) {
+    await releaseLeaseQuietly();
+    return;
+  }
+  try {
+    workItem = attachWorkItemPayload(core, rawPayload);
+  } catch (error) {
+    await markWorkFailed(spec.pool, core.id, error, leaseEpoch);
+    await releaseLeaseQuietly();
+    throw error;
+  }
+
   const item = workItem;
+
+  /** Unleased types have no fencing token; leased types own the row only while their epoch holds. */
+  const executionStillOwns = async (): Promise<boolean> =>
+    leaseEpoch == null || (await isPrActorLeaseHeld(spec.pool, item.id, leaseEpoch));
 
   const cancelIfSkippable = async (reason: string, notifyHook = true) => {
     if (isSkipCheckSuppressed(phaseState)) return false;
-    // Newer claim owns the row — exit without terminalising their work item.
-    if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {
+    // A newer execution owns the lease — exit without terminalising its work item.
+    if (!(await executionStillOwns())) {
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,
         workItemId: item.id,
-        executionEpoch,
+        leaseEpoch,
         reason,
       });
       return true;
     }
     if (!(await shouldSkipWork(spec.pool, item))) return false;
     if (notifyHook) {
-      await markCancelledAndInvokeHook(item, reason, executionEpoch, seededInstallation);
+      await markCancelledAndInvokeHook(item, reason, leaseEpoch, seededInstallation);
     } else {
-      await markWorkCancelled(spec.pool, item.id, executionEpoch);
+      await markWorkCancelled(spec.pool, item.id, leaseEpoch);
       await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     }
     return true;
@@ -390,20 +498,20 @@ export async function runDurableWorkItem<T extends WorkType>(
     installationToken: InstallationToken,
   ): Promise<DurableExecutionContext | undefined> {
     if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
-      await markCancelledAndInvokeHook(item, "bot_commenter", executionEpoch, installationToken);
+      await markCancelledAndInvokeHook(item, "bot_commenter", leaseEpoch, installationToken);
       return undefined;
     }
 
     const prSurface = createPrSurfaceForItem(spec.cfg, item, installationToken);
     const resolvedHead = await spec.resolveHeadSha(prSurface, item);
     const headSha = resolvedHead.headSha;
-    if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, executionEpoch)) {
+    if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, leaseEpoch)) {
       executionPrSurface = prSurface;
       return {
         prSurface,
         headSha,
         pullRequest: resolvedHead.pullRequest,
-        executionEpoch,
+        leaseEpoch,
         signal: jobSignal,
       };
     }
@@ -415,7 +523,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function completeRescheduledResult(result: DurableExecutionResult): Promise<void> {
     pendingRescheduleAbort = result.onRescheduleAbort;
     if (result.afterComplete) {
-      await result.afterComplete(spec.boss, spec.job.id);
+      await result.afterComplete(spec.boss);
     }
     // Enqueue finished (or was already done); do not cancel the replacement if parent complete fails.
     pendingRescheduleAbort = undefined;
@@ -424,7 +532,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       item.id,
       spec.type,
       result.replacementWorkItemId,
-      executionEpoch,
+      leaseEpoch,
     );
   }
 
@@ -476,7 +584,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
     if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
-    if (!(await markWorkCompleted(spec.pool, item.id, executionEpoch))) {
+    if (!(await markWorkCompleted(spec.pool, item.id, leaseEpoch))) {
       await recheckSkippableAndCancel("completion_race", false);
       return;
     }
@@ -486,7 +594,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
-    if (await markWorkRetrying(spec.pool, item.id, error, executionEpoch)) {
+    if (await markWorkRetrying(spec.pool, item.id, error, leaseEpoch)) {
       const failure = classifyFailure(error);
       logWarn("agent_work_retrying", {
         type: spec.type,
@@ -518,11 +626,11 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function handleDurableExecutionError(error: unknown): Promise<void> {
-    if (isAppError(error) && error.code === "agent_work.stale_execution_epoch") {
+    if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,
         workItemId: item.id,
-        executionEpoch,
+        leaseEpoch,
       });
       return;
     }
@@ -538,7 +646,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
 
-    if (!(await markWorkFailed(spec.pool, item.id, error, executionEpoch))) {
+    if (!(await markWorkFailed(spec.pool, item.id, error, leaseEpoch))) {
       await recheckSkippableAndCancel("failure_race");
       return;
     }
@@ -584,15 +692,15 @@ export async function runDurableWorkItem<T extends WorkType>(
 
   try {
     if (jobSignal.aborted) {
-      await markCancelledAndInvokeHook(item, "job_aborted", executionEpoch, seededInstallation);
+      await markCancelledAndInvokeHook(item, "job_aborted", leaseEpoch, seededInstallation);
       return;
     }
-    if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {
-      // A newer claim owns the row — do not terminalise it.
+    if (!(await executionStillOwns())) {
+      // A newer execution owns the lease — do not terminalise its work item.
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,
         workItemId: item.id,
-        executionEpoch,
+        leaseEpoch,
       });
       return;
     }
@@ -604,14 +712,14 @@ export async function runDurableWorkItem<T extends WorkType>(
       type: spec.type,
       workItemId: item.id,
       resourceKey: item.resourceKey,
-      executionEpoch,
+      leaseEpoch,
     });
     await reconcilePendingIntents(spec.pool, item.id);
-    if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {
+    if (!(await executionStillOwns())) {
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,
         workItemId: item.id,
-        executionEpoch,
+        leaseEpoch,
       });
       return;
     }
@@ -623,5 +731,10 @@ export async function runDurableWorkItem<T extends WorkType>(
     await completeDurableExecution(result);
   } catch (error) {
     await handleDurableExecutionError(error);
+  } finally {
+    // Terminal marks and hooks above ran under the lease; release happens after them so
+    // no durable write from this epoch can be fenced out by an early clear. On retry
+    // (markRetryingOrCancel rethrows) the next delivery re-acquires with a fresh epoch.
+    await releaseLeaseQuietly();
   }
 }

@@ -162,7 +162,7 @@ export function buildSubmitDescriptionTool(params: {
             workItemId: params.operationIntent.workItemId,
             operationKey: descriptionPrBodyOperationKey(params.operationIntent.resourceKey),
             mutationKind: "github.pr_body",
-            executionEpoch: params.operationIntent.executionEpoch,
+            leaseEpoch: params.operationIntent.leaseEpoch,
             detail: {
               step: "pr_body",
               resourceKey: params.operationIntent.resourceKey,

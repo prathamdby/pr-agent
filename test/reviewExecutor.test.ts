@@ -50,10 +50,13 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: mocks.recordPublishStep,
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
   shouldSkipWork: mocks.shouldSkipWork,
-  isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
   getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
   getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   getWorkItem: mocks.getWorkItem,
+}));
+
+vi.mock("../src/agentWork/prActorLease.js", () => ({
+  isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("../src/review/orchestrator/orchestratorRun.js", () => ({
@@ -173,7 +176,7 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
     await spec.execute(item, {
       prSurface: durableSurfaceBundle.surface,
       headSha: "head",
-      executionEpoch: 1,
+      leaseEpoch: 1,
       signal: new AbortController().signal,
       pullRequest: source === "slash" ? pullRequest : undefined,
     });
@@ -477,7 +480,7 @@ describe("executeReviewJob", () => {
           prSurface: durableSurfaceBundle.surface,
           headSha: "old-replacement-head",
           pullRequest: { ...pullRequest, head: { sha: "old-replacement-head" } },
-          executionEpoch: 1,
+          leaseEpoch: 1,
           signal: new AbortController().signal,
         }),
       ).rejects.toMatchObject({ code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED });
@@ -1145,7 +1148,7 @@ describe("executeReviewJob", () => {
       await spec.execute(makeItem("slash"), {
         prSurface: durableSurfaceBundle.surface,
         headSha: "head",
-        executionEpoch: 1,
+        leaseEpoch: 1,
         signal: new AbortController().signal,
         pullRequest: prWithDescriptionOnly,
       });
@@ -1167,7 +1170,7 @@ describe("executeReviewJob", () => {
       await spec.execute(makeItem("slash"), {
         prSurface: durableSurfaceBundle.surface,
         headSha: "head",
-        executionEpoch: 1,
+        leaseEpoch: 1,
         signal: new AbortController().signal,
         pullRequest: prWithDescription,
       });

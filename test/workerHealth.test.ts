@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PgBoss } from "pg-boss";
 import {
   collectQueueDiagnostics,
   evaluateWorkerReadiness,
@@ -75,7 +74,7 @@ describe("collectQueueDiagnostics", () => {
     vi.restoreAllMocks();
   });
 
-  it("reports depth, DLQ totals, blocked-key age, and oldest running work item", async () => {
+  it("reports depth, DLQ totals, and oldest running work item", async () => {
     const now = new Date("2026-07-26T12:00:00.000Z");
     const getQueueStats = vi.fn(async (queue: string) => [
       {
@@ -89,18 +88,12 @@ describe("collectQueueDiagnostics", () => {
         capturedOn: now,
       },
     ]);
-    const getBlockedKeys = vi.fn(async () => ["owner/repo#1"]);
-    const findJobs = vi.fn(async () => [
-      {
-        createdOn: new Date("2026-07-26T11:59:00.000Z"),
-      },
-    ]);
     const pool = {
       query: vi.fn(async () => ({ rows: [{ age_ms: "45000" }] })),
     } as unknown as Pick<import("pg").Pool, "query">;
 
     const report = await collectQueueDiagnostics({
-      boss: { getQueueStats, getBlockedKeys, findJobs } as unknown as PgBoss,
+      boss: { getQueueStats },
       pool,
       now,
       diagnosticQueues: [REVIEW_QUEUE],
@@ -118,7 +111,6 @@ describe("collectQueueDiagnostics", () => {
       },
     ]);
     expect(report.deadLetters).toEqual([{ queue: "agent-work-review-dead", queued: 2, total: 5 }]);
-    expect(report.blockedReviewKeys).toEqual([{ key: "owner/repo#1", ageMs: 60_000 }]);
     expect(report.oldestRunningWorkItemAgeMs).toBe(45_000);
     expect(report.at).toBe(now.toISOString());
   });

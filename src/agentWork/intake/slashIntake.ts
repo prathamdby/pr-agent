@@ -39,7 +39,6 @@ import {
   jobCorrelation,
 } from "./queueing.js";
 import { promoteAskFromWebhookEvent } from "./askIntake.js";
-import { releaseReviewQueueSlotInTx } from "../reviewQueueSlot.js";
 import {
   cancelActiveReviews,
   createDescriptionWorkItem,
@@ -335,9 +334,6 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
-    await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey, {
-      cancelWorkItemIds: cancelProgress?.cancelledWorkItemIds,
-    });
     await enqueueSlashAck(ctx, {
       ...(cancelProgress ? { cancelProgress } : {}),
       reply: {
@@ -348,9 +344,6 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const workItemId = insert.id;
-  await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey, {
-    cancelWorkItemIds: cancelProgress?.cancelledWorkItemIds,
-  });
   await enqueueSlashAck(ctx, {
     workItemId,
     progress: { lens: "review", headSha: ctx.ref.headSha, source: "slash" },
@@ -393,9 +386,6 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
   }
   const primary = cancelled[0]!;
   const cancelledWorkItemIds = cancelled.map((row) => row.id);
-  await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey, {
-    cancelWorkItemIds: cancelledWorkItemIds,
-  });
   await enqueueSlashAck(ctx, {
     cancelProgress: {
       workItemId: primary.id,

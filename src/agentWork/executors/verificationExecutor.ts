@@ -19,6 +19,7 @@ import {
   MAX_REPO_POLICY_BYTES,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
+  VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
@@ -37,6 +38,7 @@ export async function executeVerificationJob(
     boss,
     job,
     type: "verification",
+    prActorLease: { queue: VERIFICATION_QUEUE },
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const payload = item.payload;
@@ -193,7 +195,7 @@ export async function executeVerificationJob(
         changedFilePathsTruncated: compareFilesTruncated,
         policyResult: result.policyResult,
         findingHistoryCfg: cfg,
-        executionEpoch: env.executionEpoch,
+        leaseEpoch: env.leaseEpoch,
       });
 
       const degraded = publish.degraded || resolutionDegraded || compareFilesTruncated;

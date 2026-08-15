@@ -170,7 +170,7 @@ describe("createReviewRescheduleWorkItem", () => {
       String(call[0]).includes("INSERT INTO agent_work_items"),
     )?.[1] as unknown[] | undefined;
     expect(insertParams?.[2]).toBe("auto");
-    await result.afterComplete(boss, "active-job");
+    await result.afterComplete(boss);
 
     const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
     expect(ackCall?.[1]).toMatchObject({
@@ -224,7 +224,7 @@ describe("createReviewRescheduleWorkItem", () => {
         },
       }),
     );
-    await result.afterComplete(boss, "active-job");
+    await result.afterComplete(boss);
 
     const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
     expect(ackCall?.[1]).toMatchObject({
@@ -298,14 +298,7 @@ describe("enqueueReviewReschedule", () => {
     const deleteJob = vi.fn();
     const boss = { send, findJobs, cancel, deleteJob } as unknown as PgBoss;
 
-    await enqueueReviewReschedule(
-      pool,
-      boss,
-      makeItem(),
-      "replacement-wi",
-      "newhead",
-      "active-job",
-    );
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
 
     expect(cancel).not.toHaveBeenCalled();
     expect(deleteJob).not.toHaveBeenCalled();
@@ -356,7 +349,6 @@ describe("enqueueReviewReschedule", () => {
     expect(send.mock.calls[0]?.[2]).toMatchObject({
       db: expect.any(Object),
       id: "replacement-wi",
-      singletonKey: "o/r#1:review",
     });
     expect(send.mock.calls[1]?.[2]).toMatchObject({
       db: expect.any(Object),
@@ -373,11 +365,7 @@ describe("enqueueReviewReschedule", () => {
       state: "created",
       data: { kind: "review", workItemId: "replacement-wi" },
     };
-    const findJobs = vi
-      .fn()
-      .mockResolvedValueOnce([existingReplacement])
-      .mockResolvedValueOnce([existingReplacement])
-      .mockResolvedValueOnce([]);
+    const findJobs = vi.fn().mockResolvedValueOnce([existingReplacement]).mockResolvedValueOnce([]);
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
@@ -400,11 +388,7 @@ describe("enqueueReviewReschedule", () => {
       state: "completed",
       data: { kind: "review", workItemId: "replacement-wi" },
     };
-    const findJobs = vi
-      .fn()
-      .mockResolvedValueOnce([existingReview])
-      .mockResolvedValueOnce([existingReview])
-      .mockResolvedValueOnce([]);
+    const findJobs = vi.fn().mockResolvedValueOnce([existingReview]).mockResolvedValueOnce([]);
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
@@ -624,7 +608,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
         },
       }),
     );
-    await result.afterComplete(boss, "active-job");
+    await result.afterComplete(boss);
     await result.onRescheduleAbort(boss, new Error("should not cancel"));
 
     expect(markQueuedWorkCancelled).not.toHaveBeenCalled();

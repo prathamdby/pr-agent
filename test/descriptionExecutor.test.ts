@@ -32,9 +32,7 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
     shouldSkipWork: vi.fn().mockResolvedValue(false),
     getWorkItemCore: vi.fn(),
     getWorkItemPayload: vi.fn(),
-    claimWorkForExecution: vi.fn().mockResolvedValue({ executionEpoch: 1 }),
-    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
-    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
+    claimWorkForExecution: vi.fn().mockResolvedValue(true),
     markWorkCompleted: vi.fn().mockResolvedValue(true),
     markWorkFailed: vi.fn().mockResolvedValue(true),
     markWorkRetrying: vi.fn().mockResolvedValue(true),
@@ -48,6 +46,15 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
 vi.mock("../src/agent/description/descriptionRun.js", () => ({
   runFullPrDescription: mocks.runDescriptionRun,
 }));
+
+vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+  return {
+    ...actual,
+    isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
+    assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
@@ -68,6 +75,7 @@ vi.mock("../src/github/appAuth.js", () => ({
 
 import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
 import { executeDescriptionJob } from "../src/agentWork/executors/descriptionExecutor.js";
+import * as prActorLease from "../src/agentWork/prActorLease.js";
 import { AppError } from "../src/errors/appError.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
@@ -120,7 +128,7 @@ function mockDurableExecution(item = descriptionItem()): void {
     const result = await spec.execute(item, {
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
-      executionEpoch: 1,
+      leaseEpoch: 1,
       signal: new AbortController().signal,
     });
     if (result?.degraded) {
@@ -234,8 +242,8 @@ describe("executeDescriptionJob", () => {
     expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
   });
 
-  it("treats a stale execution epoch as publish superseded", async () => {
-    vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(false);
+  it("treats a lost PR actor lease as publish superseded", async () => {
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
     mocks.runDescriptionRun.mockImplementation(
       async (params: { shouldAbortPublish?: () => Promise<boolean> }) => {
         const aborted = params.shouldAbortPublish ? await params.shouldAbortPublish() : false;
@@ -250,16 +258,16 @@ describe("executeDescriptionJob", () => {
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
-  it("rejects description publish when assertCurrentExecutionEpoch fails", async () => {
+  it("rejects description publish when the PR actor lease is lost", async () => {
     vi.mocked(repo.recordPublishStep).mockImplementation(async (_pool, params) => {
-      if (params.executionEpoch != null) {
-        await repo.assertCurrentExecutionEpoch(pool, params.workItemId, params.executionEpoch);
+      if (params.leaseEpoch != null) {
+        await prActorLease.assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
       }
     });
-    vi.mocked(repo.assertCurrentExecutionEpoch).mockRejectedValue(
+    vi.mocked(prActorLease.assertPrActorLeaseHeld).mockRejectedValue(
       new AppError({
-        code: "agent_work.stale_execution_epoch",
-        message: "Work-item execution epoch is no longer current",
+        code: "agent_work.pr_actor_lease_lost",
+        message: "PR actor lease is no longer held by this execution",
       }),
     );
     mocks.runDescriptionRun.mockImplementation(
@@ -273,7 +281,7 @@ describe("executeDescriptionJob", () => {
     mockDurableExecution();
 
     await expect(executeDescriptionJob(cfg, pool, boss, descriptionJob())).rejects.toMatchObject({
-      code: "agent_work.stale_execution_epoch",
+      code: "agent_work.pr_actor_lease_lost",
     });
   });
 });

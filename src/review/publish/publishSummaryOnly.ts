@@ -54,7 +54,7 @@ export type SummaryCommentCoordination = {
   pool: Pool;
   workItemId: string;
   resourceKey: string;
-  executionEpoch?: number;
+  leaseEpoch?: number | null;
 };
 
 export type RecordPublishStepFn = (
@@ -211,7 +211,7 @@ async function upsertSummaryCommentAtRevision(
       reviewLens: params.reviewLens,
       step: "progress_comment",
       detail: { stubPostedAtMs },
-      executionEpoch: null,
+      leaseEpoch: null,
     });
   }
 
@@ -232,7 +232,7 @@ async function upsertSummaryCommentAtRevision(
       reviewLens: params.reviewLens,
       step: "progress_comment",
       githubId: result.id,
-      executionEpoch: null,
+      leaseEpoch: null,
       detail: {
         progressRevision: params.progressRevision,
         updated: result.updated,
@@ -446,7 +446,7 @@ export async function publishReviewSummaryOnly(params: {
           workItemId: summaryCoordination.workItemId,
           operationKey: reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
           mutationKind: "github.summary_comment",
-          executionEpoch: summaryCoordination.executionEpoch,
+          leaseEpoch: summaryCoordination.leaseEpoch,
           detail: {
             step: "summary_comment",
             resourceKey: summaryCoordination.resourceKey,

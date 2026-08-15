@@ -1,16 +1,9 @@
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { inTransaction, pgBossDb } from "../../db/postgres.js";
-import {
-  DESCRIPTION_QUEUE,
-  REVIEW_CANCELLED_PR_MERGED,
-  REVIEW_QUEUE,
-  VERIFICATION_QUEUE,
-} from "../../settings/index.js";
+import { inTransaction } from "../../db/postgres.js";
+import { REVIEW_CANCELLED_PR_MERGED } from "../../settings/index.js";
 import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
-import { releaseReviewQueueSlotInTx } from "../reviewQueueSlot.js";
-import { releaseSingletonSlot, type SingletonSlotDb } from "../singletonQueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
@@ -20,9 +13,6 @@ import {
   type PrRef,
   type WebhookHeaders,
   prResourceKey,
-  reviewSingletonKey,
-  descriptionSingletonKey,
-  verificationSingletonKey,
 } from "../types.js";
 import { flushDeferredEvents, type DeferredIntakeEvent } from "./deferredEvents.js";
 import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
@@ -51,38 +41,21 @@ type AutomatedKindDispatchDescriptor = {
   readonly target: AutoWorkSupersedeTarget;
   readonly createWorkItem: () => Promise<string>;
   readonly enqueue: (workItemId: string) => Promise<void>;
-  readonly queueName: string;
-  readonly singletonKey: string;
   readonly eventType: "review" | "description" | "verification";
   readonly enqueueAck?: (workItemId: string) => Promise<void>;
 };
 
 async function dispatchAutomatedKind(
-  boss: PgBoss,
   client: PoolClient,
-  slotDb: SingletonSlotDb,
   resourceKey: string,
   correlation: JobCorrelation,
   descriptor: AutomatedKindDispatchDescriptor,
 ): Promise<DeferredIntakeEvent[]> {
-  const { workItemId, supersededIds } = await replaceAutoWorkItem({
+  const { workItemId } = await replaceAutoWorkItem({
     client,
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
-  if (descriptor.eventType === "review") {
-    await releaseReviewQueueSlotInTx(boss, client, resourceKey, {
-      cancelWorkItemIds: supersededIds,
-    });
-  } else {
-    await releaseSingletonSlot(boss, {
-      queue: descriptor.queueName,
-      singletonKey: descriptor.singletonKey,
-      db: slotDb,
-      cancelNonTerminal: supersededIds.length > 0,
-      cancelWorkItemIds: supersededIds,
-    });
-  }
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);
   }
@@ -138,12 +111,11 @@ async function applyPlannedAutomatedPullRequestIntake(
   }
   const correlation = jobCorrelation(event.id, headers);
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-  const slotDb = pgBossDb(client);
 
   if (plan.kinds.includes("review")) {
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
-      ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
+      ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
         target: {
           kind: "review",
           resourceKey,
@@ -156,8 +128,6 @@ async function applyPlannedAutomatedPullRequestIntake(
             ackTargets,
           }),
         enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
-        queueName: REVIEW_QUEUE,
-        singletonKey: reviewSingletonKey(resourceKey),
         eventType: "review",
         enqueueAck: async (workItemId) => {
           const ackData: AckJobData = {
@@ -184,7 +154,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   if (plan.kinds.includes("description")) {
     const descriptionAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
-      ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
+      ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
         target: {
           kind: "description",
           resourceKey,
@@ -197,8 +167,6 @@ async function applyPlannedAutomatedPullRequestIntake(
             ackTargets: descriptionAckTargets,
           }),
         enqueue: (workItemId) => enqueueDescription(boss, client, ref, workItemId, correlation),
-        queueName: DESCRIPTION_QUEUE,
-        singletonKey: descriptionSingletonKey(resourceKey),
         eventType: "description",
       })),
     );
@@ -207,7 +175,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   if (plan.kinds.includes("verification")) {
     const verificationAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
-      ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
+      ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
         target: {
           kind: "verification",
           resourceKey,
@@ -220,8 +188,6 @@ async function applyPlannedAutomatedPullRequestIntake(
             ackTargets: verificationAckTargets,
           }),
         enqueue: (workItemId) => enqueueVerification(boss, client, ref, workItemId, correlation),
-        queueName: VERIFICATION_QUEUE,
-        singletonKey: verificationSingletonKey(resourceKey),
         eventType: "verification",
       })),
     );
@@ -252,9 +218,6 @@ async function applyReviewMergeCancelIntake(
   const attribution = { kind: "merged" as const };
   const cancelled = await cancelActiveReviews(client, resourceKey, attribution);
   const cancelledWorkItemIds = cancelled.map((row) => row.id);
-  await releaseReviewQueueSlotInTx(boss, client, resourceKey, {
-    cancelWorkItemIds: cancelledWorkItemIds,
-  });
   const primary = cancelled[0];
   if (primary != null) {
     const correlation = jobCorrelation(event.id, headers);

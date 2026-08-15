@@ -69,6 +69,11 @@ async function deleteQueueJobs(boss: PgBoss): Promise<void> {
   }
 }
 
+async function reviewJobFor(boss: PgBoss, workItemId: string) {
+  const jobs = await boss.findJobs(REVIEW_QUEUE, {});
+  return jobs.find((job) => (job.data as { workItemId?: string }).workItemId === workItemId);
+}
+
 describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
   let pool: Pool;
   let boss: PgBoss;
@@ -165,10 +170,9 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(loserAcks.length).toBe(ackForResource.length - 1);
   });
 
-  it("slash /review deletes a failed review singleton blocker and enqueues a live job", async () => {
+  it("slash /review enqueues a fresh review beside a failed prior job", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
     const resourceKey = prResourceKey(OWNER, repo, 55);
-    const singletonKey = `${resourceKey}:review`;
     const webhookEventId = randomUUID();
     const failedWorkItemId = randomUUID();
 
@@ -191,13 +195,12 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     const failedJobId = await boss.send(
       REVIEW_QUEUE,
       { kind: "review", workItemId: failedWorkItemId },
-      { singletonKey },
+      { id: failedWorkItemId },
     );
     expect(failedJobId).toBeTruthy();
     await pool.query(`UPDATE pgboss.job SET state = 'failed', completed_on = now() WHERE id = $1`, [
       failedJobId,
     ]);
-    await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.toContain(singletonKey);
 
     await inTransaction(pool, (client) =>
       applySlashCommandIntake(
@@ -223,18 +226,24 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       ),
     );
 
-    expect(await boss.getJobById(REVIEW_QUEUE, failedJobId!)).toBeNull();
-    const reviewJobs = await boss.findJobs(REVIEW_QUEUE, { key: singletonKey });
-    const live = reviewJobs.filter((job) => job.state === "created");
-    expect(live).toHaveLength(1);
-    expect((live[0]?.data as { workItemId?: string }).workItemId).not.toBe(failedWorkItemId);
-    await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.not.toContain(singletonKey);
+    const { rows } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND type = 'review' AND status = 'queued'`,
+      [resourceKey],
+    );
+    expect(rows).toHaveLength(1);
+    const newWorkItemId = rows[0]?.id;
+    expect(newWorkItemId).toBeTruthy();
+
+    const replacementJob = await reviewJobFor(boss, newWorkItemId);
+    expect(replacementJob?.state).toBe("created");
+    const failedJob = await boss.getJobById(REVIEW_QUEUE, failedJobId!);
+    expect(failedJob?.state).toBe("failed");
   });
 
   it("/review force cancels the active review and enqueues a replacement in one tx", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
     const resourceKey = prResourceKey(OWNER, repo, 44);
-    const singletonKey = `${resourceKey}:review`;
     const webhookEventId = randomUUID();
     const oldWorkItemId = randomUUID();
 
@@ -256,7 +265,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     const oldJobId = await boss.send(
       REVIEW_QUEUE,
       { kind: "review", workItemId: oldWorkItemId },
-      { singletonKey },
+      { id: oldWorkItemId },
     );
     expect(oldJobId).toBeTruthy();
 
@@ -296,12 +305,9 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(newRow?.status).toBe("queued");
 
     const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId!);
-    expect(oldJob?.state).toBe("cancelled");
-    const live = (await boss.findJobs(REVIEW_QUEUE, { key: singletonKey })).filter(
-      (job) => job.state === "created",
-    );
-    expect(live).toHaveLength(1);
-    expect((live[0]?.data as { workItemId?: string }).workItemId).toBe(newRow?.id);
+    expect(oldJob?.state).toBe("created");
+    const replacementJob = await reviewJobFor(boss, newRow!.id);
+    expect(replacementJob?.state).toBe("created");
 
     const ackJobs = await boss.findJobs(ACK_QUEUE, {});
     const ack = ackJobs.find(
@@ -345,12 +351,12 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     const oldJobId = await boss.send(
       REVIEW_QUEUE,
       { kind: "review", workItemId: oldWorkItemId },
-      { singletonKey: `${key44}:review` },
+      { id: oldWorkItemId },
     );
     const siblingJobId = await boss.send(
       REVIEW_QUEUE,
       { kind: "review", workItemId: siblingWorkItemId },
-      { singletonKey: `${key45}:review` },
+      { id: siblingWorkItemId },
     );
     expect(oldJobId).toBeTruthy();
     expect(siblingJobId).toBeTruthy();
@@ -397,7 +403,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(rows45).toEqual([{ id: siblingWorkItemId, status: "running" }]);
 
     const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId!);
-    expect(oldJob?.state).toBe("cancelled");
+    expect(oldJob?.state).toBe("created");
     const siblingJob = await boss.getJobById(REVIEW_QUEUE, siblingJobId!);
     expect(siblingJob?.state).toBe("created");
 

@@ -364,7 +364,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
 
     await recordPublishStep(pool, {
       workItemId: replacement.replacementWorkItemId,
-      executionEpoch: 0,
+      leaseEpoch: null,
       resourceKey,
       reviewLens: "review",
       step: "progress_comment",
@@ -372,7 +372,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     });
     await recordPublishStep(pool, {
       workItemId: parentId,
-      executionEpoch: 0,
+      leaseEpoch: null,
       resourceKey,
       reviewLens: "review",
       step: "progress_comment",

@@ -42,6 +42,9 @@ export const DEFAULT_QUEUE_RETRY_LIMIT = 3;
 export const DEFAULT_QUEUE_RETRY_DELAY_SECONDS = 30;
 export const DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS = 300;
 export const DEFAULT_QUEUE_EXPIRE_IN_SECONDS = 3600;
+/** Sized so a holder may miss several renewals before the lease lapses (renewal default 120s). */
+export const DEFAULT_PR_ACTOR_LEASE_TTL_SECONDS = 900;
+export const DEFAULT_PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS = 120;
 export const DEFAULT_QUEUE_HEARTBEAT_SECONDS = 60;
 export const DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS = 0.5;
 export const DEFAULT_QUEUE_RETENTION_SECONDS = 1_209_600;

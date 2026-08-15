@@ -12,9 +12,11 @@ import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { isExecutionEpochCurrent, recordPublishStep, shouldSkipWork } from "../repository.js";
+import { recordPublishStep, shouldSkipWork } from "../repository.js";
+import { isPrActorLeaseHeld } from "../prActorLease.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type DescriptionJobData } from "../types.js";
+import { DESCRIPTION_QUEUE } from "../../settings/index.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 export async function executeDescriptionJob(
@@ -29,6 +31,7 @@ export async function executeDescriptionJob(
     boss,
     job,
     type: "description",
+    prActorLease: { queue: DESCRIPTION_QUEUE },
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const { prSurface } = env;
@@ -58,7 +61,8 @@ export async function executeDescriptionJob(
             shouldAbortPublish: async () =>
               env.signal.aborted ||
               (await shouldSkipWork(pool, item)) ||
-              !(await isExecutionEpochCurrent(pool, item.id, env.executionEpoch)),
+              (env.leaseEpoch != null &&
+                !(await isPrActorLeaseHeld(pool, item.id, env.leaseEpoch))),
             recordPublishStep: (detail) =>
               recordPublishStep(pool, {
                 workItemId: item.id,
@@ -66,13 +70,13 @@ export async function executeDescriptionJob(
                 reviewLens: DESCRIPTION_PUBLISH_LENS,
                 step: "pr_body",
                 detail,
-                executionEpoch: env.executionEpoch,
+                leaseEpoch: env.leaseEpoch,
               }),
             operationIntent: {
               client: pool,
               workItemId: item.id,
               resourceKey: item.resourceKey,
-              executionEpoch: env.executionEpoch,
+              leaseEpoch: env.leaseEpoch,
             },
             durability: {
               pool,

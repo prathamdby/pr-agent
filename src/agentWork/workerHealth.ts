@@ -58,7 +58,7 @@ export const WORKER_DLQ_QUEUES = [
   CI_REFRESH_DEAD_LETTER_QUEUE,
 ] as const;
 
-/** Default interval for continuous queue/DLQ/blocked-key diagnostics. */
+/** Default interval for continuous queue/DLQ diagnostics. */
 export const QUEUE_DIAGNOSTICS_INTERVAL_MS = 60_000;
 
 export type WorkerReadinessInput = {
@@ -148,20 +148,14 @@ export type DeadLetterDiagnostic = {
   readonly total: number;
 };
 
-export type BlockedKeyDiagnostic = {
-  readonly key: string;
-  readonly ageMs: number | null;
-};
-
 export type QueueDiagnosticsReport = {
   readonly at: string;
   readonly queues: readonly QueueLaneDiagnostic[];
   readonly deadLetters: readonly DeadLetterDiagnostic[];
-  readonly blockedReviewKeys: readonly BlockedKeyDiagnostic[];
   readonly oldestRunningWorkItemAgeMs: number | null;
 };
 
-type DiagnosticsBoss = Pick<PgBoss, "getQueueStats" | "getBlockedKeys" | "findJobs">;
+type DiagnosticsBoss = Pick<PgBoss, "getQueueStats">;
 
 async function laneStats(boss: DiagnosticsBoss, queue: string): Promise<QueueLaneDiagnostic> {
   const [stats] = await boss.getQueueStats(queue);
@@ -175,24 +169,6 @@ async function laneStats(boss: DiagnosticsBoss, queue: string): Promise<QueueLan
   };
 }
 
-async function blockedKeyAgeMs(
-  boss: DiagnosticsBoss,
-  key: string,
-  nowMs: number,
-): Promise<number | null> {
-  try {
-    const jobs = await boss.findJobs(REVIEW_QUEUE, { key });
-    const createdTimes = jobs
-      .map((job) => job.createdOn?.getTime?.() ?? Number.NaN)
-      .filter((value) => Number.isFinite(value));
-    if (createdTimes.length === 0) return null;
-    const oldest = Math.min(...createdTimes);
-    return Math.max(0, nowMs - oldest);
-  } catch {
-    return null;
-  }
-}
-
 export async function collectQueueDiagnostics(params: {
   readonly boss: DiagnosticsBoss;
   readonly pool: Pick<Pool, "query">;
@@ -202,7 +178,6 @@ export async function collectQueueDiagnostics(params: {
 }): Promise<QueueDiagnosticsReport> {
   const diagnosticQueues = params.diagnosticQueues ?? WORKER_DIAGNOSTIC_QUEUES;
   const dlqQueues = params.dlqQueues ?? WORKER_DLQ_QUEUES;
-  const nowMs = params.now.getTime();
 
   const queues = await Promise.all(diagnosticQueues.map((queue) => laneStats(params.boss, queue)));
   const deadLetters = await Promise.all(
@@ -210,14 +185,6 @@ export async function collectQueueDiagnostics(params: {
       const lane = await laneStats(params.boss, queue);
       return { queue, queued: lane.queued, total: lane.total };
     }),
-  );
-
-  const blockedKeys = await params.boss.getBlockedKeys(REVIEW_QUEUE);
-  const blockedReviewKeys = await Promise.all(
-    blockedKeys.map(async (key) => ({
-      key,
-      ageMs: await blockedKeyAgeMs(params.boss, key, nowMs),
-    })),
   );
 
   let oldestRunningWorkItemAgeMs: number | null = null;
@@ -243,7 +210,6 @@ export async function collectQueueDiagnostics(params: {
     at: params.now.toISOString(),
     queues,
     deadLetters,
-    blockedReviewKeys,
     oldestRunningWorkItemAgeMs,
   };
 }
@@ -265,13 +231,6 @@ export function logQueueDiagnosticsReport(report: QueueDiagnosticsReport): void 
       queue: dlq.queue,
       queued: dlq.queued,
       total: dlq.total,
-      at: report.at,
-    });
-  }
-  if (report.blockedReviewKeys.length > 0) {
-    logWarn("agent_review_queue_blocked_keys", {
-      keys: report.blockedReviewKeys.map((entry) => entry.key),
-      agesMs: report.blockedReviewKeys.map((entry) => entry.ageMs),
       at: report.at,
     });
   }

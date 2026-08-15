@@ -91,7 +91,7 @@ function mockDurableExecution(workItem = item()): void {
     spec.execute(workItem, {
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
-      executionEpoch: 1,
+      leaseEpoch: 1,
       signal: new AbortController().signal,
     }),
   );
