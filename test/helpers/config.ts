@@ -67,6 +67,8 @@ const baseTestConfig: Config = {
   retentionCron: "17 3 * * *",
   retentionEnabled: true,
   installationGroupConcurrency: 2,
+  prActorLeaseTtlSeconds: 900,
+  prActorLeaseRenewalIntervalSeconds: 120,
   slashAllowedAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
   context7ApiKey: "",
   posthogProjectToken: "",

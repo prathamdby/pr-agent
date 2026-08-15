@@ -58,7 +58,7 @@ export async function publishReview(
           client: params.recordPublishStep.summaryCommentCoordination.pool,
           workItemId: params.recordPublishStep.summaryCommentCoordination.workItemId,
           resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
-          executionEpoch: params.recordPublishStep.summaryCommentCoordination.executionEpoch,
+          leaseEpoch: params.recordPublishStep.summaryCommentCoordination.leaseEpoch,
         }
       : undefined,
     resolveProgressCommentUrl: async () =>

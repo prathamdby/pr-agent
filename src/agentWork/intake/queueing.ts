@@ -13,12 +13,7 @@ import {
 } from "../../settings/index.js";
 import { uuidv5 } from "../../util/uuidv5.js";
 import {
-  descriptionSingletonKey,
   installationGroupId,
-  prResourceKey,
-  reviewSingletonKey,
-  triageSingletonKey,
-  verificationSingletonKey,
   type AckJobData,
   type AskJobData,
   type CiRefreshJobData,
@@ -112,11 +107,9 @@ export async function enqueueReview(
   workItemId: string,
   correlation: JobCorrelation,
 ): Promise<void> {
-  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   const data: ReviewJobData = { kind: "review", workItemId, ...correlation };
   await requireBossJobSend(boss, REVIEW_QUEUE, data, {
     db: pgBossDb(client),
-    singletonKey: reviewSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }
@@ -144,7 +137,6 @@ export async function enqueueDescription(
   workItemId: string,
   correlation: JobCorrelation,
 ): Promise<void> {
-  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   const data: DescriptionJobData = {
     kind: "description",
     workItemId,
@@ -152,7 +144,6 @@ export async function enqueueDescription(
   };
   await requireBossJobSend(boss, DESCRIPTION_QUEUE, data, {
     db: pgBossDb(client),
-    singletonKey: descriptionSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }
@@ -164,7 +155,6 @@ export async function enqueueTriage(
   workItemId: string,
   correlation: JobCorrelation,
 ): Promise<void> {
-  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   const data: TriageJobData = {
     kind: "triage",
     workItemId,
@@ -172,7 +162,6 @@ export async function enqueueTriage(
   };
   await requireBossJobSend(boss, TRIAGE_QUEUE, data, {
     db: pgBossDb(client),
-    singletonKey: triageSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }
@@ -184,7 +173,6 @@ export async function enqueueVerification(
   workItemId: string,
   correlation: JobCorrelation,
 ): Promise<void> {
-  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   const data: VerificationJobData = {
     kind: "verification",
     workItemId,
@@ -192,7 +180,6 @@ export async function enqueueVerification(
   };
   await requireBossJobSend(boss, VERIFICATION_QUEUE, data, {
     db: pgBossDb(client),
-    singletonKey: verificationSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }

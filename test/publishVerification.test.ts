@@ -15,13 +15,12 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
+vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
   return {
     ...actual,
-    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
-    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
+    assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
+    isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
   };
 });
 
@@ -73,7 +72,7 @@ function baseParams(overrides: {
   readonly changedFilePathsTruncated?: boolean;
   readonly pool?: Pool;
   readonly workItemId?: string;
-  readonly executionEpoch?: number;
+  readonly leaseEpoch?: number | null;
   readonly policyResult?: Parameters<typeof publishVerification>[0]["policyResult"];
   readonly threads?: ReadonlyMap<number, ReviewThreadResolution>;
   readonly stubBodies?: Readonly<Record<number, string>>;
@@ -103,7 +102,7 @@ function baseParams(overrides: {
   return {
     pool: overrides.pool ?? pool(),
     workItemId: overrides.workItemId ?? "wi",
-    executionEpoch: overrides.executionEpoch ?? 1,
+    leaseEpoch: overrides.leaseEpoch ?? 1,
     installationId: 1,
     resourceKey: "o/r#1",
     prSurface: fake.surface,
@@ -643,7 +642,7 @@ describe("publishVerification", () => {
       baseParams({
         pool: { query } as unknown as Pool,
         workItemId: "wi-new",
-        executionEpoch: 1,
+        leaseEpoch: 1,
         stubBodies: { 4242: `${VERIFICATION_STUB_MARKER}\nstub` },
         inventory: [thread],
         payload: {

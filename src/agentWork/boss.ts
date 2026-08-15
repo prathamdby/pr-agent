@@ -11,6 +11,7 @@ import {
   CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
+  LEASED_WORK_QUEUES,
   PG_BOSS_POOL_MAX_WEB,
   PG_BOSS_POOL_MAX_WORKER,
   REVIEW_DEAD_LETTER_QUEUE,
@@ -77,40 +78,22 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   ] as const;
   await Promise.all(deadLetterQueues.map((name) => boss.createQueue(name, dlq)));
 
+  // All work queues use the standard policy: per-PR mutual exclusion is owned by the
+  // pr_actor_leases table, not by pg-boss queue policies.
   const workQueues = [
-    { name: ACK_QUEUE, policy: "standard" as const, deadLetter: ACK_DEAD_LETTER_QUEUE },
-    {
-      name: REVIEW_QUEUE,
-      policy: "key_strict_fifo" as const,
-      deadLetter: REVIEW_DEAD_LETTER_QUEUE,
-    },
-    { name: ASK_QUEUE, policy: "standard" as const, deadLetter: ASK_DEAD_LETTER_QUEUE },
-    {
-      name: DESCRIPTION_QUEUE,
-      policy: "key_strict_fifo" as const,
-      deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE,
-    },
-    {
-      name: TRIAGE_QUEUE,
-      policy: "key_strict_fifo" as const,
-      deadLetter: TRIAGE_DEAD_LETTER_QUEUE,
-    },
-    {
-      name: VERIFICATION_QUEUE,
-      policy: "key_strict_fifo" as const,
-      deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
-    },
-    {
-      name: CI_REFRESH_QUEUE,
-      policy: "standard" as const,
-      deadLetter: CI_REFRESH_DEAD_LETTER_QUEUE,
-    },
+    { name: ACK_QUEUE, deadLetter: ACK_DEAD_LETTER_QUEUE },
+    { name: REVIEW_QUEUE, deadLetter: REVIEW_DEAD_LETTER_QUEUE },
+    { name: ASK_QUEUE, deadLetter: ASK_DEAD_LETTER_QUEUE },
+    { name: DESCRIPTION_QUEUE, deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE },
+    { name: TRIAGE_QUEUE, deadLetter: TRIAGE_DEAD_LETTER_QUEUE },
+    { name: VERIFICATION_QUEUE, deadLetter: VERIFICATION_DEAD_LETTER_QUEUE },
+    { name: CI_REFRESH_QUEUE, deadLetter: CI_REFRESH_DEAD_LETTER_QUEUE },
   ] as const;
   await Promise.all(
-    workQueues.map(({ name, policy, deadLetter }) =>
+    workQueues.map(({ name, deadLetter }) =>
       boss.createQueue(name, {
         ...defaults,
-        policy,
+        policy: "standard",
         deadLetter,
       }),
     ),
@@ -121,6 +104,16 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     ...defaults,
     policy: "standard",
   });
+
+  // pg-boss never changes an existing queue's policy (createQueue is insert-only);
+  // migration 023 flips pre-lease deployments. Loudly catch a queue whose flip was
+  // skipped, since key_strict_fifo would silently re-block PRs with no repair left.
+  for (const name of LEASED_WORK_QUEUES) {
+    const queue = await boss.getQueue(name);
+    if (queue?.policy !== "standard") {
+      logError("agent_queue_policy_mismatch", { queue: name, policy: queue?.policy });
+    }
+  }
 }
 
 export async function stopBoss(boss: PgBoss, drainTimeoutMs: number): Promise<void> {

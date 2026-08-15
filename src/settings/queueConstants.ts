@@ -10,13 +10,6 @@ export const RETENTION_QUEUE = "agent-work-retention";
 export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
 /** Rows deleted per batch in the retention sweep (each batch is its own transaction). */
 export const RETENTION_DELETE_BATCH_SIZE = 5_000;
-/**
- * Non-terminal work items older than this with no live pg-boss job are reaped.
- * Must exceed heartbeat lag so a slow clone is not mistaken for a stranded row.
- */
-export const STRANDED_WORK_REAPER_GRACE_SECONDS = 180;
-/** Max stranded rows terminalised per reaper tick. */
-export const STRANDED_WORK_REAPER_BATCH_SIZE = 100;
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
@@ -25,6 +18,18 @@ export const TRIAGE_DEAD_LETTER_QUEUE = "agent-work-triage-dead";
 export const VERIFICATION_DEAD_LETTER_QUEUE = "agent-work-verification-dead";
 export const CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
+
+/** Queues whose work types execute under a PR actor lease (see migration 023, ADR 0038). */
+export const LEASED_WORK_QUEUES = [
+  REVIEW_QUEUE,
+  DESCRIPTION_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+] as const;
+
+/** A leased-type item queued this long with no live lease means its delivery chain died. */
+export const STALE_QUEUED_WORK_GRACE_SECONDS = 300;
+export const STALE_QUEUED_WORK_BATCH_SIZE = 10;
 
 export const IGNORED_BOT_SLASH_COMMAND = "ignored_bot_slash_command";
 export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";

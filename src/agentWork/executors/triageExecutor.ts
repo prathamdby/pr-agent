@@ -28,6 +28,7 @@ import {
   TRIAGE_FAILURE_MESSAGE,
   TRIAGE_FORK_PR_NOTICE,
   TRIAGE_NO_ELIGIBLE_FINDINGS,
+  TRIAGE_QUEUE,
   TRIAGE_THREAD_NOT_ELIGIBLE,
   TRIAGE_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
@@ -220,6 +221,7 @@ async function handleForkPrReport(params: {
   readonly headSha: string;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
   readonly analytics: TriageAnalyticsRef;
+  readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
   captureTriageEvent(params.analytics, "triage report only", { outcome: "fork_pr" });
   await publishTriageReportOnly({
@@ -234,7 +236,7 @@ async function handleForkPrReport(params: {
     headSha: params.headSha,
     inventory: [],
     previouslyResolvedCount: 0,
-    executionEpoch: params.item.executionEpoch,
+    leaseEpoch: params.leaseEpoch,
     body: reportOnlyBody({
       message: TRIAGE_FORK_PR_NOTICE,
       headSha: params.headSha,
@@ -329,6 +331,7 @@ async function publishEmptyInventoryReport(params: {
   readonly previouslyResolvedCount: number;
   readonly scopedThreadRootId: number | undefined;
   readonly reportContext: TriageReportContext;
+  readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
   const outcome = resolveEmptyInventoryOutcome({
     scope: params.scope,
@@ -352,7 +355,7 @@ async function publishEmptyInventoryReport(params: {
     headSha: params.headSha,
     inventory: params.inventory,
     previouslyResolvedCount: params.previouslyResolvedCount,
-    executionEpoch: params.item.executionEpoch,
+    leaseEpoch: params.leaseEpoch,
     ...params.reportContext,
     body: reportOnlyBody({
       message,
@@ -378,6 +381,7 @@ async function tryResumeStoredPush(params: {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
+  readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult | null> {
   let storedPushDetail = await getCompletedPublishStepDetail(
     params.pool,
@@ -431,7 +435,7 @@ async function tryResumeStoredPush(params: {
     previouslyResolvedCount: params.previouslyResolvedCount,
     priorPush: parsed,
     findingHistoryCfg: params.cfg,
-    executionEpoch: params.item.executionEpoch,
+    leaseEpoch: params.leaseEpoch,
     ...params.reportContext,
   });
   if (publish.degraded) {
@@ -491,6 +495,7 @@ async function runFreshTriageAgent(params: {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
+  readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
   const triggerer = await resolveTriggererGitPerson({
     prSurface: params.prSurface,
@@ -563,7 +568,7 @@ async function runFreshTriageAgent(params: {
         payload: result.payload,
         previouslyResolvedCount: params.previouslyResolvedCount,
         findingHistoryCfg: params.cfg,
-        executionEpoch: params.item.executionEpoch,
+        leaseEpoch: params.leaseEpoch,
         ...params.reportContext,
       });
       if (publish.degraded) {
@@ -592,6 +597,7 @@ export async function executeTriageJob(
     boss,
     job,
     type: "triage",
+    prActorLease: { queue: TRIAGE_QUEUE },
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const scope = item.payload.scope ?? "all";
@@ -608,6 +614,7 @@ export async function executeTriageJob(
           headSha,
           scope,
           analytics,
+          leaseEpoch: env.leaseEpoch,
         });
       }
 
@@ -632,6 +639,7 @@ export async function executeTriageJob(
           previouslyResolvedCount: discovered.previouslyResolvedCount,
           scopedThreadRootId: discovered.scopedThreadRootId,
           reportContext: discovered.reportContext,
+          leaseEpoch: env.leaseEpoch,
         });
       }
 
@@ -654,6 +662,7 @@ export async function executeTriageJob(
         resolutionByRootCommentId: discovered.resolutionByRootCommentId,
         previouslyResolvedCount: discovered.previouslyResolvedCount,
         reportContext: discovered.reportContext,
+        leaseEpoch: env.leaseEpoch,
       };
       const resumed = await tryResumeStoredPush(resumeParams);
       if (resumed != null) return resumed;

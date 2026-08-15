@@ -31,7 +31,7 @@ export async function tryLightweightAutoReviewCompletion(
     prSurface: PrSurface;
     preflight: ReviewPreflightMetadata;
     model: string;
-    executionEpoch: number;
+    leaseEpoch: number | null;
   },
 ): Promise<LightweightAutoReviewResult> {
   if (params.item.source !== "auto") return { handled: false };
@@ -73,7 +73,7 @@ export async function tryLightweightAutoReviewCompletion(
       lightweightCompletion: true,
       trivialReason: "docs_only",
     },
-    executionEpoch: params.executionEpoch,
+    leaseEpoch: params.leaseEpoch,
   });
   return { handled: true, published: true, summaryId: summary.id };
 }

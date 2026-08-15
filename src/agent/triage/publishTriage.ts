@@ -59,7 +59,7 @@ type PublishTriageParams = {
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
-  readonly executionEpoch: number;
+  readonly leaseEpoch: number | null;
 };
 
 type ReportOnlyParams = Omit<
@@ -178,7 +178,7 @@ async function replyToThread(
 async function upsertTriageReport(
   params: Pick<
     PublishTriageParams,
-    "prSurface" | "pool" | "workItemId" | "resourceKey" | "executionEpoch"
+    "prSurface" | "pool" | "workItemId" | "resourceKey" | "leaseEpoch"
   > & {
     readonly body: string;
   },
@@ -186,7 +186,7 @@ async function upsertTriageReport(
   const result = await withOperationIntent({
     client: params.pool,
     workItemId: params.workItemId,
-    executionEpoch: params.executionEpoch,
+    leaseEpoch: params.leaseEpoch,
     operationKey: triageReportOperationKey(params.resourceKey),
     mutationKind: "github.triage_report",
     detail: {
@@ -202,7 +202,7 @@ async function upsertTriageReport(
   });
   await recordPublishStep(params.pool, {
     workItemId: params.workItemId,
-    executionEpoch: params.executionEpoch,
+    leaseEpoch: params.leaseEpoch,
     resourceKey: params.resourceKey,
     reviewLens: TRIAGE_PUBLISH_LENS,
     step: "triage_report",
@@ -247,7 +247,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       await withOperationIntent({
         client: params.pool,
         workItemId: params.workItemId,
-        executionEpoch: params.executionEpoch,
+        leaseEpoch: params.leaseEpoch,
         operationKey: triagePushOperationKey(params.resourceKey),
         mutationKind: "github.triage_push",
         detail: {
@@ -262,7 +262,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       pushed = true;
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
-        executionEpoch: params.executionEpoch,
+        leaseEpoch: params.leaseEpoch,
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
@@ -287,7 +287,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       });
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
-        executionEpoch: params.executionEpoch,
+        leaseEpoch: params.leaseEpoch,
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
@@ -303,7 +303,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   } else if (!params.priorPush) {
     await recordPublishStep(params.pool, {
       workItemId: params.workItemId,
-      executionEpoch: params.executionEpoch,
+      leaseEpoch: params.leaseEpoch,
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       step: "triage_push",
@@ -350,7 +350,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
-          executionEpoch: params.executionEpoch,
+          leaseEpoch: params.leaseEpoch,
           operationKey: triageThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.triage_thread_reply",
           detail: {
@@ -374,14 +374,14 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_thread_actions",
         actedThreadIds: [...actedThreadIds],
-        executionEpoch: params.executionEpoch,
+        leaseEpoch: params.leaseEpoch,
       });
     }
     try {
       await withOperationIntent({
         client: params.pool,
         workItemId: params.workItemId,
-        executionEpoch: params.executionEpoch,
+        leaseEpoch: params.leaseEpoch,
         operationKey: `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`,
         mutationKind: "github.triage_thread_resolve",
         detail: {

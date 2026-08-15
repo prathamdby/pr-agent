@@ -17,7 +17,7 @@ import {
 } from "../settings/index.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { isRecord } from "../util/typeGuards.js";
-import { assertCurrentExecutionEpoch } from "./workItemStateRepository.js";
+import { assertPrActorLeaseHeld } from "./prActorLease.js";
 
 export type PublishLens =
   | AnyReviewLens
@@ -593,14 +593,14 @@ export async function recordPublishStep(
     githubId?: string | number;
     detail?: Record<string, unknown>;
     /**
-     * Claim epoch that owns this write. Pass `null` only for pre-claim writers
-     * (e.g. ack progress stubs); durable executors must pass the live epoch.
+     * Lease epoch that owns this write. Pass `null` only for unleased writers
+     * (e.g. ack progress stubs, ask); leased executors must pass the live epoch.
      */
-    executionEpoch: number | null;
+    leaseEpoch: number | null;
   },
 ): Promise<void> {
-  if (params.executionEpoch != null) {
-    await assertCurrentExecutionEpoch(pool, params.workItemId, params.executionEpoch);
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
   }
   const detail =
     params.step === "inline_review" && typeof params.detail?.batchId === "string"
@@ -657,11 +657,11 @@ export async function recordAskPublishStep(
     step: AskPublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
-    executionEpoch: number | null;
+    leaseEpoch: number | null;
   },
 ): Promise<void> {
-  if (params.executionEpoch != null) {
-    await assertCurrentExecutionEpoch(pool, params.workItemId, params.executionEpoch);
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
   }
   await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)

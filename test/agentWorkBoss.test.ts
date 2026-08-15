@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgBoss } from "pg-boss";
+
+vi.mock("../src/evlog.js", () => ({
+  logWarn: vi.fn(),
+  logError: vi.fn(),
+}));
+
+import { logError } from "../src/evlog.js";
 import { bossConstructorOptions, ensureAgentQueues } from "../src/agentWork/boss.js";
 import {
   ACK_DEAD_LETTER_QUEUE,
@@ -75,7 +82,10 @@ describe("ensureAgentQueues", () => {
       started.push({ name, options, resolve });
       return promise;
     });
-    const boss = { createQueue } as unknown as PgBoss;
+    const boss = {
+      createQueue,
+      getQueue: vi.fn(async () => ({ policy: "standard" })),
+    } as unknown as PgBoss;
     const cfg = makeTestConfig();
 
     const ensurePromise = ensureAgentQueues(boss, cfg);
@@ -95,15 +105,15 @@ describe("ensureAgentQueues", () => {
     expect(parentStarted.map((entry) => entry.name)).toEqual(parentQueues);
     expect(parentStarted.map((entry) => entry.options)).toEqual([
       expect.objectContaining({ policy: "standard", deadLetter: ACK_DEAD_LETTER_QUEUE }),
-      expect.objectContaining({ policy: "key_strict_fifo", deadLetter: REVIEW_DEAD_LETTER_QUEUE }),
+      expect.objectContaining({ policy: "standard", deadLetter: REVIEW_DEAD_LETTER_QUEUE }),
       expect.objectContaining({ policy: "standard", deadLetter: ASK_DEAD_LETTER_QUEUE }),
       expect.objectContaining({
-        policy: "key_strict_fifo",
+        policy: "standard",
         deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE,
       }),
-      expect.objectContaining({ policy: "key_strict_fifo", deadLetter: TRIAGE_DEAD_LETTER_QUEUE }),
+      expect.objectContaining({ policy: "standard", deadLetter: TRIAGE_DEAD_LETTER_QUEUE }),
       expect.objectContaining({
-        policy: "key_strict_fifo",
+        policy: "standard",
         deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
       }),
       expect.objectContaining({
@@ -126,5 +136,27 @@ describe("ensureAgentQueues", () => {
     codeIndexStarted.resolve();
 
     await ensurePromise;
+  });
+
+  it("logs an error when a leased queue kept a non-standard policy", async () => {
+    const createQueue = vi.fn(async () => undefined);
+    const policies: Record<string, string> = {
+      [REVIEW_QUEUE]: "key_strict_fifo",
+      [DESCRIPTION_QUEUE]: "standard",
+      [TRIAGE_QUEUE]: "standard",
+      [VERIFICATION_QUEUE]: "standard",
+    };
+    const boss = {
+      createQueue,
+      getQueue: vi.fn(async (name: string) => ({ policy: policies[name] ?? "standard" })),
+    } as unknown as PgBoss;
+
+    await ensureAgentQueues(boss, makeTestConfig());
+
+    expect(vi.mocked(logError)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(logError)).toHaveBeenCalledWith("agent_queue_policy_mismatch", {
+      queue: REVIEW_QUEUE,
+      policy: "key_strict_fifo",
+    });
   });
 });

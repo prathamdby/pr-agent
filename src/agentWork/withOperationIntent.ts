@@ -9,14 +9,14 @@ import {
   type OperationIntentRow,
 } from "./operationIntentRepository.js";
 import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
-import { assertCurrentExecutionEpoch } from "./workItemStateRepository.js";
+import { assertPrActorLeaseHeld } from "./prActorLease.js";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
   readonly workItemId: string;
   readonly resourceKey: string;
-  /** When set, mutate/publish is rejected if a newer claim owns the work item. */
-  readonly executionEpoch?: number;
+  /** When set, mutate/publish is rejected unless this lease epoch still owns the work item. */
+  readonly leaseEpoch?: number | null;
 };
 
 export type WithOperationIntentParams<T> = {
@@ -28,7 +28,7 @@ export type WithOperationIntentParams<T> = {
   readonly mutate: () => Promise<T>;
   readonly publishRecordId?: string | null;
   readonly reconcileDetail?: Record<string, unknown>;
-  readonly executionEpoch?: number;
+  readonly leaseEpoch?: number | null;
 };
 
 /** Durable marker: mutate() was entered; crash before __result must not remutate. */
@@ -179,8 +179,8 @@ async function recoverAfterMutatingWithoutResult<T>(
 }
 
 export async function withOperationIntent<T>(params: WithOperationIntentParams<T>): Promise<T> {
-  if (params.executionEpoch != null) {
-    await assertCurrentExecutionEpoch(params.client, params.workItemId, params.executionEpoch);
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(params.client, params.workItemId, params.leaseEpoch);
   }
   const intent = await persistOperationIntent(params.client, {
     workItemId: params.workItemId,

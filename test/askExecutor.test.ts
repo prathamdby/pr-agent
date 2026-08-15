@@ -30,16 +30,6 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordAskPublishStep: mocks.recordAskPublishStep,
 }));
 
-vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
-  return {
-    ...actual,
-    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
-    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
-  };
-});
-
 vi.mock("../src/agent/ask/askRun.js", () => ({
   runAskRun: mocks.runAskRun,
 }));
@@ -73,8 +63,6 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import { executeAskJob } from "../src/agentWork/executors/askExecutor.js";
-import { assertCurrentExecutionEpoch } from "../src/agentWork/workItemStateRepository.js";
-import { AppError } from "../src/errors/appError.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
@@ -126,7 +114,7 @@ function mockDurableExecution(): void {
     await spec.execute(askItem(), {
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
-      executionEpoch: 1,
+      leaseEpoch: null,
       signal: new AbortController().signal,
     });
   });
@@ -170,7 +158,7 @@ describe("executeAskJob", () => {
         replyTargetKind: "prConversation",
         commentId: expect.any(Number),
       },
-      executionEpoch: 1,
+      leaseEpoch: null,
     });
     const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"));
     expect(intent?.status).toBe("reconciled");
@@ -197,7 +185,7 @@ describe("executeAskJob", () => {
       result = await spec.execute(askItem(), {
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
-        executionEpoch: 1,
+        leaseEpoch: null,
         signal: new AbortController().signal,
       });
     });
@@ -218,7 +206,7 @@ describe("executeAskJob", () => {
       await spec.execute(item, {
         prSurface,
         headSha: "head",
-        executionEpoch: 1,
+        leaseEpoch: null,
         signal: new AbortController().signal,
       });
       await spec.onTerminalFailure?.(item, prSurface, new Error("complete failed"));
@@ -261,7 +249,7 @@ describe("executeAskJob", () => {
       await spec.execute(item, {
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
-        executionEpoch: 1,
+        leaseEpoch: null,
         signal: new AbortController().signal,
       });
     });
@@ -294,7 +282,7 @@ describe("executeAskJob", () => {
         spec.execute(item, {
           prSurface,
           headSha: "head",
-          executionEpoch: 1,
+          leaseEpoch: null,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("agent failed");
@@ -319,7 +307,7 @@ describe("executeAskJob", () => {
         spec.execute(item, {
           prSurface,
           headSha: "head",
-          executionEpoch: 1,
+          leaseEpoch: null,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("transient");
@@ -378,7 +366,7 @@ describe("executeAskJob", () => {
       resourceKey: "o/r#1",
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation", commentId: 4242 },
-      executionEpoch: 1,
+      leaseEpoch: null,
     });
     expect(memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"))?.status).toBe(
       "reconciled",
@@ -414,20 +402,6 @@ describe("executeAskJob", () => {
     expect(intent?.status).toBe("reconciled");
     expect(intent?.detail.__result).toEqual({ commentId: 5151 });
     expect(intent?.detail.recoveredAfterMutating).toBe(true);
-  });
-
-  it("rejects ask publish when the execution epoch is stale", async () => {
-    vi.mocked(assertCurrentExecutionEpoch).mockRejectedValueOnce(
-      new AppError({
-        code: "agent_work.stale_execution_epoch",
-        message: "Work-item execution epoch is no longer current",
-      }),
-    );
-
-    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toMatchObject({
-      code: "agent_work.stale_execution_epoch",
-    });
-    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
   });
 
   it("does not scan remote comments when no pending intent exists for this ask", async () => {

@@ -311,7 +311,7 @@ export async function publishFindingBatch(
         workItemId: context.operationIntent.workItemId,
         operationKey: reviewInlineBatchOperationKey(batchId),
         mutationKind: "github.inline_review",
-        executionEpoch: context.operationIntent.executionEpoch,
+        leaseEpoch: context.operationIntent.leaseEpoch,
         detail: {
           step: "inline_review",
           resourceKey: context.operationIntent.resourceKey,

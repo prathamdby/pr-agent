@@ -45,9 +45,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   shouldSkipWork: vi.fn(),
   markWorkCancelled: vi.fn(),
   markQueuedWorkCancelled: vi.fn(),
-  claimQueuedWorkItem: vi.fn(),
   claimWorkForExecution: vi.fn(),
-  isExecutionEpochCurrent: vi.fn(),
   markWorkCompleted: vi.fn(),
   forceMarkRescheduledParentCompleted: vi.fn(),
   markWorkFailed: vi.fn(),
@@ -84,9 +82,7 @@ describe("durableJob analytics forwarding", () => {
     await initAnalytics({ projectToken: "token", host: "" });
 
     vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-    vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(null);
-    vi.mocked(repo.claimWorkForExecution).mockResolvedValue({ executionEpoch: 1 });
-    vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(true);
+    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
     vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
     vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
@@ -144,7 +140,7 @@ describe("durableJob analytics forwarding", () => {
     await expect(runDurableWorkItem(spec)).resolves.toBeUndefined();
 
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, null);
     const client = mockPostHog.instances[0];
     expect(client?.capture).toHaveBeenCalledWith({
       distinctId: "installation:99",

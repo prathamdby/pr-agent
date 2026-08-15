@@ -44,7 +44,7 @@ type PublishVerificationParams = {
   readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
-  readonly executionEpoch: number;
+  readonly leaseEpoch: number | null;
 };
 
 function withStubMarker(body: string): string {
@@ -130,14 +130,14 @@ async function persistThreadState(params: {
   readonly ledger: VerificationThreadLedger;
   readonly rootCommentId: number;
   readonly state: VerificationThreadState;
-  readonly executionEpoch: number;
+  readonly leaseEpoch: number | null;
 }): Promise<VerificationThreadLedger> {
   const next = upsertVerificationThreadState(params.ledger, params.rootCommentId, params.state);
   await saveVerificationThreadLedger(params.pool, {
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
     ledger: next,
-    executionEpoch: params.executionEpoch,
+    leaseEpoch: params.leaseEpoch,
   });
   return next;
 }
@@ -223,7 +223,7 @@ export async function publishVerification(
         const stubCommentId = await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
-          executionEpoch: params.executionEpoch,
+          leaseEpoch: params.leaseEpoch,
           operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.verification_thread",
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
@@ -247,7 +247,7 @@ export async function publishVerification(
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,
-          executionEpoch: params.executionEpoch,
+          leaseEpoch: params.leaseEpoch,
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,
@@ -265,7 +265,7 @@ export async function publishVerification(
         const stubCommentId = await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
-          executionEpoch: params.executionEpoch,
+          leaseEpoch: params.leaseEpoch,
           operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.verification_thread",
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
@@ -281,7 +281,7 @@ export async function publishVerification(
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,
-          executionEpoch: params.executionEpoch,
+          leaseEpoch: params.leaseEpoch,
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,
@@ -304,7 +304,7 @@ export async function publishVerification(
         const stubCommentId = await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
-          executionEpoch: params.executionEpoch,
+          leaseEpoch: params.leaseEpoch,
           operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.verification_thread",
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
@@ -325,7 +325,7 @@ export async function publishVerification(
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,
-          executionEpoch: params.executionEpoch,
+          leaseEpoch: params.leaseEpoch,
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,

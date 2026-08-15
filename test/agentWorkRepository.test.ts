@@ -9,7 +9,6 @@ import { queryOne } from "../src/db/postgres.js";
 import {
   listTriageEligibleInlineReviews,
   loadReviewExecutorPublishContext,
-  claimQueuedWorkItem,
   claimSummaryCommentCreation,
   getProgressCommentOwner,
   getProgressCommentRevision,
@@ -216,10 +215,9 @@ describe("publish records", () => {
       fingerprints: ["fp-1"],
     };
 
-    vi.mocked(queryOne).mockResolvedValue({ execution_epoch: 1 });
     await recordPublishStep(scopedPool, {
       workItemId: "wi-1",
-      executionEpoch: 1,
+      leaseEpoch: null,
       resourceKey: "o/r#1",
       reviewLens: "review",
       step: "inline_review",
@@ -238,10 +236,9 @@ describe("publish records", () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const scopedPool = { query } as unknown as Pool;
 
-    vi.mocked(queryOne).mockResolvedValue({ execution_epoch: 1 });
     await recordPublishStep(scopedPool, {
       workItemId: "wi-1",
-      executionEpoch: 1,
+      leaseEpoch: null,
       resourceKey: "o/r#1",
       reviewLens: "review",
       step: "progress_comment",
@@ -374,22 +371,5 @@ describe("mapWorkItem payload boundary", () => {
     vi.mocked(queryOne).mockResolvedValue(reviewRow({ payload: { question: "wrong type shape" } }));
 
     await expect(getWorkItem(pool, "wi-1")).rejects.toBeInstanceOf(WorkItemPayloadValidationError);
-  });
-
-  it("marks claimed work failed when RETURNING payload is malformed", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    vi.mocked(queryOne).mockResolvedValueOnce(
-      reviewRow({ status: "running", payload: { mode: "review" } }),
-    );
-    const scopedPool = { query } as unknown as Pool;
-
-    await expect(claimQueuedWorkItem(scopedPool, "wi-1", "review")).rejects.toBeInstanceOf(
-      WorkItemPayloadValidationError,
-    );
-
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("SET status = 'failed'"),
-      expect.arrayContaining(["wi-1"]),
-    );
   });
 });
