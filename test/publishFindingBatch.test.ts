@@ -215,10 +215,53 @@ describe("publishFindingBatch", () => {
     if (result.kind !== "published") return;
     expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
     expect(result.delta.postedInlineCount).toBe(1);
-    expect(result.delta.accepted.filter((placement) => placement.kind === "posted")).toHaveLength(1);
+    expect(result.delta.accepted.filter((placement) => placement.kind === "posted")).toHaveLength(
+      1,
+    );
     expect(result.delta.accepted[0]?.canonicalFingerprint).toBe(
       fingerprintFinding(finding, "review"),
     );
+  });
+
+  it("records open finding history without changing publication", async () => {
+    const query = vi.fn(async () => ({ rowCount: 1 }));
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        pool: { query } as unknown as Pool,
+        installationId: 9,
+        findingHistoryCfg: { findingHistoryEnabled: true },
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    if (result.kind !== "published") return;
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
+    expect(result.delta.postedInlineCount).toBe(1);
+    expect(result.reviewId).toBe(1);
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
+    expect(sql).toContain("FROM unnest($7::text[])");
+    expect(values[6]).toEqual([fingerprintFinding(finding, "review")]);
+  });
+
+  it("keeps publication when finding-history upsert fails", async () => {
+    const query = vi.fn(async () => {
+      throw new Error("db down");
+    });
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        pool: { query } as unknown as Pool,
+        installationId: 9,
+        findingHistoryCfg: { findingHistoryEnabled: true },
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
   });
 
   it("redacts secret-shaped finding text before the GitHub write", async () => {

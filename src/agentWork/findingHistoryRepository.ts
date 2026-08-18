@@ -69,37 +69,40 @@ export async function upsertFindingHistoryOpen(
 ): Promise<void> {
   if (fingerprints.length === 0) return;
 
-  for (const fingerprint of fingerprints) {
-    await client.query(
-      `INSERT INTO repo_finding_history (
-         installation_id, owner, repo, fingerprint, last_outcome,
-         open_count, last_pr_number, last_work_item_id, last_head_sha,
-         last_seen_at, first_seen_at
-       ) VALUES ($1, $2, $3, $4, 'open', 1, $5, $6, $7, now(), now())
-       ON CONFLICT (installation_id, owner, repo, fingerprint)
-       DO UPDATE SET
-         last_outcome = 'open',
-         open_count = CASE
-           WHEN repo_finding_history.last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id
-             AND repo_finding_history.last_outcome = 'open'
-           THEN repo_finding_history.open_count
-           ELSE repo_finding_history.open_count + 1
-         END,
-         last_pr_number = EXCLUDED.last_pr_number,
-         last_work_item_id = EXCLUDED.last_work_item_id,
-         last_head_sha = EXCLUDED.last_head_sha,
-         last_seen_at = now()`,
-      [
-        scope.installationId,
-        scope.owner,
-        scope.repo,
-        fingerprint,
-        scope.prNumber ?? null,
-        scope.workItemId ?? null,
-        scope.headSha ?? null,
-      ],
-    );
-  }
+  // One INSERT cannot carry repeated ON CONFLICT keys; first-seen wins.
+  const uniqueFingerprints = [...new Set(fingerprints)];
+
+  await client.query(
+    `INSERT INTO repo_finding_history (
+       installation_id, owner, repo, fingerprint, last_outcome,
+       open_count, last_pr_number, last_work_item_id, last_head_sha,
+       last_seen_at, first_seen_at
+     )
+     SELECT $1, $2, $3, fingerprint, 'open', 1, $4, $5, $6, now(), now()
+       FROM unnest($7::text[]) AS fingerprints(fingerprint)
+     ON CONFLICT (installation_id, owner, repo, fingerprint)
+     DO UPDATE SET
+       last_outcome = 'open',
+       open_count = CASE
+         WHEN repo_finding_history.last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id
+           AND repo_finding_history.last_outcome = 'open'
+         THEN repo_finding_history.open_count
+         ELSE repo_finding_history.open_count + 1
+       END,
+       last_pr_number = EXCLUDED.last_pr_number,
+       last_work_item_id = EXCLUDED.last_work_item_id,
+       last_head_sha = EXCLUDED.last_head_sha,
+       last_seen_at = now()`,
+    [
+      scope.installationId,
+      scope.owner,
+      scope.repo,
+      scope.prNumber ?? null,
+      scope.workItemId ?? null,
+      scope.headSha ?? null,
+      uniqueFingerprints,
+    ],
+  );
 }
 
 export async function recordFindingHistoryOutcome(
