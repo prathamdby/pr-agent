@@ -549,14 +549,15 @@ describe("createFeaturePiSession durability", () => {
 
   it("disposes the replacement session after fallback, not the retired primary wrapper", async () => {
     const cfg = makeTestConfig({ agentResumeSnapshotKey: "" });
-    const primary = fakeSession();
     const replacement = fakeSession({
       primary: { provider: "openai", model: "gpt-4o" },
     });
-    primary.restartWithFallback = vi.fn(async (params) => {
-      await primary.dispose();
-      replacement.setStructuredState(params.structuredState);
-      return replacement;
+    const primary = fakeSession({
+      restartWithFallback: vi.fn(async (params) => {
+        await primary.dispose();
+        replacement.setStructuredState(params.structuredState);
+        return replacement;
+      }),
     });
     createPiSession.mockResolvedValue(primary);
 

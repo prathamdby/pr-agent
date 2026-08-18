@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PiSession } from "../src/agent/runtime/types.js";
+import type { AuthoritativeStructuredState, PiSession } from "../src/agent/runtime/types.js";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
@@ -550,7 +550,7 @@ describe("runOrchestratedPrReview", () => {
       };
       const makeSession = (
         model: string,
-        structuredState: typeof primaryState,
+        structuredState: AuthoritativeStructuredState,
         send: PiSession["send"],
         restart: PiSession["restartWithFallback"],
       ): PiSession => {
