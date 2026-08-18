@@ -38,6 +38,24 @@ vi.mock("../src/evlog.js", () => ({
 import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/repository.js";
 import * as evlog from "../src/evlog.js";
 
+function pendingReplacement(replacementWorkItemId: string) {
+  return {
+    staleHeadReplacement: {
+      replacementWorkItemId,
+      state: "pending-enqueue" as const,
+    },
+  };
+}
+
+function enqueuedReplacement(replacementWorkItemId: string) {
+  return {
+    staleHeadReplacement: {
+      replacementWorkItemId,
+      state: "enqueued" as const,
+    },
+  };
+}
+
 function makeItem(
   overrides: Parameters<typeof makeReviewWorkItem>[0] & { attemptCount?: number } = {},
 ): ReviewWorkItem {
@@ -74,7 +92,7 @@ describe("createReviewRescheduleWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "existing-replacement",
+          ...pendingReplacement("existing-replacement"),
         },
       }),
     );
@@ -102,7 +120,7 @@ describe("createReviewRescheduleWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "existing-replacement",
+          ...pendingReplacement("existing-replacement"),
         },
       }),
     );
@@ -129,10 +147,20 @@ describe("createReviewRescheduleWorkItem", () => {
       replacementWorkItemId: "generated-replacement",
       headSha: DEFERRED_HEAD_SHA,
     });
-    expect(String(query.mock.calls[1]?.[0])).toContain(
-      "payload->>'staleHeadReplacementWorkItemId') IS NULL",
-    );
+    expect(String(query.mock.calls[1]?.[0])).toContain("staleHeadReplacement");
+    expect(JSON.parse(String(query.mock.calls[1]?.[1]?.[1]))).toEqual({
+      staleHeadReplacement: {
+        replacementWorkItemId: expect.any(String),
+        state: "pending-enqueue",
+      },
+    });
     expect(query.mock.calls[2]?.[1]?.[7]).toBe(DEFERRED_HEAD_SHA);
+    const replacementPayload = JSON.parse(String(query.mock.calls[2]?.[1]?.[10]));
+    expect(replacementPayload).toMatchObject({
+      source: "slash",
+      staleHeadRescheduled: true,
+    });
+    expect(replacementPayload.staleHeadReplacement).toBeUndefined();
   });
 
   it("refuses to create a replacement when the parent is already cancel-requested", async () => {
@@ -161,7 +189,7 @@ describe("createReviewRescheduleWorkItem", () => {
       payload: {
         mode: "review",
         source: "auto",
-        staleHeadReplacementWorkItemId: "auto-replacement",
+        ...pendingReplacement("auto-replacement"),
       },
     });
 
@@ -184,7 +212,7 @@ describe("createReviewRescheduleWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "winner-replacement",
+          ...pendingReplacement("winner-replacement"),
         },
       }),
     );
@@ -220,7 +248,7 @@ describe("createReviewRescheduleWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "existing-replacement",
+          ...pendingReplacement("existing-replacement"),
         },
       }),
     );
@@ -321,8 +349,7 @@ describe("enqueueReviewReschedule", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementEnqueued: true,
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          ...enqueuedReplacement("replacement-wi"),
         },
       }),
       "replacement-wi",
@@ -332,7 +359,11 @@ describe("enqueueReviewReschedule", () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
     expect(send.mock.calls[1]?.[0]).toBe(ACK_QUEUE);
-    expect(String(query.mock.calls[0]?.[0])).toContain("staleHeadReplacementEnqueued");
+    expect(query.mock.calls[0]?.[1]?.[1]).toBe(
+      JSON.stringify({
+        staleHeadReplacement: { replacementWorkItemId: "replacement-wi", state: "enqueued" },
+      }),
+    );
   });
 
   it("sends the replacement review job before the ack job", async () => {
@@ -377,7 +408,7 @@ describe("enqueueReviewReschedule", () => {
     expect(send.mock.calls[0]?.[0]).toBe(ACK_QUEUE);
     expect(cancel).not.toHaveBeenCalled();
     expect(
-      query.mock.calls.some((call) => String(call[0]).includes("staleHeadReplacementEnqueued")),
+      query.mock.calls.some((call) => String(call[1]?.[1]).includes('"state":"enqueued"')),
     ).toBe(true);
   });
 
@@ -398,7 +429,11 @@ describe("enqueueReviewReschedule", () => {
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(cancel).not.toHaveBeenCalled();
-    expect(String(query.mock.calls[0]?.[0])).toContain("staleHeadReplacementEnqueued");
+    expect(query.mock.calls[0]?.[1]?.[1]).toBe(
+      JSON.stringify({
+        staleHeadReplacement: { replacementWorkItemId: "replacement-wi", state: "enqueued" },
+      }),
+    );
   });
 
   it("fails when a missing deterministic job returns null", async () => {
@@ -579,7 +614,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "existing-replacement",
+          ...pendingReplacement("existing-replacement"),
         },
       }),
     );
@@ -606,7 +641,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "existing-replacement",
+          ...pendingReplacement("existing-replacement"),
         },
       }),
     );
@@ -630,8 +665,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "existing-replacement",
-          staleHeadReplacementEnqueued: true,
+          ...enqueuedReplacement("existing-replacement"),
         },
       }),
     );
@@ -652,7 +686,7 @@ describe("cancelOrphanedStaleHeadReplacementOnTerminalFailure", () => {
       payload: {
         mode: "review",
         source: "slash",
-        staleHeadReplacementWorkItemId: "replacement-wi",
+        ...pendingReplacement("replacement-wi"),
       },
     });
 
@@ -675,6 +709,34 @@ describe("cancelOrphanedStaleHeadReplacementOnTerminalFailure", () => {
     expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
   });
 
+  it("cancels a pending-enqueue replacement and skips an enqueued one", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    const pool = {} as Pool;
+    const boss = bossWithReviewJobs();
+    const boom = new Error("terminal");
+
+    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+      pool,
+      boss,
+      makeItem({
+        payload: { mode: "review", source: "slash", ...pendingReplacement("pending-wi") },
+      }),
+      boom,
+    );
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "pending-wi", boom);
+
+    vi.mocked(markQueuedWorkCancelled).mockClear();
+    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+      pool,
+      boss,
+      makeItem({
+        payload: { mode: "review", source: "slash", ...enqueuedReplacement("enqueued-wi") },
+      }),
+      boom,
+    );
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
+  });
+
   it("no-ops when the payload marks the replacement as already enqueued", async () => {
     const pool = {} as Pool;
     const boss = bossWithReviewJobs();
@@ -686,8 +748,7 @@ describe("cancelOrphanedStaleHeadReplacementOnTerminalFailure", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
-          staleHeadReplacementEnqueued: true,
+          ...enqueuedReplacement("replacement-wi"),
         },
       }),
       new Error("dead"),

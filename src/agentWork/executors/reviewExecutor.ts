@@ -204,7 +204,7 @@ async function handleStaleHeadReschedule(args: {
   if (
     (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
-    !payload.staleHeadReplacementWorkItemId
+    payload.staleHeadReplacement === undefined
   ) {
     return undefined;
   }

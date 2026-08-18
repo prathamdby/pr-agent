@@ -177,16 +177,27 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
   it("only force-completes rescheduled parents with a replacement marker", async () => {
     const ordinary = await insertWorkItem({ status: "running", attemptCount: 1 });
-    const rescheduled = await insertWorkItem({
+    const legacy = await insertWorkItem({
       status: "queued",
       payload: { staleHeadReplacementWorkItemId: "replacement-wi" },
     });
+    const nested = await insertWorkItem({
+      status: "queued",
+      payload: {
+        staleHeadReplacement: {
+          replacementWorkItemId: "replacement-wi-2",
+          state: "pending-enqueue",
+        },
+      },
+    });
 
     await expect(forceMarkRescheduledParentCompleted(pool, ordinary)).resolves.toBe(false);
-    await expect(forceMarkRescheduledParentCompleted(pool, rescheduled)).resolves.toBe(true);
+    await expect(forceMarkRescheduledParentCompleted(pool, legacy)).resolves.toBe(true);
+    await expect(forceMarkRescheduledParentCompleted(pool, nested)).resolves.toBe(true);
 
     await expect(getWorkRow(ordinary)).resolves.toMatchObject({ status: "running" });
-    await expect(getWorkRow(rescheduled)).resolves.toMatchObject({ status: "completed" });
+    await expect(getWorkRow(legacy)).resolves.toMatchObject({ status: "completed" });
+    await expect(getWorkRow(nested)).resolves.toMatchObject({ status: "completed" });
   });
 
   it("admits concurrent claims: single-actor exclusion lives on the PR actor lease", async () => {

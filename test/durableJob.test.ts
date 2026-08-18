@@ -130,9 +130,7 @@ function completedResult(degraded?: boolean): DurableExecutionResult {
 }
 
 function rescheduledResult(
-  overrides: Partial<
-    Omit<Extract<DurableExecutionResult, { kind: "rescheduled" }>, "kind">
-  > = {},
+  overrides: Partial<Omit<Extract<DurableExecutionResult, { kind: "rescheduled" }>, "kind">> = {},
 ): Extract<DurableExecutionResult, { kind: "rescheduled" }> {
   return {
     kind: "rescheduled",
@@ -755,7 +753,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -778,7 +779,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "auto",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -802,7 +806,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -824,7 +831,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -851,7 +861,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -881,8 +894,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
-          staleHeadReplacementEnqueued: true,
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "enqueued",
+          },
         },
       }),
     );
@@ -905,7 +920,10 @@ describe("runDurableWorkItem", () => {
       payload: {
         mode: "review",
         source: "slash",
-        staleHeadReplacementWorkItemId: "replacement-wi",
+        staleHeadReplacement: {
+          replacementWorkItemId: "replacement-wi",
+          state: "pending-enqueue",
+        },
       },
     });
     mockFetchedItem(item);
@@ -927,7 +945,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -951,7 +972,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -1078,14 +1102,19 @@ describe("runDurableWorkItem", () => {
       payload: {
         mode: "review",
         source: "slash",
-        staleHeadReplacementWorkItemId: "replacement-wi",
+        staleHeadReplacement: {
+          replacementWorkItemId: "replacement-wi",
+          state: "pending-enqueue",
+        },
       },
     });
     mockFetchedItem(item);
     const boom = new Error("enqueue failed");
     const afterComplete = vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(undefined);
     const onRescheduleAbort = vi.fn();
-    const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete, onRescheduleAbort }));
+    const execute = vi
+      .fn()
+      .mockResolvedValue(rescheduledResult({ afterComplete, onRescheduleAbort }));
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
     expect(onRescheduleAbort).not.toHaveBeenCalled();

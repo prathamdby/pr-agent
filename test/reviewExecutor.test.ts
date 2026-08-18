@@ -482,7 +482,6 @@ describe("executeReviewJob", () => {
           mode: "review",
           source: "auto",
           staleHeadRescheduled: true,
-          staleHeadReplacementWorkItemId: "wi-replacement",
         },
       });
       await expect(

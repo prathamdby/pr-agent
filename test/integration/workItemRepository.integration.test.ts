@@ -359,6 +359,23 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     const replacement = await createReviewRescheduleWorkItem(pool, parent);
     const owner = await getProgressCommentOwner(pool, resourceKey, "review");
 
+    const persistedParent = await getWorkItem(pool, parentId);
+    expect(persistedParent?.type).toBe("review");
+    if (persistedParent?.type !== "review") throw new Error("expected review parent");
+    expect(persistedParent.payload.staleHeadReplacement).toEqual({
+      replacementWorkItemId: replacement.replacementWorkItemId,
+      state: "pending-enqueue",
+    });
+    expect(persistedParent.payload).not.toHaveProperty("staleHeadReplacementWorkItemId");
+
+    const reused = await createReviewRescheduleWorkItem(pool, persistedParent);
+    expect(reused.replacementWorkItemId).toBe(replacement.replacementWorkItemId);
+    const { rows: replacements } = await pool.query<{ id: string }>(
+      `SELECT id FROM agent_work_items WHERE resource_key = $1 AND id <> $2`,
+      [resourceKey, parentId],
+    );
+    expect(replacements).toEqual([{ id: replacement.replacementWorkItemId }]);
+
     expect(owner).toEqual({ workItemId: replacement.replacementWorkItemId, generation: 5 });
     expect(await getProgressCommentRevision(pool, resourceKey, "review")).toBeNull();
 

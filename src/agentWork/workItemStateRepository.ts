@@ -7,7 +7,11 @@ import {
   type AnyReviewLens,
 } from "../settings/legacyReviewLenses.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.js";
-import { attachWorkItemPayload, WorkItemPayloadValidationError } from "./workItemPayloadSchema.js";
+import {
+  attachWorkItemPayload,
+  STALE_HEAD_REPLACEMENT_ID_SQL,
+  WorkItemPayloadValidationError,
+} from "./workItemPayloadSchema.js";
 
 type AgentWorkRow = {
   id: string;
@@ -290,7 +294,7 @@ export async function forceMarkRescheduledParentCompleted(
 		        updated_at = now()
 		  WHERE id = $1
 		    AND cancel_requested_at IS NULL
-		    AND (payload->>'staleHeadReplacementWorkItemId') IS NOT NULL
+		    AND ${STALE_HEAD_REPLACEMENT_ID_SQL} IS NOT NULL
 		    AND status IN ('running', 'queued')`,
     [id],
   );

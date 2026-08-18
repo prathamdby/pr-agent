@@ -6,7 +6,12 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { applySlashCommandIntake } from "../../src/agentWork/intake/slashIntake.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import { enqueueReviewReschedule } from "../../src/agentWork/reviewReschedule.js";
+import {
+  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+  createReviewRescheduleWorkItem,
+  enqueueReviewReschedule,
+} from "../../src/agentWork/reviewReschedule.js";
+import { getWorkItem } from "../../src/agentWork/repository.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -630,7 +635,12 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       headSha: "sha-old",
       resourceKey,
       source: "slash",
-      payload: { staleHeadReplacementWorkItemId: replacementId },
+      payload: {
+        staleHeadReplacement: {
+          replacementWorkItemId: replacementId,
+          state: "pending-enqueue",
+        },
+      },
     });
 
     await enqueueReviewReschedule(pool, boss, parent, replacementId, "sha-new");
@@ -641,13 +651,96 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(reviewJobs).toHaveLength(1);
     expect(reviewJobs[0]?.state).toBe("completed");
     await expect(boss.findJobs(ACK_QUEUE, { id: replacementId })).resolves.toHaveLength(1);
-    const { rows } = await pool.query<{ enqueued: boolean }>(
-      `SELECT (payload->>'staleHeadReplacementEnqueued')::boolean AS enqueued
+    const { rows } = await pool.query<{
+      state: string | null;
+      replacement_id: string | null;
+      legacy_enqueued: string | null;
+    }>(
+      `SELECT payload->'staleHeadReplacement'->>'state' AS state,
+              COALESCE(
+                payload->'staleHeadReplacement'->>'replacementWorkItemId',
+                payload->>'staleHeadReplacementWorkItemId'
+              ) AS replacement_id,
+              payload->>'staleHeadReplacementEnqueued' AS legacy_enqueued
          FROM agent_work_items
         WHERE id = $1`,
       [parentId],
     );
-    expect(rows).toEqual([{ enqueued: true }]);
+    expect(rows).toEqual([
+      { state: "enqueued", replacement_id: replacementId, legacy_enqueued: null },
+    ]);
+  });
+
+  it("recovers a persisted-but-unenqueued replacement without duplicating or orphaning", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 58);
+    const webhookEventId = randomUUID();
+    const parentId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, 'sha', 'accepted')`,
+      [webhookEventId, `crash-${webhookEventId}`, EVENT],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       ) VALUES (
+         $1, $2, 'review', 'slash', 'running', $3, $4, 58, 4242, 'sha-old', 'review', $5, 0,
+         '{"mode":"review","source":"slash"}'::jsonb
+       )`,
+      [parentId, webhookEventId, OWNER, repo, resourceKey],
+    );
+
+    const parent = await getWorkItem(pool, parentId);
+    expect(parent?.type).toBe("review");
+    if (parent?.type !== "review") throw new Error("expected review parent");
+
+    const first = await createReviewRescheduleWorkItem(pool, parent);
+    const second = await createReviewRescheduleWorkItem(pool, {
+      ...parent,
+      payload: {
+        ...parent.payload,
+        staleHeadReplacement: {
+          replacementWorkItemId: first.replacementWorkItemId,
+          state: "pending-enqueue",
+        },
+      },
+    });
+    expect(second.replacementWorkItemId).toBe(first.replacementWorkItemId);
+
+    const persisted = await getWorkItem(pool, parentId);
+    expect(persisted?.type).toBe("review");
+    if (persisted?.type !== "review") throw new Error("expected review parent");
+    expect(persisted.payload.staleHeadReplacement).toEqual({
+      replacementWorkItemId: first.replacementWorkItemId,
+      state: "pending-enqueue",
+    });
+
+    const { rows: replacements } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND id <> $2`,
+      [resourceKey, parentId],
+    );
+    expect(replacements).toEqual([{ id: first.replacementWorkItemId, status: "queued" }]);
+
+    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+      pool,
+      boss,
+      persisted,
+      new Error("parent terminal before enqueue"),
+    );
+
+    const { rows: afterCancel } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND id <> $2`,
+      [resourceKey, parentId],
+    );
+    expect(afterCancel).toEqual([{ id: first.replacementWorkItemId, status: "cancelled" }]);
+    await expect(boss.findJobs(REVIEW_QUEUE, { id: first.replacementWorkItemId })).resolves.toEqual(
+      [],
+    );
   });
 
   it("migration cleanup cancels non-replacement duplicates and preserves a replacement pair", async () => {

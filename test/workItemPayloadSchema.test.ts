@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attachWorkItemPayload,
+  normalizeStaleHeadReplacement,
   parseWorkItemPayload,
   WorkItemPayloadValidationError,
 } from "../src/agentWork/workItemPayloadSchema.js";
@@ -101,6 +102,117 @@ describe("parseWorkItemPayload", () => {
         codeAnchor: { path: "a.ts" },
       }),
     ).toThrow(/line/);
+  });
+
+  it.each([
+    {
+      name: "nested pending-enqueue",
+      raw: {
+        staleHeadReplacement: {
+          replacementWorkItemId: "rep-1",
+          state: "pending-enqueue",
+        },
+      },
+      expected: { replacementWorkItemId: "rep-1", state: "pending-enqueue" },
+    },
+    {
+      name: "nested enqueued",
+      raw: {
+        staleHeadReplacement: { replacementWorkItemId: "rep-1", state: "enqueued" },
+      },
+      expected: { replacementWorkItemId: "rep-1", state: "enqueued" },
+    },
+    {
+      name: "legacy id only",
+      raw: { staleHeadReplacementWorkItemId: "rep-1" },
+      expected: { replacementWorkItemId: "rep-1", state: "pending-enqueue" },
+    },
+    {
+      name: "legacy id plus enqueue true",
+      raw: {
+        staleHeadReplacementWorkItemId: "rep-1",
+        staleHeadReplacementEnqueued: true,
+      },
+      expected: { replacementWorkItemId: "rep-1", state: "enqueued" },
+    },
+    {
+      name: "legacy id plus enqueue false",
+      raw: {
+        staleHeadReplacementWorkItemId: "rep-1",
+        staleHeadReplacementEnqueued: false,
+      },
+      expected: { replacementWorkItemId: "rep-1", state: "pending-enqueue" },
+    },
+    {
+      name: "enqueue true without id",
+      raw: { staleHeadReplacementEnqueued: true },
+      expected: undefined,
+    },
+    {
+      name: "empty legacy id",
+      raw: { staleHeadReplacementWorkItemId: "" },
+      expected: undefined,
+    },
+    {
+      name: "nested without id",
+      raw: { staleHeadReplacement: { state: "enqueued" } },
+      expected: undefined,
+    },
+    {
+      name: "nested id without state falls back to pending-enqueue",
+      raw: { staleHeadReplacement: { replacementWorkItemId: "rep-1" } },
+      expected: { replacementWorkItemId: "rep-1", state: "pending-enqueue" },
+    },
+    {
+      name: "nested wins over conflicting legacy enqueue flag",
+      raw: {
+        staleHeadReplacement: {
+          replacementWorkItemId: "nested-id",
+          state: "pending-enqueue",
+        },
+        staleHeadReplacementWorkItemId: "legacy-id",
+        staleHeadReplacementEnqueued: true,
+      },
+      expected: { replacementWorkItemId: "nested-id", state: "pending-enqueue" },
+    },
+    {
+      name: "nested id plus legacy enqueue when nested state is missing",
+      raw: {
+        staleHeadReplacement: { replacementWorkItemId: "rep-1" },
+        staleHeadReplacementEnqueued: true,
+      },
+      expected: { replacementWorkItemId: "rep-1", state: "enqueued" },
+    },
+    {
+      name: "non-string legacy id",
+      raw: { staleHeadReplacementWorkItemId: 99 },
+      expected: undefined,
+    },
+    {
+      name: "non-object nested replacement",
+      raw: { staleHeadReplacement: "pending-enqueue" },
+      expected: undefined,
+    },
+  ] as const)("normalizes stale-head replacement: $name", ({ raw, expected }) => {
+    expect(normalizeStaleHeadReplacement(raw)).toEqual(expected);
+    const parsed = parseWorkItemPayload("review", { mode: "review", source: "auto", ...raw });
+    expect(parsed.staleHeadReplacement).toEqual(expected);
+    expect(parsed).not.toHaveProperty("staleHeadReplacementWorkItemId");
+    expect(parsed).not.toHaveProperty("staleHeadReplacementEnqueued");
+  });
+
+  it("keeps staleHeadRescheduled on a replacement row and does not treat its copied id as parent state", () => {
+    const parsed = parseWorkItemPayload("review", {
+      mode: "review",
+      source: "slash",
+      staleHeadRescheduled: true,
+      staleHeadReplacementWorkItemId: "rep-1",
+    });
+    expect(parsed).toEqual({
+      mode: "review",
+      source: "slash",
+      staleHeadRescheduled: true,
+    });
   });
 
   it("preserves unknown legacy JSON keys", () => {

@@ -109,6 +109,14 @@ export type CiRefreshJobData = JobCorrelation & {
   readonly headSha: string;
 };
 
+export type StaleHeadReplacementState = "pending-enqueue" | "enqueued";
+
+/** Parent-persisted stale-head replacement. Identity and lifecycle stay coupled. */
+export type StaleHeadReplacement = {
+  readonly replacementWorkItemId: string;
+  readonly state: StaleHeadReplacementState;
+};
+
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;
@@ -120,10 +128,8 @@ export type ReviewWorkPayload = {
   readonly publishDegraded?: boolean;
   /** Set on a one-time replacement run after stale head at publish time */
   readonly staleHeadRescheduled?: boolean;
-  /** Replacement work item id persisted on the parent before enqueue (idempotent reschedule) */
-  readonly staleHeadReplacementWorkItemId?: string;
-  /** Set on the parent after replacement ack/review jobs are enqueued */
-  readonly staleHeadReplacementEnqueued?: boolean;
+  /** Parent-owned replacement lifecycle. Absent when this review has no replacement. */
+  readonly staleHeadReplacement?: StaleHeadReplacement;
   /** Set when the review is cancelled (slash or merge); drives the cancelled progress notice. */
   readonly cancelAttribution?: ReviewCancelAttribution;
 };
