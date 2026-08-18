@@ -111,6 +111,21 @@ describe("publishFindingBatch", () => {
     settingsOverrides.maxThreadPublishCalls = undefined;
   });
 
+  it("returns empty without GitHub writes when the batch has no findings", async () => {
+    const recordPublishStep = vi.fn(async () => undefined);
+    const result = await publishFindingBatch(
+      [],
+      batchContext(createFindingLedger(), recordPublishStep, { seedFindings: [] }),
+    );
+
+    expect(result.kind).toBe("empty");
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(recordPublishStep).not.toHaveBeenCalled();
+    if (result.kind !== "empty") return;
+    expect(result.delta.accepted).toEqual([]);
+    expect(result.delta.suppressionFingerprints).toEqual([]);
+  });
+
   it("does not create a GitHub review when suppression empties the batch", async () => {
     const recordPublishStep = vi.fn(async () => undefined);
     const result = await publishFindingBatch(
@@ -172,6 +187,227 @@ describe("publishFindingBatch", () => {
     expect(recordPublishStep).toHaveBeenCalledTimes(1);
     if (second.kind !== "empty") return;
     expect(second.delta.accepted).toEqual([]);
+  });
+
+  it("does not publish findings that lack evidence", async () => {
+    const evidenceLedger = createTestEvidenceLedger("abc1234");
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, { evidenceLedger }),
+    );
+
+    expect(result.kind).toBe("empty");
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    if (result.kind !== "empty") return;
+    expect(result.delta.accepted).toEqual([]);
+  });
+
+  it("publishes one thread for overlapping duplicate findings", async () => {
+    const duplicate = { ...finding, severity: "P2" as const };
+    const result = await publishFindingBatch(
+      [finding, duplicate],
+      batchContext(createFindingLedger(), undefined, {
+        seedFindings: [finding, duplicate],
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    if (result.kind !== "published") return;
+    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
+    expect(result.delta.postedInlineCount).toBe(1);
+    expect(result.delta.accepted.filter((placement) => placement.kind === "posted")).toHaveLength(
+      1,
+    );
+    expect(result.delta.accepted[0]?.canonicalFingerprint).toBe(
+      fingerprintFinding(finding, "review"),
+    );
+  });
+
+  it("records open finding history without changing publication", async () => {
+    const query = vi.fn(async () => ({ rowCount: 1 }));
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        pool: { query } as unknown as Pool,
+        installationId: 9,
+        findingHistoryCfg: { findingHistoryEnabled: true },
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    if (result.kind !== "published") return;
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.comments).toHaveLength(1);
+    expect(result.delta.postedInlineCount).toBe(1);
+    expect(result.reviewId).toBe(1);
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
+    expect(sql).toContain("FROM unnest($7::text[])");
+    expect(values[6]).toEqual([fingerprintFinding(finding, "review")]);
+  });
+
+  it("keeps publication when finding-history upsert fails", async () => {
+    const query = vi.fn(async () => {
+      throw new Error("db down");
+    });
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        pool: { query } as unknown as Pool,
+        installationId: 9,
+        findingHistoryCfg: { findingHistoryEnabled: true },
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+  });
+
+  it("redacts secret-shaped finding text before the GitHub write", async () => {
+    const secretFinding = {
+      ...finding,
+      detail: "Leaked key OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz",
+    };
+    const result = await publishFindingBatch(
+      [secretFinding],
+      batchContext(createFindingLedger(), undefined, { seedFindings: [secretFinding] }),
+    );
+
+    expect(result.kind).toBe("published");
+    const commentBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.comments?.[0]?.body ?? "";
+    expect(commentBody).toContain("Leaked key");
+    expect(commentBody).toContain("[redacted]");
+    expect(commentBody).not.toContain("sk-");
+  });
+
+  it("suppresses findings whose fingerprints are in cross-PR history", async () => {
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        crossPrSuppressionFingerprints: [fingerprintFinding(finding, "review")],
+      }),
+    );
+
+    expect(result.kind).toBe("empty");
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    if (result.kind !== "empty") return;
+    expect(result.delta.accepted).toEqual([
+      expect.objectContaining({ kind: "summary_only", reason: "cap" }),
+    ]);
+  });
+
+  it("downgrades unresolved anchors to summary-only without a GitHub review", async () => {
+    const unresolved = findingAt(99);
+    const result = await publishFindingBatch(
+      [unresolved],
+      batchContext(createFindingLedger(), undefined, {
+        cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
+        seedFindings: [unresolved],
+      }),
+    );
+
+    expect(result.kind).toBe("empty");
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    if (result.kind !== "empty") return;
+    expect(result.delta.accepted).toEqual([
+      expect.objectContaining({
+        kind: "summary_only",
+        reason: "anchor",
+        canonicalFingerprint: fingerprintFinding(unresolved, "review"),
+      }),
+    ]);
+  });
+
+  it("classifies cap downgrades separately from unresolved anchors", async () => {
+    settingsOverrides.maxInlineReviewComments = 1;
+    const anchoredKeep = findingAt(10);
+    const anchoredCapped = { ...findingAt(20), severity: "P2" as const };
+    const unresolved = {
+      ...findingAt(99),
+      title: "Unresolved",
+      detail: "No commentable line.",
+    };
+    const findings = [anchoredKeep, anchoredCapped, unresolved];
+    const result = await publishFindingBatch(
+      findings,
+      batchContext(createFindingLedger(), undefined, {
+        cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
+        seedFindings: findings,
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    if (result.kind !== "published") return;
+    expect(result.delta.postedInlineCount).toBe(1);
+    expect(
+      result.delta.accepted.filter(
+        (placement) => placement.kind === "summary_only" && placement.reason === "cap",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "summary_only",
+        reason: "cap",
+        placement: expect.objectContaining({ finding: anchoredCapped }),
+      }),
+    ]);
+    expect(
+      result.delta.accepted.filter(
+        (placement) => placement.kind === "summary_only" && placement.reason === "anchor",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "summary_only",
+        reason: "anchor",
+        placement: expect.objectContaining({ finding: unresolved }),
+      }),
+    ]);
+  });
+
+  it("retries the inline batch after dropping an unresolved GitHub anchor", async () => {
+    const first = findingAt(10);
+    const second = findingAt(20);
+    let calls = 0;
+    harness.publishThreadBatch.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error("Line could not be resolved"), {
+          response: { data: { errors: [{ path: "src/a.ts", line: 20 }] } },
+        });
+      }
+      return {
+        reviewId: 7,
+        reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-7",
+      };
+    });
+
+    const result = await publishFindingBatch(
+      [first, second],
+      batchContext(createFindingLedger(), undefined, {
+        cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
+        seedFindings: [first, second],
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(2);
+    if (result.kind !== "published") return;
+    expect(result.delta.postedInlineCount).toBe(1);
+    expect(result.delta.accepted).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "posted",
+          canonicalFingerprint: fingerprintFinding(first, "review"),
+          placement: expect.objectContaining({ finding: first }),
+        }),
+        expect.objectContaining({
+          kind: "summary_only",
+          reason: "anchor",
+          canonicalFingerprint: fingerprintFinding(second, "review"),
+          placement: expect.objectContaining({ finding: second }),
+        }),
+      ]),
+    );
   });
 
   it("applies the remaining global inline cap", async () => {

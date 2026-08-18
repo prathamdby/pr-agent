@@ -32,6 +32,8 @@ export type PreparedReviewPayload = {
 };
 
 export type PreparedFindingTargets = {
+  /** Fingerprinted placements before historical suppression and inline caps. */
+  readonly planned: readonly FingerprintedInlinePlacement[];
   readonly placements: readonly FingerprintedInlinePlacement[];
   readonly inline: readonly FingerprintedInlinePlacement[];
   readonly summaryOnly: readonly FingerprintedInlinePlacement[];
@@ -135,15 +137,12 @@ export function prepareFindingsForPublish(params: {
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
-  const fingerprintedPlacements = fingerprintInlinePlacements(plannedPlacements, "review");
+  const planned = fingerprintInlinePlacements(plannedPlacements, "review");
   const suppressionFingerprints = [
     ...(params.storedInlineFingerprints ?? []),
     ...(params.crossPrSuppressionFingerprints ?? []),
   ];
-  const suppression = suppressInlinePlacementsByFingerprint(
-    fingerprintedPlacements,
-    suppressionFingerprints,
-  );
+  const suppression = suppressInlinePlacementsByFingerprint(planned, suppressionFingerprints);
   const inlineCap = applyInlineCommentCap(
     suppression.placements,
     params.maxInlineComments ?? MAX_INLINE_REVIEW_COMMENTS,
@@ -151,6 +150,7 @@ export function prepareFindingsForPublish(params: {
   const placements = inlineCap.placements;
 
   return {
+    planned,
     placements,
     inline: placements.filter((placement) => placement.inlinePosted),
     summaryOnly: placements.filter((placement) => !placement.inlinePosted),

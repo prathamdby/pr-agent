@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   stat,
   symlink,
@@ -13,11 +14,25 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+const credentialHooks = { failAfterWrite: false };
 vi.mock("../src/settings/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/settings/index.js")>();
   return { ...actual, LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS: 1 };
+});
+vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.js")>();
+  return {
+    ...actual,
+    async createGitCredentialFiles(rootDir: string, token: string) {
+      const created = await actual.createGitCredentialFiles(rootDir, token);
+      if (credentialHooks.failAfterWrite) {
+        throw new Error("injected credential setup failure");
+      }
+      return created;
+    },
+  };
 });
 import { AppError } from "../src/errors/appError.js";
 import {
@@ -55,6 +70,10 @@ async function makeRemote() {
   const headSha = await git(repo, ["rev-parse", "HEAD"]);
   return { root, repo, remote, headSha };
 }
+
+afterEach(() => {
+  credentialHooks.failAfterWrite = false;
+});
 
 describe("writable PR checkout", () => {
   it(
@@ -370,6 +389,30 @@ describe("writable PR checkout", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  it("releases root and credential files after injected credential-setup failure", async () => {
+    credentialHooks.failAfterWrite = true;
+    const dirsBefore = new Set(
+      (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-triage-")),
+    );
+    await expect(
+      withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha: "a".repeat(40),
+          installationToken: "ghs_INJECTED_CREDENTIAL_FAILURE_TOKEN",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+        },
+        async () => undefined,
+      ),
+    ).rejects.toThrow(/injected credential setup failure/);
+    const dirsAfter = (await readdir(tmpdir())).filter((name) =>
+      name.startsWith("pr-agent-triage-"),
+    );
+    expect(dirsAfter.every((name) => dirsBefore.has(name))).toBe(true);
+  });
 
   it("removes stale triage checkout dirs with local workspace cleanup", async () => {
     const staleDir = await mkdtemp(join(tmpdir(), "pr-agent-triage-test-"));

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
@@ -6,6 +6,7 @@ import {
   clearDurableAuthCachesForTest,
   mintInstallationToken,
   runDurableWorkItem,
+  type DurableExecutionResult,
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
@@ -124,6 +125,22 @@ function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: 
   } as unknown as JobWithMetadata<{ workItemId: string }>;
 }
 
+function completedResult(degraded?: boolean): DurableExecutionResult {
+  return degraded ? { kind: "completed", degraded: true } : { kind: "completed" };
+}
+
+function rescheduledResult(
+  overrides: Partial<Omit<Extract<DurableExecutionResult, { kind: "rescheduled" }>, "kind">> = {},
+): Extract<DurableExecutionResult, { kind: "rescheduled" }> {
+  return {
+    kind: "rescheduled",
+    replacementWorkItemId: "replacement-wi",
+    afterComplete: vi.fn().mockResolvedValue(undefined),
+    onRescheduleAbort: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
 function runReviewWorkItem(
   overrides: Partial<DurableJobSpec<"review">> & Pick<DurableJobSpec<"review">, "execute">,
 ): Promise<void> {
@@ -183,7 +200,7 @@ describe("runDurableWorkItem", () => {
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {
     const item = makeItem();
     mockFetchedItem(item);
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
 
@@ -200,7 +217,7 @@ describe("runDurableWorkItem", () => {
   it("claims through the unified path and acquires the PR actor lease", async () => {
     const item = makeItem();
     mockFetchedItem(item);
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
 
@@ -302,7 +319,7 @@ describe("runDurableWorkItem", () => {
     const item = makeItem();
     mockFetchedItem(item);
     vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({ execute });
 
@@ -319,7 +336,7 @@ describe("runDurableWorkItem", () => {
   it("gates on acceptItem when provided", async () => {
     const item = makeItem();
     mockFetchedItem(item);
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({
       acceptItem: (it) => it.reviewLens != null,
@@ -363,7 +380,7 @@ describe("runDurableWorkItem", () => {
       changed_files: 1,
       head: { sha: "abc123" },
     };
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({
       resolveHeadSha: async () => ({ headSha: "abc123", pullRequest }),
@@ -532,7 +549,7 @@ describe("runDurableWorkItem", () => {
       payload: { mode: "review", source: "slash", commenterId: 1 },
     });
     mockFetchedItems(first, second);
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({ execute });
     await runReviewWorkItem({ job: makeJob(), execute });
@@ -598,9 +615,9 @@ describe("runDurableWorkItem", () => {
     );
   });
 
-  it("marks publish degraded when execute reports { degraded: true }", async () => {
+  it("marks publish degraded when execute reports completed+degraded", async () => {
     mockFetchedItem(makeItem());
-    const execute = vi.fn().mockResolvedValue({ degraded: true });
+    const execute = vi.fn().mockResolvedValue(completedResult(true));
 
     await runReviewWorkItem({ execute });
 
@@ -618,7 +635,7 @@ describe("runDurableWorkItem", () => {
         },
       }),
     );
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({ execute });
 
@@ -651,7 +668,7 @@ describe("runDurableWorkItem", () => {
   it("does not publish outcome reaction when cancelled after execute", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    const execute = vi.fn().mockResolvedValue({});
+    const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({ execute });
 
@@ -736,18 +753,17 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
     vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(true);
     const afterComplete = vi.fn().mockResolvedValue(undefined);
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete,
-    });
+    const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
 
     await runReviewWorkItem({ execute });
 
@@ -763,7 +779,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "auto",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
@@ -772,11 +791,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
     vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
     const afterComplete = vi.fn().mockResolvedValue(undefined);
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete,
-    });
+    const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
 
     await runReviewWorkItem({ execute });
 
@@ -791,17 +806,16 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
     vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete: vi.fn().mockResolvedValue(undefined),
-    });
+    const execute = vi.fn().mockResolvedValue(rescheduledResult());
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toThrow(
       /Failed to complete rescheduled parent/,
@@ -817,18 +831,21 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
     const boom = new Error("enqueue failed");
     const onRescheduleAbort = vi.fn();
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete: vi.fn().mockRejectedValue(boom),
-      onRescheduleAbort,
-    });
+    const execute = vi.fn().mockResolvedValue(
+      rescheduledResult({
+        afterComplete: vi.fn().mockRejectedValue(boom),
+        onRescheduleAbort,
+      }),
+    );
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
 
@@ -844,18 +861,21 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
     const boom = new Error("enqueue failed");
     const onRescheduleAbort = vi.fn().mockResolvedValue(undefined);
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete: vi.fn().mockRejectedValue(boom),
-      onRescheduleAbort,
-    });
+    const execute = vi.fn().mockResolvedValue(
+      rescheduledResult({
+        afterComplete: vi.fn().mockRejectedValue(boom),
+        onRescheduleAbort,
+      }),
+    );
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
@@ -874,8 +894,10 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
-          staleHeadReplacementEnqueued: true,
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "enqueued",
+          },
         },
       }),
     );
@@ -898,7 +920,10 @@ describe("runDurableWorkItem", () => {
       payload: {
         mode: "review",
         source: "slash",
-        staleHeadReplacementWorkItemId: "replacement-wi",
+        staleHeadReplacement: {
+          replacementWorkItemId: "replacement-wi",
+          state: "pending-enqueue",
+        },
       },
     });
     mockFetchedItem(item);
@@ -920,19 +945,17 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
     vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
     const onRescheduleAbort = vi.fn();
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete: vi.fn().mockResolvedValue(undefined),
-      onRescheduleAbort,
-    });
+    const execute = vi.fn().mockResolvedValue(rescheduledResult({ onRescheduleAbort }));
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toThrow(
       /Failed to complete rescheduled parent/,
@@ -949,19 +972,22 @@ describe("runDurableWorkItem", () => {
         payload: {
           mode: "review",
           source: "slash",
-          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacement: {
+            replacementWorkItemId: "replacement-wi",
+            state: "pending-enqueue",
+          },
         },
       }),
     );
     const boom = new Error("enqueue failed");
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
     const onRescheduleAbort = vi.fn().mockRejectedValue(new Error("cancel blew up"));
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete: vi.fn().mockRejectedValue(boom),
-      onRescheduleAbort,
-    });
+    const execute = vi.fn().mockResolvedValue(
+      rescheduledResult({
+        afterComplete: vi.fn().mockRejectedValue(boom),
+        onRescheduleAbort,
+      }),
+    );
 
     await expect(
       runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure }),
@@ -1076,19 +1102,19 @@ describe("runDurableWorkItem", () => {
       payload: {
         mode: "review",
         source: "slash",
-        staleHeadReplacementWorkItemId: "replacement-wi",
+        staleHeadReplacement: {
+          replacementWorkItemId: "replacement-wi",
+          state: "pending-enqueue",
+        },
       },
     });
     mockFetchedItem(item);
     const boom = new Error("enqueue failed");
     const afterComplete = vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(undefined);
     const onRescheduleAbort = vi.fn();
-    const execute = vi.fn().mockResolvedValue({
-      rescheduled: true,
-      replacementWorkItemId: "replacement-wi",
-      afterComplete,
-      onRescheduleAbort,
-    });
+    const execute = vi
+      .fn()
+      .mockResolvedValue(rescheduledResult({ afterComplete, onRescheduleAbort }));
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
@@ -1099,5 +1125,44 @@ describe("runDurableWorkItem", () => {
     expect(afterComplete).toHaveBeenCalledTimes(2);
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
+  });
+});
+
+describe("DurableExecutionResult assignability", () => {
+  it("accepts completed, completed-degraded, and fully specified rescheduled", () => {
+    expectTypeOf({ kind: "completed" as const }).toMatchTypeOf<DurableExecutionResult>();
+    expectTypeOf({
+      kind: "completed" as const,
+      degraded: true,
+    }).toMatchTypeOf<DurableExecutionResult>();
+    expectTypeOf({
+      kind: "rescheduled" as const,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: async (_boss: PgBoss) => undefined,
+      onRescheduleAbort: async (_boss: PgBoss, _error: unknown) => undefined,
+    }).toMatchTypeOf<DurableExecutionResult>();
+  });
+
+  it("rejects incomplete reschedule and the old optional-flag shapes", () => {
+    expectTypeOf<{ kind: "rescheduled" }>().not.toMatchTypeOf<DurableExecutionResult>();
+    expectTypeOf<{ degraded: true }>().not.toMatchTypeOf<DurableExecutionResult>();
+    expectTypeOf<{
+      rescheduled: true;
+      replacementWorkItemId: string;
+      afterComplete: (boss: PgBoss) => Promise<void>;
+      onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
+    }>().not.toMatchTypeOf<DurableExecutionResult>();
+  });
+
+  it("constructs valid object literals", () => {
+    const accept = (result: DurableExecutionResult): DurableExecutionResult => result;
+    accept({ kind: "completed" });
+    accept({ kind: "completed", degraded: true });
+    accept({
+      kind: "rescheduled",
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: async () => undefined,
+      onRescheduleAbort: async () => undefined,
+    });
   });
 });

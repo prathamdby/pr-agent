@@ -403,7 +403,12 @@ describe("executeReviewJob", () => {
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
       return { published: false, publishAttempts: 0, publishSuperseded: true };
     });
-    mocks.buildStaleReschedule.mockReturnValue({ rescheduled: true });
+    mocks.buildStaleReschedule.mockReturnValue({
+      kind: "rescheduled",
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn(),
+      onRescheduleAbort: vi.fn(),
+    });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
@@ -421,7 +426,12 @@ describe("executeReviewJob", () => {
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
       return { published: false, publishAttempts: 0, publishSuperseded: true };
     });
-    mocks.buildStaleReschedule.mockReturnValue({ rescheduled: true });
+    mocks.buildStaleReschedule.mockReturnValue({
+      kind: "rescheduled",
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn(),
+      onRescheduleAbort: vi.fn(),
+    });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
@@ -472,7 +482,6 @@ describe("executeReviewJob", () => {
           mode: "review",
           source: "auto",
           staleHeadRescheduled: true,
-          staleHeadReplacementWorkItemId: "wi-replacement",
         },
       });
       await expect(

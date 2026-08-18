@@ -92,7 +92,11 @@ import {
   type StaleReviewRescheduleResult,
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
-import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
+import {
+  resolveWorkItemHead,
+  runDurableWorkItem,
+  type DurableExecutionResult,
+} from "../durableJob.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
@@ -119,7 +123,7 @@ async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string
   return undefined;
 }
 
-type ReviewExecutionResult = StaleReviewRescheduleResult | { readonly degraded: boolean };
+type ReviewExecutionResult = DurableExecutionResult;
 
 type LightweightPhaseResult =
   | { readonly done: true; readonly result: ReviewExecutionResult }
@@ -200,7 +204,7 @@ async function handleStaleHeadReschedule(args: {
   if (
     (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
-    !payload.staleHeadReplacementWorkItemId
+    payload.staleHeadReplacement === undefined
   ) {
     return undefined;
   }
@@ -324,7 +328,7 @@ async function runLightweightCompletionOrSkip(args: {
       lightweightResult.published ? lightweightResult.summaryId : null,
     ),
   });
-  return { done: true, result: { degraded: false } };
+  return { done: true, result: { kind: "completed" } };
 }
 
 async function buildPriorInlineFeedbackPromise(args: {
@@ -350,6 +354,7 @@ async function buildPriorInlineFeedbackPromise(args: {
       value: await fetchPriorInlineFeedbackBlockForReview({
         prSurface,
         botUserId: bot.userId,
+        reviewLens,
         onPriorFeedbackError: logPriorFeedbackError,
       }),
     };
@@ -464,7 +469,10 @@ async function handleReviewPublishResult(args: {
       },
     });
   }
-  return { degraded: !result.published && !result.publishSuperseded };
+  return {
+    kind: "completed",
+    degraded: !result.published && !result.publishSuperseded,
+  };
 }
 
 async function runFullReviewAgainstRepositoryView(args: {

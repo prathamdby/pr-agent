@@ -22,10 +22,9 @@ import type {
   CiSummary,
 } from "./ciSummaryTypes.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { redactReviewText } from "../findings/reviewPublicOutput.js";
 import {
   condenseJobLogText,
-  mergeCondensedJobLogs,
+  selectEffectiveCiContext,
   type CondensedJobLog,
 } from "./condenseCiLogs.js";
 
@@ -63,7 +62,6 @@ type BuildCiSummaryOptions = {
 
 type FetchCiLogContextResult = {
   readonly condensedLogs: string;
-  readonly checkOutputFallback: string;
   readonly actionsPermissionMissing: boolean;
 };
 
@@ -98,7 +96,7 @@ async function fetchCiLogContext(options: {
       // annotations are best-effort fallback
     }
   }
-  const checkOutputFallback = redactReviewText(outputParts.join("\n\n"));
+  const checkOutput = outputParts.join("\n\n");
 
   let jobs: CondensedJobLog[] = [];
   let actionsPermissionMissing = false;
@@ -144,10 +142,10 @@ async function fetchCiLogContext(options: {
     jobs = [];
   }
 
-  const condensedLogs =
-    jobs.length > 0 ? mergeCondensedJobLogs(jobs) : condenseJobLogText(checkOutputFallback);
-
-  return { condensedLogs, checkOutputFallback, actionsPermissionMissing };
+  return {
+    condensedLogs: selectEffectiveCiContext({ jobs, checkOutput }),
+    actionsPermissionMissing,
+  };
 }
 
 type ExternalCiLoad =
@@ -304,7 +302,6 @@ function withPermissionNote(summary: CiSummary, note: string | undefined): CiSum
 function buildAuthorInput(
   snapshot: { checks: readonly CiCheckRunSnapshot[]; statuses: readonly CiLegacyStatus[] },
   condensedLogs: string,
-  checkOutputFallback: string,
 ): CiAuthorInput {
   const failingChecks = snapshot.checks.filter(isCheckFailing);
   const failingStatuses = snapshot.statuses.filter(isLegacyFailing);
@@ -328,7 +325,6 @@ function buildAuthorInput(
     failingNames: [...new Set(failingNames)],
     failingUrls,
     condensedLogs,
-    checkOutputFallback,
   };
 }
 
@@ -360,15 +356,14 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
 
     const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
     const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
-    const { condensedLogs, checkOutputFallback, actionsPermissionMissing } =
-      await fetchCiLogContext({
-        prSurface: options.prSurface,
-        headSha: options.headSha,
-        failingChecks,
-        maxFailures,
-      });
+    const { condensedLogs, actionsPermissionMissing } = await fetchCiLogContext({
+      prSurface: options.prSurface,
+      headSha: options.headSha,
+      failingChecks,
+      maxFailures,
+    });
 
-    const authorInput = buildAuthorInput(snapshot, condensedLogs, checkOutputFallback);
+    const authorInput = buildAuthorInput(snapshot, condensedLogs);
     const actionsNote = actionsPermissionMissing ? REVIEW_CI_SUMMARY_GRANT_ACTIONS : undefined;
 
     if (options.author == null) {

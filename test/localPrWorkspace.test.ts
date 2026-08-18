@@ -18,8 +18,24 @@ vi.mock("../src/settings/index.js", async (importOriginal) => {
   };
 });
 
+const credentialHooks = { failAfterWrite: false };
+vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.js")>();
+  return {
+    ...actual,
+    async createGitCredentialFiles(rootDir: string, token: string) {
+      const created = await actual.createGitCredentialFiles(rootDir, token);
+      if (credentialHooks.failAfterWrite) {
+        throw new Error("injected credential setup failure");
+      }
+      return created;
+    },
+  };
+});
+
 afterEach(() => {
   delete settingsOverrides.maxFetchBytes;
+  credentialHooks.failAfterWrite = false;
 });
 import {
   assertWorkspacePath,
@@ -469,9 +485,47 @@ describe("local PR workspace", () => {
     },
     GIT_WORKSPACE_TEST_TIMEOUT_MS,
   );
+
+  it("releases root and credential files after injected credential-setup failure", async () => {
+    credentialHooks.failAfterWrite = true;
+    const dirsBefore = new Set(
+      (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
+    );
+    await expect(
+      prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha: "a".repeat(40),
+        installationToken: "ghs_INJECTED_CREDENTIAL_FAILURE_TOKEN",
+        prFiles: { files: [], truncated: false, omittedCountLowerBound: 0, totalChanges: 0 },
+      }),
+    ).rejects.toThrow(/injected credential setup failure/);
+    const dirsAfter = (await readdir(tmpdir())).filter((name) =>
+      name.startsWith("pr-agent-workspace-"),
+    );
+    expect(dirsAfter.every((name) => dirsBefore.has(name))).toBe(true);
+  });
 });
 
 describe("cleanupStaleLocalPrWorkspaces live registry", () => {
+  it("skips another process's marked live root even when it is not in the in-memory set", async () => {
+    const { writeWorkspaceOwnerMarker } = await import("../src/prWorkspace/workspaceResource.js");
+    const rootDir = await mkdtemp(join(tmpdir(), "pr-agent-workspace-"));
+    const stale = new Date(Date.now() - 4 * 3_600_000);
+    await writeWorkspaceOwnerMarker(rootDir, {
+      pid: process.pid,
+      heartbeatAtMs: Date.now() - 4 * 3_600_000,
+    });
+    await utimes(rootDir, stale, stale);
+    try {
+      await cleanupStaleLocalPrWorkspaces();
+      await expect(readdir(rootDir)).resolves.toContain(".pr-agent-workspace-owner.json");
+    } finally {
+      await rm(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it("skips live registered workspace roots even when mtime is stale", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "pr-agent-workspace-"));
     const stale = new Date(Date.now() - 4 * 3_600_000);

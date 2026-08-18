@@ -1,16 +1,53 @@
 import * as v from "valibot";
 import { AppError } from "../errors/appError.js";
 import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/legacyReviewLenses.js";
+import { isRecord } from "../util/typeGuards.js";
 import type {
   AgentWorkItem,
   AgentWorkItemCore,
   AskWorkPayload,
   DescriptionWorkPayload,
   ReviewWorkPayload,
+  StaleHeadReplacement,
+  StaleHeadReplacementState,
   TriageWorkPayload,
   VerificationWorkPayload,
   WorkType,
 } from "./types.js";
+
+/** Dual-read current and deployed parent payloads for a replacement work-item id. */
+export const STALE_HEAD_REPLACEMENT_ID_SQL = `COALESCE(
+          payload->'staleHeadReplacement'->>'replacementWorkItemId',
+          NULLIF(payload->>'staleHeadReplacementWorkItemId', '')
+        )`;
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asReplacementState(value: unknown): StaleHeadReplacementState | undefined {
+  return value === "pending-enqueue" || value === "enqueued" ? value : undefined;
+}
+
+/** Normalize nested or legacy stale-head fields. Impossible fragments become absent. */
+export function normalizeStaleHeadReplacement(raw: {
+  readonly staleHeadRescheduled?: unknown;
+  readonly staleHeadReplacement?: unknown;
+  readonly staleHeadReplacementWorkItemId?: unknown;
+  readonly staleHeadReplacementEnqueued?: unknown;
+}): StaleHeadReplacement | undefined {
+  const nested = isRecord(raw.staleHeadReplacement) ? raw.staleHeadReplacement : undefined;
+  const nestedId = nonEmptyString(nested?.replacementWorkItemId);
+  const legacyId = nonEmptyString(raw.staleHeadReplacementWorkItemId);
+  // One-shot replacement rows copied the parent id; that is not parent lifecycle.
+  const replacementWorkItemId =
+    nestedId ?? (raw.staleHeadRescheduled === true ? undefined : legacyId);
+  if (!replacementWorkItemId) return undefined;
+  const state =
+    asReplacementState(nested?.state) ??
+    (raw.staleHeadReplacementEnqueued === true ? "enqueued" : "pending-enqueue");
+  return { replacementWorkItemId, state };
+}
 
 const ReviewModeSchema = v.pipe(
   v.picklist(["review", ...LEGACY_REVIEW_LENSES]),
@@ -55,7 +92,7 @@ const AckTargetSchema = v.variant("kind", [
   }),
 ]);
 
-const ReviewWorkPayloadSchema = v.looseObject({
+const ReviewWorkPayloadFieldsSchema = v.looseObject({
   mode: ReviewModeSchema,
   source: WorkSourceSchema,
   repositorySizeKb: v.optional(v.number()),
@@ -64,8 +101,9 @@ const ReviewWorkPayloadSchema = v.looseObject({
   ackTargets: v.optional(v.array(AckTargetSchema)),
   publishDegraded: v.optional(v.boolean()),
   staleHeadRescheduled: v.optional(v.boolean()),
-  staleHeadReplacementWorkItemId: v.optional(v.pipe(v.string(), v.minLength(1))),
-  staleHeadReplacementEnqueued: v.optional(v.boolean()),
+  staleHeadReplacement: v.optional(v.unknown()),
+  staleHeadReplacementWorkItemId: v.optional(v.unknown()),
+  staleHeadReplacementEnqueued: v.optional(v.unknown()),
   cancelAttribution: v.optional(
     v.variant("kind", [
       v.object({ kind: v.literal("user"), login: v.pipe(v.string(), v.minLength(1)) }),
@@ -73,6 +111,20 @@ const ReviewWorkPayloadSchema = v.looseObject({
     ]),
   ),
 });
+
+const ReviewWorkPayloadSchema = v.pipe(
+  ReviewWorkPayloadFieldsSchema,
+  v.transform((input) => {
+    const {
+      staleHeadReplacement: _nested,
+      staleHeadReplacementWorkItemId: _legacyId,
+      staleHeadReplacementEnqueued: _legacyEnqueued,
+      ...rest
+    } = input;
+    const staleHeadReplacement = normalizeStaleHeadReplacement(input);
+    return staleHeadReplacement === undefined ? rest : { ...rest, staleHeadReplacement };
+  }),
+);
 
 const AskWorkPayloadSchema = v.looseObject({
   question: v.string(),

@@ -14,13 +14,15 @@ import {
   type AckJobData,
   type ReviewJobData,
   type ReviewWorkPayload,
+  type StaleHeadReplacement,
 } from "./types.js";
+import { STALE_HEAD_REPLACEMENT_ID_SQL } from "./workItemPayloadSchema.js";
 
 export const STALE_HEAD_PARENT_NOT_RESCHEDULABLE = "agent_work.stale_head_parent_not_reschedulable";
 export const STALE_HEAD_REPLACEMENT_EXHAUSTED = "review.stale_head_replacement_exhausted";
 
 export type StaleReviewRescheduleResult = {
-  readonly rescheduled: true;
+  readonly kind: "rescheduled";
   readonly replacementWorkItemId: string;
   readonly afterComplete: (boss: PgBoss) => Promise<void>;
   /** Cancel a persisted-but-not-enqueued replacement when the parent fails terminally. */
@@ -86,8 +88,8 @@ export async function cancelUnenqueuedStaleHeadReplacement(
 
 /**
  * Terminal-failure fallback when no in-attempt `onRescheduleAbort` was registered.
- * An earlier attempt may have stamped `staleHeadReplacementWorkItemId` and inserted a
- * queued replacement, then crashed before enqueue — the next terminal attempt throws
+ * An earlier attempt may have stamped a pending-enqueue replacement and inserted a
+ * queued row, then crashed before enqueue — the next terminal attempt throws
  * before `execute` returns a reschedule result, so the abort hook never attaches.
  */
 export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
@@ -96,15 +98,15 @@ export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
   parent: ReviewWorkItem,
   error: unknown,
 ): Promise<void> {
-  const replacementWorkItemId = parent.payload.staleHeadReplacementWorkItemId;
-  if (!replacementWorkItemId) return;
+  const replacement = parent.payload.staleHeadReplacement;
+  if (!replacement) return;
   await cancelUnenqueuedStaleHeadReplacement(
     pool,
     boss,
     parent,
-    replacementWorkItemId,
+    replacement.replacementWorkItemId,
     error,
-    Boolean(parent.payload.staleHeadReplacementEnqueued),
+    replacement.state === "enqueued",
   );
 }
 
@@ -115,7 +117,7 @@ export async function buildStaleReviewRescheduleResult(
   const replacement = await createReviewRescheduleWorkItem(pool, item);
   let replacementEnqueued = false;
   return {
-    rescheduled: true,
+    kind: "rescheduled",
     replacementWorkItemId: replacement.replacementWorkItemId,
     afterComplete: async (boss) => {
       await enqueueReviewReschedule(
@@ -176,42 +178,52 @@ export async function createReviewRescheduleWorkItem(
 
     const payload = item.payload;
     const reviewLens = item.reviewLens;
-    let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
+    let replacementWorkItemId = payload.staleHeadReplacement?.replacementWorkItemId;
 
     if (!replacementWorkItemId) {
       replacementWorkItemId = crypto.randomUUID();
       const marker = JSON.stringify({
-        staleHeadReplacementWorkItemId: replacementWorkItemId,
+        staleHeadReplacement: {
+          replacementWorkItemId,
+          state: "pending-enqueue",
+        } satisfies StaleHeadReplacement,
       });
       const updateResult = await client.query<{ replacement_id: string }>(
         `UPDATE agent_work_items
-         SET payload = payload || $2::jsonb,
+         SET payload = (payload
+               - 'staleHeadReplacementWorkItemId'
+               - 'staleHeadReplacementEnqueued')
+             || $2::jsonb,
              updated_at = now()
        WHERE id = $1
-         AND (payload->>'staleHeadReplacementWorkItemId') IS NULL
-       RETURNING payload->>'staleHeadReplacementWorkItemId' AS replacement_id`,
+         AND ${STALE_HEAD_REPLACEMENT_ID_SQL} IS NULL
+       RETURNING ${STALE_HEAD_REPLACEMENT_ID_SQL} AS replacement_id`,
         [item.id, marker],
       );
       if ((updateResult.rowCount ?? 0) === 0) {
         const refreshed = await getWorkItem(pool, item.id);
-        if (refreshed?.type !== "review" || !refreshed.payload.staleHeadReplacementWorkItemId) {
+        const persistedId =
+          refreshed?.type === "review"
+            ? refreshed.payload.staleHeadReplacement?.replacementWorkItemId
+            : undefined;
+        if (!persistedId) {
           throw new AppError({
             code: "agent_work.stale_head_marker_persist_failed",
             message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
             context: { workItemId: item.id },
           });
         }
-        replacementWorkItemId = refreshed.payload.staleHeadReplacementWorkItemId;
+        replacementWorkItemId = persistedId;
       } else {
         replacementWorkItemId = updateResult.rows[0].replacement_id;
       }
     }
 
+    const { staleHeadReplacement: _parentReplacement, ...replacementBase } = payload;
     const nextPayload: ReviewWorkPayload = {
-      ...payload,
+      ...replacementBase,
       source: item.source,
       staleHeadRescheduled: true,
-      staleHeadReplacementWorkItemId: replacementWorkItemId,
     };
 
     const insertResult = await client.query<{ head_sha: string }>(
@@ -254,13 +266,22 @@ export async function createReviewRescheduleWorkItem(
 async function markStaleHeadReplacementEnqueued(
   client: PoolClient,
   parentId: string,
+  replacementWorkItemId: string,
 ): Promise<void> {
+  const enqueued: StaleHeadReplacement = {
+    replacementWorkItemId,
+    state: "enqueued",
+  };
   await client.query(
     `UPDATE agent_work_items
-       SET payload = payload || '{"staleHeadReplacementEnqueued": true}'::jsonb,
+       SET payload = (payload
+             - 'staleHeadReplacementWorkItemId'
+             - 'staleHeadReplacementEnqueued')
+           || $2::jsonb,
            updated_at = now()
-     WHERE id = $1`,
-    [parentId],
+     WHERE id = $1
+       AND ${STALE_HEAD_REPLACEMENT_ID_SQL} = $3`,
+    [parentId, JSON.stringify({ staleHeadReplacement: enqueued }), replacementWorkItemId],
   );
 }
 
@@ -346,7 +367,7 @@ export async function enqueueReviewReschedule(
       },
       db,
     );
-    await markStaleHeadReplacementEnqueued(client, item.id);
+    await markStaleHeadReplacementEnqueued(client, item.id, workItemId);
   });
 
   logInfo("review_stale_head_rescheduled", {

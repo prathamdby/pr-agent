@@ -15,6 +15,7 @@ import type { CodeIndexPrepareResult } from "../../codeIndex/buildJob.js";
 import { formatCodeIndexStatusLine } from "../../codeIndex/buildJob.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { formatPriorInlineFeedbackBlock } from "../run/reviewPriorFeedback.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
@@ -89,10 +90,14 @@ export function buildTrustedReviewContextForReview(params: {
 export async function fetchPriorInlineFeedbackBlockForReview(params: {
   prSurface: PrSurface;
   botUserId: number;
+  reviewLens: AnyReviewLens;
   onPriorFeedbackError?: (error: unknown) => void;
 }): Promise<string | undefined> {
   try {
-    const threads = await params.prSurface.fetchPriorInlineFeedback(params.botUserId);
+    const threads = await params.prSurface.fetchPriorInlineFeedback(
+      params.botUserId,
+      params.reviewLens,
+    );
     return (
       formatPriorInlineFeedbackBlock(
         threads.map((thread) => ({

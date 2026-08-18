@@ -52,7 +52,10 @@ structured publish path.
 ## Consequences
 
 - Worker runtime now depends on `git`, disk-space admission checks, stale workspace
-  cleanup, and per-run workspace cleanup.
+  cleanup, and per-run workspace cleanup. Temp-root allocation, credential files, and
+  release are owned by one `WorkspaceResource`. An on-disk ownership marker plus
+  heartbeat is the sweep safety guarantee so one worker cannot delete another process's
+  live checkout; in-process live-root tracking is only an optimization.
 - GitHub API rate-limit pressure moves out of investigation and remains only around
   trusted metadata and publish/idempotency operations.
 - Local diff parity becomes a publish-critical invariant and must be covered by tests

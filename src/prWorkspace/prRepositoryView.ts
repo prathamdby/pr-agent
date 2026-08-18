@@ -75,25 +75,40 @@ function cacheKey(
   return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}`;
 }
 
+/**
+ * Uncached preparation always fetches the canonical capped file list.
+ * Caller-supplied lists are SHA-checked then ignored so truncated, warning,
+ * or otherwise incomplete provenance cannot become first-writer cache state.
+ */
+async function resolveCanonicalFileList(
+  params: PreparePrRepositoryViewParams,
+  token: string,
+  expiresAtTs: number,
+): Promise<ListPullRequestFilesResult> {
+  if (params.prFiles) {
+    assertPullRequestFilesHeadSha(params.prFiles, params.headSha);
+  }
+  const fileList = await fetchPullRequestFiles(
+    token,
+    params.owner,
+    params.repo,
+    params.prNumber,
+    {
+      maxPrFilesListed: MAX_PR_FILES_LISTED,
+      maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
+    },
+    params.pullRequest,
+    expiresAtTs,
+  );
+  assertPullRequestFilesHeadSha(fileList, params.headSha);
+  return fileList;
+}
+
 async function prepareUncached(
   params: PreparePrRepositoryViewParams,
 ): Promise<CachedPrRepositoryView> {
   const { token, expiresAtTs } = await params.gitCredentialAuth();
-  const prFiles =
-    params.prFiles ??
-    (await fetchPullRequestFiles(
-      token,
-      params.owner,
-      params.repo,
-      params.prNumber,
-      {
-        maxPrFilesListed: MAX_PR_FILES_LISTED,
-        maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
-      },
-      params.pullRequest,
-      expiresAtTs,
-    ));
-  assertPullRequestFilesHeadSha(prFiles, params.headSha);
+  const prFiles = await resolveCanonicalFileList(params, token, expiresAtTs);
   const workspace = await prepareLocalPrWorkspace({
     owner: params.owner,
     repo: params.repo,

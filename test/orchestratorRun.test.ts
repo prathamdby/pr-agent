@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PiSession } from "../src/agent/runtime/types.js";
+import type { AuthoritativeStructuredState, PiSession } from "../src/agent/runtime/types.js";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
@@ -399,8 +399,9 @@ describe("runOrchestratedPrReview", () => {
       testState.lastSessionToolNames = sessionParams.tools.map(
         (tool: { name: string }) => tool.name,
       );
-      const session: Pick<PiSession, "role" | "send" | "abort" | "dispose"> = {
+      const session: PiSession = {
         role: "orchestrator",
+        primary: { provider: "openai", model: "gpt-4o-mini" },
         send: vi.fn(async (prompt) => {
           const phase = prompt.includes("Inspect this pull request")
             ? "recon"
@@ -458,6 +459,15 @@ describe("runOrchestratedPrReview", () => {
         dispose: vi.fn(async () => {
           testState.sessionDisposals += 1;
         }),
+        restartWithFallback: vi.fn(async () => {
+          throw new AppError({
+            code: "runtime.fallback_unavailable",
+            message: "No fallback model assignment configured for this session",
+            context: { role: "orchestrator" },
+          });
+        }),
+        getStructuredState: () => ({ version: 1, payload: {} }),
+        setStructuredState: () => undefined,
       };
       return session;
     });
@@ -485,6 +495,138 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
     expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
     expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
+  });
+
+  it("persists later sends on the session returned by restartWithFallback", async () => {
+    const persisted: Array<{
+      model: string;
+      phase: string;
+      checkpointId: string;
+    }> = [];
+    const primaryState = { version: 1, payload: { reconNotes: "kept across fallback" } };
+    let reconFailuresRemaining = 2;
+    const restartWithFallback = vi.fn<PiSession["restartWithFallback"]>(async () => {
+      throw new AppError({
+        code: "runtime.fallback_unavailable",
+        message: "No fallback model assignment configured for this session",
+        context: { role: "orchestrator" },
+      });
+    });
+
+    runner.createSession.mockImplementation(async (sessionParams) => {
+      testState.lastSessionToolNames = sessionParams.tools.map(
+        (tool: { name: string }) => tool.name,
+      );
+      const runSuccessfulTurn = async (prompt: string) => {
+        if (prompt.includes("Inspect this pull request")) {
+          if (testState.reconSubmitsBrief) {
+            await sessionParams.executors.submit_specialist_brief?.({
+              prIntent: "Add orchestrated reviews.",
+              architectureNotes: "One orchestrator owns publication.",
+              riskAreas: [],
+              fileMap: "Four specialist files.",
+              specialistFocus: {
+                correctness: "Trace behavior.",
+                security: "Trace trust boundaries.",
+                quality: "Trace maintainability.",
+                tests: "Trace coverage.",
+              },
+            });
+          }
+        } else if (prompt.startsWith("Judge the ")) {
+          await sessionParams.refreshBeforeTool?.("publish_thread");
+          await sessionParams.executors.publish_thread?.({ findings: [] });
+        } else if (
+          prompt.includes("Synthesize the final") ||
+          prompt.includes("Call publish_summary now") ||
+          prompt.includes("Fix the summary and call publish_summary")
+        ) {
+          if (testState.synthesisPublishesSummary) {
+            await sessionParams.refreshBeforeTool?.("publish_summary");
+            await sessionParams.executors.publish_summary?.({});
+          }
+        }
+        return { text: "ok" };
+      };
+      const makeSession = (
+        model: string,
+        structuredState: AuthoritativeStructuredState,
+        send: PiSession["send"],
+        restart: PiSession["restartWithFallback"],
+      ): PiSession => {
+        const session: PiSession = {
+          role: "orchestrator",
+          primary: { provider: "openai", model },
+          send: async (prompt, opts) => {
+            const result = await send(prompt, opts);
+            persisted.push({
+              model: session.primary.model,
+              phase: opts.phase,
+              checkpointId: opts.checkpointId,
+            });
+            return result;
+          },
+          abort: vi.fn(async () => {
+            testState.sessionAborts += 1;
+          }),
+          dispose: vi.fn(async () => {
+            testState.sessionDisposals += 1;
+          }),
+          restartWithFallback: (params) => restart(params),
+          getStructuredState: () => structuredState,
+          setStructuredState: () => undefined,
+        };
+        return session;
+      };
+
+      const primary = makeSession(
+        "gpt-4o-mini",
+        primaryState,
+        async (prompt) => {
+          if (prompt.includes("Inspect this pull request") && reconFailuresRemaining > 0) {
+            reconFailuresRemaining -= 1;
+            throw new Error("503 service unavailable");
+          }
+          return runSuccessfulTurn(prompt);
+        },
+        (params) => restartWithFallback(params),
+      );
+      restartWithFallback.mockImplementation(async (restartParams) => {
+        expect(restartParams.structuredState).toEqual(primaryState);
+        await primary.dispose();
+        return makeSession(
+          "gpt-4o",
+          restartParams.structuredState,
+          async (prompt) => runSuccessfulTurn(prompt),
+          async () => {
+            throw new AppError({
+              code: "runtime.fallback_unavailable",
+              message: "No fallback model assignment configured for this session",
+              context: { role: "orchestrator" },
+            });
+          },
+        );
+      });
+      return primary;
+    });
+
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
+    expect(restartWithFallback).toHaveBeenCalledWith({
+      checkpointId: "orchestrator:recon",
+      structuredState: primaryState,
+    });
+    expect(persisted).toEqual([
+      { model: "gpt-4o", phase: "recon", checkpointId: "orchestrator:recon" },
+      { model: "gpt-4o", phase: "judgment", checkpointId: "orchestrator:judgment" },
+      { model: "gpt-4o", phase: "synthesis", checkpointId: "orchestrator:synthesis" },
+    ]);
+    expect(testState.publishOrder).toEqual(["correctness", "summary"]);
   });
 
   it("returns before returnByMs when session creation crosses modelStopAtMs", async () => {

@@ -192,7 +192,7 @@ describe("executeAskJob", () => {
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(result).toEqual({ degraded: true });
+    expect(result).toEqual({ kind: "completed", degraded: true });
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);

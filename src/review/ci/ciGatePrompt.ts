@@ -28,19 +28,14 @@ export function buildCiContextUserMessage(params: {
   readonly checkNames: readonly string[];
   readonly failingNames: readonly string[];
   readonly condensedLogs: string;
-  readonly checkOutputFallback: string;
 }): string {
   const facts = [
     `status: ${params.status}`,
     `checks: ${params.checkNames.length > 0 ? params.checkNames.join(", ") : "(none)"}`,
     `failing: ${params.failingNames.length > 0 ? params.failingNames.join(", ") : "(none)"}`,
     "",
-    "Condensed job logs / check output:",
-    params.condensedLogs.trim().length > 0
-      ? params.condensedLogs
-      : params.checkOutputFallback.trim().length > 0
-        ? params.checkOutputFallback
-        : "(no logs available)",
+    "Condensed CI context:",
+    params.condensedLogs.trim().length > 0 ? params.condensedLogs : "(no logs available)",
   ].join("\n");
 
   return [

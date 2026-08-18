@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { logDebug } from "../../evlog.js";
 import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
 import { formatValidationIssues } from "../../util/formatValidationIssues.js";
+import { isPlainObject } from "../../util/typeGuards.js";
 
 /**
  * Validate-then-repair parse seam for tool inputs. Valid input passes
@@ -31,10 +32,6 @@ type SchemaNode = {
   readonly entries?: Record<string, unknown>;
   readonly item?: unknown;
 };
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** Unwrap optional/nullish/nullable layers to reach the base node. */
 function baseNode(node: SchemaNode): SchemaNode {

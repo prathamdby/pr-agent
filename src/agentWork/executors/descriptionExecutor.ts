@@ -105,7 +105,7 @@ export async function executeDescriptionJob(
                 ...classifiedFailurePostHogProperties(failure),
               },
             });
-            return { degraded: true };
+            return { kind: "completed", degraded: true };
           }
           if (result.published) {
             captureEvent({
@@ -119,7 +119,7 @@ export async function executeDescriptionJob(
               },
             });
           }
-          return {};
+          return { kind: "completed" };
         },
       );
     },

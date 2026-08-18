@@ -161,32 +161,53 @@ function finalize(
   };
 }
 
+type ClassifiedFailureFieldDescriptor = {
+  readonly logKey: string;
+  readonly posthogKey: string;
+  readonly required: boolean;
+};
+
+/**
+ * One inventory for classified-failure telemetry. Log keys stay camelCase;
+ * PostHog keys stay snake_case. Adding a ClassifiedFailure field without a
+ * descriptor here fails typecheck so the two public projections cannot drift.
+ */
+const CLASSIFIED_FAILURE_FIELD_DESCRIPTORS = {
+  failureDomain: { logKey: "failureDomain", posthogKey: "failure_domain", required: true },
+  errorKind: { logKey: "errorKind", posthogKey: "error_kind", required: true },
+  errorMessage: { logKey: "errorMessage", posthogKey: "error_message", required: true },
+  errorCode: { logKey: "errorCode", posthogKey: "error_code", required: false },
+  phase: { logKey: "phase", posthogKey: "phase", required: false },
+  toolName: { logKey: "toolName", posthogKey: "tool_name", required: false },
+  provider: { logKey: "provider", posthogKey: "provider", required: false },
+  model: { logKey: "model", posthogKey: "model", required: false },
+  causeChain: { logKey: "causeChain", posthogKey: "cause_chain", required: false },
+  errorCount: { logKey: "errorCount", posthogKey: "error_count", required: false },
+} as const satisfies {
+  readonly [K in keyof ClassifiedFailure]: ClassifiedFailureFieldDescriptor;
+};
+
+function projectClassifiedFailure(
+  failure: ClassifiedFailure,
+  naming: "logKey" | "posthogKey",
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const source of Object.keys(CLASSIFIED_FAILURE_FIELD_DESCRIPTORS) as Array<
+    keyof typeof CLASSIFIED_FAILURE_FIELD_DESCRIPTORS
+  >) {
+    const descriptor = CLASSIFIED_FAILURE_FIELD_DESCRIPTORS[source];
+    const value = failure[source];
+    if (descriptor.required || value != null) {
+      out[descriptor[naming]] = value;
+    }
+  }
+  return out;
+}
+
 export function classifiedFailureLogFields(f: ClassifiedFailure): Record<string, unknown> {
-  return {
-    failureDomain: f.failureDomain,
-    errorKind: f.errorKind,
-    errorMessage: f.errorMessage,
-    ...(f.errorCode != null ? { errorCode: f.errorCode } : {}),
-    ...(f.phase != null ? { phase: f.phase } : {}),
-    ...(f.toolName != null ? { toolName: f.toolName } : {}),
-    ...(f.provider != null ? { provider: f.provider } : {}),
-    ...(f.model != null ? { model: f.model } : {}),
-    ...(f.causeChain != null ? { causeChain: f.causeChain } : {}),
-    ...(f.errorCount != null ? { errorCount: f.errorCount } : {}),
-  };
+  return projectClassifiedFailure(f, "logKey");
 }
 
 export function classifiedFailurePostHogProperties(f: ClassifiedFailure): Record<string, unknown> {
-  return {
-    failure_domain: f.failureDomain,
-    error_kind: f.errorKind,
-    error_message: f.errorMessage,
-    ...(f.errorCode != null ? { error_code: f.errorCode } : {}),
-    ...(f.phase != null ? { phase: f.phase } : {}),
-    ...(f.toolName != null ? { tool_name: f.toolName } : {}),
-    ...(f.provider != null ? { provider: f.provider } : {}),
-    ...(f.model != null ? { model: f.model } : {}),
-    ...(f.causeChain != null ? { cause_chain: f.causeChain } : {}),
-    ...(f.errorCount != null ? { error_count: f.errorCount } : {}),
-  };
+  return projectClassifiedFailure(f, "posthogKey");
 }

@@ -12,10 +12,7 @@ import {
 } from "../run/reviewRender.js";
 import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
-import {
-  fingerprintCandidates,
-  fingerprintInlinePlacements,
-} from "../findings/reviewFindingFingerprint.js";
+import { fingerprintCandidates } from "../findings/reviewFindingFingerprint.js";
 import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
@@ -219,7 +216,6 @@ export async function publishFindingBatch(
     crossPrSuppressionFingerprints: context.crossPrSuppressionFingerprints,
     maxInlineComments: remainingInline,
   });
-  const planned = fingerprintInlinePlacements(prepared.prepared.placements, "review");
 
   if (
     context.ledger.threadBudgetExhausted ||
@@ -227,7 +223,7 @@ export async function publishFindingBatch(
   ) {
     const accepted = acceptedSummaryPlacements({
       targets: targets.placements,
-      planned,
+      planned: targets.planned,
       source: context.source,
       ledger: context.ledger,
       budgetExhausted: true,
@@ -244,7 +240,7 @@ export async function publishFindingBatch(
 
   const acceptedBeforePublish = acceptedSummaryPlacements({
     targets: targets.placements,
-    planned,
+    planned: targets.planned,
     source: context.source,
     ledger: context.ledger,
   });

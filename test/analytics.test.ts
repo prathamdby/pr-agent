@@ -229,6 +229,79 @@ describe("analytics facade", () => {
       /sdk missing/,
     );
     expect(analytics.isAnalyticsEnabled()).toBe(false);
+    analytics.captureEvent({ distinctId: "server", event: "webhook received" });
+    analytics.captureException(new Error("boom"), "server");
+    expect(mockPostHog.instances).toHaveLength(0);
+  });
+
+  it("commits a replacement sink only after construction succeeds", async () => {
+    const analytics = await import("../src/analytics/index.js");
+
+    await analytics.initAnalytics({
+      projectToken: "token-1",
+      host: "https://a.example",
+    });
+    const previous = mockPostHog.instances[0];
+    expect(analytics.isAnalyticsEnabled()).toBe(true);
+
+    await analytics.initAnalytics({
+      projectToken: "token-2",
+      host: "https://b.example",
+    });
+    expect(analytics.isAnalyticsEnabled()).toBe(true);
+    expect(mockPostHog.instances).toHaveLength(2);
+    expect(mockPostHog.instances[1]?.apiKey).toBe("token-2");
+    expect(mockPostHog.instances[1]?.options.host).toBe("https://b.example");
+
+    analytics.captureEvent({ distinctId: "server", event: "webhook received" });
+    analytics.captureException(new Error("boom"), "server");
+    expect(previous?.capture).not.toHaveBeenCalled();
+    expect(previous?.captureException).not.toHaveBeenCalled();
+    expect(mockPostHog.instances[1]?.capture).toHaveBeenCalledTimes(1);
+    expect(mockPostHog.instances[1]?.captureException).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores no-op and disables after a failed reinitialization", async () => {
+    const analytics = await import("../src/analytics/index.js");
+
+    await analytics.initAnalytics({ projectToken: "token", host: "" });
+    const previous = mockPostHog.instances[0];
+    expect(analytics.isAnalyticsEnabled()).toBe(true);
+
+    mockPostHog.PostHog.mockImplementationOnce(() => {
+      throw new Error("reinit failed");
+    });
+    await expect(analytics.initAnalytics({ projectToken: "token-2", host: "" })).rejects.toThrow(
+      /reinit failed/,
+    );
+
+    expect(analytics.isAnalyticsEnabled()).toBe(false);
+    analytics.captureEvent({
+      distinctId: "server",
+      event: "webhook received",
+      properties: { github_event: "ping" },
+    });
+    analytics.captureException(new Error("boom"), "server", { step: "test" });
+    expect(previous?.capture).not.toHaveBeenCalled();
+    expect(previous?.captureException).not.toHaveBeenCalled();
+    expect(mockPostHog.instances).toHaveLength(1);
+    await expect(analytics.shutdownAnalytics()).resolves.toBeUndefined();
+  });
+
+  it("disables and drops the previous sink when reinitialized with an empty token", async () => {
+    const analytics = await import("../src/analytics/index.js");
+
+    await analytics.initAnalytics({ projectToken: "token", host: "" });
+    const previous = mockPostHog.instances[0];
+    expect(analytics.isAnalyticsEnabled()).toBe(true);
+
+    await analytics.initAnalytics({ projectToken: "  ", host: "" });
+    expect(analytics.isAnalyticsEnabled()).toBe(false);
+    analytics.captureEvent({ distinctId: "server", event: "webhook received" });
+    analytics.captureException(new Error("boom"), "server");
+    expect(previous?.capture).not.toHaveBeenCalled();
+    expect(previous?.captureException).not.toHaveBeenCalled();
+    expect(mockPostHog.PostHog).toHaveBeenCalledTimes(1);
   });
 
   it("does not register process signal listeners", async () => {

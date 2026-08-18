@@ -1,10 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
+
+const HEAD_SHA = "h".repeat(40);
+
+type ListedFile = {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch: string;
+};
 
 const state = vi.hoisted(() => ({
   prepareCalls: 0,
   failNext: false,
   cleanup: vi.fn(async () => {}),
   pullsGetCalls: 0,
+  listedFiles: [] as ListedFile[],
+  changedFilesCount: 0,
+  additions: 0,
+  deletions: 0,
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({
@@ -16,14 +32,14 @@ vi.mock("../src/github/appAuth.js", () => ({
           return {
             data: {
               base: { sha: "b".repeat(40), ref: "main" },
-              head: { sha: "h".repeat(40) },
-              additions: 0,
-              deletions: 0,
-              changed_files: 0,
+              head: { sha: HEAD_SHA },
+              additions: state.additions,
+              deletions: state.deletions,
+              changed_files: state.changedFilesCount,
             },
           };
         },
-        listFiles: async () => ({ data: [] }),
+        listFiles: async () => ({ data: state.listedFiles }),
       },
     },
   }),
@@ -38,22 +54,47 @@ vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/review/placement/reviewPreflightFiles.js", () => ({
-  buildReviewPreflightMetadataFromWorkspace: () => ({ preflight: true }),
-}));
-
 vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
   selectLocalPrWorkspaceCheckoutMode: (repositorySizeKb?: number) =>
     repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
       ? "sparse"
       : "full",
-  prepareLocalPrWorkspace: async () => {
+  prepareLocalPrWorkspace: async (prepParams: {
+    prFiles: ListPullRequestFilesResult;
+    repositorySizeKb?: number;
+  }) => {
     state.prepareCalls += 1;
     if (state.failNext) {
       state.failNext = false;
       throw new Error("clone failed");
     }
-    return { agentCwd: "/tmp/x", cleanup: state.cleanup };
+    const checkoutMode =
+      prepParams.repositorySizeKb != null &&
+      prepParams.repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
+        ? "sparse"
+        : "full";
+    const changedFiles = prepParams.prFiles.files.map((file) => ({ path: file.filename }));
+    const checkoutPaths = new Set(changedFiles.map((file) => file.path));
+    return {
+      agentCwd: "/tmp/x",
+      cleanup: state.cleanup,
+      changedFiles,
+      stats: {
+        truncated: prepParams.prFiles.truncated,
+        fileCount: changedFiles.length,
+        totalChanges: prepParams.prFiles.totalChanges,
+        warning: prepParams.prFiles.warning,
+      },
+      checkoutMode,
+      checkoutPaths,
+      getCoverage: () => ({
+        mode: checkoutMode,
+        pathsInCheckout: checkoutPaths.size,
+        changedFileCount: changedFiles.length,
+        changeSetTruncated: prepParams.prFiles.truncated,
+        ...(prepParams.prFiles.warning ? { warning: prepParams.prFiles.warning } : {}),
+      }),
+    };
   },
 }));
 
@@ -65,24 +106,81 @@ import {
 } from "../src/settings/index.js";
 
 const params = {
-  cfg: {} as never,
   owner: "o",
   repo: "r",
   prNumber: 1,
-  headSha: "h".repeat(40),
+  headSha: HEAD_SHA,
   gitCredentialAuth: async () => ({ token: "t", expiresAtTs: Date.now() + 3_600_000 }),
 };
-const prFiles = {
-  files: [],
-  truncated: false,
-  omittedCountLowerBound: 0,
-  totalChanges: 0,
-  headSha: "h".repeat(40),
-};
+
+function githubFile(filename: string): ListedFile {
+  return {
+    filename,
+    status: "modified",
+    additions: 1,
+    deletions: 0,
+    changes: 1,
+    patch: `@@ ${filename}`,
+  };
+}
+
+function setCanonicalGithubFiles(filenames: readonly string[]): void {
+  state.listedFiles = filenames.map(githubFile);
+  state.changedFilesCount = filenames.length;
+  state.additions = filenames.length;
+  state.deletions = 0;
+}
+
+function fileListResult(
+  filenames: readonly string[],
+  opts?: {
+    truncated?: boolean;
+    omittedCountLowerBound?: number;
+    warning?: string;
+    headSha?: string;
+  },
+): ListPullRequestFilesResult {
+  return {
+    files: filenames.map(githubFile),
+    truncated: opts?.truncated ?? false,
+    omittedCountLowerBound: opts?.omittedCountLowerBound ?? 0,
+    totalChanges: filenames.length,
+    headSha: opts?.headSha ?? HEAD_SHA,
+    warning: opts?.warning,
+  };
+}
+
+const completePaths = ["src/a.ts", "src/b.ts"] as const;
+const truncatedPrFiles = fileListResult(["src/a.ts"], {
+  truncated: true,
+  omittedCountLowerBound: 1,
+  warning: "Change set truncated to 1 files (1 omitted).",
+});
+const completePrFiles = fileListResult(completePaths);
+
+function expectCompleteCoverage(view: {
+  preflight: { files: readonly { filename: string }[]; truncated: boolean; fileCount: number };
+  workspace: {
+    getCoverage: () => {
+      changeSetTruncated: boolean;
+      changedFileCount: number;
+      pathsInCheckout: number;
+    };
+  };
+}): void {
+  expect(view.preflight.truncated).toBe(false);
+  expect(view.preflight.fileCount).toBe(2);
+  expect(view.preflight.files.map((file) => file.filename)).toEqual([...completePaths]);
+  const coverage = view.workspace.getCoverage();
+  expect(coverage.changeSetTruncated).toBe(false);
+  expect(coverage.changedFileCount).toBe(2);
+  expect(coverage.pathsInCheckout).toBe(2);
+}
 
 describe("prRepositoryView cache", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    setCanonicalGithubFiles(completePaths);
   });
 
   afterEach(async () => {
@@ -91,6 +189,10 @@ describe("prRepositoryView cache", () => {
     state.prepareCalls = 0;
     state.failNext = false;
     state.pullsGetCalls = 0;
+    state.listedFiles = [];
+    state.changedFilesCount = 0;
+    state.additions = 0;
+    state.deletions = 0;
     state.cleanup.mockClear();
   });
 
@@ -154,7 +256,7 @@ describe("prRepositoryView cache", () => {
       additions: 0,
       deletions: 0,
       changed_files: 0,
-      head: { sha: "h".repeat(40) },
+      head: { sha: HEAD_SHA },
     };
 
     await withPrRepositoryView({ ...params, pullRequest }, async () => "ok");
@@ -163,14 +265,95 @@ describe("prRepositoryView cache", () => {
     fetchSpy.mockRestore();
   });
 
-  it("uses prefetched pull request files when supplied", async () => {
+  it("ignores a complete-looking supplied list and uses the canonical fetch", async () => {
     const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
+    const incompleteButUnflagged = fileListResult(["src/a.ts"]);
 
-    await withPrRepositoryView({ ...params, prFiles }, async () => "ok");
+    await withPrRepositoryView({ ...params, prFiles: incompleteButUnflagged }, async (view) => {
+      expectCompleteCoverage(view);
+    });
 
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(state.prepareCalls).toBe(1);
     fetchSpy.mockRestore();
+  });
+
+  it("does not let a truncated first list determine later complete coverage", async () => {
+    const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
+
+    await withPrRepositoryView({ ...params, prFiles: truncatedPrFiles }, async (view) => {
+      expectCompleteCoverage(view);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(state.prepareCalls).toBe(1);
+
+    await withPrRepositoryView({ ...params, prFiles: completePrFiles }, async (view) => {
+      expectCompleteCoverage(view);
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(state.prepareCalls).toBe(1);
+
+    fetchSpy.mockRestore();
+  });
+
+  it("still uses canonical coverage after the release grace window", async () => {
+    await withPrRepositoryView({ ...params, prFiles: truncatedPrFiles }, async (view) => {
+      expectCompleteCoverage(view);
+    });
+    await vi.advanceTimersByTimeAsync(PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
+    expect(state.cleanup).toHaveBeenCalledTimes(1);
+    state.prepareCalls = 0;
+
+    await withPrRepositoryView({ ...params, prFiles: completePrFiles }, async (view) => {
+      expectCompleteCoverage(view);
+    });
+    expect(state.prepareCalls).toBe(1);
+  });
+
+  it("gives concurrent truncated and complete callers the same complete coverage", async () => {
+    const [truncatedView, completeView] = await Promise.all([
+      withPrRepositoryView({ ...params, prFiles: truncatedPrFiles }, async (view) => view),
+      withPrRepositoryView({ ...params, prFiles: completePrFiles }, async (view) => view),
+    ]);
+
+    expectCompleteCoverage(truncatedView);
+    expectCompleteCoverage(completeView);
+    expect(state.prepareCalls).toBe(1);
+  });
+
+  it("rejects a supplied file list whose head SHA does not match", async () => {
+    await expect(
+      withPrRepositoryView(
+        {
+          ...params,
+          prFiles: fileListResult(["src/a.ts"], { headSha: "a".repeat(40) }),
+        },
+        async () => "ok",
+      ),
+    ).rejects.toMatchObject({ code: "github.head_sha_mismatch" });
+    expect(state.prepareCalls).toBe(0);
+  });
+
+  it("rejects a fetched file list whose head SHA does not match", async () => {
+    await expect(
+      withPrRepositoryView({ ...params, headSha: "a".repeat(40) }, async () => "ok"),
+    ).rejects.toMatchObject({ code: "github.head_sha_mismatch" });
+    expect(state.prepareCalls).toBe(0);
+  });
+
+  it("does not share a full checkout with a sparse checkout of the same PR", async () => {
+    await withPrRepositoryView(params, async (view) => {
+      expect(view.workspace.checkoutMode).toBe("full");
+      expectCompleteCoverage(view);
+    });
+    await withPrRepositoryView(
+      { ...params, repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1 },
+      async (view) => {
+        expect(view.workspace.checkoutMode).toBe("sparse");
+        expectCompleteCoverage(view);
+      },
+    );
+    expect(state.prepareCalls).toBe(2);
   });
 
   it("re-prepares after a failed clone instead of caching the failure", async () => {

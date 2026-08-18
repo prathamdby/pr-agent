@@ -129,3 +129,40 @@ export function mergeCondensedJobLogs(
 
   return redactReviewText(parts.join("\n\n"));
 }
+
+/**
+ * Caps an already-condensed context to the global CI-summary byte budget.
+ * Keeps the tail, matching per-job char truncation (failures usually land last).
+ */
+export function boundCondensedLogBytes(
+  text: string,
+  maxBytes: number = REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
+): string {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return "";
+  const buf = Buffer.from(trimmed, "utf8");
+  const bounded =
+    buf.byteLength <= maxBytes ? trimmed : buf.subarray(buf.byteLength - maxBytes).toString("utf8");
+  return redactReviewText(bounded);
+}
+
+/**
+ * Picks one redacted, size-bounded CI context: Actions job logs win; otherwise
+ * condensed check output; otherwise empty. Author/prompt must not see a second raw field.
+ */
+export function selectEffectiveCiContext(params: {
+  readonly jobs: readonly CondensedJobLog[];
+  readonly checkOutput?: string;
+  readonly maxBytes?: number;
+  readonly perJobMaxChars?: number;
+}): string {
+  const jobs = params.jobs.filter((job) => job.text.trim().length > 0);
+  if (jobs.length > 0) {
+    return mergeCondensedJobLogs(jobs, { maxBytes: params.maxBytes });
+  }
+  const checkOutput = params.checkOutput?.trim() ?? "";
+  if (checkOutput.length === 0) return "";
+  const condensed = condenseJobLogText(checkOutput, params.perJobMaxChars);
+  if (condensed.trim().length === 0) return "";
+  return boundCondensedLogBytes(condensed, params.maxBytes);
+}
