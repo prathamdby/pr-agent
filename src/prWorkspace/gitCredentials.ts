@@ -1,8 +1,8 @@
 import { chmod, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const ASKPASS_NAME = "git-askpass.sh";
-const TOKEN_FILE_NAME = "git-token";
+export const GIT_ASKPASS_NAME = "git-askpass.sh";
+export const GIT_TOKEN_FILE_NAME = "git-token";
 
 export type GitCredentialFiles = {
   readonly askpass: string;
@@ -14,8 +14,8 @@ export async function createGitCredentialFiles(
   rootDir: string,
   token: string,
 ): Promise<GitCredentialFiles> {
-  const askpass = join(rootDir, ASKPASS_NAME);
-  const tokenFile = join(rootDir, TOKEN_FILE_NAME);
+  const askpass = join(rootDir, GIT_ASKPASS_NAME);
+  const tokenFile = join(rootDir, GIT_TOKEN_FILE_NAME);
   await writeFile(
     askpass,
     [

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, statfs } from "node:fs/promises";
+import { mkdir, statfs } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { promisify } from "node:util";
@@ -18,17 +18,14 @@ import {
   LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
 } from "../settings/index.js";
 import { isTriageControlPath } from "../agent/triage/triageWritePolicy.js";
-import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 import {
   assertWorkspacePath,
   cleanupStaleLocalPrWorkspaces,
-  registerLiveLocalPrWorkspace,
-  unregisterLiveLocalPrWorkspace,
   stripWorkspaceSymlinks,
 } from "./localPrWorkspace.js";
+import { allocateWorkspaceResource, WRITABLE_WORKSPACE_ROOT_PREFIX } from "./workspaceResource.js";
 
 const exec = promisify(execFile);
-const WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 
 /** Git author/committer or Co-authored-by person. */
 export type GitPerson = {
@@ -394,11 +391,6 @@ function classifyPushError(error: unknown): never {
   throw error;
 }
 
-async function removeWorkspace(rootDir: string): Promise<void> {
-  await makeDirectoriesWritable(rootDir);
-  await rm(rootDir, { recursive: true, force: true });
-}
-
 export async function withWritablePrCheckout<T>(
   params: WritablePrCheckoutParams,
   fn: (checkout: WritablePrCheckout) => Promise<T>,
@@ -410,38 +402,41 @@ export async function withWritablePrCheckout<T>(
   assertSha(headSha, "headSha");
   await ensureWritableCheckoutMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
-  const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
-  registerLiveLocalPrWorkspace(rootDir);
-  const dir = join(rootDir, "checkout");
-  const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
-  const credentials = await createGitCredentialFiles(rootDir, installationToken);
-  const committed: { sha: string; subject: string; diff: string }[] = [];
-  const defaultAttribution =
-    params.commitAttribution ?? buildTriageCommitAttribution({ botIdentity, triggerer: null });
-  const botPerson = botGitPerson(botIdentity);
-
-  const baseGitEnv = {
-    ...process.env,
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_TERMINAL_PROMPT: "0",
-    GIT_LFS_SKIP_SMUDGE: "1",
-    GIT_ASKPASS: credentials.askpass,
-    GIT_TOKEN_FILE: credentials.tokenFile,
-  };
-
-  const git = (
-    args: readonly string[],
-    timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-    extraEnv?: Record<string, string>,
-  ) =>
-    exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-      cwd: dir,
-      env: extraEnv ? { ...baseGitEnv, ...extraEnv } : baseGitEnv,
-      timeout: timeoutMs,
-      maxBuffer: 20 * 1024 * 1024,
-    });
-
+  const resource = await allocateWorkspaceResource({
+    prefix: WRITABLE_WORKSPACE_ROOT_PREFIX,
+    installationToken,
+  });
   try {
+    const rootDir = resource.rootDir;
+    const credentials = resource.credentials;
+    const dir = join(rootDir, "checkout");
+    const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
+    const committed: { sha: string; subject: string; diff: string }[] = [];
+    const defaultAttribution =
+      params.commitAttribution ?? buildTriageCommitAttribution({ botIdentity, triggerer: null });
+    const botPerson = botGitPerson(botIdentity);
+
+    const baseGitEnv = {
+      ...process.env,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_LFS_SKIP_SMUDGE: "1",
+      GIT_ASKPASS: credentials.askpass,
+      GIT_TOKEN_FILE: credentials.tokenFile,
+    };
+
+    const git = (
+      args: readonly string[],
+      timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+      extraEnv?: Record<string, string>,
+    ) =>
+      exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+        cwd: dir,
+        env: extraEnv ? { ...baseGitEnv, ...extraEnv } : baseGitEnv,
+        timeout: timeoutMs,
+        maxBuffer: 20 * 1024 * 1024,
+      });
+
     await mkdir(dir, { recursive: true });
     await git(["init"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await git(["remote", "add", "origin", remoteUrl], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
@@ -529,8 +524,6 @@ export async function withWritablePrCheckout<T>(
 
     return await fn(checkout);
   } finally {
-    unregisterLiveLocalPrWorkspace(rootDir);
-    await credentials.cleanup().catch(() => undefined);
-    await removeWorkspace(rootDir).catch(() => undefined);
+    await resource.release();
   }
 }

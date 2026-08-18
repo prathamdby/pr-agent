@@ -3,7 +3,6 @@ import {
   chmod,
   lstat,
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
   realpath,
@@ -39,8 +38,13 @@ import {
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
 } from "../settings/index.js";
-import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 import { AppError } from "../errors/appError.js";
+import {
+  allocateWorkspaceResource,
+  READONLY_WORKSPACE_ROOT_PREFIX,
+  sweepStaleOwnedWorkspaces,
+  type WorkspaceResource,
+} from "./workspaceResource.js";
 import {
   buildSymbolIndex,
   formatSymbolIndexStatusLine,
@@ -58,8 +62,6 @@ const BINARY_SAMPLE_BYTES = 8192;
 export type { SymbolIndexEntry, SymbolIndexStatus };
 export { formatSymbolIndexStatusLine };
 
-const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
-const TRIAGE_WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";
 const PR_HEAD_REF = "pr-head";
@@ -495,11 +497,6 @@ async function enforceMaxFetchBytes(
   }
 }
 
-async function removeWorkspace(rootDir: string): Promise<void> {
-  await makeDirectoriesWritable(rootDir);
-  await rm(rootDir, { recursive: true, force: true });
-}
-
 async function prepareCheckedOutTree(dir: string, prefix = ""): Promise<Set<string>> {
   const paths = new Set<string>();
   const entries = await readdir(dir, { withFileTypes: true });
@@ -542,18 +539,10 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): st
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
-/** In-process roots currently owned by a live checkout; sweeps must not delete these. */
-const liveLocalPrWorkspaceRoots = new Set<string>();
-
-/** Mark a workspace root as in use so periodic sweeps skip it. */
-export function registerLiveLocalPrWorkspace(rootDir: string): void {
-  liveLocalPrWorkspaceRoots.add(rootDir);
-}
-
-/** Clear the live marker before deleting a workspace root. */
-export function unregisterLiveLocalPrWorkspace(rootDir: string): void {
-  liveLocalPrWorkspaceRoots.delete(rootDir);
-}
+export {
+  registerLiveLocalPrWorkspace,
+  unregisterLiveLocalPrWorkspace,
+} from "./workspaceResource.js";
 
 async function cleanupStalePiAgentDirs(): Promise<void> {
   const now = Date.now();
@@ -578,24 +567,7 @@ async function statIfPresent(path: string) {
 
 export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
   await cleanupStalePiAgentDirs();
-  const now = Date.now();
-  for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
-    if (
-      !entry.isDirectory() ||
-      (!entry.name.startsWith(WORKSPACE_ROOT_PREFIX) &&
-        !entry.name.startsWith(TRIAGE_WORKSPACE_ROOT_PREFIX))
-    ) {
-      continue;
-    }
-    const full = join(tmpdir(), entry.name);
-    const entryStat = await statIfPresent(full);
-    if (!entryStat) continue;
-    if (liveLocalPrWorkspaceRoots.has(full)) continue;
-    const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
-      await removeWorkspace(full).catch(() => undefined);
-    }
-  }
+  await sweepStaleOwnedWorkspaces();
 }
 
 export async function prepareLocalPrWorkspace(
@@ -607,11 +579,28 @@ export async function prepareLocalPrWorkspace(
   assertSha(headSha, "headSha");
   await ensureWorkspaceMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
-  const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
+  const resource = await allocateWorkspaceResource({
+    prefix: READONLY_WORKSPACE_ROOT_PREFIX,
+    installationToken,
+  });
+  try {
+    return await finishLocalPrWorkspace(params, resource);
+  } catch (error) {
+    await resource.release();
+    throw error;
+  }
+}
+
+async function finishLocalPrWorkspace(
+  params: PrepareLocalPrWorkspaceParams,
+  resource: WorkspaceResource,
+): Promise<LocalPrWorkspace> {
+  const { owner, repo, prNumber, headSha, prFiles } = params;
+  const rootDir = resource.rootDir;
+  const credentials = resource.credentials;
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
   const agentCwd = join(rootDir, AGENT_TREE_DIR);
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
-  const credentials = await createGitCredentialFiles(rootDir, installationToken);
   const changedFiles = prFiles.files.map(mapGithubStatus);
   const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
   const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.repositorySizeKb);
@@ -713,127 +702,119 @@ export async function prepareLocalPrWorkspace(
     return result;
   };
 
-  try {
-    await mkdir(privateGitDir, { recursive: true });
-    await mkdir(agentCwd, { recursive: true });
-    await git(["init"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    await git(["remote", "add", "origin", remoteUrl], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    const prRef = `+refs/pull/${prNumber}/head:refs/heads/${PR_HEAD_REF}`;
-    const fetchArgs = [
-      "fetch",
-      "--no-tags",
-      "--depth=1",
-      ...(checkoutMode === "sparse" ? ["--filter=blob:none"] : []),
-      "--no-recurse-submodules",
-      "origin",
-      prRef,
-    ];
-    await git(fetchArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
-    if (checkoutMode === "sparse") {
-      await git(["config", "core.sparseCheckout", "true"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-      await git(["config", "core.sparseCheckoutCone", "false"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-      await writeFile(
-        join(privateGitDir, "info", "sparse-checkout"),
-        sparseCheckoutPatterns(changedFiles),
-      );
-    }
-    await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    await enforceMaxFetchBytes(
-      git,
-      LOCAL_WORKSPACE_MAX_FETCH_BYTES,
-      LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  await mkdir(privateGitDir, { recursive: true });
+  await mkdir(agentCwd, { recursive: true });
+  await git(["init"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+  await git(["remote", "add", "origin", remoteUrl], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+  const prRef = `+refs/pull/${prNumber}/head:refs/heads/${PR_HEAD_REF}`;
+  const fetchArgs = [
+    "fetch",
+    "--no-tags",
+    "--depth=1",
+    ...(checkoutMode === "sparse" ? ["--filter=blob:none"] : []),
+    "--no-recurse-submodules",
+    "origin",
+    prRef,
+  ];
+  await git(fetchArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+  if (checkoutMode === "sparse") {
+    await git(["config", "core.sparseCheckout", "true"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+    await git(["config", "core.sparseCheckoutCone", "false"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+    await writeFile(
+      join(privateGitDir, "info", "sparse-checkout"),
+      sparseCheckoutPatterns(changedFiles),
     );
-    const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
-    if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
-      throw new AppError({
-        code: "pr_workspace.head_sha_mismatch",
-        message: `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
-        context: { fetchedHead: fetchedHead.trim(), headSha },
-      });
-    }
+  }
+  await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+  await enforceMaxFetchBytes(
+    git,
+    LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+    LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  );
+  const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
+  if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
+    throw new AppError({
+      code: "pr_workspace.head_sha_mismatch",
+      message: `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
+      context: { fetchedHead: fetchedHead.trim(), headSha },
+    });
+  }
 
-    await credentials.cleanup();
-    checkoutPaths = await prepareCheckedOutTree(agentCwd);
-    sortedCheckoutPaths = [...checkoutPaths].toSorted();
+  await credentials.cleanup();
+  checkoutPaths = await prepareCheckedOutTree(agentCwd);
+  sortedCheckoutPaths = [...checkoutPaths].toSorted();
 
-    let symbolIndex: SymbolIndex | null = null;
+  let symbolIndex: SymbolIndex | null = null;
 
-    async function readIndexableFile(path: string): Promise<string | null> {
-      const normalized = path.replace(/\\/g, "/");
-      if (!isPathInCheckout(normalized) || !isIndexableSourcePath(normalized)) return null;
-      const safePath = assertWorkspacePath(agentCwd, normalized);
-      const info = await stat(safePath).catch(() => null);
-      if (!info?.isFile() || info.size > LOCAL_WORKSPACE_MAX_FILE_BYTES) return null;
-      const buf = await readFile(safePath).catch(() => null);
-      if (!buf) return null;
-      if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) return null;
-      return buf.toString("utf8");
-    }
+  async function readIndexableFile(path: string): Promise<string | null> {
+    const normalized = path.replace(/\\/g, "/");
+    if (!isPathInCheckout(normalized) || !isIndexableSourcePath(normalized)) return null;
+    const safePath = assertWorkspacePath(agentCwd, normalized);
+    const info = await stat(safePath).catch(() => null);
+    if (!info?.isFile() || info.size > LOCAL_WORKSPACE_MAX_FILE_BYTES) return null;
+    const buf = await readFile(safePath).catch(() => null);
+    if (!buf) return null;
+    if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) return null;
+    return buf.toString("utf8");
+  }
 
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS,
+    );
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(
-        () => controller.abort(),
-        LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS,
+      symbolIndex = await buildSymbolIndex(
+        sortedCheckoutPaths.filter(isIndexableSourcePath),
+        readIndexableFile,
+        {
+          maxSymbols: LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
+          maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+          signal: controller.signal,
+        },
       );
-      try {
-        symbolIndex = await buildSymbolIndex(
-          sortedCheckoutPaths.filter(isIndexableSourcePath),
-          readIndexableFile,
-          {
-            maxSymbols: LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
-            maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
-            signal: controller.signal,
-          },
-        );
-      } catch {
-        symbolIndex = null;
-      } finally {
-        clearTimeout(timeout);
-      }
     } catch {
       symbolIndex = null;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const lookupSymbol = (name: string, maxResults = LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS) =>
-      querySymbolIndex(symbolIndex, name, maxResults);
-
-    const getSymbolIndexStatus = () => symbolIndexStatus(symbolIndex);
-
-    registerLiveLocalPrWorkspace(rootDir);
-    return {
-      rootDir,
-      privateGitDir,
-      agentCwd,
-      changedFiles,
-      changedFileByPath,
-      checkoutPaths,
-      sortedCheckoutPaths,
-      checkoutMode,
-      diffIndex,
-      stats: {
-        truncated: prFiles.truncated,
-        totalChanges: prFiles.totalChanges,
-        fileCount: changedFiles.length,
-        warning: prFiles.warning,
-      },
-      grepLiteral,
-      getDiffForPath,
-      getBlameForPath,
-      isPathInCheckout,
-      getCoverage,
-      noteSearchTruncated,
-      lookupSymbol,
-      getSymbolIndexStatus,
-      cleanup: async () => {
-        symbolIndex = null;
-        unregisterLiveLocalPrWorkspace(rootDir);
-        await removeWorkspace(rootDir);
-      },
-    };
-  } catch (e) {
-    unregisterLiveLocalPrWorkspace(rootDir);
-    await removeWorkspace(rootDir).catch(() => undefined);
-    throw e;
+  } catch {
+    symbolIndex = null;
   }
+
+  const lookupSymbol = (name: string, maxResults = LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS) =>
+    querySymbolIndex(symbolIndex, name, maxResults);
+
+  const getSymbolIndexStatus = () => symbolIndexStatus(symbolIndex);
+
+  return {
+    rootDir,
+    privateGitDir,
+    agentCwd,
+    changedFiles,
+    changedFileByPath,
+    checkoutPaths,
+    sortedCheckoutPaths,
+    checkoutMode,
+    diffIndex,
+    stats: {
+      truncated: prFiles.truncated,
+      totalChanges: prFiles.totalChanges,
+      fileCount: changedFiles.length,
+      warning: prFiles.warning,
+    },
+    grepLiteral,
+    getDiffForPath,
+    getBlameForPath,
+    isPathInCheckout,
+    getCoverage,
+    noteSearchTruncated,
+    lookupSymbol,
+    getSymbolIndexStatus,
+    cleanup: async () => {
+      symbolIndex = null;
+      await resource.release();
+    },
+  };
 }
