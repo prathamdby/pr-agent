@@ -141,11 +141,19 @@ describe("executeTriageJob", () => {
     mocks.parseStoredTriagePushDetail.mockImplementation((detail) => ({
       payload: detail.payload,
       commits: detail.commits,
-      pushed: detail.staleHead !== true,
-      degraded: detail.staleHead === true,
+      pushOutcome:
+        detail.pushOutcome ??
+        (detail.staleHead === true
+          ? "stale"
+          : detail.commits?.length > 0
+            ? "pushed"
+            : "not-needed"),
       pushedHeadSha: detail.pushedHeadSha,
     }));
-    mocks.publishTriage.mockResolvedValue({ degraded: false });
+    mocks.publishTriage.mockResolvedValue({
+      pushOutcome: "pushed",
+      missingThreadAction: false,
+    });
     mocks.publishTriageReportOnly.mockResolvedValue(undefined);
     mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
@@ -311,7 +319,7 @@ describe("executeTriageJob", () => {
     expect(mocks.publishTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         payload,
-        priorPush: expect.objectContaining({ pushed: true, degraded: false }),
+        priorPush: expect.objectContaining({ pushOutcome: "pushed" }),
       }),
     );
   });
@@ -366,7 +374,7 @@ describe("executeTriageJob", () => {
     expect(mocks.publishTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         payload,
-        priorPush: expect.objectContaining({ pushed: true, degraded: false }),
+        priorPush: expect.objectContaining({ pushOutcome: "pushed" }),
       }),
     );
   });
@@ -662,6 +670,95 @@ describe("executeTriageJob", () => {
       }),
     );
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+  });
+
+  it("resumes a stored not-needed push without rerunning the agent", async () => {
+    const payload = {
+      verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+    };
+    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+      pushOutcome: "not-needed",
+      pushedShas: [],
+      commits: [],
+      pushedHeadSha: "a".repeat(40),
+      payload,
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+    expect(mocks.publishTriage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload,
+        priorPush: expect.objectContaining({ pushOutcome: "not-needed" }),
+      }),
+    );
+  });
+
+  it("maps stale pushOutcome to durable degraded without a missing mapping", async () => {
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
+      executeResult = await spec.execute(item(), {
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        signal: new AbortController().signal,
+      });
+    });
+    mocks.publishTriage.mockResolvedValue({
+      pushOutcome: "stale",
+      missingThreadAction: false,
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(mocks.publishTriage).toHaveBeenCalled();
+  });
+
+  it("maps missing thread actions to durable degraded without rewriting pushOutcome", async () => {
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
+      executeResult = await spec.execute(item(), {
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        signal: new AbortController().signal,
+      });
+    });
+    mocks.publishTriage.mockResolvedValue({
+      pushOutcome: "pushed",
+      missingThreadAction: true,
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    await expect(mocks.publishTriage.mock.results[0]?.value).resolves.toEqual({
+      pushOutcome: "pushed",
+      missingThreadAction: true,
+    });
+  });
+
+  it("keeps a successful not-needed publish as completed without degraded", async () => {
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
+      executeResult = await spec.execute(item(), {
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        signal: new AbortController().signal,
+      });
+    });
+    mocks.publishTriage.mockResolvedValue({
+      pushOutcome: "not-needed",
+      missingThreadAction: false,
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(executeResult).toEqual({ kind: "completed" });
   });
 
   it("posts terminal failure comment when no report exists", async () => {

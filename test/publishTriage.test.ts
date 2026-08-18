@@ -29,8 +29,17 @@ vi.mock("../src/agentWork/triageAnalytics.js", () => ({
   captureTriageFailure: vi.fn(),
 }));
 
-import { publishTriage, publishTriageReportOnly } from "../src/agent/triage/publishTriage.js";
-import { TRIAGE_SUMMARY_SENTINEL } from "../src/settings/index.js";
+import { recordPublishStep } from "../src/agentWork/repository.js";
+import { triagePushOperationKey } from "../src/agentWork/withOperationIntent.js";
+import {
+  isTriagePushOutcome,
+  parseStoredTriagePushDetail,
+  publishTriage,
+  publishTriageReportOnly,
+  type TriagePushOutcome,
+} from "../src/agent/triage/publishTriage.js";
+import { TRIAGE_STALE_HEAD_NOTICE, TRIAGE_SUMMARY_SENTINEL } from "../src/settings/index.js";
+import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 
 const thread = {
   rootCommentId: 1,
@@ -124,10 +133,11 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(result.degraded).toBe(true);
+    expect(result).toEqual({ pushOutcome: "stale", missingThreadAction: false });
     expect(controls.replies).toHaveLength(0);
     expect(resolveThreadIds(controls)).toHaveLength(0);
     expect(upsertProgressBody(controls)).toContain("head changed");
+    expect(upsertProgressBody(controls)).toContain(TRIAGE_STALE_HEAD_NOTICE);
   });
 
   it("replies and resolves a fixed thread after a successful push", async () => {
@@ -160,10 +170,20 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(result.degraded).toBe(false);
+    expect(result).toEqual({ pushOutcome: "pushed", missingThreadAction: false });
     expect(controls.replies).toHaveLength(1);
     expect(controls.replies[0]?.body).toContain("Fixed in");
     expect(resolveThreadIds(controls)).toContain("node");
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "triage_push",
+        detail: expect.objectContaining({
+          pushOutcome: "pushed",
+          pushedShas: ["abcdef123456"],
+        }),
+      }),
+    );
   });
 
   it("still replies to already-resolved verdicts when push is stale", async () => {
@@ -211,7 +231,7 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(result.degraded).toBe(true);
+    expect(result).toEqual({ pushOutcome: "stale", missingThreadAction: false });
     expect(controls.replies).toHaveLength(1);
     expect(controls.replies[0]?.target).toEqual(
       expect.objectContaining({ kind: "inlineReviewThread", inReplyToCommentId: 2 }),
@@ -285,7 +305,7 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(result.degraded).toBe(true);
+    expect(result).toEqual({ pushOutcome: "stale", missingThreadAction: false });
     expect(controls.replies).toHaveLength(0);
     expect(resolveThreadIds(controls)).toContain("node");
   });
@@ -332,7 +352,7 @@ describe("publishTriage", () => {
       ]),
     );
     controls = fake.controls;
-    await publishTriage({
+    const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
       leaseEpoch: 1,
@@ -366,19 +386,27 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
+    expect(result).toEqual({ pushOutcome: "not-needed", missingThreadAction: false });
     expect(push).not.toHaveBeenCalled();
     expect(controls.replies).toHaveLength(1);
     expect(controls.replies[0]?.target).toEqual(
       expect.objectContaining({ kind: "inlineReviewThread", inReplyToCommentId: 2 }),
     );
     expect(resolveThreadIds(controls)).toEqual(expect.arrayContaining(["node-1", "node-2"]));
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "triage_push",
+        detail: expect.objectContaining({ pushOutcome: "not-needed", pushedShas: [] }),
+      }),
+    );
   });
 
   it("does not resolve a fixed thread when the checkout has no commits", async () => {
     const push = vi.fn(async () => undefined);
     const fake = publishTestPrSurface();
     controls = fake.controls;
-    await publishTriage({
+    const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
       leaseEpoch: 1,
@@ -405,9 +433,17 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
+    expect(result).toEqual({ pushOutcome: "not-needed", missingThreadAction: false });
     expect(push).not.toHaveBeenCalled();
     expect(controls.replies).toHaveLength(0);
     expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "triage_push",
+        detail: expect.objectContaining({ pushOutcome: "not-needed" }),
+      }),
+    );
   });
 
   it("skips duplicate replies but still resolves already acted threads", async () => {
@@ -538,7 +574,7 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(result.degraded).toBe(true);
+    expect(result).toEqual({ pushOutcome: "pushed", missingThreadAction: true });
     expect(controls.replies).toHaveLength(0);
     expect(resolveThreadIds(controls)).toHaveLength(0);
     expect(upsertProgressBody(controls)).toContain("could not be matched");
@@ -644,5 +680,357 @@ describe("publishTriage", () => {
     expect(body).toContain("[redacted]");
     expect(body).not.toContain("sk-");
     expect(body).toContain("Inventory leaked");
+  });
+});
+
+const skippedVerdict = {
+  verdict: "skipped" as const,
+  threadRootCommentId: 1,
+  reason: "too large for one commit",
+};
+const dismissedVerdict = {
+  verdict: "dismissed" as const,
+  threadRootCommentId: 1,
+  evidence: "maintainer said intentional",
+};
+const alreadyResolvedVerdict = {
+  verdict: "already-resolved" as const,
+  threadRootCommentId: 1,
+  evidence: "current code already handles this",
+};
+const fixedVerdict = {
+  verdict: "fixed" as const,
+  threadRootCommentId: 1,
+  commitSha: "abcdef123456",
+  evidence: "fixed",
+};
+
+const storedPayload = { verdicts: [skippedVerdict] };
+const storedCommit = { sha: "abcdef123456", subject: "fix: guard user", diff: "+ok\n" };
+
+describe("parseStoredTriagePushDetail", () => {
+  it("infers stale from legacy staleHead and keeps explicit pushOutcome", () => {
+    expect(isTriagePushOutcome("not-needed")).toBe(true);
+    expect(isTriagePushOutcome("pushed")).toBe(true);
+    expect(isTriagePushOutcome("stale")).toBe(true);
+    expect(isTriagePushOutcome("degraded")).toBe(false);
+
+    expect(
+      parseStoredTriagePushDetail({
+        staleHead: true,
+        commits: [storedCommit],
+        payload: storedPayload,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        pushOutcome: "stale",
+        commits: [storedCommit],
+      }),
+    );
+    expect(
+      parseStoredTriagePushDetail({
+        commits: [storedCommit],
+        pushedHeadSha: "a".repeat(40),
+        payload: storedPayload,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        pushOutcome: "pushed",
+        pushedHeadSha: "a".repeat(40),
+      }),
+    );
+    expect(
+      parseStoredTriagePushDetail({
+        commits: [],
+        pushedHeadSha: "a".repeat(40),
+        payload: storedPayload,
+      }),
+    ).toEqual(expect.objectContaining({ pushOutcome: "not-needed" }));
+    expect(
+      parseStoredTriagePushDetail({
+        pushOutcome: "not-needed",
+        staleHead: true,
+        commits: [storedCommit],
+        payload: storedPayload,
+      }),
+    ).toEqual(expect.objectContaining({ pushOutcome: "not-needed" }));
+  });
+
+  it("rejects invalid stored payloads", () => {
+    expect(parseStoredTriagePushDetail(null)).toBeNull();
+    expect(parseStoredTriagePushDetail({ commits: [storedCommit] })).toBeNull();
+    expect(
+      parseStoredTriagePushDetail({
+        payload: storedPayload,
+        commits: [{ sha: "missing-fields" }],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("publishTriage push outcomes", () => {
+  const cases: Array<{
+    readonly outcome: TriagePushOutcome;
+    readonly verdict:
+      | typeof fixedVerdict
+      | typeof alreadyResolvedVerdict
+      | typeof dismissedVerdict
+      | typeof skippedVerdict;
+    readonly expectReply: boolean;
+    readonly expectResolve: boolean;
+  }> = [
+    { outcome: "not-needed", verdict: fixedVerdict, expectReply: false, expectResolve: false },
+    {
+      outcome: "not-needed",
+      verdict: alreadyResolvedVerdict,
+      expectReply: true,
+      expectResolve: true,
+    },
+    { outcome: "not-needed", verdict: dismissedVerdict, expectReply: false, expectResolve: true },
+    { outcome: "not-needed", verdict: skippedVerdict, expectReply: false, expectResolve: false },
+    { outcome: "pushed", verdict: fixedVerdict, expectReply: true, expectResolve: true },
+    { outcome: "pushed", verdict: alreadyResolvedVerdict, expectReply: true, expectResolve: true },
+    { outcome: "pushed", verdict: dismissedVerdict, expectReply: false, expectResolve: true },
+    { outcome: "pushed", verdict: skippedVerdict, expectReply: false, expectResolve: false },
+    { outcome: "stale", verdict: fixedVerdict, expectReply: false, expectResolve: false },
+    { outcome: "stale", verdict: alreadyResolvedVerdict, expectReply: true, expectResolve: true },
+    { outcome: "stale", verdict: dismissedVerdict, expectReply: false, expectResolve: true },
+    { outcome: "stale", verdict: skippedVerdict, expectReply: false, expectResolve: false },
+  ];
+
+  it.each(cases)(
+    "$outcome + $verdict.verdict → reply=$expectReply resolve=$expectResolve",
+    async ({ outcome, verdict, expectReply, expectResolve }) => {
+      const fake = publishTestPrSurface();
+      const push = vi.fn(async () => {
+        if (outcome === "stale") throw new StaleHeadPushError();
+      });
+      const result = await publishTriage({
+        pool: pool(),
+        workItemId: "wi",
+        leaseEpoch: 1,
+        resourceKey: "o/r#1",
+        installationId: 42,
+        prSurface: fake.surface,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "a".repeat(40),
+        checkout: outcome === "not-needed" ? emptyCheckout(push) : checkout(push),
+        inventory: [thread],
+        resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+        payload: { verdicts: [verdict] },
+        previouslyResolvedCount: 0,
+      });
+
+      expect(result).toEqual({ pushOutcome: outcome, missingThreadAction: false });
+      expect(fake.controls.replies).toHaveLength(expectReply ? 1 : 0);
+      expect(resolveThreadIds(fake.controls)).toEqual(expectResolve ? ["node"] : []);
+    },
+  );
+
+  it.each(["not-needed", "pushed", "stale"] as const)(
+    "keeps pushOutcome %s when a thread mapping is missing",
+    async (outcome) => {
+      const fake = publishTestPrSurface();
+      const push = vi.fn(async () => {
+        if (outcome === "stale") throw new StaleHeadPushError();
+      });
+      const result = await publishTriage({
+        pool: pool(),
+        workItemId: "wi",
+        leaseEpoch: 1,
+        resourceKey: "o/r#1",
+        installationId: 42,
+        prSurface: fake.surface,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "a".repeat(40),
+        checkout: outcome === "not-needed" ? emptyCheckout(push) : checkout(push),
+        inventory: [thread],
+        resolutionByRootCommentId: new Map(),
+        payload: { verdicts: [alreadyResolvedVerdict] },
+        previouslyResolvedCount: 0,
+      });
+
+      expect(result).toEqual({ pushOutcome: outcome, missingThreadAction: true });
+      expect(fake.controls.replies).toHaveLength(0);
+      expect(resolveThreadIds(fake.controls)).toHaveLength(0);
+      expect(upsertProgressBody(fake.controls)).toContain("could not be matched");
+      if (outcome === "stale") {
+        expect(upsertProgressBody(fake.controls)).toContain(TRIAGE_STALE_HEAD_NOTICE);
+      } else {
+        expect(upsertProgressBody(fake.controls)).not.toContain("head changed");
+      }
+    },
+  );
+
+  it("resumes a stored push without calling checkout.push", async () => {
+    const fake = publishTestPrSurface();
+    const push = vi.fn(async () => undefined);
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(push),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: { verdicts: [fixedVerdict] },
+      previouslyResolvedCount: 0,
+      priorPush: { pushOutcome: "pushed" },
+    });
+
+    expect(push).not.toHaveBeenCalled();
+    expect(result).toEqual({ pushOutcome: "pushed", missingThreadAction: false });
+    expect(fake.controls.replies).toHaveLength(1);
+    expect(resolveThreadIds(fake.controls)).toContain("node");
+    expect(upsertProgressBody(fake.controls)).toContain("Pushed commits:");
+  });
+
+  it("resumed not-needed does not resolve a fixed thread", async () => {
+    const fake = publishTestPrSurface();
+    const push = vi.fn(async () => undefined);
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: emptyCheckout(push),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: { verdicts: [fixedVerdict] },
+      previouslyResolvedCount: 0,
+      priorPush: { pushOutcome: "not-needed" },
+    });
+
+    expect(push).not.toHaveBeenCalled();
+    expect(result).toEqual({ pushOutcome: "not-needed", missingThreadAction: false });
+    expect(fake.controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(fake.controls)).toHaveLength(0);
+  });
+
+  it("skips already-resolved GitHub threads without degrading", async () => {
+    const fake = publishTestPrSurface(new Map([[1, { threadNodeId: "node", isResolved: true }]]));
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: true }]]),
+      payload: { verdicts: [alreadyResolvedVerdict] },
+      previouslyResolvedCount: 1,
+    });
+
+    expect(result).toEqual({ pushOutcome: "pushed", missingThreadAction: false });
+    expect(fake.controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(fake.controls)).toHaveLength(0);
+  });
+
+  it("does not remutate push on duplicate delivery after a reconciled intent", async () => {
+    const firstPush = vi.fn(async () => undefined);
+    const first = publishTestPrSurface();
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: first.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(firstPush),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: { verdicts: [fixedVerdict] },
+      previouslyResolvedCount: 0,
+    });
+    expect(firstPush).toHaveBeenCalledTimes(1);
+
+    const secondPush = vi.fn(async () => undefined);
+    const second = publishTestPrSurface();
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: second.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(secondPush),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: { verdicts: [fixedVerdict] },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(secondPush).not.toHaveBeenCalled();
+    expect(result).toEqual({ pushOutcome: "pushed", missingThreadAction: false });
+    expect(memoryOperationIntentStore.get("wi", triagePushOperationKey("o/r#1"))?.status).toBe(
+      "reconciled",
+    );
+  });
+
+  it("does not treat an unknown push-intent outcome as a push result", async () => {
+    await memoryOperationIntentStore.persist(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      mutationKind: "github.triage_push",
+    });
+    await memoryOperationIntentStore.reconcile(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      status: "outcome_unknown",
+    });
+    const push = vi.fn(async () => undefined);
+    const fake = publishTestPrSurface();
+
+    await expect(
+      publishTriage({
+        pool: pool(),
+        workItemId: "wi",
+        leaseEpoch: 1,
+        resourceKey: "o/r#1",
+        installationId: 42,
+        prSurface: fake.surface,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "a".repeat(40),
+        checkout: checkout(push),
+        inventory: [thread],
+        resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+        payload: { verdicts: [fixedVerdict] },
+        previouslyResolvedCount: 0,
+      }),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+    expect(push).not.toHaveBeenCalled();
+    expect(upsertProgressBody(fake.controls)).toBe("");
   });
 });

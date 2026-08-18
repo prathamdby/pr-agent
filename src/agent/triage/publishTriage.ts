@@ -75,18 +75,26 @@ type TriageCommittedDetail = {
   readonly diff: string;
 };
 
+export type TriagePushOutcome = "not-needed" | "pushed" | "stale";
+
 type TriagePriorPush = {
-  readonly pushed: boolean;
-  readonly degraded: boolean;
+  readonly pushOutcome: TriagePushOutcome;
 };
 
-export type StoredTriagePushDetail = {
-  readonly pushed: boolean;
-  readonly degraded: boolean;
+export type StoredTriagePushDetail = TriagePriorPush & {
   readonly pushedHeadSha?: string;
   readonly payload: TriagePayload;
   readonly commits: readonly TriageCommittedDetail[];
 };
+
+export type PublishTriageResult = {
+  readonly pushOutcome: TriagePushOutcome;
+  readonly missingThreadAction: boolean;
+};
+
+export function isTriagePushOutcome(value: unknown): value is TriagePushOutcome {
+  return value === "not-needed" || value === "pushed" || value === "stale";
+}
 
 function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
   if (typeof value !== "object" || value == null) return null;
@@ -98,6 +106,15 @@ function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
     : null;
 }
 
+function inferStoredPushOutcome(
+  entry: Record<string, unknown>,
+  commits: readonly TriageCommittedDetail[],
+): TriagePushOutcome {
+  if (isTriagePushOutcome(entry.pushOutcome)) return entry.pushOutcome;
+  if (entry.staleHead === true) return "stale";
+  return commits.length > 0 ? "pushed" : "not-needed";
+}
+
 export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDetail | null {
   if (typeof detail !== "object" || detail == null) return null;
   const entry = detail as Record<string, unknown>;
@@ -105,13 +122,36 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
   if (!payload.success || !Array.isArray(entry.commits)) return null;
   const commits = entry.commits.map(parseStoredCommit);
   if (commits.some((commit) => commit == null)) return null;
-  const staleHead = entry.staleHead === true;
+  const parsedCommits = commits as TriageCommittedDetail[];
   return {
     payload: payload.output,
-    commits: commits as TriageCommittedDetail[],
-    pushed: !staleHead,
-    degraded: staleHead,
+    commits: parsedCommits,
+    pushOutcome: inferStoredPushOutcome(entry, parsedCommits),
     pushedHeadSha: typeof entry.pushedHeadSha === "string" ? entry.pushedHeadSha : undefined,
+  };
+}
+
+function storedTriagePushRecord(params: {
+  readonly outcome: TriagePushOutcome;
+  readonly headSha: string;
+  readonly committedShas: readonly string[];
+  readonly commits: readonly TriageCommittedDetail[];
+  readonly payload: TriagePayload;
+}): Record<string, unknown> {
+  const shared = {
+    pushOutcome: params.outcome,
+    payload: params.payload,
+    commits: params.commits,
+    baseHeadSha: params.headSha,
+  };
+  if (params.outcome === "stale") {
+    // Keep staleHead so mixed-version workers still parse this row.
+    return { ...shared, staleHead: true, attemptedShas: params.committedShas };
+  }
+  return {
+    ...shared,
+    pushedShas: params.committedShas,
+    pushedHeadSha: params.committedShas.at(-1) ?? params.headSha,
   };
 }
 
@@ -132,12 +172,15 @@ function shouldReplyToTriageThread(
   }
 }
 
-function shouldResolveTriageThread(verdict: TriageVerdict, pushed: boolean): boolean {
+function shouldResolveTriageThread(
+  verdict: TriageVerdict,
+  pushOutcome: TriagePushOutcome,
+): boolean {
   switch (verdict.verdict) {
     case "skipped":
       return false;
     case "fixed":
-      return pushed;
+      return pushOutcome === "pushed";
     case "already-resolved":
     case "dismissed":
       return true;
@@ -228,7 +271,7 @@ export async function publishTriageReportOnly(params: ReportOnlyParams): Promise
   }
 }
 
-export async function publishTriage(params: PublishTriageParams): Promise<{ degraded: boolean }> {
+export async function publishTriage(params: PublishTriageParams): Promise<PublishTriageResult> {
   const analytics: TriageAnalyticsRef = {
     installationId: params.installationId,
     owner: params.owner,
@@ -237,11 +280,10 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     workItemId: params.workItemId,
     scope: params.scope,
   };
-  let pushed = params.priorPush?.pushed ?? false;
-  let degraded = params.priorPush?.degraded ?? false;
-  let stalePush = params.priorPush?.degraded ?? false;
+  let pushOutcome: TriagePushOutcome = params.priorPush?.pushOutcome ?? "not-needed";
   let missingThreadAction = false;
   const committedShas = params.checkout.listCommittedShas();
+  const committedDetails = params.checkout.listCommittedDetails();
   if (!params.priorPush && committedShas.length > 0) {
     try {
       await withOperationIntent({
@@ -259,28 +301,27 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
           await params.checkout.push();
         },
       });
-      pushed = true;
+      pushOutcome = "pushed";
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
         leaseEpoch: params.leaseEpoch,
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
-        detail: {
-          pushedShas: committedShas,
-          baseHeadSha: params.headSha,
-          pushedHeadSha: committedShas.at(-1) ?? params.headSha,
-          commits: params.checkout.listCommittedDetails(),
+        detail: storedTriagePushRecord({
+          outcome: "pushed",
+          headSha: params.headSha,
+          committedShas,
+          commits: committedDetails,
           payload: params.payload,
-        },
+        }),
       });
     } catch (error) {
       if (!(error instanceof StaleHeadPushError)) {
         captureTriageFailure(analytics, "publish_push", error);
         throw error;
       }
-      degraded = true;
-      stalePush = true;
+      pushOutcome = "stale";
       captureTriageEvent(analytics, "triage degraded", {
         step: "publish_push",
         reason: "stale_head",
@@ -291,13 +332,13 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
-        detail: {
-          staleHead: true,
-          attemptedShas: committedShas,
-          baseHeadSha: params.headSha,
-          commits: params.checkout.listCommittedDetails(),
+        detail: storedTriagePushRecord({
+          outcome: "stale",
+          headSha: params.headSha,
+          committedShas,
+          commits: committedDetails,
           payload: params.payload,
-        },
+        }),
       });
     }
   } else if (!params.priorPush) {
@@ -307,13 +348,13 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       step: "triage_push",
-      detail: {
-        pushedShas: [],
-        baseHeadSha: params.headSha,
-        pushedHeadSha: params.headSha,
+      detail: storedTriagePushRecord({
+        outcome: "not-needed",
+        headSha: params.headSha,
+        committedShas: [],
         commits: [],
         payload: params.payload,
-      },
+      }),
     });
   }
 
@@ -327,11 +368,10 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   for (const verdict of params.payload.verdicts) {
-    if (!shouldResolveTriageThread(verdict, pushed)) continue;
+    if (!shouldResolveTriageThread(verdict, pushOutcome)) continue;
     const thread = threadById.get(verdict.threadRootCommentId);
     const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
     if (!thread || !resolution) {
-      degraded = true;
       missingThreadAction = true;
       captureTriageEvent(analytics, "triage degraded", {
         step: "thread_actions",
@@ -407,10 +447,10 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         headSha: params.headSha,
         inventory: params.inventory,
         payload: params.payload,
-        commits: pushed ? params.checkout.listCommittedDetails() : [],
+        commits: pushOutcome === "pushed" ? committedDetails : [],
         previouslyResolvedCount: params.previouslyResolvedCount,
         notice: [
-          stalePush ? TRIAGE_STALE_HEAD_NOTICE : undefined,
+          pushOutcome === "stale" ? TRIAGE_STALE_HEAD_NOTICE : undefined,
           missingThreadAction ? TRIAGE_THREAD_RESOLUTION_NOTICE : undefined,
         ]
           .filter((notice) => notice != null)
@@ -445,5 +485,5 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     }
   }
 
-  return { degraded };
+  return { pushOutcome, missingThreadAction };
 }

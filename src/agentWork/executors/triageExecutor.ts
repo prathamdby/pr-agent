@@ -16,6 +16,7 @@ import {
   parseStoredTriagePushDetail,
   publishTriage,
   publishTriageReportOnly,
+  type PublishTriageResult,
   type StoredTriagePushDetail,
 } from "../../agent/triage/publishTriage.js";
 import {
@@ -196,10 +197,17 @@ function storedPushMatchesInventory(
   headSha: string,
   inventory: readonly BotFindingThread[],
 ): boolean {
-  if (detail.pushed && detail.pushedHeadSha?.toLowerCase() !== headSha.toLowerCase()) return false;
+  if (detail.pushOutcome === "stale") return false;
+  if (detail.pushedHeadSha?.toLowerCase() !== headSha.toLowerCase()) return false;
   const verdictIds = new Set(detail.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
   if (verdictIds.size !== inventory.length) return false;
   return inventory.every((thread) => verdictIds.has(thread.rootCommentId));
+}
+
+function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult {
+  return publish.pushOutcome === "stale" || publish.missingThreadAction
+    ? { kind: "completed", degraded: true }
+    : { kind: "completed" };
 }
 
 function resolveEmptyInventoryOutcome(params: {
@@ -412,13 +420,17 @@ async function tryResumeStoredPush(params: {
     captureTriageFailure(params.analytics, "parse_stored_push", error);
     throw error;
   }
-  if (!parsed.pushed || !storedPushMatchesInventory(parsed, params.headSha, params.inventory)) {
+  if (
+    parsed.pushOutcome === "stale" ||
+    !storedPushMatchesInventory(parsed, params.headSha, params.inventory)
+  ) {
     return null;
   }
 
   captureTriageEvent(params.analytics, "triage resumed", {
     inventory_count: params.inventory.length,
     commit_count: parsed.commits.length,
+    push_outcome: parsed.pushOutcome,
   });
   const publish = await publishTriage({
     pool: params.pool,
@@ -440,15 +452,21 @@ async function tryResumeStoredPush(params: {
     leaseEpoch: params.leaseEpoch,
     ...params.reportContext,
   });
-  if (publish.degraded) {
-    captureTriageEvent(params.analytics, "triage degraded", { step: "publish_resume" });
+  const result = completedFromPublish(publish);
+  if (result.degraded) {
+    captureTriageEvent(params.analytics, "triage degraded", {
+      step: "publish_resume",
+      push_outcome: publish.pushOutcome,
+      missing_thread_action: publish.missingThreadAction,
+    });
   } else {
     captureTriageEvent(params.analytics, "triage published", {
       inventory_count: params.inventory.length,
       resumed: true,
+      push_outcome: publish.pushOutcome,
     });
   }
-  return publish.degraded ? { kind: "completed", degraded: true } : { kind: "completed" };
+  return result;
 }
 
 /**
@@ -573,16 +591,22 @@ async function runFreshTriageAgent(params: {
         leaseEpoch: params.leaseEpoch,
         ...params.reportContext,
       });
-      if (publish.degraded) {
-        captureTriageEvent(params.analytics, "triage degraded", { step: "publish" });
+      const completed = completedFromPublish(publish);
+      if (completed.degraded) {
+        captureTriageEvent(params.analytics, "triage degraded", {
+          step: "publish",
+          push_outcome: publish.pushOutcome,
+          missing_thread_action: publish.missingThreadAction,
+        });
       } else {
         captureTriageEvent(params.analytics, "triage published", {
           inventory_count: params.inventory.length,
           previously_resolved_count: params.previouslyResolvedCount,
           commit_count: checkout.listCommittedShas().length,
+          push_outcome: publish.pushOutcome,
         });
       }
-      return publish.degraded ? { kind: "completed", degraded: true } : { kind: "completed" };
+      return completed;
     },
   );
 }
