@@ -13,8 +13,11 @@ export type CiAuthorInput = {
   readonly checkNames: readonly string[];
   readonly failingNames: readonly string[];
   readonly failingUrls: ReadonlyMap<string, string | undefined>;
+  /**
+   * One already-selected CI context: condensed, redacted, and size-bounded.
+   * Empty when no Actions logs or check output are available.
+   */
   readonly condensedLogs: string;
-  readonly checkOutputFallback: string;
 };
 
 export type CiSummaryAuthor = (input: CiAuthorInput) => Promise<CiSummaryLlmFields | null>;

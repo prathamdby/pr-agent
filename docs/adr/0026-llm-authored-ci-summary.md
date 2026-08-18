@@ -18,13 +18,13 @@ Constraints that still hold:
 
 ## Decision
 
-1. **Split ownership.** Server fetches external checks/statuses, waits/polls, downloads failing Actions job logs when permitted, condenses and redacts them, validates schema, and renders the CI cell. The LLM interprets condensed context and fills `headline` / `failures[]` (reason + fixHint). Server overwrites `status` and check `name`s from GitHub facts when the model drifts.
+1. **Split ownership.** Server fetches external checks/statuses, waits/polls, downloads failing Actions job logs when permitted, then selects **one** condensed, redacted, size-bounded context (Actions logs, else check output) before the LLM turn. It validates schema and renders the CI cell. The LLM interprets that single `<ci_context>` and fills `headline` / `failures[]` (reason + fixHint). Server overwrites `status` and check `name`s from GitHub facts when the model drifts. Raw check output is never a second author/prompt field.
 
 2. **Option B — separate cheap CI-summary call.** Finding investigation stays CI-free. At publish (and on CI-complete refresh), run a small tool-free LLM turn: condensed `<ci_context>` in → structured CI fields out. Ack stays facts-only (no LLM): `⏳ CI still running` / green / red headline without failure digests.
 
 3. **`CiSummary` remains outside `ReviewPayload`.** It is a validated sibling merged at publish/refresh. Placement unchanged: after Security in the overview gate table.
 
-4. **Actions: read** is required for job-log download. Soft-fail without breaking the review: missing Checks shows a grant-Checks CI row; missing Actions on a red head keeps the failure row, falls back to check output when possible, and adds a grant-Actions note.
+4. **Actions: read** is required for job-log download. Soft-fail without breaking the review: missing Checks shows a grant-Checks CI row; missing Actions on a red head keeps the failure row, falls back to condensed/redacted/size-bounded check output when possible, and adds a grant-Actions note.
 
 5. **Timing.** Publish reuses `REVIEW_CI_SUMMARY_WAIT_*` wait/poll. If still pending at publish, leave a pending row. When CI later completes, a `workflow_run` or `check_suite` (completed) webhook enqueues a CI-refresh job that surgically edits the CI cell (HTML markers) on the matching **review summary comment** for that head SHA — without a full re-review.
 

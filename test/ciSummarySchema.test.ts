@@ -5,7 +5,7 @@ import {
   mergeCiSummaryWithFacts,
 } from "../src/review/ci/authorCiSummary.js";
 import { ciSummaryLlmSchema } from "../src/review/ci/ciSummarySchema.js";
-import { ciGateRowContract } from "../src/review/ci/ciGatePrompt.js";
+import { buildCiContextUserMessage, ciGateRowContract } from "../src/review/ci/ciGatePrompt.js";
 
 describe("ciSummarySchema", () => {
   it("accepts valid LLM fields", () => {
@@ -48,7 +48,6 @@ describe("ciSummarySchema", () => {
         failingNames: ["lint"],
         failingUrls: new Map([["lint", "https://example.com/lint"]]),
         condensedLogs: "Format issues",
-        checkOutputFallback: "",
       },
       {
         headline: "Everything is fine",
@@ -83,7 +82,6 @@ describe("ciSummarySchema", () => {
       failingNames: [] as const,
       failingUrls: new Map<string, string | undefined>(),
       condensedLogs: "",
-      checkOutputFallback: "",
     };
     expect(mergeCiSummaryWithFacts({ ...base, status: "passing" }, llm)).toEqual({
       status: "passing",
@@ -109,5 +107,30 @@ describe("ciSummarySchema", () => {
   it("exports the CI gate contract block", () => {
     expect(ciGateRowContract).toContain("CI gate row contract");
     expect(ciGateRowContract).toContain("deprecation");
+  });
+
+  it("puts one condensed context inside the untrusted ci_context block", () => {
+    const message = buildCiContextUserMessage({
+      status: "failing",
+      checkNames: ["lint"],
+      failingNames: ["lint"],
+      condensedLogs: "Format issues found",
+    });
+    expect(message).toContain('<ci_context untrusted="true">');
+    expect(message).toContain("Format issues found");
+    expect(message).toContain("Condensed CI context:");
+    expect(message).not.toContain("checkOutputFallback");
+    expect(message).not.toMatch(/check output:/i);
+  });
+
+  it("uses a facts-only empty placeholder when condensed context is blank", () => {
+    const message = buildCiContextUserMessage({
+      status: "failing",
+      checkNames: ["lint"],
+      failingNames: ["lint"],
+      condensedLogs: "   ",
+    });
+    expect(message).toContain("(no logs available)");
+    expect(message).toContain('<ci_context untrusted="true">');
   });
 });

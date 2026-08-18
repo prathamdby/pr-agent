@@ -12,7 +12,11 @@ import {
   summarizeCiSnapshot,
 } from "../src/review/ci/analyzeCi.js";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../src/github/prSurface.js";
-import type { CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
+import type { CiAuthorInput, CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
+import {
+  REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
+  REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
+} from "../src/settings/index.js";
 
 function ciSurface() {
   return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { credentialToken: "t" });
@@ -27,16 +31,24 @@ async function buildCiSummary(
   return buildCiSummaryForSurface(surface, options);
 }
 
-const mockAuthor: CiSummaryAuthor = async (input) => ({
-  headline: `❌ CI failing — ${input.failingNames.join(", ")}`,
-  failures: input.failingNames.map((name) => ({
-    name,
-    reason: input.condensedLogs.includes("Format issues")
-      ? "Format issues found; run oxfmt to fix."
-      : input.condensedLogs.slice(0, 120) || "Check failed.",
-    fixHint: "Fix the reported failure locally, then re-push.",
-  })),
-});
+function expectSingleContext(input: CiAuthorInput): void {
+  expect(input).not.toHaveProperty("checkOutputFallback");
+  expect(typeof input.condensedLogs).toBe("string");
+}
+
+const mockAuthor: CiSummaryAuthor = async (input) => {
+  expectSingleContext(input);
+  return {
+    headline: `❌ CI failing — ${input.failingNames.join(", ")}`,
+    failures: input.failingNames.map((name) => ({
+      name,
+      reason: input.condensedLogs.includes("Format issues")
+        ? "Format issues found; run oxfmt to fix."
+        : input.condensedLogs.slice(0, 120) || "Check failed.",
+      fixHint: "Fix the reported failure locally, then re-push.",
+    })),
+  };
+};
 
 describe("analyzeCi", () => {
   beforeEach(() => {
@@ -460,5 +472,264 @@ describe("analyzeCi", () => {
     expect(summary.failures).toHaveLength(1);
     expect(summary.failures[0]?.name).toBe("ci/travis");
     expect(summary.failures[0]?.reason).toContain("Travis");
+  });
+
+  it("falls back to condensed check output when job log download fails", async () => {
+    let captured: CiAuthorInput | undefined;
+    const summary = await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async (input) => {
+          captured = input;
+          expectSingleContext(input);
+          return mockAuthor(input);
+        },
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: "https://example.com/lint",
+              outputTitle: null,
+              outputSummary: "Format issues found",
+              outputText: null,
+            },
+          ],
+          legacyStatuses: [],
+        });
+        controls.setFailingJobs("abc", [
+          { id: 99, name: "lint", conclusion: "failure", htmlUrl: null },
+        ]);
+      },
+    );
+
+    expect(summary.status).toBe("failing");
+    expect(captured?.condensedLogs).toContain("Format issues found");
+    expect(summary.failures[0]?.reason).toContain("Format issues");
+  });
+
+  it("passes empty condensed context when no logs or check output exist", async () => {
+    let captured: CiAuthorInput | undefined;
+    const summary = await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async (input) => {
+          captured = input;
+          expectSingleContext(input);
+          return mockAuthor(input);
+        },
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+          ],
+          legacyStatuses: [],
+        });
+      },
+    );
+
+    expect(summary.status).toBe("failing");
+    expect(captured?.condensedLogs).toBe("");
+    expect(summary.failures[0]?.reason).toBe("Check failed.");
+  });
+
+  it("redacts secrets before the author sees condensed context", async () => {
+    const token = "ghp_1234567890123456789012345678901234";
+    let captured: CiAuthorInput | undefined;
+    await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async (input) => {
+          captured = input;
+          return mockAuthor(input);
+        },
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+          ],
+          legacyStatuses: [],
+        });
+        controls.setFailingJobs("abc", [
+          { id: 1, name: "lint", conclusion: "failure", htmlUrl: null },
+        ]);
+        controls.setJobLogs(
+          1,
+          `Error: Process completed with exit code 1.\nAuthorization: Bearer ${token}`,
+        );
+      },
+    );
+
+    expect(captured?.condensedLogs).not.toContain(token);
+    expect(captured?.condensedLogs).toContain("[redacted]");
+  });
+
+  it("keeps author context under the global condensed-log byte budget", async () => {
+    let captured: CiAuthorInput | undefined;
+    const hugeError = `Error: Process completed with exit code 1.\n${"x".repeat(20_000)}`;
+    await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async (input) => {
+          captured = input;
+          return mockAuthor(input);
+        },
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+            {
+              id: 12,
+              name: "test",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+            {
+              id: 13,
+              name: "build",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+          ],
+          legacyStatuses: [],
+        });
+        controls.setFailingJobs("abc", [
+          { id: 1, name: "lint", conclusion: "failure", htmlUrl: null },
+          { id: 2, name: "test", conclusion: "failure", htmlUrl: null },
+          { id: 3, name: "build", conclusion: "failure", htmlUrl: null },
+        ]);
+        controls.setJobLogs(1, hugeError);
+        controls.setJobLogs(2, hugeError);
+        controls.setJobLogs(3, hugeError);
+      },
+    );
+
+    expect(captured).toBeDefined();
+    expect(Buffer.byteLength(captured?.condensedLogs ?? "", "utf8")).toBeLessThanOrEqual(
+      REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
+    );
+    expect(captured?.condensedLogs.length).toBeGreaterThan(0);
+  });
+
+  it("bounds huge check output before it reaches the author", async () => {
+    const token = "ghp_1234567890123456789012345678901234";
+    let captured: CiAuthorInput | undefined;
+    await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async (input) => {
+          captured = input;
+          expectSingleContext(input);
+          return mockAuthor(input);
+        },
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: `Error: Process completed with exit code 1.\nAuthorization: Bearer ${token}\n${"z".repeat(50_000)}`,
+            },
+          ],
+          legacyStatuses: [],
+        });
+      },
+    );
+
+    const context = captured?.condensedLogs ?? "";
+    expect(context.length).toBeGreaterThan(0);
+    expect(context.length).toBeLessThanOrEqual(REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS);
+    expect(Buffer.byteLength(context, "utf8")).toBeLessThanOrEqual(REVIEW_CI_SUMMARY_LOG_MAX_BYTES);
+    expect(context).not.toContain(token);
+    expect(context.length).toBeLessThan(50_000);
+  });
+
+  it("uses facts-only failures when the LLM author returns null", async () => {
+    const summary = await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async (input) => {
+          expectSingleContext(input);
+          return null;
+        },
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 1,
+              name: "build",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: "https://example.com/build",
+              outputTitle: null,
+              outputSummary: "build broke",
+              outputText: null,
+            },
+          ],
+          legacyStatuses: [],
+        });
+      },
+    );
+
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("build");
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.reason).toContain("unavailable");
+    expect(summary.failures[0]?.url).toBe("https://example.com/build");
   });
 });
