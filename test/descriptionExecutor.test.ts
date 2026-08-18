@@ -131,7 +131,7 @@ function mockDurableExecution(item = descriptionItem()): void {
       leaseEpoch: 1,
       signal: new AbortController().signal,
     });
-    if (result?.degraded) {
+    if (result.kind === "completed" && result.degraded) {
       await repo.markWorkPublishDegraded(pool, item.id, 1);
     }
   });
@@ -233,9 +233,9 @@ describe("executeDescriptionJob", () => {
       execute: async (_item, _env) => {
         const result = await mocks.runDescriptionRun({});
         if (!result.published && !result.publishSuperseded) {
-          return { degraded: true };
+          return { kind: "completed", degraded: true };
         }
-        return {};
+        return { kind: "completed" };
       },
     });
 

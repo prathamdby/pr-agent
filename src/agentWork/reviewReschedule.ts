@@ -20,7 +20,7 @@ export const STALE_HEAD_PARENT_NOT_RESCHEDULABLE = "agent_work.stale_head_parent
 export const STALE_HEAD_REPLACEMENT_EXHAUSTED = "review.stale_head_replacement_exhausted";
 
 export type StaleReviewRescheduleResult = {
-  readonly rescheduled: true;
+  readonly kind: "rescheduled";
   readonly replacementWorkItemId: string;
   readonly afterComplete: (boss: PgBoss) => Promise<void>;
   /** Cancel a persisted-but-not-enqueued replacement when the parent fails terminally. */
@@ -115,7 +115,7 @@ export async function buildStaleReviewRescheduleResult(
   const replacement = await createReviewRescheduleWorkItem(pool, item);
   let replacementEnqueued = false;
   return {
-    rescheduled: true,
+    kind: "rescheduled",
     replacementWorkItemId: replacement.replacementWorkItemId,
     afterComplete: async (boss) => {
       await enqueueReviewReschedule(

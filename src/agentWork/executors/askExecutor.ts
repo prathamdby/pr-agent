@@ -228,7 +228,7 @@ export async function executeAskJob(
         hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
       if (await askReplyPublished()) {
         answerDelivered = true;
-        return {};
+        return { kind: "completed" };
       }
 
       const recoveredCommentId = await recoverDeliveredAskReplyCommentId({
@@ -245,7 +245,9 @@ export async function executeAskJob(
           commentId: recoveredCommentId,
           leaseEpoch: env.leaseEpoch,
         });
-        return status === "degraded" ? { degraded: true } : {};
+        return status === "degraded"
+          ? { kind: "completed", degraded: true }
+          : { kind: "completed" };
       }
 
       return withPrRepositoryView(
@@ -342,12 +344,12 @@ export async function executeAskJob(
                   ...classifiedFailurePostHogProperties(failure),
                 },
               });
-              return { degraded: true };
+              return { kind: "completed", degraded: true };
             }
           } else {
             answerDelivered = true;
           }
-          return {};
+          return { kind: "completed" };
         },
       );
     },

@@ -255,9 +255,11 @@ describe("stale-head shared helpers", () => {
 
     const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem());
     expect(result).toMatchObject({
-      rescheduled: true,
+      kind: "rescheduled",
       replacementWorkItemId: "generated-replacement",
     });
+    expect(typeof result?.afterComplete).toBe("function");
+    expect(typeof result?.onRescheduleAbort).toBe("function");
   });
 
   it("staleHeadReplacementExhaustedError uses the shared exhausted code", () => {

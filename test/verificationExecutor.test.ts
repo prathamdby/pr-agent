@@ -420,7 +420,7 @@ describe("executeVerificationJob", () => {
 
     await executeVerificationJob(cfg, pool, boss, job());
 
-    expect(executeResult).toEqual({ degraded: true });
+    expect(executeResult).toEqual({ kind: "completed", degraded: true });
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {
@@ -456,7 +456,7 @@ describe("executeVerificationJob", () => {
 
     expect(mocks.runVerification).toHaveBeenCalled();
     expect(mocks.publishVerification).toHaveBeenCalled();
-    expect(executeResult).toEqual({ degraded: true });
+    expect(executeResult).toEqual({ kind: "completed", degraded: true });
   });
 
   it.each([
@@ -538,7 +538,7 @@ describe("executeVerificationJob", () => {
       }),
     );
     if (truncated) {
-      expect(executeResult).toEqual({ degraded: true });
+      expect(executeResult).toEqual({ kind: "completed", degraded: true });
     }
   });
 });

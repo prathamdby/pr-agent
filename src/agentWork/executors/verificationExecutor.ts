@@ -74,7 +74,7 @@ export async function executeVerificationJob(
           resourceKey: item.resourceKey,
           threadCount: threads.length,
         });
-        return {};
+        return { kind: "completed" };
       }
 
       const [prFiles, pushedCommits, pushDeltaFiles] = await Promise.all([
@@ -159,7 +159,7 @@ export async function executeVerificationJob(
           repo: item.repo,
           pr: item.prNumber,
         });
-        return {};
+        return { kind: "completed" };
       }
 
       const latestHeadSha = await prSurface.getHeadSha();
@@ -175,7 +175,7 @@ export async function executeVerificationJob(
           repo: item.repo,
           pr: item.prNumber,
         });
-        return {};
+        return { kind: "completed" };
       }
 
       const publish = await publishVerification({
@@ -221,9 +221,9 @@ export async function executeVerificationJob(
             ...classifiedFailurePostHogProperties(failure),
           },
         });
-        return { degraded: true };
+        return { kind: "completed", degraded: true };
       }
-      return {};
+      return { kind: "completed" };
     },
   });
 }

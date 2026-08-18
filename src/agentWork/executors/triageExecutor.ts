@@ -45,14 +45,16 @@ import {
   hasCompletedPublishStep,
   listTriageEligibleInlineReviews,
 } from "../repository.js";
-import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
+import {
+  resolveWorkItemHead,
+  runDurableWorkItem,
+  type DurableExecutionResult,
+} from "../durableJob.js";
 import { type TriageJobData, type TriageWorkPayload, type AgentWorkItem } from "../types.js";
 
 type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
 
-type TriageExecuteResult = {
-  readonly degraded?: boolean;
-};
+type TriageExecuteResult = Extract<DurableExecutionResult, { kind: "completed" }>;
 
 type PullRequestBranchInfo = {
   readonly headRef: string;
@@ -245,7 +247,7 @@ async function handleForkPrReport(params: {
       scope: params.scope,
     }),
   });
-  return {};
+  return { kind: "completed" };
 }
 
 async function resolveInventoryAndScope(params: {
@@ -366,7 +368,7 @@ async function publishEmptyInventoryReport(params: {
       threadRootCommentId: params.scopedThreadRootId,
     }),
   });
-  return {};
+  return { kind: "completed" };
 }
 
 async function tryResumeStoredPush(params: {
@@ -446,7 +448,7 @@ async function tryResumeStoredPush(params: {
       resumed: true,
     });
   }
-  return publish.degraded ? { degraded: true } : {};
+  return publish.degraded ? { kind: "completed", degraded: true } : { kind: "completed" };
 }
 
 /**
@@ -580,7 +582,7 @@ async function runFreshTriageAgent(params: {
           commit_count: checkout.listCommittedShas().length,
         });
       }
-      return publish.degraded ? { degraded: true } : {};
+      return publish.degraded ? { kind: "completed", degraded: true } : { kind: "completed" };
     },
   );
 }
@@ -647,7 +649,7 @@ export async function executeTriageJob(
         await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", "triage_report")
       ) {
         captureTriageEvent(analytics, "triage skipped", { reason: "report_already_published" });
-        return {};
+        return { kind: "completed" };
       }
 
       const resumeParams = {

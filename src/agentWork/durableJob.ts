@@ -139,14 +139,20 @@ function isNonRetryableDurableFailure(error: unknown): boolean {
   return isStaleHeadReplacementExhausted(error);
 }
 
-type DurableExecutionResult = {
-  readonly degraded?: boolean;
-  readonly rescheduled?: boolean;
-  readonly replacementWorkItemId?: string;
-  readonly afterComplete?: (boss: PgBoss) => Promise<void>;
-  /** Review-owned: cancel a persisted-but-not-enqueued replacement on terminal parent failure. */
-  readonly onRescheduleAbort?: (boss: PgBoss, error: unknown) => Promise<void>;
-};
+/**
+ * Executor-visible outcome. Completion-state interpretation stays in this module:
+ * `kind` is the only branch the runtime may switch on. Invalid mixes (degraded +
+ * rescheduled, or reschedule without replacement coordination) are unrepresentable.
+ */
+export type DurableExecutionResult =
+  | { readonly kind: "completed"; readonly degraded?: boolean }
+  | {
+      readonly kind: "rescheduled";
+      readonly replacementWorkItemId: string;
+      readonly afterComplete: (boss: PgBoss) => Promise<void>;
+      /** Review-owned: cancel a persisted-but-not-enqueued replacement on terminal parent failure. */
+      readonly onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
+    };
 
 export type DurableHeadResolution = {
   readonly headSha: string;
@@ -220,7 +226,7 @@ async function finishRescheduledParentWorkItem(
   pool: Pool,
   itemId: string,
   type: WorkType,
-  replacementWorkItemId: string | undefined,
+  replacementWorkItemId: string,
   leaseEpoch: number | null,
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId, leaseEpoch)) {
@@ -229,6 +235,7 @@ async function finishRescheduledParentWorkItem(
       type,
       workItemId: itemId,
       rescheduled: true,
+      replacementWorkItemId,
     });
     return;
   }
@@ -239,29 +246,25 @@ async function finishRescheduledParentWorkItem(
       type,
       workItemId: itemId,
       rescheduled: true,
+      replacementWorkItemId,
     });
     return;
   }
-  if (replacementWorkItemId) {
-    if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
-      await clearResumeSnapshotsBestEffort(pool, itemId);
-      logInfo("agent_work_completed", {
-        type,
-        workItemId: itemId,
-        rescheduled: true,
-      });
-      return;
-    }
-    throw new AppError({
-      code: "agent_work.rescheduled_parent_complete_failed",
-      message: `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
-      context: { workItemId: itemId },
-    });
-  }
-  if (await shouldSkipWork(pool, refreshed ?? { id: itemId })) {
-    await markWorkCancelled(pool, itemId, leaseEpoch);
+  if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
     await clearResumeSnapshotsBestEffort(pool, itemId);
+    logInfo("agent_work_completed", {
+      type,
+      workItemId: itemId,
+      rescheduled: true,
+      replacementWorkItemId,
+    });
+    return;
   }
+  throw new AppError({
+    code: "agent_work.rescheduled_parent_complete_failed",
+    message: `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
+    context: { workItemId: itemId },
+  });
 }
 
 function workItemCommenterId(item: AgentWorkItem): number | undefined {
@@ -524,11 +527,11 @@ export async function runDurableWorkItem<T extends WorkType>(
     return undefined;
   }
 
-  async function completeRescheduledResult(result: DurableExecutionResult): Promise<void> {
+  async function completeRescheduledResult(
+    result: Extract<DurableExecutionResult, { kind: "rescheduled" }>,
+  ): Promise<void> {
     pendingRescheduleAbort = result.onRescheduleAbort;
-    if (result.afterComplete) {
-      await result.afterComplete(spec.boss);
-    }
+    await result.afterComplete(spec.boss);
     // Enqueue finished (or was already done); do not cancel the replacement if parent complete fails.
     pendingRescheduleAbort = undefined;
     await finishRescheduledParentWorkItem(
@@ -581,20 +584,27 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    // Replacement enqueue before skip: execute may already have transferred progress ownership.
-    if (result.rescheduled) {
-      await completeRescheduledResult(result);
-      return;
+    switch (result.kind) {
+      case "rescheduled":
+        // Replacement enqueue before skip: execute may already have transferred progress ownership.
+        await completeRescheduledResult(result);
+        return;
+      case "completed":
+        if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
+        if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id, leaseEpoch);
+        if (!(await markWorkCompleted(spec.pool, item.id, leaseEpoch))) {
+          await recheckSkippableAndCancel("completion_race", false);
+          return;
+        }
+        await clearResumeSnapshotsBestEffort(spec.pool, item.id);
+        logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
+        await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
+        return;
+      default: {
+        const exhaustive: never = result;
+        return exhaustive;
+      }
     }
-    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
-    if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id, leaseEpoch);
-    if (!(await markWorkCompleted(spec.pool, item.id, leaseEpoch))) {
-      await recheckSkippableAndCancel("completion_race", false);
-      return;
-    }
-    await clearResumeSnapshotsBestEffort(spec.pool, item.id);
-    logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
-    await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
   }
 
   async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
