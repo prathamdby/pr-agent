@@ -148,17 +148,44 @@ describe("WorkspaceResource", () => {
     }
   });
 
-  it("stale sweep deletes an unmarked stale root for crash recovery before the marker existed", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), WRITABLE_WORKSPACE_ROOT_PREFIX));
+  it("stale sweep deletes an unmarked stale root even when the owner pid is alive", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), READONLY_WORKSPACE_ROOT_PREFIX));
     try {
       await mkdir(join(rootDir, "checkout"), { recursive: true });
       const stale = new Date(Date.now() - 4 * STALE_AGE_MS);
       await utimes(rootDir, stale, stale);
 
-      await sweepStaleOwnedWorkspaces({ nowMs: Date.now(), isPidAlive: () => false });
+      await sweepStaleOwnedWorkspaces({
+        nowMs: Date.now(),
+        isPidAlive: () => true,
+      });
       await expect(stat(rootDir)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(rootDir, { recursive: true, force: true }).catch(() => undefined);
     }
+  });
+
+  it("clears the ownership marker when root deletion fails so a later sweep can collect it", async () => {
+    const resource = await allocateWorkspaceResource({
+      prefix: READONLY_WORKSPACE_ROOT_PREFIX,
+      installationToken: "unused",
+      removeRoot: async () => {
+        throw new Error("injected root deletion failure");
+      },
+    });
+    roots.push(resource.rootDir);
+
+    await resource.release();
+    expect(isRegisteredLiveLocalPrWorkspace(resource.rootDir)).toBe(false);
+    expect(await readWorkspaceOwnerMarker(resource.rootDir)).toBeNull();
+    expect((await stat(resource.rootDir)).isDirectory()).toBe(true);
+
+    const stale = new Date(Date.now() - 4 * STALE_AGE_MS);
+    await utimes(resource.rootDir, stale, stale);
+    await sweepStaleOwnedWorkspaces({
+      nowMs: Date.now(),
+      isPidAlive: () => true,
+    });
+    await expect(stat(resource.rootDir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

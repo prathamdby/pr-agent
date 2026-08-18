@@ -42,6 +42,7 @@ export type AllocateWorkspaceResourceParams = {
   readonly prefix: WorkspaceRootPrefix;
   readonly installationToken: string;
   readonly createCredentials?: (rootDir: string, token: string) => Promise<GitCredentialFiles>;
+  readonly removeRoot?: (rootDir: string) => Promise<void>;
   readonly nowMs?: () => number;
   readonly heartbeatIntervalMs?: number;
 };
@@ -172,6 +173,7 @@ export async function allocateWorkspaceResource(
 
   const nowMs = params.nowMs ?? Date.now;
   const createCredentials = params.createCredentials ?? createGitCredentialFiles;
+  const removeRoot = params.removeRoot ?? removeWorkspaceRoot;
   const heartbeatIntervalMs =
     params.heartbeatIntervalMs ??
     ownerHeartbeatIntervalMs(LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS);
@@ -192,12 +194,13 @@ export async function allocateWorkspaceResource(
     released = true;
     stopHeartbeat();
     unregisterLiveLocalPrWorkspace(rootDir);
+    await rm(ownerMarkerPath(rootDir), { force: true }).catch(() => undefined);
     if (credentials) {
       await credentials.cleanup().catch(() => undefined);
     } else {
       await removeCredentialFiles(rootDir);
     }
-    await removeWorkspaceRoot(rootDir).catch(() => undefined);
+    await removeRoot(rootDir).catch(() => undefined);
   };
 
   const writeHeartbeat = async (): Promise<void> => {
@@ -206,6 +209,9 @@ export async function allocateWorkspaceResource(
       pid: process.pid,
       heartbeatAtMs: nowMs(),
     });
+    if (released) {
+      await rm(ownerMarkerPath(rootDir), { force: true }).catch(() => undefined);
+    }
   };
 
   try {
