@@ -7,7 +7,6 @@ const RETENTION = {
   agentWorkRetentionSeconds: 30 * 86_400,
   webhookEventsRetentionSeconds: 30 * 86_400,
   agentEventsRetentionSeconds: 0,
-  codeIndexRetentionSeconds: 30 * 86_400,
 };
 
 describe("runRetention batched delete loop", () => {
@@ -54,7 +53,6 @@ describe("runRetention batched delete loop", () => {
     expect(result.webhookEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE);
     expect(result.resumeSnapshotsDeleted).toBe(4);
     expect(result.agentEventsDeleted).toBe(0);
-    expect(result.codeIndexSnapshotsDeleted).toBe(0);
     expect(workCalls).toBe(2);
     expect(webhookCalls).toBe(2);
   });

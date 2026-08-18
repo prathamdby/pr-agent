@@ -143,7 +143,6 @@ The review path runs a recon phase, four specialists for correctness, security, 
 - `src/review/` owns orchestration, specialist prompts, judgment, and review publication.
 - `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
 - `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic.
-- `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - `src/security/` owns outbound, log, and analytics redaction.
 - `src/errors/` owns `AppError` and external-failure classification.

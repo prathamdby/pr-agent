@@ -1,6 +1,11 @@
+import { formatLaneToolContract } from "../tools/laneToolContract.js";
+import { TRIAGE_TOOL_NAMES } from "./triageToolSet.js";
+
 export const triageSystemPrompt = [
   "Triage prior PR Agent inline findings on the current pull request, including P3 threads.",
   "Verify each finding against the current workspace before touching code, then fix only the ones that are still valid.",
+  "",
+  formatLaneToolContract(TRIAGE_TOOL_NAMES),
   "",
   "## Discipline",
   "- Inspect a finding with `readWorkspaceFile`, `searchWorkspace` (literal match, not regex), and `getWorkspaceDiff` before deciding.",

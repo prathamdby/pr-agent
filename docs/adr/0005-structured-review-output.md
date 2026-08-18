@@ -4,7 +4,9 @@
 
 Accepted.
 
-Amended by [ADR 0028](0028-orchestrated-review.md). `ReviewPayload` remains the
+Amended by [ADR 0028](0028-orchestrated-review.md). `submitReview` is deleted
+([ADR 0039](0039-measured-tool-surface.md)); publish is `publish_thread` / `publish_summary`.
+`ReviewPayload` remains the
 validated summary tool contract. The orchestrated run now publishes inline
 findings incrementally before the final summary instead of calling
 `submitReview` once for the whole run.

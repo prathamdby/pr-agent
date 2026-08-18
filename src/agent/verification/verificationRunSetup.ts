@@ -9,6 +9,8 @@ import {
   createSubmitVerificationState,
   type SubmitVerificationState,
 } from "./submitVerificationTool.js";
+import { assembleNamedTools } from "../tools/laneToolContract.js";
+import { VERIFICATION_TOOL_NAMES } from "./verificationToolSet.js";
 
 export type VerificationRunSetup = {
   readonly systemPrompt: string;
@@ -60,8 +62,12 @@ export function buildVerificationRunSetup(params: {
       threads: params.inventory,
       compareFilesTruncated: params.compareFilesTruncated,
     }),
-    piTools: [...workspaceTools.piTools, submitTool.piTool],
-    executors: { ...workspaceTools.executors, submitVerification: submitTool.executor },
+    ...assembleNamedTools(VERIFICATION_TOOL_NAMES, [
+      {
+        piTools: [...workspaceTools.piTools, submitTool.piTool],
+        executors: { ...workspaceTools.executors, submitVerification: submitTool.executor },
+      },
+    ]),
     submitState,
   };
 }

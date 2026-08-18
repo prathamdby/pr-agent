@@ -24,19 +24,17 @@ import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
 import { bindPromptCacheRetention } from "./modelRuntimeCache.js";
 import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
-import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
+import type {
+  AgentSessionPhase,
+  AuthoritativeStructuredState,
+  PiSession,
+  PiSessionCreateParams,
+} from "./types.js";
+import { invokeSessionTool, sessionWorkTypeForRole } from "./sessionToolExecute.js";
 
 function toolResultToText(result: unknown): string {
   if (result === undefined) return "";
   return typeof result === "string" ? result : JSON.stringify(result);
-}
-
-function toolResultSize(result: unknown): { resultBytes: number; resultCharacters: number } {
-  const text = toolResultToText(result);
-  return {
-    resultCharacters: text.length,
-    resultBytes: Buffer.byteLength(text, "utf8"),
-  };
 }
 
 function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
@@ -59,57 +57,37 @@ function assistantMessageText(message: TurnEndEvent["message"]): string {
 function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
-  refreshBeforeTool?: (toolName: string) => Promise<void>,
+  params: {
+    readonly role: PiSessionCreateParams["role"];
+    readonly validToolNames: readonly string[];
+    readonly currentPhase: () => AgentSessionPhase | undefined;
+    readonly toolEvents?: PiSessionCreateParams["toolEvents"];
+    readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  },
 ): ReturnType<typeof defineTool> {
   return defineTool({
     name: tool.name,
     label: tool.name,
     description: tool.description,
     parameters: tool.parameters as never,
-    execute: async (_toolCallId: string, params: Record<string, unknown>) => {
-      const startedAt = Date.now();
-      if (!executor) {
-        safeRecordReviewMetric({
-          kind: "tool_call",
-          name: tool.name,
-          ok: false,
-          durationMs: Date.now() - startedAt,
-          errorMessage: `No executor registered for tool ${tool.name}`,
-        });
-        throw new AppError({
-          code: "provider.missing_tool_executor",
-          message: `No executor registered for tool ${tool.name}`,
-          context: { toolName: tool.name },
-        });
-      }
-      try {
-        if (refreshBeforeTool) {
-          await refreshBeforeTool(tool.name);
-        }
-        const result = await executor(params);
-        const size = toolResultSize(result);
-        safeRecordReviewMetric({
-          kind: "tool_call",
-          name: tool.name,
-          ok: true,
-          durationMs: Date.now() - startedAt,
-          resultBytes: size.resultBytes,
-          resultCharacters: size.resultCharacters,
-        });
-        return {
-          content: [{ type: "text" as const, text: toolResultToText(result) }],
-          details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
-        };
-      } catch (error) {
-        safeRecordReviewMetric({
-          kind: "tool_call",
-          name: tool.name,
-          ok: false,
-          durationMs: Date.now() - startedAt,
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
+    execute: async (_toolCallId: string, args: Record<string, unknown>) => {
+      const result = await invokeSessionTool({
+        toolName: tool.name,
+        args,
+        executor,
+        refreshBeforeTool: params.refreshBeforeTool,
+        trace: {
+          role: params.role,
+          workType: sessionWorkTypeForRole(params.role),
+          phase: params.currentPhase,
+          validToolNames: params.validToolNames,
+          events: params.toolEvents,
+        },
+      });
+      return {
+        content: [{ type: "text" as const, text: toolResultToText(result) }],
+        details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
+      };
     },
   });
 }
@@ -118,6 +96,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
   let structuredState: AuthoritativeStructuredState = params.structuredState;
   const emit = createSanitizedEventSink(params.eventSink);
+  const phaseRef = { phase: "synthesis" as AgentSessionPhase };
 
   try {
     const authPath = join(agentDir, "auth.json");
@@ -195,7 +174,13 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       sessionManager: SessionManager.inMemory(cwd, { id: sessionCacheId }),
       noTools: "builtin",
       customTools: params.tools.map((tool) =>
-        toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool),
+        toCodingAgentTool(tool, params.executors[tool.name], {
+          role: params.role,
+          validToolNames: params.tools.map((entry) => entry.name),
+          currentPhase: () => phaseRef.phase,
+          toolEvents: params.toolEvents,
+          refreshBeforeTool: params.refreshBeforeTool,
+        }),
       ),
     });
 
@@ -228,6 +213,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           policy: params.thinkingPolicy,
           phase: opts.phase,
         });
+        phaseRef.phase = opts.phase;
         session.setThinkingLevel(thinking);
 
         let sessionToolTurnCount = 0;

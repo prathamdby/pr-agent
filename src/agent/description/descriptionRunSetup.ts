@@ -13,6 +13,8 @@ import {
   type SubmitDescriptionState,
 } from "./submitDescriptionTool.js";
 import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
+import { assembleNamedTools } from "../tools/laneToolContract.js";
+import { DESCRIPTION_TOOL_NAMES } from "./descriptionToolSet.js";
 
 export type DescriptionRunSetup = {
   readonly systemPrompt: string;
@@ -96,8 +98,12 @@ export function buildDescriptionRunSetup(params: {
       truncated: workspace.stats.truncated,
       userSupplement,
     }),
-    piTools: [...localTools.piTools, submitBundle.piTool],
-    executors,
+    ...assembleNamedTools(DESCRIPTION_TOOL_NAMES, [
+      {
+        piTools: [...localTools.piTools, submitBundle.piTool],
+        executors,
+      },
+    ]),
     submitState,
     refreshBeforeTool,
   };

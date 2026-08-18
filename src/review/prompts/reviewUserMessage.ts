@@ -16,6 +16,6 @@ export function buildReviewRunUserContent(params: {
     userSupplement ? `\n${wrapUntrustedBlock("user_supplement", userSupplement)}\n` : "",
     trustedContext ? `\n${trustedContext}\n` : "",
     "",
-    "Perform an exhaustive review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 findings.",
+    "Perform an exhaustive review: inspect every changed file, then publish evidenced P0–P2 findings through the review publish tools.",
   ].join("\n");
 }

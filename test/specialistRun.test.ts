@@ -26,7 +26,9 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
   createFeaturePiSession: runnerMocks.createSession,
 }));
 
+import { REVIEW_SPECIALIST_TOOL_NAMES } from "../src/review/orchestrator/specialistToolSet.js";
 import { runSpecialist } from "../src/review/orchestrator/specialistRun.js";
+import { stubLaneCatalog } from "./helpers/laneTools.js";
 
 const finding = {
   severity: "P2",
@@ -47,7 +49,9 @@ function specialistArgs(overrides: Partial<Parameters<typeof runSpecialist>[0]> 
     cwd: "/tmp/pr-agent-specialist-test",
     specialist: "correctness" as const,
     briefMessage: "Review this pull request.",
-    workspaceTools: { piTools: [], executors: {} },
+    workspaceTools: stubLaneCatalog(
+      REVIEW_SPECIALIST_TOOL_NAMES.filter((name) => name !== "submit_findings_report"),
+    ),
     timeoutMs: 10_000,
     shouldContinue: () => true,
     ...overrides,

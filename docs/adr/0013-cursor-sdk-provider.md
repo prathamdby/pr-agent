@@ -2,7 +2,7 @@
 
 ## Status
 
-Superseded by [ADR 0031](0031-pi-native-agent-runtime.md).
+Superseded by [ADR 0031](0031-pi-native-agent-runtime.md). The `submitReview` mention below is historical ([ADR 0039](0039-measured-tool-surface.md)).
 
 ## Context
 

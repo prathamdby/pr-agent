@@ -3,7 +3,8 @@
 ## Status
 
 Superseded by [ADR 0028](0028-orchestrated-review.md). The command and sentinel
-described here remain recognized only as legacy artifacts. Production
+described here remain recognized only as legacy artifacts. `submitReview` is
+deleted ([ADR 0039](0039-measured-tool-surface.md)). Production
 concurrency and execution use pg-boss workers ([ADR 0009](0009-durable-agent-work.md));
 references to `ReviewQueue` describe the pre-0009 in-memory path only.
 

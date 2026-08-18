@@ -51,14 +51,14 @@ switches and golden-PR eval suites are out of scope for this program.
 
 ## Consequences
 
-- New Postgres tables: `agent_events`, `repo_finding_history`, optional
-  `code_index_*` (FTS first; no required `pgvector`).
+- New Postgres tables: `agent_events`, `repo_finding_history`. `code_index_*`
+  tables remain from the later-retired FTS tool ([ADR 0039](0039-measured-tool-surface.md)).
 - Tool and trusted-context surfaces expose **checkout coverage** so sparse or
   truncated search cannot be mistaken for full-repo certainty.
 - Publish and specialist submit paths gain an evidence gate; default Compose
   remains behavior-compatible when optional writers/indexes fail or are disabled.
-- Retention must cover event and code-index rows without expanding the ADR 0031
-  audit boundary.
+- Retention covers event rows without expanding the ADR 0031 audit boundary.
+  Code-index rows are not swept ([ADR 0039](0039-measured-tool-surface.md)).
 
 ## Alternatives considered
 

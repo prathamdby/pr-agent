@@ -58,9 +58,6 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Finding history enabled           | `FINDING_HISTORY_ENABLED`                | `true`                   | Persist cross-PR fingerprint outcomes to `repo_finding_history`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                          |
 | Finding history dismiss threshold | `FINDING_HISTORY_DISMISS_SUPPRESS_AFTER` | `3`                      | After this many dismissals for a fingerprint, suppress new inline threads while `last_outcome` remains `dismissed` (summary-only still allowed); later open/fixed outcomes lift suppression                                                 |
 | Finding history lookback          | `FINDING_HISTORY_LOOKBACK_DAYS`          | `180`                    | Ignore `repo_finding_history` rows older than this when loading suppression candidates                                                                                                                                                      |
-| Code index mode                   | `CODE_INDEX_MODE`                        | `off`                    | `off` disables Postgres FTS hints; `fts` enables optional navigation index (hints only — `readWorkspaceFile` still required for publish)                                                                                                    |
-| Code index wait                   | `CODE_INDEX_WAIT_MS`                     | `3000`                   | Max wait during review setup for a ready `code_index_snapshots` row at the PR head SHA                                                                                                                                                      |
-| Code index retention              | `CODE_INDEX_RETENTION_SECONDS`           | `2592000`                | Delete superseded/failed/ready `code_index_snapshots` older than this (cascades `code_index_chunks`)                                                                                                                                        |
 | Models catalog path               | `MODELS_JSON_PATH`                       | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                    |
 | Context7 API key                  | `CONTEXT7_API_KEY`                       | empty                    | optional                                                                                                                                                                                                                                    |
 | PostHog token                     | `POSTHOG_PROJECT_TOKEN`                  | empty                    | optional analytics via `src/analytics` facade; empty token disables init (no SDK load, no capture). Failed sink construction, including reinitialization, restores a no-op sink with analytics disabled. OSS installs need no PostHog setup |
@@ -157,7 +154,6 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `VERIFICATION_DEAD_LETTER_QUEUE`           | `agent-work-verification-dead`                                                                                                                                      |
 | `CI_REFRESH_DEAD_LETTER_QUEUE`             | `agent-work-ci-refresh-dead`                                                                                                                                        |
 | `RETENTION_QUEUE`                          | `agent-work-retention` — scheduled cleanup sweep                                                                                                                    |
-| `CODE_INDEX_BUILD_QUEUE`                   | `code-index-build` — optional Postgres FTS index build (when `CODE_INDEX_MODE=fts`)                                                                                 |
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                                                  |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                                            |
 | `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened, closed — `pull_request` actions accepted at webhook intake (not the auto-enqueue map); `closed` + merged cancels in-progress reviews |
@@ -399,16 +395,9 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS`      | 5          |
 | `LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY` | 0.6        |
 
-### Code index (optional FTS hints)
+### Code index tables (no live jobs)
 
-| Symbol                           | Value / role |
-| -------------------------------- | ------------ |
-| `CODE_INDEX_MODES`               | `off`, `fts` |
-| `CODE_INDEX_CHUNKER_VERSION`     | `1`          |
-| `CODE_INDEX_MAX_CHUNKS_PER_REPO` | 100000       |
-| `CODE_INDEX_MAX_RESULTS`         | 20           |
-| `CODE_INDEX_PREVIEW_MAX_CHARS`   | 500          |
-| `CODE_INDEX_BUILD_CONCURRENCY`   | 1            |
+`code_index_snapshots` / `code_index_chunks` and their migrations stay. There is no `CODE_INDEX_MODE` knob and no build/retention job.
 
 ### Postgres pool
 

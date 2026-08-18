@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for async webhook acknowledgement and worker-time token minting.
+Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for async webhook acknowledgement and worker-time token minting. The `submitReview` circuit described below is historical; that tool is deleted ([ADR 0039](0039-measured-tool-surface.md)).
 
 ## Context
 

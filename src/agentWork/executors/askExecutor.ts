@@ -284,6 +284,9 @@ export async function executeAskJob(
               pool,
               workItemId: item.id,
               installationId: item.installationId,
+              owner: item.owner,
+              repo: item.repo,
+              prNumber: item.prNumber,
             },
           });
           if (!(await askReplyPublished())) {

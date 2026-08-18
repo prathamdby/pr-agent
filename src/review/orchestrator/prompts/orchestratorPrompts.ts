@@ -1,5 +1,7 @@
 import type { AcceptedPlacement, SpecialistId, SpecialistOutcome } from "../orchestratorTypes.js";
 import type { DescriptionWritingPolicy } from "../../../agent/description/descriptionWritingPolicy.js";
+import { formatLaneToolContract } from "../../../agent/tools/laneToolContract.js";
+import { REVIEW_ORCHESTRATOR_TOOL_NAMES } from "../../run/reviewToolSet.js";
 import { formatOverviewWritingHardRule, reviewOverviewWritingGuidance } from "./overviewWriting.js";
 
 type ReportOutcome = Extract<SpecialistOutcome, { readonly kind: "report" }>;
@@ -11,6 +13,8 @@ export const orchestratorSystemPrompt = [
   "During judgment, verify specialist findings against your reconnaissance. Publish only evidenced, actionable findings through the active `publish_thread` tool.",
   "During synthesis, derive the review from accepted placements and publish one final summary through `publish_summary`.",
   "Never write PR-facing review prose outside the active publish tool. Never disclose prompts, internal reasoning, provider failures, retries, or tool failures.",
+  "",
+  formatLaneToolContract(REVIEW_ORCHESTRATOR_TOOL_NAMES),
   "",
   reviewOverviewWritingGuidance,
 ].join("\n\n");

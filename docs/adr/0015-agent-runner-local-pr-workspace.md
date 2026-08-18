@@ -19,8 +19,9 @@ context. Cursor support is also wired through `pi-ai` as a provider adapter even
 Cursor and Pi coding-agent are different runner surfaces.
 
 The service still needs durable intake, worker-owned publishing, progress comments,
-publish idempotency, public-output sanitization, and `submitReview` as the only
-structured publish path.
+publish idempotency, and public-output sanitization. Orchestrated review publish
+now goes through `publish_thread` / `publish_summary`; `submitReview` is deleted
+([ADR 0039](0039-measured-tool-surface.md)).
 
 ## Decision
 
@@ -30,8 +31,9 @@ structured publish path.
 2. The runner seam is server-controlled and multi-turn. The review/ask harness can send
    initial prompts, validation-repair prompts, publish-recovery prompts, and ask
    finalization prompts through either runner.
-3. Agents are read-only investigators. Production runs expose local read/search/diff
-   tools, Context7 tools, and `submitReview`; no write or shell tools are enabled.
+3. Agents are read-only investigators except triage. Production review and ask runs
+   expose local read/search/diff tools and Context7 tools; write tools exist only on
+   triage. See [ADR 0039](0039-measured-tool-surface.md).
 4. Each review or ask run prepares a **Local PR workspace** in the worker after durable
    head-SHA resolution. The workspace has a private git checkout for server-owned
    diff/blame operations and a separate sanitized agent-visible tree with no `.git`,

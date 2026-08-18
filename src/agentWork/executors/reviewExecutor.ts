@@ -100,8 +100,6 @@ import {
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
-import { createAskPathGate } from "../../agent/ask/askSafety.js";
-import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -499,7 +497,6 @@ async function runFullReviewAgainstRepositoryView(args: {
   const {
     cfg,
     pool,
-    boss,
     item,
     reviewLens,
     payload,
@@ -544,23 +541,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     });
   }
 
-  const pathGate = createAskPathGate();
-  pathGate.addPaths(repositoryView.workspace.changedFiles.map((file) => file.path));
-  const codeIndexStatus = await prepareCodeIndexForReview({
-    cfg,
-    pool,
-    boss,
-    scope: {
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-      headSha,
-      prNumber: item.prNumber,
-    },
-    workspace: repositoryView.workspace,
-    pathGate,
-  });
-
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
   const [repoPolicyBlock, agentInstructionFilesBlock] = await Promise.all([
     loadAndRenderTrustedBlock({
@@ -597,7 +577,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     agentInstructionFilesBlock,
     checkoutCoverage,
     symbolIndexStatus: repositoryView.workspace.getSymbolIndexStatus(),
-    codeIndexStatus,
   });
 
   const timing = reviewRunTimingFromJob(args.job);
@@ -626,7 +605,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     resumedPlacements,
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,
-    codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
     shouldLinkToSummary,
     progressCommentIdHint,
     hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(

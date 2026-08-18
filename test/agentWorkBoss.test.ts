@@ -15,7 +15,6 @@ import {
   ASK_QUEUE,
   CI_REFRESH_DEAD_LETTER_QUEUE,
   CI_REFRESH_QUEUE,
-  CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
@@ -125,15 +124,6 @@ describe("ensureAgentQueues", () => {
     for (const entry of parentStarted) {
       entry.resolve();
     }
-
-    await vi.waitFor(() =>
-      expect(started).toHaveLength(deadLetterQueues.length + parentQueues.length + 1),
-    );
-    const codeIndexStarted = started[deadLetterQueues.length + parentQueues.length]!;
-    expect(codeIndexStarted.name).toBe(CODE_INDEX_BUILD_QUEUE);
-    expect(codeIndexStarted.options).toEqual(expect.objectContaining({ policy: "standard" }));
-    expect(codeIndexStarted.options).not.toHaveProperty("deadLetter");
-    codeIndexStarted.resolve();
 
     await ensurePromise;
   });

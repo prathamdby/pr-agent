@@ -23,11 +23,6 @@ import {
   LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
 } from "../src/settings/index.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
-import {
-  buildSymbolIndex,
-  querySymbolIndex,
-  symbolIndexStatus,
-} from "../src/prWorkspace/symbolIndex.js";
 
 const exec = promisify(execFile);
 
@@ -114,7 +109,8 @@ describe("local workspace tools", () => {
     expect(byName.searchWorkspace).toContain("literal string");
     expect(byName.searchWorkspace).toContain("not a regex");
     expect(byName.readWorkspaceFile).toContain("do not retry the same call unchanged");
-    expect(byName.getWorkspaceBlame).toContain("only when authorship genuinely decides");
+    expect(byName.getWorkspaceBlame).toBeUndefined();
+    expect(byName.resolveSymbol).toBeUndefined();
   });
 
   it("readWorkspaceFile returns full content under the response cap", async () => {
@@ -336,32 +332,6 @@ describe("local workspace tools", () => {
       expect(out.returnedBytes).toBeLessThanOrEqual(100);
       expect(out.truncationReason).toBe("response byte budget exceeded");
       expect(out.diff.length).toBeGreaterThan(0);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("getWorkspaceBlame caps blame output with truncation metadata", async () => {
-    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
-    try {
-      await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
-      const workspace = mockWorkspace(root, ["src/changed.ts"], {
-        getBlameForPath: async () => "author-mail user@example.com\n".repeat(200),
-      });
-      const { executors } = buildLocalWorkspaceTools(workspace, {
-        limits: testLimits({ diffResponseBytes: 100 }),
-      });
-      const out = (await executors.getWorkspaceBlame?.({ path: "src/changed.ts" })) as {
-        blame: string;
-        truncated: boolean;
-        returnedBytes: number;
-        truncationReason?: string;
-      };
-
-      expect(out.truncated).toBe(true);
-      expect(out.returnedBytes).toBeLessThanOrEqual(100);
-      expect(out.truncationReason).toBe("response byte budget exceeded");
-      expect(out.blame).toContain("author-mail [redacted]");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -772,108 +742,6 @@ describe("local workspace tools", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
-  });
-
-  it("resolveSymbol returns defining file and line for known symbols", async () => {
-    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-"));
-    try {
-      await writeWorkspaceFiles(root, {
-        "src/changed.ts": "export const changed = true;\n",
-        "src/symbols.ts": "export function foo() {\n  return 1;\n}\n",
-      });
-
-      const index = await buildSymbolIndex(["src/symbols.ts"], async (path) => {
-        if (path === "src/symbols.ts") return "export function foo() {\n  return 1;\n}\n";
-        return null;
-      });
-      const workspace = mockWorkspace(root, ["src/changed.ts", "src/symbols.ts"], {
-        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
-        getSymbolIndexStatus: () => symbolIndexStatus(index),
-      });
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.resolveSymbol?.({ name: "foo" })) as {
-        available: boolean;
-        matches: Array<{ path: string; line: number; kind: string }>;
-      };
-
-      expect(out.available).toBe(true);
-      expect(out.matches).toEqual([{ path: "src/symbols.ts", line: 1, kind: "function" }]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("resolveSymbol does not index symbols for sparse paths missing from checkout", async () => {
-    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-sparse-"));
-    try {
-      await writeWorkspaceFiles(root, {
-        "src/on-disk.ts": "function foo() {}\n",
-        "src/off-disk.ts": "function bar() {}\n",
-      });
-
-      const index = await buildSymbolIndex(["src/on-disk.ts", "src/off-disk.ts"], async (path) => {
-        if (path === "src/on-disk.ts") return "function foo() {}\n";
-        return null;
-      });
-      const workspace = mockWorkspace(root, ["src/on-disk.ts"], {
-        checkoutMode: "sparse",
-        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
-        getSymbolIndexStatus: () => symbolIndexStatus(index),
-      });
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-
-      const foo = (await executors.resolveSymbol?.({ name: "foo" })) as {
-        matches: Array<{ path: string }>;
-      };
-      const bar = (await executors.resolveSymbol?.({ name: "bar" })) as {
-        matches: Array<{ path: string }>;
-      };
-
-      expect(foo.matches).toEqual([{ path: "src/on-disk.ts", line: 1, kind: "function" }]);
-      expect(bar.matches).toEqual([]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("resolveSymbol hits do not satisfy evidence ledger without readWorkspaceFile", async () => {
-    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-evidence-"));
-    try {
-      await writeWorkspaceFiles(root, {
-        "src/changed.ts": "export const changed = true;\n",
-        "src/symbols.ts": "export function foo() {\n  return 1;\n}\n",
-      });
-
-      const index = await buildSymbolIndex(["src/symbols.ts"], async (path) => {
-        if (path === "src/symbols.ts") return "export function foo() {\n  return 1;\n}\n";
-        return null;
-      });
-      const workspace = mockWorkspace(root, ["src/changed.ts", "src/symbols.ts"], {
-        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
-        getSymbolIndexStatus: () => symbolIndexStatus(index),
-      });
-      const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
-        limits: testLimits(),
-        evidenceLedger,
-        headSha: "deadbeef",
-      });
-
-      await executors.resolveSymbol?.({ name: "foo" });
-
-      expect(evidenceLedger.covers("src/symbols.ts", 1, 1)).toBe(false);
-      expect(evidenceLedger.snapshot()).toHaveLength(0);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("resolveSymbol description requires readWorkspaceFile before citing", () => {
-    const { piTools } = buildLocalWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]), {
-      limits: testLimits(),
-    });
-    const resolveSymbol = piTools.find((tool) => tool.name === "resolveSymbol");
-    expect(resolveSymbol?.description).toContain("readWorkspaceFile");
   });
 
   it("readWorkspaceFile names a FIFO instead of reporting it missing", async () => {
@@ -1295,29 +1163,6 @@ describe("local workspace tools", () => {
       expect(out.note).toContain("startLine <= 3");
       expect(out.truncated).toBe(false);
       expect(evidenceLedger.snapshot()).toHaveLength(0);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("getWorkspaceBlame names a FIFO instead of reporting it missing", async () => {
-    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
-    try {
-      await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
-      await mkdir(join(root, "logs"), { recursive: true });
-      await exec("mkfifo", [join(root, "logs", "live.pipe")]);
-
-      const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
-      const out = (await executors.getWorkspaceBlame?.({ path: "logs/live.pipe" })) as {
-        refused?: boolean;
-        reason?: string;
-        blame?: string | null;
-      };
-
-      expect(out.refused).toBe(true);
-      expect(out.reason).toContain("FIFO");
-      expect(out.blame).toBeNull();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

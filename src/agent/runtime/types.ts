@@ -3,6 +3,7 @@ import type { Config } from "../../config.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { PromptCachePolicy } from "./promptCachePolicy.js";
+import type { SessionToolEvents } from "./agentEventSink.js";
 
 export type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 export type { PromptCachePolicy } from "./promptCachePolicy.js";
@@ -83,6 +84,7 @@ export type PiSessionCreateParams = {
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  readonly toolEvents?: SessionToolEvents;
 };
 
 export type PiSession = {

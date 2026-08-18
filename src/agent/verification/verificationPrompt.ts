@@ -1,6 +1,11 @@
+import { formatLaneToolContract } from "../tools/laneToolContract.js";
+import { VERIFICATION_TOOL_NAMES } from "./verificationToolSet.js";
+
 export const verificationSystemPrompt = [
   "Verification run: re-check prior PR Agent inline findings against the new pull request head.",
   "This is read-only. Never edit files, never commit, never open new findings.",
+  "",
+  formatLaneToolContract(VERIFICATION_TOOL_NAMES),
   "",
   "## Discipline",
   "- Inspect each finding with `readWorkspaceFile`, `searchWorkspace` (literal match, not regex), and `getWorkspaceDiff` before deciding.",

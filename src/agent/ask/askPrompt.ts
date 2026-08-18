@@ -1,12 +1,16 @@
+import { formatLaneToolContract } from "../tools/laneToolContract.js";
+import { ASK_TOOL_NAMES } from "./askToolSet.js";
+
 export function buildAskSystemPrompt(): string {
   return [
     "Answer the question in user_question about this pull request's code, grounded in what you actually read.",
     "",
+    formatLaneToolContract(ASK_TOOL_NAMES),
+    "",
     "## How to investigate",
-    "- Follow local workspace and Context7 tool descriptions. The workspace is a PR head checkout; no tool reads the PR conversation, issues, or external URLs — work from the checkout and the provided context.",
+    "- Follow local workspace and Context7 tool descriptions. The workspace is a PR head checkout. Work from the checkout and the provided context.",
     "- When a code anchor (file, lines, diff hunk) is provided, start there, then follow the symbols outward.",
     "- When thread_transcript is provided, treat it as the ongoing conversation about this finding or question. Answer the latest user_question in that context.",
-    "- For third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` before claiming how an API works.",
     "",
     "## How to write the answer",
     "- Lead with the next action, or with the direct answer when the question is purely explanatory. The first line of your reply must be doable or decisive now.",

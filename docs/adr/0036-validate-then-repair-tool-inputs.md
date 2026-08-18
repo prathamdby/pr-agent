@@ -23,7 +23,7 @@ The four failure shapes above are mechanical and deterministic. Fixing them per 
 - Helper: [`src/agent/tools/parseToolInput.ts`](../../src/agent/tools/parseToolInput.ts)
 - Executor seams: [`defineWorkspaceTool.ts`](../../src/agent/tools/defineWorkspaceTool.ts), [`context7Tools.ts`](../../src/agent/tools/context7Tools.ts)
 - Metrics variant: [`reviewRunMetrics.ts`](../../src/review/run/reviewRunMetrics.ts) (`tool_input_repaired`)
-- Validate-then-repair reorder: [`submitReviewTool.ts`](../../src/review/publish/submitReviewTool.ts); deleted domain rule in [`reviewSchema.ts`](../../src/review/reviewSchema.ts)
+- Validate-then-repair reorder originally lived in `submitReviewTool.ts` (deleted; [ADR 0039](0039-measured-tool-surface.md)); deleted domain rule in [`reviewSchema.ts`](../../src/review/reviewSchema.ts)
 
 ## Consequences
 

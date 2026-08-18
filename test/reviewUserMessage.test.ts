@@ -36,7 +36,7 @@ describe("buildReviewRunUserContent", () => {
     const content = buildReviewRunUserContent(baseReviewParams());
 
     expect(content).toContain(
-      "Perform an exhaustive review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 findings.",
+      "Perform an exhaustive review: inspect every changed file, then publish evidenced P0–P2 findings through the review publish tools.",
     );
     expect(content).not.toContain("security review");
   });

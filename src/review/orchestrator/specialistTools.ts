@@ -2,6 +2,8 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { AppError } from "../../errors/appError.js";
+import { assembleNamedTools } from "../../agent/tools/laneToolContract.js";
+import { REVIEW_SPECIALIST_TOOL_NAMES } from "./specialistToolSet.js";
 import { specialistReportSchema } from "./specialistReport.js";
 
 export const SUBMIT_FINDINGS_REPORT_NAME = "submit_findings_report";
@@ -48,11 +50,13 @@ export function buildSpecialistSessionTools(
       context: { expected: SUBMIT_FINDINGS_REPORT_NAME, got: submit.piTool.name },
     });
   }
-  return {
-    piTools: [...workspaceTools.piTools, submit.piTool],
-    executors: {
-      ...workspaceTools.executors,
-      [SUBMIT_FINDINGS_REPORT_NAME]: submit.executor,
+  return assembleNamedTools(REVIEW_SPECIALIST_TOOL_NAMES, [
+    {
+      piTools: [...workspaceTools.piTools, submit.piTool],
+      executors: {
+        ...workspaceTools.executors,
+        [SUBMIT_FINDINGS_REPORT_NAME]: submit.executor,
+      },
     },
-  };
+  ]);
 }

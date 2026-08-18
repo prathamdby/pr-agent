@@ -7,12 +7,14 @@ import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 import { applyFindingLedgerDelta, createFindingLedger } from "../orchestrator/orchestratorTypes.js";
 import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
-import type { SubmitReviewState } from "./submitReviewTool.js";
 import { publishFindingBatch } from "./publishFindingBatch.js";
 import {
   publishReviewSummaryOnly,
   type RecordPublishStepWithCoordination,
 } from "./publishSummaryOnly.js";
+import type { SubmitReviewState } from "./publishReviewState.js";
+
+export { createSubmitReviewState, type SubmitReviewState } from "./publishReviewState.js";
 
 export {
   attachSummaryCommentCoordination,

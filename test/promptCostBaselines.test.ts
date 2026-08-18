@@ -5,27 +5,13 @@ import { describe, expect, it } from "vitest";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
-import {
-  buildSubmitReviewTool,
-  createSubmitReviewState,
-} from "../src/review/publish/submitReviewTool.js";
+import { WORKSPACE_READ_TOOL_NAMES } from "../src/agent/tools/laneToolContract.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
 import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
-import {
-  assertPromptCostWithinBudget,
-  measurePromptCost,
-  stableJson,
-  type PromptCost,
-} from "./helpers/promptCost.js";
+import { assertPromptCostWithinBudget, stableJson, type PromptCost } from "./helpers/promptCost.js";
 import { isRecord } from "../src/util/typeGuards.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-
-function reviewPrSurface() {
-  return createFakePrSurface({ owner: "octo", repo: "hello", prNumber: 42 }).surface;
-}
 
 type PromptSurface = {
   readonly name: string;
@@ -42,17 +28,8 @@ const REVIEW_PAYLOAD_FIELDS = [
   "securityConcerns",
   "followUps",
 ] as const;
-const LOCAL_WORKSPACE_TOOL_NAMES = [
-  "getWorkspaceBlame",
-  "getWorkspaceDiff",
-  "listChangedFiles",
-  "readWorkspaceFile",
-  "resolveSymbol",
-  "searchWorkspace",
-] as const;
+const LOCAL_WORKSPACE_TOOL_NAMES = [...WORKSPACE_READ_TOOL_NAMES].toSorted();
 const CONTEXT7_TOOL_NAMES = ["getLibraryDocs", "resolveLibraryId"] as const;
-
-const cfg = makeTestConfig();
 
 describe("prompt cost baselines", () => {
   it("keeps prompt and tool surfaces within explicit budgets", () => {
@@ -66,7 +43,7 @@ describe("prompt cost baselines", () => {
     expect(prompt).toContain("submit_findings_report");
     expect(prompt).toContain("no_findings");
     expect(prompt).toContain("Report only issues introduced or exposed by this PR");
-    expect(prompt).toContain("Follow each local workspace tool's description");
+    expect(prompt).toContain("Follow each tool's description");
     for (const severity of SEVERITIES) {
       expect(prompt).toContain(severity);
     }
@@ -76,53 +53,13 @@ describe("prompt cost baselines", () => {
     const content = representativeReviewUserContent();
     expect(content).toContain("Target repository: octo/hello");
     expect(content).toContain("Head commit SHA: abc123");
-    expect(content).toContain("submitReview exactly once");
+    expect(content).toContain("publish evidenced P0–P2 findings");
   });
 
   it("keeps structured review schema top-level fields required", () => {
     const jsonSchema = toJsonSchema(createReviewPayloadSchema(), { errorMode: "ignore" });
     const required = requiredFields(jsonSchema);
     expect(required.toSorted()).toEqual([...REVIEW_PAYLOAD_FIELDS].toSorted());
-  });
-
-  it("keeps submitReview tool contract stable", () => {
-    const { piTool } = buildSubmitReviewTool({
-      cfg,
-      prSurface: reviewPrSurface(),
-      ctx: {
-        owner: "octo",
-        repo: "hello",
-        prNumber: 42,
-        headSha: "abc123",
-        hasDescriptionReviewMap: false,
-      },
-      state: createSubmitReviewState(),
-    });
-    expect(piTool.name).toBe("submitReview");
-    expect(piTool.description).toContain("ReviewPayload");
-    expect(piTool.description).toContain("tool schema");
-    expect(piTool.description).not.toContain("Minimal valid example");
-    expect(requiredFields(piTool.parameters).toSorted()).toEqual(
-      [...REVIEW_PAYLOAD_FIELDS].toSorted(),
-    );
-  });
-
-  it("reduces static submitReview tool surface versus the prior field-list description", () => {
-    const { piTool } = buildSubmitReviewTool({
-      cfg,
-      prSurface: reviewPrSurface(),
-      ctx: {
-        owner: "octo",
-        repo: "hello",
-        prNumber: 42,
-        headSha: "abc123",
-        hasDescriptionReviewMap: false,
-      },
-      state: createSubmitReviewState(),
-    });
-    const bytes = measurePromptCost(stableJson(piTool)).bytes;
-    expect(bytes).toBeLessThan(2_500);
-    expect(bytes).toBeLessThan(2_050);
   });
 
   it("keeps investigation tool names stable", () => {
@@ -206,18 +143,6 @@ function promptSurfaces(): PromptSurface[] {
     apiKey: "",
     maxResponseBytes: 64_000,
   }).piTools;
-  const submitReviewTool = buildSubmitReviewTool({
-    cfg,
-    prSurface: reviewPrSurface(),
-    ctx: {
-      owner: "octo",
-      repo: "hello",
-      prNumber: 42,
-      headSha: "abc123",
-      hasDescriptionReviewMap: false,
-    },
-    state: createSubmitReviewState(),
-  }).piTool;
   return [
     {
       name: "general review system prompt",
@@ -232,18 +157,12 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "local workspace tool definitions",
       content: stableJson(localWorkspaceTools),
-      // Enriched investigation-protocol descriptions (issue #363); resolveSymbol added for symbol index.
       budget: { bytes: 3_100, characters: 3_100, estimatedTokens: 775 },
     },
     {
       name: "Context7 tool definitions",
       content: stableJson(context7Tools),
       budget: { bytes: 1_500, characters: 1_500, estimatedTokens: 375 },
-    },
-    {
-      name: "structured review submission tool",
-      content: stableJson(submitReviewTool),
-      budget: { bytes: 2_050, characters: 2_050, estimatedTokens: 513 },
     },
   ];
 }

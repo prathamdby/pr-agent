@@ -77,7 +77,30 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
   buildReviewRunSetup: vi.fn(() => ({
     systemPrompt: "legacy prompt must not be used",
     userContent: "Inspect the pull request.",
-    workspaceTools: { piTools: [], executors: {} },
+    workspaceTools: {
+      piTools: [
+        "listChangedFiles",
+        "readWorkspaceFile",
+        "searchWorkspace",
+        "getWorkspaceDiff",
+        "resolveLibraryId",
+        "getLibraryDocs",
+      ].map((name) => ({
+        name,
+        description: name,
+        parameters: { type: "object", properties: {} },
+      })),
+      executors: Object.fromEntries(
+        [
+          "listChangedFiles",
+          "readWorkspaceFile",
+          "searchWorkspace",
+          "getWorkspaceDiff",
+          "resolveLibraryId",
+          "getLibraryDocs",
+        ].map((name) => [name, async () => ({ ok: true })]),
+      ),
+    },
     cachedDiffIndex: {
       files: new Map(),
       truncated: false,

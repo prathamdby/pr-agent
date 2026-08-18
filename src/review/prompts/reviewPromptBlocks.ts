@@ -92,8 +92,8 @@ export const reviewPayloadPerFindingContracts = [
 
 /** Round-0 validation repair: include the full minimal example. */
 export const VALIDATION_REPAIR_ROUND0_SUFFIX =
-  "Fix the payload and call submitReview again with a complete ReviewPayload.";
+  "Fix the payload and submit a complete ReviewPayload through the active publish tool.";
 
 /** Later validation repair rounds: schema reminder only. */
 export const VALIDATION_REPAIR_REMINDER =
-  "Fix the ReviewPayload validation errors above and call submitReview again, matching the tool schema.";
+  "Fix the ReviewPayload validation errors above and resubmit, matching the tool schema.";

@@ -3,7 +3,6 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
-import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -12,7 +11,6 @@ export type RetentionResult = {
   readonly webhookEventsDeleted: number;
   readonly resumeSnapshotsDeleted: number;
   readonly agentEventsDeleted: number;
-  readonly codeIndexSnapshotsDeleted: number;
 };
 
 /**
@@ -23,88 +21,74 @@ export async function runRetention(
   pool: Pool,
   cfg: Pick<
     Config,
-    | "agentWorkRetentionSeconds"
-    | "webhookEventsRetentionSeconds"
-    | "agentEventsRetentionSeconds"
-    | "codeIndexRetentionSeconds"
+    "agentWorkRetentionSeconds" | "webhookEventsRetentionSeconds" | "agentEventsRetentionSeconds"
   >,
 ): Promise<RetentionResult> {
-  const [
-    workItemsDeleted,
-    webhookEventsDeleted,
-    resumeSnapshotsDeleted,
-    agentEventsDeleted,
-    codeIndexSnapshotsDeleted,
-  ] = await Promise.all([
-    (async () => {
-      let deleted = 0;
-      for (;;) {
-        const result = await pool.query(
-          `DELETE FROM agent_work_items
+  const [workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted, agentEventsDeleted] =
+    await Promise.all([
+      (async () => {
+        let deleted = 0;
+        for (;;) {
+          const result = await pool.query(
+            `DELETE FROM agent_work_items
             WHERE id IN (
               SELECT id FROM agent_work_items
                WHERE status = ANY($1::text[])
                  AND COALESCE(completed_at, updated_at) < now() - ($2::bigint * interval '1 second')
                LIMIT $3::int
             )`,
-          [TERMINAL_STATUSES, cfg.agentWorkRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
-        );
-        const batch = result.rowCount ?? 0;
-        deleted += batch;
-        if (batch < RETENTION_DELETE_BATCH_SIZE) break;
-      }
-      return deleted;
-    })(),
-    (async () => {
-      let deleted = 0;
-      for (;;) {
-        const result = await pool.query(
-          `DELETE FROM webhook_events
+            [TERMINAL_STATUSES, cfg.agentWorkRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+          );
+          const batch = result.rowCount ?? 0;
+          deleted += batch;
+          if (batch < RETENTION_DELETE_BATCH_SIZE) break;
+        }
+        return deleted;
+      })(),
+      (async () => {
+        let deleted = 0;
+        for (;;) {
+          const result = await pool.query(
+            `DELETE FROM webhook_events
             WHERE id IN (
               SELECT id FROM webhook_events
                WHERE received_at < now() - ($1::bigint * interval '1 second')
                LIMIT $2::int
             )`,
-          [cfg.webhookEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
-        );
-        const batch = result.rowCount ?? 0;
-        deleted += batch;
-        if (batch < RETENTION_DELETE_BATCH_SIZE) break;
-      }
-      return deleted;
-    })(),
-    deleteExpiredResumeSnapshots(pool),
-    (async () => {
-      if (cfg.agentEventsRetentionSeconds <= 0) return 0;
-      let deleted = 0;
-      for (;;) {
-        const result = await pool.query(
-          `DELETE FROM agent_events
+            [cfg.webhookEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+          );
+          const batch = result.rowCount ?? 0;
+          deleted += batch;
+          if (batch < RETENTION_DELETE_BATCH_SIZE) break;
+        }
+        return deleted;
+      })(),
+      deleteExpiredResumeSnapshots(pool),
+      (async () => {
+        if (cfg.agentEventsRetentionSeconds <= 0) return 0;
+        let deleted = 0;
+        for (;;) {
+          const result = await pool.query(
+            `DELETE FROM agent_events
             WHERE id IN (
               SELECT id FROM agent_events
                WHERE recorded_at < now() - ($1::bigint * interval '1 second')
                LIMIT $2::int
             )`,
-          [cfg.agentEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
-        );
-        const batch = result.rowCount ?? 0;
-        deleted += batch;
-        if (batch < RETENTION_DELETE_BATCH_SIZE) break;
-      }
-      return deleted;
-    })(),
-    safeDeleteExpiredCodeIndexSnapshots(
-      pool,
-      cfg.codeIndexRetentionSeconds,
-      RETENTION_DELETE_BATCH_SIZE,
-    ),
-  ]);
+            [cfg.agentEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+          );
+          const batch = result.rowCount ?? 0;
+          deleted += batch;
+          if (batch < RETENTION_DELETE_BATCH_SIZE) break;
+        }
+        return deleted;
+      })(),
+    ]);
   return {
     workItemsDeleted,
     webhookEventsDeleted,
     resumeSnapshotsDeleted,
     agentEventsDeleted,
-    codeIndexSnapshotsDeleted,
   };
 }
 

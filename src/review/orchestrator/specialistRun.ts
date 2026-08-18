@@ -1,14 +1,20 @@
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
-import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
+import {
+  resolveToolEventsContext,
+  safeEmitEvidenceRejectEvent,
+} from "../../agent/runtime/agentEventSink.js";
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 import {
   classifyProviderError,
   type ProviderErrorKind,
 } from "../../agent/providers/providerErrors.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import {
+  createFeaturePiSession,
+  type FeatureSessionDurability,
+} from "../../agent/runtime/createFeatureSession.js";
 import type { PiSession } from "../../agent/runtime/types.js";
 import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
@@ -46,6 +52,7 @@ export type RunSpecialistParams = {
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
   readonly agentEvents?: AgentEventsContext;
+  readonly durability?: FeatureSessionDurability;
 };
 
 type SubmissionState = {
@@ -227,8 +234,11 @@ async function createSessionWithinDeadline(
     systemPrompt: specialistSystemPrompt(params.specialist),
     tools: sessionTools.piTools,
     executors: sessionTools.executors,
-    // Parallel specialists share session_role "specialist"; skip durability so
-    // concurrent checkpoint/snapshot writes cannot overwrite each other.
+    // Parallel specialists share session_role "specialist"; skip checkpoint
+    // durability so concurrent checkpoint/snapshot writes cannot overwrite
+    // each other. Events context still gates tool rows and PostHog.
+    eventsContext: resolveToolEventsContext(params.durability) ?? params.agentEvents,
+    persistCheckpoints: false,
   });
   return runWithinDeadline({
     run: () => creation,

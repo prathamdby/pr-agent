@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../src/errors/appError.js";
+import { REVIEW_SPECIALIST_TOOL_NAMES } from "../src/review/orchestrator/specialistToolSet.js";
 import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.js";
 import {
   SUBMIT_FINDINGS_REPORT_NAME,
@@ -19,27 +20,24 @@ function specialistToolDefinitionsJson(piTools: readonly PiTool[]): string {
   );
 }
 
+function workspacePool(): {
+  readonly piTools: PiTool[];
+  readonly executors: Record<string, () => Promise<unknown>>;
+} {
+  const names = REVIEW_SPECIALIST_TOOL_NAMES.filter((name) => name !== SUBMIT_FINDINGS_REPORT_NAME);
+  return {
+    piTools: names.map((name) => ({
+      name,
+      description: name,
+      parameters: { type: "object", properties: {} },
+    })),
+    executors: Object.fromEntries(names.map((name) => [name, async () => ({})])),
+  };
+}
+
 describe("specialistTools", () => {
   it("builds identical tool definition JSON for every specialist id", () => {
-    const workspacePiTools: PiTool[] = [
-      {
-        name: "readWorkspaceFile",
-        description: "Read a file",
-        parameters: { type: "object", properties: { path: { type: "string" } } },
-      },
-      {
-        name: "searchCodeIndex",
-        description: "Search index",
-        parameters: { type: "object", properties: { query: { type: "string" } } },
-      },
-    ];
-    const workspaceTools = {
-      piTools: workspacePiTools,
-      executors: {
-        readWorkspaceFile: async () => ({}),
-        searchCodeIndex: async () => ({ unavailable: true }),
-      },
-    };
+    const workspaceTools = workspacePool();
 
     const payloads = SPECIALIST_IDS.map((specialist) => {
       const submit = {
@@ -56,7 +54,7 @@ describe("specialistTools", () => {
     });
 
     for (const row of payloads) {
-      expect(row.toolNames.at(-1)).toBe(SUBMIT_FINDINGS_REPORT_NAME);
+      expect(row.toolNames).toEqual([...REVIEW_SPECIALIST_TOOL_NAMES]);
       expect(row.toolJson).toBe(payloads[0]?.toolJson);
     }
 

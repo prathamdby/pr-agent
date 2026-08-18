@@ -48,8 +48,8 @@ prompt-caching framework and no deferred-tool subsystem for this change.
   cache id), role compaction in `compactionPolicy.ts`, and orchestrator phase
   allowlists in `src/review/orchestrator/phaseToolPolicy.ts`.
 - Orchestrator and specialist tool JSON must stay byte-stable across phases and
-  personas (persona differences live in system prompts only). Shared code-index
-  description/schema and specialist tools are registered once at session create.
+  personas (persona differences live in system prompts only). Specialist tools
+  are registered once at session create from the specialist lane list.
 - Wrong-phase `brief` / `publish_thread` / `publish_summary` calls return
   structured executor errors; the registered tool list does not change mid-session.
   Mid-session `setActiveTools` / `transitionTools` APIs are gone.

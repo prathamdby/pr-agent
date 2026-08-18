@@ -2,7 +2,12 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
-import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.js";
+import type { AgentEventsContext } from "./agentEventSink.js";
+import {
+  createDurableLifecycleEventSink,
+  resolveAgentEventsContext,
+  resolveToolEventsContext,
+} from "./agentEventSink.js";
 import { thinkingPolicyFromCeiling } from "./thinkingPolicy.js";
 import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.js";
 import { createPiSession } from "./piSession.js";
@@ -105,11 +110,19 @@ export async function createFeaturePiSession(params: {
   readonly eventSink?: (event: AgentLifecycleEvent) => void;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
+  /** Events context without checkpoint durability (parallel specialists). */
+  readonly eventsContext?: AgentEventsContext;
+  readonly persistCheckpoints?: boolean;
 }): Promise<PiSession> {
+  const persistCheckpoints = Boolean(params.durability) && params.persistCheckpoints !== false;
   const policy = resolveModelPolicy(params.cfg);
   const primary = modelAssignmentForRole(policy, params.role);
-  const structuredState = await resolveInitialStructuredState(params);
-  const agentEventsContext = resolveAgentEventsContext(params.cfg, params.durability);
+  const structuredState = persistCheckpoints
+    ? await resolveInitialStructuredState(params)
+    : (params.structuredState ?? EMPTY_STRUCTURED_STATE);
+  const agentEventsContext =
+    params.eventsContext ?? resolveAgentEventsContext(params.cfg, params.durability);
+  const toolEventsContext = params.eventsContext ?? resolveToolEventsContext(params.durability);
   const durableEventSink = agentEventsContext
     ? createDurableLifecycleEventSink(agentEventsContext, params.cfg)
     : null;
@@ -137,7 +150,8 @@ export async function createFeaturePiSession(params: {
     tools: params.tools,
     executors: params.executors,
     refreshBeforeTool: params.refreshBeforeTool,
+    toolEvents: toolEventsContext ? { context: toolEventsContext, cfg: params.cfg } : undefined,
   });
-  if (!params.durability) return session;
+  if (!persistCheckpoints || !params.durability) return session;
   return wrapSessionWithDurability(session, params.cfg, params.durability);
 }

@@ -31,6 +31,8 @@ import {
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
 } from "../run/reviewRunMetrics.js";
+import { assembleNamedTools } from "../../agent/tools/laneToolContract.js";
+import { REVIEW_ORCHESTRATOR_TOOL_NAMES } from "../run/reviewToolSet.js";
 import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
 import { buildSpecialistBriefTool, renderBriefMessage, type SpecialistBrief } from "./briefTool.js";
@@ -229,8 +231,6 @@ export async function runOrchestratedPrReview(
     userSupplement: params.userSupplement,
     trustedContext: params.trustedContext,
     workspace: params.workspace,
-    pool: params.durability?.pool,
-    codeIndexSnapshotId: params.codeIndexSnapshotId,
   });
   const phaseRef = createOrchestratorPhaseRef("recon");
   const briefTool = buildSpecialistBriefTool(phaseRef);
@@ -326,18 +326,24 @@ export async function runOrchestratedPrReview(
     getLedger: publishThread.getLedger,
     getCoverage: () => coverage(state),
   });
-  const allTools = [
-    ...setup.workspaceTools.piTools,
-    briefTool.piTool,
-    publishThread.piTool,
-    publishSummary.piTool,
-  ];
-  const allExecutors = {
-    ...setup.workspaceTools.executors,
-    submit_specialist_brief: briefTool.executor,
-    publish_thread: publishThread.executor,
-    publish_summary: publishSummary.executor,
-  };
+  const assembled = assembleNamedTools(REVIEW_ORCHESTRATOR_TOOL_NAMES, [
+    {
+      piTools: [
+        ...setup.workspaceTools.piTools,
+        briefTool.piTool,
+        publishThread.piTool,
+        publishSummary.piTool,
+      ],
+      executors: {
+        ...setup.workspaceTools.executors,
+        submit_specialist_brief: briefTool.executor,
+        publish_thread: publishThread.executor,
+        publish_summary: publishSummary.executor,
+      },
+    },
+  ]);
+  const allTools = assembled.piTools;
+  const allExecutors = assembled.executors;
   let session: PiSession | null = null;
   let sessionCreation: Promise<PiSession> | null = null;
   try {
@@ -920,6 +926,7 @@ export async function runOrchestratedPrReview(
           checkoutCoverage: params.workspace.getCoverage(),
           isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
           agentEvents: agentEvents ?? undefined,
+          durability: params.durability,
         }),
       );
     }

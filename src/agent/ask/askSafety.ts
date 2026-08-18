@@ -50,29 +50,3 @@ export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
     context: { path: normalized },
   });
 }
-
-function redactEmailsInJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactEmailsInJson);
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) {
-      if (k === "authorEmail" || k === "email") {
-        out[k] = v == null ? v : "[redacted]";
-      } else {
-        out[k] = redactEmailsInJson(v);
-      }
-    }
-    return out;
-  }
-  return value;
-}
-
-export function sanitizeToolResultForAsk(toolName: string, result: unknown): unknown {
-  if (toolName === "getBlame" || toolName === "getWorkspaceBlame")
-    return redactEmailsInJson(result);
-  return result;
-}
-
-export function redactPorcelainBlame(text: string): string {
-  return text.replace(/^author-mail .+$/gm, "author-mail [redacted]");
-}

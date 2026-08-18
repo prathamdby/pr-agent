@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. The live callable set is now the per-lane `*ToolSet.ts` lists assembled by `src/agent/tools/laneToolContract.ts` ([ADR 0039](0039-measured-tool-surface.md)). The Octokit wrappers described below are historical.
 
 ## Context
 

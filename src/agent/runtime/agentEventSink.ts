@@ -168,6 +168,9 @@ export function createDurableLifecycleEventSink(
   cfg: Pick<Config, "agentEventsEnabled">,
 ): (event: AgentLifecycleEvent) => void {
   return (event) => {
+    // Tool rows are written at the executor-invocation wrapper so each call
+    // produces one durable row with ok/duration. Lifecycle start events skip.
+    if (event.kind === "tool") return;
     const record = agentAuditRecordFromLifecycleEvent(event);
     const row = lifecycleAuditToInsertRow(context, record, event.role);
     safeAppendAgentEvents(context.pool, cfg, [row]);
@@ -214,6 +217,32 @@ export function safeEmitEvidenceRejectEvent(
   safeEmitAgentEvent(context, cfg, evidenceRejectEventRow(context, params));
 }
 
+export type SessionToolEvents = {
+  readonly context: AgentEventsContext;
+  readonly cfg: Pick<Config, "agentEventsEnabled">;
+};
+
+export function resolveToolEventsContext(durability?: {
+  readonly pool: Pool | PoolClient;
+  readonly workItemId: string;
+  readonly installationId: number;
+  readonly owner?: string;
+  readonly repo?: string;
+  readonly prNumber?: number;
+}): AgentEventsContext | null {
+  if (!durability) return null;
+  const { owner, repo, prNumber } = durability;
+  if (!owner || !repo || prNumber == null) return null;
+  return {
+    pool: durability.pool,
+    workItemId: durability.workItemId,
+    installationId: durability.installationId,
+    owner,
+    repo,
+    prNumber,
+  };
+}
+
 export function resolveAgentEventsContext(
   cfg: Pick<Config, "agentEventsEnabled">,
   durability?: {
@@ -225,15 +254,6 @@ export function resolveAgentEventsContext(
     readonly prNumber?: number;
   },
 ): AgentEventsContext | null {
-  if (!cfg.agentEventsEnabled || !durability) return null;
-  const { owner, repo, prNumber } = durability;
-  if (!owner || !repo || prNumber == null) return null;
-  return {
-    pool: durability.pool,
-    workItemId: durability.workItemId,
-    installationId: durability.installationId,
-    owner,
-    repo,
-    prNumber,
-  };
+  if (!cfg.agentEventsEnabled) return null;
+  return resolveToolEventsContext(durability);
 }

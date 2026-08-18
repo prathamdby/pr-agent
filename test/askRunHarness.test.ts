@@ -4,7 +4,24 @@ import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 vi.mock("../src/agent/tools/context7Tools.js", () => ({
-  buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
+  buildContext7Tools: vi.fn(() => ({
+    piTools: [
+      {
+        name: "resolveLibraryId",
+        description: "resolveLibraryId",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "getLibraryDocs",
+        description: "getLibraryDocs",
+        parameters: { type: "object", properties: {} },
+      },
+    ],
+    executors: {
+      resolveLibraryId: async () => ({ libraries: [] }),
+      getLibraryDocs: async () => ({ content: "" }),
+    },
+  })),
 }));
 
 const sendMock = vi.fn();

@@ -14,11 +14,11 @@ import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
-import type { Pool } from "pg";
 import {
-  buildCodeIndexTools,
-  buildUnavailableCodeIndexTools,
-} from "../../agent/tools/codeIndexTools.js";
+  assembleNamedTools,
+  CONTEXT7_TOOL_NAMES,
+  WORKSPACE_READ_TOOL_NAMES,
+} from "../../agent/tools/laneToolContract.js";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
@@ -60,8 +60,6 @@ export function buildReviewRunSetup(params: {
   userSupplement?: string;
   trustedContext?: string;
   workspace: LocalPrWorkspace;
-  pool?: Pool;
-  codeIndexSnapshotId?: string;
 }): ReviewRunSetup {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
@@ -81,23 +79,18 @@ export function buildReviewRunSetup(params: {
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
-  const codeIndex =
-    params.pool && params.codeIndexSnapshotId
-      ? buildCodeIndexTools({
-          pool: params.pool,
-          snapshotId: params.codeIndexSnapshotId,
-          workspace: params.workspace,
-          pathGate,
-        })
-      : buildUnavailableCodeIndexTools();
-  const wrappedExecutors = wrapExecutorsWithRateLimitCircuit({
-    ...executors,
-    ...ctx7.executors,
-    ...codeIndex.executors,
-  });
+  const assembled = assembleNamedTools(
+    [...WORKSPACE_READ_TOOL_NAMES, ...CONTEXT7_TOOL_NAMES],
+    [
+      {
+        piTools: [...bundle.piTools, ...ctx7.piTools],
+        executors: { ...executors, ...ctx7.executors },
+      },
+    ],
+  );
   const workspaceTools = {
-    piTools: [...bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
-    executors: wrappedExecutors,
+    piTools: assembled.piTools,
+    executors: wrapExecutorsWithRateLimitCircuit(assembled.executors),
   };
 
   return {

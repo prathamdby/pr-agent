@@ -16,6 +16,8 @@ import {
   type SubmitTriageState,
 } from "./submitTriageTool.js";
 import { MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.js";
+import { assembleNamedTools } from "../tools/laneToolContract.js";
+import { TRIAGE_TOOL_NAMES } from "./triageToolSet.js";
 
 export type TriageRunSetup = {
   readonly systemPrompt: string;
@@ -69,8 +71,12 @@ export function buildTriageRunSetup(params: {
       threads: params.inventory,
       scope: params.scope,
     }),
-    piTools: [...workspaceTools.piTools, submitTool.piTool],
-    executors: { ...workspaceTools.executors, submitTriage: submitTool.executor },
+    ...assembleNamedTools(TRIAGE_TOOL_NAMES, [
+      {
+        piTools: [...workspaceTools.piTools, submitTool.piTool],
+        executors: { ...workspaceTools.executors, submitTriage: submitTool.executor },
+      },
+    ]),
     submitState,
     workspaceState,
   };

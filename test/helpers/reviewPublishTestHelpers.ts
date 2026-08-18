@@ -9,7 +9,7 @@ import {
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
 } from "../../src/review/placement/reviewDiffIndex.js";
-import { createSubmitReviewState } from "../../src/review/publish/submitReviewTool.js";
+import { createSubmitReviewState } from "../../src/review/publish/publishReview.js";
 import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTestHelpers.js";
 
 /** Runs pre-publish pipeline then publishReview (matches submitReview path). */

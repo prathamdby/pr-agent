@@ -1,12 +1,10 @@
 import { logInfo, logWarn } from "../../evlog.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
-import { buildContext7Tools } from "../tools/context7Tools.js";
 import {
   ASK_FAILURE_MESSAGE,
   ASK_META_REFUSAL,
   ASK_RETRY_NUDGE,
-  CONTEXT7_RESPONSE_BYTES,
   MAX_ASK_FINALIZE_ROUNDS,
   MAX_ASK_TOOL_ROUNDS,
 } from "../../settings/index.js";
@@ -83,16 +81,8 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
   return runWithRateLimitCircuit(circuit, async () => {
     const { bundle } = buildAskRunSetup(params);
-
-    const ctx7 = buildContext7Tools({
-      apiKey: cfg.context7ApiKey,
-      maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
-    });
-    const tools = [...bundle.piTools, ...ctx7.piTools];
-    const executors = wrapExecutorsWithRateLimitCircuit({
-      ...bundle.executors,
-      ...ctx7.executors,
-    });
+    const tools = bundle.piTools;
+    const executors = wrapExecutorsWithRateLimitCircuit(bundle.executors);
 
     const session = await createFeaturePiSession({
       role: "ask",

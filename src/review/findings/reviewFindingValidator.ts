@@ -92,7 +92,7 @@ function formatAnchorFailureRepairMessage(failures: readonly AnchorFailure[]): s
       );
     }
   }
-  lines.push("Fix all listed findings and call submitReview again with a complete ReviewPayload.");
+  lines.push("Fix all listed findings and resubmit a complete ReviewPayload.");
   return lines.join("\n");
 }
 

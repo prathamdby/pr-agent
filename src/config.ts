@@ -39,10 +39,6 @@ import {
   DEFAULT_FINDING_HISTORY_ENABLED,
   DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
   DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
-  DEFAULT_CODE_INDEX_MODE,
-  DEFAULT_CODE_INDEX_WAIT_MS,
-  DEFAULT_CODE_INDEX_RETENTION_SECONDS,
-  CODE_INDEX_MODES,
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
@@ -294,12 +290,6 @@ export async function loadConfig() {
     ENV.FINDING_HISTORY_LOOKBACK_DAYS,
     DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
   );
-  const codeIndexMode = readEnum(ENV.CODE_INDEX_MODE, CODE_INDEX_MODES, DEFAULT_CODE_INDEX_MODE);
-  const codeIndexWaitMs = readNonNegativeNumber(ENV.CODE_INDEX_WAIT_MS, DEFAULT_CODE_INDEX_WAIT_MS);
-  const codeIndexRetentionSeconds = readPositiveNumber(
-    ENV.CODE_INDEX_RETENTION_SECONDS,
-    DEFAULT_CODE_INDEX_RETENTION_SECONDS,
-  );
   const modelsJsonPath = resolveModelsJsonPath({
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
@@ -504,9 +494,6 @@ export async function loadConfig() {
     findingHistoryEnabled,
     findingHistoryDismissSuppressAfter,
     findingHistoryLookbackDays,
-    codeIndexMode,
-    codeIndexWaitMs,
-    codeIndexRetentionSeconds,
     piApi,
     modelsJsonPath,
     modelProviderKeys,

@@ -4,7 +4,7 @@
 
 ## Status
 
-Accepted.
+Accepted. The `submitReview` publish budget described below is historical; that tool is deleted ([ADR 0039](0039-measured-tool-surface.md)). The word `submitReview` remains unredacted vocabulary in the public-output sanitizer.
 
 ## Context
 

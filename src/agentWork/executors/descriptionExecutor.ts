@@ -82,6 +82,9 @@ export async function executeDescriptionJob(
               pool,
               workItemId: item.id,
               installationId: item.installationId,
+              owner: item.owner,
+              repo: item.repo,
+              prNumber: item.prNumber,
             },
           });
           if (!result.published && !result.publishSuperseded) {

@@ -4,7 +4,8 @@
 
 Superseded by [ADR 0028](0028-orchestrated-review.md). Quality is now one fixed
 specialist inside the orchestrated review run. The command, sentinel, and mode
-described below remain recognized only as legacy artifacts.
+described below remain recognized only as legacy artifacts. `submitReview` is
+deleted ([ADR 0039](0039-measured-tool-surface.md)).
 
 ## Context
 

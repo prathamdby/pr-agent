@@ -560,6 +560,9 @@ async function runFreshTriageAgent(params: {
           pool: params.pool,
           workItemId: params.item.id,
           installationId: params.item.installationId,
+          owner: params.item.owner,
+          repo: params.item.repo,
+          prNumber: params.item.prNumber,
         },
       });
       if (!result.submitted || !result.payload) {
