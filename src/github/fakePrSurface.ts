@@ -22,6 +22,7 @@ import type {
 } from "./prSurfaceTypes.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
+import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
 
 export type FakePrSurfaceEvent =
@@ -55,11 +56,15 @@ export type FakePrSurfaceEvent =
         readonly targetUrl?: string;
       };
     }
-  | { readonly kind: "fetchPriorInlineFeedback"; readonly botUserId: number }
+  | {
+      readonly kind: "fetchPriorInlineFeedback";
+      readonly botUserId: number;
+      readonly currentLens: AnyReviewLens;
+    }
   | {
       readonly kind: "fetchBotFindingThreads";
       readonly botUserId: number;
-      readonly publishRecordLenses?: ReadonlyMap<number, string>;
+      readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
     }
   | { readonly kind: "fetchReviewCommentParentGraph" }
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
@@ -492,8 +497,8 @@ export function createFakePrSurface(
       events.push({ kind: "setReviewCommitStatus", headSha: headShaArg, status });
     },
 
-    async fetchPriorInlineFeedback(botUserId) {
-      events.push({ kind: "fetchPriorInlineFeedback", botUserId });
+    async fetchPriorInlineFeedback(botUserId, currentLens) {
+      events.push({ kind: "fetchPriorInlineFeedback", botUserId, currentLens });
       return priorInlineFeedback;
     },
 

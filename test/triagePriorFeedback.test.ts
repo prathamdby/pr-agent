@@ -26,10 +26,15 @@ vi.mock("../src/github/appAuth.js", () => ({
 }));
 
 import {
+  assembleBotReviewThreads,
   classifyReviewLensFromPointerBody,
+  mapAssembledThreadsToBotFindings,
   parseReviewPointerLensMarker,
+  priorFeedbackLensesForSelection,
+  type ReviewThreadComment,
 } from "../src/review/run/reviewPriorFeedback.js";
 import { fetchBotFindingThreads } from "../src/github/reviewPriorFeedbackIo.js";
+import { MAX_PRIOR_INLINE_REPLY_CHARS } from "../src/settings/index.js";
 
 describe("classifyReviewLensFromPointerBody", () => {
   it("prefers the HTML lens marker over legacy strings", () => {
@@ -325,5 +330,198 @@ describe("fetchBotFindingThreads", () => {
       }),
     ]);
     expect(threads[0]).not.toHaveProperty("verificationStubCommentId");
+  });
+
+  it("groups nested replies, keeps bot-only threads, and orders by path then line", async () => {
+    mocks.listReviews.mockResolvedValue({
+      data: [{ id: 10, user: { id: 99 }, body: REVIEW_POINTER_BODY }],
+    });
+    mocks.listReviewComments.mockResolvedValue({
+      data: [
+        {
+          id: 30,
+          in_reply_to_id: null,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "**P2** · **Later file**",
+          path: "src/z.ts",
+          line: 9,
+          original_line: 9,
+          html_url: "https://github.test/30",
+        },
+        {
+          id: 1,
+          in_reply_to_id: null,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "**P1** · **Nested**",
+          path: "src/a.ts",
+          line: 2,
+          original_line: 2,
+          html_url: "https://github.test/1",
+        },
+        {
+          id: 2,
+          in_reply_to_id: 1,
+          pull_request_review_id: 10,
+          user: { id: 7 },
+          body: "first human",
+          path: "src/a.ts",
+          line: 2,
+          original_line: 2,
+          html_url: "https://github.test/2",
+        },
+        {
+          id: 3,
+          in_reply_to_id: 2,
+          pull_request_review_id: 10,
+          user: { id: 7 },
+          body: "nested human",
+          path: "src/a.ts",
+          line: 2,
+          original_line: 2,
+          html_url: "https://github.test/3",
+        },
+        {
+          id: 4,
+          in_reply_to_id: 1,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "bot follow-up",
+          path: "src/a.ts",
+          line: 2,
+          original_line: 2,
+          html_url: "https://github.test/4",
+        },
+      ],
+    });
+
+    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([
+      expect.objectContaining({
+        rootCommentId: 1,
+        path: "src/a.ts",
+        line: 2,
+        humanReplies: ["first human", "nested human"],
+      }),
+      expect.objectContaining({
+        rootCommentId: 30,
+        path: "src/z.ts",
+        humanReplies: [],
+      }),
+    ]);
+  });
+
+  it("treats a missing parent as its own root and breaks reply cycles", () => {
+    const comments: ReviewThreadComment[] = [
+      {
+        id: 10,
+        inReplyToId: 11,
+        pullRequestReviewId: 20,
+        userId: 99,
+        body: "**P1** · **Cycle**",
+        path: "src/a.ts",
+        line: 1,
+        originalLine: 1,
+        htmlUrl: "https://github.test/10",
+      },
+      {
+        id: 11,
+        inReplyToId: 10,
+        pullRequestReviewId: 20,
+        userId: 7,
+        body: "human in cycle",
+        path: "src/a.ts",
+        line: 1,
+        originalLine: 1,
+        htmlUrl: "https://github.test/11",
+      },
+      {
+        id: 12,
+        inReplyToId: 999,
+        pullRequestReviewId: 20,
+        userId: 99,
+        body: "**P2** · **Orphan bot**",
+        path: "src/b.ts",
+        line: 3,
+        originalLine: 3,
+        htmlUrl: "https://github.test/12",
+      },
+    ];
+    const assembled = assembleBotReviewThreads(comments, {
+      botUserId: 99,
+      reviewLenses: new Map([[20, "review"]]),
+      allowedLenses: priorFeedbackLensesForSelection("review"),
+    });
+    expect(mapAssembledThreadsToBotFindings(assembled, 99)).toEqual([
+      expect.objectContaining({
+        rootCommentId: 10,
+        path: "src/a.ts",
+        humanReplies: ["human in cycle"],
+      }),
+      expect.objectContaining({
+        rootCommentId: 12,
+        path: "src/b.ts",
+        humanReplies: [],
+      }),
+    ]);
+  });
+
+  it("truncates human replies and excludes threads whose lens is outside the selection", () => {
+    const longReply = "y".repeat(MAX_PRIOR_INLINE_REPLY_CHARS + 8);
+    const comments: ReviewThreadComment[] = [
+      {
+        id: 1,
+        inReplyToId: null,
+        pullRequestReviewId: 10,
+        userId: 99,
+        body: "**P1** · **Security**",
+        path: "src/sec.ts",
+        line: 1,
+        originalLine: 1,
+        htmlUrl: "https://github.test/1",
+      },
+      {
+        id: 2,
+        inReplyToId: 1,
+        pullRequestReviewId: 10,
+        userId: 7,
+        body: longReply,
+        path: "src/sec.ts",
+        line: 1,
+        originalLine: 1,
+        htmlUrl: "https://github.test/2",
+      },
+      {
+        id: 3,
+        inReplyToId: null,
+        pullRequestReviewId: 11,
+        userId: 99,
+        body: "**P2** · **Quality**",
+        path: "src/qual.ts",
+        line: 1,
+        originalLine: 1,
+        htmlUrl: "https://github.test/3",
+      },
+    ];
+    const securityOnly = mapAssembledThreadsToBotFindings(
+      assembleBotReviewThreads(comments, {
+        botUserId: 99,
+        reviewLenses: new Map([
+          [10, "review-security"],
+          [11, "review-quality"],
+        ]),
+        allowedLenses: priorFeedbackLensesForSelection("review-security"),
+      }),
+      99,
+    );
+    expect(securityOnly).toEqual([
+      expect.objectContaining({
+        rootCommentId: 1,
+        lens: "review-security",
+        path: "src/sec.ts",
+      }),
+    ]);
+    expect(securityOnly[0]?.humanReplies[0]).toHaveLength(MAX_PRIOR_INLINE_REPLY_CHARS);
+    expect(securityOnly.some((thread) => thread.lens === "review-quality")).toBe(false);
   });
 });

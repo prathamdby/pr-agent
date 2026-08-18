@@ -354,6 +354,7 @@ async function buildPriorInlineFeedbackPromise(args: {
       value: await fetchPriorInlineFeedbackBlockForReview({
         prSurface,
         botUserId: bot.userId,
+        reviewLens,
         onPriorFeedbackError: logPriorFeedbackError,
       }),
     };

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildTrustedReviewContextForReview } from "../src/review/prompts/reviewTrustedContext.js";
+import {
+  buildTrustedReviewContextForReview,
+  fetchPriorInlineFeedbackBlockForReview,
+} from "../src/review/prompts/reviewTrustedContext.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { CheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 
 const sparseCoverage: CheckoutCoverage = {
@@ -65,5 +69,69 @@ describe("buildTrustedReviewContextForReview", () => {
       symbolIndexStatus: { available: true, symbolCount: 42 },
     });
     expect(result).toContain("Symbol index: built for 42 symbols.");
+  });
+});
+
+describe("fetchPriorInlineFeedbackBlockForReview", () => {
+  it("passes the current lens through the PrSurface seam and formats the block", async () => {
+    const { surface, controls } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    controls.setPriorInlineFeedback([
+      {
+        path: "src/a.ts",
+        startLine: 4,
+        endLine: 4,
+        botTitleSnippet: "P1 · Missing await",
+        humanReplies: ["False positive"],
+        threadUrl: "https://github.com/o/r/pull/1#discussion_r1",
+      },
+    ]);
+
+    const block = await fetchPriorInlineFeedbackBlockForReview({
+      prSurface: surface,
+      botUserId: 99,
+      reviewLens: "review",
+    });
+
+    expect(controls.events).toContainEqual({
+      kind: "fetchPriorInlineFeedback",
+      botUserId: 99,
+      currentLens: "review",
+    });
+    expect(block).toContain("Prior inline review feedback");
+    expect(block).toContain("False positive");
+  });
+
+  it("carries an exact legacy lens so the seam can apply mismatch policy", async () => {
+    const { surface, controls } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    await fetchPriorInlineFeedbackBlockForReview({
+      prSurface: surface,
+      botUserId: 7,
+      reviewLens: "review-security",
+    });
+    expect(controls.events).toContainEqual({
+      kind: "fetchPriorInlineFeedback",
+      botUserId: 7,
+      currentLens: "review-security",
+    });
+  });
+
+  it("fails soft when the GitHub read throws", async () => {
+    const errors: unknown[] = [];
+    const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    surface.fetchPriorInlineFeedback = async () => {
+      throw new Error("github unavailable");
+    };
+
+    const block = await fetchPriorInlineFeedbackBlockForReview({
+      prSurface: surface,
+      botUserId: 99,
+      reviewLens: "review",
+      onPriorFeedbackError: (error) => {
+        errors.push(error);
+      },
+    });
+
+    expect(block).toBeUndefined();
+    expect(errors).toEqual([expect.objectContaining({ message: "github unavailable" })]);
   });
 });

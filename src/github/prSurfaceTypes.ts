@@ -152,7 +152,10 @@ export type PrSurface = {
   editComment(commentId: number, body: string): Promise<void>;
   listPullRequestReviewComments(): Promise<ListPullRequestReviewCommentsResult>;
   setReviewCommitStatus(headSha: string, params: ReviewCommitStatusParams): Promise<void>;
-  fetchPriorInlineFeedback(botUserId: number): Promise<readonly PriorInlineFeedbackEntry[]>;
+  fetchPriorInlineFeedback(
+    botUserId: number,
+    currentLens: AnyReviewLens,
+  ): Promise<readonly PriorInlineFeedbackEntry[]>;
   fetchBotFindingThreads(
     botUserId: number,
     publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
