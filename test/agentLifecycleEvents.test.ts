@@ -70,6 +70,39 @@ describe("sanitizeAgentLifecycleEvent", () => {
     ).toBeNull();
   });
 
+  it("rejects Date, Map, and custom class instances", () => {
+    class LifecycleLike {
+      kind = "turn";
+      role = "orchestrator";
+      phase = "recon";
+      checkpointId = "cp-1";
+      provider = "openai";
+      model = "gpt-4o-mini";
+    }
+    expect(sanitizeAgentLifecycleEvent(new Date("2026-08-18T00:00:00.000Z"))).toBeNull();
+    expect(sanitizeAgentLifecycleEvent(new Map())).toBeNull();
+    expect(sanitizeAgentLifecycleEvent(new LifecycleLike())).toBeNull();
+  });
+
+  it("accepts a null-prototype record with allowlisted fields", () => {
+    const event = Object.assign(Object.create(null), {
+      kind: "turn",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "cp-1",
+      provider: "openai",
+      model: "gpt-4o-mini",
+    });
+    expect(sanitizeAgentLifecycleEvent(event)).toEqual({
+      kind: "turn",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "cp-1",
+      provider: "openai",
+      model: "gpt-4o-mini",
+    });
+  });
+
   it("rejects free-form exception messages as failure codes", () => {
     expect(
       sanitizeAgentLifecycleEvent({

@@ -70,6 +70,22 @@ describe("parseToolInput", () => {
     expect(result.ok && result.repairs).toEqual(["object_wrapped_as_array"]);
   });
 
+  it("wraps a null-prototype record where an array is expected", () => {
+    const item = Object.assign(Object.create(null), { name: "x" });
+    const result = parseToolInput(schema, { path: "a", items: item }, { toolName: "t" });
+    expect(result).toMatchObject({ ok: true, value: { path: "a", items: [{ name: "x" }] } });
+    expect(result.ok && result.repairs).toEqual(["object_wrapped_as_array"]);
+  });
+
+  it("does not wrap Date or Map values as a one-element array", () => {
+    expect(parseToolInput(schema, { path: "a", items: new Date() }, { toolName: "t" }).ok).toBe(
+      false,
+    );
+    expect(parseToolInput(schema, { path: "a", items: new Map() }, { toolName: "t" }).ok).toBe(
+      false,
+    );
+  });
+
   it("wraps a bare string where an array of strings is expected", () => {
     const result = parseToolInput(schema, { path: "a", tags: "bug" }, { toolName: "t" });
     expect(result).toMatchObject({ ok: true, value: { path: "a", tags: ["bug"] } });
