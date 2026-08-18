@@ -573,7 +573,7 @@ export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
 export async function prepareLocalPrWorkspace(
   params: PrepareLocalPrWorkspaceParams,
 ): Promise<LocalPrWorkspace> {
-  const { owner, repo, prNumber, headSha, installationToken, prFiles } = params;
+  const { owner, repo, headSha, installationToken } = params;
   assertRepoPart(owner, "owner");
   assertRepoPart(repo, "repo");
   assertSha(headSha, "headSha");

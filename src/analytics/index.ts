@@ -13,10 +13,7 @@ const disabledState: AnalyticsState = {
 
 let state: AnalyticsState = disabledState;
 
-async function constructPostHogSink(
-  projectToken: string,
-  host: string,
-): Promise<AnalyticsSink> {
+async function constructPostHogSink(projectToken: string, host: string): Promise<AnalyticsSink> {
   const { createPostHogSink } = await import("./posthogSink.js");
   return createPostHogSink({ projectToken, host });
 }

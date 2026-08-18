@@ -171,7 +171,10 @@ describe("findingPipeline", () => {
     });
 
     expect(
-      result.planned.map((target) => ({ title: target.finding.title, posted: target.inlinePosted })),
+      result.planned.map((target) => ({
+        title: target.finding.title,
+        posted: target.inlinePosted,
+      })),
     ).toEqual([
       { title: "Anchored", posted: true },
       { title: "Unresolved", posted: false },

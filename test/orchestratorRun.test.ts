@@ -582,7 +582,7 @@ describe("runOrchestratedPrReview", () => {
       const primary = makeSession(
         "gpt-4o-mini",
         primaryState,
-        async (prompt, opts) => {
+        async (prompt) => {
           if (prompt.includes("Inspect this pull request") && reconFailuresRemaining > 0) {
             reconFailuresRemaining -= 1;
             throw new Error("503 service unavailable");
