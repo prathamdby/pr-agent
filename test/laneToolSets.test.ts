@@ -13,6 +13,7 @@ import { verificationSystemPrompt } from "../src/agent/verification/verification
 import { VERIFICATION_TOOL_NAMES } from "../src/agent/verification/verificationToolSet.js";
 import { buildVerificationRunSetup } from "../src/agent/verification/verificationRunSetup.js";
 import { assembleNamedTools, formatUnknownToolError } from "../src/agent/tools/laneToolContract.js";
+import { AppError } from "../src/errors/appError.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { orchestratorSystemPrompt } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
@@ -175,6 +176,37 @@ describe("lane tool sets", () => {
     expect(namesOf(verification.piTools)).toEqual([...VERIFICATION_TOOL_NAMES]);
     for (const write of WRITE_TOOLS) {
       expect(verification.piTools.map((tool) => tool.name)).not.toContain(write);
+    }
+  });
+
+  it("throws when a catalog name lacks a piTool or executor", () => {
+    const names = ["readWorkspaceFile", "missingTool"] as const;
+    const catalogA = {
+      piTools: [stubTool("readWorkspaceFile")],
+      executors: {},
+    };
+    const catalogB = stubCatalog(["getWorkspaceDiff"]);
+    expect(() => assembleNamedTools(names, [catalogA, catalogB])).toThrow(AppError);
+    try {
+      assembleNamedTools(names, [catalogA, catalogB]);
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "provider.missing_tool_executor",
+        message: formatUnknownToolError("readWorkspaceFile", names),
+        context: { toolName: "readWorkspaceFile", validTools: [...names] },
+      });
+    }
+
+    const missing = stubCatalog(["readWorkspaceFile"]);
+    expect(() => assembleNamedTools(names, [missing])).toThrow(AppError);
+    try {
+      assembleNamedTools(names, [missing]);
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "provider.missing_tool_executor",
+        message: formatUnknownToolError("missingTool", names),
+        context: { toolName: "missingTool", validTools: [...names] },
+      });
     }
   });
 

@@ -26,6 +26,7 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
   createFeaturePiSession: runnerMocks.createSession,
 }));
 
+import { resolveToolEventsContext } from "../src/agent/runtime/agentEventSink.js";
 import { REVIEW_SPECIALIST_TOOL_NAMES } from "../src/review/orchestrator/specialistToolSet.js";
 import { runSpecialist } from "../src/review/orchestrator/specialistRun.js";
 import { stubLaneCatalog } from "./helpers/laneTools.js";
@@ -131,6 +132,27 @@ describe("runSpecialist", () => {
       checkpointId: "specialist:specialist",
     });
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps tool events context when specialist checkpoints are off", async () => {
+    const durability = {
+      pool: {} as never,
+      workItemId: "wi-1",
+      installationId: 7,
+      owner: "acme",
+      repo: "app",
+      prNumber: 3,
+    };
+    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+
+    await runSpecialist(specialistArgs({ durability }));
+
+    expect(runnerMocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        persistCheckpoints: false,
+        eventsContext: resolveToolEventsContext(durability),
+      }),
+    );
   });
 
   it("repairs a single-object findings report at the parse seam", async () => {
