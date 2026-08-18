@@ -68,6 +68,22 @@ describe("findingPipeline", () => {
     if (!result.ok) return;
     expect(result.prepared.payload.findings).toEqual([]);
     expect(result.prepared.placements).toEqual([]);
+    expect(result.prepared.dedupedCount).toBe(0);
+  });
+
+  it("drops overlapping duplicate findings and keeps the higher severity", () => {
+    const stronger = finding({ severity: "P0", title: "Same issue" });
+    const weaker = finding({ severity: "P2", title: "Same issue" });
+
+    const result = prepareReviewPayloadForPublish({
+      payload: payload({ findings: [weaker, stronger] }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.prepared.payload.findings).toEqual([stronger]);
+    expect(result.prepared.placements).toHaveLength(1);
+    expect(result.prepared.dedupedCount).toBe(1);
   });
 
   it("keeps validated placements aligned with redacted findings", () => {
@@ -98,6 +114,21 @@ describe("findingPipeline", () => {
       maxInlineComments: 1,
     });
 
+    expect(result.planned.map((target) => target.finding.title)).toEqual([
+      "Suppress repeat",
+      "Cap lower priority",
+      "Keep critical",
+    ]);
+    expect(result.planned.map((target) => target.inlinePosted)).toEqual([true, true, true]);
+    expect(result.planned.map((target) => target.inlineFingerprint)).toEqual([
+      fingerprintFinding(suppressed, "review"),
+      fingerprintFinding(capped, "review"),
+      fingerprintFinding(kept, "review"),
+    ]);
+    expect(result.placements.map((target) => target.inlinePosted)).toEqual([false, false, true]);
+    expect(result.placements.map((target) => target.inlineFingerprint)).toEqual(
+      result.planned.map((target) => target.inlineFingerprint),
+    );
     expect(result.inline.map((target) => target.finding.title)).toEqual(["Keep critical"]);
     expect(result.summaryOnly.map((target) => target.finding.title).toSorted()).toEqual([
       "Cap lower priority",
@@ -107,6 +138,55 @@ describe("findingPipeline", () => {
       suppressedInlineCount: 1,
       inlineCommentCapExcluded: 1,
       anchorUnresolved: 0,
+    });
+  });
+
+  it("returns empty planned and placements when there are no findings", () => {
+    const result = prepareFindingsForPublish({
+      payload: payload({ findings: [] }),
+    });
+
+    expect(result.planned).toEqual([]);
+    expect(result.placements).toEqual([]);
+    expect(result.inline).toEqual([]);
+    expect(result.summaryOnly).toEqual([]);
+    expect(result.dropped).toEqual({
+      suppressedInlineCount: 0,
+      inlineCommentCapExcluded: 0,
+      anchorUnresolved: 0,
+    });
+  });
+
+  it("keeps unresolved anchors in planned and counts them as dropped", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [{ filename: "src/a.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") }],
+    });
+    const anchored = finding({ title: "Anchored", startLine: 2, endLine: 2 });
+    const unresolved = finding({ title: "Unresolved", startLine: 99, endLine: 99 });
+
+    const result = prepareFindingsForPublish({
+      payload: payload({ findings: [anchored, unresolved] }),
+      cachedDiffIndex: index,
+    });
+
+    expect(
+      result.planned.map((target) => ({ title: target.finding.title, posted: target.inlinePosted })),
+    ).toEqual([
+      { title: "Anchored", posted: true },
+      { title: "Unresolved", posted: false },
+    ]);
+    expect(result.planned.map((target) => target.inlineFingerprint)).toEqual([
+      fingerprintFinding(anchored, "review"),
+      fingerprintFinding(unresolved, "review"),
+    ]);
+    expect(result.placements.map((target) => target.inlinePosted)).toEqual([true, false]);
+    expect(result.inline.map((target) => target.finding.title)).toEqual(["Anchored"]);
+    expect(result.summaryOnly.map((target) => target.finding.title)).toEqual(["Unresolved"]);
+    expect(result.dropped).toEqual({
+      suppressedInlineCount: 0,
+      inlineCommentCapExcluded: 0,
+      anchorUnresolved: 1,
     });
   });
 
@@ -121,6 +201,9 @@ describe("findingPipeline", () => {
       storedInlineFingerprints: [],
     });
 
+    expect(result.planned).toHaveLength(1);
+    expect(result.planned[0]?.inlinePosted).toBe(true);
+    expect(result.planned[0]?.inlineFingerprint).toBe(fp);
     expect(result.inline).toHaveLength(1);
     expect(result.inline[0]?.inlineFingerprint).toBe(fp);
   });
@@ -136,9 +219,13 @@ describe("findingPipeline", () => {
       storedInlineFingerprints: [],
     });
 
+    expect(result.planned).toHaveLength(1);
+    expect(result.planned[0]?.inlinePosted).toBe(true);
+    expect(result.planned[0]?.inlineFingerprint).toBe(fp);
     expect(result.inline).toHaveLength(0);
     expect(result.summaryOnly).toHaveLength(1);
     expect(result.summaryOnly[0]?.finding.title).toBe("Repeat risk");
+    expect(result.summaryOnly[0]?.inlinePosted).toBe(false);
     expect(result.dropped.suppressedInlineCount).toBe(1);
   });
 
@@ -151,7 +238,8 @@ describe("findingPipeline", () => {
       inlinePlacements: [placement(item)],
     });
 
-    expect(result.inline[0]?.inlineFingerprint).toBe(fingerprintFinding(item, "review"));
+    expect(result.planned[0]?.inlineFingerprint).toBe(fingerprintFinding(item, "review"));
+    expect(result.inline[0]?.inlineFingerprint).toBe(result.planned[0]?.inlineFingerprint);
     expect(result.inline[0]?.inlineFingerprint).not.toBe(
       fingerprintFinding(item, "review-security"),
     );
