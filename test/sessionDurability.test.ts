@@ -43,25 +43,41 @@ import {
   saveResumeSnapshotIfConfigured,
 } from "../src/agent/runtime/sessionDurability.js";
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
-import type { PiSession } from "../src/agent/runtime/types.js";
+import type { AuthoritativeStructuredState, PiSession } from "../src/agent/runtime/types.js";
+import { AppError } from "../src/errors/appError.js";
+import * as evlog from "../src/evlog.js";
 
 const SNAPSHOT_KEY = Buffer.alloc(32, 3).toString("base64");
 
-function fakeSession(overrides: Partial<PiSession> = {}): PiSession {
-  let structuredState = { version: 1, payload: { step: "recon" as const } };
-  return {
-    role: "ask",
-    primary: { provider: "openai", model: "gpt-4o-mini" },
+function fakeSession(
+  overrides: Partial<PiSession> = {},
+  initialState: AuthoritativeStructuredState = { version: 1, payload: { step: "recon" } },
+): PiSession {
+  let structuredState = initialState;
+  const role = overrides.role ?? "ask";
+  const session: PiSession = {
+    role,
+    primary: overrides.primary ?? { provider: "openai", model: "gpt-4o-mini" },
     send: vi.fn(async () => ({ text: "ok", toolCalls: [], usage: undefined })),
     abort: vi.fn(async () => undefined),
     dispose: vi.fn(async () => undefined),
-    restartWithFallback: vi.fn(),
+    restartWithFallback: vi.fn(async (params) => {
+      await session.dispose();
+      return fakeSession(
+        {
+          role,
+          primary: { provider: "openai", model: "gpt-4o" },
+        },
+        params.structuredState,
+      );
+    }),
     getStructuredState: () => structuredState,
     setStructuredState: (state) => {
-      structuredState = state as typeof structuredState;
+      structuredState = state;
     },
     ...overrides,
   };
+  return session;
 }
 
 describe("sessionDurability", () => {
@@ -419,5 +435,186 @@ describe("createFeaturePiSession durability", () => {
         },
       }),
     );
+  });
+
+  it("wrapped send after restartWithFallback still persists using replacement metadata", async () => {
+    const cfg = makeTestConfig({ agentResumeSnapshotKey: SNAPSHOT_KEY });
+    loadResumeSnapshot.mockResolvedValue({ ok: false, reason: "missing" });
+    const primary = fakeSession();
+    createPiSession.mockResolvedValue(primary);
+
+    const wrapped = await createFeaturePiSession({
+      role: "ask",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      durability: { pool: {} as never, workItemId: "wi-1", installationId: 7 },
+    });
+
+    await wrapped.send("before", { phase: "ask", checkpointId: "ask:ask" });
+    expect(upsertAgentPhaseCheckpoint).toHaveBeenCalledTimes(1);
+    expect(upsertResumeSnapshot).toHaveBeenCalledTimes(1);
+    expect(upsertResumeSnapshot.mock.calls[0]?.[1]).toMatchObject({
+      modelProvider: "openai",
+      modelId: "gpt-4o-mini",
+    });
+
+    const continuedState: AuthoritativeStructuredState = {
+      version: 3,
+      payload: { step: "ask", answer: "partial", fromPrimary: true },
+    };
+    primary.setStructuredState(continuedState);
+
+    const fallback = await wrapped.restartWithFallback({
+      checkpointId: "ask:ask",
+      structuredState: continuedState,
+    });
+
+    expect(primary.dispose).toHaveBeenCalledTimes(1);
+    expect(primary.restartWithFallback).toHaveBeenCalledWith({
+      checkpointId: "ask:ask",
+      structuredState: continuedState,
+    });
+    expect(fallback).not.toBe(wrapped);
+    expect(fallback.primary).toEqual({ provider: "openai", model: "gpt-4o" });
+    expect(fallback.getStructuredState()).toEqual(continuedState);
+    expect(upsertAgentPhaseCheckpoint).toHaveBeenCalledTimes(1);
+    expect(upsertResumeSnapshot).toHaveBeenCalledTimes(1);
+
+    await fallback.send("after", { phase: "ask", checkpointId: "ask:ask:fallback" });
+
+    expect(upsertAgentPhaseCheckpoint).toHaveBeenCalledTimes(2);
+    expect(upsertResumeSnapshot).toHaveBeenCalledTimes(2);
+    expect(upsertAgentPhaseCheckpoint).toHaveBeenLastCalledWith(
+      {},
+      expect.objectContaining({
+        workItemId: "wi-1",
+        sessionRole: "ask",
+        checkpointId: "ask:ask:fallback",
+        phase: "ask",
+        structuredState: continuedState,
+      }),
+    );
+    expect(upsertResumeSnapshot).toHaveBeenLastCalledWith(
+      {},
+      expect.objectContaining({
+        workItemId: "wi-1",
+        sessionRole: "ask",
+        installationId: 7,
+        modelProvider: "openai",
+        modelId: "gpt-4o",
+        checkpointId: "ask:ask:fallback",
+        plaintext: {
+          conversation: { lastPhase: "ask", lastCheckpointId: "ask:ask:fallback" },
+          structuredState: continuedState,
+        },
+      }),
+    );
+  });
+
+  it("propagates fallback-unavailable from the inner session without persisting", async () => {
+    const cfg = makeTestConfig({ agentResumeSnapshotKey: SNAPSHOT_KEY });
+    loadResumeSnapshot.mockResolvedValue({ ok: false, reason: "missing" });
+    const unavailable = new AppError({
+      code: "runtime.fallback_unavailable",
+      message: "No fallback model assignment configured for this session",
+      context: { role: "ask" },
+    });
+    const session = fakeSession({
+      restartWithFallback: vi.fn(async () => {
+        throw unavailable;
+      }),
+    });
+    createPiSession.mockResolvedValue(session);
+
+    const wrapped = await createFeaturePiSession({
+      role: "ask",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      durability: { pool: {} as never, workItemId: "wi-1", installationId: 7 },
+    });
+
+    await expect(
+      wrapped.restartWithFallback({
+        checkpointId: "ask:ask",
+        structuredState: session.getStructuredState(),
+      }),
+    ).rejects.toMatchObject({ code: "runtime.fallback_unavailable" });
+    expect(upsertAgentPhaseCheckpoint).not.toHaveBeenCalled();
+    expect(upsertResumeSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("disposes the replacement session after fallback, not the retired primary wrapper", async () => {
+    const cfg = makeTestConfig({ agentResumeSnapshotKey: "" });
+    const primary = fakeSession();
+    const replacement = fakeSession({
+      primary: { provider: "openai", model: "gpt-4o" },
+    });
+    primary.restartWithFallback = vi.fn(async (params) => {
+      await primary.dispose();
+      replacement.setStructuredState(params.structuredState);
+      return replacement;
+    });
+    createPiSession.mockResolvedValue(primary);
+
+    const wrapped = await createFeaturePiSession({
+      role: "ask",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      durability: { pool: {} as never, workItemId: "wi-1", installationId: 7 },
+    });
+
+    const fallback = await wrapped.restartWithFallback({
+      checkpointId: "ask:ask",
+      structuredState: { version: 2, payload: { afterFallback: true } },
+    });
+    expect(primary.dispose).toHaveBeenCalledTimes(1);
+    expect(replacement.dispose).not.toHaveBeenCalled();
+
+    await fallback.dispose();
+    expect(replacement.dispose).toHaveBeenCalledTimes(1);
+    expect(primary.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs persist failure after fallback send and still returns the turn", async () => {
+    const cfg = makeTestConfig({ agentResumeSnapshotKey: SNAPSHOT_KEY });
+    loadResumeSnapshot.mockResolvedValue({ ok: false, reason: "missing" });
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    const session = fakeSession();
+    createPiSession.mockResolvedValue(session);
+
+    const wrapped = await createFeaturePiSession({
+      role: "ask",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      durability: { pool: {} as never, workItemId: "wi-1", installationId: 7 },
+    });
+
+    const fallback = await wrapped.restartWithFallback({
+      checkpointId: "ask:ask",
+      structuredState: { version: 2, payload: { recovered: true } },
+    });
+    upsertAgentPhaseCheckpoint.mockRejectedValueOnce(new Error("checkpoint write failed"));
+
+    const turn = await fallback.send("after", { phase: "ask", checkpointId: "ask:ask:fallback" });
+    expect(turn.text).toBe("ok");
+    expect(logWarn).toHaveBeenCalledWith(
+      "session_durability_persist_failed",
+      expect.objectContaining({
+        workItemId: "wi-1",
+        sessionRole: "ask",
+        phase: "ask",
+        checkpointId: "ask:ask:fallback",
+        message: "checkpoint write failed",
+      }),
+    );
+    logWarn.mockRestore();
   });
 });

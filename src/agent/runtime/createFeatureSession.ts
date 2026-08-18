@@ -49,6 +49,7 @@ function wrapSessionWithDurability(
   durability: FeatureSessionDurability,
 ): PiSession {
   const originalSend = session.send.bind(session);
+  const originalRestart = session.restartWithFallback.bind(session);
   return {
     ...session,
     send: async (prompt: string, opts: PiSessionSendOptions) => {
@@ -84,6 +85,10 @@ function wrapSessionWithDurability(
         });
       }
       return result;
+    },
+    restartWithFallback: async (params) => {
+      const replacement = await originalRestart(params);
+      return wrapSessionWithDurability(replacement, cfg, durability);
     },
   };
 }

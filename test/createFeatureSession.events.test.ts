@@ -50,6 +50,7 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
       send: vi.fn(),
       abort: vi.fn(),
       dispose: vi.fn(),
+      restartWithFallback: vi.fn(),
       getStructuredState: () => ({ version: 1, payload: {} }),
     };
   }),
