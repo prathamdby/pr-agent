@@ -1,24 +1,29 @@
 import * as v from "valibot";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
-import { installationSchema, repositorySchema } from "./common.js";
+import {
+  githubPrNumberSchema,
+  githubSafeIdSchema,
+  installationSchema,
+  repositorySchema,
+} from "./common.js";
 
 export const pullRequestReviewCommentWebhookSchema = v.object({
   action: v.string(),
   installation: installationSchema,
   repository: repositorySchema,
   pull_request: v.object({
-    number: v.number(),
+    number: githubPrNumberSchema,
   }),
   comment: v.object({
-    id: v.number(),
+    id: githubSafeIdSchema,
     user: v.object({
-      id: v.number(),
+      id: githubSafeIdSchema,
       login: v.nullish(v.string()),
     }),
     author_association: v.nullish(v.string()),
     body: v.nullish(v.string()),
-    in_reply_to_id: v.nullish(v.number()),
-    pull_request_review_id: v.nullish(v.number()),
+    in_reply_to_id: v.nullish(githubSafeIdSchema),
+    pull_request_review_id: v.nullish(githubSafeIdSchema),
     path: v.optional(v.string()),
     line: v.optional(v.number()),
     start_line: v.optional(v.nullable(v.number())),

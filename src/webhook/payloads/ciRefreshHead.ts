@@ -1,9 +1,10 @@
 import * as v from "valibot";
+import { githubPrNumberSchema, githubShaSchema } from "./common.js";
 
 /** Shared PR association shape on workflow_run / check_suite completed payloads. */
 export const ciRefreshPullRequestSchema = v.object({
-  number: v.number(),
-  head: v.object({ sha: v.string() }),
+  number: githubPrNumberSchema,
+  head: v.object({ sha: githubShaSchema }),
 });
 
 export type CiRefreshPullRequest = v.InferOutput<typeof ciRefreshPullRequestSchema>;

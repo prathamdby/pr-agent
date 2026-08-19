@@ -356,21 +356,26 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### GitHub API
 
-| Symbol                                    | Default |
-| ----------------------------------------- | ------- |
-| `TOKEN_FRESHNESS_BUFFER_MS`               | 60000   |
-| `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h      |
-| `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2       |
-| `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3       |
-| `SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS`   | 60000   |
-| `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000    |
-| `COMMENTS_PAGE_SIZE`                      | 100     |
-| `COMMENT_PAGINATION_MAX_PAGES`            | 20      |
-| `PR_COMMITS_PAGE_SIZE`                    | 100     |
-| `PR_COMMITS_MAX_PAGES`                    | 20      |
-| `GITHUB_REACTION_EYES`                    | eyes    |
-| `GITHUB_REACTION_PLUS_ONE`                | +1      |
-| `GITHUB_REACTION_MINUS_ONE`               | -1      |
+| Symbol                                    | Default                                          |
+| ----------------------------------------- | ------------------------------------------------ |
+| `TOKEN_FRESHNESS_BUFFER_MS`               | 60000                                            |
+| `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h                                               |
+| `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2                                                |
+| `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3                                                |
+| `SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS`   | 60000                                            |
+| `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000                                             |
+| `COMMENTS_PAGE_SIZE`                      | 100                                              |
+| `COMMENT_PAGINATION_MAX_PAGES`            | 20                                               |
+| `PR_COMMITS_PAGE_SIZE`                    | 100                                              |
+| `PR_COMMITS_MAX_PAGES`                    | 20                                               |
+| `GITHUB_REACTION_EYES`                    | eyes                                             |
+| `GITHUB_REACTION_PLUS_ONE`                | +1                                               |
+| `GITHUB_REACTION_MINUS_ONE`               | -1                                               |
+| `GITHUB_INT32_ID_MAX`                     | 2147483647 (PR numbers; Postgres integer)        |
+| `GITHUB_SAFE_ID_MAX`                      | 9007199254740991 (installation/comment/user ids) |
+| `GITHUB_LOGIN_MAX_CHARS`                  | 39                                               |
+| `GITHUB_REPO_NAME_MAX_CHARS`              | 100                                              |
+| `GITHUB_SHA_MAX_CHARS`                    | 64                                               |
 
 ### Local PR workspace
 

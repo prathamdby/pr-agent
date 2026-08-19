@@ -308,6 +308,81 @@ describe("parseGithubPayload", () => {
     expect(p.data.comment.in_reply_to_id).toBeNull();
   });
 
+  it("rejects non-integer and out-of-range pull_request identifiers", () => {
+    const base = {
+      action: "opened",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r", size: 1234 },
+      pull_request: { number: 3, head: { sha: "abc" } },
+    };
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        pull_request: { number: 1.5, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        pull_request: { number: 0, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        pull_request: { number: -1, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        pull_request: { number: 2_147_483_648, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        installation: { id: 1.5 },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        installation: { id: -99 },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        pull_request: { number: 3, head: { sha: "" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        repository: { owner: { login: "" }, name: "r" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        repository: { owner: { login: "o" }, name: "" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        repository: { owner: { login: "o".repeat(40) }, name: "r" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        pull_request: { number: 3, head: { sha: "a".repeat(65) } },
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
   it("throws WebhookParseError on malformed pull_request", () => {
     try {
       parseGithubPayload("pull_request", { action: "opened" });

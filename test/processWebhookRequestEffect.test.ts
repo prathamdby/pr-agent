@@ -173,6 +173,58 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 422, body: "unprocessable entity" });
   });
 
+  it("returns 422 for non-integer pull request numbers", async () => {
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r", size: 10 },
+        pull_request: { number: 1.5, head: { sha: "abc" } },
+      }),
+    );
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "pull_request",
+            "x-github-delivery": "d-float-pr-number",
+          },
+          rawBody: body,
+        },
+        stubLayer,
+      ),
+    );
+
+    expect(out).toEqual({ status: 422, body: "unprocessable entity" });
+  });
+
+  it("returns 422 for pull request numbers that overflow Postgres integer", async () => {
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r", size: 10 },
+        pull_request: { number: 2_147_483_648, head: { sha: "abc" } },
+      }),
+    );
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "pull_request",
+            "x-github-delivery": "d-overflow-pr-number",
+          },
+          rawBody: body,
+        },
+        stubLayer,
+      ),
+    );
+
+    expect(out).toEqual({ status: 422, body: "unprocessable entity" });
+  });
+
   it("silently ignores unauthorized slash commands", async () => {
     const payload = {
       action: "created",
