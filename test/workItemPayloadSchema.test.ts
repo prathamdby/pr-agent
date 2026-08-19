@@ -215,6 +215,47 @@ describe("parseWorkItemPayload", () => {
     });
   });
 
+  it("parses cancelAttribution closed and merged variants", () => {
+    expect(
+      parseWorkItemPayload("review", {
+        mode: "review",
+        source: "auto",
+        cancelAttribution: { kind: "closed" },
+      }),
+    ).toMatchObject({ cancelAttribution: { kind: "closed" } });
+    expect(
+      parseWorkItemPayload("review", {
+        mode: "review",
+        source: "auto",
+        cancelAttribution: { kind: "merged" },
+      }),
+    ).toMatchObject({ cancelAttribution: { kind: "merged" } });
+    expect(
+      parseWorkItemPayload("review", {
+        mode: "review",
+        source: "auto",
+        cancelAttribution: { kind: "closed", login: "x" },
+      }).cancelAttribution,
+    ).toEqual({ kind: "closed" });
+  });
+
+  it("rejects invalid cancelAttribution variants", () => {
+    expect(() =>
+      parseWorkItemPayload("review", {
+        mode: "review",
+        source: "auto",
+        cancelAttribution: { kind: "bogus" },
+      }),
+    ).toThrow(WorkItemPayloadValidationError);
+    expect(() =>
+      parseWorkItemPayload("review", {
+        mode: "review",
+        source: "auto",
+        cancelAttribution: { kind: "user" },
+      }),
+    ).toThrow(WorkItemPayloadValidationError);
+  });
+
   it("preserves unknown legacy JSON keys", () => {
     const parsed = parseWorkItemPayload("review", {
       mode: "review",
