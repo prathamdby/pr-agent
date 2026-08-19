@@ -90,7 +90,10 @@ const cfg = {
   prActorLeaseRenewalIntervalSeconds: 120,
 } as Config;
 const pool = {} as Pool;
-const boss = { send: vi.fn().mockResolvedValue("deferred-job") } as unknown as PgBoss;
+const boss = {
+  send: vi.fn().mockResolvedValue("deferred-job"),
+  findJobs: vi.fn().mockResolvedValue([]),
+} as unknown as PgBoss;
 
 function makeItem(
   overrides: Parameters<typeof makeReviewWorkItem>[0] & { status?: AgentWorkItem["status"] } = {},
@@ -170,6 +173,8 @@ function defaultMocks() {
   vi.mocked(prActorLease.releasePrActorLease).mockResolvedValue(undefined);
   vi.mocked(prActorLease.renewPrActorLease).mockResolvedValue(true);
   vi.mocked(boss.send).mockClear();
+  vi.mocked(boss.findJobs).mockReset();
+  vi.mocked(boss.findJobs).mockResolvedValue([]);
   vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
@@ -298,6 +303,46 @@ describe("runDurableWorkItem", () => {
       }),
     );
     expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
+  });
+
+  it("returns when a lease deferral send is swallowed but a queued hop already exists", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
+      acquired: false,
+      heldByWorkItemId: "wi-other",
+      leaseEpoch: 7,
+    });
+    vi.mocked(boss.send).mockResolvedValue(null);
+    vi.mocked(boss.findJobs).mockResolvedValue([{ id: "hop-1", state: "created" }] as never);
+
+    await runReviewWorkItem({ execute: vi.fn() });
+
+    expect(boss.findJobs).toHaveBeenCalledWith(
+      "agent-work-review",
+      expect.objectContaining({ key: "wi-1", queued: true }),
+    );
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("throws when a lease deferral send is swallowed and no queued hop remains", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
+      acquired: false,
+      heldByWorkItemId: "wi-other",
+      leaseEpoch: 7,
+    });
+    vi.mocked(boss.send).mockResolvedValue(null);
+    const execute = vi.fn();
+
+    await expect(runReviewWorkItem({ execute })).rejects.toMatchObject({
+      code: "agent_work.lease_watchdog_arm_failed",
+    });
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
   it("releases the lease on the retry path so the next attempt re-acquires", async () => {
