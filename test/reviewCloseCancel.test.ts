@@ -7,11 +7,7 @@ import { makeTestConfig } from "./helpers/config.js";
 import { createOperationLogger } from "../src/evlog.js";
 import * as postgres from "../src/db/postgres.js";
 import * as evlog from "../src/evlog.js";
-import {
-  ACK_QUEUE,
-  REVIEW_CANCELLED_PR_CLOSED,
-  REVIEW_CANCELLED_PR_MERGED,
-} from "../src/settings/index.js";
+import { ACK_QUEUE, REVIEW_CANCELLED_PR_CLOSED } from "../src/settings/index.js";
 
 const intakeCfg = makeTestConfig();
 const mergedAttribution = { kind: "merged" as const };
@@ -37,7 +33,7 @@ function makePrRef() {
   };
 }
 
-describe("cancelActiveReviews (merge)", () => {
+describe("cancelActiveReviews (PR close)", () => {
   it("cancels queued and running reviews to terminal cancelled", async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("status = 'queued'")) {
@@ -189,7 +185,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       expect(txSpy).toHaveBeenCalled();
       expect(clientQuery).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO webhook_events"),
-        expect.arrayContaining([REVIEW_CANCELLED_PR_MERGED]),
+        expect.arrayContaining([REVIEW_CANCELLED_PR_CLOSED]),
       );
       expect(send).toHaveBeenCalledWith(
         ACK_QUEUE,
@@ -314,7 +310,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
     }
   });
 
-  it("records the merge cancel without queue interaction when no reviews are active", async () => {
+  it("records the close cancel without queue interaction when no reviews are active", async () => {
     const clientQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-zero" }] };
@@ -347,8 +343,8 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       expect(boss.send).not.toHaveBeenCalled();
       expect(recordSpy).toHaveBeenCalledWith(
         intakeLog,
-        REVIEW_CANCELLED_PR_MERGED,
-        expect.objectContaining({ cancelledCount: 0 }),
+        REVIEW_CANCELLED_PR_CLOSED,
+        expect.objectContaining({ cancelledCount: 0, prMerged: true }),
         "info",
       );
     } finally {

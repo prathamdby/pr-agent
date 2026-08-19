@@ -2,7 +2,10 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
-import { REVIEW_CANCELLED_PR_CLOSED, REVIEW_CANCELLED_PR_MERGED } from "../../settings/index.js";
+import {
+  REVIEW_CANCELLED_PR_CLOSED,
+  reviewCancelAttributionForClosedPr,
+} from "../../settings/index.js";
 import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
@@ -204,8 +207,7 @@ async function applyReviewCloseCancelIntake(
   merged: boolean,
 ): Promise<DeferredIntakeEvent[]> {
   const events: DeferredIntakeEvent[] = [];
-  const decision = merged ? REVIEW_CANCELLED_PR_MERGED : REVIEW_CANCELLED_PR_CLOSED;
-  const event = await insertWebhookEvent(client, headers, decision);
+  const event = await insertWebhookEvent(client, headers, REVIEW_CANCELLED_PR_CLOSED);
   if (event.duplicate) {
     events.push({
       name: "deduped_delivery",
@@ -217,7 +219,7 @@ async function applyReviewCloseCancelIntake(
     return events;
   }
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-  const attribution = merged ? { kind: "merged" as const } : { kind: "closed" as const };
+  const attribution = reviewCancelAttributionForClosedPr(merged);
   const cancelled = await cancelActiveReviews(client, resourceKey, attribution);
   const cancelledWorkItemIds = cancelled.map((row) => row.id);
   const primary = cancelled[0];
@@ -240,11 +242,12 @@ async function applyReviewCloseCancelIntake(
     await enqueueAck(boss, client, ackData);
   }
   events.push({
-    name: decision,
+    name: REVIEW_CANCELLED_PR_CLOSED,
     fields: {
       resourceKey,
       cancelledCount: cancelledWorkItemIds.length,
       cancelledIds: cancelledWorkItemIds,
+      prMerged: attribution.kind === "merged",
       ...jobCorrelation(event.id, headers),
     },
   });

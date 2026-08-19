@@ -15,6 +15,8 @@ import {
   REVIEW_PROGRESS_QUEUED_NOTE,
   REVIEW_PROGRESS_SOURCE_SLASH,
   REVIEW_SUMMARY_SENTINEL,
+  reviewCancelAttributionForClosedPr,
+  reviewCancelLastError,
   reviewProgressCancelledNote,
   sanitizeGithubLogin,
 } from "../src/settings/index.js";
@@ -289,6 +291,15 @@ describe("progressComment fallback wording", () => {
       [REVIEW_SUMMARY_SENTINEL, "", `> [!${REVIEW_FAILURE_ALERT}]`, "> PR closed."].join("\n"),
     );
     expect(closedBody).not.toContain("/review");
+  });
+
+  it.each([
+    [true, { kind: "merged" as const }, "PR merged.", "Pull request merged"],
+    [false, { kind: "closed" as const }, "PR closed.", "Pull request closed"],
+  ] as const)("maps closed PR merged=%s to cancel copy", (merged, attribution, note, lastError) => {
+    expect(reviewCancelAttributionForClosedPr(merged)).toEqual(attribution);
+    expect(reviewProgressCancelledNote(attribution)).toBe(note);
+    expect(reviewCancelLastError(attribution)).toBe(lastError);
   });
 
   it.each([
