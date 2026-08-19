@@ -280,6 +280,15 @@ describe("progressComment fallback wording", () => {
       [REVIEW_SUMMARY_SENTINEL, "", `> [!${REVIEW_FAILURE_ALERT}]`, "> PR merged."].join("\n"),
     );
     expect(mergeBody).not.toContain("/review");
+
+    const closedBody = renderReviewCancelledNotice({
+      attribution: { kind: "closed" },
+    });
+    expect(closedBody).toContain(reviewProgressCancelledNote({ kind: "closed" }));
+    expect(closedBody).toBe(
+      [REVIEW_SUMMARY_SENTINEL, "", `> [!${REVIEW_FAILURE_ALERT}]`, "> PR closed."].join("\n"),
+    );
+    expect(closedBody).not.toContain("/review");
   });
 
   it.each([

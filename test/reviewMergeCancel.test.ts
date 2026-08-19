@@ -7,11 +7,17 @@ import { makeTestConfig } from "./helpers/config.js";
 import { createOperationLogger } from "../src/evlog.js";
 import * as postgres from "../src/db/postgres.js";
 import * as evlog from "../src/evlog.js";
-import { ACK_QUEUE, REVIEW_CANCELLED_PR_MERGED } from "../src/settings/index.js";
+import {
+  ACK_QUEUE,
+  REVIEW_CANCELLED_PR_CLOSED,
+  REVIEW_CANCELLED_PR_MERGED,
+} from "../src/settings/index.js";
 
 const intakeCfg = makeTestConfig();
 const mergedAttribution = { kind: "merged" as const };
 const mergedPatch = JSON.stringify({ cancelAttribution: mergedAttribution });
+const closedAttribution = { kind: "closed" as const };
+const closedPatch = JSON.stringify({ cancelAttribution: closedAttribution });
 
 function makeHeaders(delivery = "d-merge") {
   return {
@@ -89,9 +95,40 @@ describe("cancelActiveReviews (merge)", () => {
       mergedPatch,
     ]);
   });
+
+  it("cancels queued and running reviews with closed attribution", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("status = 'queued'")) {
+        return {
+          rows: [
+            {
+              id: "queued-auto",
+              source: "auto",
+              head_sha: "sha-a",
+              created_at: "2026-01-01T00:00:02Z",
+            },
+          ],
+        };
+      }
+      if (sql.includes("status = 'running'")) {
+        return { rows: [] };
+      }
+      throw new Error(`unexpected sql: ${sql}`);
+    });
+    const client = { query } as unknown as PoolClient;
+
+    const cancelled = await cancelActiveReviews(client, "acme/app#7", closedAttribution);
+
+    expect(cancelled.map((row) => row.id)).toEqual(["queued-auto"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'queued'"), [
+      "acme/app#7",
+      "Pull request closed",
+      closedPatch,
+    ]);
+  });
 });
 
-describe("applyAutomatedPullRequestIntake merge cancel", () => {
+describe("applyAutomatedPullRequestIntake close cancel", () => {
   it("cancels active reviews and enqueues cancelProgress ack when the PR is merged", async () => {
     const poolQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
@@ -171,16 +208,34 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
     }
   });
 
-  it("ignores close-without-merge without cancelling reviews", async () => {
-    const poolQuery = vi.fn(async (sql: string) => {
+  it("cancels active reviews and enqueues cancelProgress ack when the PR is closed without merge", async () => {
+    const clientQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-closed" }] };
       }
-      throw new Error(`unexpected pool query: ${sql.slice(0, 120)}`);
+      if (sql.includes("status = 'queued'")) {
+        return {
+          rows: [
+            {
+              id: "wi-queued",
+              source: "auto",
+              head_sha: "abc123",
+              created_at: "2026-01-01T00:00:01Z",
+            },
+          ],
+        };
+      }
+      if (sql.includes("status = 'running'")) {
+        return { rows: [] };
+      }
+      throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
-    const boss = { send: vi.fn() } as unknown as PgBoss;
-    const pool = { query: poolQuery } as unknown as Pool;
-    const txSpy = vi.spyOn(postgres, "inTransaction");
+    const send = vi.fn(async () => "ack-job");
+    const boss = { send } as unknown as PgBoss;
+    const pool = { query: vi.fn() } as unknown as Pool;
+    const txSpy = vi
+      .spyOn(postgres, "inTransaction")
+      .mockImplementation(async (_pool, fn) => fn({ query: clientQuery } as unknown as PoolClient));
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {
@@ -195,19 +250,23 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
         { merged: false },
       );
 
-      expect(txSpy).not.toHaveBeenCalled();
-      expect(poolQuery).toHaveBeenCalledWith(
+      expect(txSpy).toHaveBeenCalled();
+      expect(clientQuery).toHaveBeenCalledWith(
         expect.stringContaining("INSERT INTO webhook_events"),
-        [
-          expect.any(String),
-          "delivery:d-closed",
-          "d-closed",
-          "pull_request",
-          expect.any(String),
-          "ignored_pull_request_closed",
-        ],
+        expect.arrayContaining([REVIEW_CANCELLED_PR_CLOSED]),
       );
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith(
+        ACK_QUEUE,
+        expect.objectContaining({
+          kind: "ack",
+          cancelProgress: {
+            workItemId: "wi-queued",
+            cancelledWorkItemIds: ["wi-queued"],
+            attribution: { kind: "closed" },
+          },
+        }),
+        expect.anything(),
+      );
     } finally {
       txSpy.mockRestore();
     }

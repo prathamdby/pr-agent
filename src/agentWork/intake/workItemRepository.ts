@@ -462,7 +462,18 @@ export type CancelledActiveReview = {
 };
 
 function cancelLastError(attribution: ReviewCancelAttribution): string {
-  return attribution.kind === "merged" ? "Pull request merged" : "Cancelled by slash /cancel";
+  switch (attribution.kind) {
+    case "merged":
+      return "Pull request merged";
+    case "closed":
+      return "Pull request closed";
+    case "user":
+      return "Cancelled by slash /cancel";
+    default: {
+      const exhaustive: never = attribution;
+      return exhaustive;
+    }
+  }
 }
 
 /**
