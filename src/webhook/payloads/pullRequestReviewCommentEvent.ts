@@ -3,6 +3,7 @@ import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import {
   githubPrNumberSchema,
   githubSafeIdSchema,
+  githubUserSchema,
   installationSchema,
   repositorySchema,
 } from "./common.js";
@@ -16,10 +17,7 @@ export const pullRequestReviewCommentWebhookSchema = v.object({
   }),
   comment: v.object({
     id: githubSafeIdSchema,
-    user: v.object({
-      id: githubSafeIdSchema,
-      login: v.nullish(v.string()),
-    }),
+    user: githubUserSchema,
     author_association: v.nullish(v.string()),
     body: v.nullish(v.string()),
     in_reply_to_id: v.nullish(githubSafeIdSchema),

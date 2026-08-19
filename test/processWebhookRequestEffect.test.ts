@@ -225,6 +225,147 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 422, body: "unprocessable entity" });
   });
 
+  function intakeFenceLayer(calls: string[]) {
+    const schedulerLayer = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: () =>
+          Effect.sync(() => {
+            calls.push("recordIgnored");
+          }),
+        submitAutomatedReview: () =>
+          Effect.sync(() => {
+            calls.push("submitAutomatedReview");
+          }),
+        submitSlashCommand: () =>
+          Effect.sync(() => {
+            calls.push("submitSlashCommand");
+          }),
+        submitCiRefresh: () =>
+          Effect.sync(() => {
+            calls.push("submitCiRefresh");
+          }),
+        ping: () => Effect.succeed(true),
+      }),
+    );
+    const handlersLayer = Layer.succeed(
+      WebhookHandlers,
+      WebhookHandlers.of({
+        pullRequest: () =>
+          Effect.sync(() => {
+            calls.push("pullRequest");
+          }),
+        issueComment: () =>
+          Effect.sync(() => {
+            calls.push("issueComment");
+          }),
+        pullRequestReviewComment: () =>
+          Effect.sync(() => {
+            calls.push("pullRequestReviewComment");
+          }),
+        ciRefresh: () =>
+          Effect.sync(() => {
+            calls.push("ciRefresh");
+          }),
+      }),
+    );
+    return Layer.mergeAll(schedulerLayer, handlersLayer);
+  }
+
+  it("returns 422 and skips durable work for invalid identifiers on every event", async () => {
+    const cases = [
+      {
+        event: "issue_comment",
+        delivery: "d-float-comment-id",
+        payload: {
+          action: "created",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
+          issue: { number: 3, pull_request: {} },
+          comment: { id: 1.5, user: { id: 7 }, body: "/review" },
+        },
+      },
+      {
+        event: "workflow_run",
+        delivery: "d-overflow-workflow-id",
+        payload: {
+          action: "completed",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
+          workflow_run: {
+            id: 9_007_199_254_740_992,
+            head_sha: "abc",
+            status: "completed",
+            conclusion: "failure",
+            pull_requests: [{ number: 12, head: { sha: "abc" } }],
+          },
+        },
+      },
+      {
+        event: "check_suite",
+        delivery: "d-empty-check-sha",
+        payload: {
+          action: "completed",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
+          check_suite: {
+            id: 55,
+            head_sha: "",
+            status: "completed",
+            conclusion: "success",
+            pull_requests: [{ number: 12, head: { sha: "abc" } }],
+          },
+        },
+      },
+      {
+        event: "pull_request",
+        delivery: "d-oversize-login",
+        payload: {
+          action: "opened",
+          installation: { id: 1 },
+          repository: { owner: { login: "o".repeat(40) }, name: "r", size: 10 },
+          pull_request: { number: 3, head: { sha: "abc" } },
+        },
+      },
+      {
+        event: "workflow_run",
+        delivery: "d-empty-workflow-sha",
+        payload: {
+          action: "completed",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
+          workflow_run: {
+            id: 55,
+            head_sha: "",
+            status: "completed",
+            conclusion: "failure",
+            pull_requests: [{ number: 12, head: { sha: "abc" } }],
+          },
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const calls: string[] = [];
+      const body = Buffer.from(JSON.stringify(testCase.payload));
+      const out = await Effect.runPromise(
+        runWithIntake(
+          {
+            headers: {
+              "x-hub-signature-256": sign(body),
+              "x-github-event": testCase.event,
+              "x-github-delivery": testCase.delivery,
+            },
+            rawBody: body,
+          },
+          intakeFenceLayer(calls),
+        ),
+      );
+      expect(out).toEqual({ status: 422, body: "unprocessable entity" });
+      expect(calls).toEqual([]);
+    }
+  });
+
   it("silently ignores unauthorized slash commands", async () => {
     const payload = {
       action: "created",

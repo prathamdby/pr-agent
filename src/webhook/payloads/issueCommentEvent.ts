@@ -2,6 +2,7 @@ import * as v from "valibot";
 import {
   githubPrNumberSchema,
   githubSafeIdSchema,
+  githubUserSchema,
   installationSchema,
   repositorySchema,
 } from "./common.js";
@@ -19,10 +20,7 @@ export const issueCommentWebhookSchema = v.object({
   ),
   comment: v.object({
     id: githubSafeIdSchema,
-    user: v.object({
-      id: githubSafeIdSchema,
-      login: v.nullish(v.string()),
-    }),
+    user: githubUserSchema,
     author_association: v.nullish(v.string()),
     body: v.nullish(v.string()),
     /** Present when the comment is a reply in a PR conversation thread. */

@@ -381,6 +381,412 @@ describe("parseGithubPayload", () => {
         pull_request: { number: 3, head: { sha: "a".repeat(65) } },
       }),
     ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        before: "",
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...base,
+        before: "a".repeat(65),
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
+  const int32Rejects = [1.5, 0, -1, 2_147_483_648, Number.NaN, Number.POSITIVE_INFINITY, "3"] as const;
+  const safeIdRejects = [1.5, 0, -1, 9_007_199_254_740_992, Number.NaN, Number.POSITIVE_INFINITY, "3"] as const;
+
+  it("rejects issue_comment out-of-range ids", () => {
+    const base = {
+      action: "created",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      issue: { number: 3, pull_request: {} },
+      comment: { id: 99, user: { id: 15, login: "c" }, body: "/review" },
+    };
+    for (const number of int32Rejects) {
+      expect(() =>
+        parseGithubPayload("issue_comment", {
+          ...base,
+          issue: { number, pull_request: {} },
+        }),
+      ).toThrow(WebhookParseError);
+    }
+    for (const id of safeIdRejects) {
+      expect(() =>
+        parseGithubPayload("issue_comment", {
+          ...base,
+          comment: { ...base.comment, id },
+        }),
+      ).toThrow(WebhookParseError);
+      expect(() =>
+        parseGithubPayload("issue_comment", {
+          ...base,
+          comment: { ...base.comment, user: { id, login: "c" } },
+        }),
+      ).toThrow(WebhookParseError);
+      expect(() =>
+        parseGithubPayload("issue_comment", {
+          ...base,
+          comment: { ...base.comment, in_reply_to_id: id },
+        }),
+      ).toThrow(WebhookParseError);
+    }
+    expect(() =>
+      parseGithubPayload("issue_comment", {
+        ...base,
+        comment: { ...base.comment, user: { id: 15, login: "o".repeat(40) } },
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
+  it("rejects pull_request_review_comment out-of-range ids", () => {
+    const base = {
+      action: "created",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      pull_request: { number: 3 },
+      comment: {
+        id: 100,
+        user: { id: 15, login: "c" },
+        body: "note",
+        path: "src/hook.ts",
+        line: 12,
+        side: "RIGHT" as const,
+      },
+    };
+    for (const number of int32Rejects) {
+      expect(() =>
+        parseGithubPayload("pull_request_review_comment", {
+          ...base,
+          pull_request: { number },
+        }),
+      ).toThrow(WebhookParseError);
+    }
+    for (const id of safeIdRejects) {
+      expect(() =>
+        parseGithubPayload("pull_request_review_comment", {
+          ...base,
+          comment: { ...base.comment, id },
+        }),
+      ).toThrow(WebhookParseError);
+      expect(() =>
+        parseGithubPayload("pull_request_review_comment", {
+          ...base,
+          comment: { ...base.comment, user: { id, login: "c" } },
+        }),
+      ).toThrow(WebhookParseError);
+      expect(() =>
+        parseGithubPayload("pull_request_review_comment", {
+          ...base,
+          comment: { ...base.comment, in_reply_to_id: id },
+        }),
+      ).toThrow(WebhookParseError);
+    }
+  });
+
+  it("rejects workflow_run out-of-range ids and shas", () => {
+    const base = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { owner: { login: "acme" }, name: "pr-agent" },
+      workflow_run: {
+        id: 55,
+        head_sha: "abc123",
+        status: "completed",
+        conclusion: "failure",
+        pull_requests: [{ number: 12, head: { sha: "abc123" } }],
+      },
+    };
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        workflow_run: { ...base.workflow_run, id: 1.5 },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        workflow_run: { ...base.workflow_run, id: 0 },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        workflow_run: { ...base.workflow_run, id: -5 },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        workflow_run: { ...base.workflow_run, id: 9_007_199_254_740_992 },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        workflow_run: { ...base.workflow_run, head_sha: "" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        workflow_run: { ...base.workflow_run, head_sha: "a".repeat(65) },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        repository: { owner: { login: "" }, name: "pr-agent" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        repository: { owner: { login: "o".repeat(40) }, name: "pr-agent" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        repository: { owner: { login: "acme" }, name: "" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...base,
+        repository: { owner: { login: "acme" }, name: "r".repeat(101) },
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
+  it("rejects check_suite out-of-range ids and shas", () => {
+    const base = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { owner: { login: "acme" }, name: "pr-agent" },
+      check_suite: {
+        id: 55,
+        head_sha: "abc123",
+        status: "completed",
+        conclusion: "success",
+        pull_requests: [{ number: 12, head: { sha: "abc123" } }],
+      },
+    };
+    expect(() =>
+      parseGithubPayload("check_suite", {
+        ...base,
+        check_suite: { ...base.check_suite, id: 1.5 },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("check_suite", {
+        ...base,
+        check_suite: { ...base.check_suite, head_sha: "" },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("check_suite", {
+        ...base,
+        check_suite: { ...base.check_suite, head_sha: "a".repeat(65) },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("check_suite", {
+        ...base,
+        repository: { owner: { login: "o".repeat(40) }, name: "pr-agent" },
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
+  it("rejects ciRefresh pull_requests out-of-range", () => {
+    const workflowBase = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { owner: { login: "acme" }, name: "pr-agent" },
+      workflow_run: {
+        id: 55,
+        head_sha: "abc123",
+        status: "completed",
+        conclusion: "failure",
+        pull_requests: [{ number: 12, head: { sha: "abc123" } }],
+      },
+    };
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...workflowBase,
+        workflow_run: {
+          ...workflowBase.workflow_run,
+          pull_requests: [{ number: 2_147_483_648, head: { sha: "abc123" } }],
+        },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("workflow_run", {
+        ...workflowBase,
+        workflow_run: {
+          ...workflowBase.workflow_run,
+          pull_requests: [{ number: 12, head: { sha: "" } }],
+        },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("check_suite", {
+        action: "completed",
+        installation: { id: 9 },
+        repository: { owner: { login: "acme" }, name: "pr-agent" },
+        check_suite: {
+          id: 55,
+          head_sha: "abc123",
+          status: "completed",
+          conclusion: "success",
+          pull_requests: [{ number: 2_147_483_648, head: { sha: "abc123" } }],
+        },
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
+  it("accepts max-boundary valid identifiers", () => {
+    const pullRequest = parseGithubPayload("pull_request", {
+      action: "opened",
+      before: "a".repeat(64),
+      installation: { id: Number.MAX_SAFE_INTEGER },
+      repository: { owner: { login: "o".repeat(39) }, name: "r".repeat(100), size: 1234 },
+      pull_request: { number: 2_147_483_647, head: { sha: "a".repeat(64) } },
+    });
+    expect(pullRequest.name).toBe("pull_request");
+
+    const issueComment = parseGithubPayload("issue_comment", {
+      action: "created",
+      installation: { id: Number.MAX_SAFE_INTEGER },
+      repository: { owner: { login: "o".repeat(39) }, name: "r".repeat(100) },
+      issue: { number: 2_147_483_647, pull_request: {} },
+      comment: {
+        id: Number.MAX_SAFE_INTEGER,
+        user: { id: Number.MAX_SAFE_INTEGER, login: "o".repeat(39) },
+        body: "/review",
+      },
+    });
+    expect(issueComment.name).toBe("issue_comment");
+
+    const workflowRun = parseGithubPayload("workflow_run", {
+      action: "completed",
+      installation: { id: Number.MAX_SAFE_INTEGER },
+      repository: { owner: { login: "o".repeat(39) }, name: "r".repeat(100) },
+      workflow_run: {
+        id: Number.MAX_SAFE_INTEGER,
+        head_sha: "a".repeat(64),
+        status: "completed",
+        conclusion: "failure",
+        pull_requests: [{ number: 2_147_483_647, head: { sha: "a".repeat(64) } }],
+      },
+    });
+    expect(workflowRun.name).toBe("workflow_run");
+
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        action: "opened",
+        installation: { id: 42 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 2_147_483_648, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        action: "opened",
+        installation: { id: 42 },
+        repository: { owner: { login: "o".repeat(40) }, name: "r" },
+        pull_request: { number: 3, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        action: "opened",
+        installation: { id: 42 },
+        repository: { owner: { login: "o" }, name: "r".repeat(101) },
+        pull_request: { number: 3, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        action: "opened",
+        installation: { id: 42 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 3, head: { sha: "a".repeat(65) } },
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
+  it("rejects repo-name oversize, NaN/Infinity and string numbers", () => {
+    const pullRequestBase = {
+      action: "opened",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r", size: 1234 },
+      pull_request: { number: 3, head: { sha: "abc" } },
+    };
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...pullRequestBase,
+        repository: { owner: { login: "o" }, name: "r".repeat(101) },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...pullRequestBase,
+        pull_request: { number: Number.NaN, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...pullRequestBase,
+        pull_request: { number: Number.POSITIVE_INFINITY, head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...pullRequestBase,
+        pull_request: { number: "3", head: { sha: "abc" } },
+      }),
+    ).toThrow(WebhookParseError);
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        ...pullRequestBase,
+        installation: { id: "42" },
+      }),
+    ).toThrow(WebhookParseError);
+
+    const reviewCommentBase = {
+      action: "created",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      pull_request: { number: 3 },
+      comment: {
+        id: 100,
+        user: { id: 15, login: "c" },
+        body: "note",
+        in_reply_to_id: 99,
+        pull_request_review_id: 55,
+        path: "src/hook.ts",
+        line: 12,
+        side: "RIGHT" as const,
+      },
+    };
+    for (const inReplyToId of [0, -1, 1.5, Number.NaN] as const) {
+      expect(() =>
+        parseGithubPayload("pull_request_review_comment", {
+          ...reviewCommentBase,
+          comment: { ...reviewCommentBase.comment, in_reply_to_id: inReplyToId },
+        }),
+      ).toThrow(WebhookParseError);
+    }
+    expect(() =>
+      parseGithubPayload("pull_request_review_comment", {
+        ...reviewCommentBase,
+        comment: { ...reviewCommentBase.comment, pull_request_review_id: 9_007_199_254_740_992 },
+      }),
+    ).toThrow(WebhookParseError);
   });
 
   it("throws WebhookParseError on malformed pull_request", () => {

@@ -41,6 +41,11 @@ export const githubShaSchema = v.pipe(
   v.maxLength(GITHUB_SHA_MAX_CHARS),
 );
 
+export const githubUserSchema = v.object({
+  id: githubSafeIdSchema,
+  login: v.nullish(githubLoginSchema),
+});
+
 export const installationSchema = v.object({
   id: githubSafeIdSchema,
 });

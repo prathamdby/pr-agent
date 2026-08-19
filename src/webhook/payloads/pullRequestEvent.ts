@@ -10,7 +10,7 @@ export const pullRequestWebhookSchema = v.object({
   action: v.string(),
   installation: installationSchema,
   repository: repositorySchema,
-  before: v.optional(v.string()),
+  before: v.optional(githubShaSchema),
   pull_request: v.object({
     number: githubPrNumberSchema,
     head: v.object({
