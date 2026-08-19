@@ -395,8 +395,24 @@ describe("parseGithubPayload", () => {
     ).toThrow(WebhookParseError);
   });
 
-  const int32Rejects = [1.5, 0, -1, 2_147_483_648, Number.NaN, Number.POSITIVE_INFINITY, "3"] as const;
-  const safeIdRejects = [1.5, 0, -1, 9_007_199_254_740_992, Number.NaN, Number.POSITIVE_INFINITY, "3"] as const;
+  const int32Rejects = [
+    1.5,
+    0,
+    -1,
+    2_147_483_648,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "3",
+  ] as const;
+  const safeIdRejects = [
+    1.5,
+    0,
+    -1,
+    9_007_199_254_740_992,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "3",
+  ] as const;
 
   it("rejects issue_comment out-of-range ids", () => {
     const base = {
