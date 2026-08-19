@@ -29,21 +29,43 @@ export function sanitizeGithubLogin(login: string): string {
   return "user";
 }
 
-/** Why a review progress stub was cancelled (slash `/cancel` vs PR merge). */
+/** Why a review progress stub was cancelled (slash `/cancel` vs PR close). */
 export type ReviewCancelAttribution =
   | { readonly kind: "user"; readonly login: string }
-  | { readonly kind: "merged" };
+  | { readonly kind: "merged" }
+  | { readonly kind: "closed" };
+
+export function reviewCancelAttributionForClosedPr(merged: boolean): ReviewCancelAttribution {
+  return merged ? { kind: "merged" } : { kind: "closed" };
+}
 
 /**
  * Progress stub body for a cancelled review (failure-notice layout: alert only).
- * Slash: names the issuer. Merge: states the PR was merged.
+ * Slash names the issuer. Close names the PR terminal state.
  */
 export function reviewProgressCancelledNote(attribution: ReviewCancelAttribution): string {
   switch (attribution.kind) {
     case "merged":
       return "PR merged.";
+    case "closed":
+      return "PR closed.";
     case "user":
       return `Cancelled by @${sanitizeGithubLogin(attribution.login)}. Run \`/review\` to try again.`;
+    default: {
+      const exhaustive: never = attribution;
+      return exhaustive;
+    }
+  }
+}
+
+export function reviewCancelLastError(attribution: ReviewCancelAttribution): string {
+  switch (attribution.kind) {
+    case "merged":
+      return "Pull request merged";
+    case "closed":
+      return "Pull request closed";
+    case "user":
+      return "Cancelled by slash /cancel";
     default: {
       const exhaustive: never = attribution;
       return exhaustive;

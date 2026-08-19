@@ -2,7 +2,10 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
-import { REVIEW_CANCELLED_PR_MERGED } from "../../settings/index.js";
+import {
+  REVIEW_CANCELLED_PR_CLOSED,
+  reviewCancelAttributionForClosedPr,
+} from "../../settings/index.js";
 import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
@@ -196,14 +199,15 @@ async function applyPlannedAutomatedPullRequestIntake(
   return events;
 }
 
-async function applyReviewMergeCancelIntake(
+async function applyReviewCloseCancelIntake(
   boss: PgBoss,
   client: PoolClient,
   headers: WebhookHeaders,
   ref: PrRef,
+  merged: boolean,
 ): Promise<DeferredIntakeEvent[]> {
   const events: DeferredIntakeEvent[] = [];
-  const event = await insertWebhookEvent(client, headers, REVIEW_CANCELLED_PR_MERGED);
+  const event = await insertWebhookEvent(client, headers, REVIEW_CANCELLED_PR_CLOSED);
   if (event.duplicate) {
     events.push({
       name: "deduped_delivery",
@@ -215,7 +219,7 @@ async function applyReviewMergeCancelIntake(
     return events;
   }
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-  const attribution = { kind: "merged" as const };
+  const attribution = reviewCancelAttributionForClosedPr(merged);
   const cancelled = await cancelActiveReviews(client, resourceKey, attribution);
   const cancelledWorkItemIds = cancelled.map((row) => row.id);
   const primary = cancelled[0];
@@ -238,11 +242,12 @@ async function applyReviewMergeCancelIntake(
     await enqueueAck(boss, client, ackData);
   }
   events.push({
-    name: REVIEW_CANCELLED_PR_MERGED,
+    name: REVIEW_CANCELLED_PR_CLOSED,
     fields: {
       resourceKey,
       cancelledCount: cancelledWorkItemIds.length,
       cancelledIds: cancelledWorkItemIds,
+      prMerged: attribution.kind === "merged",
       ...jobCorrelation(event.id, headers),
     },
   });
@@ -264,9 +269,9 @@ export async function applyAutomatedPullRequestIntake(
   cfg: Pick<Config, "features">,
   opts?: AutomatedPullRequestIntakeOpts,
 ): Promise<void> {
-  if (action === "closed" && opts?.merged === true) {
+  if (action === "closed") {
     const events = await inTransaction(pool, (client) =>
-      applyReviewMergeCancelIntake(boss, client, headers, ref),
+      applyReviewCloseCancelIntake(boss, client, headers, ref, opts?.merged === true),
     );
     flushDeferredEvents(intakeLog, events);
     return;
@@ -275,7 +280,6 @@ export async function applyAutomatedPullRequestIntake(
   const plan = planAutomatedPullRequestIntake(action, cfg.features);
   if (plan.kinds.length === 0) {
     // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.
-    // closed-without-merge falls through here as ignored_pull_request_closed.
     await recordIgnoredWebhook(pool, headers, `ignored_pull_request_${action}`, intakeLog);
     return;
   }

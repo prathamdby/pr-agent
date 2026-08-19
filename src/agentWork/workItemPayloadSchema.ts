@@ -108,6 +108,7 @@ const ReviewWorkPayloadFieldsSchema = v.looseObject({
     v.variant("kind", [
       v.object({ kind: v.literal("user"), login: v.pipe(v.string(), v.minLength(1)) }),
       v.object({ kind: v.literal("merged") }),
+      v.object({ kind: v.literal("closed") }),
     ]),
   ),
 });

@@ -13,7 +13,10 @@ import type {
   VerificationWorkPayload,
 } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
-import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
+import {
+  reviewCancelLastError,
+  type ReviewCancelAttribution,
+} from "../../settings/reviewConstants.js";
 import { prResourceKey, type PrRef } from "../types.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
@@ -461,10 +464,6 @@ export type CancelledActiveReview = {
   readonly headSha: string;
 };
 
-function cancelLastError(attribution: ReviewCancelAttribution): string {
-  return attribution.kind === "merged" ? "Pull request merged" : "Cancelled by slash /cancel";
-}
-
 /**
  * Cancel every queued/running review for a PR (auto or slash).
  * Both queued and running become `cancelled` immediately so the slash uniqueness
@@ -479,7 +478,7 @@ export async function cancelActiveReviews(
   attribution: ReviewCancelAttribution,
 ): Promise<readonly CancelledActiveReview[]> {
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
-  const lastError = cancelLastError(attribution);
+  const lastError = reviewCancelLastError(attribution);
   const mapRows = (
     rows: readonly {
       id: string;
