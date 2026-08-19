@@ -140,36 +140,36 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ### Agent work (queues)
 
-| Symbol                                     | Value / role                                                                                                                                               |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACK_QUEUE`                                | `agent-work-ack`                                                                                                                                           |
-| `CI_REFRESH_QUEUE`                         | `agent-work-ci-refresh` — LLM CI cell refresh after `workflow_run` or `check_suite` completed                                                              |
-| `REVIEW_QUEUE`                             | `agent-work-review`                                                                                                                                        |
-| `ASK_QUEUE`                                | `agent-work-ask`                                                                                                                                           |
-| `DESCRIPTION_QUEUE`                        | `agent-work-description`                                                                                                                                   |
-| `TRIAGE_QUEUE`                             | `agent-work-triage`                                                                                                                                        |
-| `VERIFICATION_QUEUE`                       | `agent-work-verification`                                                                                                                                  |
-| `ACK_DEAD_LETTER_QUEUE`                    | `agent-work-ack-dead`                                                                                                                                      |
-| `REVIEW_DEAD_LETTER_QUEUE`                 | `agent-work-review-dead`                                                                                                                                   |
-| `ASK_DEAD_LETTER_QUEUE`                    | `agent-work-ask-dead`                                                                                                                                      |
-| `DESCRIPTION_DEAD_LETTER_QUEUE`            | `agent-work-description-dead`                                                                                                                              |
-| `TRIAGE_DEAD_LETTER_QUEUE`                 | `agent-work-triage-dead`                                                                                                                                   |
-| `VERIFICATION_DEAD_LETTER_QUEUE`           | `agent-work-verification-dead`                                                                                                                             |
-| `CI_REFRESH_DEAD_LETTER_QUEUE`             | `agent-work-ci-refresh-dead`                                                                                                                               |
-| `RETENTION_QUEUE`                          | `agent-work-retention` — scheduled cleanup sweep                                                                                                           |
-| `CODE_INDEX_BUILD_QUEUE`                   | `code-index-build` — optional Postgres FTS index build (when `CODE_INDEX_MODE=fts`)                                                                        |
-| `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                                         |
-| `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                                   |
-| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened, closed — `pull_request` actions accepted at webhook intake (not the auto-enqueue map); `closed` cancels in-progress reviews |
-| `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize`; `reopened` enqueues nothing (see [features.md](features.md))         |
-| `DESCRIPTION_PUBLISH_LENS`                 | `description`                                                                                                                                              |
-| `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                                      |
-| `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                                   |
-| `VERIFICATION_PUBLISH_LENS`                | `verification`                                                                                                                                             |
-| `VERIFICATION_STUB_MARKER`                 | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                 |
-| `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                      |
-| `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                            |
-| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery; the armed redelivery re-checks until the lease frees or lapses                        |
+| Symbol                                     | Value / role                                                                                                                                                |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACK_QUEUE`                                | `agent-work-ack`                                                                                                                                            |
+| `CI_REFRESH_QUEUE`                         | `agent-work-ci-refresh` — LLM CI cell refresh after `workflow_run` or `check_suite` completed                                                               |
+| `REVIEW_QUEUE`                             | `agent-work-review`                                                                                                                                         |
+| `ASK_QUEUE`                                | `agent-work-ask`                                                                                                                                            |
+| `DESCRIPTION_QUEUE`                        | `agent-work-description`                                                                                                                                    |
+| `TRIAGE_QUEUE`                             | `agent-work-triage`                                                                                                                                         |
+| `VERIFICATION_QUEUE`                       | `agent-work-verification`                                                                                                                                   |
+| `ACK_DEAD_LETTER_QUEUE`                    | `agent-work-ack-dead`                                                                                                                                       |
+| `REVIEW_DEAD_LETTER_QUEUE`                 | `agent-work-review-dead`                                                                                                                                    |
+| `ASK_DEAD_LETTER_QUEUE`                    | `agent-work-ask-dead`                                                                                                                                       |
+| `DESCRIPTION_DEAD_LETTER_QUEUE`            | `agent-work-description-dead`                                                                                                                               |
+| `TRIAGE_DEAD_LETTER_QUEUE`                 | `agent-work-triage-dead`                                                                                                                                    |
+| `VERIFICATION_DEAD_LETTER_QUEUE`           | `agent-work-verification-dead`                                                                                                                              |
+| `CI_REFRESH_DEAD_LETTER_QUEUE`             | `agent-work-ci-refresh-dead`                                                                                                                                |
+| `RETENTION_QUEUE`                          | `agent-work-retention` — scheduled cleanup sweep                                                                                                            |
+| `CODE_INDEX_BUILD_QUEUE`                   | `code-index-build` — optional Postgres FTS index build (when `CODE_INDEX_MODE=fts`)                                                                         |
+| `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                                          |
+| `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                                    |
+| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened, closed — `pull_request` actions accepted at webhook intake (not the auto-enqueue map); `closed` cancels in-progress reviews  |
+| `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize`; `reopened` enqueues nothing (see [features.md](features.md))          |
+| `DESCRIPTION_PUBLISH_LENS`                 | `description`                                                                                                                                               |
+| `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                                       |
+| `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                                    |
+| `VERIFICATION_PUBLISH_LENS`                | `verification`                                                                                                                                              |
+| `VERIFICATION_STUB_MARKER`                 | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                  |
+| `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                       |
+| `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                             |
+| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery; the armed redelivery re-checks until the lease frees or lapses                         |
 | `STALE_QUEUED_WORK_GRACE_SECONDS`          | 300, age after which a queued leased-type work item with no live lease and no live pg-boss job is logged as `agent_work_queued_stale` (delivery chain dead) |
 
 ### Review output
