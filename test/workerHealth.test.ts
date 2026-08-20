@@ -150,6 +150,9 @@ describe("collectQueueDiagnostics", () => {
     expect(report.staleQueuedWorkItems).toEqual([
       { workItemId: "wi-stale", resourceKey: "o/r#5", workType: "review", ageSeconds: 612 },
     ]);
+    const staleSql = String(vi.mocked(pool.query).mock.calls[1]?.[0]);
+    expect(staleSql).toContain("NOT EXISTS");
+    expect(staleSql).toContain("pgboss.job");
     logQueueDiagnosticsReport(report);
     expect(logWarn).toHaveBeenCalledWith(
       "agent_work_queued_stale",
@@ -160,6 +163,25 @@ describe("collectQueueDiagnostics", () => {
         ageSeconds: 612,
       }),
     );
+  });
+
+  it("treats an empty stale-query result as a live job chain, not a warning", async () => {
+    const now = new Date("2026-07-26T12:00:00.000Z");
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    const pool = { query } as unknown as Pick<import("pg").Pool, "query">;
+
+    const report = await collectQueueDiagnostics({
+      boss: { getQueueStats: vi.fn(async () => []) },
+      pool,
+      now,
+      diagnosticQueues: [],
+      dlqQueues: [],
+    });
+
+    expect(report.staleQueuedWorkItems).toEqual([]);
+    const staleSql = String(query.mock.calls[1]?.[0]);
+    expect(staleSql).toContain("NOT EXISTS");
+    expect(staleSql).toContain("pgboss.job");
   });
 });
 

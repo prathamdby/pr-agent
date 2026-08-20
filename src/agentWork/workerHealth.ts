@@ -215,8 +215,9 @@ export async function collectQueueDiagnostics(params: {
       if (Number.isFinite(age)) oldestRunningWorkItemAgeMs = Math.max(0, age);
     }
 
-    // A queued leased-type item with no live lease row has no holder to wait behind
-    // and no watchdog chain that can still fire: its delivery chain died.
+    // Queued past grace with no live lease is only a dead chain when no pg-boss
+    // job remains to start or hop. A created/active/retry row is still in flight
+    // (backlog, group concurrency, or a deferred watchdog copy).
     const stale = await params.pool.query<{
       id: string;
       resource_key: string;
@@ -237,6 +238,21 @@ export async function collectQueueDiagnostics(params: {
                AND l.work_type = w.type
                AND l.work_item_id IS NOT NULL
                AND l.expires_at > $1::timestamptz
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pgboss.job j
+             WHERE j.name = CASE w.type
+               WHEN 'review' THEN '${REVIEW_QUEUE}'
+               WHEN 'description' THEN '${DESCRIPTION_QUEUE}'
+               WHEN 'triage' THEN '${TRIAGE_QUEUE}'
+               WHEN 'verification' THEN '${VERIFICATION_QUEUE}'
+             END
+               AND j.state IN ('created', 'active', 'retry')
+               AND (
+                 j.id = w.id
+                 OR j.singleton_key = w.id::text
+                 OR j.data @> jsonb_build_object('workItemId', w.id::text)
+               )
           )
         ORDER BY w.created_at ASC
         LIMIT $3::int`,

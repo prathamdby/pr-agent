@@ -27,7 +27,7 @@ export const LEASED_WORK_QUEUES = [
   VERIFICATION_QUEUE,
 ] as const;
 
-/** A leased-type item queued this long with no live lease means its delivery chain died. */
+/** Queued this long with no live lease and no live pg-boss job means the delivery chain died. */
 export const STALE_QUEUED_WORK_GRACE_SECONDS = 300;
 export const STALE_QUEUED_WORK_BATCH_SIZE = 10;
 

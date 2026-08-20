@@ -27,7 +27,7 @@ Accepted. Amends ADR 0009 consequences (the `key_strict_fifo` / `releaseReviewQu
 - Crash recovery no longer needs a reaper: the watchdog deferral chain keeps re-checking until the dead holder's lease lapses, then steals it with a fresh epoch and re-executes the still-`running` item.
 - Queue state can never block intake, because intake never inspects it; a terminal work item's leftover job no-ops at execution.
 - Cutover is not safe with mixed old and new workers: old workers fence on queue policy while new workers fence on the lease. Drain workers before deploying, per [docs/operations.md](../operations.md). The policy flip itself is carried by migration 023, not by hand.
-- The slot world's `review_queued_stale` diagnostic is replaced by a lease-aware `agent_work_queued_stale` warn (plus a `work item queued stale` PostHog event) that fires when a leased-type item sits queued past `STALE_QUEUED_WORK_GRACE_SECONDS` with no live lease row — the only shape a dead delivery chain can take. Lease health is otherwise observable through `pr_actor_lease_unavailable`, `pr_actor_lease_lost`, and `pr_actor_lease_renewal_failed` log events.
+- The slot world's `review_queued_stale` diagnostic is replaced by a lease-aware `agent_work_queued_stale` warn (plus a `work item queued stale` PostHog event) that fires when a leased-type item sits queued past `STALE_QUEUED_WORK_GRACE_SECONDS` with no live lease row and no live pg-boss job. A waiter behind worker or group concurrency still has a `created` job and is not a dead chain. Lease health is otherwise observable through `pr_actor_lease_unavailable`, `pr_actor_lease_lost`, `pr_actor_lease_renewal_failed`, and `agent_work.lease_watchdog_arm_failed`.
 
 ## Reversal
 
