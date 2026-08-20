@@ -17,6 +17,7 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
 } from "../../src/settings/index.js";
@@ -60,11 +61,18 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
   });
 
-  async function insertAgedQueuedReview(): Promise<{
+  async function insertAgedQueuedWork(options?: {
+    readonly type?: "review" | "description";
+    readonly ageSeconds?: number;
+    readonly now?: Date;
+  }): Promise<{
     readonly id: string;
     readonly resourceKey: string;
   }> {
     const id = randomUUID();
+    const type = options?.type ?? "review";
+    const ageSeconds = options?.ageSeconds ?? STALE_QUEUED_WORK_GRACE_SECONDS + 60;
+    const now = options?.now ?? new Date();
     const resourceKey = `${OWNER}/r#${id.slice(0, 8)}`;
     await pool.query(
       `INSERT INTO agent_work_items (
@@ -72,33 +80,50 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
          head_sha, review_lens, resource_key, payload, created_at, updated_at
        )
        VALUES (
-         $1, 'review', 'auto', 'queued', $2, 'r', 1, 1, 'h', 'review', $3, '{}'::jsonb,
-         now() - (($4 + 60) * interval '1 second'),
-         now() - (($4 + 60) * interval '1 second')
+         $1, $2, 'auto', 'queued', $3, 'r', 1, 1, 'h', 'review', $4, '{}'::jsonb,
+         $5::timestamptz - ($6 * interval '1 second'),
+         $5::timestamptz - ($6 * interval '1 second')
        )`,
-      [id, OWNER, resourceKey, STALE_QUEUED_WORK_GRACE_SECONDS],
+      [id, type, OWNER, resourceKey, now.toISOString(), ageSeconds],
     );
     return { id, resourceKey };
   }
 
-  async function staleIds(): Promise<readonly string[]> {
+  async function insertJobMatchingWorkItemId(options: {
+    readonly workItemId: string;
+    readonly queue: string;
+    readonly state: "active" | "completed";
+  }): Promise<void> {
+    await pool.query(
+      `INSERT INTO pgboss.job (id, name, state, data)
+       VALUES ($1::uuid, $2, $3, $4::jsonb)`,
+      [
+        options.workItemId,
+        options.queue,
+        options.state,
+        JSON.stringify({ owner: OWNER, workItemId: options.workItemId }),
+      ],
+    );
+  }
+
+  async function staleIds(now = new Date()): Promise<readonly string[]> {
     const report = await collectQueueDiagnostics({
       boss,
       pool,
-      now: new Date(),
-      diagnosticQueues: [REVIEW_QUEUE],
+      now,
+      diagnosticQueues: [REVIEW_QUEUE, DESCRIPTION_QUEUE],
       dlqQueues: [],
     });
     return report.staleQueuedWorkItems.map((row) => row.workItemId);
   }
 
   it("flags a queued review with no live lease and no pg-boss job", async () => {
-    const { id } = await insertAgedQueuedReview();
+    const { id } = await insertAgedQueuedWork();
     expect(await staleIds()).toContain(id);
   });
 
   it("does not flag a queued review that still has an intake job waiting", async () => {
-    const { id } = await insertAgedQueuedReview();
+    const { id } = await insertAgedQueuedWork();
     const jobId = await boss.send(
       REVIEW_QUEUE,
       { kind: "review", workItemId: id, owner: OWNER },
@@ -109,7 +134,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
   });
 
   it("does not flag a queued review that still has a deferred watchdog hop", async () => {
-    const { id } = await insertAgedQueuedReview();
+    const { id } = await insertAgedQueuedWork();
     const jobId = await boss.send(
       REVIEW_QUEUE,
       { kind: "review", workItemId: id, owner: OWNER },
@@ -123,5 +148,47 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     );
     expect(jobId).not.toBeNull();
     expect(await staleIds()).not.toContain(id);
+  });
+
+  it("does not flag a queued review whose job id matches the work item while active", async () => {
+    const { id } = await insertAgedQueuedWork();
+    await insertJobMatchingWorkItemId({
+      workItemId: id,
+      queue: REVIEW_QUEUE,
+      state: "active",
+    });
+    expect(await staleIds()).not.toContain(id);
+    await pool.query(`UPDATE pgboss.job SET state = 'completed' WHERE id = $1`, [id]);
+    expect(await staleIds()).toContain(id);
+  });
+
+  it("does not flag a queued description whose job id matches the work item while active", async () => {
+    const { id } = await insertAgedQueuedWork({ type: "description" });
+    await insertJobMatchingWorkItemId({
+      workItemId: id,
+      queue: DESCRIPTION_QUEUE,
+      state: "active",
+    });
+    expect(await staleIds()).not.toContain(id);
+    await pool.query(`UPDATE pgboss.job SET state = 'completed' WHERE id = $1`, [id]);
+    expect(await staleIds()).toContain(id);
+  });
+
+  it("does not flag a queued review at the grace boundary", async () => {
+    const now = new Date("2026-08-19T12:00:00.000Z");
+    const { id } = await insertAgedQueuedWork({
+      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS,
+      now,
+    });
+    expect(await staleIds(now)).not.toContain(id);
+  });
+
+  it("flags a queued review sixty seconds past the grace boundary", async () => {
+    const now = new Date("2026-08-19T12:00:00.000Z");
+    const { id } = await insertAgedQueuedWork({
+      ageSeconds: STALE_QUEUED_WORK_GRACE_SECONDS + 60,
+      now,
+    });
+    expect(await staleIds(now)).toContain(id);
   });
 });

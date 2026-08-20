@@ -320,8 +320,29 @@ describe("runDurableWorkItem", () => {
 
     expect(boss.findJobs).toHaveBeenCalledWith(
       "agent-work-review",
-      expect.objectContaining({ key: "wi-1", queued: true }),
+      expect.objectContaining({ key: "wi-1" }),
     );
+    expect(boss.findJobs).toHaveBeenCalledWith(
+      "agent-work-review",
+      expect.not.objectContaining({ queued: true }),
+    );
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("returns when a lease deferral send is swallowed but an active hop already exists", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
+      acquired: false,
+      heldByWorkItemId: "wi-other",
+      leaseEpoch: 7,
+    });
+    vi.mocked(boss.send).mockResolvedValue(null);
+    vi.mocked(boss.findJobs).mockResolvedValue([{ id: "hop-1", state: "active" }] as never);
+
+    await runReviewWorkItem({ execute: vi.fn() });
+
     expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });

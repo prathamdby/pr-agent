@@ -427,8 +427,8 @@ export async function runDurableWorkItem<T extends WorkType>(
       // redelivery finds its own lease mid-TTL, and this chain steals it once it lapses.
       // singletonSeconds dedups pending copies per slot; singletonNextSlot lands the re-arm
       // past the firing copy's own row, which outlives completion (job_i4 covers all
-      // non-cancelled states). A null send with no remaining queued hop throws so this
-      // delivery retries instead of completing as a silent no-op.
+      // non-cancelled states). findJobs queued:true is only created/retry, so a null send
+      // still looks at created/active/retry before throwing. An active hop is live.
       const hopId = await spec.boss.send(spec.prActorLease.queue, spec.job.data, {
         singletonKey: core.id,
         singletonSeconds: PR_ACTOR_LEASE_DEFER_SECONDS,
@@ -438,11 +438,13 @@ export async function runDurableWorkItem<T extends WorkType>(
         group: { id: installationGroupId(core.installationId) },
       });
       if (hopId == null) {
-        const pending = await spec.boss.findJobs(spec.prActorLease.queue, {
+        const hops = await spec.boss.findJobs(spec.prActorLease.queue, {
           key: core.id,
-          queued: true,
         });
-        if (pending.length === 0) {
+        const liveHop = hops.some(
+          (job) => job.state === "created" || job.state === "active" || job.state === "retry",
+        );
+        if (!liveHop) {
           throw new AppError({
             code: "agent_work.lease_watchdog_arm_failed",
             message: `pg-boss did not enqueue a lease deferral for work item ${core.id}`,
