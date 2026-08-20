@@ -167,10 +167,7 @@ describe("collectQueueDiagnostics", () => {
 
   it("treats an empty stale-query result as a live job chain, not a warning", async () => {
     const now = new Date("2026-07-26T12:00:00.000Z");
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
     const pool = { query } as unknown as Pick<import("pg").Pool, "query">;
 
     const report = await collectQueueDiagnostics({
