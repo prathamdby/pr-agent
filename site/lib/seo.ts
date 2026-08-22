@@ -1,7 +1,14 @@
+import { KNOWLEDGE_QUERY_TEXT } from "@/lib/agentResources";
 import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "@/lib/content";
 import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
 
 export const PRODUCT_NAME = "PR Agent";
+
+/** Profile behind the repository, used as an entity anchor for brand-name queries. */
+const AUTHOR_URL = "https://github.com/prathamdby";
+
+/** Every URL that identifies this project, so search engines can tie the name to one entity. */
+const SAME_AS = [REPO_URL, AUTHOR_URL];
 
 export const SEO_TITLE = "PR Agent | AI PR reviews on Your Own Servers";
 
@@ -54,8 +61,9 @@ function softwareApplicationJsonLd() {
     author: {
       "@type": "Organization",
       name: "prathamdby",
-      url: "https://github.com/prathamdby",
+      url: AUTHOR_URL,
     },
+    sameAs: SAME_AS,
     screenshot: `${SITE_ORIGIN}/og-image.png`,
   };
 }
@@ -97,15 +105,25 @@ export const JSON_LD_GRAPHS = [
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: PRODUCT_NAME,
-    alternateName: "AI PR reviews",
+    alternateName: ["pr-agent", "PR Agent by prathamdby"],
     description: SEO_DESCRIPTION,
     url: SITE_ORIGIN,
+    sameAs: SAME_AS,
+    potentialAction: {
+      "@type": "SearchAction",
+      target: {
+        "@type": "EntryPoint",
+        urlTemplate: `${SITE_ORIGIN}${KNOWLEDGE_QUERY_TEXT.path}{search_term_string}`,
+      },
+      "query-input": "required name=search_term_string",
+    },
   },
   {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "prathamdby",
-    url: "https://github.com/prathamdby",
+    url: AUTHOR_URL,
+    sameAs: SAME_AS,
   },
   faqPageJsonLd(),
   itemListJsonLd(),

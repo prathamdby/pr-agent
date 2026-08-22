@@ -1,4 +1,6 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
+import { NotFound } from "@/components/not-found";
+import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE, resourceUrl } from "@/lib/agentResources";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
 import appCss from "./globals.css?url";
@@ -104,13 +106,20 @@ export const Route = createRootRoute({
       },
       {
         rel: "alternate",
-        type: "text/plain",
-        href: `${SITE_ORIGIN}/llms.txt`,
-        title: "LLM profile",
+        type: LANDING_PAGE_MARKDOWN.mediaType,
+        href: resourceUrl(LANDING_PAGE_MARKDOWN),
+        title: LANDING_PAGE_MARKDOWN.title,
+      },
+      {
+        rel: "describedby",
+        type: LLMS_TXT_PROFILE.mediaType,
+        href: resourceUrl(LLMS_TXT_PROFILE),
+        title: LLMS_TXT_PROFILE.title,
       },
     ],
   }),
   component: RootLayout,
+  notFoundComponent: NotFound,
 });
 
 function RootLayout() {

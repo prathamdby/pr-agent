@@ -1,10 +1,9 @@
 import { DiffField } from "@/components/diff-field";
 import { OutboundArrow } from "@/components/icons";
 import { ReviewArtifact } from "@/components/review-artifact";
+import { HERO_CTA_NOTE, HERO_HEADING, HERO_SUPPORT } from "@/lib/content";
 import { DOCS_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
-
-const HERO_HEADING = "AI PR reviews on your own servers";
 
 const heroCopyClassName =
   "max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft";
@@ -16,8 +15,7 @@ function HeroCopy() {
         AI PR reviews on <span className="text-bolt">your own servers</span>
       </p>
       <p className="mt-3 max-w-[42ch] text-sm leading-relaxed text-ink-mute sm:text-base">
-        Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model
-        keys, your code never leaves.
+        {HERO_SUPPORT}
       </p>
     </>
   );
@@ -35,7 +33,7 @@ function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
         Deploy from the README
         <OutboundArrow className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
       </a>
-      <p className="mt-3 text-xs text-ink-faint">MIT licensed. Hosting and AI usage on you.</p>
+      <p className="mt-3 text-xs text-ink-faint">{HERO_CTA_NOTE}</p>
     </div>
   );
 }

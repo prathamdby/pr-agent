@@ -28,6 +28,10 @@ The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace
 
 Agent-facing copy lives in [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts). The human page stays a short overview. Agents read `/llms.txt`, `GET /llms?query=`, and `GET /llms/json?query=`.
 
+Every agent-facing URL is declared once in [`site/lib/agentResources.ts`](../site/lib/agentResources.ts), which renders llms.txt link lists, `robots.txt` pointers, `sitemap.xml`, `/openapi.json`, the 404 body and page, the `Link` headers, and the head's `alternate`/`describedby` links. Add an endpoint there, not in each surface; surfaces that point at one resource by identity use its named registry entry.
+
+`/` negotiates on `Accept`: HTML by default, `text/markdown` when asked, and 406 when neither is acceptable. The parser is [`site/lib/accept.ts`](../site/lib/accept.ts); responses and the 404 recovery document are [`site/lib/siteHttp.ts`](../site/lib/siteHttp.ts); the request middleware that applies them is [`site/start.ts`](../site/start.ts). Markdown for `/` is rendered from the same constants as the React page in [`site/lib/pageMarkdown.ts`](../site/lib/pageMarkdown.ts), so the two representations cannot drift. `/` is not prerendered: the server function must see every request for negotiation to work.
+
 ## Internal errors (`AppError`)
 
 Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Field rules, helpers, domain subclasses, and the AppError-never-on-PR rule: [`.pr-agent/structured-errors.mdc`](../.pr-agent/structured-errors.mdc).

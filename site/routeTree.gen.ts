@@ -10,6 +10,9 @@
 
 import { Route as rootRouteImport } from './app/__root'
 import { Route as IndexRouteImport } from './app/index'
+import { Route as AgentsDotmdRouteImport } from './app/agents[.]md'
+import { Route as IndexDotmdRouteImport } from './app/index[.]md'
+import { Route as OpenapiDotjsonRouteImport } from './app/openapi[.]json'
 import { Route as RobotsDottxtRouteImport } from './app/robots[.]txt'
 import { Route as SitemapDotxmlRouteImport } from './app/sitemap[.]xml'
 import { Route as LlmsIndexRouteImport } from './app/llms/index'
@@ -18,6 +21,21 @@ import { Route as LlmsJsonRouteImport } from './app/llms/json'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsDotmdRoute = AgentsDotmdRouteImport.update({
+  id: '/agents.md',
+  path: '/agents.md',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexDotmdRoute = IndexDotmdRouteImport.update({
+  id: '/index.md',
+  path: '/index.md',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OpenapiDotjsonRoute = OpenapiDotjsonRouteImport.update({
+  id: '/openapi.json',
+  path: '/openapi.json',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
@@ -43,6 +61,9 @@ const LlmsJsonRoute = LlmsJsonRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/agents.md': typeof AgentsDotmdRoute
+  '/index.md': typeof IndexDotmdRoute
+  '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/llms/json': typeof LlmsJsonRoute
@@ -50,6 +71,9 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/agents.md': typeof AgentsDotmdRoute
+  '/index.md': typeof IndexDotmdRoute
+  '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/llms/json': typeof LlmsJsonRoute
@@ -58,6 +82,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/agents.md': typeof AgentsDotmdRoute
+  '/index.md': typeof IndexDotmdRoute
+  '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/llms/json': typeof LlmsJsonRoute
@@ -65,15 +92,42 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/robots.txt' | '/sitemap.xml' | '/llms/json' | '/llms/'
+  fullPaths:
+    | '/'
+    | '/agents.md'
+    | '/index.md'
+    | '/openapi.json'
+    | '/robots.txt'
+    | '/sitemap.xml'
+    | '/llms/json'
+    | '/llms/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/robots.txt' | '/sitemap.xml' | '/llms/json' | '/llms'
+  to:
+    | '/'
+    | '/agents.md'
+    | '/index.md'
+    | '/openapi.json'
+    | '/robots.txt'
+    | '/sitemap.xml'
+    | '/llms/json'
+    | '/llms'
   id:
-    '__root__' | '/' | '/robots.txt' | '/sitemap.xml' | '/llms/json' | '/llms/'
+    | '__root__'
+    | '/'
+    | '/agents.md'
+    | '/index.md'
+    | '/openapi.json'
+    | '/robots.txt'
+    | '/sitemap.xml'
+    | '/llms/json'
+    | '/llms/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AgentsDotmdRoute: typeof AgentsDotmdRoute
+  IndexDotmdRoute: typeof IndexDotmdRoute
+  OpenapiDotjsonRoute: typeof OpenapiDotjsonRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   LlmsJsonRoute: typeof LlmsJsonRoute
@@ -87,6 +141,27 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents.md': {
+      id: '/agents.md'
+      path: '/agents.md'
+      fullPath: '/agents.md'
+      preLoaderRoute: typeof AgentsDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/index.md': {
+      id: '/index.md'
+      path: '/index.md'
+      fullPath: '/index.md'
+      preLoaderRoute: typeof IndexDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/openapi.json': {
+      id: '/openapi.json'
+      path: '/openapi.json'
+      fullPath: '/openapi.json'
+      preLoaderRoute: typeof OpenapiDotjsonRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/robots.txt': {
@@ -122,6 +197,9 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AgentsDotmdRoute: AgentsDotmdRoute,
+  IndexDotmdRoute: IndexDotmdRoute,
+  OpenapiDotjsonRoute: OpenapiDotjsonRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   LlmsJsonRoute: LlmsJsonRoute,
@@ -132,10 +210,11 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
+import type { startInstance } from './start.ts'
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
     router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }
