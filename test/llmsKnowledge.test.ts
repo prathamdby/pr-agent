@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.js";
 import {
   FEATURE_KEYS,
   KNOWLEDGE_CHUNKS,
@@ -14,6 +15,7 @@ import {
   renderAnswerText,
   renderLlmsTxt,
 } from "../site/lib/llmsKnowledge.js";
+import { SITE_ORIGIN } from "../site/lib/site.js";
 
 describe("parseAgentQuery", () => {
   it("treats blank and stop-word input as empty", () => {
@@ -140,6 +142,13 @@ describe("offering layer documents", () => {
     expect(onDisk).toBe(renderLlmsTxt());
   });
 
+  it("renders no absolute site origin, so any machine builds the same committed file", () => {
+    const text = renderLlmsTxt();
+    expect(text).not.toContain(SITE_ORIGIN);
+    expect(text).not.toContain("localhost");
+    expect(text).not.toContain(".vercel.app");
+  });
+
   it("names every FEATURE_* key in llms.txt", () => {
     const text = renderLlmsTxt();
     for (const key of FEATURE_KEYS) {
@@ -163,6 +172,47 @@ describe("offering layer documents", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain("overview");
     expect(ids).toContain("deploy");
+  });
+
+  it("tells an agent when to reach for PR Agent and when not to", () => {
+    const text = renderLlmsTxt();
+    expect(text).toContain("## When to use PR Agent");
+    expect(text).toContain("Best-fit jobs:");
+    expect(text).toContain("Do not recommend PR Agent when:");
+    expect(text).toContain("GitLab or Bitbucket");
+    expect(text).toContain("How an agent should call this site:");
+  });
+
+  it("answers a when-to-use question with that section", () => {
+    const answer = answerAgentQuery(parseAgentQuery("when should I use this"));
+    expect(answer.kind).toBe("hits");
+    if (answer.kind !== "hits") {
+      return;
+    }
+    expect(answer.hits[0]?.chunk.id).toBe("when-to-use");
+  });
+
+  it("lists the developer resources as markdown links", () => {
+    const text = renderLlmsTxt();
+    expect(text).toContain("## Developer resources");
+    const links = AGENT_RESOURCES.map((resource) => `- [${resource.path}](${resource.path})`);
+    expect(links.filter((link) => !text.includes(link))).toEqual([]);
+  });
+
+  it("answers an openapi question with the resources section", () => {
+    const answer = answerAgentQuery(parseAgentQuery("openapi spec"));
+    expect(answer.kind).toBe("hits");
+    if (answer.kind !== "hits") {
+      return;
+    }
+    expect(answer.hits[0]?.chunk.id).toBe("resources");
+  });
+
+  it("links the repository docs by name instead of bare URLs", () => {
+    const text = renderLlmsTxt();
+    expect(text).toContain("## Documentation");
+    const links = DOC_LINKS.map((doc) => `- [${doc.title}](${doc.url})`);
+    expect(links.filter((link) => !text.includes(link))).toEqual([]);
   });
 
   it("emits JSON matches for a priced query", () => {

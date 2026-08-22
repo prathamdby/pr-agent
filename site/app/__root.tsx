@@ -1,4 +1,5 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
+import { NotFound } from "@/components/not-found";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
 import appCss from "./globals.css?url";
@@ -104,13 +105,20 @@ export const Route = createRootRoute({
       },
       {
         rel: "alternate",
+        type: "text/markdown",
+        href: `${SITE_ORIGIN}/index.md`,
+        title: `${PRODUCT_NAME} landing page in markdown`,
+      },
+      {
+        rel: "describedby",
         type: "text/plain",
         href: `${SITE_ORIGIN}/llms.txt`,
-        title: "LLM profile",
+        title: `${PRODUCT_NAME} LLM profile`,
       },
     ],
   }),
   component: RootLayout,
+  notFoundComponent: NotFound,
 });
 
 function RootLayout() {

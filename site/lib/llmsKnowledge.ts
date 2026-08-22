@@ -1,3 +1,4 @@
+import { renderDocLinks, renderResourceLinks } from "./agentResources.js";
 import {
   ALTERNATIVE_ROWS,
   CAPABILITIES,
@@ -21,6 +22,7 @@ export const FEATURE_KEYS = [
 
 export type KnowledgeTopic =
   | "overview"
+  | "when-to-use"
   | "commands"
   | "features"
   | "deploy"
@@ -30,6 +32,7 @@ export type KnowledgeTopic =
   | "alternatives"
   | "faq"
   | "privacy"
+  | "resources"
   | "links";
 
 export type KnowledgeChunk = {
@@ -96,6 +99,40 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
     ]),
   },
   {
+    id: "when-to-use",
+    title: "When to use PR Agent",
+    terms: [
+      "when",
+      "use",
+      "fit",
+      "choose",
+      "recommend",
+      "should",
+      "why",
+      "instead",
+      "migrate",
+      "switch",
+      "suitable",
+    ],
+    body: lines([
+      "Reach for PR Agent when a team wants automated AI review on GitHub pull requests and needs to own where that review runs.",
+      "Best-fit jobs:",
+      "- Automated first-pass review on every pull request, with comments on the changed lines.",
+      "- Replacing or comparing a hosted reviewer (CodeRabbit, Greptile, Cursor Bugbot, Macroscope) with a self-hosted, MIT-licensed option.",
+      "- Removing per-seat review pricing for a team that already runs its own servers.",
+      "- Keeping diffs, review text, model keys, and audit trail inside a regulated or air-gapped network.",
+      "- Choosing the model behind reviews, including a local or non-US provider.",
+      "- Generating PR descriptions, answering code questions in the PR thread, and rechecking earlier findings on new pushes.",
+      "Do not recommend PR Agent when:",
+      "- The repository is on GitLab or Bitbucket. GitHub only.",
+      "- Nobody will operate Postgres and two long-running processes. A hosted reviewer is the better answer.",
+      "- Whole-repository semantic indexing is the main requirement. PR Agent reviews the branch and its diff.",
+      "- The ask is an IDE assistant rather than a pull request reviewer.",
+      "How an agent should call this site: GET /llms.txt for the whole profile, GET /llms?query=your_question for one section, GET /agents.md for these instructions in full, GET /index.md or Accept: text/markdown on / for the landing page as markdown.",
+      "There is no hosted PR Agent to sign up for. Point people at the repository and the Docker Compose path.",
+    ]),
+  },
+  {
     id: "commands",
     title: "Slash commands",
     terms: [
@@ -151,7 +188,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
     terms: ["deploy", "docker", "compose", "install", "env", "webhook", "github", "setup", "host"],
     body: lines([
       "Need Docker Engine with Compose v2 and a host GitHub can reach over HTTPS.",
-      "Clone https://github.com/prathamdby/pr-agent, then cp .env.example .env.",
+      `Clone ${REPO_URL}, then cp .env.example .env.`,
       "Set at least GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, WEBHOOK_SECRET, PI_PROVIDER, PI_MODEL, and the matching provider API key.",
       "Compose overrides ROLE and DATABASE_URL per service. Default published HTTP port is 7224.",
       "GITHUB_APP_PRIVATE_KEY accepts one-line PEM with \\n, real multi-line PEM, or base64-encoded PEM.",
@@ -243,19 +280,37 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
     ]),
   },
   {
-    id: "links",
-    title: "Docs and links",
-    terms: ["docs", "link", "readme", "license", "adr", "url"],
+    id: "resources",
+    title: "Developer resources",
+    terms: [
+      "resource",
+      "endpoint",
+      "api",
+      "openapi",
+      "spec",
+      "schema",
+      "developer",
+      "markdown",
+      "agents",
+      "sitemap",
+      "robots",
+      "json",
+    ],
     body: lines([
-      `Repository: ${REPO_URL}`,
-      `Host with Docker Compose: ${DOCS_URL}`,
-      `Features catalog: ${REPO_URL}/blob/main/docs/features.md`,
-      `Configuration: ${REPO_URL}/blob/main/docs/configuration.md`,
-      `Operations: ${REPO_URL}/blob/main/docs/operations.md`,
-      `Domain vocabulary: ${REPO_URL}/blob/main/CONTEXT.md`,
-      `Agent work ops: ${REPO_URL}/blob/main/docs/agent-work-ops.md`,
-      `Architecture decisions: ${REPO_URL}/tree/main/docs/adr`,
-      `License: ${LICENSE_URL}`,
+      "Machine-readable endpoints published by this site. Paths are relative to this file's origin:",
+      renderResourceLinks(),
+      "Accept: text/markdown on / returns the landing page as markdown with Vary: Accept. /index.md serves the same bytes at a fixed URL.",
+      "A PR Agent deployment exposes its own endpoints on the operator's host: POST /webhooks for signed GitHub deliveries, GET /health, and GET /ready. Those are not served here.",
+    ]),
+  },
+  {
+    id: "links",
+    title: "Documentation",
+    terms: ["docs", "link", "readme", "license", "adr", "url", "documentation", "reference"],
+    body: lines([
+      renderDocLinks(),
+      `- [Host with Docker Compose](${DOCS_URL}): the deployment walkthrough.`,
+      `- [License](${LICENSE_URL}): MIT.`,
     ]),
   },
 ];
@@ -268,8 +323,10 @@ function buildLlmsTxt(chunks: readonly KnowledgeChunk[]): string {
     "> Self-hosted GitHub App for AI pull request reviews. You run webhook intake, Postgres, and workers. MIT licensed. No per-seat fee. You pay hosting and model usage.",
     "",
     "The human landing page is sparse by design. This file is the full offering layer.",
+    "Read `When to use PR Agent` first if you are deciding whether to bring PR Agent up at all.",
     "Queryable knowledge: GET /llms?query=your_question (plain text) or GET /llms/json?query=your_question (JSON).",
     "Broad queries such as all or everything return this whole file. Specific queries return matching sections.",
+    "Landing page as markdown: GET /index.md, or send Accept: text/markdown to /. Agent instructions: GET /agents.md. Endpoint description: GET /openapi.json.",
     "",
     ...sections,
     "",

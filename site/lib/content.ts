@@ -5,6 +5,14 @@ type FeatureItem = {
   summary: string;
 };
 
+/** Screen-reader H1. Leads with the product name so brand queries have something to match. */
+export const HERO_HEADING = "PR Agent: AI PR reviews on your own servers";
+
+export const HERO_SUPPORT =
+  "Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model keys, your code never leaves.";
+
+export const HERO_CTA_NOTE = "MIT licensed. Hosting and AI usage on you.";
+
 export const FEATURES: FeatureItem[] = [
   {
     title: "Deploy once on servers you control",
@@ -197,3 +205,70 @@ export const ALTERNATIVE_ROWS: AlternativeRow[] = [
     differentiator: "Hosted GitHub PR review with a managed pipeline.",
   },
 ];
+
+export const QUICKSTART_HEADING = "Deploy it with Docker Compose";
+
+export const QUICKSTART_INTRO =
+  "Three steps from an empty machine to a review on a real pull request. You need Docker, a GitHub app, and one AI provider key.";
+
+type QuickstartStep = {
+  n: string;
+  title: string;
+  body: string;
+};
+
+export const QUICKSTART_STEPS: readonly [QuickstartStep, QuickstartStep, QuickstartStep] = [
+  {
+    n: "01",
+    title: "Create a GitHub app",
+    body: "Register the app on your account or org, then point GitHub at the host where you will run PR Agent.",
+  },
+  {
+    n: "02",
+    title: "Fill .env and start the stack",
+    body: "Copy the example env, drop in your GitHub app values and provider key, then start PR Agent with Compose.",
+  },
+  {
+    n: "03",
+    title: "Open a PR and talk to it",
+    body: "Install the app on a repo, open a pull request, and wait for the automatic pass. Or type a command in the conversation when you want more.",
+  },
+];
+
+export const APP_FIELDS = [
+  {
+    label: "Webhook URL",
+    value: "https://<host>/webhooks",
+    mono: true,
+  },
+  {
+    label: "Subscribe to",
+    value: "Pull requests · Issue comments · Pull request review comments",
+    mono: false,
+  },
+  {
+    label: "Permissions",
+    value: "Issues and Pull requests: read/write · Contents: read/write · Metadata: read",
+    mono: false,
+  },
+] as const;
+
+export const SLASH_COMMANDS = [
+  { cmd: "/review", tip: "Run a full review on the changes" },
+  { cmd: "/describe", tip: "Write a readable summary into the PR body" },
+  { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
+  { cmd: "/triage", tip: "Recheck earlier findings and fix valid ones" },
+] as const;
+
+export const COMPOSE_SNIPPET = `cp .env.example .env
+# Fill GITHUB_*, WEBHOOK_SECRET, and your provider key
+docker compose build
+docker compose up`;
+
+export const ENV_SNIPPET = `DATABASE_URL=postgres://...
+GITHUB_APP_ID=...
+GITHUB_APP_PRIVATE_KEY=...
+WEBHOOK_SECRET=...
+PI_PROVIDER=openai
+PI_MODEL=gpt-4o-mini
+OPENAI_API_KEY=sk-...`;
