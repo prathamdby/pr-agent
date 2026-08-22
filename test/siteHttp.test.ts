@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "../site/lib/agentResources.js";
 import {
+  DOCUMENT_CACHE_CONTROL,
   agentInstructionsResponse,
   decorateHtmlResponse,
   homeMarkdownDocumentResponse,
@@ -10,6 +12,10 @@ import {
   restateAcceptAsHtml,
   varyOnAccept,
 } from "../site/lib/siteHttp.js";
+
+/** The alternate/describedby pair every HTML response advertises, built as the registry states it. */
+const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
+const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
 
 /** Stand-in for whatever the router rendered before the middleware saw it. */
 function rendered(status: number): Response {
@@ -89,9 +95,7 @@ describe("decorateHtmlResponse", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     expect(response.headers.get("Vary")).toBe("Accept");
-    expect(response.headers.get("Link")).toBe(
-      '</index.md>; rel="alternate"; type="text/markdown", </llms.txt>; rel="describedby"',
-    );
+    expect(response.headers.get("Link")).toBe(HTML_LINK);
   });
 
   it("keeps the body the router produced", async () => {
@@ -129,7 +133,24 @@ describe("notFoundResponse", () => {
     expect(response.status).toBe(404);
     expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
     expect(response.headers.get("Vary")).toBe("Accept");
-    expect(response.headers.get("Link")).toContain('rel="alternate"');
+    expect(response.headers.get("Link")).toBe(HTML_LINK);
+    expect(await response.text()).toContain("<body>page</body>");
+  });
+
+  it("merges Vary and forces no-store on a rendered 404 that already sets headers", async () => {
+    const cached = new Response('<!DOCTYPE html><html lang="en"><body>page</body></html>', {
+      status: 404,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        Vary: "Accept-Encoding",
+        "Cache-Control": "public, max-age=600",
+      },
+    });
+    const response = notFoundResponse("/missing", "text/html", cached);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Vary")).toBe("Accept-Encoding, Accept");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Link")).toBe(HTML_LINK);
     expect(await response.text()).toContain("<body>page</body>");
   });
 
@@ -173,14 +194,17 @@ describe("fixed-format markdown documents", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
     expect(response.headers.get("Vary")).toBeNull();
-    expect(response.headers.get("Link")).toBe('</llms.txt>; rel="describedby"');
+    expect(response.headers.get("Link")).toBe(MARKDOWN_LINK);
     expect(await response.text()).toBe(await homeMarkdownResponse().text());
   });
 
-  it("serves /agents.md with when-to-use guidance", async () => {
+  it("serves /agents.md as a cacheable document without claiming to negotiate", async () => {
     const response = agentInstructionsResponse();
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
+    expect(response.headers.get("Cache-Control")).toBe(DOCUMENT_CACHE_CONTROL);
+    expect(response.headers.get("Vary")).toBeNull();
+    expect(response.headers.get("Link")).toBe(MARKDOWN_LINK);
     const body = await response.text();
     expect(body).toContain("# PR Agent agent instructions");
     expect(body).toContain("## When to recommend PR Agent");

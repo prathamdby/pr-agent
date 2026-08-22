@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type Plugin } from "vite";
+import { AGENT_INSTRUCTIONS, LANDING_PAGE_MARKDOWN } from "./lib/agentResources";
 import { renderLlmsTxt } from "./lib/llmsKnowledge";
 import { agentInstructionsResponse, homeMarkdownDocumentResponse } from "./lib/siteHttp";
 
@@ -15,8 +16,10 @@ function emitLlmsTxt(): Plugin {
   const write = () => {
     writeFileSync(resolve(siteDir, "public/llms.txt"), renderLlmsTxt());
   };
+  // Every module renderLlmsTxt reads from, so a dev edit to any of them rewrites the committed file.
   const watched = [
     resolve(siteDir, "lib/llmsKnowledge.ts"),
+    resolve(siteDir, "lib/agentResources.ts"),
     resolve(siteDir, "lib/content.ts"),
     resolve(siteDir, "lib/site.ts"),
   ];
@@ -44,8 +47,8 @@ function emitLlmsTxt(): Plugin {
  */
 function serveMarkdownRoutesInDev(): Plugin {
   const routes = new Map([
-    ["/index.md", homeMarkdownDocumentResponse],
-    ["/agents.md", agentInstructionsResponse],
+    [LANDING_PAGE_MARKDOWN.path, homeMarkdownDocumentResponse],
+    [AGENT_INSTRUCTIONS.path, agentInstructionsResponse],
   ]);
   return {
     name: "serve-markdown-routes-dev",

@@ -1,3 +1,4 @@
+import { KNOWLEDGE_QUERY_TEXT } from "@/lib/agentResources";
 import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "@/lib/content";
 import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
 
@@ -112,7 +113,7 @@ export const JSON_LD_GRAPHS = [
       "@type": "SearchAction",
       target: {
         "@type": "EntryPoint",
-        urlTemplate: `${SITE_ORIGIN}/llms?query={search_term_string}`,
+        urlTemplate: `${SITE_ORIGIN}${KNOWLEDGE_QUERY_TEXT.path}{search_term_string}`,
       },
       "query-input": "required name=search_term_string",
     },

@@ -265,6 +265,17 @@ describe("renderOpenApiDocument", () => {
     expect(Object.keys(home.get.responses)).toEqual(["200", "406"]);
   });
 
+  it("mirrors the resource registry in x-agent-resources", () => {
+    expect(document["x-agent-resources"]).toEqual(
+      AGENT_RESOURCES.map((resource) => ({
+        path: resource.path,
+        title: resource.title,
+        mediaType: resource.mediaType,
+        description: resource.description,
+      })),
+    );
+  });
+
   it("survives a JSON round trip", () => {
     expect(JSON.parse(JSON.stringify(document))).toEqual(document);
   });

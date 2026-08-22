@@ -1,4 +1,5 @@
 import { negotiateType } from "./accept.js";
+import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "./agentResources.js";
 import {
   renderAgentInstructionsMarkdown,
   renderHomeMarkdown,
@@ -25,15 +26,20 @@ const RECOVERY_TYPES = [MARKDOWN_TYPE, HTML_TYPE] as const;
  * so clients keep revalidating while the CDN serves both negotiated variants from its edge.
  */
 const PAGE_CACHE_CONTROL = "public, max-age=0, s-maxage=600, stale-while-revalidate=86400";
-const DOCUMENT_CACHE_CONTROL = "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400";
+/** Fixed-format documents (`/agents.md`, `/openapi.json`): long edge cache, no negotiation. */
+export const DOCUMENT_CACHE_CONTROL =
+  "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400";
 const ERROR_CACHE_CONTROL = "no-store";
 
 const MARKDOWN_CONTENT_TYPE = `${MARKDOWN_TYPE}; charset=utf-8`;
 
-/** RFC 8288 links. `describedby` points at the llms.txt covering this path, per llmstxt.org. */
-const HTML_LINK =
-  '</index.md>; rel="alternate"; type="text/markdown", </llms.txt>; rel="describedby"';
-const MARKDOWN_LINK = '</llms.txt>; rel="describedby"';
+/**
+ * RFC 8288 links. `describedby` points at the llms.txt covering this path, per llmstxt.org.
+ * Targets come from the resource registry so the headers cannot drift from the sitemap, the
+ * OpenAPI description, or the markdown link lists.
+ */
+const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
+const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
 
 /** Add Accept to Vary without dropping whatever the framework already varies on. */
 export function varyOnAccept(headers: Headers): void {

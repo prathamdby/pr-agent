@@ -6,9 +6,6 @@ import {
   restateAcceptAsHtml,
 } from "@/lib/siteHttp";
 
-/** Paths that render the landing page, and so have a markdown representation to negotiate. */
-const HOME_PATHS = new Set(["/", "/index.html"]);
-
 /**
  * Accept negotiation for document responses.
  *
@@ -20,7 +17,8 @@ const contentNegotiation = createMiddleware({ type: "request" }).server(
   async ({ request, next }) => {
     const { pathname } = new URL(request.url);
     const accept = request.headers.get("Accept");
-    const isHome = HOME_PATHS.has(pathname);
+    // Only `/` renders the landing page, so only `/` has a markdown representation to negotiate.
+    const isHome = pathname === "/";
 
     if (isHome) {
       const negotiated = negotiateHomeRequest(accept);

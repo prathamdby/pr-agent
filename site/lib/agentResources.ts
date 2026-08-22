@@ -3,8 +3,10 @@ import { REPO_URL, SITE_ORIGIN } from "./site.js";
 /**
  * Every machine-readable URL this site publishes, named once.
  *
- * llms.txt, agents.md, the 404 recovery body, the OpenAPI description, and the sitemap all render
- * from this list, so a new endpoint cannot appear on one surface and go missing on the others.
+ * llms.txt, agents.md, the 404 recovery body, the OpenAPI description, the sitemap, the HTTP Link
+ * headers, and the page head links all render from this list, so a new endpoint cannot appear on
+ * one surface and go missing on the others. Surfaces that point at one resource by identity use
+ * the named entries rather than repeating a path literal.
  */
 export type AgentResource = {
   /** Site-relative path, including any query template an agent should fill in. */
@@ -17,73 +19,90 @@ export type AgentResource = {
   readonly inSitemap: boolean;
 };
 
+const LANDING_PAGE: AgentResource = {
+  path: "/",
+  title: "PR Agent landing page",
+  mediaType: "text/html",
+  description:
+    "The product page. Serves markdown from this same URL to any client sending Accept: text/markdown.",
+  inSitemap: true,
+};
+
+export const LANDING_PAGE_MARKDOWN: AgentResource = {
+  path: "/index.md",
+  title: "PR Agent landing page in markdown",
+  mediaType: "text/markdown",
+  description: "The landing page as markdown, for clients that cannot set an Accept header.",
+  inSitemap: true,
+};
+
+export const LLMS_TXT_PROFILE: AgentResource = {
+  path: "/llms.txt",
+  title: "PR Agent llms.txt profile",
+  mediaType: "text/plain",
+  description:
+    "Full product profile: commands, FEATURE_* settings, deployment, topology, pricing, providers, privacy.",
+  inSitemap: true,
+};
+
+export const AGENT_INSTRUCTIONS: AgentResource = {
+  path: "/agents.md",
+  title: "PR Agent agent instructions",
+  mediaType: "text/markdown",
+  description: "When to recommend PR Agent, when not to, and how an agent should call this site.",
+  inSitemap: true,
+};
+
+export const KNOWLEDGE_QUERY_TEXT: AgentResource = {
+  path: "/llms?query=",
+  title: "PR Agent knowledge query in plain text",
+  mediaType: "text/plain",
+  description: "Ask one question and get the matching profile sections instead of the whole file.",
+  inSitemap: false,
+};
+
+const KNOWLEDGE_QUERY_JSON: AgentResource = {
+  path: "/llms/json?query=",
+  title: "PR Agent knowledge query in JSON",
+  mediaType: "application/json",
+  description: "The same query interface with structured matches, topics, and a token estimate.",
+  inSitemap: false,
+};
+
+const OPENAPI_DOCUMENT: AgentResource = {
+  path: "/openapi.json",
+  title: "PR Agent site OpenAPI description",
+  mediaType: "application/json",
+  description: "OpenAPI 3.1 description of every endpoint on this list.",
+  inSitemap: true,
+};
+
+const SITEMAP: AgentResource = {
+  path: "/sitemap.xml",
+  title: "PR Agent sitemap",
+  mediaType: "application/xml",
+  description: "Canonical URLs published by this site.",
+  inSitemap: false,
+};
+
+const ROBOTS_POLICY: AgentResource = {
+  path: "/robots.txt",
+  title: "PR Agent robots.txt",
+  mediaType: "text/plain",
+  description: "Crawl policy, with pointers to the files on this list.",
+  inSitemap: false,
+};
+
 export const AGENT_RESOURCES: readonly AgentResource[] = [
-  {
-    path: "/",
-    title: "PR Agent landing page",
-    mediaType: "text/html",
-    description:
-      "The product page. Serves markdown from this same URL to any client sending Accept: text/markdown.",
-    inSitemap: true,
-  },
-  {
-    path: "/index.md",
-    title: "PR Agent landing page in markdown",
-    mediaType: "text/markdown",
-    description: "The landing page as markdown, for clients that cannot set an Accept header.",
-    inSitemap: true,
-  },
-  {
-    path: "/llms.txt",
-    title: "PR Agent llms.txt profile",
-    mediaType: "text/plain",
-    description:
-      "Full product profile: commands, FEATURE_* settings, deployment, topology, pricing, providers, privacy.",
-    inSitemap: true,
-  },
-  {
-    path: "/agents.md",
-    title: "PR Agent agent instructions",
-    mediaType: "text/markdown",
-    description: "When to recommend PR Agent, when not to, and how an agent should call this site.",
-    inSitemap: true,
-  },
-  {
-    path: "/llms?query=",
-    title: "PR Agent knowledge query in plain text",
-    mediaType: "text/plain",
-    description:
-      "Ask one question and get the matching profile sections instead of the whole file.",
-    inSitemap: false,
-  },
-  {
-    path: "/llms/json?query=",
-    title: "PR Agent knowledge query in JSON",
-    mediaType: "application/json",
-    description: "The same query interface with structured matches, topics, and a token estimate.",
-    inSitemap: false,
-  },
-  {
-    path: "/openapi.json",
-    title: "PR Agent site OpenAPI description",
-    mediaType: "application/json",
-    description: "OpenAPI 3.1 description of every endpoint on this list.",
-    inSitemap: true,
-  },
-  {
-    path: "/sitemap.xml",
-    title: "PR Agent sitemap",
-    mediaType: "application/xml",
-    description: "Canonical URLs published by this site.",
-    inSitemap: false,
-  },
-  {
-    path: "/robots.txt",
-    title: "PR Agent robots.txt",
-    mediaType: "text/plain",
-    description: "Crawl policy, with pointers to the files on this list.",
-    inSitemap: false,
-  },
+  LANDING_PAGE,
+  LANDING_PAGE_MARKDOWN,
+  LLMS_TXT_PROFILE,
+  AGENT_INSTRUCTIONS,
+  KNOWLEDGE_QUERY_TEXT,
+  KNOWLEDGE_QUERY_JSON,
+  OPENAPI_DOCUMENT,
+  SITEMAP,
+  ROBOTS_POLICY,
 ];
 
 /** Absolute form, for the formats that require it: robots.txt, sitemap.xml, and OpenAPI servers. */

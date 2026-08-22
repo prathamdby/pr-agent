@@ -72,14 +72,30 @@ function matches(entry: AcceptEntry, candidate: string): boolean {
   return entry.type === candidate;
 }
 
-/** The most specific header entry covering `candidate`, or null when none does. */
+/**
+ * Rank two entries covering the same candidate. The more specific range speaks for it, per the
+ * RFC; between equally specific ranges the higher q wins, then the one the client listed first.
+ * The q tie-break matters for a duplicated range: `text/markdown;q=0, text/markdown;q=0.9` is a
+ * 0.9 ask, not a refusal.
+ */
+function coversBetter(entry: AcceptEntry, incumbent: AcceptEntry): boolean {
+  if (entry.specificity !== incumbent.specificity) {
+    return entry.specificity > incumbent.specificity;
+  }
+  if (entry.q !== incumbent.q) {
+    return entry.q > incumbent.q;
+  }
+  return entry.index < incumbent.index;
+}
+
+/** The header entry that speaks for `candidate`, or null when none covers it. */
 function bestEntryFor(entries: readonly AcceptEntry[], candidate: string): AcceptEntry | null {
   let best: AcceptEntry | null = null;
   for (const entry of entries) {
     if (!matches(entry, candidate)) {
       continue;
     }
-    if (best === null || entry.specificity > best.specificity) {
+    if (best === null || coversBetter(entry, best)) {
       best = entry;
     }
   }

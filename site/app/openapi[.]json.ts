@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { renderOpenApiDocument } from "@/lib/openapi";
+import { DOCUMENT_CACHE_CONTROL } from "@/lib/siteHttp";
 
 export const Route = createFileRoute("/openapi.json")({
   server: {
@@ -8,7 +9,7 @@ export const Route = createFileRoute("/openapi.json")({
         Response.json(renderOpenApiDocument(), {
           headers: {
             "Content-Type": "application/json; charset=utf-8",
-            "Cache-Control": "public, max-age=0, s-maxage=3600, stale-while-revalidate=86400",
+            "Cache-Control": DOCUMENT_CACHE_CONTROL,
             "X-Content-Type-Options": "nosniff",
           },
         }),

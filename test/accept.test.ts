@@ -87,6 +87,20 @@ describe("negotiateType", () => {
     expect(negotiateType("text/*;q=0.4, text/markdown;q=0.9", PAGE)).toBe(MD);
   });
 
+  it("scores each representation by its most specific range, then picks the highest q", () => {
+    // text/markdown;q=0.1 overrides text/*;q=0.9 for markdown alone, so HTML wins at 0.9.
+    expect(negotiateType("text/*;q=0.9, text/markdown;q=0.1", PAGE)).toBe(HTML);
+  });
+
+  it("lets the higher-q duplicate of a range speak for it", () => {
+    expect(negotiateType("text/markdown;q=0, text/markdown;q=0.9", PAGE)).toBe(MD);
+    expect(negotiateType("text/markdown;q=0.9, text/markdown;q=0", PAGE)).toBe(MD);
+  });
+
+  it("still refuses when every duplicate of the only representation is q=0", () => {
+    expect(negotiateType("text/markdown;q=0, text/markdown;q=0", [MD])).toBeNull();
+  });
+
   it("returns null when nothing the server produces is acceptable", () => {
     expect(negotiateType("application/pdf", PAGE)).toBeNull();
     expect(negotiateType("image/png, application/json;q=0.5", PAGE)).toBeNull();
