@@ -7,6 +7,7 @@ import {
   proseContractGuidance,
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
+  repoPolicyGuidance,
   specialistFindingsReportContract,
 } from "./reviewPromptBlocks.js";
 import {
@@ -60,6 +61,8 @@ export function buildAutomatedSystemPrompt(): string {
     priorInlineFeedbackGuidance,
     "",
     agentInstructionFilesGuidance,
+    "",
+    repoPolicyGuidance,
     "",
     "## Reporting gate",
     "### Report when at least one holds",

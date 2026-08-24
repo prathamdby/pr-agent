@@ -10,6 +10,7 @@ import {
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
+  repoPolicyGuidance,
   specialistFindingsReportContract,
 } from "../../review/prompts/reviewPromptBlocks.js";
 import { context7OutboundDataGuidance, githubToolingDiscipline } from "./toolingDiscipline.js";
@@ -87,6 +88,8 @@ export const automatedSecuritySystemPrompt = [
   priorInlineFeedbackGuidance,
   "",
   agentInstructionFilesGuidance,
+  "",
+  repoPolicyGuidance,
   "",
   "## Subtle auth-bypass patterns",
   "",

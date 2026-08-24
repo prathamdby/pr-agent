@@ -245,5 +245,17 @@ describe("isSameRepoPullRequest", () => {
     ).toBe(false);
     expect(isSameRepoPullRequest(undefined)).toBe(false);
     expect(isSameRepoPullRequest({})).toBe(false);
+    expect(
+      isSameRepoPullRequest({
+        head: { repo: { full_name: " " } },
+        base: { repo: { full_name: " " } },
+      }),
+    ).toBe(false);
+    expect(
+      isSameRepoPullRequest({
+        head: { repo: { full_name: "acme" } },
+        base: { repo: { full_name: "acme" } },
+      }),
+    ).toBe(false);
   });
 });

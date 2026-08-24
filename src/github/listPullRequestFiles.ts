@@ -35,7 +35,13 @@ export type PullRequestForFileList = {
   readonly additions: number;
   readonly deletions: number;
   readonly changed_files: number;
-  readonly head?: { readonly sha?: string | null } | null;
+  readonly head?: {
+    readonly sha?: string | null;
+    readonly repo?: { readonly full_name?: string | null } | null;
+  } | null;
+  readonly base?: {
+    readonly repo?: { readonly full_name?: string | null } | null;
+  } | null;
 };
 
 type PatchBudgetState = {

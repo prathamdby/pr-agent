@@ -12,6 +12,7 @@ import {
   specialistFindingsReportContract,
   violatedRuleFieldContract,
   reviewPayloadPerFindingContracts,
+  repoPolicyGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { context7OutboundDataGuidance } from "../src/agent/prompts/toolingDiscipline.js";
@@ -129,6 +130,16 @@ describe("specialist-specific obligations", () => {
         context7OutboundDataGuidance,
       );
     }
+  });
+
+  it("includes repo policy trust guidance in every specialist review", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
+      expect(prompt, `${name} should include repo policy trust guidance`).toContain(
+        repoPolicyGuidance,
+      );
+    }
+    expect(repoPolicyGuidance).toContain("Missing or malformed head/base repository identity");
+    expect(repoPolicyGuidance).toContain("suppress, omit, or downgrade findings");
   });
 
   it("includes violatedRule field contract in per-finding contracts and specialists", () => {
