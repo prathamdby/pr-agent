@@ -2,6 +2,8 @@ import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 import {
+  CHECK_RUNS_MAX_PAGES,
+  CHECK_RUNS_PAGE_SIZE,
   COMMENTS_PAGE_SIZE,
   COMMENT_PAGINATION_MAX_PAGES,
   REVIEW_SUMMARY_SENTINEL,
@@ -22,18 +24,37 @@ export async function findReviewCheckRunByName(
   repo: string,
   headSha: string,
   name: string,
+  externalId: string,
   expiresAtTs?: number,
 ): Promise<{ id: number; url: string | null } | null> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const { data } = await octokit.rest.checks.listForRef({
-    owner,
-    repo,
-    ref: headSha,
-    filter: "latest",
-    check_name: name,
+  let truncated = false;
+  const runs = await paginateOctokitPages({
+    perPage: CHECK_RUNS_PAGE_SIZE,
+    maxPages: CHECK_RUNS_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.checks.listForRef({
+        owner,
+        repo,
+        ref: headSha,
+        filter: "all",
+        check_name: name,
+        per_page: perPage,
+        page,
+      });
+      if (page >= CHECK_RUNS_MAX_PAGES && data.check_runs.length >= perPage) {
+        truncated = true;
+      }
+      return data.check_runs;
+    },
   });
-  const run = data.check_runs.find((check) => check.name === name && check.head_sha === headSha);
-  if (run == null) return null;
+  if (truncated) return null;
+  const matches = runs.filter(
+    (check) =>
+      check.name === name && check.head_sha === headSha && check.external_id === externalId,
+  );
+  if (matches.length !== 1) return null;
+  const run = matches[0];
   return { id: run.id, url: run.html_url ?? null };
 }
 

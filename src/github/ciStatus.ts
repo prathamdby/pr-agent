@@ -1,14 +1,13 @@
 import { isMissingActionsPermissionError } from "./actionsLogs.js";
 import { installationOctokit } from "./appAuth.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
+import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
 import type {
   CiCheckAnnotation,
   CiCheckRunSnapshot,
   CiLegacyStatus,
 } from "../review/ci/ciSummaryTypes.js";
 
-const CHECK_RUNS_PAGE_SIZE = 100;
-const CHECK_RUNS_MAX_PAGES = 5;
 const ANNOTATIONS_PAGE_SIZE = 50;
 const ANNOTATIONS_MAX_PAGES = 2;
 
@@ -43,6 +42,7 @@ export async function listCheckRunsForHead(
     .map((run) => ({
       id: run.id,
       name: run.name,
+      externalId: run.external_id ?? null,
       status: run.status,
       conclusion: run.conclusion ?? null,
       htmlUrl: run.html_url ?? null,

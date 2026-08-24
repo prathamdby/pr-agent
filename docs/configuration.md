@@ -174,7 +174,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ### Review output
 
-Review check runs are always on. The acknowledgement worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. Full-coverage runs complete with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes as `neutral`; the optional commit status reports `error`. Slash `/cancel`, close cancel, and worker-observed cancel complete the check as `cancelled` (idempotent if already finished). Checks require GitHub App read/write permission and soft-fail when that permission is missing.
+Review check runs are always on. The acknowledgement worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. A remote run belongs to `(owner, repo, head SHA, name, external ID)`, where the external ID is the requesting work-item ID. Duplicate recovery adopts a run only when the provider returns exactly one run with that full identity. Full-coverage runs complete with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes as `neutral`; the optional commit status reports `error`. Slash `/cancel`, close cancel, and worker-observed cancel complete the check as `cancelled` (idempotent if already finished). Checks require GitHub App read/write permission and soft-fail when that permission is missing.
 
 Operators using branch protection must replace required checks named `PR Agent Security Review`, `PR Agent Quality Review`, or `PR Agent Tests Review` with `PR Agent Review`. New runs no longer create the three old check names.
 
@@ -366,6 +366,8 @@ Writing policy is computed once per description run from workspace size stats (`
 | `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000                                             |
 | `COMMENTS_PAGE_SIZE`                      | 100                                              |
 | `COMMENT_PAGINATION_MAX_PAGES`            | 20                                               |
+| `CHECK_RUNS_PAGE_SIZE`                    | 100                                              |
+| `CHECK_RUNS_MAX_PAGES`                    | 5                                                |
 | `PR_COMMITS_PAGE_SIZE`                    | 100                                              |
 | `PR_COMMITS_MAX_PAGES`                    | 20                                               |
 | `GITHUB_REACTION_EYES`                    | eyes                                             |

@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
-import { httpStatus } from "../github/httpStatus.js";
+import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
 import type { PrSurface } from "../github/prSurface.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
 import { checkRunFindingsSummary } from "../github/statusCopy.js";
@@ -110,6 +110,7 @@ async function reserveReviewCheckRunSlot(
       status: "starting",
       headSha: params.headSha,
       name,
+      externalId: params.workItemId,
     },
   });
   if (reserved) return { kind: "reserved" };
@@ -151,6 +152,7 @@ async function recoverStaleReservationOrWaitForPeer(
       status: "starting",
       headSha: params.headSha,
       name,
+      externalId: params.workItemId,
       recoveredStaleReservation: true,
     },
   });
@@ -171,16 +173,15 @@ async function createGithubCheckRunOnSurface(
       "PR Agent review is in progress.",
     );
   } catch (createError) {
-    // Duplicate-name 422 recovery lives in prSurfaceImpl.startReviewCheck.
+    // Proven duplicate recovery lives in prSurfaceImpl.startReviewCheck.
     await releaseUnstartedReviewCheckRunReservation(pool, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
     });
-    const event =
-      httpStatus(createError) === 422
-        ? "review_check_run_start_duplicate_unresolved"
-        : "review_check_run_start_failed";
+    const event = isDuplicateCheckRunCreationError(createError)
+      ? "review_check_run_start_duplicate_unresolved"
+      : "review_check_run_start_failed";
     logCheckRunWarning(event, createError, {
       owner: params.owner,
       repo: params.repo,
@@ -239,6 +240,7 @@ async function recordCreatedCheckRunOrCleanup(
         status: "in_progress",
         headSha: params.headSha,
         name,
+        externalId: params.workItemId,
         htmlUrl: check.url,
       },
     });
@@ -320,6 +322,7 @@ async function applyReviewCheckRunCompletion(
       githubId: checkRunId,
       detail: {
         status: "completed",
+        externalId: params.workItemId,
         conclusion: params.conclusion,
         completedAt,
         detailsUrl: params.detailsUrl,
@@ -355,13 +358,17 @@ export async function completeReviewCheckRun(
 async function findOpenReviewCheckRunId(
   prSurface: PrSurface,
   headSha: string,
+  externalId: string,
 ): Promise<number | null> {
   try {
     const status = await prSurface.getCiStatus(headSha);
-    const open = status.checkRuns.find(
-      (run) => run.name === reviewCheckRunName() && run.status === "in_progress",
+    const matches = status.checkRuns.filter(
+      (run) =>
+        run.name === reviewCheckRunName() &&
+        run.status === "in_progress" &&
+        run.externalId === externalId,
     );
-    return open?.id ?? null;
+    return matches.length === 1 ? (matches[0]?.id ?? null) : null;
   } catch (error) {
     logCheckRunWarning("review_check_run_cancel_lookup_failed", error, {
       headSha,
@@ -370,7 +377,7 @@ async function findOpenReviewCheckRunId(
   }
 }
 
-/** Finish the review check as `cancelled`; recovers an open check on headSha when the id is late. */
+/** Finish the review check as `cancelled`; recovers only one exact remote identity. */
 export async function cancelReviewCheckRun(
   pool: Pool,
   params: {
@@ -389,7 +396,11 @@ export async function cancelReviewCheckRun(
   let checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   // Queued reviews keep DEFERRED_HEAD_SHA; only recover open checks for real SHAs.
   if (checkRunId == null && params.headSha && params.headSha !== DEFERRED_HEAD_SHA) {
-    checkRunId = await findOpenReviewCheckRunId(params.prSurface, params.headSha);
+    checkRunId = await findOpenReviewCheckRunId(
+      params.prSurface,
+      params.headSha,
+      params.workItemId,
+    );
   }
   if (checkRunId == null) return false;
   return applyReviewCheckRunCompletion(

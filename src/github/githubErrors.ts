@@ -1,5 +1,46 @@
 import { httpStatus } from "./httpStatus.js";
 
+type RecordLike = Record<string, unknown>;
+
+function isRecord(value: unknown): value is RecordLike {
+  return typeof value === "object" && value !== null;
+}
+
+function validationErrors(error: unknown): readonly RecordLike[] {
+  if (!isRecord(error)) return [];
+
+  const response = isRecord(error.response) ? error.response : undefined;
+  const responseData =
+    response !== undefined && isRecord(response.data) ? response.data : undefined;
+  const data = responseData ?? (isRecord(error.data) ? error.data : error);
+  const errors = data.errors;
+  if (!Array.isArray(errors)) return [];
+  return errors.filter(isRecord);
+}
+
+/**
+ * Check-run creation recovery is safe only for a structured duplicate signal.
+ * A bare 422 is a generic validation failure and must remain unresolved.
+ */
+export function isDuplicateCheckRunCreationError(error: unknown): boolean {
+  if (httpStatus(error) !== 422) return false;
+
+  return validationErrors(error).some((validationError) => {
+    const resource = validationError.resource;
+    if (resource !== undefined && resource !== "CheckRun") return false;
+
+    if (validationError.code === "already_exists" || validationError.code === "duplicate") {
+      return true;
+    }
+
+    return (
+      validationError.code === "custom" &&
+      typeof validationError.message === "string" &&
+      /\b(?:already exists|duplicate)\b/i.test(validationError.message)
+    );
+  });
+}
+
 export type GithubErrorKind =
   | "auth"
   | "forbidden"

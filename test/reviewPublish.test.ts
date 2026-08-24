@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import { COMMENTS_PAGE_SIZE } from "../src/settings/index.js";
+import { CHECK_RUNS_PAGE_SIZE, COMMENTS_PAGE_SIZE } from "../src/settings/index.js";
 import { syncReviewLabels } from "../src/review/run/reviewLabels.js";
 
 const {
@@ -295,15 +295,22 @@ describe("review check runs", () => {
     });
   });
 
-  it("finds an existing check run by name on the head sha", async () => {
+  it("finds an existing check run by exact name, head sha, and external id", async () => {
     listCheckRunsForRef.mockResolvedValueOnce({
       data: {
         check_runs: [
-          { id: 77, name: "Other", head_sha: "abc123", html_url: null },
+          {
+            id: 77,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            external_id: "other-work-item",
+            html_url: null,
+          },
           {
             id: 88,
             name: "PR Agent Review",
             head_sha: "abc123",
+            external_id: "wi-1",
             html_url: "https://github.com/o/r/runs/88",
           },
         ],
@@ -311,15 +318,108 @@ describe("review check runs", () => {
     });
 
     await expect(
-      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review"),
+      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
     ).resolves.toEqual({ id: 88, url: "https://github.com/o/r/runs/88" });
 
     expect(listCheckRunsForRef).toHaveBeenCalledWith({
       owner: "o",
       repo: "r",
       ref: "abc123",
-      filter: "latest",
+      filter: "all",
       check_name: "PR Agent Review",
+      per_page: CHECK_RUNS_PAGE_SIZE,
+      page: 1,
     });
+  });
+
+  it("paginates and ignores same-head runs owned by another work item", async () => {
+    const firstPage = Array.from({ length: CHECK_RUNS_PAGE_SIZE }, (_, index) => ({
+      id: index + 1,
+      name: "PR Agent Review",
+      head_sha: "abc123",
+      external_id: `other-${index}`,
+      html_url: null,
+    }));
+    listCheckRunsForRef.mockResolvedValueOnce({ data: { check_runs: firstPage } });
+    listCheckRunsForRef.mockResolvedValueOnce({
+      data: {
+        check_runs: [
+          {
+            id: 202,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            external_id: "wi-1",
+            html_url: "https://github.com/o/r/runs/202",
+          },
+          {
+            id: 203,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            external_id: "other-work-item",
+            html_url: null,
+          },
+        ],
+      },
+    });
+
+    await expect(
+      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
+    ).resolves.toEqual({ id: 202, url: "https://github.com/o/r/runs/202" });
+
+    expect(listCheckRunsForRef).toHaveBeenNthCalledWith(2, {
+      owner: "o",
+      repo: "r",
+      ref: "abc123",
+      filter: "all",
+      check_name: "PR Agent Review",
+      per_page: CHECK_RUNS_PAGE_SIZE,
+      page: 2,
+    });
+  });
+
+  it("leaves recovery unresolved when the provider returns multiple exact matches", async () => {
+    listCheckRunsForRef.mockResolvedValueOnce({
+      data: {
+        check_runs: [
+          {
+            id: 301,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            external_id: "wi-1",
+            html_url: null,
+          },
+          {
+            id: 302,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            external_id: "wi-1",
+            html_url: null,
+          },
+        ],
+      },
+    });
+
+    await expect(
+      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
+    ).resolves.toBeNull();
+  });
+
+  it("leaves recovery unresolved when the provider omits external id", async () => {
+    listCheckRunsForRef.mockResolvedValueOnce({
+      data: {
+        check_runs: [
+          {
+            id: 401,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            html_url: "https://github.com/o/r/runs/401",
+          },
+        ],
+      },
+    });
+
+    await expect(
+      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
+    ).resolves.toBeNull();
   });
 });

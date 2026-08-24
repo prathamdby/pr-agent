@@ -33,6 +33,8 @@ export type CiSummary = {
 export type CiCheckRunSnapshot = {
   readonly id: number;
   readonly name: string;
+  /** Provider identity for durable PR Agent check-run recovery, when returned. */
+  readonly externalId?: string | null;
   readonly status: string;
   readonly conclusion: string | null;
   readonly htmlUrl: string | null;
