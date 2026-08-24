@@ -216,6 +216,49 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await expect(countWorkItems()).resolves.toBe(0);
     await expect(boss.findJobs(ACK_QUEUE, {})).resolves.toHaveLength(0);
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", delivery),
+      ref,
+      "synchronize",
+      intakeLog(),
+      intakeCfg,
+    );
+
+    await expect(countWebhookRows(delivery)).resolves.toBe(1);
+    await expect(countWorkItems()).resolves.toBe(1);
+    await expect(boss.findJobs(ACK_QUEUE, {})).resolves.toHaveLength(1);
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+  });
+
+  it("dedupes the same body across delivery ids before creating more work", async () => {
+    const ref = makePrRef("body-replay");
+    const rawBody = Buffer.from(JSON.stringify({ action: "synchronize", replay: true }));
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      { ...headers("synchronize", "delivery-body-a"), rawBody },
+      ref,
+      "synchronize",
+      intakeLog(),
+      intakeCfg,
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      { ...headers("synchronize", "delivery-body-b"), rawBody },
+      ref,
+      "synchronize",
+      intakeLog(),
+      intakeCfg,
+    );
+
+    await expect(countWebhookRows()).resolves.toBe(1);
+    await expect(countWorkItems()).resolves.toBe(1);
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
   });
 
   it("supersede flow: second delivery supersedes the work item and enqueues a fresh job", async () => {

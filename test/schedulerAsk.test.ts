@@ -43,6 +43,9 @@ describe("makeAgentWorkScheduler /ask slash", () => {
 
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
@@ -84,6 +87,9 @@ describe("makeAgentWorkScheduler /ask slash", () => {
 
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
@@ -121,6 +127,9 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     const workItemInserts: unknown[][] = [];
     const client = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }

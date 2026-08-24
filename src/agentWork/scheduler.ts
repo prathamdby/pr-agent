@@ -53,7 +53,10 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Confi
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
       Effect.tryPromise({
-        try: () => recordIgnoredWebhook(pool, headers, decision, intakeLog),
+        try: () =>
+          inTransaction(pool, (client) =>
+            recordIgnoredWebhook(client, headers, decision, intakeLog),
+          ),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

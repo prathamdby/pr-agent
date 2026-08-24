@@ -31,6 +31,7 @@ const EXPECTED_MIGRATIONS = [
   "021_operation_intent_outcome_unknown.sql",
   "022_execution_epoch.sql",
   "023_pr_actor_leases.sql",
+  "024_webhook_replay_protection.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {

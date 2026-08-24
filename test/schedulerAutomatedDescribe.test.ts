@@ -36,6 +36,9 @@ function makePrRef() {
 function mockAutomatedClient() {
   return {
     query: vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-1" }] };
       }
@@ -97,19 +100,28 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const boss = makeBoss(sentQueues);
 
     // synchronize is no longer a review/description action by default, so intake records
-    // an ignored webhook via a direct pool insert (no transaction) instead of enqueuing work.
+    // an ignored webhook in a transaction instead of enqueuing work.
     // Verification is also disabled here to keep the test focused on review/description.
-    const pool = {
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes("INSERT INTO webhook_events")) {
-          return { rows: [{ id: "event-1" }] };
-        }
-        throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
-      }),
-    } as unknown as Pool;
-    const txSpy = vi.spyOn(postgres, "inTransaction").mockImplementation(async () => {
-      throw new Error("inTransaction should not run for a no-work synchronize intake");
+    const query = vi.fn(async (sql: string) => {
+      if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+        return { rows: [] };
+      }
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
+      if (sql.includes("INSERT INTO webhook_events")) {
+        return { rows: [{ id: "event-1" }] };
+      }
+      throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
     });
+    const pool = {
+      query,
+      connect: vi.fn(async () => ({ query, release: vi.fn() })),
+    } as unknown as Pool;
+    const txSpy = vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => {
+      return fn({ query } as unknown as PoolClient);
+    });
+    txSpy.mockClear();
 
     const scheduler = makeAgentWorkScheduler(pool, boss, {
       features: { ...intakeCfg.features, verification: "off" },
@@ -130,6 +142,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
       );
 
       // Review auto-triggers only on opened, so follow-up pushes schedule no work.
+      expect(txSpy).toHaveBeenCalledOnce();
       expect(sentQueues).not.toContain(REVIEW_QUEUE);
       expect(sentQueues).not.toContain(ACK_QUEUE);
       expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);

@@ -133,6 +133,9 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       throw new Error(`unexpected pool query: ${sql.slice(0, 120)}`);
     });
     const clientQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-merged" }] };
       }
@@ -206,6 +209,9 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
 
   it("cancels active reviews and enqueues cancelProgress ack when the PR is closed without merge", async () => {
     const clientQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-closed" }] };
       }
@@ -312,6 +318,9 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
 
   it("records the close cancel without queue interaction when no reviews are active", async () => {
     const clientQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-zero" }] };
       }

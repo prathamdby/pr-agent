@@ -28,21 +28,30 @@ function makePrRef() {
 
 function makePool() {
   const query = vi.fn(async (sql: string) => {
+    if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+      return { rows: [] };
+    }
+    if (sql.includes("INSERT INTO webhook_event_replays")) {
+      return { rows: [{ body_sha256: "hash" }] };
+    }
     if (sql.includes("INSERT INTO webhook_events")) {
       return { rows: [{ id: "event-1" }] };
     }
     throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
   });
+  const client = { query };
   return {
     pool: {
       query,
+      connect: vi.fn(async () => ({ query, release: vi.fn() })),
     } as unknown as Pool,
     query,
+    client,
   };
 }
 
 describe("makeAgentWorkScheduler ignored intake", () => {
-  it("records ignored events with a direct pool insert", async () => {
+  it("records ignored events in a transaction", async () => {
     const { pool, query } = makePool();
     const boss = { send: vi.fn() } as unknown as PgBoss;
     const txSpy = vi.spyOn(postgres, "inTransaction");
@@ -54,7 +63,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
         scheduler.recordIgnored(makeHeaders(), "ignored_event_ping", intakeLog),
       );
 
-      expect(txSpy).not.toHaveBeenCalled();
+      expect(txSpy).toHaveBeenCalledOnce();
       expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO webhook_events"), [
         expect.any(String),
         "delivery:d-ping",
@@ -69,7 +78,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
     }
   });
 
-  it("records ignored pull request actions without a transaction", async () => {
+  it("records ignored pull request actions in a transaction", async () => {
     const { pool, query } = makePool();
     const boss = { send: vi.fn() } as unknown as PgBoss;
     const txSpy = vi.spyOn(postgres, "inTransaction");
@@ -86,7 +95,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
         ),
       );
 
-      expect(txSpy).not.toHaveBeenCalled();
+      expect(txSpy).toHaveBeenCalledOnce();
       expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO webhook_events"), [
         expect.any(String),
         "delivery:d-pull_request",

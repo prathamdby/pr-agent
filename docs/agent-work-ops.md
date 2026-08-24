@@ -15,6 +15,7 @@ Use SQL against Postgres:
 ```sql
 select status, type, count(*) from agent_work_items group by status, type order by status, type;
 select * from webhook_events order by received_at desc limit 20;
+select * from webhook_event_replays order by accepted_at desc limit 20;
 select * from publish_records order by updated_at desc limit 20;
 ```
 
@@ -24,7 +25,7 @@ Worker readiness is distinct from web probes: `GET /ready` on the worker process
 
 ## Retry and Recovery
 
-- If webhook intake cannot commit to Postgres, the web process returns `503`; redeliver from GitHub after Postgres is healthy. Identifier and schema parse failures return `422` and do not write `webhook_events` or work items; GitHub should not retry those payloads.
+- If webhook intake cannot commit to Postgres, the web process returns `503`; redeliver from GitHub after Postgres is healthy. Identifier and schema parse failures return `422` and do not write `webhook_events`, `webhook_event_replays`, or work items; GitHub should not retry those payloads. A verified and parsed ignored event records both durable dedupe decisions and consumes the bounded body-hash replay window.
 - If a review fails permanently, the worker upserts the review summary comment with a failure notice and records `agent_work_items.status = 'failed'`.
 - Review check-run recovery uses the exact remote identity `(owner, repo, head SHA, name, external ID)`, with the requesting work-item ID as `external ID`. The worker recovers only from a structured duplicate-creation error and adopts exactly one provider match. A missing external ID, mismatch, multiple matches, or unrelated validation error stays unresolved; the per-work-item `check_run` publish record is not reassigned.
 - Single-actor exclusion for review, description, triage, and verification lives on the `pr_actor_leases` table (one row per `(resource_key, work_type)`), not on pg-boss queue policies; all work queues use the `standard` policy. The worker acquires the lease before claiming the work item (a waiting item stays `queued`, so the progress comment's queue rank keeps its meaning), renews it on `PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS`, and releases it on completion, terminal failure, or retry handoff. Every blocked delivery — whether the holder is a different item or this item's own crashed execution — completes as a no-op after arming one throttled redelivery (`singletonKey` = work item, `singletonSeconds`/`startAfter`: `PR_ACTOR_LEASE_DEFER_SECONDS`), so the chain re-checks the lease every defer interval until it frees or lapses.
@@ -38,7 +39,7 @@ Worker readiness is distinct from web probes: `GET /ready` on the worker process
 - Verification uses `agent-work-verification` plus the `verification_thread_actions` publish record. It is read-only with no ack/progress/summary comment; a failed job leaves finding threads untouched and records `agent_work_items.status = 'failed'`.
 - Ask (`/ask` or `@bot` mention) uses `agent-work-ask`. One ask work item per `webhook_event_id` (partial unique index). Thread transcript load failures soft-degrade to question-only context.
 - CI-refresh uses `agent-work-ci-refresh` after a matching `workflow_run` or `check_suite` completed delivery. It edits only the CI cell on the matching review summary for that head SHA. A failed job leaves the prior CI cell unchanged; redelivery or a later completed run can retry.
-- Retention uses `agent-work-retention` on a pg-boss cron (`RETENTION_CRON`). It deletes aged `webhook_events`, terminal `agent_work_items`, optional `agent_events` (when `AGENT_EVENTS_RETENTION_SECONDS > 0`), and aged `code_index_snapshots` (cascades `code_index_chunks` via `CODE_INDEX_RETENTION_SECONDS`) in batches (`RETENTION_DELETE_BATCH_SIZE`). If the sweep fails, rows remain until the next successful cron tick; no PR-surface I/O is involved.
+- Retention uses `agent-work-retention` on a pg-boss cron (`RETENTION_CRON`). It deletes aged `webhook_events` and their `webhook_event_replays` body-hash rows, terminal `agent_work_items`, optional `agent_events` (when `AGENT_EVENTS_RETENTION_SECONDS > 0`), and aged `code_index_snapshots` (cascades `code_index_chunks` via `CODE_INDEX_RETENTION_SECONDS`) in batches (`RETENTION_DELETE_BATCH_SIZE`). If the sweep fails, rows remain until the next successful cron tick; no PR-surface I/O is involved.
 
 ## Local Development
 
