@@ -1,5 +1,6 @@
 import type { AcceptedPlacement, SpecialistId, SpecialistOutcome } from "../orchestratorTypes.js";
 import type { DescriptionWritingPolicy } from "../../../agent/description/descriptionWritingPolicy.js";
+import { wrapUntrustedEvidence } from "../../../agent/prompts/promptBlocks.js";
 import { formatOverviewWritingHardRule, reviewOverviewWritingGuidance } from "./overviewWriting.js";
 
 type ReportOutcome = Extract<SpecialistOutcome, { readonly kind: "report" }>;
@@ -30,7 +31,7 @@ export function renderJudgmentTurn(outcome: ReportOutcome): string {
     "Call `publish_thread` exactly once with every worthy remaining finding. One call with zero findings is valid when none survive judgment. Do not publish a summary in this turn.",
     "",
     "<specialist_report>",
-    JSON.stringify(outcome.report, null, 2),
+    wrapUntrustedEvidence("specialist_report", JSON.stringify(outcome.report, null, 2)),
     "</specialist_report>",
   ].join("\n");
 }
@@ -61,7 +62,7 @@ export function renderSynthesisTurn(params: {
     formatOverviewWritingHardRule(params.overviewPolicy),
     "",
     "<accepted_placements>",
-    JSON.stringify(params.acceptedFindings, null, 2),
+    wrapUntrustedEvidence("accepted_placements", JSON.stringify(params.acceptedFindings, null, 2)),
     "</accepted_placements>",
     "",
     "<partial_specialists>",
@@ -69,7 +70,7 @@ export function renderSynthesisTurn(params: {
     "</partial_specialists>",
     "",
     "<specialist_outcomes>",
-    JSON.stringify(params.outcomes, null, 2),
+    wrapUntrustedEvidence("specialist_outcomes", JSON.stringify(params.outcomes, null, 2)),
     "</specialist_outcomes>",
   ].join("\n");
 }

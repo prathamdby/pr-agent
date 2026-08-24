@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession } from "../src/agent/runtime/types.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
 
 type AttemptBehavior =
   | { readonly kind: "report"; readonly report: Record<string, unknown> }
@@ -151,6 +152,23 @@ describe("runSpecialist", () => {
       kind: "empty",
       specialist: "correctness",
       durationMs: expect.any(Number),
+    });
+  });
+
+  it("keeps the evidence gate authoritative over an otherwise valid report", async () => {
+    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+    const evidenceLedger = createTestEvidenceLedger();
+
+    await expect(
+      runSpecialist(
+        specialistArgs({
+          evidenceLedger,
+          headSha: evidenceLedger.headSha,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      kind: "empty",
+      specialist: "correctness",
     });
   });
 

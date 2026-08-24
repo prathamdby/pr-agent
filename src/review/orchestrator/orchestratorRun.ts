@@ -117,11 +117,9 @@ function initialState(): OrchestratedRunState {
 function fallbackBrief(params: OrchestratedReviewRunParams): SpecialistBrief {
   const files = params.workspace.changedFiles.map((file) => file.path);
   const riskFiles = files.slice(0, 12);
-  const body = params.prBody?.trim();
   return {
-    prIntent: [params.prTitle.trim(), body]
-      .filter((part) => part != null && part.length > 0)
-      .join("\n\n"),
+    prIntent:
+      "Reconnaissance did not produce a valid structured brief. Pull request metadata is provided separately as untrusted evidence.",
     architectureNotes: "Reconnaissance did not produce a valid structured brief.",
     riskAreas: riskFiles.map((file) => ({
       area: file.slice(0, 200),
@@ -886,8 +884,9 @@ export async function runOrchestratedPrReview(
       });
     }
 
-    const brief = briefTool.getBrief() ?? fallbackBrief(params);
-    if (briefTool.getBrief() == null) {
+    const submittedBrief = briefTool.getBrief();
+    const brief = submittedBrief ?? fallbackBrief(params);
+    if (submittedBrief == null) {
       state.briefFallback = true;
       logWarn("review_brief_fallback", {
         owner: params.owner,
@@ -908,7 +907,15 @@ export async function runOrchestratedPrReview(
           cfg: params.cfg,
           cwd: params.cwd ?? params.workspace.agentCwd,
           specialist,
-          briefMessage: renderBriefMessage(brief, specialist),
+          briefMessage: renderBriefMessage(
+            brief,
+            specialist,
+            submittedBrief == null
+              ? {
+                  pullRequestMetadata: { title: params.prTitle, body: params.prBody },
+                }
+              : undefined,
+          ),
           workspaceTools: setup.workspaceTools,
           timeoutMs: Math.max(
             0,
