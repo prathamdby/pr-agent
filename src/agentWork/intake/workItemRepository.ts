@@ -543,6 +543,7 @@ export async function cancelActiveReviews(
 export async function createAskWorkItem(
   client: PoolClient,
   params: {
+    workItemId?: string;
     webhookEventId: string;
     ref: PrRef;
     question: string;
@@ -553,7 +554,7 @@ export async function createAskWorkItem(
     ackTargets?: readonly AckTarget[];
   },
 ): Promise<ConflictAwareInsertResult> {
-  const id = crypto.randomUUID();
+  const id = params.workItemId ?? crypto.randomUUID();
   const payload = {
     question: params.question,
     replyTarget: params.replyTarget,

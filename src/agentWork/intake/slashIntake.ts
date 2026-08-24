@@ -18,6 +18,7 @@ import {
   type Features,
 } from "../../settings/index.js";
 import type { DeferredIntakeEvent } from "./deferredEvents.js";
+import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
 import {
   type AckJobData,
   type AckTarget,
@@ -84,6 +85,7 @@ type SlashIntakeContext = {
     kind: "ack";
   };
   readonly events: DeferredIntakeEvent[];
+  readonly askQuota: AskQuotaConfig;
 };
 
 async function enqueueSlashAck(
@@ -122,6 +124,7 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
       codeAnchor: ctx.input.codeAnchor,
       ackTargets: ctx.baseAck.targets,
       botLogin: ctx.input.botLogin,
+      askQuota: ctx.askQuota,
     },
     "skip",
   );
@@ -129,6 +132,17 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
   switch (outcome.kind) {
     case "hint_acked":
     case "already_exists_skipped":
+      return;
+    case "throttled":
+      ctx.events.push({
+        name: "agent_work_throttled",
+        fields: {
+          type: "ask",
+          source: "slash",
+          reason: outcome.reason,
+          ...ctx.correlation,
+        },
+      });
       return;
     case "promoted":
       ctx.events.push({
@@ -439,6 +453,7 @@ export async function applySlashCommandIntake(
   client: PoolClient,
   input: SlashCommandInput,
   features: Features,
+  askQuota: AskQuotaConfig = defaultAskQuotaConfig(),
 ): Promise<DeferredIntakeEvent[]> {
   const events: DeferredIntakeEvent[] = [];
   const command = input.command;
@@ -486,6 +501,7 @@ export async function applySlashCommandIntake(
       commenterId: input.commenterId,
     },
     events,
+    askQuota,
   };
 
   const handler = SLASH_INTAKE_HANDLERS[command];

@@ -41,6 +41,11 @@ describe("loadConfig validation", () => {
     expect(cfg.logLevel).toBe("info");
     expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
     expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    expect(cfg.askActorMaxOutstanding).toBe(2);
+    expect(cfg.askRepositoryMaxOutstanding).toBe(8);
+    expect(cfg.askInstallationMaxOutstanding).toBe(32);
+    expect(cfg.askProviderBudgetTokens).toBe(0);
+    expect(cfg.askProviderReservationTokens).toBe(16_384);
   });
 
   it("rejects a non-numeric positive knob", async () => {
@@ -58,6 +63,21 @@ describe("loadConfig validation", () => {
     await expect(load({ REVIEW_CONCURRENCY: "0" })).rejects.toThrow(
       /REVIEW_CONCURRENCY must be a positive number/,
     );
+  });
+
+  it("rejects invalid ask quota integers", async () => {
+    await expect(load({ ASK_ACTOR_MAX_OUTSTANDING: "1.5" })).rejects.toThrow(
+      /ASK_ACTOR_MAX_OUTSTANDING must be a positive integer/,
+    );
+    await expect(load({ ASK_PROVIDER_BUDGET_TOKENS: "-1" })).rejects.toThrow(
+      /ASK_PROVIDER_BUDGET_TOKENS must be zero or a non-negative integer/,
+    );
+  });
+
+  it("keeps provider reservations within an enabled budget", async () => {
+    await expect(
+      load({ ASK_PROVIDER_BUDGET_TOKENS: "100", ASK_PROVIDER_RESERVATION_TOKENS: "101" }),
+    ).rejects.toThrow(/ASK_PROVIDER_RESERVATION_TOKENS must not exceed ASK_PROVIDER_BUDGET_TOKENS/);
   });
 
   it("enforces the heartbeat floor", async () => {

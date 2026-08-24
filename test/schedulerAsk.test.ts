@@ -31,6 +31,29 @@ function makeSlashInput(body: string) {
   };
 }
 
+function askQuotaQuery(sql: string, params?: unknown[]) {
+  if (sql.includes("INSERT INTO ask_quota_buckets")) return { rows: [] };
+  if (sql.includes("FROM ask_quota_buckets") && sql.includes("FOR UPDATE")) {
+    return {
+      rows: [
+        {
+          scope: params?.[0],
+          scope_key: params?.[1],
+          token_balance: 100,
+          last_refill_at: new Date(),
+          outstanding_count: 0,
+          provider_tokens_used: 0,
+          provider_tokens_reserved: 0,
+          provider_window_started_at: new Date(),
+        },
+      ],
+    };
+  }
+  if (sql.includes("UPDATE ask_quota_buckets")) return { rows: [], rowCount: 1 };
+  if (sql.includes("INSERT INTO ask_quota_reservations")) return { rows: [], rowCount: 1 };
+  return undefined;
+}
+
 describe("makeAgentWorkScheduler /ask slash", () => {
   it("enqueues too-long hint ack without ask work", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
@@ -130,6 +153,8 @@ describe("makeAgentWorkScheduler /ask slash", () => {
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
+        const quotaResult = askQuotaQuery(sql, params);
+        if (quotaResult) return quotaResult;
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }

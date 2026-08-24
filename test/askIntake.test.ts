@@ -5,6 +5,7 @@ import { promoteAskFromWebhookEvent } from "../src/agentWork/intake/askIntake.js
 import { ACK_QUEUE, ASK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
 import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
 import { MAX_ASK_QUESTION_CHARS } from "../src/agent/ask/askSafety.js";
+import { defaultAskQuotaConfig } from "../src/agentWork/askQuota.js";
 
 function baseInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -22,8 +23,46 @@ function baseInput(overrides: Record<string, unknown> = {}) {
       { kind: "pr" as const, prNumber: 7 },
       { kind: "issueComment" as const, commentId: 101 },
     ],
+    askQuota: defaultAskQuotaConfig(),
     ...overrides,
   };
+}
+
+function askQuotaQuery(sql: string, params?: unknown[]) {
+  if (sql.includes("INSERT INTO ask_quota_buckets")) return { rows: [] };
+  if (sql.includes("FROM ask_quota_buckets") && sql.includes("FOR UPDATE")) {
+    return {
+      rows: [
+        {
+          scope: params?.[0],
+          scope_key: params?.[1],
+          token_balance: 100,
+          last_refill_at: new Date(),
+          outstanding_count: 0,
+          provider_tokens_used: 0,
+          provider_tokens_reserved: 0,
+          provider_window_started_at: new Date(),
+        },
+      ],
+    };
+  }
+  if (sql.includes("UPDATE ask_quota_buckets")) return { rows: [], rowCount: 1 };
+  if (sql.includes("INSERT INTO ask_quota_reservations")) return { rows: [], rowCount: 1 };
+  if (sql.includes("FROM ask_quota_reservations") && sql.includes("FOR UPDATE")) {
+    return {
+      rows: [
+        {
+          actor_scope_key: "actor:9:7",
+          repository_scope_key: "repository:9:acme/app",
+          installation_scope_key: "installation:9",
+          reserved_provider_tokens: 0,
+          released_at: null,
+        },
+      ],
+    };
+  }
+  if (sql.includes("UPDATE ask_quota_reservations")) return { rows: [], rowCount: 1 };
+  return undefined;
 }
 
 describe("promoteAskFromWebhookEvent", () => {
@@ -97,7 +136,9 @@ describe("promoteAskFromWebhookEvent", () => {
       send: vi.fn(async () => "jid"),
     } as unknown as PgBoss;
     const client = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        const quotaResult = askQuotaQuery(sql, params);
+        if (quotaResult) return quotaResult;
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id")) return { rows: [{ id: "ask-existing" }] };
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);
@@ -119,7 +160,9 @@ describe("promoteAskFromWebhookEvent", () => {
       }),
     } as unknown as PgBoss;
     const client = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        const quotaResult = askQuotaQuery(sql, params);
+        if (quotaResult) return quotaResult;
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id")) return { rows: [{ id: "ask-existing" }] };
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);
@@ -147,7 +190,9 @@ describe("promoteAskFromWebhookEvent", () => {
       }),
     } as unknown as PgBoss;
     const client = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        const quotaResult = askQuotaQuery(sql, params);
+        if (quotaResult) return quotaResult;
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "ask-new" }] };
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);
       }),
@@ -181,6 +226,8 @@ describe("promoteAskFromWebhookEvent", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string, values?: unknown[]) => {
+        const quotaResult = askQuotaQuery(sql, values);
+        if (quotaResult) return quotaResult;
         if (sql.includes("INSERT INTO agent_work_items")) {
           payloadJson = String(values?.[12] ?? "");
           return { rows: [{ id: "ask-redacted" }] };

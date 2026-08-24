@@ -17,6 +17,18 @@ import {
   type Features,
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_ASK_CONCURRENCY,
+  DEFAULT_ASK_ACTOR_BURST,
+  DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
+  DEFAULT_ASK_ACTOR_REFILL_SECONDS,
+  DEFAULT_ASK_INSTALLATION_BURST,
+  DEFAULT_ASK_INSTALLATION_MAX_OUTSTANDING,
+  DEFAULT_ASK_INSTALLATION_REFILL_SECONDS,
+  DEFAULT_ASK_PROVIDER_BUDGET_TOKENS,
+  DEFAULT_ASK_PROVIDER_BUDGET_WINDOW_SECONDS,
+  DEFAULT_ASK_PROVIDER_RESERVATION_TOKENS,
+  DEFAULT_ASK_REPOSITORY_BURST,
+  DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
+  DEFAULT_ASK_REPOSITORY_REFILL_SECONDS,
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_VERIFICATION_CONCURRENCY,
   DEFAULT_CONTEXT7_API_KEY,
@@ -112,6 +124,30 @@ function readNonNegativeNumber(name: string, defaultValue: number): number {
     throw new AppError({
       code: "config.invalid_number",
       message: `${name} must be zero or a positive number`,
+      context: { name },
+    });
+  }
+  return value;
+}
+
+function readPositiveInteger(name: string, defaultValue: number): number {
+  const value = Number(optionalEnv(name, String(defaultValue)));
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new AppError({
+      code: "config.invalid_number",
+      message: `${name} must be a positive integer`,
+      context: { name },
+    });
+  }
+  return value;
+}
+
+function readNonNegativeInteger(name: string, defaultValue: number): number {
+  const value = Number(optionalEnv(name, String(defaultValue)));
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new AppError({
+      code: "config.invalid_number",
+      message: `${name} must be zero or a non-negative integer`,
       context: { name },
     });
   }
@@ -345,6 +381,62 @@ export async function loadConfig() {
   );
   const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
   const askConcurrency = readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY);
+  const askActorMaxOutstanding = readPositiveInteger(
+    ENV.ASK_ACTOR_MAX_OUTSTANDING,
+    DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
+  );
+  const askRepositoryMaxOutstanding = readPositiveInteger(
+    ENV.ASK_REPOSITORY_MAX_OUTSTANDING,
+    DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
+  );
+  const askInstallationMaxOutstanding = readPositiveInteger(
+    ENV.ASK_INSTALLATION_MAX_OUTSTANDING,
+    DEFAULT_ASK_INSTALLATION_MAX_OUTSTANDING,
+  );
+  const askActorBurst = readPositiveInteger(ENV.ASK_ACTOR_BURST, DEFAULT_ASK_ACTOR_BURST);
+  const askRepositoryBurst = readPositiveInteger(
+    ENV.ASK_REPOSITORY_BURST,
+    DEFAULT_ASK_REPOSITORY_BURST,
+  );
+  const askInstallationBurst = readPositiveInteger(
+    ENV.ASK_INSTALLATION_BURST,
+    DEFAULT_ASK_INSTALLATION_BURST,
+  );
+  const askActorRefillSeconds = readPositiveNumber(
+    ENV.ASK_ACTOR_REFILL_SECONDS,
+    DEFAULT_ASK_ACTOR_REFILL_SECONDS,
+  );
+  const askRepositoryRefillSeconds = readPositiveNumber(
+    ENV.ASK_REPOSITORY_REFILL_SECONDS,
+    DEFAULT_ASK_REPOSITORY_REFILL_SECONDS,
+  );
+  const askInstallationRefillSeconds = readPositiveNumber(
+    ENV.ASK_INSTALLATION_REFILL_SECONDS,
+    DEFAULT_ASK_INSTALLATION_REFILL_SECONDS,
+  );
+  const askProviderBudgetTokens = readNonNegativeInteger(
+    ENV.ASK_PROVIDER_BUDGET_TOKENS,
+    DEFAULT_ASK_PROVIDER_BUDGET_TOKENS,
+  );
+  const askProviderBudgetWindowSeconds = readPositiveNumber(
+    ENV.ASK_PROVIDER_BUDGET_WINDOW_SECONDS,
+    DEFAULT_ASK_PROVIDER_BUDGET_WINDOW_SECONDS,
+  );
+  const askProviderReservationTokens = readPositiveInteger(
+    ENV.ASK_PROVIDER_RESERVATION_TOKENS,
+    DEFAULT_ASK_PROVIDER_RESERVATION_TOKENS,
+  );
+  if (askProviderBudgetTokens > 0 && askProviderReservationTokens > askProviderBudgetTokens) {
+    throw new AppError({
+      code: "config.invalid_number",
+      message: `${ENV.ASK_PROVIDER_RESERVATION_TOKENS} must not exceed ${ENV.ASK_PROVIDER_BUDGET_TOKENS} when the provider budget is enabled`,
+      context: {
+        name: ENV.ASK_PROVIDER_RESERVATION_TOKENS,
+        askProviderBudgetTokens,
+        askProviderReservationTokens,
+      },
+    });
+  }
   const ackConcurrency = readPositiveNumber(ENV.ACK_CONCURRENCY, DEFAULT_ACK_CONCURRENCY);
   const descriptionConcurrency = readPositiveNumber(
     ENV.DESCRIPTION_CONCURRENCY,
@@ -515,6 +607,18 @@ export async function loadConfig() {
     reviewSpecialistTimeoutMs,
     reviewConcurrency,
     askConcurrency,
+    askActorMaxOutstanding,
+    askRepositoryMaxOutstanding,
+    askInstallationMaxOutstanding,
+    askActorBurst,
+    askRepositoryBurst,
+    askInstallationBurst,
+    askActorRefillSeconds,
+    askRepositoryRefillSeconds,
+    askInstallationRefillSeconds,
+    askProviderBudgetTokens,
+    askProviderBudgetWindowSeconds,
+    askProviderReservationTokens,
     ackConcurrency,
     descriptionConcurrency,
     triageConcurrency,
