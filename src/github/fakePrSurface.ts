@@ -205,6 +205,9 @@ function defaultPullRequest(headSha: string): PullRequestForFileList {
     additions: 0,
     deletions: 0,
     changed_files: 0,
+    state: "open",
+    merged: false,
+    merged_at: null,
     head: { sha: headSha },
   };
 }

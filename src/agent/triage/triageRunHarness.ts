@@ -36,6 +36,7 @@ export async function runTriageHarness(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly cwd?: string;
   readonly scope?: TriageScope;
+  readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
@@ -48,6 +49,7 @@ export async function runTriageHarness(params: {
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,
+    refreshBeforeTool: params.refreshBeforeTool,
     durability: params.durability,
   });
   let lastText = "";

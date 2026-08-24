@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   getCompletedPublishStepDetailWithoutNewerStep: vi.fn(),
   hasCompletedPublishStep: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
+  shouldSkipWork: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
@@ -67,6 +68,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
     mocks.getCompletedPublishStepDetailWithoutNewerStep,
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
   listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
+  shouldSkipWork: mocks.shouldSkipWork,
 }));
 
 import { executeTriageJob } from "../src/agentWork/executors/triageExecutor.js";
@@ -159,6 +161,7 @@ describe("executeTriageJob", () => {
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
+    mocks.shouldSkipWork.mockResolvedValue(false);
     durablePrSurfaceControls().setReviewCommentParentGraph([]);
     durablePrSurfaceControls().setGithubUser(42, {
       id: 42,
@@ -175,6 +178,69 @@ describe("executeTriageJob", () => {
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
     expect(mocks.publishTriage).toHaveBeenCalled();
+  });
+
+  it("passes durable cancellation and final PR-state guards through the seams", async () => {
+    await executeTriageJob(cfg, pool, boss, job());
+
+    const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0] as {
+      beforeCommit: () => Promise<void>;
+      beforePush: () => Promise<void>;
+    };
+    const triageParams = mocks.runFullPrTriage.mock.calls[0]?.[0] as {
+      refreshBeforeTool: (toolName: string) => Promise<void>;
+    };
+
+    await expect(checkoutParams.beforeCommit()).resolves.toBeUndefined();
+    await expect(checkoutParams.beforePush()).resolves.toBeUndefined();
+
+    durablePrSurfaceControls().setPullRequest({
+      additions: 0,
+      deletions: 0,
+      changed_files: 0,
+      state: "closed",
+      merged: false,
+      merged_at: null,
+      head: { sha: "a".repeat(40) },
+    });
+    await expect(checkoutParams.beforeCommit()).rejects.toMatchObject({
+      code: "triage.closed_pull_request",
+    });
+    await expect(checkoutParams.beforePush()).rejects.toMatchObject({
+      code: "triage.closed_pull_request",
+    });
+
+    mocks.shouldSkipWork.mockResolvedValue(true);
+    await expect(triageParams.refreshBeforeTool("commitFix")).rejects.toMatchObject({
+      code: "triage.cancelled",
+    });
+  });
+
+  it.each([
+    ["closed", false, null],
+    ["merged", true, "2026-01-01T00:00:00Z"],
+  ] as const)("blocks both write guards for a %s PR", async (_label, merged, mergedAt) => {
+    await executeTriageJob(cfg, pool, boss, job());
+    const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0] as {
+      beforeCommit: () => Promise<void>;
+      beforePush: () => Promise<void>;
+    };
+    durablePrSurfaceControls().setPullRequest({
+      additions: 0,
+      deletions: 0,
+      changed_files: 0,
+      state: "closed",
+      merged,
+      merged_at: mergedAt,
+      head: { sha: "a".repeat(40) },
+    });
+
+    await expect(checkoutParams.beforeCommit()).rejects.toMatchObject({
+      code: "triage.closed_pull_request",
+    });
+    await expect(checkoutParams.beforePush()).rejects.toMatchObject({
+      code: "triage.closed_pull_request",
+    });
   });
 
   it("passes human commit attribution when commenter resolves", async () => {

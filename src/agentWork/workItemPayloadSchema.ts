@@ -156,6 +156,13 @@ const TriageWorkPayloadSchema = v.looseObject({
   replyTarget: ReplyTargetSchema,
   publishDegraded: v.optional(v.boolean()),
   ackTargets: v.optional(v.array(AckTargetSchema)),
+  cancelAttribution: v.optional(
+    v.variant("kind", [
+      v.object({ kind: v.literal("user"), login: v.pipe(v.string(), v.minLength(1)) }),
+      v.object({ kind: v.literal("merged") }),
+      v.object({ kind: v.literal("closed") }),
+    ]),
+  ),
 });
 
 const VerificationWorkPayloadSchema = v.looseObject({

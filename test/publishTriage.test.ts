@@ -4,6 +4,7 @@ import {
   StaleHeadPushError,
   type WritablePrCheckout,
 } from "../src/prWorkspace/writablePrCheckout.js";
+import { TriageClosedPullRequestError } from "../src/agent/triage/triageErrors.js";
 
 import {
   publishTestPrSurface,
@@ -38,7 +39,11 @@ import {
   publishTriageReportOnly,
   type TriagePushOutcome,
 } from "../src/agent/triage/publishTriage.js";
-import { TRIAGE_STALE_HEAD_NOTICE, TRIAGE_SUMMARY_SENTINEL } from "../src/settings/index.js";
+import {
+  TRIAGE_CLOSED_PR_NOTICE,
+  TRIAGE_STALE_HEAD_NOTICE,
+  TRIAGE_SUMMARY_SENTINEL,
+} from "../src/settings/index.js";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 
 const thread = {
@@ -138,6 +143,51 @@ describe("publishTriage", () => {
     expect(resolveThreadIds(controls)).toHaveLength(0);
     expect(upsertProgressBody(controls)).toContain("head changed");
     expect(upsertProgressBody(controls)).toContain(TRIAGE_STALE_HEAD_NOTICE);
+  });
+
+  it("records a closed PR as terminal no-push and skips fixed-thread actions", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => {
+        throw new TriageClosedPullRequestError();
+      }),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef123456",
+            evidence: "fixed",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result).toEqual({ pushOutcome: "closed", missingThreadAction: false });
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(upsertProgressBody(controls)).toContain(TRIAGE_CLOSED_PR_NOTICE);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "triage_push",
+        detail: expect.objectContaining({ pushOutcome: "closed" }),
+      }),
+    );
   });
 
   it("replies and resolves a fixed thread after a successful push", async () => {

@@ -31,6 +31,7 @@ import type { CiRefreshJobData } from "../types.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
+  cancelActiveTriage,
   cancelActiveReviews,
   createDescriptionWorkItem,
   createReviewWorkItem,
@@ -220,10 +221,14 @@ async function applyReviewCloseCancelIntake(
   }
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   const attribution = reviewCancelAttributionForClosedPr(merged);
-  const cancelled = await cancelActiveReviews(client, resourceKey, attribution);
-  const cancelledWorkItemIds = cancelled.map((row) => row.id);
-  const primary = cancelled[0];
-  if (primary != null) {
+  const cancelledReviews = await cancelActiveReviews(client, resourceKey, attribution);
+  const cancelledTriage = await cancelActiveTriage(client, resourceKey, attribution, ref.prNumber);
+  const cancelledReviewWorkItemIds = cancelledReviews.map((row) => row.id);
+  const cancelledTriageWorkItemIds = cancelledTriage.map((row) => row.id);
+  const cancelledWorkItemIds = [...cancelledReviewWorkItemIds, ...cancelledTriageWorkItemIds];
+  const primaryReview = cancelledReviews[0];
+  const primaryTriage = cancelledTriage[0];
+  if (primaryReview != null || primaryTriage != null) {
     const correlation = jobCorrelation(event.id, headers);
     const ackData: AckJobData = {
       kind: "ack",
@@ -232,11 +237,26 @@ async function applyReviewCloseCancelIntake(
       repo: ref.repo,
       prNumber: ref.prNumber,
       targets: [],
-      cancelProgress: {
-        workItemId: primary.id,
-        cancelledWorkItemIds,
-        attribution,
-      },
+      ...(primaryReview != null
+        ? {
+            cancelProgress: {
+              workItemId: primaryReview.id,
+              cancelledWorkItemIds: cancelledReviewWorkItemIds,
+              attribution,
+            },
+          }
+        : {}),
+      ...(primaryTriage != null
+        ? {
+            cancelTriage: {
+              workItemId: primaryTriage.id,
+              cancelledWorkItemIds: cancelledTriageWorkItemIds,
+              attribution,
+              targets: primaryTriage.ackTargets,
+              replyTarget: primaryTriage.replyTarget,
+            },
+          }
+        : {}),
       ...correlation,
     };
     await enqueueAck(boss, client, ackData);
@@ -247,6 +267,9 @@ async function applyReviewCloseCancelIntake(
       resourceKey,
       cancelledCount: cancelledWorkItemIds.length,
       cancelledIds: cancelledWorkItemIds,
+      cancelledReviewCount: cancelledReviewWorkItemIds.length,
+      cancelledTriageCount: cancelledTriageWorkItemIds.length,
+      cancelledTriageIds: cancelledTriageWorkItemIds,
       prMerged: attribution.kind === "merged",
       ...jobCorrelation(event.id, headers),
     },

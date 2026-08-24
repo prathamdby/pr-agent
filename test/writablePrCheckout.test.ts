@@ -120,6 +120,43 @@ describe("writable PR checkout", () => {
   );
 
   it(
+    "runs final commit and push guards at the writable side-effect boundaries",
+    async () => {
+      const { root, remote, headSha } = await makeRemote();
+      const calls: string[] = [];
+      try {
+        await withWritablePrCheckout(
+          {
+            owner: "owner",
+            repo: "repo",
+            headRef: "main",
+            headSha,
+            installationToken: "unused",
+            botIdentity: { userId: 123, login: "pr-agent[bot]" },
+            remoteUrlOverride: remote,
+            beforeCommit: async () => {
+              calls.push("before-commit");
+            },
+            beforePush: async () => {
+              calls.push("before-push");
+            },
+          },
+          async (checkout) => {
+            await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
+            await checkout.commit({ files: ["src.txt"], subject: "fix: add missing line" });
+            await checkout.push();
+          },
+        );
+
+        expect(calls).toEqual(["before-commit", "before-push"]);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     "attributes human triggerer as author/committer with App Co-authored-by",
     async () => {
       const { root, remote, headSha } = await makeRemote();

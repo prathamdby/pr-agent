@@ -24,6 +24,7 @@ export async function runFullPrTriage(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly cwd?: string;
   readonly scope?: TriageScope;
+  readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
 }): Promise<TriageRunResult> {
   return runTriageHarness(params);
