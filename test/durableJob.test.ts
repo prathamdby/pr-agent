@@ -528,7 +528,7 @@ describe("runDurableWorkItem", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("invokes onCancelled when cancelled before execution", async () => {
+  it("does not invoke a leased cancellation hook before acquiring an epoch", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(true);
     const execute = vi.fn();
@@ -537,12 +537,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute, onCancelled });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(onCancelled).toHaveBeenCalledTimes(1);
-    expect(onCancelled).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "wi-1", installationId: 42 }),
-      expect.objectContaining({ owner: "o", repo: "r" }),
-      "skipped_before_claim",
-    );
+    expect(onCancelled).not.toHaveBeenCalled();
   });
 
   it("releases the lease and returns without executing when claim fails", async () => {
@@ -678,6 +673,7 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({ id: "wi-1" }),
       expect.objectContaining({ owner: "o", repo: "r" }),
       "head_update_rejected",
+      1,
     );
   });
 
@@ -772,6 +768,7 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({ id: "wi-1" }),
       expect.anything(),
       boom,
+      1,
     );
   });
 

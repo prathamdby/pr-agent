@@ -123,14 +123,25 @@ export async function claimSummaryCommentCreation(
   workItemId: string,
   resourceKey: string,
   reviewLens: AnyReviewLens,
+  leaseEpoch?: number | null,
 ): Promise<boolean> {
+  if (leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, workItemId, leaseEpoch);
+  }
   const result = await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
-     VALUES ($1, $2, $3, $4, 'summary_comment_claim', 'completed', '{}'::jsonb)
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
+     SELECT $1, $2, $3, $4, 'summary_comment_claim', 'completed', $5, '{}'::jsonb
+      WHERE $5::bigint IS NULL OR EXISTS (
+        SELECT 1 FROM pr_actor_leases
+         WHERE work_item_id = $2 AND lease_epoch = $5
+      )
 	     ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
      DO NOTHING`,
-    [crypto.randomUUID(), workItemId, resourceKey, reviewLens],
+    [crypto.randomUUID(), workItemId, resourceKey, reviewLens, leaseEpoch ?? null],
   );
+  if ((result.rowCount ?? 0) === 0 && leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, workItemId, leaseEpoch);
+  }
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -250,12 +261,20 @@ export async function reserveReviewCheckRun(
     workItemId: string;
     resourceKey: string;
     reviewLens: AnyReviewLens;
+    leaseEpoch?: number | null;
     detail?: Record<string, unknown>;
   },
 ): Promise<boolean> {
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
   const result = await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
-			 VALUES ($1, $2, $3, $4, 'check_run', 'pending', $5::jsonb)
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
+			 SELECT $1, $2, $3, $4, 'check_run', 'pending', $5, $6::jsonb
+			  WHERE $5::bigint IS NULL OR EXISTS (
+			    SELECT 1 FROM pr_actor_leases
+			     WHERE work_item_id = $2 AND lease_epoch = $5
+			  )
 			 ON CONFLICT (work_item_id, review_lens, step) WHERE step = 'check_run'
 			 DO NOTHING`,
     [
@@ -263,9 +282,13 @@ export async function reserveReviewCheckRun(
       params.workItemId,
       params.resourceKey,
       params.reviewLens,
+      params.leaseEpoch ?? null,
       JSON.stringify(params.detail ?? {}),
     ],
   );
+  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -276,27 +299,45 @@ export async function recordReviewCheckRun(
     resourceKey: string;
     reviewLens: AnyReviewLens;
     githubId: string | number;
+    leaseEpoch?: number | null;
     detail?: Record<string, unknown>;
   },
 ): Promise<void> {
-  await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
-			 VALUES ($1, $2, $3, $4, 'check_run', $5, 'completed', $6::jsonb)
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
+  const result = await pool.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
+         SELECT $1, $2, $3, $4, 'check_run', $5, 'completed', $6, $7::jsonb
+          WHERE $6::bigint IS NULL OR EXISTS (
+            SELECT 1 FROM pr_actor_leases
+             WHERE work_item_id = $2 AND lease_epoch = $6
+          )
 			 ON CONFLICT (work_item_id, review_lens, step) WHERE step = 'check_run'
 			 DO UPDATE SET resource_key = EXCLUDED.resource_key,
 			               github_id = EXCLUDED.github_id,
 			               status = 'completed',
-			               detail = publish_records.detail || EXCLUDED.detail,
-			               updated_at = now()`,
+			               lease_epoch = COALESCE(EXCLUDED.lease_epoch, publish_records.lease_epoch),
+               detail = publish_records.detail || EXCLUDED.detail,
+               updated_at = now()
+         WHERE EXCLUDED.lease_epoch IS NULL OR EXISTS (
+           SELECT 1 FROM pr_actor_leases
+            WHERE work_item_id = EXCLUDED.work_item_id
+              AND lease_epoch = EXCLUDED.lease_epoch
+         )`,
     [
       crypto.randomUUID(),
       params.workItemId,
       params.resourceKey,
       params.reviewLens,
       String(params.githubId),
+      params.leaseEpoch ?? null,
       JSON.stringify(params.detail ?? {}),
     ],
   );
+  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
 }
 
 export async function releaseUnstartedReviewCheckRunReservation(
@@ -305,17 +346,31 @@ export async function releaseUnstartedReviewCheckRunReservation(
     workItemId: string;
     resourceKey: string;
     reviewLens: AnyReviewLens;
+    leaseEpoch?: number | null;
     staleBefore?: Date;
   },
 ): Promise<boolean> {
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
   const values: unknown[] = [params.workItemId, params.resourceKey, params.reviewLens];
-  const staleClause =
-    params.staleBefore == null
+  const leaseParam =
+    params.leaseEpoch == null ? null : (values.push(params.leaseEpoch), values.length);
+  const staleParam =
+    params.staleBefore == null ? null : (values.push(params.staleBefore), values.length);
+  const staleClause = staleParam == null ? "" : `AND updated_at < $${staleParam}`;
+  const leaseClause =
+    leaseParam == null
       ? ""
-      : (() => {
-          values.push(params.staleBefore);
-          return `AND updated_at < $${values.length}`;
-        })();
+      : `AND EXISTS (
+           SELECT 1 FROM pr_actor_leases
+            WHERE work_item_id = $1 AND lease_epoch = $${leaseParam}
+         )
+         AND (
+           lease_epoch = $${leaseParam}
+           ${staleParam == null ? "" : `OR updated_at < $${staleParam}`}
+         )`;
+  const eligibilityClause = leaseParam == null ? staleClause : leaseClause;
   const result = await pool.query(
     `DELETE FROM publish_records
 		  WHERE work_item_id = $1
@@ -324,9 +379,12 @@ export async function releaseUnstartedReviewCheckRunReservation(
 		    AND step = 'check_run'
 		    AND status = 'pending'
 		    AND github_id IS NULL
-		    ${staleClause}`,
+    ${eligibilityClause}`,
     values,
   );
+  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -606,13 +664,18 @@ export async function recordPublishStep(
     params.step === "inline_review" && typeof params.detail?.batchId === "string"
       ? { batches: [params.detail] }
       : (params.detail ?? {});
-  await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
-				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
-			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
-			               github_id = EXCLUDED.github_id,
-			               status = 'completed',
+  const result = await pool.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
+         SELECT $1, $2, $3, $4, $5, $6, 'completed', $7, $8::jsonb
+          WHERE $7::bigint IS NULL OR EXISTS (
+            SELECT 1 FROM pr_actor_leases
+             WHERE work_item_id = $2 AND lease_epoch = $7
+          )
+					 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
+				 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
+				               github_id = EXCLUDED.github_id,
+				               status = 'completed',
+				               lease_epoch = COALESCE(EXCLUDED.lease_epoch, publish_records.lease_epoch),
 			               detail = CASE
 			                 WHEN EXCLUDED.step = 'inline_review'
 			                      AND jsonb_typeof(EXCLUDED.detail->'batches') = 'array'
@@ -634,9 +697,14 @@ export async function recordPublishStep(
 			                 THEN COALESCE(publish_records.detail, '{}'::jsonb) || EXCLUDED.detail
 			                 ELSE EXCLUDED.detail
 			               END,
-			               updated_at = now()
-			         WHERE publish_records.step <> 'progress_comment'
-			            OR publish_records.work_item_id = EXCLUDED.work_item_id`,
+				               updated_at = now()
+				         WHERE (publish_records.step <> 'progress_comment'
+				            OR publish_records.work_item_id = EXCLUDED.work_item_id)
+				           AND (EXCLUDED.lease_epoch IS NULL OR EXISTS (
+				             SELECT 1 FROM pr_actor_leases
+				              WHERE work_item_id = EXCLUDED.work_item_id
+				                AND lease_epoch = EXCLUDED.lease_epoch
+				           ))`,
     [
       crypto.randomUUID(),
       params.workItemId,
@@ -644,9 +712,13 @@ export async function recordPublishStep(
       params.reviewLens,
       params.step,
       params.githubId == null ? null : String(params.githubId),
+      params.leaseEpoch,
       JSON.stringify(detail),
     ],
   );
+  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
 }
 
 export async function recordAskPublishStep(
@@ -663,14 +735,19 @@ export async function recordAskPublishStep(
   if (params.leaseEpoch != null) {
     await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
   }
-  await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
-			 ON CONFLICT (work_item_id, review_lens, step) WHERE review_lens = 'ask'
-			 DO UPDATE SET resource_key = EXCLUDED.resource_key,
-			               github_id = EXCLUDED.github_id,
-			               status = 'completed',
-			               detail = EXCLUDED.detail,
+  const result = await pool.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
+         SELECT $1, $2, $3, $4, $5, $6, 'completed', $7, $8::jsonb
+          WHERE $7::bigint IS NULL OR EXISTS (
+            SELECT 1 FROM pr_actor_leases
+             WHERE work_item_id = $2 AND lease_epoch = $7
+          )
+				 ON CONFLICT (work_item_id, review_lens, step) WHERE review_lens = 'ask'
+				 DO UPDATE SET resource_key = EXCLUDED.resource_key,
+				               github_id = EXCLUDED.github_id,
+				               status = 'completed',
+				               lease_epoch = COALESCE(EXCLUDED.lease_epoch, publish_records.lease_epoch),
+				               detail = EXCLUDED.detail,
 			               updated_at = now()`,
     [
       crypto.randomUUID(),
@@ -679,7 +756,11 @@ export async function recordAskPublishStep(
       ASK_PUBLISH_LENS,
       params.step,
       params.githubId == null ? null : String(params.githubId),
+      params.leaseEpoch,
       JSON.stringify(params.detail ?? {}),
     ],
   );
+  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
 }

@@ -16,6 +16,10 @@ vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
   intentDetailMatchesPublishRecord: vi.fn(),
 }));
 
+vi.mock("../src/agentWork/prActorLease.js", () => ({
+  assertPrActorLeaseHeld: vi.fn(async () => undefined),
+}));
+
 import {
   mergeOperationIntentDetail,
   persistOperationIntent,
@@ -23,6 +27,7 @@ import {
 } from "../src/agentWork/operationIntentRepository.js";
 import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.js";
 import { withOperationIntent } from "../src/agentWork/withOperationIntent.js";
+import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
 
 const pool = {} as Pool;
 const baseParams = {
@@ -413,5 +418,39 @@ describe("withOperationIntent", () => {
       code: "operation_intent.publish_record_lookup_failed",
     });
     expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("blocks stale durable completion when cancellation arrives during the remote call", async () => {
+    const controller = new AbortController();
+    const mutate = vi.fn(async () => {
+      controller.abort(new AppError({ code: "agent_work.pr_actor_lease_lost", message: "lost" }));
+      return { reviewId: 7 };
+    });
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        signal: controller.signal,
+        mutate,
+      }),
+    ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
+  it("reasserts the lease epoch immediately before and after the mutation", async () => {
+    await withOperationIntent({
+      ...baseParams,
+      leaseEpoch: 9,
+      mutate: async () => "ok",
+    });
+
+    expect(assertPrActorLeaseHeld).toHaveBeenCalledTimes(4);
+    expect(assertPrActorLeaseHeld).toHaveBeenCalledWith(pool, "wi-1", 9);
+    expect(persistOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ leaseEpoch: 9 }),
+    );
   });
 });

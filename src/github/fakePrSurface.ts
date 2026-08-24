@@ -15,11 +15,13 @@ import type {
   CreatePrSurfaceParams,
   PrConversationComment,
   PrSurface,
+  PrSurfaceMutationBoundary,
   PullRequestBranchInfo,
   PushedCommitSummary,
   ReviewCommentParentNode,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
+import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
@@ -189,6 +191,7 @@ type FakePrSurfaceOptions = {
   readonly labels?: readonly string[];
   readonly credentialToken?: string;
   readonly rateLimitOpen?: boolean;
+  readonly mutationBoundary?: PrSurfaceMutationBoundary;
 };
 
 let nextCommentId = 1;
@@ -691,5 +694,11 @@ export function createFakePrSurface(
     },
   };
 
-  return { surface, controls };
+  return {
+    surface:
+      options?.mutationBoundary == null
+        ? surface
+        : withPrSurfaceMutationBoundary(surface, options.mutationBoundary),
+    controls,
+  };
 }

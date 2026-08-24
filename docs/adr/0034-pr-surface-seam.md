@@ -20,6 +20,14 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
 
 4. **Binding rule** — `.pr-agent/pr-surface-seam.mdc` mirrors the Pi session seam rule (`.pr-agent/pi-session-seam.mdc`).
 
+5. **Lease-aware mutation boundary** — leased durable executions inject a
+   `PrSurfaceMutationBoundary` into the factory. Every mutating `PrSurface`
+   method crosses that boundary; it persists an operation intent with the
+   current lease epoch, checks the cancellation signal and epoch immediately
+   before the external call, then reconciles the outcome. Read-only methods do
+   not cross the boundary so a replacement worker can recover evidence after a
+   stale execution is fenced. Unleased ask work keeps the ordinary surface.
+
 ADR 0002 decision 1 remains the historical record for the Effect webhook surface; worker-path PR I/O is governed by this ADR.
 
 ## Consequences
@@ -28,6 +36,10 @@ ADR 0002 decision 1 remains the historical record for the Effect webhook surface
 - Failure-path hooks (`onCancelled`, `onTerminalFailure`) take `PrSurface` instead of `InstallationToken`.
 - Outcome reactions use `prSurface.setAcknowledgementReaction` rather than free functions with tokens.
 - Tests outside `src/github/` mock `PrSurface`; Octokit unit tests stay under `src/github/` and `test/` modules that target github internals directly.
+- A stale leased worker cannot start a new PR mutation or advance its durable
+  intent/publish state after renewal loss. An outcome that becomes ambiguous
+  while the remote call is in flight remains recoverable through the durable
+  intent and publish-record ledgers.
 
 ## Reversal
 

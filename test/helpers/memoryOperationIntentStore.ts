@@ -9,6 +9,7 @@ type PersistParams = {
   readonly workItemId: string;
   readonly operationKey: string;
   readonly mutationKind: string;
+  readonly leaseEpoch?: number | null;
   readonly detail?: Record<string, unknown>;
 };
 
@@ -17,12 +18,14 @@ type ReconcileParams = {
   readonly operationKey: string;
   readonly status: Exclude<OperationIntentStatus, "pending">;
   readonly publishRecordId?: string | null;
+  readonly leaseEpoch?: number | null;
   readonly detail?: Record<string, unknown>;
 };
 
 type MergeDetailParams = {
   readonly workItemId: string;
   readonly operationKey: string;
+  readonly leaseEpoch?: number | null;
   readonly detail: Record<string, unknown>;
 };
 
@@ -33,6 +36,7 @@ type StoredIntent = {
   mutationKind: string;
   status: OperationIntentStatus;
   publishRecordId: string | null;
+  leaseEpoch: number | null;
   detail: Record<string, unknown>;
   createdAtMs: number;
   updatedAtMs: number;
@@ -50,6 +54,7 @@ function toRow(stored: StoredIntent): OperationIntentRow {
     mutationKind: stored.mutationKind,
     status: stored.status,
     publishRecordId: stored.publishRecordId,
+    leaseEpoch: stored.leaseEpoch,
     detail: { ...stored.detail },
   };
 }
@@ -108,6 +113,7 @@ export function createMemoryOperationIntentStore() {
       const key = rowKey(params.workItemId, params.operationKey);
       const existing = rows.get(key);
       if (existing) {
+        if (params.leaseEpoch != null) existing.leaseEpoch = params.leaseEpoch;
         existing.updatedAtMs = nextClock();
         return toRow(existing);
       }
@@ -119,6 +125,7 @@ export function createMemoryOperationIntentStore() {
         mutationKind: params.mutationKind,
         status: "pending",
         publishRecordId: null,
+        leaseEpoch: params.leaseEpoch ?? null,
         detail: { ...params.detail },
         createdAtMs: now,
         updatedAtMs: now,
@@ -139,6 +146,7 @@ export function createMemoryOperationIntentStore() {
       if (existing.status === "failed") {
         existing.status = "pending";
       }
+      if (params.leaseEpoch != null) existing.leaseEpoch = params.leaseEpoch;
       existing.detail = { ...existing.detail, ...params.detail };
       existing.updatedAtMs = nextClock();
       return toRow(existing);
@@ -159,6 +167,7 @@ export function createMemoryOperationIntentStore() {
       const key = rowKey(params.workItemId, params.operationKey);
       const existing = rows.get(key);
       if (!existing) return null;
+      if (params.leaseEpoch != null) existing.leaseEpoch = params.leaseEpoch;
       existing.status = params.status;
       if (params.publishRecordId !== undefined && params.publishRecordId !== null) {
         existing.publishRecordId = params.publishRecordId;

@@ -122,6 +122,25 @@ export type ReviewCommentParentNode = {
   readonly inReplyToId: number | null;
 };
 
+/**
+ * Stable metadata for one PR-surface mutation. The boundary stores this before
+ * invoking the external call and reconciles its result afterward.
+ */
+export type PrSurfaceMutation = {
+  readonly operationKey: string;
+  readonly mutationKind: string;
+  readonly detail?: Record<string, unknown>;
+};
+
+/**
+ * Durable executions inject this boundary into the PR surface. Read methods do
+ * not cross it, so recovery can still inspect GitHub after a lease is lost.
+ */
+export type PrSurfaceMutationBoundary = {
+  readonly signal: AbortSignal;
+  readonly run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => Promise<T>;
+};
+
 export type CreatePrSurfaceParams = {
   readonly cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">;
   readonly installationId: number;
@@ -131,6 +150,7 @@ export type CreatePrSurfaceParams = {
   /** Seed token when already minted (strictly fewer mint lookups). */
   readonly installation?: InstallationToken;
   readonly rateLimitCircuit?: RateLimitCircuit;
+  readonly mutationBoundary?: PrSurfaceMutationBoundary;
 };
 
 export type PrSurface = {

@@ -33,6 +33,7 @@ const EXPECTED_MIGRATIONS = [
   "023_pr_actor_leases.sql",
   "024_webhook_replay_protection.sql",
   "025_ask_quotas.sql",
+  "026_lease_fenced_side_effects.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
@@ -105,6 +106,23 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
           AND c.conname = 'operation_intents_status_check'`,
     );
     expect(rows[0]?.check_clause ?? "").toContain("outcome_unknown");
+  });
+
+  it("stores lease epochs on durable intent and publish rows", async () => {
+    const operationColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_name = 'operation_intents'
+          AND column_name = 'lease_epoch'`,
+    );
+    const publishColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_name = 'publish_records'
+          AND column_name = 'lease_epoch'`,
+    );
+    expect(operationColumns.rows).toHaveLength(1);
+    expect(publishColumns.rows).toHaveLength(1);
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {

@@ -268,8 +268,13 @@ flowchart LR
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)) verifies the signature, parses the payload, applies delivery-ID and body-hash replay protection in Postgres, and schedules work. It does not create installation tokens or post to the PR.
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)) admits asks through durable actor, repository, installation, outstanding-work, and provider-budget state, then inserts `agent_work_items` and enqueues pg-boss jobs.
 3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` or `check_suite` completes later.
+<<<<<<< HEAD
 4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep. One active run per PR per work type is enforced by the `pr_actor_leases` table ([ADR 0038](docs/adr/0038-pr-actor-lease.md)), not by queue policy, so a crashed worker's run is taken over once its lease lapses. Ask quota reservations release from terminal work-item transitions ([ADR 0039](docs/adr/0039-ask-admission-quotas.md)).
 5. **Feature executors** ([`src/agentWork/executors/`](src/agentWork/executors/)) create a GitHub installation token, open a local PR workspace (or a writable checkout for triage), run the agent, and publish.
+=======
+4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep. One active run per PR per work type is enforced by the `pr_actor_leases` table ([ADR 0038](docs/adr/0038-pr-actor-lease.md)), not by queue policy, so a crashed worker's run is taken over once its lease lapses.
+5. **Feature executors** ([`src/agentWork/executors/`](src/agentWork/executors/)) create a GitHub installation token, open a local PR workspace (or a writable checkout for triage), run the agent, and publish through the epoch- and cancellation-fenced `PrSurface` mutation boundary for leased work; ask remains unleased.
+>>>>>>> 27fee6e (fix: fence leased PR mutations)
 6. **Reviews** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)) inspect the PR, write a specialist brief, run four specialists in parallel, publish inline thread batches, then write the final summary.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Design background: [ADR 0009](docs/adr/0009-durable-agent-work.md), [ADR 0008](docs/adr/0008-ask-command.md).
