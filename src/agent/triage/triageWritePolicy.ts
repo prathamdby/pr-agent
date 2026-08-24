@@ -64,7 +64,7 @@ export const TRIAGE_SAFE_NEW_FILE_PATTERNS: readonly RegExp[] = [
 ];
 
 export function normalizeRepoRelativePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/^\.\//, "");
+  return path.replace(/\\/g, "/").replace(/^(?:\.\/)+/, "");
 }
 
 export function isTriageControlPath(path: string): boolean {

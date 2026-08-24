@@ -42,6 +42,15 @@ describe("triageWritePolicy", () => {
     expect(isTriageControlPath(path)).toBe(true);
   });
 
+  it.each([
+    ".\\.ENV",
+    "././.npmrc",
+    "config\\..\\.env.production",
+    ".GITHUB\\WORKFLOWS\\CI.YML",
+  ] as const)("denies normalized sensitive/control path variant %s", (path) => {
+    expect(isTriageControlPath(path)).toBe(true);
+  });
+
   it.each(["src/app.ts", "docs/guide.md", "test/foo.test.ts"] as const)(
     "allows non-control path %s",
     (path) => {
