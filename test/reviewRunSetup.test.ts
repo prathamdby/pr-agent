@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
 
 const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/review-run-setup",
@@ -53,5 +54,38 @@ describe("buildReviewRunSetup", () => {
     expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain("submitReview");
     expect(setup.orchestratorUserContent).not.toContain("submitReview");
     expect(setup.prSurface).toBe(prSurface);
+  });
+
+  it("exposes the shared Context7 policy through the review executor seam", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
+    const setup = buildReviewRunSetup({
+      cfg: makeTestConfig({ context7ApiKey: "" }),
+      prSurface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      workspace,
+    });
+
+    try {
+      await expect(
+        setup.workspaceTools.executors.resolveLibraryId?.({
+          libraryName: "react",
+          query: "```diff\nsecret source\n```",
+        }),
+      ).rejects.toMatchObject({ code: "context7.outbound_policy_rejected" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(setup.workspaceTools.piTools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "resolveLibraryId" }),
+          expect.objectContaining({ name: "getLibraryDocs" }),
+        ]),
+      );
+      expect(CONTEXT7_RESPONSE_BYTES).toBe(64_000);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

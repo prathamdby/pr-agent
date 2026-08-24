@@ -14,6 +14,7 @@ import {
   reviewPayloadPerFindingContracts,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { context7OutboundDataGuidance } from "../src/agent/prompts/toolingDiscipline.js";
 
 const SPECIALIST_PROMPTS = [
   ["correctness", buildAutomatedSystemPrompt()],
@@ -118,6 +119,14 @@ describe("specialist-specific obligations", () => {
     for (const [name, prompt] of SPECIALIST_PROMPTS) {
       expect(prompt, `${name} should include agent instruction files guidance`).toContain(
         agentInstructionFilesGuidance,
+      );
+    }
+  });
+
+  it("includes the shared Context7 no-exfiltration guidance in every specialist review", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
+      expect(prompt, `${name} should include Context7 outbound guidance`).toContain(
+        context7OutboundDataGuidance,
       );
     }
   });

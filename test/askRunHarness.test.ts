@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ASK_FAILURE_MESSAGE } from "../src/settings/index.js";
+import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
@@ -20,6 +21,7 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
 }));
 
 import { runAskRun } from "../src/agent/ask/askRun.js";
+import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 const cfg = makeTestConfig({
@@ -75,5 +77,16 @@ describe("runAskRun finalize", () => {
 
     expect(sendMock).toHaveBeenCalledTimes(3);
     expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
+  });
+
+  it("builds the shared Context7 tools with the ask configuration", async () => {
+    sendMock.mockResolvedValue({ text: "Answer." });
+
+    await runAskRun(askParams);
+
+    expect(buildContext7Tools).toHaveBeenCalledWith({
+      apiKey: cfg.context7ApiKey,
+      maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
+    });
   });
 });

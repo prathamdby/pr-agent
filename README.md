@@ -322,7 +322,7 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 
 **LLM providers.** Review, description, ask, triage, verification, and CI-summary text leave your network only when the worker calls your configured provider (`PI_PROVIDER` / `PI_MODEL`). Read that provider's data policy (example: [OpenAI](https://openai.com/enterprise-privacy)).
 
-**Context7 (optional).** If you set `CONTEXT7_API_KEY`, library lookup tools may call `https://context7.com/api`.
+**Context7 (optional).** Library lookup uses the fixed `https://context7.com/api` endpoint. Requests accept only short library identifiers and documentation questions; source, prompts, comments, credentials, URLs, and tool output are rejected before transmission. `CONTEXT7_API_KEY`, when set, is sent only as an `Authorization` header; empty keys use anonymous fallback.
 
 **Logging.** Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings.
 
