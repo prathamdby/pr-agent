@@ -4,7 +4,10 @@ import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
-import { publishDescriptionToPullRequest } from "./publishDescription.js";
+import {
+  publishDescriptionToPullRequest,
+  type PublishDescriptionResult,
+} from "./publishDescription.js";
 import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
@@ -22,6 +25,8 @@ import {
 } from "./mermaidDiagram.js";
 import {
   descriptionPrBodyOperationKey,
+  isKnownNoAcceptanceMutationError,
+  operationIntentMarker,
   type OperationIntentContext,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
@@ -144,6 +149,16 @@ export function buildSubmitDescriptionTool(params: {
 
     params.state.lastValidationError = null;
 
+    const operationIntent = params.operationIntent;
+    const operationKey =
+      operationIntent == null ? null : descriptionPrBodyOperationKey(operationIntent.resourceKey);
+    const operationMarker =
+      operationIntent == null
+        ? null
+        : operationIntentMarker(
+            descriptionPrBodyOperationKey(operationIntent.resourceKey),
+            operationIntent.workItemId,
+          );
     const publish = () =>
       publishDescriptionToPullRequest({
         cfg: params.cfg,
@@ -152,22 +167,35 @@ export function buildSubmitDescriptionTool(params: {
         repo: params.repo,
         prNumber: params.prNumber,
         payload,
+        operationMarker: operationMarker ?? undefined,
       });
 
     const result =
       params.operationIntent == null
         ? await publish()
-        : await withOperationIntent({
+        : await withOperationIntent<PublishDescriptionResult>({
             client: params.operationIntent.client,
             workItemId: params.operationIntent.workItemId,
-            operationKey: descriptionPrBodyOperationKey(params.operationIntent.resourceKey),
+            operationKey:
+              operationKey ?? descriptionPrBodyOperationKey(params.operationIntent.resourceKey),
             mutationKind: "github.pr_body",
             leaseEpoch: params.operationIntent.leaseEpoch,
             detail: {
               step: "pr_body",
               resourceKey: params.operationIntent.resourceKey,
               reviewLens: DESCRIPTION_PUBLISH_LENS,
+              ...(operationMarker == null ? {} : { operationMarker }),
             },
+            recover: async () => {
+              const body = await params.prSurface.getPullRequestBody();
+              return body?.includes(operationMarker ?? "\u0000")
+                ? {
+                    kind: "reconciled" as const,
+                    value: { prNumber: params.prNumber, titleUpdated: false, bodyUpdated: true },
+                  }
+                : { kind: "absent" as const };
+            },
+            isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
             mutate: publish,
           });
 

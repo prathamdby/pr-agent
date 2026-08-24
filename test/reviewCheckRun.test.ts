@@ -237,6 +237,31 @@ describe("review check run lifecycle", () => {
     });
   });
 
+  it("reconciles a check id after an accepted-then-error start without starting twice", async () => {
+    const findReviewCheck = vi
+      .fn(
+        async (_headSha: string, _externalId: string) => null as { id: number; url: string } | null,
+      )
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 123, url: "https://github.com/o/r/runs/123" });
+    const prSurface = makePrSurface({
+      startReviewCheck: vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("response lost"), { status: 503 })),
+    });
+    vi.spyOn(prSurface, "findReviewCheck").mockImplementation(findReviewCheck);
+
+    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
+    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBe(123);
+
+    expect(prSurface.startReviewCheck).toHaveBeenCalledOnce();
+    expect(findReviewCheck).toHaveBeenCalledTimes(2);
+    expect(recordReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ githubId: 123 }),
+    );
+  });
+
   it("silently handles missing Checks permission on create", async () => {
     const prSurface = makePrSurface({
       startReviewCheck: vi

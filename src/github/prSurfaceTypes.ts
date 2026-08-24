@@ -176,6 +176,7 @@ export type PrSurfaceMutationMethods = {
   publishDescription(
     cfg: Pick<Config, "features">,
     payload: DescriptionPayload,
+    operationMarker?: string,
   ): Promise<PublishDescriptionSurfaceResult>;
 };
 
@@ -203,6 +204,7 @@ export type PrSurfaceReadMethods = {
     maintainerDecisionAssociations?: ReadonlySet<string>,
   ): Promise<readonly BotFindingThread[]>;
   fetchReviewCommentParentGraph(): Promise<readonly ReviewCommentParentNode[]>;
+  findPublishedThreadBatch?(marker: string, commitId?: string): Promise<PublishedBatch | null>;
   listInlineReviewThreads(): Promise<ListReviewThreadResolutionResult>;
   listChangedFiles(
     caps: ListPullRequestFilesLimits,
@@ -210,6 +212,7 @@ export type PrSurfaceReadMethods = {
   ): Promise<ListPullRequestFilesResult>;
   listCommitCompareFiles(base: string, head: string): Promise<ListCommitCompareFilesResult>;
   getLabels(): Promise<readonly string[]>;
+  findReviewCheck?(headSha: string, externalId: string): Promise<CheckRef | null>;
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;

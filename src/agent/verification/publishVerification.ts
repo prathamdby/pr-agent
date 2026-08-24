@@ -17,6 +17,8 @@ import {
   type VerificationThreadState,
 } from "../../agentWork/verificationThreadLedger.js";
 import {
+  isKnownNoAcceptanceMutationError,
+  operationIntentMarker,
   verificationThreadOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
@@ -47,22 +49,28 @@ type PublishVerificationParams = {
   readonly leaseEpoch: number | null;
 };
 
-function withStubMarker(body: string): string {
-  if (body.includes(VERIFICATION_STUB_MARKER)) return body;
-  return `${VERIFICATION_STUB_MARKER}\n${body}`;
+function withStubMarker(body: string, operationMarker?: string): string {
+  const marked = body.includes(VERIFICATION_STUB_MARKER)
+    ? body
+    : `${VERIFICATION_STUB_MARKER}\n${body}`;
+  return operationMarker == null || marked.includes(operationMarker)
+    ? marked
+    : `${marked}\n${operationMarker}`;
 }
 
 function terminalSuccessStubBody(
   verdict: Extract<VerificationVerdict, { verdict: "fixed" | "already-resolved" }>,
+  operationMarker?: string,
 ): string {
   const label = verdict.verdict === "fixed" ? "Fixed" : "Already resolved";
-  return withStubMarker(redactReviewText(`**Verification**: ${label}`));
+  return withStubMarker(redactReviewText(`**Verification**: ${label}`), operationMarker);
 }
 
 function dismissedReplyBody(
   verdict: Extract<VerificationVerdict, { verdict: "dismissed" }>,
   thread: BotFindingThread,
   policyResult: RepoPolicyResult,
+  operationMarker?: string,
 ): string {
   const evidence = redactReviewText(`**Verification**: Dismissed - ${verdict.evidence}`);
   const suggestion = renderPolicySuggestionForDismissed({
@@ -70,7 +78,28 @@ function dismissedReplyBody(
     dismissalEvidence: verdict.evidence,
     policyResult,
   });
-  return withStubMarker(`${evidence}\n\nSuggested policy entry:\n\n${suggestion}`);
+  return withStubMarker(`${evidence}\n\nSuggested policy entry:\n\n${suggestion}`, operationMarker);
+}
+
+async function recoverVerificationMutation(params: {
+  readonly prSurface: PrSurface;
+  readonly marker: string;
+  readonly rootCommentId: number;
+  readonly requiresResolved: boolean;
+}): Promise<number | undefined | null> {
+  const comments = await params.prSurface.listInlineReviewComments();
+  const markedComment = [...comments]
+    .toReversed()
+    .find(
+      (comment) =>
+        comment.inReplyToId === params.rootCommentId && comment.body.includes(params.marker),
+    );
+  if (params.requiresResolved) {
+    const threads = await params.prSurface.listInlineReviewThreads();
+    if (threads.byRootCommentId.get(params.rootCommentId)?.isResolved !== true) return null;
+    return markedComment?.id;
+  }
+  return markedComment == null ? null : markedComment.id;
 }
 
 function resolveStubCommentId(
@@ -161,6 +190,7 @@ function verificationIntentDetail(
   params: PublishVerificationParams,
   threadRootCommentId: number,
   verdict: string,
+  operationMarker: string,
 ): Record<string, unknown> {
   return {
     step: "verification_thread_actions",
@@ -168,6 +198,7 @@ function verificationIntentDetail(
     reviewLens: VERIFICATION_PUBLISH_LENS,
     threadRootCommentId,
     verdict,
+    operationMarker,
   };
 }
 
@@ -220,13 +251,32 @@ export async function publishVerification(
           degraded = true;
           break;
         }
-        const stubCommentId = await withOperationIntent({
+        const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
+        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+        const stubCommentId = await withOperationIntent<number | undefined>({
           client: params.pool,
           workItemId: params.workItemId,
           leaseEpoch: params.leaseEpoch,
-          operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
+          operationKey,
           mutationKind: "github.verification_thread",
-          detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
+          detail: verificationIntentDetail(
+            params,
+            verdict.threadRootCommentId,
+            verdict.verdict,
+            operationMarker,
+          ),
+          recover: async () => {
+            const recovered = await recoverVerificationMutation({
+              prSurface: params.prSurface,
+              marker: operationMarker,
+              rootCommentId: verdict.threadRootCommentId,
+              requiresResolved: true,
+            });
+            return recovered == null
+              ? { kind: "absent" as const }
+              : { kind: "reconciled" as const, value: recovered };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: async () => {
             const priorStubId = resolveStubCommentId(thread, prior);
             let nextStubCommentId: number | undefined = priorStubId;
@@ -234,7 +284,7 @@ export async function publishVerification(
               const updated = await updateStubReply({
                 prSurface: params.prSurface,
                 stubCommentId: priorStubId,
-                body: terminalSuccessStubBody(verdict),
+                body: terminalSuccessStubBody(verdict, operationMarker),
               });
               if (!updated) nextStubCommentId = undefined;
             }
@@ -259,16 +309,36 @@ export async function publishVerification(
       case "skipped": {
         // When compare is truncated, omitted paths must not suppress still-open stubs.
         if (changedMembershipComplete && !changedFiles.has(thread.path)) break;
+        const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
+        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
         const body = withStubMarker(
           redactReviewText(`**Verification**: Still open - ${verdict.reason}`),
+          operationMarker,
         );
-        const stubCommentId = await withOperationIntent({
+        const stubCommentId = await withOperationIntent<number>({
           client: params.pool,
           workItemId: params.workItemId,
           leaseEpoch: params.leaseEpoch,
-          operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
+          operationKey,
           mutationKind: "github.verification_thread",
-          detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
+          detail: verificationIntentDetail(
+            params,
+            verdict.threadRootCommentId,
+            verdict.verdict,
+            operationMarker,
+          ),
+          recover: async () => {
+            const recovered = await recoverVerificationMutation({
+              prSurface: params.prSurface,
+              marker: operationMarker,
+              rootCommentId: verdict.threadRootCommentId,
+              requiresResolved: false,
+            });
+            return recovered == null
+              ? { kind: "absent" as const }
+              : { kind: "reconciled" as const, value: recovered };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: () =>
             upsertStubComment({
               prSurface: params.prSurface,
@@ -300,14 +370,33 @@ export async function publishVerification(
           degraded = true;
           break;
         }
-        const body = dismissedReplyBody(verdict, thread, params.policyResult);
-        const stubCommentId = await withOperationIntent({
+        const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
+        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+        const body = dismissedReplyBody(verdict, thread, params.policyResult, operationMarker);
+        const stubCommentId = await withOperationIntent<number>({
           client: params.pool,
           workItemId: params.workItemId,
           leaseEpoch: params.leaseEpoch,
-          operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
+          operationKey,
           mutationKind: "github.verification_thread",
-          detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
+          detail: verificationIntentDetail(
+            params,
+            verdict.threadRootCommentId,
+            verdict.verdict,
+            operationMarker,
+          ),
+          recover: async () => {
+            const recovered = await recoverVerificationMutation({
+              prSurface: params.prSurface,
+              marker: operationMarker,
+              rootCommentId: verdict.threadRootCommentId,
+              requiresResolved: true,
+            });
+            return recovered == null
+              ? { kind: "absent" as const }
+              : { kind: "reconciled" as const, value: recovered };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: async () => {
             const createdStubCommentId = await upsertStubComment({
               prSurface: params.prSurface,

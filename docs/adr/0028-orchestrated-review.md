@@ -67,6 +67,17 @@ rendered from the server-owned run state with a judgment-degraded note. A
 thread-publish budget exhaustion downgrades later findings to summary-only rows;
 they are never silently dropped.
 
+Every non-idempotent GitHub publish is guarded by a durable operation intent.
+The intent is marked as mutating before the provider call and stores the
+result before it is reconciled. If a provider call can have been accepted but
+its response is missing, recovery first checks the authoritative
+`publish_records` row and then reconciles only an exact work-item-scoped
+operation marker or provider id. No exact evidence means `outcome_unknown`: the worker does not
+blindly repeat the mutation. Automatic retry is limited to errors that prove
+the provider rejected the mutation before acceptance; otherwise the run uses
+the bounded deterministic degradation path (including the ask fallback only
+after the inline mutation is proven absent).
+
 ### Durability and deadlines
 
 The existing `publish_records` table needs no migration. All incremental

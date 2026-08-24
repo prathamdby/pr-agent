@@ -148,7 +148,7 @@ describe("executeAskJob", () => {
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
-    expect(durablePrSurfaceControls().replies[0]?.body).toBe("answer");
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
     expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
@@ -160,7 +160,7 @@ describe("executeAskJob", () => {
       },
       leaseEpoch: null,
     });
-    const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"));
+    const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1", 99));
     expect(intent?.status).toBe("reconciled");
     expect(intent?.detail.__result).toEqual({
       commentId: expect.any(Number),
@@ -215,7 +215,7 @@ describe("executeAskJob", () => {
     await executeAskJob(cfg, pool, boss, askJob());
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
-    expect(durablePrSurfaceControls().replies[0]?.body).toBe("answer");
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
   });
 
   it("skips terminal failure reply when durable ask_reply is already published", async () => {
@@ -244,7 +244,9 @@ describe("executeAskJob", () => {
         commentId: 99,
       },
     });
-    durablePrSurfaceControls().rejectNextInlineReviewReply(new Error("thread unavailable"));
+    durablePrSurfaceControls().rejectNextInlineReviewReply(
+      Object.assign(new Error("thread unavailable"), { status: 404 }),
+    );
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       await spec.execute(item, {
         prSurface: fakeDurablePrSurface(),
@@ -269,6 +271,54 @@ describe("executeAskJob", () => {
       pool,
       expect.objectContaining({
         detail: expect.objectContaining({ commentId: expect.any(Number) }),
+      }),
+    );
+  });
+
+  it("reconciles an accepted-then-error inline reply without conversation fallback", async () => {
+    const item = makeAskWorkItem({
+      headSha: "head",
+      payload: {
+        question: "why this line?",
+        replyTarget: {
+          kind: "inlineReviewThread",
+          prNumber: 1,
+          inReplyToCommentId: 55,
+        },
+        commentId: 99,
+      },
+    });
+    durablePrSurfaceControls().acceptThenRejectNextInlineReviewReply(
+      Object.assign(new Error("GitHub timed out after accepting the reply"), { status: 503 }),
+    );
+    mocks.findExistingAskReplyComment.mockResolvedValue({
+      commentId: 4242,
+      targetKind: "inlineReviewThread",
+    });
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+      await spec.execute(item, {
+        prSurface: fakeDurablePrSurface(),
+        headSha: "head",
+        leaseEpoch: null,
+        signal: new AbortController().signal,
+      });
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.target).toEqual({
+      kind: "inlineReviewThread",
+      prNumber: 1,
+      inReplyToCommentId: 55,
+    });
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          replyTargetKind: "inlineReviewThread",
+          commentId: 4242,
+        }),
       }),
     );
   });
@@ -327,7 +377,7 @@ describe("executeAskJob", () => {
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
-    const operationKey = askReplyOperationKey("o/r#1");
+    const operationKey = askReplyOperationKey("o/r#1", 99);
     const pending = memoryOperationIntentStore.get("wi-1", operationKey);
     expect(pending?.status).toBe("pending");
     expect(pending?.detail.__result).toEqual({ commentId: expect.any(Number) });
@@ -350,7 +400,7 @@ describe("executeAskJob", () => {
   it("recovers from a remote ask reply when intent is pending without __result", async () => {
     await memoryOperationIntentStore.persist(pool, {
       workItemId: "wi-1",
-      operationKey: askReplyOperationKey("o/r#1"),
+      operationKey: askReplyOperationKey("o/r#1", 99),
       mutationKind: "github.ask_reply",
       detail: { step: "ask_reply" },
     });
@@ -368,13 +418,13 @@ describe("executeAskJob", () => {
       detail: { replyTargetKind: "prConversation", commentId: 4242 },
       leaseEpoch: null,
     });
-    expect(memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"))?.status).toBe(
+    expect(memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1", 99))?.status).toBe(
       "reconciled",
     );
   });
 
   it("recovers a remote ask reply when intent is outcome_unknown without __result", async () => {
-    const operationKey = askReplyOperationKey("o/r#1");
+    const operationKey = askReplyOperationKey("o/r#1", 99);
     await memoryOperationIntentStore.persist(pool, {
       workItemId: "wi-1",
       operationKey,

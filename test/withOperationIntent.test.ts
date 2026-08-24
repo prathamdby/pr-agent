@@ -26,7 +26,10 @@ import {
   reconcileOperationIntent,
 } from "../src/agentWork/operationIntentRepository.js";
 import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.js";
-import { withOperationIntent } from "../src/agentWork/withOperationIntent.js";
+import {
+  operationIntentMarker,
+  withOperationIntent,
+} from "../src/agentWork/withOperationIntent.js";
 import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
 
 const pool = {} as Pool;
@@ -69,6 +72,26 @@ describe("withOperationIntent", () => {
       detail: {},
     });
     vi.mocked(findCompletedPublishRecordId).mockResolvedValue(null);
+  });
+
+  it("scopes remote markers to the work-item instance while keeping retries stable", () => {
+    const operationKey = "review:summary:correctness:o/r#1";
+
+    expect(operationIntentMarker(operationKey, "wi-1")).toBe(
+      operationIntentMarker(operationKey, "wi-1"),
+    );
+    expect(operationIntentMarker(operationKey, "wi-1")).not.toBe(
+      operationIntentMarker(operationKey, "wi-2"),
+    );
+  });
+
+  it("does not reuse a marker from another work item for the same resource operation", () => {
+    const operationKey = "review:summary:correctness:o/r#1";
+    const oldWorkItemMarker = operationIntentMarker(operationKey, "wi-old");
+    const retryWorkItemMarker = operationIntentMarker(operationKey, "wi-retry");
+
+    expect(oldWorkItemMarker).not.toBe(retryWorkItemMarker);
+    expect(retryWorkItemMarker).not.toContain(oldWorkItemMarker);
   });
 
   it("persists intent and marks __mutating before running the mutation", async () => {
@@ -171,7 +194,7 @@ describe("withOperationIntent", () => {
     });
   });
 
-  it("marks intent failed and throws AppError when mutation fails", async () => {
+  it("marks an unclassified mutation failure outcome-unknown and throws AppError", async () => {
     const mutate = vi.fn(async () => {
       throw new Error("github down");
     });
@@ -186,8 +209,12 @@ describe("withOperationIntent", () => {
     expect(reconcileOperationIntent).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       operationKey: "ask:reply:o/r#1",
-      status: "failed",
-      detail: { __mutating: false, errorMessage: "github down" },
+      status: "outcome_unknown",
+      detail: {
+        __mutating: false,
+        errorCode: "operation_intent.mutation_outcome_unknown",
+        errorMessage: "github down",
+      },
     });
   });
 
@@ -327,6 +354,61 @@ describe("withOperationIntent", () => {
 
     expect(mutate).not.toHaveBeenCalled();
     expect(findCompletedPublishRecordId).toHaveBeenCalled();
+  });
+
+  it("reconciles exact remote evidence for a void mutation without remutating", async () => {
+    const mutate = vi.fn(async () => undefined);
+    const recover = vi.fn(async () => ({ kind: "reconciled" as const, value: undefined }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "outcome_unknown",
+      publishRecordId: null,
+      detail: { __mutating: false },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue(null);
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        recover,
+        mutate,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        status: "reconciled",
+        detail: { __result: null },
+      }),
+    );
+  });
+
+  it("records a remote 503 as outcome-unknown when exact recovery is absent", async () => {
+    const mutate = vi.fn(async () => {
+      throw Object.assign(new Error("upstream timeout"), { status: 503 });
+    });
+    const recover = vi.fn(async () => ({ kind: "absent" as const }));
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        recover,
+        mutate,
+      }),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+
+    expect(mutate).toHaveBeenCalledOnce();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ status: "outcome_unknown" }),
+    );
   });
 
   it("recovers from publish_records without remutating when __mutating and no __result", async () => {

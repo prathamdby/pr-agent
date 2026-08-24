@@ -620,6 +620,118 @@ describe("publishFindingBatch", () => {
     expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
   });
 
+  it("does not emit a key-only marker without a work-item instance", async () => {
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(
+        createFindingLedger(),
+        vi.fn(async () => undefined),
+        {
+          workItemId: undefined,
+          recordPublishStep: undefined,
+        },
+      ),
+    );
+
+    expect(result.kind).toBe("published");
+    expect(harness.publishThreadBatch.mock.calls[0]?.[0]?.body).not.toContain(
+      "pr-agent:operation-intent",
+    );
+  });
+
+  it("reconciles an accepted review after a missing response without creating a second review", async () => {
+    const pool = {} as Pool;
+    const recordPublishStep = vi.fn(async () => undefined);
+    const remoteReview = {
+      reviewId: 77,
+      reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-77",
+    };
+    let recoveryCalls = 0;
+    harness.publishThreadBatch.mockImplementation(async () => {
+      throw Object.assign(new Error("response lost after GitHub accepted review"), {
+        status: 503,
+      });
+    });
+    vi.spyOn(harness.surface, "findPublishedThreadBatch").mockImplementation(async () => {
+      recoveryCalls += 1;
+      return recoveryCalls === 1 ? null : remoteReview;
+    });
+
+    await expect(
+      publishFindingBatch(
+        [finding],
+        batchContext(createFindingLedger(), recordPublishStep, {
+          operationIntent: { client: pool, workItemId: "wi-review-unknown", resourceKey: "o/r#1" },
+          workItemId: "wi-review-unknown",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+
+    const recovered = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), recordPublishStep, {
+        operationIntent: { client: pool, workItemId: "wi-review-unknown", resourceKey: "o/r#1" },
+        workItemId: "wi-review-unknown",
+      }),
+    );
+
+    expect(recovered.kind).toBe("published");
+    expect(harness.publishThreadBatch).toHaveBeenCalledOnce();
+    expect(recoveryCalls).toBe(2);
+    const expectedBatchId = deterministicInlineBatchId({
+      workItemId: "wi-review-unknown",
+      specialist: "correctness",
+      findingFingerprints: [fingerprintFinding(finding, "review")],
+    });
+    expect(
+      memoryOperationIntentStore.get(
+        "wi-review-unknown",
+        reviewInlineBatchOperationKey(expectedBatchId),
+      )?.status,
+    ).toBe("reconciled");
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      "inline_review",
+      expect.objectContaining({ githubId: 77 }),
+    );
+  });
+
+  it("retries a review when the provider proves rejection before acceptance", async () => {
+    const pool = {} as Pool;
+    const accepted = {
+      reviewId: 78,
+      reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-78",
+    };
+    harness.publishThreadBatch
+      .mockRejectedValueOnce(
+        Object.assign(new Error("provider rejected before accepting"), {
+          status: 503,
+          accepted: false,
+        }),
+      )
+      .mockResolvedValueOnce(accepted);
+
+    await expect(
+      publishFindingBatch(
+        [finding],
+        batchContext(createFindingLedger(), undefined, {
+          operationIntent: { client: pool, workItemId: "wi-review-retry", resourceKey: "o/r#1" },
+          workItemId: "wi-review-retry",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_failed" });
+
+    const retried = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        operationIntent: { client: pool, workItemId: "wi-review-retry", resourceKey: "o/r#1" },
+        workItemId: "wi-review-retry",
+      }),
+    );
+
+    expect(retried.kind).toBe("published");
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(2);
+  });
+
   it("does not remutate after crash between GitHub accept and reconcile", async () => {
     const pool = {} as Pool;
     const fingerprint = fingerprintFinding(finding, "review");

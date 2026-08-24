@@ -128,7 +128,7 @@ describe("memoryOperationIntentStore + real withOperationIntent", () => {
   it("retries mutate after a known throw (clears __mutating on failed)", async () => {
     const mutate = vi
       .fn()
-      .mockRejectedValueOnce(new Error("502"))
+      .mockRejectedValueOnce(Object.assign(new Error("502"), { accepted: false }))
       .mockResolvedValue({ commentId: 7 });
 
     await expect(

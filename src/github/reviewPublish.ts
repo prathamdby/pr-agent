@@ -140,6 +140,45 @@ export async function createPullRequestReviewWithComments(
   return { id: data.id, url: data.html_url };
 }
 
+/** Find one bot-created review by its exact hidden operation marker. */
+export async function findPullRequestReviewByMarker(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  marker: string,
+  commitId?: string,
+  expiresAtTs?: number,
+): Promise<{ id: number; url: string } | null> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const reviews = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviews({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+  for (let index = reviews.length - 1; index >= 0; index -= 1) {
+    const review = reviews[index];
+    if (
+      review != null &&
+      typeof review.body === "string" &&
+      review.body.includes(marker) &&
+      (commitId == null || review.commit_id === commitId)
+    ) {
+      return { id: review.id, url: review.html_url };
+    }
+  }
+  return null;
+}
+
 export type PublishedReviewComment = {
   path: string;
   line: number;

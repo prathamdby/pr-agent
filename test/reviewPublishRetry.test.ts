@@ -6,11 +6,21 @@ import {
 } from "../src/github/reviewErrors.js";
 
 describe("reviewPublishRetry", () => {
-  it("treats non-line-resolution 422 as transient", () => {
+  it("does not retry an ambiguous non-line-resolution 422", () => {
     expect(
       isTransientGitHubReviewError({
         status: 422,
         message: "Server busy; please try again",
+      }),
+    ).toBe(false);
+  });
+
+  it("retries when the provider proves rejection before acceptance", () => {
+    expect(
+      isTransientGitHubReviewError({
+        status: 422,
+        accepted: false,
+        message: "Validation rejected before acceptance",
       }),
     ).toBe(true);
   });
@@ -52,7 +62,7 @@ describe("reviewPublishRetry", () => {
     vi.useFakeTimers();
     const fn = vi
       .fn()
-      .mockRejectedValueOnce({ status: 422, message: "Please retry" })
+      .mockRejectedValueOnce({ status: 422, accepted: false, message: "Please retry" })
       .mockResolvedValueOnce("ok");
 
     const promise = withTransientReviewRetry(fn, [100]);

@@ -21,6 +21,7 @@ import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../revi
 import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
 import {
   deterministicInlineBatchId,
+  operationIntentMarker,
   reviewInlineBatchOperationKey,
   withOperationIntent,
   type OperationIntentContext,
@@ -39,6 +40,7 @@ import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import type { Pool } from "pg";
 import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";
+import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -290,24 +292,31 @@ export async function publishFindingBatch(
           findingFingerprints,
         })
       : crypto.randomUUID();
+  const operationKey = reviewInlineBatchOperationKey(batchId);
+  const operationMarker =
+    intentWorkItemId == null ? null : operationIntentMarker(operationKey, intentWorkItemId);
+  const publishInline = () =>
+    publishInlineReviewComments({
+      prSurface: context.prSurface,
+      renderReviewBody: () =>
+        `${renderSpecialistReviewBody({
+          specialist: context.source,
+          progressCommentUrl,
+          lensMarker: renderReviewPointerLensMarker("review"),
+        })}${operationMarker == null ? "" : `\n${operationMarker}`}`,
+      event: "COMMENT",
+      commitId: context.ctx.headSha,
+      inlinePlacements: targets.inline,
+      renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
+    });
   const inlineResult = await (context.operationIntent == null
-    ? publishInlineReviewComments({
-        prSurface: context.prSurface,
-        renderReviewBody: () =>
-          renderSpecialistReviewBody({
-            specialist: context.source,
-            progressCommentUrl,
-            lensMarker: renderReviewPointerLensMarker("review"),
-          }),
-        event: "COMMENT",
-        commitId: context.ctx.headSha,
-        inlinePlacements: targets.inline,
-        renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
-      })
-    : withOperationIntent({
+    ? publishInline()
+    : withOperationIntent<
+        Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
+      >({
         client: context.operationIntent.client,
         workItemId: context.operationIntent.workItemId,
-        operationKey: reviewInlineBatchOperationKey(batchId),
+        operationKey,
         mutationKind: "github.inline_review",
         leaseEpoch: context.operationIntent.leaseEpoch,
         detail: {
@@ -315,21 +324,28 @@ export async function publishFindingBatch(
           resourceKey: context.operationIntent.resourceKey,
           reviewLens: context.source,
           batchId,
+          operationMarker,
         },
-        mutate: () =>
-          publishInlineReviewComments({
-            prSurface: context.prSurface,
-            renderReviewBody: () =>
-              renderSpecialistReviewBody({
-                specialist: context.source,
-                progressCommentUrl,
-                lensMarker: renderReviewPointerLensMarker("review"),
-              }),
-            event: "COMMENT",
-            commitId: context.ctx.headSha,
-            inlinePlacements: targets.inline,
-            renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
-          }),
+        recover: async () => {
+          if (operationMarker == null) return { kind: "absent" as const };
+          const found = await context.prSurface.findPublishedThreadBatch?.(
+            operationMarker,
+            context.ctx.headSha,
+          );
+          return found == null
+            ? { kind: "absent" as const }
+            : {
+                kind: "reconciled" as const,
+                value: {
+                  review: { id: found.reviewId, url: found.reviewUrl },
+                  postedPlacements: [...targets.inline],
+                  anchorDroppedPlacements: [],
+                  lineResolutionFallback: false,
+                },
+              };
+        },
+        isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
+        mutate: publishInline,
       }));
 
   const posted = inlineResult.postedPlacements;

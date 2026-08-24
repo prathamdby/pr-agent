@@ -7,6 +7,7 @@ import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
 import {
+  askReplyBodyWithOperationMarker,
   askReplyCommentIdFromIntentDetail,
   findExistingAskReplyComment,
 } from "../../agent/ask/recoverAskReply.js";
@@ -27,23 +28,77 @@ import {
   reconcileOperationIntent,
 } from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
-import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
+import {
+  askReplyOperationKey,
+  isKnownNoAcceptanceMutationError,
+  withOperationIntent,
+} from "../withOperationIntent.js";
 import { recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
+function replyTargetKindFromIntentDetail(
+  value: unknown,
+  fallback: AskWorkItem["payload"]["replyTarget"]["kind"],
+): AskWorkItem["payload"]["replyTarget"]["kind"] {
+  return value === "inlineReviewThread" || value === "prConversation" ? value : fallback;
+}
+
+async function findAskReplyOnAnyTarget(params: {
+  readonly prSurface: PrSurface;
+  readonly item: AskWorkItem;
+  readonly botLogin: string;
+  readonly operationKey: string;
+  readonly operationInstance: string;
+}) {
+  const { prSurface, item, botLogin, operationKey, operationInstance } = params;
+  const primary = await findExistingAskReplyComment({
+    prSurface,
+    replyTarget: item.payload.replyTarget,
+    question: item.payload.question,
+    botLogin,
+    operationKey,
+    operationInstance,
+  });
+  if (primary != null || item.payload.replyTarget.kind === "prConversation") return primary;
+  return findExistingAskReplyComment({
+    prSurface,
+    replyTarget: { kind: "prConversation", prNumber: item.prNumber },
+    question: item.payload.question,
+    botLogin,
+    operationKey,
+    operationInstance,
+  });
+}
+
 async function publishAskAnswer(
+  cfg: Config,
   prSurface: PrSurface,
   item: AskWorkItem,
   answer: string,
+  operationKey: string,
   alreadySanitized = false,
-): Promise<{ commentId: number }> {
+): Promise<{ commentId: number; targetKind: AskWorkItem["payload"]["replyTarget"]["kind"] }> {
   const body = alreadySanitized ? answer : sanitizeAskAnswerText(answer);
   const replyTarget = item.payload.replyTarget;
+  const markedBody = askReplyBodyWithOperationMarker(body, operationKey, item.id);
   try {
-    return await prSurface.replyAt(replyTarget, body);
+    const posted = await prSurface.replyAt(replyTarget, markedBody);
+    return { ...posted, targetKind: replyTarget.kind };
   } catch (e) {
     if (replyTarget.kind !== "inlineReviewThread") throw e;
+    const bot = await getAppBotIdentity(cfg);
+    const recovered = await findExistingAskReplyComment({
+      prSurface,
+      replyTarget,
+      question: item.payload.question,
+      botLogin: bot.login,
+      operationKey,
+      operationInstance: item.id,
+    });
+    if (recovered != null) {
+      return { commentId: recovered.commentId, targetKind: recovered.targetKind };
+    }
     const failure = classifyFailure(e, { phase: "publish", toolName: "ask_inline_reply" });
     logWarn("ask_inline_reply_failed", {
       owner: item.owner,
@@ -53,10 +108,16 @@ async function publishAskAnswer(
       message: e instanceof Error ? e.message : String(e),
       ...classifiedFailureLogFields(failure),
     });
-    return await prSurface.replyAt(
+    if (!isKnownNoAcceptanceMutationError(e)) throw e;
+    const fallback = await prSurface.replyAt(
       { kind: "prConversation", prNumber: replyTarget.prNumber },
-      ["_Could not reply in the review thread; posting here instead._", "", body].join("\n"),
+      askReplyBodyWithOperationMarker(
+        ["_Could not reply in the review thread; posting here instead._", "", body].join("\n"),
+        operationKey,
+        item.id,
+      ),
     );
+    return { ...fallback, targetKind: "prConversation" };
   }
 }
 
@@ -65,8 +126,9 @@ async function stashRecoveredAskReply(params: {
   readonly item: AskWorkItem;
   readonly operationKey: string;
   readonly commentId: number;
+  readonly targetKind: AskWorkItem["payload"]["replyTarget"]["kind"];
 }): Promise<void> {
-  const { pool, item, operationKey, commentId } = params;
+  const { pool, item, operationKey, commentId, targetKind } = params;
   const intent = await getOperationIntent(pool, item.id, operationKey);
   const result = { commentId };
   if (intent == null) {
@@ -78,7 +140,7 @@ async function stashRecoveredAskReply(params: {
         step: "ask_reply",
         resourceKey: item.resourceKey,
         reviewLens: ASK_PUBLISH_LENS,
-        replyTargetKind: item.payload.replyTarget.kind,
+        replyTargetKind: targetKind,
         __result: result,
       },
     });
@@ -91,7 +153,11 @@ async function stashRecoveredAskReply(params: {
       workItemId: item.id,
       operationKey,
       status: "reconciled",
-      detail: { __result: result, recoveredAfterMutating: true },
+      detail: {
+        __result: result,
+        replyTargetKind: targetKind,
+        recoveredAfterMutating: true,
+      },
     });
     return;
   }
@@ -99,7 +165,7 @@ async function stashRecoveredAskReply(params: {
     await mergeOperationIntentDetail(pool, {
       workItemId: item.id,
       operationKey,
-      detail: { __result: result },
+      detail: { __result: result, replyTargetKind: targetKind },
     });
   }
 }
@@ -108,21 +174,34 @@ async function stashRecoveredAskReply(params: {
  * Recover a GitHub ask reply that was accepted but not yet recorded locally.
  * Returns the comment id when delivery can complete without remutation/model rerun.
  */
+type AskReplyRecovery =
+  | {
+      readonly kind: "recovered";
+      readonly commentId: number;
+      readonly targetKind: AskWorkItem["payload"]["replyTarget"]["kind"];
+    }
+  | { readonly kind: "outcome_unknown" }
+  | null;
+
 async function recoverDeliveredAskReplyCommentId(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
-}): Promise<number | null> {
+}): Promise<AskReplyRecovery> {
   const { cfg, pool, prSurface, item } = params;
-  const operationKey = askReplyOperationKey(item.resourceKey);
+  const operationKey = askReplyOperationKey(item.resourceKey, item.payload.commentId);
   const intent = await getOperationIntent(pool, item.id, operationKey);
   const stashed = askReplyCommentIdFromIntentDetail(intent?.detail);
-  if (stashed != null) return stashed;
-
-  const replyTarget = item.payload.replyTarget;
-  if (replyTarget.kind === "inlineReviewThread") {
-    return null;
+  if (stashed != null) {
+    return {
+      kind: "recovered",
+      commentId: stashed,
+      targetKind: replyTargetKindFromIntentDetail(
+        intent?.detail.replyTargetKind,
+        item.payload.replyTarget.kind,
+      ),
+    };
   }
 
   // Scan only while the mutation may still be in flight or outcome-unknown.
@@ -132,41 +211,52 @@ async function recoverDeliveredAskReplyCommentId(params: {
   }
 
   const bot = await getAppBotIdentity(cfg);
-  const recovered = await findExistingAskReplyComment({
+  const recovered = await findAskReplyOnAnyTarget({
     prSurface,
-    replyTarget,
-    question: item.payload.question,
+    item,
     botLogin: bot.login,
+    operationKey,
+    operationInstance: item.id,
   });
-  if (recovered == null) return null;
+  if (recovered == null) {
+    return intent.status === "outcome_unknown" || intent.detail.__mutating === true
+      ? { kind: "outcome_unknown" }
+      : null;
+  }
 
   await stashRecoveredAskReply({
     pool,
     item,
     operationKey,
     commentId: recovered.commentId,
+    targetKind: recovered.targetKind ?? item.payload.replyTarget.kind,
   });
-  return recovered.commentId;
+  return {
+    kind: "recovered",
+    commentId: recovered.commentId,
+    targetKind: recovered.targetKind ?? item.payload.replyTarget.kind,
+  };
 }
 
 async function finalizeAskReplyPublish(params: {
   readonly pool: Pool;
   readonly item: AskWorkItem;
   readonly commentId: number;
+  readonly targetKind: AskWorkItem["payload"]["replyTarget"]["kind"];
   readonly leaseEpoch: number | null;
 }): Promise<"ok" | "degraded"> {
-  const { pool, item, commentId, leaseEpoch } = params;
+  const { pool, item, commentId, targetKind, leaseEpoch } = params;
   await withOperationIntent({
     client: pool,
     workItemId: item.id,
-    operationKey: askReplyOperationKey(item.resourceKey),
+    operationKey: askReplyOperationKey(item.resourceKey, item.payload.commentId),
     mutationKind: "github.ask_reply",
     leaseEpoch,
     detail: {
       step: "ask_reply",
       resourceKey: item.resourceKey,
       reviewLens: ASK_PUBLISH_LENS,
-      replyTargetKind: item.payload.replyTarget.kind,
+      replyTargetKind: targetKind,
     },
     mutate: async () => ({ commentId }),
   });
@@ -176,7 +266,7 @@ async function finalizeAskReplyPublish(params: {
       resourceKey: item.resourceKey,
       step: "ask_reply",
       detail: {
-        replyTargetKind: item.payload.replyTarget.kind,
+        replyTargetKind: targetKind,
         commentId,
       },
       leaseEpoch,
@@ -232,23 +322,30 @@ export async function executeAskJob(
         return { kind: "completed" };
       }
 
-      const recoveredCommentId = await recoverDeliveredAskReplyCommentId({
+      const recoveredReply = await recoverDeliveredAskReplyCommentId({
         cfg,
         pool,
         prSurface,
         item,
       });
-      if (recoveredCommentId != null) {
+      if (recoveredReply?.kind === "recovered") {
         answerDelivered = true;
         const status = await finalizeAskReplyPublish({
           pool,
           item,
-          commentId: recoveredCommentId,
+          commentId: recoveredReply.commentId,
+          targetKind: recoveredReply.targetKind,
           leaseEpoch: env.leaseEpoch,
         });
         return status === "degraded"
           ? { kind: "completed", degraded: true }
           : { kind: "completed" };
+      }
+      if (recoveredReply?.kind === "outcome_unknown") {
+        // The provider may have accepted the reply, but no exact marker was
+        // found. Do not rerun the model or create a fallback reply.
+        answerDelivered = true;
+        return { kind: "completed", degraded: true };
       }
 
       return withPrRepositoryView(
@@ -292,10 +389,12 @@ export async function executeAskJob(
             usage: result.usage,
           });
           if (!(await askReplyPublished())) {
-            const posted = await withOperationIntent({
+            const operationKey = askReplyOperationKey(item.resourceKey, payload.commentId);
+            let selectedTargetKind = payload.replyTarget.kind;
+            const posted = await withOperationIntent<{ readonly commentId: number }>({
               client: pool,
               workItemId: item.id,
-              operationKey: askReplyOperationKey(item.resourceKey),
+              operationKey,
               mutationKind: "github.ask_reply",
               leaseEpoch: env.leaseEpoch,
               detail: {
@@ -304,7 +403,37 @@ export async function executeAskJob(
                 reviewLens: ASK_PUBLISH_LENS,
                 replyTargetKind: payload.replyTarget.kind,
               },
-              mutate: () => publishAskAnswer(prSurface, item, result.answer, true),
+              recover: async () => {
+                const bot = await getAppBotIdentity(cfg);
+                const recovered = await findAskReplyOnAnyTarget({
+                  prSurface,
+                  item,
+                  botLogin: bot.login,
+                  operationKey,
+                  operationInstance: item.id,
+                });
+                return recovered == null
+                  ? { kind: "absent" as const }
+                  : {
+                      kind: "reconciled" as const,
+                      value: { commentId: recovered.commentId },
+                      detail: { replyTargetKind: recovered.targetKind },
+                    };
+              },
+              isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+              reconcileDetail: () => ({ replyTargetKind: selectedTargetKind }),
+              mutate: async () => {
+                const published = await publishAskAnswer(
+                  cfg,
+                  prSurface,
+                  item,
+                  result.answer,
+                  operationKey,
+                  true,
+                );
+                selectedTargetKind = published.targetKind;
+                return { commentId: published.commentId };
+              },
             });
             answerDelivered = true;
             captureEvent({
@@ -323,7 +452,7 @@ export async function executeAskJob(
                 resourceKey: item.resourceKey,
                 step: "ask_reply",
                 detail: {
-                  replyTargetKind: payload.replyTarget.kind,
+                  replyTargetKind: selectedTargetKind,
                   commentId: posted.commentId,
                 },
                 leaseEpoch: env.leaseEpoch,
@@ -389,6 +518,7 @@ export async function executeAskJob(
       if (answerDelivered) return;
       const payload = item.payload;
       await publishAskAnswer(
+        cfg,
         prSurface,
         item,
         formatAskReply({
@@ -396,6 +526,7 @@ export async function executeAskJob(
           answer: "PR Agent could not complete this ask after retries. Please try again later.",
           replyTarget: payload.replyTarget,
         }),
+        askReplyOperationKey(item.resourceKey, item.payload.commentId),
         true,
       );
     },
