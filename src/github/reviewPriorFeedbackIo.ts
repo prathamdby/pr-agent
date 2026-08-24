@@ -12,6 +12,7 @@ import {
   type PriorInlineFeedbackThread,
   type ReviewThreadComment,
 } from "../review/run/reviewPriorFeedback.js";
+import { DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS } from "../review/maintainerAuthorization.js";
 
 async function listPullRequestReviewComments(
   token: string,
@@ -41,6 +42,7 @@ async function listPullRequestReviewComments(
     inReplyToId: comment.in_reply_to_id ?? null,
     pullRequestReviewId: comment.pull_request_review_id ?? null,
     userId: comment.user?.id ?? null,
+    authorAssociation: comment.author_association ?? null,
     body: comment.body ?? "",
     path: comment.path ?? null,
     line: comment.line ?? null,
@@ -108,6 +110,7 @@ export async function fetchPriorInlineReviewFeedback(
   botUserId: number,
   currentLens: AnyReviewLens,
   expiresAtTs?: number,
+  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
 ): Promise<PriorInlineFeedbackThread[]> {
   const [reviewLenses, comments] = await Promise.all([
     listBotReviewLenses(token, owner, repo, pullNumber, botUserId, undefined, expiresAtTs),
@@ -120,6 +123,7 @@ export async function fetchPriorInlineReviewFeedback(
       botUserId,
       reviewLenses,
       allowedLenses: priorFeedbackLensesForSelection(currentLens),
+      maintainerDecisionAssociations,
     }),
   );
 }
@@ -132,6 +136,7 @@ export async function fetchBotFindingThreads(
   botUserId: number,
   publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
   expiresAtTs?: number,
+  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
 ): Promise<BotFindingThread[]> {
   const [comments, reviewLenses] = await Promise.all([
     listPullRequestReviewComments(token, owner, repo, pullNumber, expiresAtTs),
@@ -152,6 +157,7 @@ export async function fetchBotFindingThreads(
       botUserId,
       reviewLenses,
       allowedLenses: priorFeedbackLensesForSelection("review"),
+      maintainerDecisionAssociations,
     }),
     botUserId,
   );

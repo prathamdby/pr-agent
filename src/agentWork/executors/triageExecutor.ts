@@ -273,7 +273,11 @@ async function resolveInventoryAndScope(params: {
     params.item.resourceKey,
   );
   const [threads, resolutionResult] = await Promise.all([
-    params.prSurface.fetchBotFindingThreads(botIdentity.userId, eligibleReviews),
+    params.prSurface.fetchBotFindingThreads(
+      botIdentity.userId,
+      eligibleReviews,
+      params.cfg.maintainerDecisionAssociations,
+    ),
     params.prSurface.listInlineReviewThreads(),
   ]);
   warnReviewThreadResolutionDegraded(resolutionResult, {

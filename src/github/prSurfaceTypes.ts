@@ -17,7 +17,7 @@ import type {
   CiCheckRunSnapshot,
   CiLegacyStatus,
 } from "../review/ci/ciSummaryTypes.js";
-import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
+import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { GithubReactionContent } from "../settings/index.js";
 
@@ -59,6 +59,9 @@ export type PriorInlineFeedbackEntry = {
   readonly endLine: number;
   readonly botTitleSnippet: string;
   readonly humanReplies: readonly string[];
+  readonly authorizedReplies?: readonly string[];
+  readonly untrustedReplies?: readonly string[];
+  readonly replies?: readonly ReviewThreadReply[];
   readonly threadUrl: string;
 };
 export type ThreadBatchReview = {
@@ -157,10 +160,12 @@ export type PrSurface = {
   fetchPriorInlineFeedback(
     botUserId: number,
     currentLens: AnyReviewLens,
+    maintainerDecisionAssociations?: ReadonlySet<string>,
   ): Promise<readonly PriorInlineFeedbackEntry[]>;
   fetchBotFindingThreads(
     botUserId: number,
     publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
+    maintainerDecisionAssociations?: ReadonlySet<string>,
   ): Promise<readonly BotFindingThread[]>;
   fetchReviewCommentParentGraph(): Promise<readonly ReviewCommentParentNode[]>;
   publishThreadBatch(review: ThreadBatchReview): Promise<PublishedBatch>;

@@ -22,7 +22,7 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 
 5. **Push-or-nothing publish.** Triage pushes before posting `Fixed in` replies or resolving threads. A non-fast-forward push writes a stale-head report and performs no thread actions. Triage never force-pushes, rebases, or amends.
 
-6. **Dismissed is maintainer-owned.** A dismissed verdict requires human reply evidence and is never auto-resolved.
+6. **Dismissed requires an authorized maintainer decision.** A dismissed verdict requires a non-bot reply from a known GitHub user whose server-preserved association is allowed by `MAINTAINER_DECISION_ASSOCIATIONS`, and the reply must belong to the matching finding thread. Reply text remains untrusted evidence; missing authorization metadata fails closed. Thread-resolution behavior is defined by the later publish amendments in ADR 0037.
 
 7. **Current and legacy findings are triage-eligible.** Triage inventory includes specialist findings from current `review` runs plus recognized legacy `review-security`, `review-quality`, and `review-tests` threads (P0–P3 when posted as inline threads). Mode is resolved from the `pr-agent:review-pointer` HTML marker, legacy pointer strings, or `publish_records` backfill. `REVIEW_POINTER_NOTE_LEAD` alone never makes a thread eligible.
 

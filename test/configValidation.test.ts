@@ -40,6 +40,7 @@ describe("loadConfig validation", () => {
     expect(cfg.role).toBe("web");
     expect(cfg.logLevel).toBe("info");
     expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
   });
 
   it("rejects a non-numeric positive knob", async () => {
@@ -114,6 +115,14 @@ describe("loadConfig validation", () => {
   it("rejects unknown slash command author associations", async () => {
     await expect(load({ SLASH_ALLOWED_ASSOCIATIONS: "OWNER,STRANGER" })).rejects.toThrow(
       /SLASH_ALLOWED_ASSOCIATIONS must be/,
+    );
+  });
+
+  it("normalizes and validates maintainer decision associations without wildcard access", async () => {
+    const cfg = await load({ MAINTAINER_DECISION_ASSOCIATIONS: "owner, collaborator" });
+    expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "COLLABORATOR"]);
+    await expect(load({ MAINTAINER_DECISION_ASSOCIATIONS: "*" })).rejects.toThrow(
+      /MAINTAINER_DECISION_ASSOCIATIONS must be one or more of/,
     );
   });
 

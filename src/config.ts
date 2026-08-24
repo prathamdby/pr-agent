@@ -60,6 +60,7 @@ import {
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
+  DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
   DEFAULT_TRIAGE_CONCURRENCY,
   DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
   DEFAULT_AGENT_WORK_RETENTION_SECONDS,
@@ -68,6 +69,7 @@ import {
   ENV,
   EXTERNAL_ENV,
 } from "./settings/index.js";
+import { GITHUB_AUTHOR_ASSOCIATIONS } from "./review/maintainerAuthorization.js";
 import {
   defaultModelsJsonCandidatePath,
   resolveModelsJsonPath,
@@ -147,31 +149,24 @@ function readStrictBoolean(name: string, defaultValue: boolean): boolean {
   return raw === "true";
 }
 
-const GITHUB_AUTHOR_ASSOCIATIONS = [
-  "OWNER",
-  "MEMBER",
-  "COLLABORATOR",
-  "CONTRIBUTOR",
-  "FIRST_TIME_CONTRIBUTOR",
-  "FIRST_TIMER",
-  "NONE",
-  "MANNEQUIN",
-] as const;
-
 const allowedGithubAuthorAssociations = new Set<string>(GITHUB_AUTHOR_ASSOCIATIONS);
 
-function readSlashAllowedAssociations(name: string, defaultValue: string): ReadonlySet<string> {
+function readAssociationAllowlist(
+  name: string,
+  defaultValue: string,
+  allowWildcard: boolean,
+): ReadonlySet<string> {
   const values = optionalEnv(name, defaultValue)
     .split(",")
     .map((value) => value.trim().toUpperCase());
 
-  if (values.length === 1 && values[0] === "*") return new Set(["*"]);
+  if (allowWildcard && values.length === 1 && values[0] === "*") return new Set(["*"]);
 
   for (const value of values) {
     if (!allowedGithubAuthorAssociations.has(value)) {
       throw new AppError({
         code: "config.invalid_enum",
-        message: `${name} must be "*" or one or more of ${GITHUB_AUTHOR_ASSOCIATIONS.join(", ")}`,
+        message: `${name} must be ${allowWildcard ? '"*" or ' : ""}one or more of ${GITHUB_AUTHOR_ASSOCIATIONS.join(", ")}`,
         context: { name, allowed: GITHUB_AUTHOR_ASSOCIATIONS },
       });
     }
@@ -360,9 +355,15 @@ export async function loadConfig() {
     ENV.VERIFICATION_CONCURRENCY,
     DEFAULT_VERIFICATION_CONCURRENCY,
   );
-  const slashAllowedAssociations = readSlashAllowedAssociations(
+  const slashAllowedAssociations = readAssociationAllowlist(
     ENV.SLASH_ALLOWED_ASSOCIATIONS,
     DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
+    true,
+  );
+  const maintainerDecisionAssociations = readAssociationAllowlist(
+    ENV.MAINTAINER_DECISION_ASSOCIATIONS,
+    DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
+    false,
   );
 
   const queueRetryLimit = readNonNegativeNumber(ENV.QUEUE_RETRY_LIMIT, DEFAULT_QUEUE_RETRY_LIMIT);
@@ -519,6 +520,7 @@ export async function loadConfig() {
     triageConcurrency,
     verificationConcurrency,
     slashAllowedAssociations,
+    maintainerDecisionAssociations,
     queueRetryLimit,
     queueRetryDelaySeconds,
     queueRetryDelayMaxSeconds,

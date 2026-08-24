@@ -39,7 +39,7 @@ export type TriagePayload = v.InferOutput<typeof TriagePayloadSchema>;
 /**
  * Same verdict vocabulary as triage, but read-only.
  * "fixed" cites the user's pushed commit sha (no committed-by-bot check).
- * "dismissed" still requires maintainer reply evidence.
+ * "dismissed" still requires an authorized maintainer decision for the thread.
  */
 const VerificationVerdictSchema = TriageVerdictSchema;
 
@@ -56,7 +56,7 @@ export type VerificationPayload = v.InferOutput<typeof VerificationPayloadSchema
 
 type VerificationInventoryItem = {
   readonly threadRootCommentId: number;
-  readonly hasHumanReplies: boolean;
+  readonly hasAuthorizedMaintainerDecision: boolean;
 };
 
 export type VerificationValidationInput = {
@@ -95,8 +95,10 @@ export function validateVerificationVerdicts(params: VerificationValidationInput
     ) {
       issues.push(`fixed verdict for ${verdict.threadRootCommentId} references an unknown commit`);
     }
-    if (verdict.verdict === "dismissed" && !item.hasHumanReplies) {
-      issues.push(`dismissed verdict for ${verdict.threadRootCommentId} requires human replies`);
+    if (verdict.verdict === "dismissed" && !item.hasAuthorizedMaintainerDecision) {
+      issues.push(
+        `dismissed verdict for ${verdict.threadRootCommentId} requires an authorized maintainer decision`,
+      );
     }
   }
 
@@ -111,7 +113,7 @@ export function validateVerificationVerdicts(params: VerificationValidationInput
 
 type TriageInventoryItem = {
   readonly threadRootCommentId: number;
-  readonly hasHumanReplies: boolean;
+  readonly hasAuthorizedMaintainerDecision: boolean;
 };
 
 export type TriageValidationInput = {
@@ -146,8 +148,10 @@ export function validateTriageVerdicts(params: TriageValidationInput): string[] 
     if (verdict.verdict === "fixed" && !committed.has(verdict.commitSha.toLowerCase())) {
       issues.push(`fixed verdict for ${verdict.threadRootCommentId} references an unknown commit`);
     }
-    if (verdict.verdict === "dismissed" && !item.hasHumanReplies) {
-      issues.push(`dismissed verdict for ${verdict.threadRootCommentId} requires human replies`);
+    if (verdict.verdict === "dismissed" && !item.hasAuthorizedMaintainerDecision) {
+      issues.push(
+        `dismissed verdict for ${verdict.threadRootCommentId} requires an authorized maintainer decision`,
+      );
     }
   }
 

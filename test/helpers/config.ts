@@ -70,6 +70,7 @@ const baseTestConfig: Config = {
   prActorLeaseTtlSeconds: 900,
   prActorLeaseRenewalIntervalSeconds: 120,
   slashAllowedAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
+  maintainerDecisionAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
   context7ApiKey: "",
   posthogProjectToken: "",
   posthogHost: "",

@@ -48,7 +48,11 @@ export async function executeVerificationJob(
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
       const [threads, resolutionResult] = await Promise.all([
-        prSurface.fetchBotFindingThreads(botIdentity.userId, eligibleReviews),
+        prSurface.fetchBotFindingThreads(
+          botIdentity.userId,
+          eligibleReviews,
+          cfg.maintainerDecisionAssociations,
+        ),
         prSurface.listInlineReviewThreads(),
       ]);
 

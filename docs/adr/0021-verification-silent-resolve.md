@@ -11,13 +11,13 @@ ADR 0020 introduced verification runs on `synchronize`: re-check open bot findin
 The useful signal from verification is asymmetric:
 
 - **Still open** after a push that touched the file: maintainers need the "still open and why" reply so incomplete fixes stay visible.
-- **Dismissed**: maintainers need the reply (and policy suggestion) because the bot is accepting human intent, not closing a bug.
+- **Dismissed**: maintainers need the reply (and policy suggestion) because the bot is accepting an authorized maintainer decision, not closing a bug. Authorization is server-derived and matching-thread scoped; reply text remains untrusted.
 - **Fixed / already-resolved**: the only durable state change is resolving the review thread. A "fixed in abcdef1" reply is celebration spam; the resolved thread already shows the outcome.
 
 ## Decision
 
 1. **Silent resolve for success.** On `fixed` and `already-resolved`, verification records the thread action and calls `resolveReviewThread` with **no new** `createReplyForReviewComment`.
-2. **Reply only when human attention is required.** Keep thread replies for `skipped` (still open, still gated on the finding's file having changed in this push) and `dismissed` (evidence + policy suggestion).
+2. **Reply only when human attention is required.** Keep thread replies for `skipped` (still open, still gated on the finding's file having changed in this push) and `dismissed` (authorized decision evidence + policy suggestion).
 3. **No change to the agent loop or schema.** Verdict vocabulary, validation, and the verification queue stay as in ADR 0020; only publish behaviour changes.
 
 **Amendment (see [ADR 0023](0023-verification-stub-ledger.md)):** verification now owns one editable stub per thread for still-open updates, and resolves the thread after acknowledging `dismissed`. The original “never auto-resolve dismissed” rule remains true for `/triage` only.

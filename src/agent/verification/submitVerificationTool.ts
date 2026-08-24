@@ -3,7 +3,10 @@ import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
 import { parseToolInput } from "../tools/parseToolInput.js";
-import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import {
+  hasAuthorizedMaintainerDecision,
+  type BotFindingThread,
+} from "../../review/run/reviewPriorFeedback.js";
 import {
   formatVerificationValidationError,
   VerificationPayloadSchema,
@@ -71,7 +74,7 @@ export function buildSubmitVerificationTool(params: {
       payload: parsed.value,
       inventory: params.inventory.map((thread) => ({
         threadRootCommentId: thread.rootCommentId,
-        hasHumanReplies: thread.humanReplies.length > 0,
+        hasAuthorizedMaintainerDecision: hasAuthorizedMaintainerDecision(thread),
       })),
       pushedShas: params.pushedShas,
     });

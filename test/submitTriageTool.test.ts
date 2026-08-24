@@ -20,7 +20,7 @@ function inventoryThread(): BotFindingThread {
   };
 }
 
-function buildTool() {
+function buildTool(thread: BotFindingThread = inventoryThread()) {
   const submitState = createSubmitTriageState();
   const checkout = { listCommittedShas: () => [] } as unknown as WritablePrCheckout;
   const workspaceState = {
@@ -30,7 +30,7 @@ function buildTool() {
     owner: "o",
     repo: "r",
     prNumber: 1,
-    inventory: [inventoryThread()],
+    inventory: [thread],
     checkout,
     workspaceState,
     submitState,
@@ -39,6 +39,11 @@ function buildTool() {
 }
 
 const skippedVerdict = { verdict: "skipped", threadRootCommentId: 1, reason: "later" };
+const dismissedVerdict = {
+  verdict: "dismissed",
+  threadRootCommentId: 1,
+  evidence: "false positive",
+};
 
 describe("submitTriage tool", () => {
   it("accepts a valid verdict payload", async () => {
@@ -64,5 +69,30 @@ describe("submitTriage tool", () => {
       code: "triage.validation_failed",
     });
     expect(submitState.lastValidationError).toContain("verdicts");
+  });
+
+  it("rejects dismissal from an unauthorized reply", async () => {
+    const { executor, submitState } = buildTool({
+      ...inventoryThread(),
+      humanReplies: ["false positive"],
+      untrustedReplies: ["false positive"],
+      authorizedReplies: [],
+    });
+
+    await expect(executor({ verdicts: [dismissedVerdict] })).rejects.toMatchObject({
+      code: "triage.validation_failed",
+    });
+    expect(submitState.lastValidationError).toContain("authorized maintainer decision");
+  });
+
+  it("accepts dismissal only with a server-authorized reply", async () => {
+    const { executor } = buildTool({
+      ...inventoryThread(),
+      humanReplies: ["false positive"],
+      authorizedReplies: ["false positive"],
+      untrustedReplies: [],
+    });
+
+    await expect(executor({ verdicts: [dismissedVerdict] })).resolves.toEqual({ ok: true });
   });
 });
