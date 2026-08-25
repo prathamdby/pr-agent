@@ -29,11 +29,7 @@ import {
   reconcileOperationIntent,
 } from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
-import {
-  askReplyOperationKey,
-  isKnownNoAcceptanceMutationError,
-  withOperationIntent,
-} from "../withOperationIntent.js";
+import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
 import { recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";

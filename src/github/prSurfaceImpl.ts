@@ -457,7 +457,6 @@ async function createGithubCheckRunOrRecoverDuplicate(
       REVIEW_CHECK_RUN_NAME,
       externalId,
       expiresAtTs,
-      externalId,
     );
     if (duplicate == null) throw createError;
     return duplicate;
@@ -720,8 +719,8 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         repo,
         headSha,
         REVIEW_CHECK_RUN_NAME,
-        expiresAtTs,
         externalId,
+        expiresAtTs,
       );
     },
 
