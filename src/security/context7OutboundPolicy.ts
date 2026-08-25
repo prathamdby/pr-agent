@@ -60,6 +60,12 @@ function rejectContext7Input(field: string, reason: Context7PolicyReason): never
   });
 }
 
+function rejectSecretShapedIdentifier(field: "libraryName" | "libraryId", value: string): void {
+  if (redactOutboundSecrets(value) !== value) {
+    rejectContext7Input(field, "secret_shaped_content");
+  }
+}
+
 export function assertContext7LibraryName(value: string): string {
   if (
     value.length > CONTEXT7_LIBRARY_NAME_MAX_CHARS ||
@@ -67,6 +73,7 @@ export function assertContext7LibraryName(value: string): string {
   ) {
     rejectContext7Input("libraryName", "invalid_identifier");
   }
+  rejectSecretShapedIdentifier("libraryName", value);
   return value;
 }
 
@@ -74,6 +81,7 @@ export function assertContext7LibraryId(value: string): string {
   if (value.length > CONTEXT7_LIBRARY_ID_MAX_CHARS || !CONTEXT7_LIBRARY_ID_PATTERN.test(value)) {
     rejectContext7Input("libraryId", "invalid_identifier");
   }
+  rejectSecretShapedIdentifier("libraryId", value);
   return value;
 }
 

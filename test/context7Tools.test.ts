@@ -11,6 +11,8 @@ import {
 import {
   assertContext7LibraryId,
   assertContext7LibraryName,
+  CONTEXT7_LIBRARY_ID_PATTERN,
+  CONTEXT7_LIBRARY_NAME_PATTERN,
   prepareContext7OutboundText,
 } from "../src/security/context7OutboundPolicy.js";
 
@@ -435,6 +437,15 @@ describe("buildContext7Tools — executors", () => {
     }
     expect(() => assertContext7LibraryId(`${maxLibraryId}a`)).toThrow();
 
+    const secretLibraryName = "ghp_1234567890123456789012345678901234";
+    const secretLibraryId = "/org/sk-abcdefghijklmnopqrstuvwxyz";
+    expect(CONTEXT7_LIBRARY_NAME_PATTERN.test(secretLibraryName)).toBe(true);
+    expect(CONTEXT7_LIBRARY_ID_PATTERN.test(secretLibraryId)).toBe(true);
+    expect(() => assertContext7LibraryName(secretLibraryName)).toThrowError(
+      /secret shaped content/,
+    );
+    expect(() => assertContext7LibraryId(secretLibraryId)).toThrowError(/secret shaped content/);
+
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(txtResponse("docs"));
     try {
       const { executors } = buildContext7Tools({
@@ -447,6 +458,14 @@ describe("buildContext7Tools — executors", () => {
       });
       await expect(executors.getLibraryDocs({ libraryId: "/only" })).rejects.toMatchObject({
         code: "tool.input_validation_failed",
+      });
+      await expect(
+        executors.resolveLibraryId({ libraryName: secretLibraryName }),
+      ).rejects.toMatchObject({
+        code: "context7.outbound_policy_rejected",
+      });
+      await expect(executors.getLibraryDocs({ libraryId: secretLibraryId })).rejects.toMatchObject({
+        code: "context7.outbound_policy_rejected",
       });
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     } finally {
