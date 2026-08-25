@@ -95,6 +95,7 @@ import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
 import {
   resolveWorkItemHead,
   runDurableWorkItem,
+  type DurableHeadResolution,
   type DurableExecutionResult,
 } from "../durableJob.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
@@ -139,6 +140,32 @@ function reviewRunTimingFromJob(job: JobWithMetadata<ReviewJobData>): ReviewRunT
     remainingModelMs: (now = Date.now()) => Math.max(0, modelStopAtMs - now),
     remainingTotalMs: (now = Date.now()) => Math.max(0, returnByMs - now),
   };
+}
+
+/**
+ * Automated work items already persist the head SHA, but not the PR identity
+ * needed for trust decisions. Read the current PR metadata without replacing
+ * the queued SHA; stale-head handling remains responsible for that contract.
+ */
+async function resolveReviewHead(
+  prSurface: PrSurface,
+  item: ReviewWorkItem,
+): Promise<DurableHeadResolution> {
+  const resolved = await resolveWorkItemHead(prSurface, item);
+  if (resolved.pullRequest != null) return resolved;
+
+  try {
+    const current = await prSurface.getHead();
+    return { headSha: resolved.headSha, pullRequest: current.pullRequest };
+  } catch (error) {
+    logWarn("review_pr_identity_fetch_failed", {
+      owner: item.owner,
+      repo: item.repo,
+      pr: item.prNumber,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return resolved;
+  }
 }
 
 function reviewRunGate(args: {
@@ -562,6 +589,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   });
 
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
+  const sameRepo = isSameRepoPullRequest(pullRequest);
   const [repoPolicyBlock, agentInstructionFilesBlock] = await Promise.all([
     loadAndRenderTrustedBlock({
       load: () => loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES),
@@ -569,6 +597,7 @@ async function runFullReviewAgainstRepositoryView(args: {
         renderRepoPolicyBlock({
           policy: result.policy,
           changedFiles,
+          sameRepo,
         }),
       onNonOk: (result) => {
         if (result.kind === "invalid") {
@@ -584,7 +613,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       renderOk: (result) =>
         renderAgentInstructionFilesBlock({
           files: result.files,
-          sameRepo: isSameRepoPullRequest(pullRequest),
+          sameRepo,
         }),
     }),
   ]);
@@ -627,6 +656,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,
     codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
+    sameRepo,
     shouldLinkToSummary,
     progressCommentIdHint,
     hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(
@@ -734,7 +764,7 @@ export async function executeReviewJob(
     type: "review",
     prActorLease: { queue: REVIEW_QUEUE },
     acceptItem: (item) => item.reviewLens != null,
-    resolveHeadSha: resolveWorkItemHead,
+    resolveHeadSha: resolveReviewHead,
     execute: async (item, env) => {
       const reviewLens = item.reviewLens;
       const payload = item.payload;

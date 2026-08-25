@@ -41,6 +41,7 @@ export type ReviewRunParams = {
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly severityFloor?: number;
   readonly codeIndexSnapshotId?: string;
+  readonly sameRepo?: boolean;
 };
 
 export type ReviewRunResult = {

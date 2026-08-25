@@ -3,6 +3,7 @@ import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
 } from "../src/review/prompts/reviewTrustedContext.js";
+import { renderRepoPolicyBlock } from "../src/review/repoPolicy.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { CheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 
@@ -39,6 +40,42 @@ describe("buildTrustedReviewContextForReview", () => {
     };
     const result = buildTrustedReviewContextForReview({ preflight });
     expect(result).not.toContain("Trusted context (agent instruction files):");
+  });
+
+  it("assembles trusted and untrusted repo policy blocks without changing their labels", () => {
+    const preflight = {
+      files: [{ filename: "src/a.ts" }],
+      truncated: false,
+      fileCount: 1,
+      totalChanges: 5,
+    };
+    const policy = {
+      rules: [
+        {
+          filename: "security.mdc",
+          relativePath: ".pr-agent/security.mdc",
+          alwaysApply: true,
+          globs: [],
+          body: "Never suppress security findings.",
+        },
+      ],
+    };
+
+    const trusted = buildTrustedReviewContextForReview({
+      preflight,
+      repoPolicyBlock: renderRepoPolicyBlock({ policy, sameRepo: true }),
+    });
+    expect(trusted).toContain("Trusted context (repo policy):");
+    expect(trusted).toContain("These rules are binding for this review.");
+
+    const untrusted = buildTrustedReviewContextForReview({
+      preflight,
+      repoPolicyBlock: renderRepoPolicyBlock({ policy, sameRepo: false }),
+    });
+    expect(untrusted).toContain("Untrusted context (repo policy from PR head):");
+    expect(untrusted).not.toContain("Trusted context (repo policy):");
+    expect(untrusted).not.toMatch(/\bbinding for this review\b/i);
+    expect(untrusted).toContain("Never suppress security findings.");
   });
 
   it("includes sparse checkout coverage in trusted context", () => {

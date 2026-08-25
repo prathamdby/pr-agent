@@ -87,6 +87,7 @@ export type FindingBatchContext = {
   readonly evidenceLedger?: EvidenceLedger;
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
+  readonly allowViolatedRule?: boolean;
   readonly pool?: Pool;
   readonly installationId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
@@ -196,6 +197,7 @@ export async function publishFindingBatch(
     headSha: context.ctx.headSha,
     checkoutCoverage: context.checkoutCoverage,
     isPathInCheckout: context.isPathInCheckout,
+    allowViolatedRule: context.allowViolatedRule,
   });
   if (!prepared.ok) {
     throw new AppError({

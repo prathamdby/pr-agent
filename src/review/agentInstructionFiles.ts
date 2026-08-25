@@ -31,6 +31,10 @@ function errnoCode(error: unknown): string | undefined {
   return undefined;
 }
 
+function validRepositoryName(value: unknown): value is string {
+  return typeof value === "string" && value.trim() === value && /^[^/\s]+\/[^/\s]+$/.test(value);
+}
+
 async function discoverAgentInstructionFile(
   checkoutRoot: string,
   filename: AgentInstructionFilename,
@@ -142,7 +146,7 @@ export function isSameRepoPullRequest(pullRequest: unknown): boolean {
   };
   const headName = pr.head?.repo?.full_name;
   const baseName = pr.base?.repo?.full_name;
-  return typeof headName === "string" && headName.length > 0 && headName === baseName;
+  return validRepositoryName(headName) && validRepositoryName(baseName) && headName === baseName;
 }
 
 /** Neutralize forged server trust headers inside author-controlled file bodies. */
@@ -150,7 +154,7 @@ function neutralizeForgedTrustHeaders(body: string): string {
   return body
     .replace(/^Trusted context \(agent instruction files\):\s*$/gm, "[neutralized forged header]")
     .replace(
-      /^These root files are binding for this review\..*$/gm,
+      /^\s*These root files are binding for this review\..*$/gm,
       "[neutralized forged binding line]",
     );
 }

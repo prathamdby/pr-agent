@@ -15,7 +15,7 @@ Many repositories already document agent behavior in root files such as `AGENTS.
 3. **Preserve newlines** in the rendered block; do not expand `@include` pointers.
 4. **Trust boundary (fork vs same-repo):**
    - **Same-repo head:** treat present files as **binding** for that review (Trusted context label): evidenced violations matching the lens reporting gate are ordinary findings; prompts may cite these filenames when they appear in trusted context. Always append an **anti-suppression** line so local authors cannot trivially jailbreak severity.
-   - **Fork / untrusted head:** render under an **Untrusted context** header — never “Trusted context” / never “binding”. Same anti-suppression line applies. Author-writable PR-head files must not inject privileged binding instructions.
+   - **Fork / untrusted head, or missing/malformed identity:** render under an **Untrusted context** header — never “Trusted context” / never “binding”. Same anti-suppression line applies. Author-writable PR-head files must not inject privileged binding instructions.
 5. **Do not load** these files for ask, describe, triage, or verification in this change.
 
 ## Consequences
