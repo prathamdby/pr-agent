@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import { insertWebhookEvent } from "../src/agentWork/intake/webhookEvents.js";
@@ -82,11 +83,12 @@ describe("insertWebhookEvent", () => {
 
   it("dedupes a body even when its delivery id changes", async () => {
     const body = Buffer.from('{"same":true}');
-    const hash = "a".repeat(64);
+    const replayHash = "a".repeat(64);
+    const bodyHash = createHash("sha256").update(body).digest("hex");
     const query = vi
       .fn()
       .mockResolvedValueOnce({ rows: [{ id: "event-1" }] })
-      .mockResolvedValueOnce({ rows: [{ body_sha256: hash }] })
+      .mockResolvedValueOnce({ rows: [{ body_sha256: replayHash }] })
       .mockResolvedValueOnce({ rows: [{ id: "event-2" }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
@@ -104,10 +106,11 @@ describe("insertWebhookEvent", () => {
     );
 
     expect(first.duplicate).toBe(false);
-    expect(second).toMatchObject({
+    expect(second).toEqual({
       duplicate: true,
-      dedupeKey: expect.stringMatching(/^body:[0-9a-f]{64}$/),
+      dedupeKey: `body:${bodyHash}`,
     });
+    expect(query).toHaveBeenCalledWith("DELETE FROM webhook_events WHERE id = $1", ["event-2"]);
     expect(query).toHaveBeenCalledTimes(5);
   });
 });

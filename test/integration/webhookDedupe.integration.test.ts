@@ -107,6 +107,19 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
     await expect(countRows()).resolves.toBe(1);
   });
 
+  it("lets only one concurrent same-body different-delivery insert win", async () => {
+    const results = await Promise.all([
+      insert('{"same":true}', "delivery-body-race-1"),
+      insert('{"same":true}', "delivery-body-race-2"),
+    ]);
+
+    expect(results.filter((result) => !result.duplicate)).toHaveLength(1);
+    const duplicates = results.filter((result) => result.duplicate);
+    expect(duplicates).toHaveLength(1);
+    expect(duplicates[0]?.dedupeKey).toMatch(/^body:[0-9a-f]{64}$/);
+    await expect(countRows()).resolves.toBe(1);
+  });
+
   it("releases a body hash after webhook-event retention", async () => {
     const first = await insert('{"retained":true}', "delivery-retained-old");
     if (first.duplicate) throw new Error("initial retained event was treated as duplicate");

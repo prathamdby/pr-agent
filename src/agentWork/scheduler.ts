@@ -58,20 +58,20 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Confi
             recordIgnoredWebhook(client, headers, decision, intakeLog),
           ),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
+      }).pipe(Effect.uninterruptible),
 
     submitAutomatedReview: (headers, ref, action, intakeLog, opts) =>
       Effect.tryPromise({
         try: () =>
           applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog, cfg, opts),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
+      }).pipe(Effect.uninterruptible),
 
     submitCiRefresh: (headers, data, intakeLog) =>
       Effect.tryPromise({
         try: () => applyCiRefreshIntake(boss, pool, headers, data, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
+      }).pipe(Effect.uninterruptible),
 
     submitSlashCommand: (input, intakeLog) =>
       Effect.tryPromise({
@@ -82,7 +82,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Confi
           flushDeferredEvents(intakeLog, events);
         },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
+      }).pipe(Effect.uninterruptible),
 
     ping: () =>
       Effect.tryPromise({

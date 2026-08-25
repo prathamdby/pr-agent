@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
+import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import * as evlog from "../src/evlog.js";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
-import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { AgentWorkScheduler, makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -871,6 +873,62 @@ describe("processWebhookPostRequestEffect", () => {
       );
       expect(budgetWarn).toBeDefined();
       expect(budgetWarn?.[2]).toMatchObject({ budgetMs: 1, responseBudgetMs: 1 });
+    } finally {
+      delete settingsOverrides.webhookTimeoutMs;
+      recordSpy.mockRestore();
+    }
+  });
+
+  it("waits for durable intake rollback before returning a timeout", async () => {
+    let rollbackCompleted = false;
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        throw new Error("injected replay reservation failure");
+      }
+      if (sql === "ROLLBACK") rollbackCompleted = true;
+      if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+      return { rows: [] };
+    });
+    const client = { query, release: vi.fn() };
+    const pool = {
+      connect: vi.fn(async () => client),
+    } as unknown as Pool;
+    const scheduler = makeAgentWorkScheduler(pool, {} as PgBoss, cfg);
+    const layer = Layer.mergeAll(
+      Layer.succeed(AgentWorkScheduler, scheduler),
+      Layer.succeed(
+        WebhookHandlers,
+        WebhookHandlers.of({
+          pullRequest: () => Effect.void,
+          issueComment: () => Effect.void,
+          pullRequestReviewComment: () => Effect.void,
+          ciRefresh: () => Effect.void,
+        }),
+      ),
+    );
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
+    settingsOverrides.webhookTimeoutMs = 1;
+    const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
+
+    try {
+      const out = await Effect.runPromise(
+        runWithIntake(
+          {
+            headers: {
+              "x-hub-signature-256": sign(body),
+              "x-github-event": "ping",
+              "x-github-delivery": "d-timeout-rollback",
+            },
+            rawBody: body,
+          },
+          layer,
+          cfg,
+        ),
+      );
+
+      expect(out).toEqual({ status: 503, body: "service unavailable" });
+      expect(rollbackCompleted).toBe(true);
     } finally {
       delete settingsOverrides.webhookTimeoutMs;
       recordSpy.mockRestore();

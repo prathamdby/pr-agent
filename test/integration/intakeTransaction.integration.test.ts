@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
@@ -155,6 +155,15 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     return Number(rows[0]?.count ?? "0");
   }
 
+  async function countReplayRows(rawBody: Buffer): Promise<number> {
+    const bodySha256 = createHash("sha256").update(rawBody).digest("hex");
+    const { rows } = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM webhook_event_replays WHERE body_sha256 = $1",
+      [bodySha256],
+    );
+    return Number(rows[0]?.count ?? "0");
+  }
+
   async function reviewJobsFor(ref: PrRef) {
     const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
     const { rows } = await pool.query<{ id: string }>(
@@ -195,13 +204,14 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   it("rollback atomicity: late send failure rolls back dedupe, work item, and jobs", async () => {
     const ref = makePrRef("rollback");
     const delivery = "delivery-rollback";
+    const requestHeaders = headers("synchronize", delivery);
     const failingBoss = withSendFailOnNth(boss, 2);
     try {
       await expect(
         applyAutomatedPullRequestIntake(
           boss,
           pool,
-          headers("synchronize", delivery),
+          requestHeaders,
           ref,
           "synchronize",
           intakeLog(),
@@ -213,6 +223,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     }
 
     await expect(countWebhookRows(delivery)).resolves.toBe(0);
+    await expect(countReplayRows(requestHeaders.rawBody)).resolves.toBe(0);
     await expect(countWorkItems()).resolves.toBe(0);
     await expect(boss.findJobs(ACK_QUEUE, {})).resolves.toHaveLength(0);
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(0);
@@ -220,7 +231,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", delivery),
+      requestHeaders,
       ref,
       "synchronize",
       intakeLog(),
@@ -228,6 +239,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     );
 
     await expect(countWebhookRows(delivery)).resolves.toBe(1);
+    await expect(countReplayRows(requestHeaders.rawBody)).resolves.toBe(1);
     await expect(countWorkItems()).resolves.toBe(1);
     await expect(boss.findJobs(ACK_QUEUE, {})).resolves.toHaveLength(1);
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
