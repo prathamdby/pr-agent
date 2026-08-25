@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { findExistingAskReplyComment } from "../src/agent/ask/recoverAskReply.js";
-import { askReplyOperationKey, operationIntentMarker } from "../src/agentWork/withOperationIntent.js";
+import {
+  askReplyOperationKey,
+  operationIntentMarker,
+} from "../src/agentWork/withOperationIntent.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 describe("findExistingAskReplyComment", () => {
