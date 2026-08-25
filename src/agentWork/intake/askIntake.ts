@@ -7,7 +7,12 @@ import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/par
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { ASK_THROTTLED_BODY, ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import type { AckJobData, AckTarget, JobCorrelation, PrRef } from "../types.js";
-import { admitAsk, releaseAskQuotaReservation, type AskQuotaConfig } from "../askQuota.js";
+import {
+  admitAsk,
+  releaseAskQuotaReservation,
+  type AskQuotaConfig,
+  type AskQuotaRejectionReason,
+} from "../askQuota.js";
 import { enqueueAsk, enqueueAskAckIdempotent } from "./queueing.js";
 import { createAskWorkItem } from "./workItemRepository.js";
 
@@ -39,7 +44,7 @@ export type ExistingAskWorkItemPolicy = "skip" | "recover";
 
 export type AskIntakeOutcome =
   | { readonly kind: "hint_acked"; readonly reason: "usage" | "too_long" }
-  | { readonly kind: "throttled"; readonly reason: string }
+  | { readonly kind: "throttled"; readonly reason: AskQuotaRejectionReason }
   | { readonly kind: "promoted"; readonly workItemId: string; readonly created: boolean }
   | { readonly kind: "already_exists_skipped"; readonly workItemId: string };
 

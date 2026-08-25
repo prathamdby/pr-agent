@@ -189,7 +189,13 @@ function config(overrides: Partial<AskQuotaConfig> = {}): AskQuotaConfig {
   };
 }
 
-function admission(client: FakeQuotaClient, workItemId: string, commenterId = 7, repo = "app") {
+function admission(
+  client: FakeQuotaClient,
+  workItemId: string,
+  commenterId = 7,
+  repo = "app",
+  quota: AskQuotaConfig = config(),
+) {
   return admitAsk(
     client as never,
     {
@@ -199,7 +205,7 @@ function admission(client: FakeQuotaClient, workItemId: string, commenterId = 7,
       repo,
       commenterId,
     },
-    config(),
+    quota,
   );
 }
 
@@ -247,6 +253,140 @@ describe("ask admission quotas", () => {
     await expect(admit("ask-6", 11, "third")).resolves.toEqual({
       kind: "throttled",
       reason: "installation_outstanding",
+    });
+  });
+
+  it("throttles empty rate buckets, refills them, and clamps at burst", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:00.000Z"));
+    try {
+      const limited = config({
+        askActorBurst: 3,
+        askRepositoryBurst: 3,
+        askInstallationBurst: 3,
+        askActorRefillSeconds: 60,
+        askRepositoryRefillSeconds: 60,
+        askInstallationRefillSeconds: 60,
+      });
+      const client = new FakeQuotaClient();
+      const emptyBucket = (scope: string, scopeKey: string): Bucket => ({
+        scope,
+        scope_key: scopeKey,
+        token_balance: 0,
+        last_refill_at: new Date(Date.now()),
+        outstanding_count: 0,
+        provider_tokens_used: 0,
+        provider_tokens_reserved: 0,
+        provider_window_started_at: new Date(Date.now()),
+      });
+
+      client.buckets.set("actor:actor:9:7", emptyBucket("actor", "actor:9:7"));
+      await expect(admission(client, "ask-rate-actor", 7, "app", limited)).resolves.toEqual({
+        kind: "throttled",
+        reason: "actor_rate",
+      });
+
+      vi.advanceTimersByTime(60_000);
+      await expect(
+        admitAsk(
+          client as never,
+          {
+            workItemId: "ask-rate-actor-refilled",
+            installationId: 9,
+            owner: "Acme",
+            repo: "app",
+            commenterId: 7,
+          },
+          limited,
+        ),
+      ).resolves.toMatchObject({ kind: "admitted" });
+
+      client.buckets.set(
+        "repository:repository:9:acme/app",
+        emptyBucket("repository", "repository:9:acme/app"),
+      );
+      await expect(
+        admitAsk(
+          client as never,
+          {
+            workItemId: "ask-rate-repository",
+            installationId: 9,
+            owner: "Acme",
+            repo: "app",
+            commenterId: 8,
+          },
+          limited,
+        ),
+      ).resolves.toEqual({ kind: "throttled", reason: "repository_rate" });
+
+      client.buckets.set(
+        "installation:installation:9",
+        emptyBucket("installation", "installation:9"),
+      );
+      await expect(
+        admitAsk(
+          client as never,
+          {
+            workItemId: "ask-rate-installation",
+            installationId: 9,
+            owner: "Acme",
+            repo: "other",
+            commenterId: 9,
+          },
+          limited,
+        ),
+      ).resolves.toEqual({ kind: "throttled", reason: "installation_rate" });
+
+      const clampClient = new FakeQuotaClient();
+      clampClient.buckets.set("actor:actor:9:7", {
+        ...emptyBucket("actor", "actor:9:7"),
+        token_balance: 2,
+        last_refill_at: new Date(Date.now() - 120_000),
+      });
+      await expect(
+        admission(clampClient, "ask-rate-clamped", 7, "app", limited),
+      ).resolves.toMatchObject({
+        kind: "admitted",
+      });
+      expect(clampClient.buckets.get("actor:actor:9:7")?.token_balance).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not reset an expired provider window while usage is reserved", async () => {
+    const client = new FakeQuotaClient();
+    client.buckets.set("installation:installation:9", {
+      scope: "installation",
+      scope_key: "installation:9",
+      token_balance: 100,
+      last_refill_at: new Date(),
+      outstanding_count: 0,
+      provider_tokens_used: 8,
+      provider_tokens_reserved: 6,
+      provider_window_started_at: new Date(Date.now() - 2 * 86_400_000),
+    });
+    const budget = config({
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    });
+
+    await expect(
+      admitAsk(
+        client as never,
+        {
+          workItemId: "ask-provider-window",
+          installationId: 9,
+          owner: "Acme",
+          repo: "app",
+          commenterId: 8,
+        },
+        budget,
+      ),
+    ).resolves.toEqual({ kind: "throttled", reason: "provider_budget" });
+    expect(client.buckets.get("installation:installation:9")).toMatchObject({
+      provider_tokens_used: 8,
+      provider_tokens_reserved: 6,
     });
   });
 
@@ -306,5 +446,72 @@ describe("ask admission quotas", () => {
         budget,
       ),
     ).resolves.toEqual({ kind: "admitted", providerReservationTokens: 6 });
+  });
+
+  it("floors exact provider usage and ignores repeated or unknown usage", async () => {
+    const client = new FakeQuotaClient();
+    const budget = config({
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    });
+    const exactId = "ask-provider-floor";
+
+    await expect(
+      admitAsk(
+        client as never,
+        {
+          workItemId: exactId,
+          installationId: 9,
+          owner: "Acme",
+          repo: "app",
+          commenterId: 7,
+        },
+        budget,
+      ),
+    ).resolves.toMatchObject({ kind: "admitted" });
+
+    await recordAskProviderUsage(client.pool(), {
+      workItemId: exactId,
+      usage: { estimated: false, totalTokens: 4.7 },
+    });
+    expect(client.buckets.get("installation:installation:9")).toMatchObject({
+      provider_tokens_used: 4,
+      provider_tokens_reserved: 0,
+    });
+    expect(client.reservations.get(exactId)).toMatchObject({
+      provider_usage_known: true,
+      reserved_provider_tokens: 0,
+    });
+
+    await recordAskProviderUsage(client.pool(), {
+      workItemId: exactId,
+      usage: { estimated: false, totalTokens: 9 },
+    });
+    expect(client.buckets.get("installation:installation:9")?.provider_tokens_used).toBe(4);
+
+    const unknownId = "ask-provider-unknown";
+    await expect(
+      admitAsk(
+        client as never,
+        {
+          workItemId: unknownId,
+          installationId: 9,
+          owner: "Acme",
+          repo: "app",
+          commenterId: 8,
+        },
+        budget,
+      ),
+    ).resolves.toMatchObject({ kind: "admitted" });
+    await recordAskProviderUsage(client.pool(), { workItemId: unknownId });
+    await recordAskProviderUsage(client.pool(), {
+      workItemId: unknownId,
+      usage: { estimated: false, totalTokens: -1 },
+    });
+    expect(client.reservations.get(unknownId)).toMatchObject({
+      provider_usage_known: false,
+      reserved_provider_tokens: 6,
+    });
+    expect(client.buckets.get("installation:installation:9")?.provider_tokens_reserved).toBe(6);
   });
 });

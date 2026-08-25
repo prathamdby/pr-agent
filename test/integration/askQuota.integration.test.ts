@@ -144,6 +144,134 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
     expect(retry.kind).toBe("admitted");
   });
 
+  it("keeps quota state through non-terminal status transitions", async () => {
+    const workItemId = randomUUID();
+    await expect(admitAndInsert(workItemId, 7)).resolves.toMatchObject({ kind: "admitted" });
+
+    const keys = [`actor:${INSTALLATION_ID}:7`, `installation:${INSTALLATION_ID}`];
+    const before = await pool.query(
+      `SELECT scope, scope_key, outstanding_count, provider_tokens_reserved
+         FROM ask_quota_buckets
+        WHERE scope_key = ANY($1::text[])
+        ORDER BY scope, scope_key`,
+      [keys],
+    );
+    const reservationBefore = await pool.query(
+      `SELECT released_at
+         FROM ask_quota_reservations
+        WHERE work_item_id = $1`,
+      [workItemId],
+    );
+
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'running', updated_at = now()
+        WHERE id = $1`,
+      [workItemId],
+    );
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'queued', updated_at = now()
+        WHERE id = $1`,
+      [workItemId],
+    );
+
+    const after = await pool.query(
+      `SELECT scope, scope_key, outstanding_count, provider_tokens_reserved
+         FROM ask_quota_buckets
+        WHERE scope_key = ANY($1::text[])
+        ORDER BY scope, scope_key`,
+      [keys],
+    );
+    const reservationAfter = await pool.query(
+      `SELECT released_at
+         FROM ask_quota_reservations
+        WHERE work_item_id = $1`,
+      [workItemId],
+    );
+    expect(after.rows).toEqual(before.rows);
+    expect(reservationAfter.rows).toEqual([{ released_at: null }]);
+    expect(reservationAfter.rows).toEqual(reservationBefore.rows);
+  });
+
+  it("releases a quota reservation only once across terminal updates", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    };
+    const workItemId = randomUUID();
+    await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'completed', completed_at = now(), updated_at = now()
+        WHERE id = $1`,
+      [workItemId],
+    );
+    const firstBuckets = await pool.query(
+      `SELECT scope, scope_key, outstanding_count,
+              provider_tokens_reserved::int AS provider_tokens_reserved,
+              provider_tokens_used::int AS provider_tokens_used
+         FROM ask_quota_buckets
+        WHERE scope_key IN ($1, $2, $3)
+        ORDER BY scope, scope_key`,
+      [
+        `actor:${INSTALLATION_ID}:7`,
+        `repository:${INSTALLATION_ID}:${OWNER}/${REPO}`,
+        `installation:${INSTALLATION_ID}`,
+      ],
+    );
+    const firstReservation = await pool.query(
+      `SELECT released_at, reserved_provider_tokens::int AS reserved_provider_tokens
+         FROM ask_quota_reservations
+        WHERE work_item_id = $1`,
+      [workItemId],
+    );
+
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'failed', completed_at = now(), updated_at = now()
+        WHERE id = $1`,
+      [workItemId],
+    );
+    const secondBuckets = await pool.query(
+      `SELECT scope, scope_key, outstanding_count,
+              provider_tokens_reserved::int AS provider_tokens_reserved,
+              provider_tokens_used::int AS provider_tokens_used
+         FROM ask_quota_buckets
+        WHERE scope_key IN ($1, $2, $3)
+        ORDER BY scope, scope_key`,
+      [
+        `actor:${INSTALLATION_ID}:7`,
+        `repository:${INSTALLATION_ID}:${OWNER}/${REPO}`,
+        `installation:${INSTALLATION_ID}`,
+      ],
+    );
+    const secondReservation = await pool.query(
+      `SELECT released_at, reserved_provider_tokens::int AS reserved_provider_tokens
+         FROM ask_quota_reservations
+        WHERE work_item_id = $1`,
+      [workItemId],
+    );
+
+    expect(secondBuckets.rows).toEqual(firstBuckets.rows);
+    expect(secondReservation.rows).toEqual(firstReservation.rows);
+    expect(firstBuckets.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "installation",
+          outstanding_count: 0,
+          provider_tokens_used: 6,
+        }),
+      ]),
+    );
+    expect(firstReservation.rows[0]?.released_at).not.toBeNull();
+    expect(firstReservation.rows[0]?.reserved_provider_tokens).toBe(0);
+  });
+
   it("keeps provider reservations safe for exact and unknown usage", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,

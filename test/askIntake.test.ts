@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { promoteAskFromWebhookEvent } from "../src/agentWork/intake/askIntake.js";
-import { ACK_QUEUE, ASK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
+import { ACK_QUEUE, ASK_QUEUE, ASK_THROTTLED_BODY, ASK_USAGE_HINT } from "../src/settings/index.js";
 import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
 import { MAX_ASK_QUESTION_CHARS } from "../src/agent/ask/askSafety.js";
 import { defaultAskQuotaConfig } from "../src/agentWork/askQuota.js";
@@ -28,7 +28,11 @@ function baseInput(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function askQuotaQuery(sql: string, params?: unknown[]) {
+function askQuotaQuery(
+  sql: string,
+  params?: unknown[],
+  overrides: { readonly outstandingCount?: number } = {},
+) {
   if (sql.includes("INSERT INTO ask_quota_buckets")) return { rows: [] };
   if (sql.includes("FROM ask_quota_buckets") && sql.includes("FOR UPDATE")) {
     return {
@@ -38,7 +42,7 @@ function askQuotaQuery(sql: string, params?: unknown[]) {
           scope_key: params?.[1],
           token_balance: 100,
           last_refill_at: new Date(),
-          outstanding_count: 0,
+          outstanding_count: overrides.outstandingCount ?? 0,
           provider_tokens_used: 0,
           provider_tokens_reserved: 0,
           provider_window_started_at: new Date(),
@@ -129,6 +133,37 @@ describe("promoteAskFromWebhookEvent", () => {
       },
       body: ASK_QUESTION_TOO_LONG_HINT,
     });
+  });
+
+  it("acks throttled asks without creating work or an ask job", async () => {
+    const sent: { queue: string; data: Record<string, unknown>; options?: unknown }[] = [];
+    const queries: string[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>, options?: unknown) => {
+        sent.push({ queue, data, options });
+        return "jid";
+      }),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        queries.push(sql);
+        const quotaResult = askQuotaQuery(sql, params, { outstandingCount: 2 });
+        if (quotaResult) return quotaResult;
+        throw new Error(`unexpected: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+
+    const outcome = await promoteAskFromWebhookEvent(boss, client, baseInput(), "skip");
+
+    expect(outcome).toEqual({ kind: "throttled", reason: "actor_outstanding" });
+    expect(sent.map((item) => item.queue)).toEqual([ACK_QUEUE]);
+    expect(sent[0]?.data.reply).toEqual({
+      target: { kind: "prConversation", prNumber: 7 },
+      body: ASK_THROTTLED_BODY,
+    });
+    expect(sent[0]?.options).toEqual(expect.objectContaining({ id: "event-1", priority: 100 }));
+    expect(queries.some((sql) => sql.includes("INSERT INTO agent_work_items"))).toBe(false);
+    expect(queries.some((sql) => sql.includes("INSERT INTO ask_quota_reservations"))).toBe(false);
   });
 
   it("skips enqueue when existing ask work item and policy is skip", async () => {
