@@ -21,7 +21,7 @@ import type {
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
-import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
+import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
 
@@ -60,11 +60,13 @@ export type FakePrSurfaceEvent =
       readonly kind: "fetchPriorInlineFeedback";
       readonly botUserId: number;
       readonly currentLens: AnyReviewLens;
+      readonly maintainerDecisionAssociations?: ReadonlySet<string>;
     }
   | {
       readonly kind: "fetchBotFindingThreads";
       readonly botUserId: number;
       readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
+      readonly maintainerDecisionAssociations?: ReadonlySet<string>;
     }
   | { readonly kind: "fetchReviewCommentParentGraph" }
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
@@ -144,6 +146,9 @@ export type FakePrSurfaceControls = {
       readonly endLine: number;
       readonly botTitleSnippet: string;
       readonly humanReplies: readonly string[];
+      readonly authorizedReplies?: readonly string[];
+      readonly untrustedReplies?: readonly string[];
+      readonly replies?: readonly ReviewThreadReply[];
       readonly threadUrl: string;
     }>,
   ) => void;
@@ -246,6 +251,9 @@ export function createFakePrSurface(
     readonly endLine: number;
     readonly botTitleSnippet: string;
     readonly humanReplies: readonly string[];
+    readonly authorizedReplies?: readonly string[];
+    readonly untrustedReplies?: readonly string[];
+    readonly replies?: readonly ReviewThreadReply[];
     readonly threadUrl: string;
   }> = [];
   let botFindingThreads: BotFindingThread[] = [];
@@ -499,13 +507,23 @@ export function createFakePrSurface(
       events.push({ kind: "setReviewCommitStatus", headSha: headShaArg, status });
     },
 
-    async fetchPriorInlineFeedback(botUserId, currentLens) {
-      events.push({ kind: "fetchPriorInlineFeedback", botUserId, currentLens });
+    async fetchPriorInlineFeedback(botUserId, currentLens, maintainerDecisionAssociations) {
+      events.push({
+        kind: "fetchPriorInlineFeedback",
+        botUserId,
+        currentLens,
+        ...(maintainerDecisionAssociations != null ? { maintainerDecisionAssociations } : {}),
+      });
       return priorInlineFeedback;
     },
 
-    async fetchBotFindingThreads(botUserId, publishRecordLenses) {
-      events.push({ kind: "fetchBotFindingThreads", botUserId, publishRecordLenses });
+    async fetchBotFindingThreads(botUserId, publishRecordLenses, maintainerDecisionAssociations) {
+      events.push({
+        kind: "fetchBotFindingThreads",
+        botUserId,
+        publishRecordLenses,
+        ...(maintainerDecisionAssociations != null ? { maintainerDecisionAssociations } : {}),
+      });
       return botFindingThreads;
     },
 

@@ -382,6 +382,7 @@ async function buildPriorInlineFeedbackPromise(args: {
         prSurface,
         botUserId: bot.userId,
         reviewLens,
+        maintainerDecisionAssociations: cfg.maintainerDecisionAssociations,
         onPriorFeedbackError: logPriorFeedbackError,
       }),
     };

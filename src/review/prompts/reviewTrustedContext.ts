@@ -91,18 +91,27 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
   prSurface: PrSurface;
   botUserId: number;
   reviewLens: AnyReviewLens;
+  maintainerDecisionAssociations?: ReadonlySet<string>;
   onPriorFeedbackError?: (error: unknown) => void;
 }): Promise<string | undefined> {
   try {
     const threads = await params.prSurface.fetchPriorInlineFeedback(
       params.botUserId,
       params.reviewLens,
+      params.maintainerDecisionAssociations,
     );
     return (
       formatPriorInlineFeedbackBlock(
         threads.map((thread) => ({
           ...thread,
           humanReplies: [...thread.humanReplies],
+          ...(thread.authorizedReplies != null
+            ? { authorizedReplies: [...thread.authorizedReplies] }
+            : {}),
+          ...(thread.untrustedReplies != null
+            ? { untrustedReplies: [...thread.untrustedReplies] }
+            : {}),
+          ...(thread.replies != null ? { replies: [...thread.replies] } : {}),
         })),
       ) || undefined
     );

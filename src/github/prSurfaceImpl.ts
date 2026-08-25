@@ -581,29 +581,39 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       await setReviewCommitStatus(token, owner, repo, headSha, status, expiresAtTs);
     },
 
-    async fetchPriorInlineFeedback(botUserId, currentLens) {
+    async fetchPriorInlineFeedback(
+      requestedBotUserId,
+      currentLens,
+      maintainerDecisionAssociations,
+    ) {
       const { token, expiresAtTs } = await ensureAuth();
       return fetchPriorInlineReviewFeedback(
         token,
         owner,
         repo,
         prNumber,
-        botUserId,
+        requestedBotUserId,
         currentLens,
         expiresAtTs,
+        maintainerDecisionAssociations,
       );
     },
 
-    async fetchBotFindingThreads(botUserId, publishRecordLenses) {
+    async fetchBotFindingThreads(
+      requestedBotUserId,
+      publishRecordLenses,
+      maintainerDecisionAssociations,
+    ) {
       const { token, expiresAtTs } = await ensureAuth();
       return fetchBotFindingThreads(
         token,
         owner,
         repo,
         prNumber,
-        botUserId,
+        requestedBotUserId,
         publishRecordLenses,
         expiresAtTs,
+        maintainerDecisionAssociations,
       );
     },
 

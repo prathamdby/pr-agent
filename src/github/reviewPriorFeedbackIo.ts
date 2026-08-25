@@ -1,4 +1,8 @@
-import { COMMENT_PAGINATION_MAX_PAGES, COMMENTS_PAGE_SIZE } from "../settings/index.js";
+import {
+  COMMENT_PAGINATION_MAX_PAGES,
+  COMMENTS_PAGE_SIZE,
+  DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
+} from "../settings/index.js";
 import { isAnyReviewLens, type AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { installationOctokit } from "./appAuth.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
@@ -41,6 +45,7 @@ async function listPullRequestReviewComments(
     inReplyToId: comment.in_reply_to_id ?? null,
     pullRequestReviewId: comment.pull_request_review_id ?? null,
     userId: comment.user?.id ?? null,
+    authorAssociation: comment.author_association ?? null,
     body: comment.body ?? "",
     path: comment.path ?? null,
     line: comment.line ?? null,
@@ -108,6 +113,7 @@ export async function fetchPriorInlineReviewFeedback(
   botUserId: number,
   currentLens: AnyReviewLens,
   expiresAtTs?: number,
+  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
 ): Promise<PriorInlineFeedbackThread[]> {
   const [reviewLenses, comments] = await Promise.all([
     listBotReviewLenses(token, owner, repo, pullNumber, botUserId, undefined, expiresAtTs),
@@ -120,6 +126,7 @@ export async function fetchPriorInlineReviewFeedback(
       botUserId,
       reviewLenses,
       allowedLenses: priorFeedbackLensesForSelection(currentLens),
+      maintainerDecisionAssociations,
     }),
   );
 }
@@ -132,6 +139,7 @@ export async function fetchBotFindingThreads(
   botUserId: number,
   publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
   expiresAtTs?: number,
+  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
 ): Promise<BotFindingThread[]> {
   const [comments, reviewLenses] = await Promise.all([
     listPullRequestReviewComments(token, owner, repo, pullNumber, expiresAtTs),
@@ -152,6 +160,7 @@ export async function fetchBotFindingThreads(
       botUserId,
       reviewLenses,
       allowedLenses: priorFeedbackLensesForSelection("review"),
+      maintainerDecisionAssociations,
     }),
     botUserId,
   );

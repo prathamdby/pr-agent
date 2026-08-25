@@ -29,8 +29,8 @@ describe("triage schema", () => {
       validateTriageVerdicts({
         payload,
         inventory: [
-          { threadRootCommentId: 1, hasHumanReplies: false },
-          { threadRootCommentId: 2, hasHumanReplies: true },
+          { threadRootCommentId: 1, hasAuthorizedMaintainerDecision: false },
+          { threadRootCommentId: 2, hasAuthorizedMaintainerDecision: true },
         ],
         committedShas: ["abcdef1"],
         commitByThreadRootCommentId: new Map([[1, "abcdef1"]]),
@@ -38,7 +38,7 @@ describe("triage schema", () => {
     ).toEqual([]);
   });
 
-  it("rejects hallucinated ids, unknown commits, missing verdicts, and dismissed without human reply", () => {
+  it("rejects hallucinated ids, unknown commits, missing verdicts, and dismissed without authorization", () => {
     const payload = v.parse(TriagePayloadSchema, {
       verdicts: [
         {
@@ -59,16 +59,16 @@ describe("triage schema", () => {
       validateTriageVerdicts({
         payload,
         inventory: [
-          { threadRootCommentId: 1, hasHumanReplies: false },
-          { threadRootCommentId: 2, hasHumanReplies: false },
-          { threadRootCommentId: 3, hasHumanReplies: false },
+          { threadRootCommentId: 1, hasAuthorizedMaintainerDecision: false },
+          { threadRootCommentId: 2, hasAuthorizedMaintainerDecision: false },
+          { threadRootCommentId: 3, hasAuthorizedMaintainerDecision: false },
         ],
         committedShas: ["abcdef1"],
         commitByThreadRootCommentId: new Map([[2, "abcdef1"]]),
       }),
     ).toEqual([
       "fixed verdict for 1 references an unknown commit",
-      "dismissed verdict for 3 requires human replies",
+      "dismissed verdict for 3 requires an authorized maintainer decision",
       "threadRootCommentId 2 is missing a verdict",
       "threadRootCommentId 2 has commit abcdef1 but no fixed verdict",
     ]);
@@ -97,15 +97,15 @@ describe("verification schema", () => {
       validateVerificationVerdicts({
         payload,
         inventory: [
-          { threadRootCommentId: 1, hasHumanReplies: false },
-          { threadRootCommentId: 2, hasHumanReplies: false },
+          { threadRootCommentId: 1, hasAuthorizedMaintainerDecision: false },
+          { threadRootCommentId: 2, hasAuthorizedMaintainerDecision: false },
         ],
         pushedShas: ["abcdef1"],
       }),
     ).toEqual([]);
   });
 
-  it("rejects hallucinated ids, unknown commits, missing verdicts, and dismissed without human reply", () => {
+  it("rejects hallucinated ids, unknown commits, missing verdicts, and dismissed without authorization", () => {
     const payload = v.parse(VerificationPayloadSchema, {
       verdicts: [
         {
@@ -126,15 +126,15 @@ describe("verification schema", () => {
       validateVerificationVerdicts({
         payload,
         inventory: [
-          { threadRootCommentId: 1, hasHumanReplies: false },
-          { threadRootCommentId: 2, hasHumanReplies: false },
-          { threadRootCommentId: 3, hasHumanReplies: false },
+          { threadRootCommentId: 1, hasAuthorizedMaintainerDecision: false },
+          { threadRootCommentId: 2, hasAuthorizedMaintainerDecision: false },
+          { threadRootCommentId: 3, hasAuthorizedMaintainerDecision: false },
         ],
         pushedShas: ["abcdef1"],
       }),
     ).toEqual([
       "fixed verdict for 1 references an unknown commit",
-      "dismissed verdict for 3 requires human replies",
+      "dismissed verdict for 3 requires an authorized maintainer decision",
       "threadRootCommentId 2 is missing a verdict",
     ]);
   });
@@ -154,7 +154,7 @@ describe("verification schema", () => {
     expect(
       validateVerificationVerdicts({
         payload,
-        inventory: [{ threadRootCommentId: 1, hasHumanReplies: false }],
+        inventory: [{ threadRootCommentId: 1, hasAuthorizedMaintainerDecision: false }],
         pushedShas: ["abcdef1234567890abcdef1234567890abcdef12"],
       }),
     ).toEqual([]);

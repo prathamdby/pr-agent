@@ -18,7 +18,7 @@ Policy suggestions always rendered a from-scratch `.pr-agent.yml` snippet, even 
 
 2. **Resource-scoped thread ledger.** Persist `{ threads: { [rootCommentId]: { stubCommentId, lastVerdict, lastHeadSha, terminal? } } }` on `publish_records` for lens `verification` / step `verification_thread_actions`. Load by `resource_key` (not `work_item_id`). Merge per-thread on write. Recover missing stub ids by scanning the thread for the marker (or legacy `**Verification**:` replies).
 
-3. **Dismissed is terminal for verification.** Edit the stub into the dismissed body (evidence + grounded policy suggestion), then `resolveReviewThread`. Resolved threads drop out of the next open inventory. Triage publish is unchanged (still never auto-resolves dismissed findings).
+3. **Dismissed is terminal for verification.** Validation requires an authorized non-bot maintainer decision matching the finding thread; unauthorized reply text remains untrusted evidence. Edit the stub into the dismissed body (evidence + grounded policy suggestion), then `resolveReviewThread`. Resolved threads drop out of the next open inventory. Triage publish is unchanged (still never auto-resolves dismissed findings).
 
 4. **Grounded policy suggestions.** While the read-only PR repository view is open, load `.pr-agent/*.mdc` rules and pass the result into publish. Exactly one matching rule → append fragment; absent → new starter `.mdc`; invalid/missing → new starter plus the parse failure reason.
 

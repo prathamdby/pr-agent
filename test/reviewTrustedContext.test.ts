@@ -118,7 +118,9 @@ describe("fetchPriorInlineFeedbackBlockForReview", () => {
         startLine: 4,
         endLine: 4,
         botTitleSnippet: "P1 · Missing await",
-        humanReplies: ["False positive"],
+        humanReplies: ["False positive", "ordinary commenter text"],
+        authorizedReplies: ["False positive"],
+        untrustedReplies: ["ordinary commenter text"],
         threadUrl: "https://github.com/o/r/pull/1#discussion_r1",
       },
     ]);
@@ -127,15 +129,18 @@ describe("fetchPriorInlineFeedbackBlockForReview", () => {
       prSurface: surface,
       botUserId: 99,
       reviewLens: "review",
+      maintainerDecisionAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
     });
 
     expect(controls.events).toContainEqual({
       kind: "fetchPriorInlineFeedback",
       botUserId: 99,
       currentLens: "review",
+      maintainerDecisionAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
     });
     expect(block).toContain("Prior inline review feedback");
     expect(block).toContain("False positive");
+    expect(block).toContain("ordinary commenter text");
   });
 
   it("carries an exact legacy lens so the seam can apply mismatch policy", async () => {

@@ -40,6 +40,7 @@ describe("loadConfig validation", () => {
     expect(cfg.role).toBe("web");
     expect(cfg.logLevel).toBe("info");
     expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
   });
 
   it("rejects a non-numeric positive knob", async () => {
@@ -116,6 +117,27 @@ describe("loadConfig validation", () => {
       /SLASH_ALLOWED_ASSOCIATIONS must be/,
     );
   });
+
+  it("normalizes and validates maintainer decision associations without wildcard access", async () => {
+    const cfg = await load({ MAINTAINER_DECISION_ASSOCIATIONS: "owner, collaborator" });
+    expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "COLLABORATOR"]);
+  });
+
+  it.each(["", "   ", "*", "*,OWNER", "OWNER,*", "OWNER,,MEMBER"])(
+    "rejects invalid maintainer decision association value %j",
+    async (value) => {
+      await expect(load({ MAINTAINER_DECISION_ASSOCIATIONS: value })).rejects.toSatisfy(
+        (error: unknown) => {
+          expect(error).toBeInstanceOf(AppError);
+          expect((error as AppError).code).toBe("config.invalid_enum");
+          expect((error as AppError).context).toMatchObject({
+            name: "MAINTAINER_DECISION_ASSOCIATIONS",
+          });
+          return true;
+        },
+      );
+    },
+  );
 
   it("defaults verification concurrency to 1", async () => {
     const cfg = await load({});
