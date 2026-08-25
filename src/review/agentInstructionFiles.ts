@@ -154,7 +154,7 @@ function neutralizeForgedTrustHeaders(body: string): string {
   return body
     .replace(/^Trusted context \(agent instruction files\):\s*$/gm, "[neutralized forged header]")
     .replace(
-      /^These root files are binding for this review\..*$/gm,
+      /^\s*These root files are binding for this review\..*$/gm,
       "[neutralized forged binding line]",
     );
 }

@@ -58,7 +58,7 @@ function neutralizeForgedTrustHeaders(body: string): string {
   return body
     .replace(/Trusted context \(repo policy\):/gi, "[neutralized forged header]")
     .replace(
-      /^These rules are binding for this review\..*$/gim,
+      /^\s*These rules are binding for this review\..*$/gim,
       "[neutralized forged binding line]",
     );
 }

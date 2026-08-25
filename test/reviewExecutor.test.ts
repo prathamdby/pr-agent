@@ -381,6 +381,32 @@ describe("executeReviewJob", () => {
     expect(durableSurfaceBundle.controls.events).toContainEqual({ kind: "getHead" });
   });
 
+  it("preserves the queued head SHA when automatic identity fetch fails", async () => {
+    durableSurfaceBundle = createFakePrSurface(
+      { owner: "o", repo: "r", prNumber: 1 },
+      { headSha: "head" },
+    );
+    vi.mocked(prSurfaceModule.createPrSurface).mockImplementation(
+      () => durableSurfaceBundle.surface,
+    );
+    vi.spyOn(durableSurfaceBundle.surface, "getHead").mockRejectedValueOnce(
+      new Error("identity unavailable"),
+    );
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      const resolved = await spec.resolveHeadSha(durableSurfaceBundle.surface, makeItem("auto"));
+      expect(resolved).toEqual({ headSha: "head" });
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.logWarn).toHaveBeenCalledWith("review_pr_identity_fetch_failed", {
+      owner: "o",
+      repo: "r",
+      pr: 1,
+      message: "identity unavailable",
+    });
+  });
+
   it("ensures a review check run before the long review", async () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
