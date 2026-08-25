@@ -412,6 +412,117 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
     }
   });
 
+  it("enqueues one ack for mixed review and triage cancellation with fallback triage targets", async () => {
+    const clientQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_events")) {
+        return { rows: [{ id: "event-mixed-close" }] };
+      }
+      if (sql.includes("type = 'review'") && sql.includes("status = 'queued'")) {
+        return {
+          rows: [
+            {
+              id: "review-queued",
+              source: "auto",
+              head_sha: "review-q",
+              created_at: "2026-01-01T00:00:01Z",
+            },
+          ],
+        };
+      }
+      if (sql.includes("type = 'review'") && sql.includes("status = 'running'")) {
+        return {
+          rows: [
+            {
+              id: "review-running",
+              source: "slash",
+              head_sha: "review-r",
+              created_at: "2026-01-01T00:00:02Z",
+            },
+          ],
+        };
+      }
+      if (sql.includes("type = 'triage'") && sql.includes("status = 'queued'")) {
+        return {
+          rows: [
+            {
+              id: "triage-queued",
+              head_sha: "triage-q",
+              created_at: "2026-01-01T00:00:03Z",
+              payload: {
+                source: "slash",
+                commentId: 31,
+                scope: "all",
+                replyTarget: { kind: "prConversation", prNumber: 7 },
+              },
+            },
+          ],
+        };
+      }
+      if (sql.includes("type = 'triage'") && sql.includes("status = 'running'")) {
+        return {
+          rows: [
+            {
+              id: "triage-running",
+              head_sha: "triage-r",
+              created_at: "2026-01-01T00:00:04Z",
+              payload: {
+                source: "slash",
+                commentId: 31,
+                scope: "all",
+                replyTarget: { kind: "prConversation", prNumber: 7 },
+              },
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
+    });
+    const send = vi.fn(async () => "ack-job");
+    const boss = { send } as unknown as PgBoss;
+    const pool = { query: vi.fn() } as unknown as Pool;
+    const txSpy = vi
+      .spyOn(postgres, "inTransaction")
+      .mockImplementation(async (_pool, fn) => fn({ query: clientQuery } as unknown as PoolClient));
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+
+    try {
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        makeHeaders("d-mixed-close"),
+        makePrRef(),
+        "closed",
+        intakeLog,
+        intakeCfg,
+        { merged: false },
+      );
+
+      expect(send).toHaveBeenCalledWith(
+        ACK_QUEUE,
+        expect.objectContaining({
+          cancelProgress: {
+            workItemId: "review-running",
+            cancelledWorkItemIds: ["review-running", "review-queued"],
+            attribution: { kind: "closed" },
+          },
+          cancelTriage: {
+            workItemId: "triage-running",
+            cancelledWorkItemIds: ["triage-running", "triage-queued"],
+            attribution: { kind: "closed" },
+            targets: [
+              { kind: "pr", prNumber: 7 },
+              { kind: "issueComment", commentId: 31 },
+            ],
+            replyTarget: { kind: "prConversation", prNumber: 7 },
+          },
+        }),
+        expect.anything(),
+      );
+    } finally {
+      txSpy.mockRestore();
+    }
+  });
+
   it("short-circuits duplicate merge-cancel deliveries before cancel SQL", async () => {
     const clientQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {

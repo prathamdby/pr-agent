@@ -713,6 +713,7 @@ export async function executeTriageJob(
       captureTriageEvent(analytics, "triage started");
       const { prSurface } = env;
       const headSha = env.headSha;
+      await ensureTriageNotCancelled(pool, item);
       const branch = await loadPullRequestBranchInfo(prSurface);
       await ensureTriageNotCancelled(pool, item);
       if (!branch.sameRepo) {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { runFullPrTriage } from "../src/agent/triage/triageRun.js";
+import { TriageCancelledError } from "../src/agent/triage/triageErrors.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const providerState = vi.hoisted(() => ({
@@ -68,6 +69,35 @@ describe("triage run", () => {
 
     expect(result.submitted).toBe(true);
     expect(result.payload?.verdicts[0]?.verdict).toBe("skipped");
+  });
+
+  it("propagates cancellation from the Pi tool checkpoint", async () => {
+    const refreshBeforeTool = vi.fn(async () => {
+      throw new TriageCancelledError();
+    });
+    providerState.createSession.mockImplementation(async (params) => ({
+      role: "triage",
+      send: vi.fn(async () => {
+        await params.refreshBeforeTool?.("commitFix");
+        return { text: "not reached" };
+      }),
+      abort: vi.fn(async () => undefined),
+      dispose: vi.fn(),
+    }));
+
+    await expect(
+      runFullPrTriage({
+        cfg,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "a".repeat(40),
+        checkout: checkout(),
+        inventory,
+        refreshBeforeTool,
+      }),
+    ).rejects.toMatchObject({ code: "triage.cancelled" });
+    expect(refreshBeforeTool).toHaveBeenCalledWith("commitFix");
   });
 
   it("does not publish prose-only endings", async () => {
