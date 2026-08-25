@@ -12,6 +12,7 @@ import {
 } from "./ciStatus.js";
 import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.js";
 import { createRateLimitCircuit } from "./rateLimitCircuit.js";
+import { isDuplicateCheckRunCreationError } from "./githubErrors.js";
 import { httpStatus } from "./httpStatus.js";
 import {
   createPullRequestReviewWithComments,
@@ -446,13 +447,14 @@ async function createGithubCheckRunOrRecoverDuplicate(
       expiresAtTs,
     );
   } catch (createError) {
-    if (httpStatus(createError) !== 422) throw createError;
+    if (!isDuplicateCheckRunCreationError(createError)) throw createError;
     const duplicate = await findReviewCheckRunByName(
       token,
       owner,
       repo,
       headSha,
       REVIEW_CHECK_RUN_NAME,
+      externalId,
       expiresAtTs,
     );
     if (duplicate == null) throw createError;
@@ -705,7 +707,11 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         listCheckRunsForHead(token, owner, repo, headSha, expiresAtTs),
         listLegacyCommitStatusesForHead(token, owner, repo, headSha, expiresAtTs),
       ]);
-      return { checkRuns, legacyStatuses };
+      return {
+        checkRuns: checkRuns.checkRuns,
+        checkRunsComplete: !checkRuns.truncated,
+        legacyStatuses,
+      };
     },
 
     async listFailingActionsJobs(headSha) {

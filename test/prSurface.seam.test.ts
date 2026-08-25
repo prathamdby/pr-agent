@@ -185,8 +185,16 @@ describe("PrSurface seam", () => {
     expect(installationOctokit).toHaveBeenLastCalledWith("fresh-token", freshExpiry);
   });
 
-  it("startReviewCheck returns duplicate id when create fails with 422 and lookup succeeds", async () => {
-    const duplicateError = Object.assign(new Error("already exists"), { status: 422 });
+  it("startReviewCheck returns duplicate id for a proven duplicate-create error", async () => {
+    const duplicateError = Object.assign(new Error("Validation Failed"), {
+      status: 422,
+      response: {
+        data: {
+          message: "Validation Failed",
+          errors: [{ resource: "CheckRun", code: "already_exists", field: "name" }],
+        },
+      },
+    });
     vi.mocked(createReviewCheckRun).mockRejectedValue(duplicateError);
     vi.mocked(findReviewCheckRunByName).mockResolvedValue({
       id: 777,
@@ -210,11 +218,27 @@ describe("PrSurface seam", () => {
       id: 777,
       url: "https://github.com/o/r/runs/777",
     });
-    expect(findReviewCheckRunByName).toHaveBeenCalled();
+    expect(findReviewCheckRunByName).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      "abc123",
+      "PR Agent Review",
+      "work-1",
+      expect.any(Number),
+    );
   });
 
-  it("startReviewCheck rejects the original 422 when duplicate lookup returns null", async () => {
-    const duplicateError = Object.assign(new Error("already exists"), { status: 422 });
+  it("startReviewCheck rejects the original duplicate error when identity lookup returns null", async () => {
+    const duplicateError = Object.assign(new Error("Validation Failed"), {
+      status: 422,
+      response: {
+        data: {
+          message: "Validation Failed",
+          errors: [{ resource: "CheckRun", code: "already_exists", field: "name" }],
+        },
+      },
+    });
     vi.mocked(createReviewCheckRun).mockRejectedValue(duplicateError);
     vi.mocked(findReviewCheckRunByName).mockResolvedValue(null);
 
@@ -232,5 +256,64 @@ describe("PrSurface seam", () => {
     });
 
     await expect(surface.startReviewCheck("abc123", "work-1")).rejects.toBe(duplicateError);
+  });
+
+  it("does not recover an unrelated 422", async () => {
+    const validationError = Object.assign(new Error("Validation Failed"), {
+      status: 422,
+      response: {
+        data: {
+          message: "Validation Failed",
+          errors: [{ resource: "CheckRun", code: "invalid", field: "head_sha" }],
+        },
+      },
+    });
+    vi.mocked(createReviewCheckRun).mockRejectedValue(validationError);
+
+    const surface = createPrSurface({
+      cfg: makeTestConfig(),
+      installationId: 1,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      installation: {
+        token: "tok",
+        expiresAtTs: Date.now() + 3_600_000,
+        ttlMs: 3_600_000,
+      },
+    });
+
+    await expect(surface.startReviewCheck("abc123", "work-1")).rejects.toBe(validationError);
+    expect(findReviewCheckRunByName).not.toHaveBeenCalled();
+  });
+
+  it("does not recover duplicate-like errors with a non-422 status", async () => {
+    for (const status of [403, 500]) {
+      const error = Object.assign(new Error("already exists"), {
+        status,
+        response: {
+          data: {
+            errors: [{ resource: "CheckRun", code: "already_exists" }],
+          },
+        },
+      });
+      vi.mocked(createReviewCheckRun).mockRejectedValueOnce(error);
+
+      const surface = createPrSurface({
+        cfg: makeTestConfig(),
+        installationId: 1,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installation: {
+          token: "tok",
+          expiresAtTs: Date.now() + 3_600_000,
+          ttlMs: 3_600_000,
+        },
+      });
+
+      await expect(surface.startReviewCheck("abc123", "work-1")).rejects.toBe(error);
+    }
+    expect(findReviewCheckRunByName).not.toHaveBeenCalled();
   });
 });

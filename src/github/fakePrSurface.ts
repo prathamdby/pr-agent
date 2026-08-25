@@ -224,6 +224,7 @@ export function createFakePrSurface(
     string,
     {
       readonly checkRuns: CiCheckRunSnapshot[];
+      readonly checkRunsComplete: boolean;
       readonly legacyStatuses: CiLegacyStatus[];
     }
   >();
@@ -306,6 +307,7 @@ export function createFakePrSurface(
     setCiStatus(head, status) {
       ciStatusByHead.set(head, {
         checkRuns: [...status.checkRuns],
+        checkRunsComplete: true,
         legacyStatuses: [...status.legacyStatuses],
       });
       ciStatusError = undefined;
@@ -585,7 +587,13 @@ export function createFakePrSurface(
     async getCiStatus(headShaArg) {
       events.push({ kind: "getCiStatus", headSha: headShaArg });
       if (ciStatusError != null) throw ciStatusError;
-      return ciStatusByHead.get(headShaArg) ?? { checkRuns: [], legacyStatuses: [] };
+      return (
+        ciStatusByHead.get(headShaArg) ?? {
+          checkRuns: [],
+          checkRunsComplete: true,
+          legacyStatuses: [],
+        }
+      );
     },
 
     async listFailingActionsJobs(headShaArg) {

@@ -78,6 +78,8 @@ export type ReviewCheckOutcome = {
 };
 export type CiStatusSnapshot = {
   readonly checkRuns: readonly CiCheckRunSnapshot[];
+  /** False when the provider pagination cap prevented a complete check-run view. */
+  readonly checkRunsComplete?: boolean;
   readonly legacyStatuses: readonly CiLegacyStatus[];
 };
 

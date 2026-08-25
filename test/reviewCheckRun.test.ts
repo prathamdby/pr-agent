@@ -117,6 +117,7 @@ describe("review check run lifecycle", () => {
         status: "starting",
         headSha: "sha",
         name: "PR Agent Review",
+        externalId: "wi-1",
       },
     });
     expect(prSurface.startReviewCheck).toHaveBeenCalledWith(
@@ -133,6 +134,7 @@ describe("review check run lifecycle", () => {
         status: "in_progress",
         headSha: "sha",
         name: "PR Agent Review",
+        externalId: "wi-1",
         htmlUrl: "https://github.com/o/r/runs/123",
       },
     });
@@ -199,11 +201,16 @@ describe("review check run lifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("releases the reservation when startReviewCheck returns a duplicate-name 422", async () => {
+  it("releases the reservation when startReviewCheck returns a proven duplicate 422", async () => {
     const prSurface = makePrSurface({
-      startReviewCheck: vi
-        .fn()
-        .mockRejectedValue(Object.assign(new Error("already exists"), { status: 422 })),
+      startReviewCheck: vi.fn().mockRejectedValue({
+        status: 422,
+        response: {
+          data: {
+            errors: [{ resource: "CheckRun", code: "already_exists" }],
+          },
+        },
+      }),
     });
 
     await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
@@ -432,7 +439,7 @@ describe("review check run lifecycle", () => {
     );
   });
 
-  it("recovers an in-progress check by head when the github id never persists", async () => {
+  it("recovers an in-progress check by exact head and external id when the github id never persists", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
     const prSurface = makePrSurface();
     vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
@@ -440,6 +447,7 @@ describe("review check run lifecycle", () => {
         {
           id: 555,
           name: "PR Agent Review",
+          externalId: "wi-1",
           status: "in_progress",
           conclusion: null,
           htmlUrl: null,
@@ -460,6 +468,114 @@ describe("review check run lifecycle", () => {
         conclusion: "cancelled",
       }),
     );
+  });
+
+  it("does not cancel a same-head check owned by another work item", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [
+        {
+          id: 556,
+          name: "PR Agent Review",
+          externalId: "other-work-item",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel when the provider omits external id", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [
+        {
+          id: 556,
+          name: "PR Agent Review",
+          externalId: null,
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel when the provider check-run view is truncated", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [
+        {
+          id: 557,
+          name: "PR Agent Review",
+          externalId: "wi-1",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      checkRunsComplete: false,
+      legacyStatuses: [],
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel when exact remote identity is ambiguous", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [
+        {
+          id: 557,
+          name: "PR Agent Review",
+          externalId: "wi-1",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+        {
+          id: 558,
+          name: "PR Agent Review",
+          externalId: "wi-1",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
   });
 
   it("does not wait for a late-persisted check id on cancel", async () => {

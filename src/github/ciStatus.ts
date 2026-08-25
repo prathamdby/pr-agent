@@ -1,18 +1,22 @@
 import { isMissingActionsPermissionError } from "./actionsLogs.js";
 import { installationOctokit } from "./appAuth.js";
-import { paginateOctokitPages } from "./paginateOctokit.js";
+import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
+import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
 import type {
   CiCheckAnnotation,
   CiCheckRunSnapshot,
   CiLegacyStatus,
 } from "../review/ci/ciSummaryTypes.js";
 
-const CHECK_RUNS_PAGE_SIZE = 100;
-const CHECK_RUNS_MAX_PAGES = 5;
 const ANNOTATIONS_PAGE_SIZE = 50;
 const ANNOTATIONS_MAX_PAGES = 2;
 
 export const isMissingChecksPermissionError = isMissingActionsPermissionError;
+
+export type CheckRunsForHeadResult = {
+  readonly checkRuns: CiCheckRunSnapshot[];
+  readonly truncated: boolean;
+};
 
 export async function listCheckRunsForHead(
   token: string,
@@ -20,9 +24,9 @@ export async function listCheckRunsForHead(
   repo: string,
   headSha: string,
   expiresAtTs?: number,
-): Promise<CiCheckRunSnapshot[]> {
+): Promise<CheckRunsForHeadResult> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const runs = await paginateOctokitPages({
+  const { items: runs, truncated } = await paginateOctokitPagesWithMeta({
     perPage: CHECK_RUNS_PAGE_SIZE,
     maxPages: CHECK_RUNS_MAX_PAGES,
     fetchPage: async (page, perPage) => {
@@ -38,18 +42,22 @@ export async function listCheckRunsForHead(
     },
   });
 
-  return runs
-    .filter((run) => run.head_sha === headSha)
-    .map((run) => ({
-      id: run.id,
-      name: run.name,
-      status: run.status,
-      conclusion: run.conclusion ?? null,
-      htmlUrl: run.html_url ?? null,
-      outputTitle: run.output?.title ?? null,
-      outputSummary: run.output?.summary ?? null,
-      outputText: run.output?.text ?? null,
-    }));
+  return {
+    truncated,
+    checkRuns: runs
+      .filter((run) => run.head_sha === headSha)
+      .map((run) => ({
+        id: run.id,
+        name: run.name,
+        externalId: run.external_id ?? null,
+        status: run.status,
+        conclusion: run.conclusion ?? null,
+        htmlUrl: run.html_url ?? null,
+        outputTitle: run.output?.title ?? null,
+        outputSummary: run.output?.summary ?? null,
+        outputText: run.output?.text ?? null,
+      })),
+  };
 }
 
 export async function listCheckRunAnnotations(
