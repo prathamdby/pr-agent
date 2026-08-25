@@ -216,7 +216,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
           WHERE work_item_id = $1 ORDER BY operation_key`,
         [workItemId],
       );
-      expect(intentRows.map((row) => row.lease_epoch)).toEqual([null, currentEpoch]);
+      expect(intentRows.map((row) => row.lease_epoch)).toEqual([null, String(currentEpoch)]);
 
       const { rows: publishRows } = await pool.query<{
         resource_key: string;
