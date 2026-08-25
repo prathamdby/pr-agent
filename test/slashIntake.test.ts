@@ -44,6 +44,9 @@ function makeSlashInput(body: string) {
 function makeClient() {
   return {
     query: vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-1" }] };
       }
@@ -185,6 +188,9 @@ describe("applySlashCommandIntake", () => {
     let workItemInsertSql = "";
     const client = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SELECT id, payload")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) {
@@ -227,6 +233,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id, payload")) {
@@ -275,6 +284,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id, payload")) {
@@ -339,6 +351,9 @@ describe("applySlashCommandIntake", () => {
     const workItemInserts: unknown[][] = [];
     const client = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SELECT id, payload")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) {
@@ -383,6 +398,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "work-review" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
@@ -418,6 +436,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
@@ -463,6 +484,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
         }
@@ -511,6 +535,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
         if (sql.includes("SET cancel_requested_at")) return { rows: [] };
@@ -555,6 +582,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return { rows: [] };
@@ -618,6 +648,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           expect(sql).toContain("last_error");
@@ -686,6 +719,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return { rows: [] };
@@ -759,6 +795,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
@@ -806,6 +845,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return { rows: [] };
@@ -868,6 +910,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return {
@@ -939,6 +984,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return {
@@ -1000,6 +1048,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return { rows: [] };
@@ -1063,6 +1114,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           return { rows: [] };
@@ -1126,6 +1180,9 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SET status = 'cancelled'")) {
           expect(params?.[0]).toBe("acme/app#7");

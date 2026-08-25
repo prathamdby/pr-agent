@@ -436,7 +436,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
               headers: {
                 event: EVENT,
                 delivery: `lens-${lens}`,
-                rawBody: Buffer.from("{}"),
+                rawBody: Buffer.from(JSON.stringify({ command: lens })),
               },
               installationId: 4242,
               owner: OWNER,

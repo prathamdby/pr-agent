@@ -1,13 +1,21 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import { insertWebhookEvent } from "../src/agentWork/intake/webhookEvents.js";
 
-function mockClient(insertSucceeds: boolean) {
-  return {
-    query: vi.fn(async (_text: string, params: unknown[]) => ({
+function mockClient(insertSucceeds: boolean, replaySucceeds = true) {
+  const query = vi.fn(async (text: string, params: unknown[]) => {
+    if (text.includes("INSERT INTO webhook_event_replays")) {
+      return {
+        rows: replaySucceeds ? [{ body_sha256: String(params[0]) }] : [],
+      };
+    }
+    if (text.includes("DELETE FROM webhook_events")) return { rows: [] };
+    return {
       rows: insertSucceeds ? [{ id: String(params[0]) }] : [],
-    })),
-  } as unknown as PoolClient & { query: ReturnType<typeof vi.fn> };
+    };
+  });
+  return { query } as unknown as PoolClient & { query: ReturnType<typeof vi.fn> };
 }
 
 describe("insertWebhookEvent", () => {
@@ -71,5 +79,38 @@ describe("insertWebhookEvent", () => {
       expect.stringContaining("INSERT INTO webhook_events"),
       expect.arrayContaining(["slash_triage", "issue_comment", "d-thread"]),
     );
+  });
+
+  it("dedupes a body even when its delivery id changes", async () => {
+    const body = Buffer.from('{"same":true}');
+    const replayHash = "a".repeat(64);
+    const bodyHash = createHash("sha256").update(body).digest("hex");
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ id: "event-1" }] })
+      .mockResolvedValueOnce({ rows: [{ body_sha256: replayHash }] })
+      .mockResolvedValueOnce({ rows: [{ id: "event-2" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+    const client = { query } as unknown as PoolClient;
+
+    const first = await insertWebhookEvent(
+      client,
+      { event: "ping", delivery: "d-first", rawBody: body },
+      "processed",
+    );
+    const second = await insertWebhookEvent(
+      client,
+      { event: "ping", delivery: "d-second", rawBody: body },
+      "processed",
+    );
+
+    expect(first.duplicate).toBe(false);
+    expect(second).toEqual({
+      duplicate: true,
+      dedupeKey: `body:${bodyHash}`,
+    });
+    expect(query).toHaveBeenCalledWith("DELETE FROM webhook_events WHERE id = $1", ["event-2"]);
+    expect(query).toHaveBeenCalledTimes(5);
   });
 });

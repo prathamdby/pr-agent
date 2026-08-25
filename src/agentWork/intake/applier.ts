@@ -78,7 +78,7 @@ async function dispatchAutomatedKind(
 }
 
 export async function recordIgnoredWebhook(
-  client: Pool | PoolClient,
+  client: PoolClient,
   headers: WebhookHeaders,
   decision: string,
   intakeLog: RequestLogger,
@@ -279,8 +279,9 @@ export async function applyAutomatedPullRequestIntake(
 
   const plan = planAutomatedPullRequestIntake(action, cfg.features);
   if (plan.kinds.length === 0) {
-    // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.
-    await recordIgnoredWebhook(pool, headers, `ignored_pull_request_${action}`, intakeLog);
+    await inTransaction(pool, (client) =>
+      recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog),
+    );
     return;
   }
 
@@ -308,7 +309,9 @@ export async function applyCiRefreshIntake(
   intakeLog: RequestLogger,
 ): Promise<void> {
   if (data.prNumbers.length === 0) {
-    await recordIgnoredWebhook(pool, headers, "ignored_workflow_run_no_pr", intakeLog);
+    await inTransaction(pool, (client) =>
+      recordIgnoredWebhook(client, headers, "ignored_workflow_run_no_pr", intakeLog),
+    );
     return;
   }
   const events = await inTransaction(pool, async (client) => {

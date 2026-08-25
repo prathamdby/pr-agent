@@ -12,7 +12,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 ## Decision
 
-1. **Durable intake** — Webhook dispatch records `webhook_events`, `agent_work_items`, and pg-boss jobs in one Postgres transaction. The HTTP response is sent only after the transaction commits.
+1. **Durable intake** — Webhook dispatch records `webhook_events`, `webhook_event_replays`, `agent_work_items`, and pg-boss jobs in one Postgres transaction. The HTTP response is sent only after the transaction commits.
 
 2. **Postgres + pg-boss** — Use Postgres for app-owned workflow state and pg-boss for delivery, retries, heartbeat, expiration, dead-letter retention, and per-key queue policy.
 

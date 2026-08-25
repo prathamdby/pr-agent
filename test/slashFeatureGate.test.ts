@@ -33,6 +33,9 @@ function makeInput(command: string): SlashCommandInput {
 function makeClient(): PoolClient {
   return {
     query: vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-1" }] };
       }

@@ -229,7 +229,7 @@ Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags
 ```mermaid
 flowchart LR
   GitHub[GitHub webhooks] --> Web["ROLE=web /webhooks"]
-  Web --> Dedupe[Postgres webhook_events dedupe]
+  Web --> Dedupe[Postgres webhook_events + body replay]
   Dedupe --> Items[agent_work_items]
   Items --> Boss[pg-boss enqueue]
   Boss --> AckQ[ack queue]
@@ -265,7 +265,7 @@ flowchart LR
   Worker --> Push[git push PR branch]
 ```
 
-1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)) verifies the signature, parses the payload, dedupes the delivery in Postgres, and schedules work. It does not create installation tokens or post to the PR.
+1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)) verifies the signature, parses the payload, applies delivery-ID and body-hash replay protection in Postgres, and schedules work. It does not create installation tokens or post to the PR.
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)) inserts `agent_work_items` and enqueues pg-boss jobs.
 3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` or `check_suite` completes later.
 4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep. One active run per PR per work type is enforced by the `pr_actor_leases` table ([ADR 0038](docs/adr/0038-pr-actor-lease.md)), not by queue policy, so a crashed worker's run is taken over once its lease lapses.
