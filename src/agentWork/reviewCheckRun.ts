@@ -24,6 +24,12 @@ import {
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
+function leaseEpochParam(
+  epoch: number | null | undefined,
+): { readonly leaseEpoch: number } | Record<string, never> {
+  return epoch == null ? {} : { leaseEpoch: epoch };
+}
+
 /** P0–P2 findings fail the check; empty or P3-only payloads pass. */
 export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
   conclusion: ReviewCheckRunConclusion;
@@ -88,6 +94,7 @@ type EnsureReviewCheckRunParams = {
   workItemId: string;
   resourceKey: string;
   reviewLens: AnyReviewLens;
+  leaseEpoch?: number | null;
 };
 
 type GithubCheckRunRef = { id: number; url: string | null };
@@ -106,6 +113,7 @@ async function reserveReviewCheckRunSlot(
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
     reviewLens: params.reviewLens,
+    ...leaseEpochParam(params.leaseEpoch),
     detail: {
       status: "starting",
       headSha: params.headSha,
@@ -133,6 +141,7 @@ async function recoverStaleReservationOrWaitForPeer(
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
     reviewLens: params.reviewLens,
+    ...leaseEpochParam(params.leaseEpoch),
     staleBefore: new Date(Date.now() - REVIEW_CHECK_RUN_RESERVATION_STALE_MS),
   });
   if (!released) {
@@ -148,6 +157,7 @@ async function recoverStaleReservationOrWaitForPeer(
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
     reviewLens: params.reviewLens,
+    ...leaseEpochParam(params.leaseEpoch),
     detail: {
       status: "starting",
       headSha: params.headSha,
@@ -178,6 +188,7 @@ async function createGithubCheckRunOnSurface(
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
+      ...leaseEpochParam(params.leaseEpoch),
     });
     const event = isDuplicateCheckRunCreationError(createError)
       ? "review_check_run_start_duplicate_unresolved"
@@ -187,6 +198,7 @@ async function createGithubCheckRunOnSurface(
       repo: params.repo,
       pr: params.prNumber,
       reviewLens: params.reviewLens,
+      ...leaseEpochParam(params.leaseEpoch),
     });
     return null;
   }
@@ -236,6 +248,7 @@ async function recordCreatedCheckRunOrCleanup(
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
       githubId: check.id,
+      ...leaseEpochParam(params.leaseEpoch),
       detail: {
         status: "in_progress",
         headSha: params.headSha,
@@ -250,6 +263,7 @@ async function recordCreatedCheckRunOrCleanup(
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
+      ...leaseEpochParam(params.leaseEpoch),
     });
     return null;
   }
@@ -282,6 +296,7 @@ type CompleteReviewCheckRunParams = {
   workItemId: string;
   resourceKey: string;
   reviewLens: AnyReviewLens;
+  leaseEpoch?: number | null;
   conclusion: ReviewCheckRunConclusion;
   summary: string;
   detailsUrl?: string;
@@ -320,6 +335,7 @@ async function applyReviewCheckRunCompletion(
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
       githubId: checkRunId,
+      ...leaseEpochParam(params.leaseEpoch),
       detail: {
         status: "completed",
         externalId: params.workItemId,
@@ -389,6 +405,7 @@ export async function cancelReviewCheckRun(
     workItemId: string;
     resourceKey: string;
     reviewLens: AnyReviewLens;
+    leaseEpoch?: number | null;
     headSha?: string;
     detailsUrl?: string;
   },
@@ -414,6 +431,7 @@ export async function cancelReviewCheckRun(
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
+      ...leaseEpochParam(params.leaseEpoch),
       conclusion: "cancelled",
       summary: REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
       detailsUrl: params.detailsUrl,

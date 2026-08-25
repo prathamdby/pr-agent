@@ -47,7 +47,12 @@ import {
   renewPrActorLease,
   type PrActorLeaseKey,
 } from "./prActorLease.js";
-import { createPrSurface, type PrSurface } from "../github/prSurface.js";
+import {
+  createPrSurface,
+  type PrSurface,
+  type PrSurfaceMutation,
+  type PrSurfaceMutationBoundary,
+} from "../github/prSurface.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import {
   cancelOrphanedStaleHeadReplacementOnTerminalFailure,
@@ -57,6 +62,7 @@ import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { installationGroupId, isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
+import { withOperationIntent } from "./withOperationIntent.js";
 import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
 
 export type DurableExecutionContext = {
@@ -65,7 +71,7 @@ export type DurableExecutionContext = {
   pullRequest?: PullRequestForFileList;
   /** Fencing token of the PR actor lease owning this execution; null for unleased work types. */
   leaseEpoch: number | null;
-  /** pg-boss job abort signal; aborted when the worker is stopped or the job is cancelled. */
+  /** Combined job/lease signal; aborted when the worker is stopped, cancelled, or fenced. */
   signal: AbortSignal;
 };
 
@@ -82,6 +88,7 @@ function startLeaseRenewal(
   key: PrActorLeaseKey,
   workItemId: string,
   leaseEpoch: number,
+  onLost: () => void,
 ): () => void {
   const timer = setInterval(() => {
     void renewPrActorLease(pool, {
@@ -98,6 +105,7 @@ function startLeaseRenewal(
             leaseEpoch,
           });
           clearInterval(timer);
+          onLost();
         }
       },
       (error: unknown) => {
@@ -113,6 +121,49 @@ function startLeaseRenewal(
   }, cfg.prActorLeaseRenewalIntervalSeconds * 1000);
   timer.unref();
   return () => clearInterval(timer);
+}
+
+function combineAbortSignals(...signals: readonly AbortSignal[]): AbortSignal {
+  const controller = new AbortController();
+  const abortFrom = (signal: AbortSignal): void => {
+    if (!controller.signal.aborted) controller.abort(signal.reason);
+  };
+  for (const signal of signals) {
+    if (signal.aborted) {
+      abortFrom(signal);
+      break;
+    }
+    signal.addEventListener("abort", () => abortFrom(signal), { once: true });
+  }
+  return controller.signal;
+}
+
+function createLeaseMutationBoundary(params: {
+  readonly pool: Pool;
+  readonly workItemId: string;
+  readonly resourceKey: string;
+  readonly leaseEpoch: number;
+  readonly signal: AbortSignal;
+}): PrSurfaceMutationBoundary {
+  return {
+    signal: params.signal,
+    run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
+      withOperationIntent({
+        client: params.pool,
+        workItemId: params.workItemId,
+        operationKey: mutation.operationKey,
+        mutationKind: mutation.mutationKind,
+        leaseEpoch: params.leaseEpoch,
+        signal: params.signal,
+        detail: {
+          ...mutation.detail,
+          resourceKey: params.resourceKey,
+          leaseEpoch: params.leaseEpoch,
+          surfaceMutation: true,
+        },
+        mutate,
+      }),
+  };
 }
 
 let botIdentityCache: Promise<BotIdentity> | undefined;
@@ -186,11 +237,13 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
     item: Extract<AgentWorkItem, { type: T }>,
     prSurface: PrSurface | undefined,
     error: unknown,
+    leaseEpoch?: number | null,
   ) => Promise<void>;
   readonly onCancelled?: (
     item: Extract<AgentWorkItemCore, { type: T }>,
     prSurface: PrSurface,
     reason: string,
+    leaseEpoch?: number | null,
   ) => Promise<void>;
 };
 
@@ -205,15 +258,18 @@ function createPrSurfaceForItem(
   cfg: Config,
   item: Pick<AgentWorkItemCore, "installationId" | "owner" | "repo" | "prNumber">,
   installation?: InstallationToken,
+  mutationBoundary?: PrSurfaceMutationBoundary,
 ): PrSurface {
-  return createPrSurface({
+  const surface = createPrSurface({
     cfg,
     installationId: item.installationId,
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,
     installation,
+    mutationBoundary,
   });
+  return surface;
 }
 
 async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolean> {
@@ -318,6 +374,8 @@ export async function runDurableWorkItem<T extends WorkType>(
   let leaseEpoch: number | null = null;
   let leaseKey: PrActorLeaseKey | undefined;
   const jobSignal = spec.job.signal;
+  let executionSignal = jobSignal;
+  let leaseAbortController: AbortController | undefined;
   const phaseState: WorkItemPhaseState = { phase: "claiming" };
   let seededInstallation: InstallationToken | undefined;
   let executionPrSurface: PrSurface | undefined;
@@ -332,7 +390,17 @@ export async function runDurableWorkItem<T extends WorkType>(
       installation ??
       seededInstallation ??
       (await mintInstallationToken(spec.cfg, workItemCore.installationId));
-    return createPrSurfaceForItem(spec.cfg, workItemCore, token);
+    const mutationBoundary =
+      leaseEpoch == null || leaseAbortController == null
+        ? undefined
+        : createLeaseMutationBoundary({
+            pool: spec.pool,
+            workItemId: workItemCore.id,
+            resourceKey: workItemCore.resourceKey,
+            leaseEpoch,
+            signal: executionSignal,
+          });
+    return createPrSurfaceForItem(spec.cfg, workItemCore, token, mutationBoundary);
   }
 
   async function invokeCancelledHook(
@@ -341,9 +409,20 @@ export async function runDurableWorkItem<T extends WorkType>(
     installation?: InstallationToken,
   ): Promise<void> {
     if (!spec.onCancelled) return;
+    // A leased item must never publish a cancellation side effect before it has
+    // acquired an epoch. The auxiliary acknowledgement lane owns pre-claim
+    // feedback separately.
+    if (spec.prActorLease && leaseEpoch == null) {
+      logInfo("agent_work_cancelled_hook_skipped_without_lease", {
+        type: spec.type,
+        workItemId: itemCore.id,
+        reason,
+      });
+      return;
+    }
     try {
       const prSurface = await prSurfaceForHooks(itemCore, installation);
-      await spec.onCancelled(itemCore, prSurface, reason);
+      await spec.onCancelled(itemCore, prSurface, reason, leaseEpoch);
     } catch (error) {
       logWarn("agent_work_cancelled_hook_failed", {
         type: spec.type,
@@ -462,7 +541,17 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
     leaseEpoch = acquisition.leaseEpoch;
-    stopLeaseRenewal = startLeaseRenewal(spec.pool, spec.cfg, leaseKey, core.id, leaseEpoch);
+    leaseAbortController = new AbortController();
+    executionSignal = combineAbortSignals(jobSignal, leaseAbortController.signal);
+    stopLeaseRenewal = startLeaseRenewal(spec.pool, spec.cfg, leaseKey, core.id, leaseEpoch, () => {
+      leaseAbortController?.abort(
+        new AppError({
+          code: "agent_work.pr_actor_lease_lost",
+          message: "PR actor lease renewal lost ownership",
+          context: { workItemId: core.id, leaseEpoch },
+        }),
+      );
+    });
   }
 
   if (!(await claimWorkForExecution(spec.pool, core.id))) {
@@ -525,7 +614,17 @@ export async function runDurableWorkItem<T extends WorkType>(
       return undefined;
     }
 
-    const prSurface = createPrSurfaceForItem(spec.cfg, item, installationToken);
+    const mutationBoundary =
+      leaseEpoch == null || leaseAbortController == null
+        ? undefined
+        : createLeaseMutationBoundary({
+            pool: spec.pool,
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            leaseEpoch,
+            signal: executionSignal,
+          });
+    const prSurface = createPrSurfaceForItem(spec.cfg, item, installationToken, mutationBoundary);
     const resolvedHead = await spec.resolveHeadSha(prSurface, item);
     const headSha = resolvedHead.headSha;
     if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, leaseEpoch)) {
@@ -535,7 +634,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         headSha,
         pullRequest: resolvedHead.pullRequest,
         leaseEpoch,
-        signal: jobSignal,
+        signal: executionSignal,
       };
     }
 
@@ -643,9 +742,16 @@ export async function runDurableWorkItem<T extends WorkType>(
 
   async function invokeTerminalFailureHook(error: unknown): Promise<void> {
     if (!spec.onTerminalFailure) return;
+    if (spec.prActorLease && leaseEpoch == null) {
+      logInfo("agent_work_terminal_failure_hook_skipped_without_lease", {
+        type: spec.type,
+        workItemId: item.id,
+      });
+      return;
+    }
     try {
       const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
-      await spec.onTerminalFailure(item, prSurface, error);
+      await spec.onTerminalFailure(item, prSurface, error, leaseEpoch);
     } catch (publishError) {
       logWarn("agent_work_terminal_failure_hook_failed", {
         type: spec.type,
@@ -744,7 +850,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       resourceKey: item.resourceKey,
       leaseEpoch,
     });
-    await reconcilePendingIntents(spec.pool, item.id);
+    await reconcilePendingIntents(spec.pool, item.id, leaseEpoch);
     if (!(await executionStillOwns())) {
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,

@@ -60,6 +60,7 @@ type PublishTriageParams = {
   readonly threadRootCommentId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
   readonly leaseEpoch: number | null;
+  readonly signal?: AbortSignal;
 };
 
 type ReportOnlyParams = Omit<
@@ -290,6 +291,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         client: params.pool,
         workItemId: params.workItemId,
         leaseEpoch: params.leaseEpoch,
+        signal: params.signal,
         operationKey: triagePushOperationKey(params.resourceKey),
         mutationKind: "github.triage_push",
         detail: {

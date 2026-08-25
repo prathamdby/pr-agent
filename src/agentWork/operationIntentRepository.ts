@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
+import { assertPrActorLeaseHeld } from "./prActorLease.js";
 
 export type OperationIntentStatus = "pending" | "reconciled" | "failed" | "outcome_unknown";
 
@@ -12,6 +13,7 @@ export type OperationIntentRow = {
   readonly mutationKind: string;
   readonly status: OperationIntentStatus;
   readonly publishRecordId: string | null;
+  readonly leaseEpoch?: number | null;
   readonly detail: Record<string, unknown>;
 };
 
@@ -21,9 +23,13 @@ export async function persistOperationIntent(
     readonly workItemId: string;
     readonly operationKey: string;
     readonly mutationKind: string;
+    readonly leaseEpoch?: number | null;
     readonly detail?: Record<string, unknown>;
   },
 ): Promise<OperationIntentRow> {
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+  }
   const id = crypto.randomUUID();
   const row = await queryOne<{
     id: string;
@@ -32,24 +38,45 @@ export async function persistOperationIntent(
     mutation_kind: string;
     status: OperationIntentStatus;
     publish_record_id: string | null;
+    lease_epoch: string | number | null;
     detail: Record<string, unknown>;
   }>(
     client,
     `INSERT INTO operation_intents (
-       id, work_item_id, operation_key, mutation_kind, status, detail
-     ) VALUES ($1, $2, $3, $4, 'pending', $5::jsonb)
+       id, work_item_id, operation_key, mutation_kind, status, lease_epoch, detail
+     )
+     SELECT $1, $2, $3, $4, 'pending', $5, $6::jsonb
+      WHERE $5::bigint IS NULL
+         OR EXISTS (
+              SELECT 1
+                FROM pr_actor_leases
+               WHERE work_item_id = $2
+                 AND lease_epoch = $5
+            )
      ON CONFLICT (work_item_id, operation_key) DO UPDATE SET
+       lease_epoch = COALESCE(EXCLUDED.lease_epoch, operation_intents.lease_epoch),
        updated_at = now()
-     RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail`,
+     WHERE $5::bigint IS NULL
+        OR EXISTS (
+             SELECT 1
+               FROM pr_actor_leases
+              WHERE work_item_id = EXCLUDED.work_item_id
+                AND lease_epoch = $5
+           )
+     RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail`,
     [
       id,
       params.workItemId,
       params.operationKey,
       params.mutationKind,
+      params.leaseEpoch ?? null,
       JSON.stringify(params.detail ?? {}),
     ],
   );
   if (!row) {
+    if (params.leaseEpoch != null) {
+      await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+    }
     throw new AppError({
       code: "operation_intent.persist_no_row",
       message: "persistOperationIntent returned no row",
@@ -72,9 +99,13 @@ export async function mergeOperationIntentDetail(
   params: {
     readonly workItemId: string;
     readonly operationKey: string;
+    readonly leaseEpoch?: number | null;
     readonly detail: Record<string, unknown>;
   },
 ): Promise<OperationIntentRow | null> {
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+  }
   const row = await queryOne<{
     id: string;
     work_item_id: string;
@@ -82,19 +113,30 @@ export async function mergeOperationIntentDetail(
     mutation_kind: string;
     status: OperationIntentStatus;
     publish_record_id: string | null;
+    lease_epoch: string | number | null;
     detail: Record<string, unknown>;
   }>(
     client,
     `UPDATE operation_intents
         SET status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END,
             reconciled_at = CASE WHEN status = 'failed' THEN NULL ELSE reconciled_at END,
-            detail = detail || $3::jsonb,
+            lease_epoch = COALESCE($3::bigint, lease_epoch),
+            detail = detail || $4::jsonb,
             updated_at = now()
       WHERE work_item_id = $1
         AND operation_key = $2
         AND status IN ('pending', 'failed')
-      RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail`,
-    [params.workItemId, params.operationKey, JSON.stringify(params.detail)],
+        AND ($3::bigint IS NULL OR EXISTS (
+          SELECT 1 FROM pr_actor_leases
+           WHERE work_item_id = $1 AND lease_epoch = $3
+        ))
+      RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail`,
+    [
+      params.workItemId,
+      params.operationKey,
+      params.leaseEpoch ?? null,
+      JSON.stringify(params.detail),
+    ],
   );
   return row ? mapRow(row) : null;
 }
@@ -106,9 +148,13 @@ export async function reconcileOperationIntent(
     readonly operationKey: string;
     readonly status: Exclude<OperationIntentStatus, "pending">;
     readonly publishRecordId?: string | null;
+    readonly leaseEpoch?: number | null;
     readonly detail?: Record<string, unknown>;
   },
 ): Promise<OperationIntentRow | null> {
+  if (params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+  }
   const row = await queryOne<{
     id: string;
     work_item_id: string;
@@ -116,12 +162,14 @@ export async function reconcileOperationIntent(
     mutation_kind: string;
     status: OperationIntentStatus;
     publish_record_id: string | null;
+    lease_epoch: string | number | null;
     detail: Record<string, unknown>;
   }>(
     client,
     `UPDATE operation_intents
         SET status = $3,
             publish_record_id = COALESCE($4::uuid, publish_record_id),
+            lease_epoch = COALESCE($6::bigint, lease_epoch),
             detail = CASE
               WHEN $5::jsonb IS NULL THEN detail
               ELSE detail || $5::jsonb
@@ -130,13 +178,18 @@ export async function reconcileOperationIntent(
             updated_at = now()
       WHERE work_item_id = $1
         AND operation_key = $2
-      RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail`,
+        AND ($6::bigint IS NULL OR EXISTS (
+          SELECT 1 FROM pr_actor_leases
+           WHERE work_item_id = $1 AND lease_epoch = $6
+        ))
+      RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail`,
     [
       params.workItemId,
       params.operationKey,
       params.status,
       params.publishRecordId ?? null,
       params.detail ? JSON.stringify(params.detail) : null,
+      params.leaseEpoch ?? null,
     ],
   );
   return row ? mapRow(row) : null;
@@ -154,10 +207,11 @@ export async function getOperationIntent(
     mutation_kind: string;
     status: OperationIntentStatus;
     publish_record_id: string | null;
+    lease_epoch: string | number | null;
     detail: Record<string, unknown>;
   }>(
     client,
-    `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail
+    `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail
        FROM operation_intents
       WHERE work_item_id = $1
         AND operation_key = $2
@@ -178,9 +232,10 @@ export async function listPendingOperationIntents(
     mutation_kind: string;
     status: OperationIntentStatus;
     publish_record_id: string | null;
+    lease_epoch: string | number | null;
     detail: Record<string, unknown>;
   }>(
-    `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail
+    `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, lease_epoch, detail
        FROM operation_intents
       WHERE work_item_id = $1
         AND status = 'pending'
@@ -197,6 +252,7 @@ function mapRow(row: {
   mutation_kind: string;
   status: OperationIntentStatus;
   publish_record_id: string | null;
+  lease_epoch: string | number | null;
   detail: Record<string, unknown>;
 }): OperationIntentRow {
   return {
@@ -206,6 +262,7 @@ function mapRow(row: {
     mutationKind: row.mutation_kind,
     status: row.status,
     publishRecordId: row.publish_record_id,
+    leaseEpoch: row.lease_epoch == null ? null : Number(row.lease_epoch),
     detail: row.detail,
   };
 }

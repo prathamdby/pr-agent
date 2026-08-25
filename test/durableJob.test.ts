@@ -82,6 +82,7 @@ import * as repo from "../src/agentWork/repository.js";
 import * as prActorLease from "../src/agentWork/prActorLease.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
+import * as prSurface from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
 
@@ -528,7 +529,7 @@ describe("runDurableWorkItem", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("invokes onCancelled when cancelled before execution", async () => {
+  it("does not invoke a leased cancellation hook before acquiring an epoch", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(true);
     const execute = vi.fn();
@@ -537,12 +538,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute, onCancelled });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(onCancelled).toHaveBeenCalledTimes(1);
-    expect(onCancelled).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "wi-1", installationId: 42 }),
-      expect.objectContaining({ owner: "o", repo: "r" }),
-      "skipped_before_claim",
-    );
+    expect(onCancelled).not.toHaveBeenCalled();
   });
 
   it("releases the lease and returns without executing when claim fails", async () => {
@@ -678,6 +674,7 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({ id: "wi-1" }),
       expect.objectContaining({ owner: "o", repo: "r" }),
       "head_update_rejected",
+      1,
     );
   });
 
@@ -772,6 +769,7 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({ id: "wi-1" }),
       expect.anything(),
       boom,
+      1,
     );
   });
 
@@ -1097,6 +1095,34 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
+    );
+  });
+
+  it("aborts the execution and PR-surface signals when renewal loses the lease", async () => {
+    mockFetchedItem(makeItem({ status: "running" }));
+    vi.mocked(prActorLease.renewPrActorLease).mockImplementation(async () => {
+      vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
+      return false;
+    });
+    const execute = vi.fn(async (_item, env) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(env.signal.aborted).toBe(true);
+      expect(vi.mocked(prSurface.createPrSurface).mock.calls[0]?.[0].mutationBoundary?.signal).toBe(
+        env.signal,
+      );
+      return completedResult();
+    });
+
+    await runReviewWorkItem({
+      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+      execute,
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
     expect(evlog.logInfo).toHaveBeenCalledWith(
       "agent_work_stale_execution_skipped",
       expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),

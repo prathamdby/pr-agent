@@ -122,6 +122,25 @@ export type ReviewCommentParentNode = {
   readonly inReplyToId: number | null;
 };
 
+/**
+ * Stable metadata for one PR-surface mutation. The boundary stores this before
+ * invoking the external call and reconciles its result afterward.
+ */
+export type PrSurfaceMutation = {
+  readonly operationKey: string;
+  readonly mutationKind: string;
+  readonly detail?: Record<string, unknown>;
+};
+
+/**
+ * Durable executions inject this boundary into the PR surface. Read methods do
+ * not cross it, so recovery can still inspect GitHub after a lease is lost.
+ */
+export type PrSurfaceMutationBoundary = {
+  readonly signal: AbortSignal;
+  readonly run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => Promise<T>;
+};
+
 export type CreatePrSurfaceParams = {
   readonly cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">;
   readonly installationId: number;
@@ -131,32 +150,48 @@ export type CreatePrSurfaceParams = {
   /** Seed token when already minted (strictly fewer mint lookups). */
   readonly installation?: InstallationToken;
   readonly rateLimitCircuit?: RateLimitCircuit;
+  readonly mutationBoundary?: PrSurfaceMutationBoundary;
 };
 
-export type PrSurface = {
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
-  getHead(): Promise<PullRequestHeadResolution>;
-  getHeadSha(): Promise<string>;
+/** Methods that cross the PR-surface mutation boundary. Keep this type exhaustive. */
+export type PrSurfaceMutationMethods = {
   setAcknowledgementReaction(
     targets: readonly AcknowledgementTarget[],
     kind: GithubReactionContent,
   ): Promise<void>;
   replyAt(target: ReplyTarget, body: string): Promise<PostedReply>;
-  findProgressComment(sentinel: string): Promise<IssueCommentRef | null>;
-  resolveProgressComment(
-    sentinel: string,
-    hintCommentId?: number | null,
-  ): Promise<IssueCommentRef | null>;
   upsertProgressComment(
     body: string,
     sentinel: string,
     knownExisting?: IssueCommentRef | null,
   ): Promise<ProgressCommentUpsert>;
   editComment(commentId: number, body: string): Promise<void>;
-  listPullRequestReviewComments(): Promise<ListPullRequestReviewCommentsResult>;
   setReviewCommitStatus(headSha: string, params: ReviewCommitStatusParams): Promise<void>;
+  publishThreadBatch(review: ThreadBatchReview): Promise<PublishedBatch>;
+  resolveInlineReviewThread(threadId: string): Promise<void>;
+  setLabels(labels: readonly string[]): Promise<void>;
+  startReviewCheck(headSha: string, externalId: string, summary?: string): Promise<CheckRef>;
+  finishReviewCheck(outcome: ReviewCheckOutcome): Promise<void>;
+  editReviewComment(commentId: number, body: string): Promise<boolean>;
+  publishDescription(
+    cfg: Pick<Config, "features">,
+    payload: DescriptionPayload,
+  ): Promise<PublishDescriptionSurfaceResult>;
+};
+
+/** Read-only methods remain callable while a leased execution is fenced. */
+export type PrSurfaceReadMethods = {
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  getHead(): Promise<PullRequestHeadResolution>;
+  getHeadSha(): Promise<string>;
+  findProgressComment(sentinel: string): Promise<IssueCommentRef | null>;
+  resolveProgressComment(
+    sentinel: string,
+    hintCommentId?: number | null,
+  ): Promise<IssueCommentRef | null>;
+  listPullRequestReviewComments(): Promise<ListPullRequestReviewCommentsResult>;
   fetchPriorInlineFeedback(
     botUserId: number,
     currentLens: AnyReviewLens,
@@ -168,18 +203,13 @@ export type PrSurface = {
     maintainerDecisionAssociations?: ReadonlySet<string>,
   ): Promise<readonly BotFindingThread[]>;
   fetchReviewCommentParentGraph(): Promise<readonly ReviewCommentParentNode[]>;
-  publishThreadBatch(review: ThreadBatchReview): Promise<PublishedBatch>;
   listInlineReviewThreads(): Promise<ListReviewThreadResolutionResult>;
-  resolveInlineReviewThread(threadId: string): Promise<void>;
   listChangedFiles(
     caps: ListPullRequestFilesLimits,
     pullRequest?: PullRequestForFileList,
   ): Promise<ListPullRequestFilesResult>;
   listCommitCompareFiles(base: string, head: string): Promise<ListCommitCompareFilesResult>;
   getLabels(): Promise<readonly string[]>;
-  setLabels(labels: readonly string[]): Promise<void>;
-  startReviewCheck(headSha: string, externalId: string, summary?: string): Promise<CheckRef>;
-  finishReviewCheck(outcome: ReviewCheckOutcome): Promise<void>;
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;
@@ -188,14 +218,11 @@ export type PrSurface = {
   gitCredentialToken(): Promise<string>;
   listConversationComments(): Promise<readonly PrConversationComment[]>;
   listInlineReviewComments(): Promise<readonly PrConversationComment[]>;
-  editReviewComment(commentId: number, body: string): Promise<boolean>;
   getPullRequestBody(): Promise<string | null>;
   getPullRequestBranchInfo(): Promise<PullRequestBranchInfo>;
-  publishDescription(
-    cfg: Pick<Config, "features">,
-    payload: DescriptionPayload,
-  ): Promise<PublishDescriptionSurfaceResult>;
   listPushedCommits(): Promise<readonly PushedCommitSummary[]>;
   lookupGitHubUser(userId: number): Promise<GithubUserProfile | null>;
   isRateLimitCircuitOpen(): boolean;
 };
+
+export type PrSurface = PrSurfaceReadMethods & PrSurfaceMutationMethods;

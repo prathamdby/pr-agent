@@ -105,6 +105,7 @@ export async function findCompletedPublishRecordId(
 export async function reconcilePendingIntents(
   client: Pool | PoolClient,
   workItemId: string,
+  leaseEpoch?: number | null,
 ): Promise<ReconcilePendingIntentsResult> {
   const pending = await listPendingOperationIntents(client, workItemId);
   let reconciled = 0;
@@ -118,6 +119,7 @@ export async function reconcilePendingIntents(
       operationKey: intent.operationKey,
       status: "reconciled",
       publishRecordId,
+      leaseEpoch,
       detail: { reconciledFromPublishRecord: true },
     });
     if (row != null) reconciled += 1;

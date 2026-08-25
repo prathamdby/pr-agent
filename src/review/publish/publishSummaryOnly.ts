@@ -93,6 +93,7 @@ type SummaryCommentUpsertResult = {
 type SummaryCommentUpsertParams = {
   pool: Pool | PoolClient;
   workItemId?: string;
+  leaseEpoch?: number | null;
   resourceKey: string;
   reviewLens: AnyReviewLens;
   prSurface: PrSurface;
@@ -119,7 +120,16 @@ async function upsertSummaryCommentWithoutRevision(
     return prSurface.upsertProgressComment(body, sentinel, scanned);
   }
 
-  const claimWon = await claimSummaryCommentCreation(pool, workItemId, resourceKey, reviewLens);
+  const claimWon =
+    params.leaseEpoch == null
+      ? await claimSummaryCommentCreation(pool, workItemId, resourceKey, reviewLens)
+      : await claimSummaryCommentCreation(
+          pool,
+          workItemId,
+          resourceKey,
+          reviewLens,
+          params.leaseEpoch,
+        );
   if (claimWon) {
     const scanned = await prSurface.findProgressComment(sentinel);
     return prSurface.upsertProgressComment(body, sentinel, scanned);
@@ -211,7 +221,7 @@ async function upsertSummaryCommentAtRevision(
       reviewLens: params.reviewLens,
       step: "progress_comment",
       detail: { stubPostedAtMs },
-      leaseEpoch: null,
+      leaseEpoch: params.leaseEpoch ?? null,
     });
   }
 
@@ -232,7 +242,7 @@ async function upsertSummaryCommentAtRevision(
       reviewLens: params.reviewLens,
       step: "progress_comment",
       githubId: result.id,
-      leaseEpoch: null,
+      leaseEpoch: params.leaseEpoch ?? null,
       detail: {
         progressRevision: params.progressRevision,
         updated: result.updated,
@@ -492,6 +502,7 @@ export async function publishReviewSummaryOnly(params: {
       workItemId: summaryCoordination.workItemId,
       resourceKey: summaryCoordination.resourceKey,
       reviewLens: mode,
+      leaseEpoch: summaryCoordination.leaseEpoch,
       conclusion: checkOutcome.conclusion,
       summary: checkOutcome.summary,
       detailsUrl: targetUrl,

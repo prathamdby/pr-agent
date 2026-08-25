@@ -226,8 +226,9 @@ async function handleStaleHeadReschedule(args: {
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
   readonly prSurface: PrSurface;
+  readonly leaseEpoch: number | null;
 }): Promise<StaleReviewRescheduleResult | undefined> {
-  const { pool, item, reviewLens, payload, prSurface } = args;
+  const { pool, item, reviewLens, payload, prSurface, leaseEpoch } = args;
   if (
     (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
@@ -247,6 +248,7 @@ async function handleStaleHeadReschedule(args: {
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
+        leaseEpoch,
         conclusion: "cancelled",
         summary: "Review was rescheduled for a newer pull request head.",
       });
@@ -259,11 +261,12 @@ async function completeCheckFromStoredSummary(args: {
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly prSurface: PrSurface;
+  readonly leaseEpoch: number | null;
   readonly conclusion: "failure" | "cancelled";
   readonly summary: string;
   readonly lastFailure?: ReviewRunResult["lastFailure"];
 }): Promise<void> {
-  const { pool, item, reviewLens, prSurface, conclusion, summary, lastFailure } = args;
+  const { pool, item, reviewLens, prSurface, leaseEpoch, conclusion, summary, lastFailure } = args;
   if (conclusion === "failure" && lastFailure != null) {
     logWarn("review_check_run_failure_classified", {
       owner: item.owner,
@@ -281,6 +284,7 @@ async function completeCheckFromStoredSummary(args: {
     workItemId: item.id,
     resourceKey: item.resourceKey,
     reviewLens,
+    leaseEpoch,
     conclusion,
     summary,
     detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
@@ -344,6 +348,7 @@ async function runLightweightCompletionOrSkip(args: {
     workItemId: item.id,
     resourceKey: item.resourceKey,
     reviewLens,
+    leaseEpoch,
     conclusion: lightweightResult.published ? "success" : "cancelled",
     summary: lightweightResult.published
       ? "Documentation-only change set."
@@ -420,9 +425,10 @@ async function handleReviewPublishResult(args: {
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
   readonly prSurface: PrSurface;
+  readonly leaseEpoch: number | null;
   readonly result: ReviewRunResult;
 }): Promise<ReviewExecutionResult> {
-  const { cfg, pool, item, reviewLens, payload, prSurface, result } = args;
+  const { cfg, pool, item, reviewLens, payload, prSurface, leaseEpoch, result } = args;
   if (!result.published) {
     if (result.publishSuperseded) {
       logInfo("review_publish_superseded", {
@@ -436,6 +442,7 @@ async function handleReviewPublishResult(args: {
         item,
         reviewLens,
         prSurface,
+        leaseEpoch,
         conclusion: "cancelled",
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       });
@@ -474,6 +481,7 @@ async function handleReviewPublishResult(args: {
         item,
         reviewLens,
         prSurface,
+        leaseEpoch,
         conclusion: "failure",
         summary: "PR Agent could not publish a structured review.",
         lastFailure,
@@ -731,6 +739,7 @@ async function runFullReviewAgainstRepositoryView(args: {
             item,
             reviewLens,
             prSurface,
+            leaseEpoch,
             conclusion: "cancelled",
             summary: "Review was rescheduled for a newer pull request head.",
           });
@@ -747,6 +756,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     reviewLens,
     payload,
     prSurface,
+    leaseEpoch,
     result,
   });
 }
@@ -782,6 +792,7 @@ export async function executeReviewJob(
         reviewLens,
         payload,
         prSurface: env.prSurface,
+        leaseEpoch: env.leaseEpoch,
       });
       if (staleHeadResult) return staleHeadResult;
 
@@ -819,6 +830,7 @@ export async function executeReviewJob(
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
+        leaseEpoch: env.leaseEpoch,
       });
 
       const lightweight = await runLightweightCompletionOrSkip({
@@ -909,7 +921,7 @@ export async function executeReviewJob(
         ),
       );
     },
-    onCancelled: async (item, prSurface) => {
+    onCancelled: async (item, prSurface, _reason, leaseEpoch) => {
       if (!item.reviewLens) return;
       const reviewLens = item.reviewLens;
       const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
@@ -921,11 +933,12 @@ export async function executeReviewJob(
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
+        leaseEpoch,
         headSha: item.headSha,
         detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
       });
     },
-    onTerminalFailure: async (item, prSurface) => {
+    onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {
       if (!prSurface) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;
@@ -957,6 +970,7 @@ export async function executeReviewJob(
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
+        leaseEpoch,
         conclusion: "failure",
         summary: "PR Agent could not complete the review after retries.",
         detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summary.id),

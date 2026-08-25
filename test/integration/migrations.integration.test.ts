@@ -1,7 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
+import {
+  claimSummaryCommentCreation,
+  recordAskPublishStep,
+} from "../../src/agentWork/publishRecordRepository.js";
+import { persistOperationIntent } from "../../src/agentWork/operationIntentRepository.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
@@ -33,6 +39,7 @@ const EXPECTED_MIGRATIONS = [
   "023_pr_actor_leases.sql",
   "024_webhook_replay_protection.sql",
   "025_ask_quotas.sql",
+  "026_lease_fenced_side_effects.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
@@ -105,6 +112,129 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
           AND c.conname = 'operation_intents_status_check'`,
     );
     expect(rows[0]?.check_clause ?? "").toContain("outcome_unknown");
+  });
+
+  it("stores lease epochs on durable intent and publish rows", async () => {
+    const operationColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_name = 'operation_intents'
+          AND column_name = 'lease_epoch'`,
+    );
+    const publishColumns = await pool.query<{ column_name: string }>(
+      `SELECT column_name
+         FROM information_schema.columns
+        WHERE table_name = 'publish_records'
+          AND column_name = 'lease_epoch'`,
+    );
+    expect(operationColumns.rows).toHaveLength(1);
+    expect(publishColumns.rows).toHaveLength(1);
+  });
+
+  it("fences matching, stale, and unleased durable writes", async () => {
+    const workItemId = randomUUID();
+    const resourceKey = `migration-lease-fence/${randomUUID()}#1`;
+    const currentEpoch = 9;
+
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES ($1, 'review', 'auto', 'running', 'migration-lease-fence', 'r', 1, 1,
+               'head', 'review', $2, '{}'::jsonb)`,
+      [workItemId, resourceKey],
+    );
+    await pool.query(
+      `INSERT INTO pr_actor_leases (
+         resource_key, work_type, lease_epoch, work_item_id, holder_id, expires_at
+       )
+       VALUES ($1, 'review', $2, $3, 'migration-test-holder', now() + interval '5 minutes')`,
+      [resourceKey, currentEpoch, workItemId],
+    );
+
+    try {
+      const leasedIntent = await persistOperationIntent(pool, {
+        workItemId,
+        operationKey: "github:leased-intent",
+        mutationKind: "github.test",
+        leaseEpoch: currentEpoch,
+      });
+      expect(leasedIntent.leaseEpoch).toBe(currentEpoch);
+
+      await expect(
+        persistOperationIntent(pool, {
+          workItemId,
+          operationKey: "github:stale-intent",
+          mutationKind: "github.test",
+          leaseEpoch: currentEpoch - 1,
+        }),
+      ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+
+      const unleasedIntent = await persistOperationIntent(pool, {
+        workItemId,
+        operationKey: "ask:unleased-intent",
+        mutationKind: "github.ask_reply",
+        detail: { step: "ask_reply" },
+        leaseEpoch: null,
+      });
+      expect(unleasedIntent.leaseEpoch).toBeNull();
+
+      const summaryResource = `${resourceKey}:summary`;
+      await expect(
+        claimSummaryCommentCreation(pool, workItemId, summaryResource, "review", currentEpoch),
+      ).resolves.toBe(true);
+      await expect(
+        claimSummaryCommentCreation(
+          pool,
+          workItemId,
+          `${resourceKey}:stale-summary`,
+          "review",
+          currentEpoch - 1,
+        ),
+      ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+      await expect(
+        claimSummaryCommentCreation(
+          pool,
+          workItemId,
+          `${resourceKey}:unleased-summary`,
+          "review",
+          null,
+        ),
+      ).resolves.toBe(true);
+
+      await recordAskPublishStep(pool, {
+        workItemId,
+        resourceKey: `${resourceKey}:ask`,
+        step: "ask_reply",
+        githubId: 123,
+        leaseEpoch: null,
+      });
+
+      const { rows: intentRows } = await pool.query<{ lease_epoch: string | null }>(
+        `SELECT lease_epoch FROM operation_intents
+          WHERE work_item_id = $1 ORDER BY operation_key`,
+        [workItemId],
+      );
+      expect(intentRows.map((row) => row.lease_epoch)).toEqual([null, String(currentEpoch)]);
+
+      const { rows: publishRows } = await pool.query<{
+        resource_key: string;
+        lease_epoch: string | null;
+      }>(
+        `SELECT resource_key, lease_epoch FROM publish_records
+          WHERE work_item_id = $1 ORDER BY resource_key`,
+        [workItemId],
+      );
+      expect(publishRows).toEqual([
+        { resource_key: `${resourceKey}:ask`, lease_epoch: null },
+        { resource_key: `${resourceKey}:summary`, lease_epoch: String(currentEpoch) },
+        { resource_key: `${resourceKey}:unleased-summary`, lease_epoch: null },
+      ]);
+    } finally {
+      await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]);
+      await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+    }
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {
