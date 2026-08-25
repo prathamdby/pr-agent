@@ -195,7 +195,13 @@ async function recoverAfterMutatingWithoutResult<T>(
 async function assertMutationReady<T>(params: WithOperationIntentParams<T>): Promise<void> {
   if (params.signal?.aborted) {
     const reason = params.signal.reason;
-    if (reason instanceof Error) throw reason;
+    if (isAppError(reason)) throw reason;
+    if (reason !== undefined) {
+      throw toAppError(reason, {
+        code: "agent_work.execution_aborted",
+        context: { workItemId: params.workItemId, operationKey: params.operationKey },
+      });
+    }
     throw new AppError({
       code: "agent_work.execution_aborted",
       message: "PR-surface mutation was aborted before completion",

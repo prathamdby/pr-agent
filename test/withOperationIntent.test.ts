@@ -420,6 +420,68 @@ describe("withOperationIntent", () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
+  it("blocks an already-aborted mutation before persisting and normalizes string reasons", async () => {
+    const controller = new AbortController();
+    controller.abort("cancelled");
+    const mutate = vi.fn(async () => "fresh");
+
+    await expect(
+      withOperationIntent({ ...baseParams, signal: controller.signal, mutate }),
+    ).rejects.toMatchObject({ code: "agent_work.execution_aborted" });
+
+    expect(persistOperationIntent).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("blocks cancelled recovery before reconciling a stashed result", async () => {
+    const controller = new AbortController();
+    vi.mocked(persistOperationIntent).mockImplementation(async () => {
+      controller.abort("cancelled");
+      return {
+        id: "intent-1",
+        workItemId: "wi-1",
+        operationKey: "ask:reply:o/r#1",
+        mutationKind: "github.ask_reply",
+        status: "pending",
+        publishRecordId: null,
+        detail: { __result: "done" },
+      };
+    });
+    const mutate = vi.fn(async () => "fresh");
+
+    await expect(
+      withOperationIntent({ ...baseParams, signal: controller.signal, mutate }),
+    ).rejects.toMatchObject({ code: "agent_work.execution_aborted" });
+
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("blocks cancelled recovery before reconciling an unknown mutation", async () => {
+    const controller = new AbortController();
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockImplementation(async () => {
+      controller.abort("cancelled");
+      return null;
+    });
+    const mutate = vi.fn(async () => "fresh");
+
+    await expect(
+      withOperationIntent({ ...baseParams, signal: controller.signal, mutate }),
+    ).rejects.toMatchObject({ code: "agent_work.execution_aborted" });
+
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
   it("blocks stale durable completion when cancellation arrives during the remote call", async () => {
     const controller = new AbortController();
     const mutate = vi.fn(async () => {

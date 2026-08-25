@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../src/github/prSurface.js";
 import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -90,7 +90,7 @@ describe("PrSurface lease mutation boundary", () => {
     expect(controls.events).toContainEqual({ kind: "setLabels", labels: ["pr-agent-size-small"] });
   });
 
-  it("does not invoke the boundary after cancellation and leaves reads available", async () => {
+  it("does not invoke the boundary after cancellation and leaves every read available", async () => {
     const controller = new AbortController();
     let runCalled = false;
     const run: PrSurfaceMutationBoundary["run"] = async <T>(
@@ -109,8 +109,47 @@ describe("PrSurface lease mutation boundary", () => {
       "renewal lost",
     );
     expect(runCalled).toBe(false);
-    await expect(surface.getHeadSha()).resolves.toBe("fake-head-sha");
-    expect(controls.events).toContainEqual({ kind: "getHeadSha" });
+
+    const reads: Array<readonly [string, () => Promise<unknown>]> = [
+      ["getHead", () => surface.getHead()],
+      ["getHeadSha", () => surface.getHeadSha()],
+      ["findProgressComment", () => surface.findProgressComment("sentinel")],
+      ["resolveProgressComment", () => surface.resolveProgressComment("sentinel")],
+      ["listPullRequestReviewComments", () => surface.listPullRequestReviewComments()],
+      ["fetchPriorInlineFeedback", () => surface.fetchPriorInlineFeedback(1, "review")],
+      ["fetchBotFindingThreads", () => surface.fetchBotFindingThreads(1)],
+      ["fetchReviewCommentParentGraph", () => surface.fetchReviewCommentParentGraph()],
+      ["listInlineReviewThreads", () => surface.listInlineReviewThreads()],
+      [
+        "listChangedFiles",
+        () =>
+          surface.listChangedFiles({
+            maxPrFilesListed: 10,
+            maxPrFilesPatchBytes: 100,
+          }),
+      ],
+      ["listCommitCompareFiles", () => surface.listCommitCompareFiles("base", "head")],
+      ["getLabels", () => surface.getLabels()],
+      ["getCiStatus", () => surface.getCiStatus("head")],
+      ["listFailingActionsJobs", () => surface.listFailingActionsJobs("head")],
+      ["downloadActionsJobLogs", () => surface.downloadActionsJobLogs(1)],
+      ["listCheckRunAnnotations", () => surface.listCheckRunAnnotations(1)],
+      ["gitCredentialAuth", () => surface.gitCredentialAuth()],
+      ["gitCredentialToken", () => surface.gitCredentialToken()],
+      ["listConversationComments", () => surface.listConversationComments()],
+      ["listInlineReviewComments", () => surface.listInlineReviewComments()],
+      ["getPullRequestBody", () => surface.getPullRequestBody()],
+      ["getPullRequestBranchInfo", () => surface.getPullRequestBranchInfo()],
+      ["listPushedCommits", () => surface.listPushedCommits()],
+      ["lookupGitHubUser", () => surface.lookupGitHubUser(1)],
+    ];
+
+    for (const [, read] of reads) await expect(read()).resolves.not.toBeUndefined();
+    expect(surface.isRateLimitCircuitOpen()).toBe(false);
+    expect(runCalled).toBe(false);
+    expect(controls.events.map((event) => event.kind)).toEqual(
+      expect.arrayContaining(reads.map(([kind]) => kind)),
+    );
   });
 
   it("records stable mutation metadata and preserves unleased ask semantics", async () => {
@@ -131,11 +170,27 @@ describe("PrSurface lease mutation boundary", () => {
       mutationKind: "github.pr_surface.setLabels",
       detail: { surfaceMethod: "setLabels" },
     });
+    await surface.publishThreadBatch({ body: "review", event: "COMMENT", commitId: "head" });
+    await surface.publishThreadBatch({ commitId: "head", event: "COMMENT", body: "review" });
+    expect(mutations[1]?.operationKey).toBe(mutations[2]?.operationKey);
+    expect(mutations[1]?.detail?.inputHash).toHaveLength(64);
 
     const unleased = createFakePrSurface(surfaceParams);
     await unleased.surface.replyAt({ kind: "prConversation", prNumber: 1 }, "ask reply");
     expect(unleased.controls.replies).toEqual([
       { target: { kind: "prConversation", prNumber: 1 }, body: "ask reply" },
     ]);
+  });
+
+  it("returns the cached wrapped surface instead of the raw surface", async () => {
+    const raw = createFakePrSurface(surfaceParams).surface;
+    const boundary: PrSurfaceMutationBoundary = {
+      signal: new AbortController().signal,
+      run: async (_mutation, mutate) => mutate(),
+    };
+
+    const first = withPrSurfaceMutationBoundary(raw, boundary);
+    expect(withPrSurfaceMutationBoundary(raw, boundary)).toBe(first);
+    expect(withPrSurfaceMutationBoundary(first, boundary)).toBe(first);
   });
 });

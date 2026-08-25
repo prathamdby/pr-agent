@@ -82,6 +82,7 @@ import * as repo from "../src/agentWork/repository.js";
 import * as prActorLease from "../src/agentWork/prActorLease.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
+import * as prSurface from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
 
@@ -1094,6 +1095,34 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
+    );
+  });
+
+  it("aborts the execution and PR-surface signals when renewal loses the lease", async () => {
+    mockFetchedItem(makeItem({ status: "running" }));
+    vi.mocked(prActorLease.renewPrActorLease).mockImplementation(async () => {
+      vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
+      return false;
+    });
+    const execute = vi.fn(async (_item, env) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(env.signal.aborted).toBe(true);
+      expect(vi.mocked(prSurface.createPrSurface).mock.calls[0]?.[0].mutationBoundary?.signal).toBe(
+        env.signal,
+      );
+      return completedResult();
+    });
+
+    await runReviewWorkItem({
+      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+      execute,
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
     expect(evlog.logInfo).toHaveBeenCalledWith(
       "agent_work_stale_execution_skipped",
       expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),

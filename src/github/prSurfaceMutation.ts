@@ -1,33 +1,101 @@
 import crypto from "node:crypto";
+import { AppError, isAppError, toAppError } from "../errors/appError.js";
 import type {
-  AcknowledgementTarget,
   PrSurface,
+  PrSurfaceMutationMethods,
   PrSurfaceMutation,
   PrSurfaceMutationBoundary,
-  ReviewCheckOutcome,
-  ReviewCommitStatusParams,
-  ThreadBatchReview,
 } from "./prSurfaceTypes.js";
-import type { ReplyTarget } from "../commands/replyTarget.js";
-import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
-import type { GithubReactionContent } from "../settings/index.js";
 
-const wrappedBoundaries = new WeakMap<PrSurface, PrSurfaceMutationBoundary>();
+const PR_SURFACE_MUTATION_METHODS = {
+  setAcknowledgementReaction: true,
+  replyAt: true,
+  upsertProgressComment: true,
+  editComment: true,
+  setReviewCommitStatus: true,
+  publishThreadBatch: true,
+  resolveInlineReviewThread: true,
+  setLabels: true,
+  startReviewCheck: true,
+  finishReviewCheck: true,
+  editReviewComment: true,
+  publishDescription: true,
+} satisfies Record<keyof PrSurfaceMutationMethods, true>;
+
+type WrappedSurface = {
+  readonly boundary: PrSurfaceMutationBoundary;
+  readonly surface: PrSurface;
+};
+
+const wrappedSurfaces = new WeakMap<PrSurface, WrappedSurface>();
+
+function stableEncode(
+  value: unknown,
+  ancestors: ReadonlyMap<object, string> = new Map(),
+  path = "$",
+): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  switch (typeof value) {
+    case "string":
+      return JSON.stringify(value);
+    case "boolean":
+      return value ? "true" : "false";
+    case "number":
+      if (Number.isNaN(value)) return "number:NaN";
+      if (value === Infinity) return "number:Infinity";
+      if (value === -Infinity) return "number:-Infinity";
+      if (Object.is(value, -0)) return "number:-0";
+      return `number:${String(value)}`;
+    case "bigint":
+      return `bigint:${value.toString()}`;
+    case "symbol":
+      return `symbol:${value.description ?? ""}`;
+    case "function":
+      return `function:${value.name}`;
+    default:
+      break;
+  }
+
+  const object = value;
+  const previousPath = ancestors.get(object);
+  if (previousPath != null) return `circular:${previousPath}`;
+  const nextAncestors = new Map(ancestors);
+  nextAncestors.set(object, path);
+
+  if (value instanceof Date) return `date:${value.toISOString()}`;
+  if (Array.isArray(value)) {
+    return `[${value.map((item, index) => stableEncode(item, nextAncestors, `${path}[${index}]`)).join(",")}]`;
+  }
+  if (value instanceof Map) {
+    const entries = [...value.entries()]
+      .map(
+        ([key, entry]) =>
+          [stableEncode(key, nextAncestors), stableEncode(entry, nextAncestors)] as const,
+      )
+      .toSorted(([left], [right]) => left.localeCompare(right));
+    return `map:{${entries.map(([key, entry]) => `${key}:${entry}`).join(",")}}`;
+  }
+  if (value instanceof Set) {
+    return `set:[${[...value]
+      .map((entry) => stableEncode(entry, nextAncestors))
+      .toSorted()
+      .join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .toSorted()
+    .map(
+      (key) =>
+        `${JSON.stringify(key)}:${stableEncode(record[key], nextAncestors, `${path}.${key}`)}`,
+    )
+    .join(",")}}`;
+}
 
 function inputHash(input: unknown): string {
-  let encoded: string;
-  try {
-    encoded = JSON.stringify(input, (_key, value: unknown) =>
-      typeof value === "bigint" ? String(value) : value,
-    );
-  } catch {
-    encoded = String(input);
-  }
-  return crypto
-    .createHash("sha256")
-    .update(encoded ?? "undefined")
-    .digest("hex")
-    .slice(0, 32);
+  const encoded = stableEncode(input);
+  return crypto.createHash("sha256").update(encoded).digest("hex");
 }
 
 function mutation(method: string, input: unknown): PrSurfaceMutation {
@@ -45,8 +113,18 @@ function mutation(method: string, input: unknown): PrSurfaceMutation {
 function throwIfAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   const reason = signal.reason;
-  if (reason instanceof Error) throw reason;
-  throw new Error("PR-surface mutation aborted");
+  if (isAppError(reason)) throw reason;
+  if (reason !== undefined) {
+    throw toAppError(reason, { code: "agent_work.execution_aborted" });
+  }
+  throw new AppError({
+    code: "agent_work.execution_aborted",
+    message: "PR-surface mutation aborted",
+  });
+}
+
+function isMutationMethod(property: PropertyKey): property is keyof PrSurfaceMutationMethods {
+  return typeof property === "string" && property in PR_SURFACE_MUTATION_METHODS;
 }
 
 /**
@@ -57,9 +135,14 @@ export function withPrSurfaceMutationBoundary(
   surface: PrSurface,
   boundary: PrSurfaceMutationBoundary,
 ): PrSurface {
-  if (wrappedBoundaries.get(surface) === boundary) return surface;
+  const cached = wrappedSurfaces.get(surface);
+  if (cached?.boundary === boundary) return cached.surface;
 
-  const run = <T>(method: string, input: unknown, mutate: () => Promise<T>): Promise<T> => {
+  const run = <T>(
+    method: keyof PrSurfaceMutationMethods,
+    input: unknown,
+    mutate: () => Promise<T>,
+  ): Promise<T> => {
     throwIfAborted(boundary.signal);
     return boundary.run(mutation(method, input), async () => {
       throwIfAborted(boundary.signal);
@@ -67,68 +150,16 @@ export function withPrSurfaceMutationBoundary(
     });
   };
 
-  const wrapped: PrSurface = {
-    ...surface,
-    async setAcknowledgementReaction(
-      targets: readonly AcknowledgementTarget[],
-      kind: GithubReactionContent,
-    ) {
-      return run("setAcknowledgementReaction", { targets, kind }, () =>
-        surface.setAcknowledgementReaction(targets, kind),
-      );
+  const wrapped = new Proxy(surface, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (!isMutationMethod(property) || typeof value !== "function") return value;
+      return async (...args: unknown[]) =>
+        run(property, args, () => Promise.resolve(Reflect.apply(value, target, args)));
     },
-    async replyAt(target: ReplyTarget, body: string) {
-      return run("replyAt", { target, body }, () => surface.replyAt(target, body));
-    },
-    async upsertProgressComment(body: string, sentinel: string, knownExisting) {
-      return run(
-        "upsertProgressComment",
-        { body, sentinel, knownExistingId: knownExisting?.id ?? null },
-        () => surface.upsertProgressComment(body, sentinel, knownExisting),
-      );
-    },
-    async editComment(commentId: number, body: string) {
-      return run("editComment", { commentId, body }, () => surface.editComment(commentId, body));
-    },
-    async setReviewCommitStatus(headSha: string, params: ReviewCommitStatusParams) {
-      return run("setReviewCommitStatus", { headSha, params }, () =>
-        surface.setReviewCommitStatus(headSha, params),
-      );
-    },
-    async publishThreadBatch(review: ThreadBatchReview) {
-      return run("publishThreadBatch", review, () => surface.publishThreadBatch(review));
-    },
-    async resolveInlineReviewThread(threadId: string) {
-      return run("resolveInlineReviewThread", { threadId }, () =>
-        surface.resolveInlineReviewThread(threadId),
-      );
-    },
-    async setLabels(labels: readonly string[]) {
-      return run("setLabels", { labels }, () => surface.setLabels(labels));
-    },
-    async startReviewCheck(headSha: string, externalId: string, summary?: string) {
-      return run("startReviewCheck", { headSha, externalId, summary }, () =>
-        surface.startReviewCheck(headSha, externalId, summary),
-      );
-    },
-    async finishReviewCheck(outcome: ReviewCheckOutcome) {
-      return run("finishReviewCheck", outcome, () => surface.finishReviewCheck(outcome));
-    },
-    async editReviewComment(commentId: number, body: string) {
-      return run("editReviewComment", { commentId, body }, () =>
-        surface.editReviewComment(commentId, body),
-      );
-    },
-    async publishDescription(
-      cfg: Parameters<PrSurface["publishDescription"]>[0],
-      payload: DescriptionPayload,
-    ) {
-      return run("publishDescription", { features: cfg.features, payload }, () =>
-        surface.publishDescription(cfg, payload),
-      );
-    },
-  };
-  wrappedBoundaries.set(surface, boundary);
-  wrappedBoundaries.set(wrapped, boundary);
+  });
+  const entry = { boundary, surface: wrapped } satisfies WrappedSurface;
+  wrappedSurfaces.set(surface, entry);
+  wrappedSurfaces.set(wrapped, entry);
   return wrapped;
 }
