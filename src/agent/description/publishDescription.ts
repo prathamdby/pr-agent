@@ -15,7 +15,8 @@ export async function publishDescriptionToPullRequest(params: {
   repo: string;
   prNumber: number;
   payload: DescriptionPayload;
+  operationMarker?: string;
 }): Promise<PublishDescriptionResult> {
-  const { cfg, prSurface, payload } = params;
-  return prSurface.publishDescription(cfg, payload);
+  const { cfg, prSurface, payload, operationMarker } = params;
+  return prSurface.publishDescription(cfg, payload, operationMarker);
 }

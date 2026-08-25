@@ -1,5 +1,5 @@
 import { githubErrorMessage } from "./githubErrors.js";
-import { httpStatus } from "./httpStatus.js";
+import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.js";
 
 function objectValue(value: unknown, key: string): unknown {
   if (typeof value !== "object" || value == null) return undefined;
@@ -45,20 +45,16 @@ export function isLineResolutionPublishError(error: unknown): boolean {
   );
 }
 
-/** GitHub 422/502/503 errors worth retrying (excludes anchor and validation failures). */
+/** A review retry is safe only when the provider proves rejection before acceptance. */
 export function isTransientGitHubReviewError(error: unknown): boolean {
-  const status = httpStatus(error);
-  if (status !== 422 && status !== 503 && status !== 502) return false;
-  if (isLineResolutionPublishError(error)) return false;
+  return isKnownNoAcceptanceMutationError(error) && !isLineResolutionPublishError(error);
+}
 
-  const message = githubErrorMessage(error).toLowerCase();
-  if (
-    /validation failed|cannot be submitted|review has already been submitted|already been submitted|unprocessable entity/.test(
-      message,
-    )
-  ) {
-    return false;
-  }
-
-  return true;
+/**
+ * A retry is safe only when the provider explicitly proves that the review was
+ * rejected before acceptance, or when the error is a validation-only anchor
+ * rejection handled by the placement fallback.
+ */
+export function isDefinitelyNoAcceptanceReviewError(error: unknown): boolean {
+  return isKnownNoAcceptanceMutationError(error) || isLineResolutionPublishError(error);
 }

@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import type { PrSurface } from "../github/prSurface.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
 import { checkRunFindingsSummary } from "../github/statusCopy.js";
@@ -21,6 +22,7 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "./repository.js";
+import { reviewCheckOperationKey, withOperationIntent } from "./withOperationIntent.js";
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
@@ -64,7 +66,12 @@ function logCheckRunWarning(
   error: unknown,
   fields: Record<string, string | number | undefined>,
 ): void {
-  if (isMissingActionsPermissionError(error)) return;
+  if (
+    isMissingActionsPermissionError(error) ||
+    (error instanceof Error && isMissingActionsPermissionError(error.cause))
+  ) {
+    return;
+  }
   logWarn(event, {
     ...fields,
     message: error instanceof Error ? error.message : String(error),
@@ -176,12 +183,35 @@ async function createGithubCheckRunOnSurface(
   pool: Pool,
   params: EnsureReviewCheckRunParams,
 ): Promise<GithubCheckRunRef | null> {
+  const name = reviewCheckRunName();
   try {
-    return await params.prSurface.startReviewCheck(
-      params.headSha,
-      params.workItemId,
-      "PR Agent review is in progress.",
-    );
+    return await withOperationIntent<GithubCheckRunRef>({
+      client: pool,
+      workItemId: params.workItemId,
+      operationKey: reviewCheckOperationKey(params.workItemId),
+      mutationKind: "github.review_check_run",
+      detail: {
+        step: "check_run",
+        resourceKey: params.resourceKey,
+        reviewLens: params.reviewLens,
+        headSha: params.headSha,
+        externalId: params.workItemId,
+        name,
+      },
+      recover: async () => {
+        const found = await params.prSurface.findReviewCheck?.(params.headSha, params.workItemId);
+        return found == null
+          ? { kind: "absent" as const }
+          : { kind: "reconciled" as const, value: found };
+      },
+      isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+      mutate: () =>
+        params.prSurface.startReviewCheck(
+          params.headSha,
+          params.workItemId,
+          "PR Agent review is in progress.",
+        ),
+    });
   } catch (createError) {
     // Proven duplicate recovery lives in prSurfaceImpl.startReviewCheck.
     await releaseUnstartedReviewCheckRunReservation(pool, {

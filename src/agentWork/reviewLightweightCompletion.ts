@@ -6,8 +6,15 @@ import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema.js";
 import type { PrSurface } from "../github/prSurface.js";
+import { findCommentIdByMarker } from "../github/prSurfaceHelpers.js";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
+import {
+  operationIntentMarker,
+  reviewSummaryOperationKey,
+  withOperationIntent,
+} from "./withOperationIntent.js";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }
@@ -21,6 +28,17 @@ export type LightweightAutoReviewResult =
       readonly published: true;
       readonly summaryId: number | string;
     };
+
+async function findSummaryCommentByOperationMarker(
+  prSurface: PrSurface,
+  marker: string,
+): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
+  const comments = await prSurface.listConversationComments();
+  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
+  return id == null ? null : { id };
+}
 
 /** Auto-review docs-only path: publish lightweight summary or skip when work is cancelled. */
 export async function tryLightweightAutoReviewCompletion(
@@ -56,13 +74,42 @@ export async function tryLightweightAutoReviewCompletion(
     model: params.model,
   });
   const sentinel = REVIEW_SUMMARY_SENTINEL;
+  const operationKey = reviewSummaryOperationKey(params.item.resourceKey, params.reviewLens);
+  const operationMarker = operationIntentMarker(operationKey, params.item.id);
+  const bodyWithMarker = `${body}\n${operationMarker}`;
   const storedId = await getSummaryCommentGithubId(
     pool,
     params.item.resourceKey,
     params.reviewLens,
   );
   const knownExisting = await params.prSurface.resolveProgressComment(sentinel, storedId);
-  const summary = await params.prSurface.upsertProgressComment(body, sentinel, knownExisting);
+  const summary = await withOperationIntent<{
+    readonly id: number;
+    readonly updated: boolean;
+  }>({
+    client: pool,
+    workItemId: params.item.id,
+    operationKey,
+    mutationKind: "github.review_summary_comment",
+    leaseEpoch: params.leaseEpoch,
+    detail: {
+      step: "summary_comment",
+      resourceKey: params.item.resourceKey,
+      reviewLens: params.reviewLens,
+      operationMarker,
+    },
+    recover: async () => {
+      const existing = await findSummaryCommentByOperationMarker(params.prSurface, operationMarker);
+      return existing == null
+        ? { kind: "absent" as const }
+        : {
+            kind: "reconciled" as const,
+            value: { id: existing.id, updated: false },
+          };
+    },
+    isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+    mutate: () => params.prSurface.upsertProgressComment(bodyWithMarker, sentinel, knownExisting),
+  });
   await recordPublishStep(pool, {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,

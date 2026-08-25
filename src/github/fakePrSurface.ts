@@ -14,6 +14,7 @@ import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
   PrConversationComment,
+  PublishedBatch,
   PrSurface,
   PrSurfaceMutationBoundary,
   PullRequestBranchInfo,
@@ -179,6 +180,7 @@ export type FakePrSurfaceControls = {
       | ((base: string, head: string) => ListCommitCompareFilesResult),
   ) => void;
   readonly rejectNextInlineReviewReply: (error: Error) => void;
+  readonly acceptThenRejectNextInlineReviewReply: (error: Error) => void;
   readonly setThreadResolutionStatus: (
     status: ReviewThreadResolutionStatus,
     warning?: string,
@@ -215,6 +217,12 @@ export function createFakePrSurface(
   const reactions: FakePrSurfaceControls["reactions"] = [];
   const replies: FakePrSurfaceControls["replies"] = [];
   const threadBatches: ThreadBatchReview[] = [];
+  const publishedThreadBatches: Array<{
+    readonly id: number;
+    readonly url: string;
+    readonly review: ThreadBatchReview;
+    readonly authorLogin: string;
+  }> = [];
 
   let headSha = options?.headSha ?? "fake-head-sha";
   let pullRequest = options?.pullRequest ?? defaultPullRequest(headSha);
@@ -237,7 +245,15 @@ export function createFakePrSurface(
     }
   >();
   const threads = new Map<number, ReviewThreadResolution>();
-  const checkRuns = new Map<number, { readonly id: number; readonly url: string | null }>();
+  const checkRuns = new Map<
+    number,
+    {
+      readonly id: number;
+      readonly url: string | null;
+      readonly headSha: string;
+      readonly externalId: string;
+    }
+  >();
   const failingJobsByHead = new Map<
     string,
     Array<{
@@ -286,6 +302,7 @@ export function createFakePrSurface(
     truncated: false,
   };
   let inlineReplyError: Error | null = null;
+  let inlineReplyAcceptedBeforeError = false;
   let threadResolutionStatus: ReviewThreadResolutionStatus = "ok";
   let threadResolutionWarning: string | undefined;
 
@@ -400,6 +417,11 @@ export function createFakePrSurface(
     },
     rejectNextInlineReviewReply(error) {
       inlineReplyError = error;
+      inlineReplyAcceptedBeforeError = false;
+    },
+    acceptThenRejectNextInlineReviewReply(error) {
+      inlineReplyError = error;
+      inlineReplyAcceptedBeforeError = true;
     },
     setThreadResolutionStatus(status, warning) {
       threadResolutionStatus = status;
@@ -422,15 +444,28 @@ export function createFakePrSurface(
       return headSha;
     },
 
+    async getBotLogin() {
+      return "pr-agent[bot]";
+    },
+
     async setAcknowledgementReaction(targets, kind) {
       events.push({ kind: "setAcknowledgementReaction", targets, reaction: kind });
       reactions.push({ targets: [...targets], kind });
     },
 
     async replyAt(target, body) {
-      if (target.kind === "inlineReviewThread" && inlineReplyError != null) {
+      const shouldThrowAfterAccept =
+        target.kind === "inlineReviewThread" &&
+        inlineReplyError != null &&
+        inlineReplyAcceptedBeforeError;
+      if (
+        target.kind === "inlineReviewThread" &&
+        inlineReplyError != null &&
+        !shouldThrowAfterAccept
+      ) {
         const error = inlineReplyError;
         inlineReplyError = null;
+        inlineReplyAcceptedBeforeError = false;
         throw error;
       }
       events.push({ kind: "replyAt", target, body });
@@ -438,12 +473,24 @@ export function createFakePrSurface(
       const commentId = nextCommentId++;
       if (target.kind === "inlineReviewThread") {
         reviewCommentBodies.set(commentId, body);
+        inlineReviewComments.push({
+          id: commentId,
+          inReplyToId: target.inReplyToCommentId,
+          authorLogin: "pr-agent[bot]",
+          body,
+        });
       }
       issueComments.set(commentId, {
         id: commentId,
         body,
         url: `https://github.com/${params.owner}/${params.repo}/issues/${params.prNumber}#issuecomment-${commentId}`,
       });
+      if (shouldThrowAfterAccept) {
+        const error = inlineReplyError;
+        inlineReplyError = null;
+        inlineReplyAcceptedBeforeError = false;
+        throw error;
+      }
       return { commentId };
     },
 
@@ -547,10 +594,32 @@ export function createFakePrSurface(
       events.push({ kind: "publishThreadBatch", review });
       threadBatches.push(review);
       const reviewId = nextReviewId++;
+      const reviewUrl = `https://github.com/${params.owner}/${params.repo}/pull/${params.prNumber}#pullrequestreview-${reviewId}`;
+      publishedThreadBatches.push({
+        id: reviewId,
+        url: reviewUrl,
+        review,
+        authorLogin: "pr-agent[bot]",
+      });
       return {
         reviewId,
-        reviewUrl: `https://github.com/${params.owner}/${params.repo}/pull/${params.prNumber}#pullrequestreview-${reviewId}`,
+        reviewUrl,
       };
+    },
+
+    async findPublishedThreadBatch(marker, commitId): Promise<PublishedBatch | null> {
+      for (let index = publishedThreadBatches.length - 1; index >= 0; index -= 1) {
+        const review = publishedThreadBatches[index];
+        if (
+          review != null &&
+          review.authorLogin === "pr-agent[bot]" &&
+          review.review.body.includes(marker) &&
+          (commitId == null || review.review.commitId === commitId)
+        ) {
+          return { reviewId: review.id, reviewUrl: review.url };
+        }
+      }
+      return null;
     },
 
     async listInlineReviewThreads() {
@@ -597,8 +666,15 @@ export function createFakePrSurface(
       events.push({ kind: "startReviewCheck", headSha: headShaArg, externalId, summary });
       const id = nextCheckRunId++;
       const url = `https://github.com/${params.owner}/${params.repo}/runs/${id}`;
-      checkRuns.set(id, { id, url });
+      checkRuns.set(id, { id, url, headSha: headShaArg, externalId });
       return { id, url };
+    },
+
+    async findReviewCheck(headShaArg, externalId) {
+      const found = [...checkRuns.values()]
+        .toReversed()
+        .find((check) => check.headSha === headShaArg && check.externalId === externalId);
+      return found ? { id: found.id, url: found.url } : null;
     },
 
     async finishReviewCheck(outcome) {
@@ -649,7 +725,17 @@ export function createFakePrSurface(
 
     async listConversationComments() {
       events.push({ kind: "listConversationComments" });
-      return conversationComments;
+      const comments = new Map(conversationComments.map((comment) => [comment.id, comment]));
+      for (const comment of issueComments.values()) {
+        if (comments.has(comment.id)) continue;
+        comments.set(comment.id, {
+          id: comment.id,
+          inReplyToId: null,
+          authorLogin: "pr-agent[bot]",
+          body: comment.body,
+        });
+      }
+      return [...comments.values()];
     },
 
     async listInlineReviewComments() {
@@ -674,7 +760,7 @@ export function createFakePrSurface(
       return pullRequestBranchInfo;
     },
 
-    async publishDescription(_cfg, _payload: DescriptionPayload) {
+    async publishDescription(_cfg, _payload: DescriptionPayload, _operationMarker?: string) {
       events.push({ kind: "publishDescription" });
       return { prNumber: params.prNumber, titleUpdated: false, bodyUpdated: true };
     },

@@ -64,7 +64,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: 1,
+      leaseEpoch: null,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -91,7 +91,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: 1,
+      leaseEpoch: null,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -115,7 +115,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: 1,
+      leaseEpoch: null,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -145,7 +145,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: 1,
+      leaseEpoch: null,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -171,7 +171,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       prSurface: surface,
       model: "grok-4.5",
-      leaseEpoch: 1,
+      leaseEpoch: null,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,

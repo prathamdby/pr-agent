@@ -2,6 +2,9 @@ import type { Config } from "../../config.js";
 import type { Pool, PoolClient } from "pg";
 import { AppError } from "../../errors/appError.js";
 import {
+  operationIntentMarker,
+  reviewCommitStatusOperationKey,
+  reviewLabelsOperationKey,
   reviewSummaryOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
@@ -20,6 +23,8 @@ import {
 } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import {
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_WAIT_MS,
@@ -80,6 +85,17 @@ async function resolveKnownSummaryCommentRef(
 ): Promise<{ id: number; url: string } | null> {
   const resolved = await prSurface.resolveProgressComment(sentinel, hintCommentId);
   return resolved ? { id: resolved.id, url: resolved.url } : null;
+}
+
+async function findSummaryCommentByOperationMarker(
+  prSurface: PrSurface,
+  marker: string,
+): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
+  const comments = await prSurface.listConversationComments();
+  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
+  return id == null ? null : { id };
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -432,36 +448,62 @@ export async function publishReviewSummaryOnly(params: {
   }
 
   const labelsPromise = params.prSurface.getLabels().catch((error: unknown) => error);
+  const coordination = summaryCoordination;
+  const summaryOperationKey =
+    coordination == null ? null : reviewSummaryOperationKey(coordination.resourceKey, mode);
+  const summaryOperationMarker =
+    coordination == null
+      ? null
+      : operationIntentMarker(
+          reviewSummaryOperationKey(coordination.resourceKey, mode),
+          coordination.workItemId,
+        );
+  const summaryBodyForPublish =
+    summaryOperationMarker == null ? summaryBody : `${summaryBody}\n${summaryOperationMarker}`;
   const runSummaryUpsert = () =>
     summaryCoordination
       ? upsertSummaryCommentWithCreationClaim({
           ...summaryCoordination,
           reviewLens: mode,
           prSurface: params.prSurface,
-          body: summaryBody,
+          body: summaryBodyForPublish,
           sentinel: summarySentinel,
           hintCommentId: params.progressCommentIdHint ?? knownSummaryCommentRef?.id,
           progressRevision: 7,
         })
       : params.prSurface.upsertProgressComment(
-          summaryBody,
+          summaryBodyForPublish,
           summarySentinel,
           knownSummaryCommentRef,
         );
   const summaryPromise =
     summaryCoordination == null
       ? runSummaryUpsert()
-      : withOperationIntent({
+      : withOperationIntent<{ readonly id: number; readonly updated: boolean }>({
           client: summaryCoordination.pool,
           workItemId: summaryCoordination.workItemId,
-          operationKey: reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
+          operationKey:
+            summaryOperationKey ?? reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
           mutationKind: "github.summary_comment",
           leaseEpoch: summaryCoordination.leaseEpoch,
           detail: {
             step: "summary_comment",
             resourceKey: summaryCoordination.resourceKey,
             reviewLens: mode,
+            ...(summaryOperationMarker != null ? { operationMarker: summaryOperationMarker } : {}),
           },
+          recover: async () => {
+            const existing =
+              summaryOperationMarker == null
+                ? null
+                : await findSummaryCommentByOperationMarker(
+                    params.prSurface,
+                    summaryOperationMarker,
+                  );
+            if (existing == null) return { kind: "absent" as const };
+            return { kind: "reconciled" as const, value: { id: existing.id, updated: false } };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: runSummaryUpsert,
         });
   const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
@@ -510,17 +552,52 @@ export async function publishReviewSummaryOnly(params: {
   }
 
   if (params.cfg.features.commitStatus) {
+    const commitStatus = {
+      state:
+        coverage.kind === "partial"
+          ? ("error" as const)
+          : checkOutcome.conclusion === "failure"
+            ? ("failure" as const)
+            : ("success" as const),
+      description: checkOutcome.summary,
+      targetUrl,
+    };
     try {
-      await params.prSurface.setReviewCommitStatus(headSha, {
-        state:
-          coverage.kind === "partial"
-            ? "error"
-            : checkOutcome.conclusion === "failure"
-              ? "failure"
-              : "success",
-        description: checkOutcome.summary,
-        targetUrl,
-      });
+      const publishCommitStatus = () =>
+        params.prSurface.setReviewCommitStatus(headSha, commitStatus);
+      if (summaryCoordination == null) {
+        await publishCommitStatus();
+      } else {
+        await withOperationIntent<void>({
+          client: summaryCoordination.pool,
+          workItemId: summaryCoordination.workItemId,
+          operationKey: reviewCommitStatusOperationKey(summaryCoordination.resourceKey, headSha),
+          mutationKind: "github.review_commit_status",
+          leaseEpoch: summaryCoordination.leaseEpoch,
+          detail: {
+            step: "commit_status",
+            resourceKey: summaryCoordination.resourceKey,
+            headSha,
+            context: "pr-agent/review",
+            ...commitStatus,
+          },
+          recover: async () => {
+            const current = await params.prSurface.getCiStatus(headSha);
+            const found = current.legacyStatuses.some(
+              (status) =>
+                status.context === "pr-agent/review" &&
+                status.state === commitStatus.state &&
+                status.description === commitStatus.description &&
+                status.targetUrl === (commitStatus.targetUrl ?? null),
+            );
+            return found
+              ? { kind: "reconciled" as const, value: undefined }
+              : { kind: "absent" as const };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+          mutate: publishCommitStatus,
+        });
+      }
     } catch (error) {
       logWarn("review_commit_status_failed", {
         mode,
@@ -572,7 +649,32 @@ export async function publishReviewSummaryOnly(params: {
       } else {
         const managed = reviewLabelsFromPayload(params.payload, options);
         const next = syncReviewLabels(currentLabels, managed);
-        await params.prSurface.setLabels(next);
+        const publishLabels = () => params.prSurface.setLabels(next);
+        if (summaryCoordination == null) {
+          await publishLabels();
+        } else {
+          await withOperationIntent<void>({
+            client: summaryCoordination.pool,
+            workItemId: summaryCoordination.workItemId,
+            operationKey: reviewLabelsOperationKey(summaryCoordination.resourceKey),
+            mutationKind: "github.review_labels",
+            leaseEpoch: summaryCoordination.leaseEpoch,
+            detail: {
+              step: "labels",
+              resourceKey: summaryCoordination.resourceKey,
+              desiredLabels: next,
+            },
+            recover: async () => {
+              const labels = await params.prSurface.getLabels();
+              const desired = new Set(next);
+              return labels.length === next.length && labels.every((label) => desired.has(label))
+                ? { kind: "reconciled" as const, value: undefined }
+                : { kind: "absent" as const };
+            },
+            isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+            mutate: publishLabels,
+          });
+        }
         await params.recordPublishStep?.("labels", { meta: { labels: next } });
         logDebug("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
       }

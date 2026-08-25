@@ -17,6 +17,7 @@ import { httpStatus } from "./httpStatus.js";
 import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
+  findPullRequestReviewByMarker,
   findIssueCommentBySentinel,
   findReviewCheckRunByName,
   getIssueCommentIfSentinel,
@@ -33,7 +34,6 @@ import {
   fetchPriorInlineReviewFeedback,
   fetchReviewCommentParentGraph,
 } from "./reviewPriorFeedbackIo.js";
-import { withTransientReviewRetry } from "./reviewPublishRetry.js";
 import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
@@ -159,8 +159,9 @@ async function publishDescriptionOnPullRequest(params: {
   readonly repo: string;
   readonly prNumber: number;
   readonly payload: DescriptionPayload;
+  readonly operationMarker?: string;
 }) {
-  const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, payload } = params;
+  const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, payload, operationMarker } = params;
   const octokit = installationOctokit(token, tokenExpiresAtTs);
   const { data: pr } = await octokit.rest.pulls.get({
     owner,
@@ -175,7 +176,7 @@ async function publishDescriptionOnPullRequest(params: {
   });
   const mergedBody = mergeDescriptionIntoPrBody({
     currentBody: pr.body,
-    agentBlock,
+    agentBlock: operationMarker == null ? agentBlock : `${agentBlock}\n${operationMarker}`,
   });
 
   const nextTitle = cfg.features.titleRewrite ? payload.title.trim() : (pr.title ?? "");
@@ -510,6 +511,10 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       return (await this.getHead()).headSha;
     },
 
+    async getBotLogin() {
+      return (await getAppBotIdentity(cfg)).login;
+    },
+
     async setAcknowledgementReaction(targets, kind) {
       const { token, expiresAtTs } = await ensureAuth();
       const botId = await ensureBotUserId();
@@ -624,22 +629,36 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
     async publishThreadBatch(review: ThreadBatchReview) {
       const { token, expiresAtTs } = await ensureAuth();
-      const result = await withTransientReviewRetry(() =>
-        createPullRequestReviewWithComments(
-          token,
-          owner,
-          repo,
-          prNumber,
-          {
-            body: review.body,
-            event: review.event,
-            comments: review.comments ? [...review.comments] : undefined,
-            commitId: review.commitId,
-          },
-          expiresAtTs,
-        ),
+      const result = await createPullRequestReviewWithComments(
+        token,
+        owner,
+        repo,
+        prNumber,
+        {
+          body: review.body,
+          event: review.event,
+          comments: review.comments ? [...review.comments] : undefined,
+          commitId: review.commitId,
+        },
+        expiresAtTs,
       );
       return { reviewId: result.id, reviewUrl: result.url };
+    },
+
+    async findPublishedThreadBatch(marker, commitId) {
+      const { token, expiresAtTs } = await ensureAuth();
+      const bot = await getAppBotIdentity(cfg);
+      const found = await findPullRequestReviewByMarker(
+        token,
+        owner,
+        repo,
+        prNumber,
+        marker,
+        bot.login,
+        commitId,
+        expiresAtTs,
+      );
+      return found ? { reviewId: found.id, reviewUrl: found.url } : null;
     },
 
     async listInlineReviewThreads() {
@@ -688,6 +707,19 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         headSha,
         externalId,
         summary,
+        expiresAtTs,
+      );
+    },
+
+    async findReviewCheck(headSha, externalId) {
+      const { token, expiresAtTs } = await ensureAuth();
+      return findReviewCheckRunByName(
+        token,
+        owner,
+        repo,
+        headSha,
+        REVIEW_CHECK_RUN_NAME,
+        externalId,
         expiresAtTs,
       );
     },
@@ -799,16 +831,17 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       };
     },
 
-    async publishDescription(cfg, payload) {
+    async publishDescription(surfaceCfg, payload, operationMarker) {
       const { token, expiresAtTs } = await ensureAuth();
       return publishDescriptionOnPullRequest({
-        cfg,
+        cfg: surfaceCfg,
         token,
         tokenExpiresAtTs: expiresAtTs,
         owner,
         repo,
         prNumber,
         payload,
+        operationMarker,
       });
     },
 

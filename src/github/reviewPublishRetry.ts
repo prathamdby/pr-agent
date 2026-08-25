@@ -1,5 +1,13 @@
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../settings/index.js";
-import { isTransientGitHubReviewError } from "./reviewErrors.js";
+import {
+  isDefinitelyNoAcceptanceReviewError,
+  isLineResolutionPublishError,
+} from "./reviewErrors.js";
+
+/** Kept as a named policy for callers that need a safe retry predicate. */
+export function isTransientGitHubReviewError(error: unknown): boolean {
+  return isDefinitelyNoAcceptanceReviewError(error) && !isLineResolutionPublishError(error);
+}
 
 export async function withTransientReviewRetry<T>(
   fn: () => Promise<T>,

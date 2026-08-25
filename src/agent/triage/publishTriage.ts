@@ -2,6 +2,8 @@ import type { TriageScope } from "../../agentWork/types.js";
 import type { Pool } from "pg";
 import * as v from "valibot";
 import type { PrSurface } from "../../github/prSurface.js";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
@@ -18,6 +20,7 @@ import {
 } from "../../settings/index.js";
 import { recordPublishStep } from "../../agentWork/repository.js";
 import {
+  operationIntentMarker,
   triagePushOperationKey,
   triageReportOperationKey,
   triageThreadOperationKey,
@@ -203,10 +206,40 @@ function replyBody(
   return redactReviewText(`**Triage**: Already resolved - ${verdict.evidence}`);
 }
 
+async function findMarkedComment(
+  prSurface: PrSurface,
+  marker: string,
+  rootCommentId?: number,
+): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
+  const comments = await prSurface.listInlineReviewComments();
+  const id = findCommentIdByMarker(
+    comments,
+    marker,
+    (comment) =>
+      comment.authorLogin === botLogin &&
+      (rootCommentId == null || comment.inReplyToId === rootCommentId),
+  );
+  return id == null ? null : { id };
+}
+
+async function findMarkedConversationComment(
+  prSurface: PrSurface,
+  marker: string,
+): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
+  const comments = await prSurface.listConversationComments();
+  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
+  return id == null ? null : { id };
+}
+
 async function replyToThread(
   params: Pick<PublishTriageParams, "prSurface" | "prNumber"> & {
     readonly thread: BotFindingThread;
     readonly verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>;
+    readonly operationMarker: string;
   },
 ): Promise<void> {
   await params.prSurface.replyAt(
@@ -215,7 +248,7 @@ async function replyToThread(
       prNumber: params.prNumber,
       inReplyToCommentId: params.thread.rootCommentId,
     },
-    replyBody(params.verdict),
+    `${replyBody(params.verdict)}\n${params.operationMarker}`,
   );
 }
 
@@ -227,20 +260,30 @@ async function upsertTriageReport(
     readonly body: string;
   },
 ): Promise<void> {
-  const result = await withOperationIntent({
+  const operationKey = triageReportOperationKey(params.resourceKey);
+  const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+  const result = await withOperationIntent<{ readonly id: number; readonly updated: boolean }>({
     client: params.pool,
     workItemId: params.workItemId,
     leaseEpoch: params.leaseEpoch,
-    operationKey: triageReportOperationKey(params.resourceKey),
+    operationKey,
     mutationKind: "github.triage_report",
     detail: {
       step: "triage_report",
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
+      operationMarker,
     },
+    recover: async () => {
+      const existing = await findMarkedConversationComment(params.prSurface, operationMarker);
+      return existing == null
+        ? { kind: "absent" as const }
+        : { kind: "reconciled" as const, value: { id: existing.id, updated: false } };
+    },
+    isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
     mutate: () =>
       params.prSurface.upsertProgressComment(
-        redactReviewText(params.body),
+        `${redactReviewText(params.body)}\n${operationMarker}`,
         TRIAGE_SUMMARY_SENTINEL,
       ),
   });
@@ -287,18 +330,27 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
   const committedDetails = params.checkout.listCommittedDetails();
   if (!params.priorPush && committedShas.length > 0) {
     try {
-      await withOperationIntent({
+      const operationKey = triagePushOperationKey(params.resourceKey);
+      await withOperationIntent<void>({
         client: params.pool,
         workItemId: params.workItemId,
         leaseEpoch: params.leaseEpoch,
         signal: params.signal,
-        operationKey: triagePushOperationKey(params.resourceKey),
+        operationKey,
         mutationKind: "github.triage_push",
         detail: {
           step: "triage_push",
           resourceKey: params.resourceKey,
           reviewLens: TRIAGE_PUBLISH_LENS,
         },
+        recover: async () => {
+          const pushed = await params.prSurface.listPushedCommits();
+          return committedShas.every((sha) => pushed.some((commit) => commit.sha === sha))
+            ? { kind: "reconciled" as const, value: undefined }
+            : { kind: "absent" as const };
+        },
+        isKnownNoAcceptanceError: (error) =>
+          error instanceof StaleHeadPushError || isKnownNoAcceptanceMutationError(error),
         mutate: async () => {
           await params.checkout.push();
         },
@@ -389,19 +441,39 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
       thread.hasTriageReply !== true
     ) {
       try {
-        await withOperationIntent({
+        const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
+        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+        await withOperationIntent<void>({
           client: params.pool,
           workItemId: params.workItemId,
           leaseEpoch: params.leaseEpoch,
-          operationKey: triageThreadOperationKey(verdict.threadRootCommentId),
+          operationKey,
           mutationKind: "github.triage_thread_reply",
           detail: {
             step: "triage_thread_actions",
             resourceKey: params.resourceKey,
             reviewLens: TRIAGE_PUBLISH_LENS,
             threadRootCommentId: verdict.threadRootCommentId,
+            operationMarker,
           },
-          mutate: () => replyToThread({ ...params, thread, verdict }),
+          recover: async () => {
+            const existing = await findMarkedComment(
+              params.prSurface,
+              operationMarker,
+              verdict.threadRootCommentId,
+            );
+            return existing == null
+              ? { kind: "absent" as const }
+              : { kind: "reconciled" as const, value: undefined };
+          },
+          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+          mutate: () =>
+            replyToThread({
+              ...params,
+              thread,
+              verdict,
+              operationMarker,
+            }),
         });
       } catch (error) {
         captureTriageFailure(analytics, "thread_reply", error, {
@@ -420,11 +492,12 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
       });
     }
     try {
-      await withOperationIntent({
+      const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
+      await withOperationIntent<void>({
         client: params.pool,
         workItemId: params.workItemId,
         leaseEpoch: params.leaseEpoch,
-        operationKey: `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`,
+        operationKey,
         mutationKind: "github.triage_thread_resolve",
         detail: {
           step: "triage_thread_actions",
@@ -432,6 +505,13 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
           reviewLens: TRIAGE_PUBLISH_LENS,
           threadRootCommentId: verdict.threadRootCommentId,
         },
+        recover: async () => {
+          const current = await params.prSurface.listInlineReviewThreads();
+          return current.byRootCommentId.get(verdict.threadRootCommentId)?.isResolved === true
+            ? { kind: "reconciled" as const, value: undefined }
+            : { kind: "absent" as const };
+        },
+        isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
         mutate: () => params.prSurface.resolveInlineReviewThread(resolution.threadNodeId),
       });
     } catch (error) {

@@ -15,6 +15,7 @@ const {
   listCheckRunsForRef,
   listLabelsOnIssue,
   createReview,
+  listReviews,
   installationOctokit,
 } = vi.hoisted(() => {
   const listComments = vi.fn();
@@ -24,6 +25,7 @@ const {
   const listCheckRunsForRef = vi.fn();
   const listLabelsOnIssue = vi.fn();
   const createReview = vi.fn();
+  const listReviews = vi.fn();
   const installationOctokit = vi.fn(() => ({
     rest: {
       issues: {
@@ -38,6 +40,7 @@ const {
       },
       pulls: {
         createReview,
+        listReviews,
       },
     },
   }));
@@ -49,6 +52,7 @@ const {
     listCheckRunsForRef,
     listLabelsOnIssue,
     createReview,
+    listReviews,
     installationOctokit,
   };
 });
@@ -61,6 +65,7 @@ import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
   findIssueCommentBySentinel,
+  findPullRequestReviewByMarker,
   findReviewCheckRunByName,
   listPullRequestLabels,
   updateReviewCheckRun,
@@ -75,6 +80,7 @@ describe("findIssueCommentBySentinel", () => {
     updateCheckRun.mockReset();
     listLabelsOnIssue.mockReset();
     createReview.mockReset();
+    listReviews.mockReset();
     installationOctokit.mockClear();
   });
 
@@ -233,6 +239,42 @@ describe("createPullRequestReviewWithComments", () => {
         commit_id: "sha",
       }),
     );
+  });
+});
+
+describe("findPullRequestReviewByMarker", () => {
+  beforeEach(() => {
+    listReviews.mockReset();
+    installationOctokit.mockClear();
+  });
+
+  it("requires the configured app author when recovering a marked review", async () => {
+    const marker = "<!-- pr-agent:operation-intent review-marker -->";
+    listReviews.mockResolvedValueOnce({
+      data: [
+        {
+          id: 11,
+          html_url: "https://github.com/o/r/pull/1#pullrequestreview-11",
+          body: marker,
+          commit_id: "sha-1",
+          user: { login: "human-reviewer" },
+        },
+        {
+          id: 12,
+          html_url: "https://github.com/o/r/pull/1#pullrequestreview-12",
+          body: marker,
+          commit_id: "sha-1",
+          user: { login: "pr-agent[bot]" },
+        },
+      ],
+    });
+
+    await expect(
+      findPullRequestReviewByMarker("tok", "o", "r", 1, marker, "pr-agent[bot]", "sha-1"),
+    ).resolves.toEqual({
+      id: 12,
+      url: "https://github.com/o/r/pull/1#pullrequestreview-12",
+    });
   });
 });
 
