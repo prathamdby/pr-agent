@@ -656,6 +656,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,
     codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
+    sameRepo,
     shouldLinkToSummary,
     progressCommentIdHint,
     hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(

@@ -38,6 +38,7 @@ export async function publishReview(
     resumedPlacements?: readonly AcceptedPlacement[];
     shouldAbortPublish?: () => Promise<boolean>;
     publishAbortState?: { readonly staleHead?: boolean };
+    allowViolatedRule?: boolean;
   },
 ): Promise<void> {
   const resumedPlacements = params.resumedPlacements ?? [];
@@ -73,6 +74,7 @@ export async function publishReview(
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
+    allowViolatedRule: params.allowViolatedRule,
     ledger,
   });
   if (batchResult.kind === "stopped") {

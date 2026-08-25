@@ -275,6 +275,7 @@ export async function runOrchestratedPrReview(
     prSurface: setup.prSurface,
 
     cachedDiffIndex: setup.cachedDiffIndex,
+    allowViolatedRule: params.sameRepo === true,
     recordPublishStep: params.recordPublishStep,
     operationIntent: params.recordPublishStep?.summaryCommentCoordination
       ? {
