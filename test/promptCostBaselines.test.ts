@@ -238,7 +238,8 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "Context7 tool definitions",
       content: stableJson(context7Tools),
-      budget: { bytes: 1_500, characters: 1_500, estimatedTokens: 375 },
+      // Shared no-exfiltration descriptions are part of the tool contract.
+      budget: { bytes: 2_000, characters: 2_000, estimatedTokens: 500 },
     },
     {
       name: "structured review submission tool",

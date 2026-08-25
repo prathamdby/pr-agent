@@ -3,19 +3,39 @@ import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 
 import { AppError } from "../../errors/appError.js";
-import { CONTEXT7_BASE_URL } from "../../settings/index.js";
+import {
+  CONTEXT7_BASE_URL,
+  CONTEXT7_LIBRARY_ID_MAX_CHARS,
+  CONTEXT7_LIBRARY_NAME_MAX_CHARS,
+  CONTEXT7_QUERY_MAX_CHARS,
+  CONTEXT7_TOPIC_MAX_CHARS,
+} from "../../settings/index.js";
+import {
+  assertContext7LibraryId,
+  assertContext7LibraryName,
+  CONTEXT7_LIBRARY_ID_PATTERN,
+  CONTEXT7_LIBRARY_NAME_PATTERN,
+  prepareContext7OutboundText,
+  redactContext7Response,
+} from "../../security/context7OutboundPolicy.js";
 import { parseToolInput } from "./parseToolInput.js";
 import { capTextOutput } from "./toolOutputBudget.js";
 
 const resolveLibraryIdSchema = v.object({
   libraryName: v.pipe(
     v.string(),
+    v.minLength(1),
+    v.maxLength(CONTEXT7_LIBRARY_NAME_MAX_CHARS),
+    v.regex(CONTEXT7_LIBRARY_NAME_PATTERN, "must be a package identifier"),
     v.description("Third-party library name to resolve, e.g. 'react', 'next.js', 'zod'."),
   ),
-  query: v.pipe(
-    v.optional(v.string()),
-    v.description(
-      "Optional ranking query; defaults to libraryName. Use to disambiguate when several packages share a name.",
+  query: v.optional(
+    v.pipe(
+      v.string(),
+      v.maxLength(CONTEXT7_QUERY_MAX_CHARS),
+      v.description(
+        "Optional short documentation-ranking query; defaults to libraryName. Do not include source code, prompts, comments, credentials, URLs, or tool output.",
+      ),
     ),
   ),
 });
@@ -23,14 +43,20 @@ const resolveLibraryIdSchema = v.object({
 const getLibraryDocsSchema = v.object({
   libraryId: v.pipe(
     v.string(),
+    v.minLength(1),
+    v.maxLength(CONTEXT7_LIBRARY_ID_MAX_CHARS),
+    v.regex(CONTEXT7_LIBRARY_ID_PATTERN, "must be a slash-prefixed library identifier"),
     v.description(
       "Context7 library ID returned by resolveLibraryId, e.g. '/facebook/react' or '/vercel/next.js'.",
     ),
   ),
-  topic: v.pipe(
-    v.optional(v.string()),
-    v.description(
-      "Optional topic or API question to focus the returned docs, e.g. 'hooks', 'middleware', 'schema typing'.",
+  topic: v.optional(
+    v.pipe(
+      v.string(),
+      v.maxLength(CONTEXT7_TOPIC_MAX_CHARS),
+      v.description(
+        "Optional short topic or API question. Do not include source code, prompts, comments, credentials, URLs, or tool output.",
+      ),
     ),
   ),
 });
@@ -85,10 +111,24 @@ function toExecutor(
 }
 
 function authHeader(apiKey: string): Record<string, string> {
-  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  const trimmed = apiKey.trim();
+  return trimmed ? { Authorization: `Bearer ${trimmed}` } : {};
 }
 
-async function context7Get(url: string, apiKey: string): Promise<string> {
+type Context7Endpoint = "/v2/libs/search" | "/v2/context";
+
+function context7Url(endpoint: Context7Endpoint, params: Readonly<Record<string, string>>): string {
+  const url = new URL(`${CONTEXT7_BASE_URL}${endpoint}`);
+  for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value);
+  return url.toString();
+}
+
+async function context7Get(
+  endpoint: Context7Endpoint,
+  params: Readonly<Record<string, string>>,
+  apiKey: string,
+): Promise<string> {
+  const url = context7Url(endpoint, params);
   const res = await fetch(url, {
     method: "GET",
     headers: {
@@ -100,15 +140,17 @@ async function context7Get(url: string, apiKey: string): Promise<string> {
   if (!res.ok) {
     let detail = "";
     try {
-      const body = (await res.json()) as { error?: string; message?: string };
-      detail = body.error ?? body.message ?? "";
-    } catch {
+      const rawBody = await res.text();
       try {
-        detail = await res.text();
+        const body = JSON.parse(rawBody) as { error?: string; message?: string };
+        detail = body.error ?? body.message ?? "";
       } catch {
-        /* response body is unreadable; keep detail empty */
+        detail = rawBody;
       }
+    } catch {
+      /* response body is unreadable; keep detail empty */
     }
+    detail = redactContext7Response(detail, apiKey);
     throw new AppError({
       code: "context7.request_failed",
       message: `Context7 ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`,
@@ -119,9 +161,9 @@ async function context7Get(url: string, apiKey: string): Promise<string> {
   const contentType = res.headers.get("content-type") ?? "";
   if (contentType.toLowerCase().includes("application/json")) {
     const body: unknown = await res.json();
-    return JSON.stringify(body, null, 2);
+    return redactContext7Response(JSON.stringify(body, null, 2), apiKey);
   }
-  return await res.text();
+  return redactContext7Response(await res.text(), apiKey);
 }
 
 function capContext7Response(text: string, maxResponseBytes: number): Context7ToolResponse {
@@ -137,15 +179,17 @@ function capContext7Response(text: string, maxResponseBytes: number): Context7To
 const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
   resolveLibraryId: {
     description:
-      "Resolve an external library name (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known. Responses are capped; narrow the query when truncated.",
+      "Resolve a short third-party library identifier (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the query when truncated.",
     schema: resolveLibraryIdSchema,
     run: async ({ libraryName, query }, apiKey, maxResponseBytes) => {
-      const params = new URLSearchParams({
-        libraryName,
-        query: query?.trim() || libraryName,
-      });
+      const safeLibraryName = assertContext7LibraryName(libraryName);
+      const safeQuery = query == null ? "" : prepareContext7OutboundText("query", query, apiKey);
       const text = await context7Get(
-        `${CONTEXT7_BASE_URL}/v2/libs/search?${params.toString()}`,
+        "/v2/libs/search",
+        {
+          libraryName: safeLibraryName,
+          query: safeQuery || safeLibraryName,
+        },
         apiKey,
       );
       return capContext7Response(text, maxResponseBytes);
@@ -153,19 +197,17 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
   },
   getLibraryDocs: {
     description:
-      "Fetch current documentation for a third-party library by its Context7 library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Responses are capped; narrow the topic when truncated.",
+      "Fetch current documentation for a validated third-party library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the topic when truncated.",
     schema: getLibraryDocsSchema,
     run: async ({ libraryId, topic }, apiKey, maxResponseBytes) => {
-      const params = new URLSearchParams({
-        libraryId,
+      const safeLibraryId = assertContext7LibraryId(libraryId);
+      const safeTopic = topic == null ? "" : prepareContext7OutboundText("topic", topic, apiKey);
+      const params: Record<string, string> = {
+        libraryId: safeLibraryId,
         type: "txt",
-      });
-      const topicTrimmed = topic?.trim();
-      if (topicTrimmed) params.set("query", topicTrimmed);
-      const text = await context7Get(
-        `${CONTEXT7_BASE_URL}/v2/context?${params.toString()}`,
-        apiKey,
-      );
+      };
+      if (safeTopic) params.query = safeTopic;
+      const text = await context7Get("/v2/context", params, apiKey);
       return capContext7Response(text, maxResponseBytes);
     },
   },

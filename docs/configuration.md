@@ -62,7 +62,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Code index wait                   | `CODE_INDEX_WAIT_MS`                     | `3000`                   | Max wait during review setup for a ready `code_index_snapshots` row at the PR head SHA                                                                                                                                                      |
 | Code index retention              | `CODE_INDEX_RETENTION_SECONDS`           | `2592000`                | Delete superseded/failed/ready `code_index_snapshots` older than this (cascades `code_index_chunks`)                                                                                                                                        |
 | Models catalog path               | `MODELS_JSON_PATH`                       | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                    |
-| Context7 API key                  | `CONTEXT7_API_KEY`                       | empty                    | optional                                                                                                                                                                                                                                    |
+| Context7 API key                  | `CONTEXT7_API_KEY`                       | empty                    | optional; sent only in `Authorization` for policy-approved requests, otherwise Context7 uses anonymous fallback                                                                                                                             |
 | PostHog token                     | `POSTHOG_PROJECT_TOKEN`                  | empty                    | optional analytics via `src/analytics` facade; empty token disables init (no SDK load, no capture). Failed sink construction, including reinitialization, restores a no-op sink with analytics disabled. OSS installs need no PostHog setup |
 | PostHog host                      | `POSTHOG_HOST`                           | empty                    | optional host override when token is set; empty uses posthog-node default                                                                                                                                                                   |
 
@@ -447,6 +447,10 @@ Writing policy is computed once per description run from workspace size stats (`
 | `WEBHOOK_MAX_BODY_BYTES`                            | 25000000 (GitHub payload cap)                                 |
 | `WEBHOOK_TIMEOUT_MS`                                | 10000 (intake 503 budget)                                     |
 | `CONTEXT7_RESPONSE_BYTES`                           | 64000                                                         |
+| `CONTEXT7_LIBRARY_NAME_MAX_CHARS`                   | 128                                                           |
+| `CONTEXT7_LIBRARY_ID_MAX_CHARS`                     | 256                                                           |
+| `CONTEXT7_QUERY_MAX_CHARS`                          | 256                                                           |
+| `CONTEXT7_TOPIC_MAX_CHARS`                          | 256                                                           |
 | `LOG_MAX_WIDE_EVENTS`                               | 128                                                           |
 | `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/ready` Postgres ping budget)                          |
 

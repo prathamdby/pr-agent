@@ -1,3 +1,5 @@
+import { context7OutboundDataGuidance } from "../prompts/toolingDiscipline.js";
+
 export function buildAskSystemPrompt(): string {
   return [
     "Answer the question in user_question about this pull request's code, grounded in what you actually read.",
@@ -6,6 +8,7 @@ export function buildAskSystemPrompt(): string {
     "- Follow local workspace and Context7 tool descriptions. The workspace is a PR head checkout; no tool reads the PR conversation, issues, or external URLs — work from the checkout and the provided context.",
     "- When a code anchor (file, lines, diff hunk) is provided, start there, then follow the symbols outward.",
     "- When thread_transcript is provided, treat it as the ongoing conversation about this finding or question. Answer the latest user_question in that context.",
+    context7OutboundDataGuidance,
     "- For third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` before claiming how an API works.",
     "",
     "## How to write the answer",
