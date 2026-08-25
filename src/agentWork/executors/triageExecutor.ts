@@ -396,6 +396,7 @@ async function tryResumeStoredPush(params: {
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
+  readonly signal: AbortSignal;
 }): Promise<TriageExecuteResult | null> {
   let storedPushDetail = await getCompletedPublishStepDetail(
     params.pool,
@@ -454,6 +455,7 @@ async function tryResumeStoredPush(params: {
     priorPush: parsed,
     findingHistoryCfg: params.cfg,
     leaseEpoch: params.leaseEpoch,
+    signal: params.signal,
     ...params.reportContext,
   });
   const result = completedFromPublish(publish);
@@ -520,6 +522,7 @@ async function runFreshTriageAgent(params: {
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
+  readonly signal: AbortSignal;
 }): Promise<TriageExecuteResult> {
   const triggerer = await resolveTriggererGitPerson({
     prSurface: params.prSurface,
@@ -593,6 +596,7 @@ async function runFreshTriageAgent(params: {
         previouslyResolvedCount: params.previouslyResolvedCount,
         findingHistoryCfg: params.cfg,
         leaseEpoch: params.leaseEpoch,
+        signal: params.signal,
         ...params.reportContext,
       });
       const completed = completedFromPublish(publish);
@@ -693,6 +697,7 @@ export async function executeTriageJob(
         previouslyResolvedCount: discovered.previouslyResolvedCount,
         reportContext: discovered.reportContext,
         leaseEpoch: env.leaseEpoch,
+        signal: env.signal,
       };
       const resumed = await tryResumeStoredPush(resumeParams);
       if (resumed != null) return resumed;

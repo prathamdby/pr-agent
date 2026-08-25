@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { currentOperationIntentKey } from "../agentWork/withOperationIntent.js";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
 import type {
   PrSurface,
@@ -100,12 +101,15 @@ function inputHash(input: unknown): string {
 
 function mutation(method: string, input: unknown): PrSurfaceMutation {
   const hash = inputHash(input);
+  const parentKey = currentOperationIntentKey();
   return {
-    operationKey: `pr-surface:${method}:${hash}`,
+    operationKey:
+      parentKey != null ? `${parentKey}:surface:${method}` : `pr-surface:${method}:${hash}`,
     mutationKind: `github.pr_surface.${method}`,
     detail: {
       surfaceMethod: method,
       inputHash: hash,
+      ...(parentKey != null ? { parentOperationKey: parentKey } : {}),
     },
   };
 }

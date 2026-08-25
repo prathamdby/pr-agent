@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
+import { runInOperationIntentFrame } from "../src/agentWork/withOperationIntent.js";
 import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../src/github/prSurface.js";
 import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -180,6 +181,33 @@ describe("PrSurface lease mutation boundary", () => {
     expect(unleased.controls.replies).toEqual([
       { target: { kind: "prConversation", prNumber: 1 }, body: "ask reply" },
     ]);
+  });
+
+  it("nests surface mutation keys under a stable parent operation key", async () => {
+    const mutations: PrSurfaceMutation[] = [];
+    const { surface } = createFakePrSurface(surfaceParams, {
+      mutationBoundary: {
+        signal: new AbortController().signal,
+        run: async (mutation, mutate) => {
+          mutations.push(mutation);
+          return mutate();
+        },
+      },
+    });
+
+    await runInOperationIntentFrame("ask:reply:1:o/r#1", async () => {
+      await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "first body");
+      await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "retry with a new body");
+    });
+
+    expect(mutations).toHaveLength(2);
+    expect(mutations[0]?.operationKey).toBe("ask:reply:1:o/r#1:surface:replyAt");
+    expect(mutations[1]?.operationKey).toBe(mutations[0]?.operationKey);
+    expect(mutations[0]?.detail).toMatchObject({
+      surfaceMethod: "replyAt",
+      parentOperationKey: "ask:reply:1:o/r#1",
+    });
+    expect(mutations[0]?.detail?.inputHash).not.toBe(mutations[1]?.detail?.inputHash);
   });
 
   it("returns the cached wrapped surface instead of the raw surface", async () => {

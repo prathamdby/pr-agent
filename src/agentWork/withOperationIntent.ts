@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
@@ -32,6 +33,17 @@ export type WithOperationIntentParams<T> = {
   /** Aborted when the owning worker loses its lease or the job is cancelled. */
   readonly signal?: AbortSignal;
 };
+
+const operationIntentFrame = new AsyncLocalStorage<{ readonly operationKey: string }>();
+
+/** Run work as the current operation-intent key so nested PR-surface mutations share it. */
+export function runInOperationIntentFrame<T>(operationKey: string, fn: () => T): T {
+  return operationIntentFrame.run({ operationKey }, fn);
+}
+
+export function currentOperationIntentKey(): string | undefined {
+  return operationIntentFrame.getStore()?.operationKey;
+}
 
 /** Durable marker: mutate() was entered; crash before __result must not remutate. */
 export const OPERATION_INTENT_MUTATING_KEY = "__mutating";
@@ -214,6 +226,10 @@ async function assertMutationReady<T>(params: WithOperationIntentParams<T>): Pro
 }
 
 export async function withOperationIntent<T>(params: WithOperationIntentParams<T>): Promise<T> {
+  return runInOperationIntentFrame(params.operationKey, () => withOperationIntentBody(params));
+}
+
+async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>): Promise<T> {
   await assertMutationReady(params);
   const intent = await persistOperationIntent(params.client, {
     workItemId: params.workItemId,
