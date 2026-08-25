@@ -34,7 +34,7 @@ export async function listCheckRunsForHead(
         owner,
         repo,
         ref: headSha,
-        filter: "all",
+        filter: "latest",
         per_page: perPage,
         page,
       });
