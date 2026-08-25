@@ -45,6 +45,11 @@ function replyTargetKindFromIntentDetail(
   return value === "inlineReviewThread" || value === "prConversation" ? value : fallback;
 }
 
+function askReplyLookupKeys(resourceKey: string, operationKey: string): readonly string[] {
+  const legacyKey = askReplyOperationKey(resourceKey);
+  return legacyKey === operationKey ? [operationKey] : [operationKey, legacyKey];
+}
+
 async function findAskReplyOnAnyTarget(params: {
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
@@ -53,23 +58,28 @@ async function findAskReplyOnAnyTarget(params: {
   readonly operationInstance: string;
 }) {
   const { prSurface, item, botLogin, operationKey, operationInstance } = params;
-  const primary = await findExistingAskReplyComment({
-    prSurface,
-    replyTarget: item.payload.replyTarget,
-    question: item.payload.question,
-    botLogin,
-    operationKey,
-    operationInstance,
-  });
-  if (primary != null || item.payload.replyTarget.kind === "prConversation") return primary;
-  return findExistingAskReplyComment({
-    prSurface,
-    replyTarget: { kind: "prConversation", prNumber: item.prNumber },
-    question: item.payload.question,
-    botLogin,
-    operationKey,
-    operationInstance,
-  });
+  for (const key of askReplyLookupKeys(item.resourceKey, operationKey)) {
+    const primary = await findExistingAskReplyComment({
+      prSurface,
+      replyTarget: item.payload.replyTarget,
+      question: item.payload.question,
+      botLogin,
+      operationKey: key,
+      operationInstance,
+    });
+    if (primary != null) return primary;
+    if (item.payload.replyTarget.kind === "prConversation") continue;
+    const conversation = await findExistingAskReplyComment({
+      prSurface,
+      replyTarget: { kind: "prConversation", prNumber: item.prNumber },
+      question: item.payload.question,
+      botLogin,
+      operationKey: key,
+      operationInstance,
+    });
+    if (conversation != null) return conversation;
+  }
+  return null;
 }
 
 async function publishAskAnswer(
@@ -89,14 +99,18 @@ async function publishAskAnswer(
   } catch (e) {
     if (replyTarget.kind !== "inlineReviewThread") throw e;
     const bot = await getAppBotIdentity(cfg);
-    const recovered = await findExistingAskReplyComment({
-      prSurface,
-      replyTarget,
-      question: item.payload.question,
-      botLogin: bot.login,
-      operationKey,
-      operationInstance: item.id,
-    });
+    let recovered = null;
+    for (const key of askReplyLookupKeys(item.resourceKey, operationKey)) {
+      recovered = await findExistingAskReplyComment({
+        prSurface,
+        replyTarget,
+        question: item.payload.question,
+        botLogin: bot.login,
+        operationKey: key,
+        operationInstance: item.id,
+      });
+      if (recovered != null) break;
+    }
     if (recovered != null) {
       return { commentId: recovered.commentId, targetKind: recovered.targetKind };
     }
