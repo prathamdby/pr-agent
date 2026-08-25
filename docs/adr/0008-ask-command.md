@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for execution, concurrency, and webhook response timing. The in-process `AskQueue` Effect semaphore described in early revisions is removed; production uses pg-boss workers only. [ADR 0022](0022-thread-reply-classification-worker.md) (bare thread-reply classification behind `ENABLE_THREAD_REPLIES`) is superseded by always-on `@bot` mention intake on this ask path.
+Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for execution, concurrency, and webhook response timing. The in-process `AskQueue` Effect semaphore described in early revisions is removed; production uses pg-boss workers only. [ADR 0022](0022-thread-reply-classification-worker.md) (bare thread-reply classification behind `ENABLE_THREAD_REPLIES`) is superseded by always-on `@bot` mention intake on this ask path. Durable admission limits for both triggers are defined in [ADR 0039](0039-ask-admission-quotas.md).
 
 ## Context
 

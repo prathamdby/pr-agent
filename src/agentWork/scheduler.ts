@@ -14,6 +14,7 @@ import {
 } from "./intake/applier.js";
 import { flushDeferredEvents } from "./intake/deferredEvents.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
+import { resolveAskQuotaConfig, type AskQuotaConfig } from "./askQuota.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   AgentWorkScheduler,
@@ -49,7 +50,12 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   }
 >() {}
 
-export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Config, "features">) {
+export function makeAgentWorkScheduler(
+  pool: Pool,
+  boss: PgBoss,
+  cfg: Pick<Config, "features"> & Partial<AskQuotaConfig>,
+) {
+  const askQuota = resolveAskQuotaConfig(cfg);
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
       Effect.tryPromise({
@@ -77,7 +83,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Confi
       Effect.tryPromise({
         try: async () => {
           const events = await inTransaction(pool, (client) =>
-            applySlashCommandIntake(boss, client, input, cfg.features),
+            applySlashCommandIntake(boss, client, input, cfg.features, askQuota),
           );
           flushDeferredEvents(intakeLog, events);
         },

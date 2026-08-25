@@ -4,6 +4,7 @@ import type { Config } from "../config.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
 import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
+import { deleteExpiredAskQuotaState } from "./askQuota.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -13,6 +14,7 @@ export type RetentionResult = {
   readonly resumeSnapshotsDeleted: number;
   readonly agentEventsDeleted: number;
   readonly codeIndexSnapshotsDeleted: number;
+  readonly askQuotaBucketsDeleted: number;
 };
 
 /**
@@ -35,6 +37,7 @@ export async function runRetention(
     resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,
+    askQuotaBucketsDeleted,
   ] = await Promise.all([
     (async () => {
       let deleted = 0;
@@ -98,6 +101,7 @@ export async function runRetention(
       cfg.codeIndexRetentionSeconds,
       RETENTION_DELETE_BATCH_SIZE,
     ),
+    deleteExpiredAskQuotaState(pool, cfg.agentWorkRetentionSeconds, RETENTION_DELETE_BATCH_SIZE),
   ]);
   return {
     workItemsDeleted,
@@ -105,6 +109,7 @@ export async function runRetention(
     resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,
+    askQuotaBucketsDeleted,
   };
 }
 

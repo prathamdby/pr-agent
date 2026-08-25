@@ -44,6 +44,9 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("code_index_snapshots")) {
           return { rowCount: 0 };
         }
+        if (text.includes("ask_quota_buckets")) {
+          return { rowCount: 0 };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -55,6 +58,7 @@ describe("runRetention batched delete loop", () => {
     expect(result.resumeSnapshotsDeleted).toBe(4);
     expect(result.agentEventsDeleted).toBe(0);
     expect(result.codeIndexSnapshotsDeleted).toBe(0);
+    expect(result.askQuotaBucketsDeleted).toBe(0);
     expect(workCalls).toBe(2);
     expect(webhookCalls).toBe(2);
   });
@@ -79,6 +83,9 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("code_index_snapshots")) {
           return { rowCount: 0 };
         }
+        if (text.includes("ask_quota_buckets")) {
+          return { rowCount: 0 };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -89,6 +96,7 @@ describe("runRetention batched delete loop", () => {
     expect(result.webhookEventsDeleted).toBe(0);
     expect(result.resumeSnapshotsDeleted).toBe(0);
     expect(result.agentEventsDeleted).toBe(0);
+    expect(result.askQuotaBucketsDeleted).toBe(0);
     expect(workCalls).toBe(1);
     expect(webhookCalls).toBe(1);
   });
@@ -101,6 +109,7 @@ describe("runRetention batched delete loop", () => {
       if (text.includes("webhook_events")) return { rowCount: 0 };
       if (text.includes("agent_resume_snapshots")) return { rowCount: 0 };
       if (text.includes("code_index_snapshots")) return { rowCount: 0 };
+      if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
       if (text.includes("agent_events")) {
         expect(text).toContain("recorded_at");
         expect(text).toContain("DELETE FROM agent_events");

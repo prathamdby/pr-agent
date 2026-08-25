@@ -3,6 +3,7 @@ import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
+import type { AgentRunnerUsageMetadata } from "../providers/usageMetadata.js";
 
 export type CodeAnchor = {
   path: string;
@@ -33,4 +34,6 @@ export type AskRunParams = {
 export type AskRunResult = {
   answer: string;
   replied: boolean;
+  /** Exact provider usage when the provider returned token metadata. */
+  usage?: AgentRunnerUsageMetadata;
 };

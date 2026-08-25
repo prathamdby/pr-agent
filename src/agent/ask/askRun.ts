@@ -13,6 +13,7 @@ import {
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { buildAskUserContent } from "./askUserContent.js";
 import type { AskRunParams, AskRunResult } from "./askRunTypes.js";
+import { mergeExactUsage } from "../providers/usageMetadata.js";
 import { classifyAskQuestionIntent } from "./askSafety.js";
 import { buildAskRunSetup } from "./askRunSetup.js";
 import {
@@ -110,18 +111,21 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
         phase: "ask" as const,
         checkpointId: "ask:ask",
       };
-      let lastText = (await session.send(buildAskUserContent(params), sendOpts)).text.trim();
+      let usage: AskRunResult["usage"];
+      const firstTurn = await session.send(buildAskUserContent(params), sendOpts);
+      usage = mergeExactUsage(usage, firstTurn.usage);
+      let lastText = firstTurn.text.trim();
 
       if (!lastText && MAX_ASK_FINALIZE_ROUNDS > 0) {
         for (let round = 0; round < MAX_ASK_FINALIZE_ROUNDS && !lastText; round++) {
-          lastText = (
-            await session.send(ASK_RETRY_NUDGE, {
-              phase: "ask",
-              checkpointId: "ask:ask",
-              // Keep tool definitions registered for cache prefixes; forbid tool turns.
-              maxToolRounds: 0,
-            })
-          ).text.trim();
+          const finalizeTurn = await session.send(ASK_RETRY_NUDGE, {
+            phase: "ask",
+            checkpointId: "ask:ask",
+            // Keep tool definitions registered for cache prefixes; forbid tool turns.
+            maxToolRounds: 0,
+          });
+          usage = mergeExactUsage(usage, finalizeTurn.usage);
+          lastText = finalizeTurn.text.trim();
         }
       }
 
@@ -138,7 +142,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
         rateLimitCircuitOpened: circuit.isOpen(),
       });
 
-      return { answer: answerText, replied: true };
+      return { answer: answerText, replied: true, ...(usage ? { usage } : {}) };
     } finally {
       await session.dispose();
     }

@@ -28,6 +28,7 @@ import {
 } from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
 import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
+import { recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
@@ -285,6 +286,10 @@ export async function executeAskJob(
               workItemId: item.id,
               installationId: item.installationId,
             },
+          });
+          await recordAskProviderUsage(pool, {
+            workItemId: item.id,
+            usage: result.usage,
           });
           if (!(await askReplyPublished())) {
             const posted = await withOperationIntent({
