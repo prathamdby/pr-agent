@@ -11,7 +11,7 @@ import {
   wrapListPullRequestFilesDiffIngestion,
 } from "../placement/reviewDiffIndex.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
-import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
 import type { Pool } from "pg";
@@ -30,6 +30,27 @@ export type ReviewRunSetup = {
   readonly evidenceLedger: EvidenceLedger;
   readonly prSurface: PrSurface;
 };
+
+function serializeToolOutput(result: unknown): string {
+  if (typeof result === "string") return result;
+  try {
+    return JSON.stringify(result, null, 2) ?? String(result);
+  } catch {
+    return String(result);
+  }
+}
+
+function wrapReviewToolExecutors(
+  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
+  return Object.fromEntries(
+    Object.entries(executors).map(([name, executor]) => [
+      name,
+      async (args: Record<string, unknown>) =>
+        wrapUntrustedEvidence("tool." + name, serializeToolOutput(await executor(args))),
+    ]),
+  );
+}
 
 function buildOrchestratorUserContent(params: {
   readonly owner: string;
@@ -90,11 +111,12 @@ export function buildReviewRunSetup(params: {
           pathGate,
         })
       : buildUnavailableCodeIndexTools();
-  const wrappedExecutors = wrapExecutorsWithRateLimitCircuit({
+  const rateLimitedExecutors = wrapExecutorsWithRateLimitCircuit({
     ...executors,
     ...ctx7.executors,
     ...codeIndex.executors,
   });
+  const wrappedExecutors = wrapReviewToolExecutors(rateLimitedExecutors);
   const workspaceTools = {
     piTools: [...bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
     executors: wrappedExecutors,

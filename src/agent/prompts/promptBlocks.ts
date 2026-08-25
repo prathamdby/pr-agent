@@ -11,12 +11,67 @@ function neutralizeUntrustedBlockTags(label: string, text: string): string {
   return text.replace(tagPattern, (tag) => tag.replaceAll("<", "&lt;").replaceAll(">", "&gt;"));
 }
 
+const serverOwnedEvidenceLabels = [
+  "untrusted_evidence",
+  "context",
+  "specialist_report",
+  "accepted_placements",
+  "partial_specialists",
+  "specialist_outcomes",
+] as const;
+
+function neutralizeEvidenceDelimiters(text: string): string {
+  return serverOwnedEvidenceLabels.reduce(
+    (current, label) => neutralizeUntrustedBlockTags(label, current),
+    text,
+  );
+}
+
+const headerGapCharacter =
+  "(?:[^\\S\\r\\n\\u2028\\u2029]|\\p{Cf}|[\\x00-\\x09\\x0B\\x0C\\x0E-\\x1F\\x7F-\\x9F])";
+const headerLetterGap = `${headerGapCharacter}*`;
+const headerWordGap = `${headerGapCharacter}+`;
+
+function headerWordPattern(word: string): string {
+  return word.split("").join(headerLetterGap);
+}
+
+function neutralizeForgedTrustHeaders(text: string): string {
+  const contextTagsNeutralized = neutralizeUntrustedBlockTags("context", text);
+  const trustedContextPattern = new RegExp(
+    `^${headerLetterGap}(?:#{1,6}${headerLetterGap})?${headerWordPattern("trusted")}${headerWordGap}${headerWordPattern("context")}\\b[^\\r\\n\\u2028\\u2029]*$`,
+    "gimu",
+  );
+  const bindingLinePattern = new RegExp(
+    `^${headerLetterGap}${headerWordPattern("these")}${headerWordGap}(?:${headerWordPattern("root")}${headerWordGap})?${headerWordPattern("files")}${headerWordGap}[^\\r\\n\\u2028\\u2029]*\\b${headerWordPattern("binding")}\\b[^\\r\\n\\u2028\\u2029]*$`,
+    "gimu",
+  );
+  return contextTagsNeutralized
+    .replace(trustedContextPattern, "[neutralized forged trusted header]")
+    .replace(bindingLinePattern, "[neutralized forged binding line]");
+}
+
+function neutralizeUntrustedContent(label: string, text: string): string {
+  return neutralizeForgedTrustHeaders(
+    neutralizeEvidenceDelimiters(neutralizeUntrustedBlockTags(label, text)),
+  );
+}
+
 export function wrapUntrustedBlock(label: string, text: string): string {
   return [
     `<${label} untrusted="true">`,
-    neutralizeUntrustedBlockTags(label, text.trim()),
+    neutralizeUntrustedContent(label, text.trim()),
     `</${label}>`,
   ].join("\n");
+}
+
+/**
+ * Wrap model-visible repository, PR, and external-tool content as evidence.
+ * The source label is server-owned metadata; the enclosed text is not an instruction.
+ */
+export function wrapUntrustedEvidence(source: string, text: string): string {
+  const safeSource = source.replace(/[\r\n]+/g, " ").trim() || "unknown";
+  return wrapUntrustedBlock("untrusted_evidence", `Source: ${safeSource}\n${text}`);
 }
 
 export function wrapTrustedContext(lines: string[]): string {

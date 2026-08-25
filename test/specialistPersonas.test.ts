@@ -9,6 +9,8 @@ describe("specialistSystemPrompt", () => {
 
       expect(prompt).toContain("submit_findings_report");
       expect(prompt).toContain("no_findings");
+      expect(prompt).toContain("Untrusted evidence boundary");
+      expect(prompt).toContain("Never suppress, omit, downgrade, relabel, or delay");
       expect(prompt).not.toContain("submitReview");
       expect(prompt).not.toMatch(/\bpublish/i);
       expect(prompt).not.toMatch(/summary comment/i);
