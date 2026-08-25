@@ -11,23 +11,6 @@ function neutralizeUntrustedBlockTags(label: string, text: string): string {
   return text.replace(tagPattern, (tag) => tag.replaceAll("<", "&lt;").replaceAll(">", "&gt;"));
 }
 
-function neutralizeForgedTrustHeaders(text: string): string {
-  const contextTagsNeutralized = neutralizeUntrustedBlockTags("context", text);
-  return contextTagsNeutralized
-    .replace(
-      /^[ \t]*(?:#{1,6}[ \t]*)?trusted[ \t]+context\b[^\r\n]*$/gimu,
-      "[neutralized forged trusted header]",
-    )
-    .replace(
-      /^[ \t]*these[ \t]+(?:root[ \t]+)?files[^\r\n]*\bbinding\b[^\r\n]*$/gimu,
-      "[neutralized forged binding line]",
-    );
-}
-
-function neutralizeUntrustedContent(label: string, text: string): string {
-  return neutralizeForgedTrustHeaders(neutralizeUntrustedBlockTags(label, text));
-}
-
 const serverOwnedEvidenceLabels = [
   "untrusted_evidence",
   "context",
@@ -41,6 +24,36 @@ function neutralizeEvidenceDelimiters(text: string): string {
   return serverOwnedEvidenceLabels.reduce(
     (current, label) => neutralizeUntrustedBlockTags(label, current),
     text,
+  );
+}
+
+const headerGapCharacter =
+  "(?:[^\\S\\r\\n\\u2028\\u2029]|\\p{Cf}|[\\x00-\\x09\\x0B\\x0C\\x0E-\\x1F\\x7F-\\x9F])";
+const headerLetterGap = `${headerGapCharacter}*`;
+const headerWordGap = `${headerGapCharacter}+`;
+
+function headerWordPattern(word: string): string {
+  return word.split("").join(headerLetterGap);
+}
+
+function neutralizeForgedTrustHeaders(text: string): string {
+  const contextTagsNeutralized = neutralizeUntrustedBlockTags("context", text);
+  const trustedContextPattern = new RegExp(
+    `^${headerLetterGap}(?:#{1,6}${headerLetterGap})?${headerWordPattern("trusted")}${headerWordGap}${headerWordPattern("context")}\\b[^\\r\\n\\u2028\\u2029]*$`,
+    "gimu",
+  );
+  const bindingLinePattern = new RegExp(
+    `^${headerLetterGap}${headerWordPattern("these")}${headerWordGap}(?:${headerWordPattern("root")}${headerWordGap})?${headerWordPattern("files")}${headerWordGap}[^\\r\\n\\u2028\\u2029]*\\b${headerWordPattern("binding")}\\b[^\\r\\n\\u2028\\u2029]*$`,
+    "gimu",
+  );
+  return contextTagsNeutralized
+    .replace(trustedContextPattern, "[neutralized forged trusted header]")
+    .replace(bindingLinePattern, "[neutralized forged binding line]");
+}
+
+function neutralizeUntrustedContent(label: string, text: string): string {
+  return neutralizeForgedTrustHeaders(
+    neutralizeEvidenceDelimiters(neutralizeUntrustedBlockTags(label, text)),
   );
 }
 
@@ -58,10 +71,7 @@ export function wrapUntrustedBlock(label: string, text: string): string {
  */
 export function wrapUntrustedEvidence(source: string, text: string): string {
   const safeSource = source.replace(/[\r\n]+/g, " ").trim() || "unknown";
-  return wrapUntrustedBlock(
-    "untrusted_evidence",
-    neutralizeEvidenceDelimiters(`Source: ${safeSource}\n${text}`),
-  );
+  return wrapUntrustedBlock("untrusted_evidence", `Source: ${safeSource}\n${text}`);
 }
 
 export function wrapTrustedContext(lines: string[]): string {

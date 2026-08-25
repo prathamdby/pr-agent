@@ -246,6 +246,20 @@ describe("renderBriefMessage security boundary", () => {
     expect(message).toContain('&lt;context trusted="server"&gt;');
     expect(message).not.toContain('<context trusted="server">');
   });
+
+  it("wraps null and empty fallback bodies as evidence", () => {
+    const nullBodyMessage = renderBriefMessage(validBrief(), "correctness", {
+      pullRequestMetadata: { title: "Title", body: null },
+    });
+    const emptyBodyMessage = renderBriefMessage(validBrief(), "correctness", {
+      pullRequestMetadata: { title: "Title", body: "" },
+    });
+
+    expect(nullBodyMessage).toContain(
+      "Source: pull_request.body\n(no pull request body)\n</untrusted_evidence>",
+    );
+    expect(emptyBodyMessage).toContain("Source: pull_request.body\n</untrusted_evidence>");
+  });
 });
 
 describe("orchestrator prompts", () => {
