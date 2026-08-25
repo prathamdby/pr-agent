@@ -3,11 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
-import {
-  classifyFailure,
-  classifiedFailureLogFields,
-  classifiedFailurePostHogProperties,
-} from "../../errors/classifiedFailure.js";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
@@ -48,8 +44,14 @@ import {
   recordReviewPhaseSpan,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
-  type ReviewRunMetricsSnapshot,
 } from "../../review/run/reviewRunMetrics.js";
+import {
+  reviewProfilerFailureProperties,
+  reviewProfilerOutcome,
+  reviewProfilerProperties,
+  type ReviewProfilerOutcome,
+  type ReviewWorkClaim,
+} from "../../review/run/reviewProfiler.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
@@ -96,6 +98,7 @@ import {
   resolveWorkItemHead,
   runDurableWorkItem,
   type DurableHeadResolution,
+  type DurableExecutionContext,
   type DurableExecutionResult,
 } from "../durableJob.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
@@ -300,6 +303,7 @@ async function runLightweightCompletionOrSkip(args: {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly leaseEpoch: number | null;
+  readonly profile: ReviewProfileSession;
 }): Promise<LightweightPhaseResult> {
   const { cfg, pool, item, reviewLens, payload, prSurface, headSha, leaseEpoch } = args;
   if (payload.source !== "auto") {
@@ -340,6 +344,7 @@ async function runLightweightCompletionOrSkip(args: {
     lightweight: true,
   });
   logReviewRunCompleted();
+  args.profile.record({ outcome: "lightweight", publishAttempts: 0 });
   await completeReviewCheckRun(pool, {
     prSurface,
     owner: item.owner,
@@ -397,38 +402,76 @@ async function buildPriorInlineFeedbackPromise(args: {
   }
 }
 
-function reviewTimingPostHogProperties(
-  snapshot: ReviewRunMetricsSnapshot | null,
-  cfg: Pick<Config, "piProvider" | "piModel">,
-): Record<string, string | number> {
-  const properties: Record<string, string | number> = {
-    provider: cfg.piProvider,
-    model: cfg.piModel,
-  };
-  if (!snapshot) return properties;
-  properties.wall_clock_ms = snapshot.wallClockMs;
-  properties.provider_output_tokens = snapshot.providerOutputTokens;
-  properties.token_coverage = snapshot.tokenCoverage;
-  if (snapshot.generationMs > 0) {
-    properties.generation_ms = snapshot.generationMs;
-    const tps =
-      snapshot.providerOutputTps ?? snapshot.providerOutputTokens / (snapshot.generationMs / 1000);
-    properties.provider_output_tps = Math.round(tps * 100) / 100;
-  }
-  return properties;
-}
+type ReviewProfileRecord = {
+  readonly outcome: ReviewProfilerOutcome;
+  readonly lastFailure?: ReturnType<typeof classifyFailure>;
+  readonly publishAttempts?: number;
+};
 
-async function handleReviewPublishResult(args: {
-  readonly cfg: Config;
-  readonly pool: Pool;
+type ReviewProfileSession = {
+  record(record: ReviewProfileRecord): void;
+  flush(): void;
+};
+
+function createReviewProfileSession(args: {
+  readonly cfg: Pick<Config, "piProvider" | "piModel">;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
+  readonly claim?: ReviewWorkClaim;
+}): ReviewProfileSession {
+  let pending: ReviewProfileRecord | undefined;
+  let flushed = false;
+  return {
+    record(record) {
+      if (pending || flushed) return;
+      pending = record;
+    },
+    flush() {
+      if (flushed || !pending) return;
+      flushed = true;
+      const snapshot = snapshotReviewRunMetrics();
+      captureEvent({
+        distinctId: `installation:${args.item.installationId}`,
+        event: "review profiled",
+        properties: {
+          work_item_id: args.item.id,
+          owner: args.item.owner,
+          repo: args.item.repo,
+          pr_number: args.item.prNumber,
+          review_lens: args.reviewLens,
+          source: args.payload.source,
+          outcome: pending.outcome,
+          ...reviewProfilerProperties({
+            snapshot,
+            cfg: args.cfg,
+            claim: args.claim,
+            publishAttempts: pending.publishAttempts,
+          }),
+          ...(pending.lastFailure ? reviewProfilerFailureProperties(pending.lastFailure) : {}),
+        },
+      });
+    },
+  };
+}
+
+async function handleReviewPublishResult(args: {
+  readonly pool: Pool;
+  readonly item: ReviewWorkItem;
+  readonly reviewLens: ReviewMode;
   readonly prSurface: PrSurface;
   readonly leaseEpoch: number | null;
   readonly result: ReviewRunResult;
+  readonly profile: ReviewProfileSession;
 }): Promise<ReviewExecutionResult> {
-  const { cfg, pool, item, reviewLens, payload, prSurface, leaseEpoch, result } = args;
+  const { pool, item, reviewLens, prSurface, leaseEpoch, result } = args;
+  const snapshot = snapshotReviewRunMetrics();
+  const outcome = reviewProfilerOutcome({
+    published: result.published,
+    publishSuperseded: result.publishSuperseded,
+    publishAttempts: result.publishAttempts,
+    snapshot,
+  });
   if (!result.published) {
     if (result.publishSuperseded) {
       logInfo("review_publish_superseded", {
@@ -437,6 +480,7 @@ async function handleReviewPublishResult(args: {
         pr: item.prNumber,
         publishAttempts: result.publishAttempts,
       });
+      args.profile.record({ outcome, publishAttempts: result.publishAttempts });
       await completeCheckFromStoredSummary({
         pool,
         item,
@@ -447,7 +491,6 @@ async function handleReviewPublishResult(args: {
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       });
     } else {
-      const snapshot = snapshotReviewRunMetrics();
       const lastFailure =
         result.lastFailure ??
         snapshot?.lastFailure ??
@@ -460,21 +503,10 @@ async function handleReviewPublishResult(args: {
         publishDegraded: true,
         ...classifiedFailureLogFields(lastFailure),
       });
-      captureEvent({
-        distinctId: `installation:${item.installationId}`,
-        event: "review failed",
-        properties: {
-          owner: item.owner,
-          repo: item.repo,
-          pr_number: item.prNumber,
-          review_lens: reviewLens,
-          publish_attempts: result.publishAttempts,
-          ...reviewTimingPostHogProperties(snapshot, cfg),
-          ...classifiedFailurePostHogProperties(lastFailure),
-          ...(snapshot?.toolCallErrors != null
-            ? { tool_call_errors: snapshot.toolCallErrors }
-            : {}),
-        },
+      args.profile.record({
+        outcome,
+        lastFailure,
+        publishAttempts: result.publishAttempts,
       });
       await completeCheckFromStoredSummary({
         pool,
@@ -488,22 +520,7 @@ async function handleReviewPublishResult(args: {
       });
     }
   } else {
-    const snapshot = snapshotReviewRunMetrics();
-    captureEvent({
-      distinctId: `installation:${item.installationId}`,
-      event: "review published",
-      properties: {
-        owner: item.owner,
-        repo: item.repo,
-        pr_number: item.prNumber,
-        review_lens: reviewLens,
-        findings_count: snapshot?.findingsCount ?? 0,
-        severities: snapshot?.severities ?? [],
-        publish_attempts: result.publishAttempts,
-        source: payload.source,
-        ...reviewTimingPostHogProperties(snapshot, cfg),
-      },
-    });
+    args.profile.record({ outcome, publishAttempts: result.publishAttempts });
   }
   return {
     kind: "completed",
@@ -531,6 +548,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly repositoryView: PrRepositoryView;
   readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
+  readonly profile: ReviewProfileSession;
 }): Promise<ReviewExecutionResult> {
   const {
     cfg,
@@ -551,6 +569,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     repositoryView,
     leaseEpoch,
     signal,
+    profile,
   } = args;
   const {
     publishState,
@@ -750,15 +769,164 @@ async function runFullReviewAgainstRepositoryView(args: {
   }
 
   return handleReviewPublishResult({
+    pool,
+    item,
+    reviewLens,
+    prSurface,
+    leaseEpoch,
+    result,
+    profile,
+  });
+}
+
+async function runClaimedReview(args: {
+  readonly job: JobWithMetadata<ReviewJobData>;
+  readonly cfg: Config;
+  readonly pool: Pool;
+  readonly boss: PgBoss;
+  readonly item: ReviewWorkItem;
+  readonly reviewLens: ReviewMode;
+  readonly payload: ReviewWorkPayload;
+  readonly env: DurableExecutionContext;
+  readonly profile: ReviewProfileSession;
+}): Promise<ReviewExecutionResult> {
+  const { job, cfg, pool, boss, item, reviewLens, payload, env, profile } = args;
+  const staleHeadResult = await handleStaleHeadReschedule({
+    pool,
+    item,
+    reviewLens,
+    payload,
+    prSurface: env.prSurface,
+    leaseEpoch: env.leaseEpoch,
+  });
+  if (staleHeadResult) return staleHeadResult;
+
+  const [publishContext, crossPrSuppressionFingerprints, findingHistoryCandidates] =
+    await recordReviewPhaseSpan("db-read", () =>
+      Promise.all([
+        loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
+        safeLoadCrossPrSuppressionFingerprints(pool, cfg, {
+          installationId: item.installationId,
+          owner: item.owner,
+          repo: item.repo,
+        }),
+        safeLoadFindingHistoryCandidates(pool, cfg, {
+          installationId: item.installationId,
+          owner: item.owner,
+          repo: item.repo,
+        }),
+      ]),
+    );
+  const findingHistoryTrustedBlock = formatFindingHistoryTrustedBlock(
+    findingHistoryCandidates,
+    cfg.findingHistoryDismissSuppressAfter,
+  );
+  const prSurface = env.prSurface;
+  const headSha = env.headSha;
+  const staleHeadAtPublish = { value: false };
+  const publishAbortState: { staleHead?: boolean } = {};
+
+  await ensureReviewCheckRunStarted(pool, {
+    prSurface,
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+    headSha,
+    workItemId: item.id,
+    resourceKey: item.resourceKey,
+    reviewLens,
+    leaseEpoch: env.leaseEpoch,
+  });
+
+  const lightweight = await runLightweightCompletionOrSkip({
     cfg,
     pool,
     item,
     reviewLens,
     payload,
     prSurface,
-    leaseEpoch,
-    result,
+    headSha,
+    leaseEpoch: env.leaseEpoch,
+    profile,
   });
+  if (lightweight.done) return lightweight.result;
+
+  const priorInlineFeedback = buildPriorInlineFeedbackPromise({
+    cfg,
+    item,
+    reviewLens,
+    prSurface,
+  });
+
+  const rateLimitCircuit = createRateLimitCircuit({
+    installationId: item.installationId,
+    onOpened: (kind) => {
+      recordReviewMetric({ kind: "rate_limit_circuit_opened" });
+      openSharedRateLimitCircuitBestEffort(pool, {
+        installationId: item.installationId,
+        lastErrorKind: kind,
+      });
+    },
+  });
+  try {
+    const sharedCircuit = await getSharedRateLimitCircuit(pool, item.installationId);
+    if (sharedCircuit != null && sharedCircuit.openUntil.getTime() > Date.now()) {
+      rateLimitCircuit.hydrateOpenFromShared(
+        sharedCircuit.lastErrorKind === "secondary" ? "secondary" : "primary",
+        sharedCircuit.openUntil,
+      );
+      logInfo("github_shared_rate_limit_circuit_honored", {
+        installationId: item.installationId,
+        type: "review",
+        workItemId: item.id,
+      });
+    }
+  } catch (error) {
+    // Best-effort shared read: DB blips must not abort the review run.
+    logWarn("github_shared_rate_limit_circuit_read_failed", {
+      installationId: item.installationId,
+      type: "review",
+      workItemId: item.id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return runWithRateLimitCircuit(rateLimitCircuit, () =>
+    withPrRepositoryView(
+      buildRepositoryViewParams(
+        item,
+        {
+          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+          headSha,
+          pullRequest: env.pullRequest,
+        },
+        payload,
+        { prFiles: lightweight.prefetchedPrFiles },
+      ),
+      async (repositoryView) =>
+        runFullReviewAgainstRepositoryView({
+          job,
+          cfg,
+          pool,
+          boss,
+          item,
+          reviewLens,
+          payload,
+          prSurface,
+          headSha,
+          pullRequest: env.pullRequest,
+          publishContext,
+          crossPrSuppressionFingerprints,
+          findingHistoryTrustedBlock,
+          publishAbortState,
+          staleHeadAtPublish,
+          priorInlineFeedback,
+          repositoryView,
+          leaseEpoch: env.leaseEpoch,
+          signal: env.signal,
+          profile,
+        }),
+    ),
+  );
 }
 
 export async function executeReviewJob(
@@ -785,141 +953,34 @@ export async function executeReviewJob(
         model: cfg.piModel,
         mode: reviewLens,
       });
-
-      const staleHeadResult = await handleStaleHeadReschedule({
-        pool,
-        item,
-        reviewLens,
-        payload,
-        prSurface: env.prSurface,
-        leaseEpoch: env.leaseEpoch,
-      });
-      if (staleHeadResult) return staleHeadResult;
-
-      const [publishContext, crossPrSuppressionFingerprints, findingHistoryCandidates] =
-        await recordReviewPhaseSpan("db-read", () =>
-          Promise.all([
-            loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
-            safeLoadCrossPrSuppressionFingerprints(pool, cfg, {
-              installationId: item.installationId,
-              owner: item.owner,
-              repo: item.repo,
-            }),
-            safeLoadFindingHistoryCandidates(pool, cfg, {
-              installationId: item.installationId,
-              owner: item.owner,
-              repo: item.repo,
-            }),
-          ]),
-        );
-      const findingHistoryTrustedBlock = formatFindingHistoryTrustedBlock(
-        findingHistoryCandidates,
-        cfg.findingHistoryDismissSuppressAfter,
-      );
-      const prSurface = env.prSurface;
-      const headSha = env.headSha;
-      const staleHeadAtPublish = { value: false };
-      const publishAbortState: { staleHead?: boolean } = {};
-
-      await ensureReviewCheckRunStarted(pool, {
-        prSurface,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        headSha,
-        workItemId: item.id,
-        resourceKey: item.resourceKey,
-        reviewLens,
-        leaseEpoch: env.leaseEpoch,
-      });
-
-      const lightweight = await runLightweightCompletionOrSkip({
-        cfg,
-        pool,
-        item,
-        reviewLens,
-        payload,
-        prSurface,
-        headSha,
-        leaseEpoch: env.leaseEpoch,
-      });
-      if (lightweight.done) return lightweight.result;
-
-      const priorInlineFeedback = buildPriorInlineFeedbackPromise({
+      const profile = createReviewProfileSession({
         cfg,
         item,
         reviewLens,
-        prSurface,
-      });
-
-      const rateLimitCircuit = createRateLimitCircuit({
-        installationId: item.installationId,
-        onOpened: (kind) => {
-          recordReviewMetric({ kind: "rate_limit_circuit_opened" });
-          openSharedRateLimitCircuitBestEffort(pool, {
-            installationId: item.installationId,
-            lastErrorKind: kind,
-          });
-        },
+        payload,
+        claim: env.claim,
       });
       try {
-        const sharedCircuit = await getSharedRateLimitCircuit(pool, item.installationId);
-        if (sharedCircuit != null && sharedCircuit.openUntil.getTime() > Date.now()) {
-          rateLimitCircuit.hydrateOpenFromShared(
-            sharedCircuit.lastErrorKind === "secondary" ? "secondary" : "primary",
-            sharedCircuit.openUntil,
-          );
-          logInfo("github_shared_rate_limit_circuit_honored", {
-            installationId: item.installationId,
-            type: "review",
-            workItemId: item.id,
-          });
-        }
-      } catch (error) {
-        // Best-effort shared read: DB blips must not abort the review run.
-        logWarn("github_shared_rate_limit_circuit_read_failed", {
-          installationId: item.installationId,
-          type: "review",
-          workItemId: item.id,
-          message: error instanceof Error ? error.message : String(error),
+        return await runClaimedReview({
+          job,
+          cfg,
+          pool,
+          boss,
+          item,
+          reviewLens,
+          payload,
+          env,
+          profile,
         });
+      } catch (error) {
+        profile.record({
+          outcome: "failed",
+          lastFailure: classifyFailure(error),
+        });
+        throw error;
+      } finally {
+        profile.flush();
       }
-      return runWithRateLimitCircuit(rateLimitCircuit, () =>
-        withPrRepositoryView(
-          buildRepositoryViewParams(
-            item,
-            {
-              gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-              headSha,
-              pullRequest: env.pullRequest,
-            },
-            payload,
-            { prFiles: lightweight.prefetchedPrFiles },
-          ),
-          async (repositoryView) =>
-            runFullReviewAgainstRepositoryView({
-              job,
-              cfg,
-              pool,
-              boss,
-              item,
-              reviewLens,
-              payload,
-              prSurface,
-              headSha,
-              pullRequest: env.pullRequest,
-              publishContext,
-              crossPrSuppressionFingerprints,
-              findingHistoryTrustedBlock,
-              publishAbortState,
-              staleHeadAtPublish,
-              priorInlineFeedback,
-              repositoryView,
-              leaseEpoch: env.leaseEpoch,
-              signal: env.signal,
-            }),
-        ),
-      );
     },
     onCancelled: async (item, prSurface, _reason, leaseEpoch) => {
       if (!item.reviewLens) return;

@@ -5,6 +5,7 @@ import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js
 import * as appAuth from "../../src/github/appAuth.js";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
 import * as repo from "../../src/agentWork/repository.js";
+import type { WorkClaim } from "../../src/agentWork/workItemStateRepository.js";
 
 let durableSurfaceBundle = createFakePrSurface(
   { owner: "o", repo: "r", prNumber: 1 },
@@ -79,9 +80,18 @@ export function mockFetchedWorkItem(item: AgentWorkItem | null): void {
   vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
 }
 
+export function mockWorkClaim(overrides: Partial<WorkClaim> = {}): WorkClaim {
+  return {
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    startedAt: new Date("2026-01-01T00:00:05.000Z"),
+    attemptCount: 1,
+    ...overrides,
+  };
+}
+
 export function setupDefaultDurableRepositoryMocks(): void {
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-  vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
+  vi.mocked(repo.claimWorkForExecution).mockResolvedValue(mockWorkClaim());
   vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);

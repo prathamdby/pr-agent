@@ -165,7 +165,11 @@ function defaultMocks() {
   vi.mocked(repo.getWorkItemCore).mockReset();
   vi.mocked(repo.getWorkItemPayload).mockReset();
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-  vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
+  vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    startedAt: new Date("2026-01-01T00:00:05.000Z"),
+    attemptCount: 1,
+  });
   vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
     acquired: true,
     leaseEpoch: 1,
@@ -214,6 +218,11 @@ describe("runDurableWorkItem", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[1].headSha).toBe("abc123");
     expect(execute.mock.calls[0]?.[1].prSurface).toBeDefined();
+    expect(execute.mock.calls[0]?.[1].claim).toEqual({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      startedAt: new Date("2026-01-01T00:00:05.000Z"),
+      attemptCount: 1,
+    });
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
     expect(repo.shouldSkipWork).toHaveBeenCalledTimes(2);
@@ -544,7 +553,7 @@ describe("runDurableWorkItem", () => {
   it("releases the lease and returns without executing when claim fails", async () => {
     const item = makeItem();
     mockFetchedItem(item);
-    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(false);
+    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(null);
     const execute = vi.fn();
 
     await runReviewWorkItem({ execute });
@@ -1135,7 +1144,11 @@ describe("runDurableWorkItem", () => {
     const controller = new AbortController();
     vi.mocked(repo.claimWorkForExecution).mockImplementation(async () => {
       controller.abort();
-      return true;
+      return {
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 1,
+      };
     });
     const execute = vi.fn();
 
@@ -1155,7 +1168,11 @@ describe("runDurableWorkItem", () => {
     const controller = new AbortController();
     vi.mocked(repo.claimWorkForExecution).mockImplementation(async () => {
       controller.abort();
-      return true;
+      return {
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 1,
+      };
     });
     const execute = vi.fn();
 

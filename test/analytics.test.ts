@@ -385,6 +385,11 @@ describe("analytics facade", () => {
       await import("../src/analytics/index.js");
     initNoOpAnalytics();
     captureEvent({ distinctId: "server", event: "webhook received" });
+    captureEvent({
+      distinctId: "installation:1",
+      event: "review profiled",
+      properties: { outcome: "published", work_item_id: "wi-1" },
+    });
     expect(isAnalyticsEnabled()).toBe(false);
     expect(mockPostHog.PostHog).not.toHaveBeenCalled();
   });
