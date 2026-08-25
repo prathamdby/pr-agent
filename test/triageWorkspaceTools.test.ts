@@ -235,19 +235,24 @@ describe("buildTriageWorkspaceTools", () => {
         ".aws/credentials": `[default]\naws_secret_access_key=${blockedText} needle\n`,
         "certs/signing.pem": `-----BEGIN PRIVATE KEY----- ${blockedText} needle\n`,
         ".github/workflows/ci.yml": `name: ${blockedText} needle\n`,
-        "src/safe.ts": "export const needle = true;\n",
+        "src/safe-a.ts": "export const safeA = needle;\n",
+        "src/safe-b.ts": "export const safeB = needle;\n",
+        "src/safe-c.ts": "export const safeC = needle;\n",
       },
     });
 
-    const out = (await executors.searchWorkspace({ query: "needle", maxResults: 1 })) as {
+    const out = (await executors.searchWorkspace({ query: "needle", maxResults: 2 })) as {
       matches: Array<{ path: string; line: number; text: string }>;
       truncated: boolean;
       filtered?: boolean;
     };
 
     expect(out).toEqual({
-      matches: [{ path: "src/safe.ts", line: 1, text: "export const needle = true;" }],
-      truncated: false,
+      matches: [
+        { path: "src/safe-a.ts", line: 1, text: "export const safeA = needle;" },
+        { path: "src/safe-b.ts", line: 1, text: "export const safeB = needle;" },
+      ],
+      truncated: true,
       filtered: true,
     });
     expect(JSON.stringify(out)).not.toContain(blockedText);
@@ -265,11 +270,20 @@ describe("buildTriageWorkspaceTools", () => {
     await mkdir(join(root, "docs"), { recursive: true });
     await symlink("../.env", join(root, "docs", "config.ts"));
     await exec("git", ["add", "docs/config.ts"], { cwd: root });
+    await symlink("../.env.dangling", join(root, "docs", "broken.ts"));
+    await exec("git", ["add", "docs/broken.ts"], { cwd: root });
     await exec("git", ["commit", "-m", "add symlink fixture"], { cwd: root });
 
     await expect(isTriageSearchPathAllowed(root, "docs/config.ts")).resolves.toBe(false);
+    await expect(isTriageSearchPathAllowed(root, "././.env")).resolves.toBe(false);
     await expect(isTriageSearchPathAllowed(root, "src/safe.ts")).resolves.toBe(true);
+    await expect(isTriageSearchPathAllowed(root, "././src/safe.ts")).resolves.toBe(true);
+    await expect(isTriageSearchPathAllowed(root, "docs/broken.ts")).resolves.toBe(false);
     await expect(executors.searchWorkspace({ query: "../.env" })).resolves.toEqual({
+      matches: [],
+      truncated: false,
+    });
+    await expect(executors.searchWorkspace({ query: "../.env.dangling" })).resolves.toEqual({
       matches: [],
       truncated: false,
     });
