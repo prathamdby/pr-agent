@@ -186,6 +186,11 @@ function mockDurableExecution(
       leaseEpoch: 1,
       signal: new AbortController().signal,
       pullRequest: executionPullRequest,
+      claim: {
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:10.000Z"),
+        attemptCount: 1,
+      },
     });
   });
 }
@@ -667,7 +672,7 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("emits review failed with prior provider credit lastFailure", async () => {
+  it("emits review profiled with failed outcome and prior provider credit lastFailure", async () => {
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
       publishAttempts: 2,
@@ -692,19 +697,29 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review failed",
+        distinctId: "installation:42",
+        event: "review profiled",
         properties: expect.objectContaining({
+          outcome: "failed",
+          work_item_id: "wi-1",
           failure_domain: "provider",
           error_kind: "quota",
-          error_message: expect.stringMatching(/credit/i),
+          provider_error_kind: "quota",
+          phase: "synthesis",
           publish_attempts: 2,
           provider: "openai",
           model: "test",
         }),
       }),
     );
+    const properties = mocks.captureEvent.mock.calls[0]?.[0] as {
+      properties: Record<string, unknown>;
+    };
+    expect(properties.properties).not.toHaveProperty("error_message");
+    expect(JSON.stringify(properties.properties)).not.toMatch(/credit/i);
     expect(mocks.logWarn).toHaveBeenCalledWith(
       "review_not_published",
       expect.objectContaining({
@@ -714,7 +729,7 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("emits review published with formula-B timing props when generationMs > 0", async () => {
+  it("emits review profiled with published outcome and formula-B timing props when generationMs > 0", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 200_000,
       providerOutputTokens: 1500,
@@ -727,10 +742,13 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review published",
+        event: "review profiled",
         properties: expect.objectContaining({
+          outcome: "published",
+          work_item_id: "wi-1",
           wall_clock_ms: 200_000,
           provider_output_tokens: 1500,
           generation_ms: 50_000,
@@ -739,12 +757,14 @@ describe("executeReviewJob", () => {
           provider: "openai",
           model: "test",
           publish_attempts: 1,
+          queue_ms: 10_000,
+          attempt_count: 1,
         }),
       }),
     );
   });
 
-  it("omits provider_output_tps on review published when generationMs is 0", async () => {
+  it("omits provider_output_tps on review profiled when generationMs is 0", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 12_000,
       providerOutputTokens: 100,
@@ -757,11 +777,12 @@ describe("executeReviewJob", () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
     const call = mocks.captureEvent.mock.calls.find(
-      (args) => (args[0] as { event?: string }).event === "review published",
+      (args) => (args[0] as { event?: string }).event === "review profiled",
     );
     expect(call).toBeDefined();
     const properties = (call?.[0] as { properties: Record<string, unknown> }).properties;
     expect(properties).toMatchObject({
+      outcome: "published",
       wall_clock_ms: 12_000,
       provider_output_tokens: 100,
       token_coverage: "orchestrator_only",
@@ -770,7 +791,7 @@ describe("executeReviewJob", () => {
     expect(properties).not.toHaveProperty("provider_output_tps");
   });
 
-  it("emits review failed with timing parity props from snapshot", async () => {
+  it("emits review profiled with failed outcome and timing parity props from snapshot", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 190_000,
       providerOutputTokens: 800,
@@ -794,10 +815,13 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review failed",
+        event: "review profiled",
         properties: expect.objectContaining({
+          outcome: "failed",
+          work_item_id: "wi-1",
           wall_clock_ms: 190_000,
           provider_output_tokens: 800,
           generation_ms: 40_000,
@@ -808,10 +832,16 @@ describe("executeReviewJob", () => {
           publish_attempts: 2,
           failure_domain: "github",
           error_kind: "rate_limit",
+          phase: "publish",
           tool_call_errors: 1,
         }),
       }),
     );
+    const properties = mocks.captureEvent.mock.calls[0]?.[0] as {
+      properties: Record<string, unknown>;
+    };
+    expect(properties.properties).not.toHaveProperty("error_message");
+    expect(JSON.stringify(properties.properties)).not.toMatch(/rate limit exceeded/i);
   });
 
   it("completes an existing check as cancelled when publish is superseded", async () => {
@@ -828,6 +858,118 @@ describe("executeReviewJob", () => {
       expect.objectContaining({
         conclusion: "cancelled",
         summary: "Review publish was skipped because the work was superseded or cancelled.",
+      }),
+    );
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review profiled",
+        properties: expect.objectContaining({
+          outcome: "superseded",
+          work_item_id: "wi-1",
+        }),
+      }),
+    );
+  });
+
+  it("emits review profiled with lightweight outcome and no full review", async () => {
+    mockDurableExecution("auto");
+    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review profiled",
+        properties: expect.objectContaining({
+          outcome: "lightweight",
+          work_item_id: "wi-1",
+          source: "auto",
+        }),
+      }),
+    );
+  });
+
+  it("emits review profiled once when the claimed review throws", async () => {
+    const thrownMessage = "orchestrator exploded at /tmp/secret.ts";
+    mocks.runOrchestratedPrReview.mockRejectedValue(new Error(thrownMessage));
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(thrownMessage);
+
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        distinctId: "installation:42",
+        event: "review profiled",
+        properties: expect.objectContaining({
+          outcome: "failed",
+          work_item_id: "wi-1",
+          source: "slash",
+          failure_domain: expect.any(String),
+          error_kind: expect.any(String),
+        }),
+      }),
+    );
+    const properties = (
+      mocks.captureEvent.mock.calls[0]?.[0] as { properties: Record<string, unknown> }
+    ).properties;
+    expect(properties).not.toHaveProperty("error_message");
+    expect(JSON.stringify(properties)).not.toContain("orchestrator exploded");
+    expect(JSON.stringify(properties)).not.toContain("/tmp/secret.ts");
+  });
+
+  it("does not emit a second review profiled when check-run cleanup throws after capture", async () => {
+    mockDurableExecution("auto");
+    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
+    vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockRejectedValue(
+      new Error("check-run update failed"),
+    );
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
+      "check-run update failed",
+    );
+
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review profiled",
+        properties: expect.objectContaining({
+          outcome: "lightweight",
+          work_item_id: "wi-1",
+        }),
+      }),
+    );
+  });
+
+  it("emits review profiled with degraded outcome when a published run has tool errors", async () => {
+    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
+      wallClockMs: 90_000,
+      providerOutputTokens: 400,
+      generationMs: 20_000,
+      providerOutputTps: 20,
+      tokenCoverage: "full_run",
+      published: true,
+      publishAttempts: 1,
+      toolCallErrors: 2,
+      briefFallback: false,
+      rateLimitCircuitOpened: false,
+      validationFailureCount: 0,
+      findingsCount: 1,
+    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review profiled",
+        properties: expect.objectContaining({
+          outcome: "degraded",
+          work_item_id: "wi-1",
+          tool_call_errors: 2,
+        }),
       }),
     );
   });

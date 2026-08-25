@@ -106,22 +106,45 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     return row;
   }
 
+  it("returns claim timestamps that preserve queue wait", async () => {
+    const id = await insertWorkItem();
+    const createdAt = new Date("2026-01-01T00:00:00.000Z");
+    await pool.query(`UPDATE agent_work_items SET created_at = $2 WHERE id = $1`, [id, createdAt]);
+
+    const claim = await claimWorkForExecution(pool, id);
+    expect(claim).not.toBeNull();
+    expect(claim?.createdAt).toEqual(createdAt);
+    expect(claim?.startedAt.getTime()).toBeGreaterThan(createdAt.getTime());
+    expect(claim?.attemptCount).toBe(1);
+  });
+
   it("claims queued work and increments the attempt count", async () => {
     const id = await insertWorkItem();
 
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+    const claim = await claimWorkForExecution(pool, id);
+    expect(claim).toEqual({
+      createdAt: expect.any(Date),
+      startedAt: expect.any(Date),
+      attemptCount: 1,
+    });
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("running");
     expect(row.attempt_count).toBe(1);
     expect(row.started_at).toBeInstanceOf(Date);
+    expect(claim?.startedAt).toEqual(row.started_at);
+    expect(claim?.startedAt.getTime()).toBeGreaterThanOrEqual(claim?.createdAt.getTime() ?? 0);
   });
 
   it("claims running work again through the resume path without bumping attempts", async () => {
     const id = await insertWorkItem();
 
     await claimWorkForExecution(pool, id);
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+    await expect(claimWorkForExecution(pool, id)).resolves.toMatchObject({
+      attemptCount: 1,
+      createdAt: expect.any(Date),
+      startedAt: expect.any(Date),
+    });
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("running");
@@ -131,7 +154,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
   it("does not claim work after cancellation is requested", async () => {
     const id = await insertWorkItem({ cancelRequestedAt: new Date().toISOString() });
 
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(false);
+    await expect(claimWorkForExecution(pool, id)).resolves.toBeNull();
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("queued");
@@ -168,7 +191,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     expect(retrying.attempt_count).toBe(1);
     expect(retrying.last_error).toBe("retry me");
 
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+    await expect(claimWorkForExecution(pool, id)).resolves.toMatchObject({ attemptCount: 2 });
     await expect(getWorkRow(id)).resolves.toMatchObject({
       status: "running",
       attempt_count: 2,
@@ -207,7 +230,8 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       claimWorkForExecution(pool, id),
       claimWorkForExecution(pool, id),
     ]);
-    expect(claims).toEqual([true, true]);
+    expect(claims[0]).toMatchObject({ attemptCount: 1 });
+    expect(claims[1]).toMatchObject({ attemptCount: 1 });
 
     await expect(getWorkRow(id)).resolves.toMatchObject({
       status: "running",

@@ -32,7 +32,11 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
     shouldSkipWork: vi.fn().mockResolvedValue(false),
     getWorkItemCore: vi.fn(),
     getWorkItemPayload: vi.fn(),
-    claimWorkForExecution: vi.fn().mockResolvedValue(true),
+    claimWorkForExecution: vi.fn().mockResolvedValue({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      startedAt: new Date("2026-01-01T00:00:05.000Z"),
+      attemptCount: 1,
+    }),
     markWorkCompleted: vi.fn().mockResolvedValue(true),
     markWorkFailed: vi.fn().mockResolvedValue(true),
     markWorkRetrying: vi.fn().mockResolvedValue(true),

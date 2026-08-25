@@ -83,7 +83,11 @@ describe("durableJob analytics forwarding", () => {
     await initAnalytics({ projectToken: "token", host: "" });
 
     vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
+    vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      startedAt: new Date("2026-01-01T00:00:05.000Z"),
+      attemptCount: 1,
+    });
     vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
     vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);

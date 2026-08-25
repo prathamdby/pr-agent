@@ -28,6 +28,7 @@ import {
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
+  type WorkClaim,
   getWorkItem,
   getWorkItemCore,
   getWorkItemPayload,
@@ -73,6 +74,8 @@ export type DurableExecutionContext = {
   leaseEpoch: number | null;
   /** Combined job/lease signal; aborted when the worker is stopped, cancelled, or fenced. */
   signal: AbortSignal;
+  /** Durable claim timestamps and attempt count from the claim write. */
+  claim?: WorkClaim;
 };
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
@@ -379,6 +382,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   const phaseState: WorkItemPhaseState = { phase: "claiming" };
   let seededInstallation: InstallationToken | undefined;
   let executionPrSurface: PrSurface | undefined;
+  let workClaim: WorkClaim | undefined;
   /** Set while a reschedule afterComplete may still need abort on terminal failure. */
   let pendingRescheduleAbort: ((boss: PgBoss, error: unknown) => Promise<void>) | undefined;
 
@@ -554,10 +558,12 @@ export async function runDurableWorkItem<T extends WorkType>(
     });
   }
 
-  if (!(await claimWorkForExecution(spec.pool, core.id))) {
+  const claimed = await claimWorkForExecution(spec.pool, core.id);
+  if (!claimed) {
     await releaseLeaseQuietly();
     return;
   }
+  workClaim = claimed;
   enterExecutingPhase(phaseState);
 
   const rawPayload = await getWorkItemPayload(spec.pool, core.id);
@@ -635,6 +641,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         pullRequest: resolvedHead.pullRequest,
         leaseEpoch,
         signal: executionSignal,
+        claim: workClaim,
       };
     }
 

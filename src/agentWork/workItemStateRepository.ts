@@ -214,13 +214,24 @@ function sanitizeWorkError(error: unknown): string {
   return sanitizeLogMessage(error instanceof Error ? error.message : String(error));
 }
 
+export type WorkClaim = {
+  readonly createdAt: Date;
+  readonly startedAt: Date;
+  readonly attemptCount: number;
+};
+
 /**
  * Claim queued work or resume a redelivered job while the row is still running.
  * Admission is owned by the PR actor lease, not the claim: a re-claimed row still
  * needs the lease before any durable write.
  */
-export async function claimWorkForExecution(pool: Pool, id: string): Promise<boolean> {
-  const result = await pool.query(
+export async function claimWorkForExecution(pool: Pool, id: string): Promise<WorkClaim | null> {
+  const row = await queryOne<{
+    created_at: Date;
+    started_at: Date;
+    attempt_count: number;
+  }>(
+    pool,
     `UPDATE agent_work_items
 	    SET status = 'running',
 	        started_at = COALESCE(started_at, now()),
@@ -231,10 +242,16 @@ export async function claimWorkForExecution(pool: Pool, id: string): Promise<boo
         updated_at = now()
 	  WHERE id = $1
 	    AND status IN ('queued', 'running')
-	    AND cancel_requested_at IS NULL`,
+	    AND cancel_requested_at IS NULL
+    RETURNING created_at, started_at, attempt_count`,
     [id],
   );
-  return (result.rowCount ?? 0) > 0;
+  if (!row) return null;
+  return {
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    attemptCount: row.attempt_count,
+  };
 }
 
 /**
