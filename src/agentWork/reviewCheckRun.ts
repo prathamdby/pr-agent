@@ -2,7 +2,6 @@ import type { Pool } from "pg";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
-import { httpStatus } from "../github/httpStatus.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import type { PrSurface } from "../github/prSurface.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
