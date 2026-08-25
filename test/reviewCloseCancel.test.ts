@@ -343,6 +343,9 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
 
   it("cancels queued triage and enqueues a terminal no-push acknowledgement", async () => {
     const clientQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-triage-closed" }] };
       }
@@ -414,6 +417,9 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
 
   it("enqueues one ack for mixed review and triage cancellation with fallback triage targets", async () => {
     const clientQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_event_replays")) {
+        return { rows: [{ body_sha256: "hash" }] };
+      }
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-mixed-close" }] };
       }
