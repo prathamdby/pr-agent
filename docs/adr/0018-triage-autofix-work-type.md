@@ -18,7 +18,7 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 
 3. **Same-repo only.** Fork PRs run in report-only mode. The app never tries to push to a fork branch.
 
-4. **Server-executed commits.** The model can edit files through exact-match tools and request `commitFix`; server code validates paths, sensitive paths, commit messages, file count, and diff size. Commits always use `git commit -n`; hooks do not run.
+4. **Server-executed commits.** The model can inspect files with the triage workspace tools, edit files through exact-match tools, and request `commitFix`; server code applies the canonical normalized sensitive/control-path policy to reads, search results (including resolved symlink targets), writes, staging, and commits, then validates commit messages, file count, and diff size. Search may inspect the checkout internally, but blocked paths and matching text are omitted before tool output reaches the model. Commits always use `git commit -n`; hooks do not run.
 
 5. **Push-or-nothing publish.** Triage pushes before posting `Fixed in` replies or resolving threads. A non-fast-forward push writes a stale-head report and performs no thread actions. Triage never force-pushes, rebases, or amends.
 

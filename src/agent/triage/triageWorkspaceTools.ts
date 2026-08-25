@@ -1,13 +1,17 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, relative } from "node:path";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { dirname, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
+import { logDebug } from "../../evlog.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
+import {
+  assertContainedWorkspacePath,
+  assertWorkspacePath,
+} from "../../prWorkspace/localPrWorkspace.js";
 import {
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
   TRIAGE_NEW_FILE_MAX_BYTES,
@@ -49,6 +53,39 @@ async function safeReadPath(root: string, path: string): Promise<string> {
 
 function relativePath(root: string, fullPath: string): string {
   return relative(root, fullPath).replace(/\\/g, "/");
+}
+
+type TriageSearchMatch = {
+  readonly path: string;
+  readonly line: number;
+  readonly text: string;
+};
+
+async function isAllowedTriageSearchPath(
+  root: string,
+  realRoot: string,
+  path: string,
+): Promise<boolean> {
+  const normalized = normalizeRepoRelativePath(path);
+  if (!normalized || isTriageControlPath(normalized)) return false;
+
+  try {
+    const fullPath = assertWorkspacePath(root, normalized);
+    const realCandidate = await realpath(fullPath);
+    if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
+      return false;
+    }
+    const resolvedPath = normalizeRepoRelativePath(relative(realRoot, realCandidate));
+    return !isTriageControlPath(resolvedPath);
+  } catch {
+    // A missing, malformed, or escaping result is not safe to expose. Git grep
+    // should only return paths that resolve, so this is a defensive dead end.
+    return false;
+  }
+}
+
+export async function isTriageSearchPathAllowed(root: string, path: string): Promise<boolean> {
+  return isAllowedTriageSearchPath(root, await realpath(root), path);
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -156,16 +193,44 @@ export function buildTriageWorkspaceTools(params: {
         throw error;
       });
       const lines = stdout.split("\n").filter(Boolean);
-      const matches = lines.slice(0, maxResults).map((line) => {
+      const realRoot = await realpath(root);
+      const allowedPathCache = new Map<string, Promise<boolean>>();
+      const matches: TriageSearchMatch[] = [];
+      let filteredCount = 0;
+      for (const line of lines) {
         const first = line.indexOf(":");
         const second = line.indexOf(":", first + 1);
-        return {
-          path: line.slice(0, first),
-          line: Number(line.slice(first + 1, second)),
+        if (first < 1 || second < 0) continue;
+        const rawPath = line.slice(0, first);
+        const normalizedPath = normalizeRepoRelativePath(rawPath);
+        let allowed = allowedPathCache.get(normalizedPath);
+        if (!allowed) {
+          allowed = isAllowedTriageSearchPath(root, realRoot, normalizedPath);
+          allowedPathCache.set(normalizedPath, allowed);
+        }
+        if (!(await allowed)) {
+          filteredCount += 1;
+          continue;
+        }
+        const lineNumber = Number(line.slice(first + 1, second));
+        if (!Number.isInteger(lineNumber) || lineNumber < 1) continue;
+        matches.push({
+          path: normalizedPath,
+          line: lineNumber,
           text: line.slice(second + 1),
-        };
-      });
-      return { matches, truncated: lines.length > maxResults };
+        });
+      }
+      if (filteredCount > 0) {
+        logDebug("triage_search_matches_filtered", {
+          filteredCount,
+          reason: "sensitive_or_control_path",
+        });
+      }
+      return {
+        matches: matches.slice(0, maxResults),
+        truncated: matches.length > maxResults,
+        ...(filteredCount > 0 ? { filtered: true } : {}),
+      };
     },
   });
 
