@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { log as globalLog } from "evlog";
+import { AppError } from "../src/errors/appError.js";
 import * as evlog from "../src/evlog.js";
+
+const TOKEN = ["ghp", "1234567890123456789012345678901234"].join("_");
 
 describe("evlog wide events", () => {
   afterEach(() => {
@@ -88,6 +92,88 @@ describe("evlog wide events", () => {
     expect(events).toHaveLength(2);
     expect(events[0]?.event).toBe("no_fields");
     expect(events[1]?.event).toBe("explicit_undefined");
+  });
+
+  it("recursively redacts fields before storing structured log events", () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+    });
+    const fields: Record<string, unknown> = {
+      errorMessage: `failed Bearer ${TOKEN}`,
+      errorContext: {
+        workItemId: "work-1",
+        rawValue: ["DATABASE_URL=postgres://user:pass@db/app"],
+      },
+    };
+    fields.circular = fields;
+
+    evlog.recordEvent(logger, "error", fields, "error");
+
+    const stored = (logger.getContext().events as Array<Record<string, unknown>>)[0];
+    expect(stored?.errorMessage).toContain("[redacted]");
+    expect((stored?.errorContext as Record<string, unknown>).workItemId).toBe("work-1");
+    expect(stored?.circular).toBe("[circular]");
+    expect(JSON.stringify(stored)).not.toContain("postgres://");
+  });
+
+  it("sanitizes operation context before storing and emitting", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+      context: { errorMessage: `Bearer ${TOKEN}`, safeId: "work-1" },
+    });
+    expect(logger.getContext().errorMessage).toBe("[redacted]");
+    expect(logger.getContext().safeId).toBe("work-1");
+
+    logger.set({ password: "opaque-password" });
+    const emit = vi.spyOn(logger, "emit").mockResolvedValue(null);
+    await evlog.emitOperationLogger(logger);
+
+    expect(logger.getContext().password).toBe("[redacted]");
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitizes errors passed to the operation logger", async () => {
+    evlog.initEvlog("error", {
+      silent: false,
+      pretty: false,
+      redact: false,
+      suppressDrainWarning: true,
+    });
+    const output = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const thrown = new AppError({
+      code: "worker.failed",
+      message: "worker failed",
+      cause: { apiKey: "opaque-provider-key" },
+    });
+
+    await expect(
+      evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
+        throw thrown;
+      }),
+    ).rejects.toBe(thrown);
+
+    const emitted = JSON.stringify(output.mock.calls);
+    expect(output).toHaveBeenCalled();
+    expect(emitted).not.toContain("opaque-provider-key");
+    expect(emitted).toContain("[redacted]");
+  });
+
+  it("sanitizes the global logger fallback", () => {
+    evlog.initEvlog("error", { silent: true, suppressDrainWarning: true });
+    const error = vi.spyOn(globalLog, "error").mockImplementation(() => undefined);
+
+    evlog.logError("worker_failed", {
+      password: "opaque-password",
+      safeId: "work-1",
+    });
+
+    expect(error).toHaveBeenCalledWith(
+      expect.objectContaining({ password: "[redacted]", safeId: "work-1" }),
+    );
   });
 
   it("recordEvent skips debug-level entries when LOG_LEVEL is info", () => {

@@ -35,7 +35,7 @@ Every agent-facing URL is declared once in [`site/lib/agentResources.ts`](../sit
 
 ## Internal errors (`AppError`)
 
-Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Field rules, helpers, domain subclasses, and the AppError-never-on-PR rule: [`.pr-agent/structured-errors.mdc`](../.pr-agent/structured-errors.mdc).
+Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Field rules, helpers, domain subclasses, and the AppError-never-on-PR rule: [`.pr-agent/structured-errors.mdc`](../.pr-agent/structured-errors.mdc). `serializeAppError` and `errorLogFields` are the canonical sanitized representation for telemetry; evlog, analytics, PostHog, and startup logging sanitize Error values and metadata again at their boundaries, so callers do not need to pre-sanitize contexts or causes.
 
 ## Prompt prose
 

@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   AppError,
   errorLogFields,
+  errorAnalyticsFields,
   isAppError,
+  sanitizeErrorForTelemetry,
   serializeAppError,
   toAppError,
 } from "../src/errors/appError.js";
+
+const TOKEN = ["ghp", "1234567890123456789012345678901234"].join("_");
 
 describe("AppError", () => {
   it("stores code, message, context, and cause", () => {
@@ -80,5 +84,60 @@ describe("AppError", () => {
     });
     expect(errorLogFields(err).errorCode).toBe("triage.stale_head");
     expect(errorLogFields(new Error("plain"))).toEqual({});
+  });
+
+  it("recursively redacts serialized messages, contexts, raw values, and causes", () => {
+    const circular: Record<string, unknown> = {
+      safeId: "work-1",
+      token: TOKEN,
+    };
+    circular.self = circular;
+    const err = new AppError({
+      code: "worker.failed",
+      message: `provider failed Bearer ${TOKEN}`,
+      context: {
+        workItemId: "work-1",
+        rawValue: {
+          nested: [`DATABASE_URL=postgres://user:pass@db/app`, circular],
+        },
+      },
+      cause: new Error(`OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz`, {
+        cause: { provider: "test", bearer: `Bearer ${TOKEN}` },
+      }),
+    });
+
+    const serialized = serializeAppError(err);
+    const json = JSON.stringify(serialized);
+    expect(serialized.errorCode).toBe("worker.failed");
+    expect(serialized.errorMessage).toContain("[redacted]");
+    expect(serialized.errorContext).toMatchObject({ workItemId: "work-1" });
+    expect(json).not.toContain(TOKEN);
+    expect(json).not.toContain("postgres://");
+    expect(json).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(json).toContain("[circular]");
+  });
+
+  it("sanitizes plain-object errors before forwarding them", () => {
+    const thrown = {
+      password: "opaque-password",
+      apiKey: "opaque-provider-key",
+      safeId: "work-1",
+    };
+
+    const safe = sanitizeErrorForTelemetry(thrown);
+
+    expect(safe.message).toContain("[redacted]");
+    expect(safe.message).not.toContain("opaque-password");
+    expect(safe.message).not.toContain("opaque-provider-key");
+    expect(safe).toMatchObject({
+      rawValue: {
+        password: "[redacted]",
+        apiKey: "[redacted]",
+        safeId: "work-1",
+      },
+    });
+    expect(errorAnalyticsFields(new AppError({ code: "x.y", message: "m" }))).toEqual(
+      errorLogFields(new AppError({ code: "x.y", message: "m" })),
+    );
   });
 });

@@ -1,6 +1,7 @@
 import { loadConfig, type Config } from "./config.js";
-import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { initAnalytics } from "./analytics/index.js";
+import { initEvlog, logDebug, logInfo } from "./evlog.js";
+import { sanitizeErrorForTelemetry } from "./errors/appError.js";
 import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
 async function main() {
@@ -8,7 +9,7 @@ async function main() {
   try {
     cfg = await loadConfig();
   } catch (e) {
-    console.error(e instanceof Error ? e.message : e);
+    console.error(sanitizeErrorForTelemetry(e));
     process.exit(1);
     return;
   }
