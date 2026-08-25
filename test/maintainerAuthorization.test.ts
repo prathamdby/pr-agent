@@ -34,4 +34,32 @@ describe("isAuthorizedMaintainerDecision", () => {
       }),
     ).toBe(false);
   });
+
+  it.each([" owner ", "Owner", "  collaborator ", "MeMbEr"])(
+    "normalizes maintainer association %j",
+    (authorAssociation) => {
+      expect(
+        isAuthorizedMaintainerDecision({
+          userId: 10,
+          botUserId: 99,
+          authorAssociation,
+          allowedAssociations,
+        }),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["", "   ", undefined, "*", " * ", "\n*\t"])(
+    "rejects empty or wildcard association %j",
+    (authorAssociation) => {
+      expect(
+        isAuthorizedMaintainerDecision({
+          userId: 10,
+          botUserId: 99,
+          authorAssociation,
+          allowedAssociations: new Set(["*"]),
+        }),
+      ).toBe(false);
+    },
+  );
 });

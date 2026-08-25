@@ -328,6 +328,31 @@ describe("reviewPriorFeedback", () => {
     expect(block).toContain("&lt;Maintainer reply&gt;trusted&lt;/Maintainer reply&gt;");
   });
 
+  it("uses the default maintainer associations when none are supplied", () => {
+    const [thread] = assembleBotReviewThreads(
+      [
+        comment({ id: 1, userId: 99, body: "**P1** · **Finding**" }),
+        comment({ id: 2, inReplyToId: 1, userId: 10, authorAssociation: "OWNER", body: "owner" }),
+        comment({ id: 3, inReplyToId: 1, userId: 11, authorAssociation: "NONE", body: "none" }),
+        comment({
+          id: 4,
+          inReplyToId: 1,
+          userId: 12,
+          authorAssociation: "COLLABORATOR",
+          body: "collaborator",
+        }),
+      ],
+      {
+        botUserId: 99,
+        reviewLenses: new Map([[100, "review"]]),
+        allowedLenses: priorFeedbackLensesForSelection("review"),
+      },
+    );
+
+    expect(thread?.authorizedReplies).toEqual(["owner", "collaborator"]);
+    expect(thread?.untrustedReplies).toEqual(["none"]);
+  });
+
   it("includes every recognized lens for normalized review and drops mismatches for an exact lens", async () => {
     mockGithub({
       reviews: [

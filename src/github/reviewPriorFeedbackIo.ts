@@ -1,4 +1,8 @@
-import { COMMENT_PAGINATION_MAX_PAGES, COMMENTS_PAGE_SIZE } from "../settings/index.js";
+import {
+  COMMENT_PAGINATION_MAX_PAGES,
+  COMMENTS_PAGE_SIZE,
+  DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
+} from "../settings/index.js";
 import { isAnyReviewLens, type AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { installationOctokit } from "./appAuth.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
@@ -12,7 +16,6 @@ import {
   type PriorInlineFeedbackThread,
   type ReviewThreadComment,
 } from "../review/run/reviewPriorFeedback.js";
-import { DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS } from "../review/maintainerAuthorization.js";
 
 async function listPullRequestReviewComments(
   token: string,
@@ -110,7 +113,7 @@ export async function fetchPriorInlineReviewFeedback(
   botUserId: number,
   currentLens: AnyReviewLens,
   expiresAtTs?: number,
-  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
+  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
 ): Promise<PriorInlineFeedbackThread[]> {
   const [reviewLenses, comments] = await Promise.all([
     listBotReviewLenses(token, owner, repo, pullNumber, botUserId, undefined, expiresAtTs),
@@ -136,7 +139,7 @@ export async function fetchBotFindingThreads(
   botUserId: number,
   publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
   expiresAtTs?: number,
-  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
+  maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
 ): Promise<BotFindingThread[]> {
   const [comments, reviewLenses] = await Promise.all([
     listPullRequestReviewComments(token, owner, repo, pullNumber, expiresAtTs),

@@ -1,4 +1,5 @@
 import {
+  DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
   MAX_PRIOR_INLINE_FEEDBACK_THREADS,
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
@@ -11,10 +12,7 @@ import {
   isAnyReviewLens,
   type AnyReviewLens,
 } from "../../settings/legacyReviewLenses.js";
-import {
-  DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
-  isAuthorizedMaintainerDecision,
-} from "../maintainerAuthorization.js";
+import { isAuthorizedMaintainerDecision } from "../maintainerAuthorization.js";
 
 export type PriorInlineFeedbackThread = {
   readonly path: string;
@@ -268,7 +266,7 @@ export function assembleBotReviewThreads(
 ): AssembledBotReviewThread[] {
   const assembled: AssembledBotReviewThread[] = [];
   const maintainerDecisionAssociations =
-    params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS;
+    params.maintainerDecisionAssociations ?? DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET;
   for (const group of groupCommentsByThreadRoot(comments)) {
     const root = group.root;
     if (root.userId !== params.botUserId || root.path == null) continue;

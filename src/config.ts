@@ -60,6 +60,7 @@ import {
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
+  GITHUB_AUTHOR_ASSOCIATIONS,
   DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
   DEFAULT_TRIAGE_CONCURRENCY,
   DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
@@ -69,7 +70,6 @@ import {
   ENV,
   EXTERNAL_ENV,
 } from "./settings/index.js";
-import { GITHUB_AUTHOR_ASSOCIATIONS } from "./review/maintainerAuthorization.js";
 import {
   defaultModelsJsonCandidatePath,
   resolveModelsJsonPath,

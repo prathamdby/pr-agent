@@ -121,10 +121,23 @@ describe("loadConfig validation", () => {
   it("normalizes and validates maintainer decision associations without wildcard access", async () => {
     const cfg = await load({ MAINTAINER_DECISION_ASSOCIATIONS: "owner, collaborator" });
     expect([...cfg.maintainerDecisionAssociations]).toEqual(["OWNER", "COLLABORATOR"]);
-    await expect(load({ MAINTAINER_DECISION_ASSOCIATIONS: "*" })).rejects.toThrow(
-      /MAINTAINER_DECISION_ASSOCIATIONS must be one or more of/,
-    );
   });
+
+  it.each(["", "   ", "*", "*,OWNER", "OWNER,*", "OWNER,,MEMBER"])(
+    "rejects invalid maintainer decision association value %j",
+    async (value) => {
+      await expect(load({ MAINTAINER_DECISION_ASSOCIATIONS: value })).rejects.toSatisfy(
+        (error: unknown) => {
+          expect(error).toBeInstanceOf(AppError);
+          expect((error as AppError).code).toBe("config.invalid_enum");
+          expect((error as AppError).context).toMatchObject({
+            name: "MAINTAINER_DECISION_ASSOCIATIONS",
+          });
+          return true;
+        },
+      );
+    },
+  );
 
   it("defaults verification concurrency to 1", async () => {
     const cfg = await load({});
