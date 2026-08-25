@@ -6,13 +6,13 @@ Accepted.
 
 ## Context
 
-Automated pull request reviews run on every `opened`, `synchronize`, and `reopened` event. Documentation-only changes (README updates, `docs/**`, markdown under `.github/*.md`) rarely benefit from a full LLM investigation pass but still consumed worker time and API budget.
+Automated pull request reviews run on `opened` only (`AUTO_TRIGGER_ACTIONS.review` in `src/settings/featureModes.ts`). Documentation-only changes (README updates, `docs/**`, markdown under `.github/*.md`) rarely benefit from a full LLM investigation pass but still consumed worker time and API budget.
 
 Operators may still request a full pass with `/review`.
 
 ## Decision
 
-1. **Lightweight review completion.** For automated reviews only, when every changed file matches the strict docs-only allowlist in `src/settings/constants.ts` (via `reviewChangeGate.ts`) and the change set is not truncated, the review worker skips the Review run and edits the existing review progress comment in place.
+1. **Lightweight review completion.** For automated reviews only, when every changed file matches the strict docs-only allowlist in `reviewChangeGate.ts` and the change set is not truncated, the review worker skips the Review run and edits the existing review progress comment in place.
 
 2. **Ack flow unchanged.** Durable intake still schedules acknowledgement reactions and the in-progress progress stub before the review worker runs.
 

@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-All runtime validation used `zod` v4: webhook payload parsing ([ADR 0001](0001-webhook-boundary.md)), Pi tool input schemas converted with `z.toJSONSchema` ([ADR 0004](0004-native-pi-ai-toolset.md)), and the structured `ReviewPayload` contract ([ADR 0005](0005-structured-review-output.md)). ADR 0001 calls out that replacing Zod at the webhook boundary should be an explicit decision.
+All runtime validation used `zod` v4: webhook payload parsing ([ADR 0001](0001-webhook-boundary.md)), Pi tool input schemas converted with `z.toJSONSchema`, and the structured `ReviewPayload` contract ([ADR 0005](0005-structured-review-output.md)). ADR 0001 called out that replacing Zod at the webhook boundary should be an explicit decision.
 
 Valibot offers the same features this codebase exercises (objects, variants, unions, refinement via `check`/`forward`, `safeParse`, JSON Schema conversion) with a smaller, fully tree-shakeable runtime. The migration is mechanical: no validation semantics change.
 
@@ -28,7 +28,7 @@ Valibot offers the same features this codebase exercises (objects, variants, uni
 
 - One less heavy dependency; schema definitions compose via `v.pipe` instead of chained methods.
 - Validation error message strings differ from Zod's; anything pattern-matching exact Zod message text would break (none does — failure-kind mapping is internal).
-- ADRs 0001, 0004, and 0005 remain as historical context; their Zod references describe the superseded implementation.
+- ADRs 0001 and 0005 now describe Valibot as the live validation library.
 
 ## Reversal
 

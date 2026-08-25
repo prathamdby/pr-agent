@@ -2,9 +2,8 @@
 
 ## Status
 
-Accepted. Supersedes [ADR 0013](0013-cursor-sdk-provider.md) and the
-`AGENT_PROVIDER` / Cursor runner-selection portion of
-[ADR 0015](0015-agent-runner-local-pr-workspace.md).
+Accepted. Supersedes the former Cursor dual-runtime / `AGENT_PROVIDER` path.
+Read-only local investigation remains in [ADR 0015](0015-agent-runner-local-pr-workspace.md).
 
 ## Context
 

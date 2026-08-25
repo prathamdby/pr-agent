@@ -4,8 +4,8 @@
 
 Accepted.
 
-This ADR supersedes [ADR 0006](0006-security-review-summary-sentinel.md) and
-[ADR 0016](0016-review-quality-lens.md). It amends [ADR 0005](0005-structured-review-output.md),
+This ADR replaces separate security, quality, and tests lens work items and
+sentinels. It amends [ADR 0005](0005-structured-review-output.md),
 [ADR 0009](0009-durable-agent-work.md), and [ADR 0011](0011-review-pointer-link.md).
 
 ## Context
@@ -125,9 +125,8 @@ run uses the general mode.
   does not describe orchestration.
 - [ADR 0011](0011-review-pointer-link.md) now applies to the single general
   review summary per pull request, not independent lenses.
-- [ADR 0006](0006-security-review-summary-sentinel.md) and [ADR 0016](0016-review-quality-lens.md)
-  remain as superseded historical records. Their sentinels and commands are
-  recognized only for compatibility.
+- Historical `review-security`, `review-quality`, and `review-tests` sentinels
+  and commands remain readable for compatibility only.
 
 ## Reversal
 

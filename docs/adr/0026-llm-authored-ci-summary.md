@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted. Supersedes [ADR 0024](0024-review-ci-summary.md).
+Accepted.
 
 ## Context
 
-ADR 0024 shipped a server-derived **CI summary** gate from Checks annotations and check output. Digests were weak: they never downloaded Actions job logs, and warning annotations (for example Node 20 deprecation) could dominate the row when the real failure was lint/format/tests.
+An earlier server-derived **CI summary** gate used Checks annotations and check output. Digests were weak: they never downloaded Actions job logs, and warning annotations (for example Node 20 deprecation) could dominate the row when the real failure was lint/format/tests.
 
 Product intent shifted: maintainers (and coding agents) need a natural-language explanation of _what failed and how to fix_, authored from condensed logs—not a static string pick from annotations.
 
@@ -35,8 +35,8 @@ Constraints that still hold:
 - Operators need **Actions: read** in addition to Checks read for rich failure explanations.
 - A second LLM call runs at publish when CI is failing (and again on refresh). Passing/pending/none use server templates without a model call.
 - Webhook subscriptions grow to include **`workflow_run`** and **`check_suite`**. Topology gains a CI-refresh queue lane.
-- ADR 0024’s annotation-first digests and “no Actions permission” assumptions are obsolete.
+- Annotation-first digests and “no Actions permission” assumptions from the first CI-summary design are obsolete.
 
 ## Reversal
 
-Remove CI authoring, log download, refresh queue/webhook, and markers; restore ADR 0024 server digests or drop the CI row.
+Remove CI authoring, log download, refresh queue/webhook, and markers; restore a server-only digest or drop the CI row.

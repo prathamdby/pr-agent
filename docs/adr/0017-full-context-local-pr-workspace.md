@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted. Supersedes the changed-file materialization and local-git diff authority parts of [ADR 0015](0015-agent-runner-local-pr-workspace.md).
+Accepted. Supersedes the earlier changed-file-only materialization and local-git diff authority. Read-only investigation and workspace resource ownership remain in [ADR 0015](0015-agent-runner-local-pr-workspace.md).
 
 ## Context
 
-ADR 0015 introduced a **Local PR workspace** with a private git object database and an agent-visible tree that initially contained only changed files materialized from `git show`. Agents could lazy-read other paths, but investigation still leaned on a partial tree and local `git diff` for changed paths and inline anchor hints.
+The first **Local PR workspace** used a private git object database and an agent-visible tree that contained only changed files materialized from `git show`. Agents could lazy-read other paths, but investigation still leaned on a partial tree and local `git diff` for changed paths and inline anchor hints.
 
 That layout made it easy to miss surrounding callers, shared types, and config when the PR diff alone was insufficient. A depth-1 fetch of the full PR head is fast enough to expose the whole git-tracked tree while keeping `.git`, credentials, and hooks outside the sandbox.
 

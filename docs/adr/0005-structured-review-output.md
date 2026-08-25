@@ -15,7 +15,7 @@ The review agent previously instructed the model to submit a GitHub pull request
 
 ## Decision
 
-1. **`ReviewPayload`** (Zod) is the single source of truth per review run, emitted via a **`submitReview`** pseudo-tool exactly once.
+1. **`ReviewPayload`** (Valibot) is the validated summary contract for a review run. Incremental inline batches use `publish_thread`; the summary publisher consumes `ReviewPayload` via `submitReview` / `publish_summary` ([ADR 0028](0028-orchestrated-review.md), [ADR 0035](0035-replace-zod-with-valibot.md)).
 2. **Server-side renderers** (`reviewRender.ts`) produce inline thread bodies (P0–P3, with `Prompt to fix` accordion), the **review pointer body** (per-specialist Files-tab pull request review header: NOTE linking to the **review progress comment** plus a specialist tagline; no Fix All accordion), and the **review summary comment** (sentinel `## PR Agent Review`, overview alert plus a unified table: size, finding rows keyed by severity, tests, security, and follow-ups; aggregate **agent fix prompt** accordion below the table; hidden **stale review metadata** HTML comment). Finding rows for inline-posted severities list title, location, and a footnote only; **detail text appears in the summary table only for summary-only placements**. P3 is inline-eligible so `/triage` can fix it; review check runs still fail only for P0–P2 (see [ADR 0029](0029-p3-inline-triage.md)).
 3. **Publish** ([`publish/publishReview.ts`](../../src/review/publish/publishReview.ts) + [`github/reviewPublish.ts`](../../src/github/reviewPublish.ts)) calls Octokit directly; `createPullRequestReview` / `addPullRequestComment` are **filtered out** of the review agent tool list.
 4. **Phase 3:** summary comment upsert by sentinel; optional idempotent labels (`size:<XS-XXL>`, `Possible security concern`) behind config flags.
@@ -30,4 +30,4 @@ The review agent previously instructed the model to submit a GitHub pull request
 
 ## Reversal
 
-Revert `submitReview`, renderers, and publish pipeline; restore freehand delivery instructions in `reviewRun.ts` and full GitHub tool exposure to the agent.
+Revert `submitReview`, renderers, and publish pipeline; restore freehand delivery instructions and full GitHub tool exposure to the agent.

@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-[ADR 0002](0002-effect-surface-and-queue-layers.md) decision 1 introduced `PrGithubSurface` as an Effect `Context.Tag` for webhook-handler PR-surface I/O. [ADR 0009](0009-durable-agent-work.md) moved reactions, progress comments, reviews, and ask replies onto durable workers. Commit `adcc0ce` removed the Effect `PrGithubSurface` layer from production webhook routing while worker executors continued to call Octokit helpers and thread `token` / `expiresAtTs` through `githubPrSurface.ts`, `reviewPriorFeedback.ts`, and CI helpers — re-opening the seam ADR 0002 had closed on the webhook path.
+Webhook-path PR I/O once used an Effect `Context.Tag`. [ADR 0009](0009-durable-agent-work.md) moved reactions, progress comments, reviews, and ask replies onto durable workers. After that move, worker executors called Octokit helpers and threaded `token` / `expiresAtTs` through `githubPrSurface.ts`, `reviewPriorFeedback.ts`, and CI helpers — leaving no single worker-path seam.
 
 An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as the Pi runtime: [ADR 0009](0009-durable-agent-work.md) workers are Promise/pg-boss jobs, not Effect fibers, and [ADR 0031](0031-pi-native-agent-runtime.md) established a Promise factory + interface seam (`createPiSession` / `PiSession`) with a CI import-graph guard instead of Context tags.
 
@@ -27,8 +27,6 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
    before the external call, then reconciles the outcome. Read-only methods do
    not cross the boundary so a replacement worker can recover evidence after a
    stale execution is fenced. Unleased ask work keeps the ordinary surface.
-
-ADR 0002 decision 1 remains the historical record for the Effect webhook surface; worker-path PR I/O is governed by this ADR.
 
 ## Consequences
 

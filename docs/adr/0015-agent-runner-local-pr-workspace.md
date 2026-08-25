@@ -1,75 +1,30 @@
-# ADR 0015: Agent runner providers and local PR workspace
+# ADR 0015: Read-only local PR workspace investigation
 
 ## Status
 
-Accepted for local PR workspace and read-only investigation tools. The
-`AGENT_PROVIDER` / Cursor runner-selection portion is superseded by
-[ADR 0031](0031-pi-native-agent-runtime.md). Supersedes the GitHub-API-only
-repository signal and `PI_PROVIDER=cursor` selection parts of
-[ADR 0013](0013-cursor-sdk-provider.md). Changed-file materialization and
-local-git diff authority are superseded by
-[ADR 0017](0017-full-context-local-pr-workspace.md).
+Accepted for read-only investigation tools, workspace resource ownership, and stale-head reschedule. Pi is the only agent runtime ([ADR 0031](0031-pi-native-agent-runtime.md)). Full-head checkout and GitHub `listFiles` diff authority are defined in [ADR 0017](0017-full-context-local-pr-workspace.md).
 
 ## Context
 
-Review and ask runs currently expose GitHub read tools to the agent. That keeps the
-worker stateless with respect to target repositories, but it also pushes changed-file
-discovery, file content reads, and inline anchor hints through GitHub APIs and prompt
-context. Cursor support is also wired through `pi-ai` as a provider adapter even though
-Cursor and Pi coding-agent are different runner surfaces.
+Review and ask runs used to expose GitHub read tools to the agent. That kept the worker stateless with respect to target repositories, but it also pushed file discovery and content reads through GitHub APIs and prompt context.
 
-The service still needs durable intake, worker-owned publishing, progress comments,
-publish idempotency, public-output sanitization, and `submitReview` as the only
-structured publish path.
+The service still needs durable intake, worker-owned publishing, progress comments, publish idempotency, and public-output sanitization.
 
 ## Decision
 
-1. Add `AGENT_PROVIDER` as the runner axis. `AGENT_PROVIDER=pi` uses Pi coding-agent;
-   `AGENT_PROVIDER=cursor` uses the Cursor SDK. `PI_PROVIDER` and `PI_MODEL` remain
-   model-selection inputs for the Pi runner, and `PI_MODEL` is also the Cursor model id.
-2. The runner seam is server-controlled and multi-turn. The review/ask harness can send
-   initial prompts, validation-repair prompts, publish-recovery prompts, and ask
-   finalization prompts through either runner.
-3. Agents are read-only investigators. Production runs expose local read/search/diff
-   tools, Context7 tools, and `submitReview`; no write or shell tools are enabled.
-4. Each review or ask run prepares a **Local PR workspace** in the worker after durable
-   head-SHA resolution. The workspace has a private git checkout for server-owned
-   diff/blame operations and a separate sanitized agent-visible tree with no `.git`,
-   hooks, credentials, or symlinks.
-5. GitHub read tools are removed from the agent-callable investigation surface. A trusted
-   `pulls.get` read at job start is still allowed for PR identity, head/base SHAs, fork
-   state, title/body, and repository URLs. Publish/idempotency reads and a final head
-   check remain server-owned.
-6. Local `git diff <baseSha>...<headSha>` becomes the primary source for changed paths
-   and commentable RIGHT-side ranges. GitHub remains final authority at publish time; if
-   an inline anchor is rejected, the server downgrades to summary-only and records
-   telemetry instead of asking the agent to guess another line.
-7. Auto and slash-command reviews get one stale-head reschedule. If a review reaches publish
-   after the PR head has changed, the worker may schedule one replacement run for the latest
-   head (preserving slash command context when present). If the replacement also goes stale,
-   it fails with retry guidance instead of rescheduling indefinitely.
+1. Agents are read-only investigators. Production runs expose local read/search/diff tools, Context7 tools, and structured submit/publish tools. No write or shell tools are enabled on review, ask, description, or verification sessions.
+2. GitHub read tools are not on the agent-callable investigation surface. A trusted `pulls.get` / `listFiles` read at job start is still allowed for PR identity, head/base SHAs, fork state, title/body, repository URLs, and the cached diff. Publish/idempotency reads and a final head check remain server-owned.
+3. Each review, ask, description, or verification run prepares a **Local PR workspace** in the worker after durable head-SHA resolution. Temp-root allocation, credential files, and release are owned by one `WorkspaceResource`. An on-disk ownership marker plus heartbeat is the sweep safety guarantee so one worker cannot delete another process's live checkout.
+4. Auto and slash-command reviews get one stale-head reschedule. If a review reaches publish after the PR head has changed, the worker may schedule one replacement run for the latest head (preserving slash command context when present). If the replacement also goes stale, it fails with retry guidance instead of rescheduling indefinitely.
 
 ## Consequences
 
-- Worker runtime now depends on `git`, disk-space admission checks, stale workspace
-  cleanup, and per-run workspace cleanup. Temp-root allocation, credential files, and
-  release are owned by one `WorkspaceResource`. An on-disk ownership marker plus
-  heartbeat is the sweep safety guarantee so one worker cannot delete another process's
-  live checkout; in-process live-root tracking is only an optimization.
-- GitHub API rate-limit pressure moves out of investigation and remains only around
-  trusted metadata and publish/idempotency operations.
-- Local diff parity becomes a publish-critical invariant and must be covered by tests
-  using real temporary git repositories.
-- Cursor no longer runs against the pr-agent source `cwd`; it runs against the
-  agent-visible tree while preserving `local.settingSources: []`.
-- Pi coding-agent must use in-memory or temp per-run storage in production workers;
-  workers must not write default `~/.pi` state.
+- Worker runtime depends on `git`, disk-space admission checks, stale workspace cleanup, and per-run workspace cleanup.
+- GitHub API rate-limit pressure moves out of investigation and remains only around trusted metadata and publish/idempotency operations.
+- Pi coding-agent must use in-memory or temp per-run storage in production workers; workers must not write default `~/.pi` state.
 
 ## Alternatives considered
 
-- Keep GitHub read tools and only add local file access. Rejected because the target
-  architecture removes GitHub reads from the agent investigation surface.
-- Remove all GitHub reads. Rejected because PR metadata, final head checks, and publish
-  idempotency still require trusted GitHub state.
-- Allow agents to see `.git` and run shell commands. Rejected because review jobs are
-  read-only and PR code is untrusted.
+- Keep GitHub read tools and only add local file access. Rejected because the target architecture removes GitHub reads from the agent investigation surface.
+- Remove all GitHub reads. Rejected because PR metadata, final head checks, and publish idempotency still require trusted GitHub state.
+- Allow agents to see `.git` and run shell commands. Rejected because review jobs are read-only and PR code is untrusted.

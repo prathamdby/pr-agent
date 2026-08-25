@@ -20,7 +20,7 @@ The useful signal from verification is asymmetric:
 2. **Reply only when human attention is required.** Keep thread replies for `skipped` (still open, still gated on the finding's file having changed in this push) and `dismissed` (authorized decision evidence + policy suggestion).
 3. **No change to the agent loop or schema.** Verdict vocabulary, validation, and the verification queue stay as in ADR 0020; only publish behaviour changes.
 
-**Amendment (see [ADR 0023](0023-verification-stub-ledger.md)):** verification now owns one editable stub per thread for still-open updates, and resolves the thread after acknowledging `dismissed`. The original “never auto-resolve dismissed” rule remains true for `/triage` only.
+**Amendment (see [ADR 0023](0023-verification-stub-ledger.md)):** verification now owns one editable stub per thread for still-open updates, and resolves the thread after acknowledging `dismissed`. `/triage` dismissed resolve is defined in [ADR 0037](0037-triage-resolve-completed-threads.md).
 
 **Amendment (PR #307):** when a prior verification stub exists, `fixed` / `already-resolved` edit that stub in place to a short success line before resolve. This does not create a new reply; it only clears a stale still-open signal left from an earlier skipped publish.
 

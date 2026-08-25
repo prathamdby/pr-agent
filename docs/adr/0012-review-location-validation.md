@@ -1,4 +1,4 @@
-# ADR 0012 — Cached diff validation and summary-first publish
+# ADR 0012 — Cached diff validation and best-effort inline publish
 
 > **Changelog:** §6 revised 2026-05-25 — narrowed **Public-output sanitizer** after false-positive whole-field redaction on normal review prose (see PR #38).
 
@@ -16,7 +16,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 2. **Server-side placement** — Validate each finding against cached ranges before calling GitHub. Unresolvable findings become **summary-only findings**; the model does not choose placement.
 
-3. **Summary-first publish** — Always upsert the structured PR conversation summary when publish succeeds. Inline review creation is best-effort; GitHub rejections are logged privately and do not fail the review.
+3. **Summary always publishes** — Always upsert the structured PR conversation summary when the run succeeds. Incremental inline batches ([ADR 0028](0028-orchestrated-review.md)) are best-effort; GitHub rejections are logged privately and become **summary-only findings**.
 
 4. **Deterministic failure notice** — When publish is exhausted, upsert a neutral review failure notice without model-authored fallback prose, attempt counts, or internal API details.
 
@@ -34,4 +34,4 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 ## Reversal
 
-Revert to inline-first publish and model-authored fallback by removing cached diff validation and restoring prose fallback generation in `reviewRun.ts`.
+Revert to failing the review on invalid inline anchors and restore model-authored fallback prose.

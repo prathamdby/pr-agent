@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted. Supersedes [ADR 0019](0019-merge-verdict-clamp.md).
+Accepted.
 
 ## Context
 
-ADR 0019 added a model-authored **Merge verdict** row (score /5 plus rationale) to the review summary comment, with consistency clamps when P0/P1 findings were open. Product direction changed: maintainers should assemble merge readiness from the existing gate rows and findings table, without a separate verdict that can still be misquoted as a merge promise.
+The review summary once included a model-authored **Merge verdict** row (score /5 plus rationale), with consistency clamps when P0/P1 findings were open. Product direction changed: maintainers should assemble merge readiness from the existing gate rows and findings table, without a separate verdict that can still be misquoted as a merge promise.
 
 ## Decision
 
@@ -21,4 +21,4 @@ ADR 0019 added a model-authored **Merge verdict** row (score /5 plus rationale) 
 
 ## Reversal
 
-Restore ADR 0019’s field, clamp, and summary row (or an equivalent design).
+Restore the merge-verdict field, clamp, and summary row (or an equivalent design).

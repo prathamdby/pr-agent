@@ -35,7 +35,7 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 ## Consequences
 
 - GitHub App setup now needs **Contents: read/write** for `/triage`.
-- A bot push fires a normal `synchronize` webhook and automated general review. That is expected validation, not a loop, because `/triage` never auto-runs.
+- A bot push fires a normal `synchronize` webhook and a **verification run** ([ADR 0020](0020-verification-run-work-type.md)), not a re-review. That is expected validation, not a loop, because `/triage` never auto-runs and verification never pushes.
 - `publish_records` now tracks `triage_push`, `triage_thread_actions`, and `triage_report` for crash-safe retries.
 
 ## Reversal
