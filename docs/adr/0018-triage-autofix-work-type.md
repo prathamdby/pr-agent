@@ -24,11 +24,13 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 
 6. **Dismissed requires an authorized maintainer decision.** A dismissed verdict requires a non-bot reply from a known GitHub user whose server-preserved association is allowed by `MAINTAINER_DECISION_ASSOCIATIONS`, and the reply must belong to the matching finding thread. Reply text remains untrusted evidence; missing authorization metadata fails closed. Thread-resolution behavior is defined by the later publish amendments in ADR 0037.
 
-7. **Current and legacy findings are triage-eligible.** Triage inventory includes specialist findings from current `review` runs plus recognized legacy `review-security`, `review-quality`, and `review-tests` threads (P0–P3 when posted as inline threads). Mode is resolved from the `pr-agent:review-pointer` HTML marker, legacy pointer strings, or `publish_records` backfill. `REVIEW_POINTER_NOTE_LEAD` alone never makes a thread eligible.
+7. **PR lifecycle guard.** Close/merge intake cancels queued and running triage work. Running Pi sessions stop at their next checkpoint, and the writable checkout re-reads PR state through `PrSurface` immediately before commit and before push. A closed or merged PR is terminal for triage writes: it receives no commit or push and gets a clear no-push outcome.
 
-8. **Scoped invocation.** PR-conversation `/triage` runs on all unresolved eligible findings. Inline-thread `/triage` runs on one finding. One active triage job per PR remains; thread `/triage` during a full-PR run acks that full triage is already in progress.
+8. **Current and legacy findings are triage-eligible.** Triage inventory includes specialist findings from current `review` runs plus recognized legacy `review-security`, `review-quality`, and `review-tests` threads (P0–P3 when posted as inline threads). Mode is resolved from the `pr-agent:review-pointer` HTML marker, legacy pointer strings, or `publish_records` backfill. `REVIEW_POINTER_NOTE_LEAD` alone never makes a thread eligible.
 
-9. **Lens discovery is publish-time.** New inline reviews append `<!-- pr-agent:review-pointer lens=<mode> -->` after pointer-body truncation so classification survives long bodies.
+9. **Scoped invocation.** PR-conversation `/triage` runs on all unresolved eligible findings. Inline-thread `/triage` runs on one finding. One active triage job per PR remains; thread `/triage` during a full-PR run acks that full triage is already in progress.
+
+10. **Lens discovery is publish-time.** New inline reviews append `<!-- pr-agent:review-pointer lens=<mode> -->` after pointer-body truncation so classification survives long bodies.
 
 ## Consequences
 

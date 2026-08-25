@@ -4,6 +4,8 @@ import {
   StaleHeadPushError,
   type WritablePrCheckout,
 } from "../src/prWorkspace/writablePrCheckout.js";
+import { TriageClosedPullRequestError } from "../src/agent/triage/triageErrors.js";
+import { isPullRequestOpenAndUnmerged } from "../src/github/listPullRequestFiles.js";
 
 import {
   publishTestPrSurface,
@@ -38,7 +40,11 @@ import {
   publishTriageReportOnly,
   type TriagePushOutcome,
 } from "../src/agent/triage/publishTriage.js";
-import { TRIAGE_STALE_HEAD_NOTICE, TRIAGE_SUMMARY_SENTINEL } from "../src/settings/index.js";
+import {
+  TRIAGE_CLOSED_PR_NOTICE,
+  TRIAGE_STALE_HEAD_NOTICE,
+  TRIAGE_SUMMARY_SENTINEL,
+} from "../src/settings/index.js";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 
 const thread = {
@@ -138,6 +144,122 @@ describe("publishTriage", () => {
     expect(resolveThreadIds(controls)).toHaveLength(0);
     expect(upsertProgressBody(controls)).toContain("head changed");
     expect(upsertProgressBody(controls)).toContain(TRIAGE_STALE_HEAD_NOTICE);
+  });
+
+  it("records a closed PR as terminal no-push and skips fixed-thread actions", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => {
+        throw new TriageClosedPullRequestError();
+      }),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef123456",
+            evidence: "fixed",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result).toEqual({ pushOutcome: "closed", missingThreadAction: false });
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(upsertProgressBody(controls)).toContain(TRIAGE_CLOSED_PR_NOTICE);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "triage_push",
+        detail: expect.objectContaining({ pushOutcome: "closed" }),
+      }),
+    );
+  });
+
+  it("records attempted commits when the PR closes between commit and push", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
+    const committedSha = "c".repeat(40);
+    const committed = [{ sha: committedSha, subject: "fix: guard user", diff: "+ok\n" }];
+    const remotePush = vi.fn(async () => undefined);
+    const commit = vi.fn(async () => ({ sha: committedSha, diff: "+ok\n" }));
+    const push = vi.fn(async () => {
+      const { pullRequest } = await fake.surface.getHead();
+      if (!isPullRequestOpenAndUnmerged(pullRequest)) {
+        throw new TriageClosedPullRequestError();
+      }
+      await remotePush();
+    });
+    const raceCheckout: WritablePrCheckout = {
+      dir: "/tmp/checkout",
+      headRef: "main",
+      baseSha: "a".repeat(40),
+      commit,
+      push,
+      listCommittedShas: () => committed.map((entry) => entry.sha),
+      listCommittedDetails: () => [...committed],
+    };
+
+    await raceCheckout.commit({ files: ["src/app.ts"], subject: "fix: guard user" });
+    controls.setPullRequest({
+      additions: 1,
+      deletions: 0,
+      changed_files: 1,
+      state: "closed",
+      merged: false,
+      merged_at: null,
+      head: { sha: "a".repeat(40) },
+    });
+
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: raceCheckout,
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: { verdicts: [fixedVerdict] },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(remotePush).not.toHaveBeenCalled();
+    expect(result).toEqual({ pushOutcome: "closed", missingThreadAction: false });
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(upsertProgressBody(controls)).toContain(TRIAGE_CLOSED_PR_NOTICE);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "triage_push",
+        detail: expect.objectContaining({
+          pushOutcome: "closed",
+          attemptedShas: [committedSha],
+        }),
+      }),
+    );
   });
 
   it("replies and resolves a fixed thread after a successful push", async () => {
@@ -713,6 +835,7 @@ describe("parseStoredTriagePushDetail", () => {
     expect(isTriagePushOutcome("not-needed")).toBe(true);
     expect(isTriagePushOutcome("pushed")).toBe(true);
     expect(isTriagePushOutcome("stale")).toBe(true);
+    expect(isTriagePushOutcome("closed")).toBe(true);
     expect(isTriagePushOutcome("degraded")).toBe(false);
 
     expect(
@@ -754,6 +877,20 @@ describe("parseStoredTriagePushDetail", () => {
         payload: storedPayload,
       }),
     ).toEqual(expect.objectContaining({ pushOutcome: "not-needed" }));
+    expect(
+      parseStoredTriagePushDetail({
+        pushOutcome: "closed",
+        attemptedShas: [storedCommit.sha],
+        commits: [storedCommit],
+        payload: storedPayload,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        pushOutcome: "closed",
+        commits: [storedCommit],
+        payload: storedPayload,
+      }),
+    );
   });
 
   it("rejects invalid stored payloads", () => {
@@ -796,6 +933,15 @@ describe("publishTriage push outcomes", () => {
     { outcome: "stale", verdict: alreadyResolvedVerdict, expectReply: true, expectResolve: true },
     { outcome: "stale", verdict: dismissedVerdict, expectReply: false, expectResolve: true },
     { outcome: "stale", verdict: skippedVerdict, expectReply: false, expectResolve: false },
+    { outcome: "closed", verdict: fixedVerdict, expectReply: false, expectResolve: false },
+    {
+      outcome: "closed",
+      verdict: alreadyResolvedVerdict,
+      expectReply: true,
+      expectResolve: true,
+    },
+    { outcome: "closed", verdict: dismissedVerdict, expectReply: false, expectResolve: true },
+    { outcome: "closed", verdict: skippedVerdict, expectReply: false, expectResolve: false },
   ];
 
   it.each(cases)(
@@ -804,6 +950,7 @@ describe("publishTriage push outcomes", () => {
       const fake = publishTestPrSurface();
       const push = vi.fn(async () => {
         if (outcome === "stale") throw new StaleHeadPushError();
+        if (outcome === "closed") throw new TriageClosedPullRequestError();
       });
       const result = await publishTriage({
         pool: pool(),

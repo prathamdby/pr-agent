@@ -5,6 +5,7 @@ import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import type { PrSurface } from "../../github/prSurface.js";
+import { isPullRequestOpenAndUnmerged } from "../../github/listPullRequestFiles.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import {
@@ -12,6 +13,10 @@ import {
   type BotFindingThread,
 } from "../../review/run/reviewPriorFeedback.js";
 import { runFullPrTriage } from "../../agent/triage/triageRun.js";
+import {
+  TriageCancelledError,
+  TriageClosedPullRequestError,
+} from "../../agent/triage/triageErrors.js";
 import {
   parseStoredTriagePushDetail,
   publishTriage,
@@ -26,6 +31,7 @@ import {
 } from "../triageAnalytics.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
+  TRIAGE_CLOSED_PR_NOTICE,
   TRIAGE_FAILURE_MESSAGE,
   TRIAGE_FORK_PR_NOTICE,
   TRIAGE_NO_ELIGIBLE_FINDINGS,
@@ -45,6 +51,7 @@ import {
   getCompletedPublishStepDetailWithoutNewerStep,
   hasCompletedPublishStep,
   listTriageEligibleInlineReviews,
+  shouldSkipWork,
 } from "../repository.js";
 import {
   resolveWorkItemHead,
@@ -197,7 +204,7 @@ function storedPushMatchesInventory(
   headSha: string,
   inventory: readonly BotFindingThread[],
 ): boolean {
-  if (detail.pushOutcome === "stale") return false;
+  if (detail.pushOutcome === "stale" || detail.pushOutcome === "closed") return false;
   if (detail.pushedHeadSha?.toLowerCase() !== headSha.toLowerCase()) return false;
   const verdictIds = new Set(detail.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
   if (verdictIds.size !== inventory.length) return false;
@@ -205,9 +212,30 @@ function storedPushMatchesInventory(
 }
 
 function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult {
-  return publish.pushOutcome === "stale" || publish.missingThreadAction
+  return publish.pushOutcome === "stale" ||
+    publish.pushOutcome === "closed" ||
+    publish.missingThreadAction
     ? { kind: "completed", degraded: true }
     : { kind: "completed" };
+}
+
+async function ensureTriageNotCancelled(
+  pool: Pool,
+  item: Pick<AgentWorkItem, "id">,
+): Promise<void> {
+  if (await shouldSkipWork(pool, item)) throw new TriageCancelledError();
+}
+
+async function ensureTriageWriteAllowed(params: {
+  readonly pool: Pool;
+  readonly item: TriageWorkItem;
+  readonly prSurface: PrSurface;
+}): Promise<void> {
+  await ensureTriageNotCancelled(params.pool, params.item);
+  const { pullRequest } = await params.prSurface.getHead();
+  if (!isPullRequestOpenAndUnmerged(pullRequest)) {
+    throw new TriageClosedPullRequestError();
+  }
 }
 
 function resolveEmptyInventoryOutcome(params: {
@@ -233,6 +261,7 @@ async function handleForkPrReport(params: {
   readonly analytics: TriageAnalyticsRef;
   readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
+  await ensureTriageNotCancelled(params.pool, params.item);
   captureTriageEvent(params.analytics, "triage report only", { outcome: "fork_pr" });
   await publishTriageReportOnly({
     pool: params.pool,
@@ -347,6 +376,7 @@ async function publishEmptyInventoryReport(params: {
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
+  await ensureTriageNotCancelled(params.pool, params.item);
   const outcome = resolveEmptyInventoryOutcome({
     scope: params.scope,
     scopedThreadRootId: params.scopedThreadRootId,
@@ -437,6 +467,7 @@ async function tryResumeStoredPush(params: {
     commit_count: parsed.commits.length,
     push_outcome: parsed.pushOutcome,
   });
+  await ensureTriageNotCancelled(params.pool, params.item);
   const publish = await publishTriage({
     pool: params.pool,
     workItemId: params.item.id,
@@ -548,27 +579,70 @@ async function runFreshTriageAgent(params: {
       installationToken: token,
       botIdentity: params.botIdentity,
       commitAttribution,
+      beforeCommit: () =>
+        ensureTriageWriteAllowed({
+          pool: params.pool,
+          item: params.item,
+          prSurface: params.prSurface,
+        }),
+      beforePush: () =>
+        ensureTriageWriteAllowed({
+          pool: params.pool,
+          item: params.item,
+          prSurface: params.prSurface,
+        }),
     },
     async (checkout) => {
       captureTriageEvent(params.analytics, "triage agent started", {
         inventory_count: params.inventory.length,
       });
-      const result = await runFullPrTriage({
-        cfg: params.cfg,
-        owner: params.item.owner,
-        repo: params.item.repo,
-        prNumber: params.item.prNumber,
-        headSha: params.headSha,
-        checkout,
-        inventory: params.inventory,
-        cwd: checkout.dir,
-        scope: params.scope,
-        durability: {
+      let result: Awaited<ReturnType<typeof runFullPrTriage>>;
+      try {
+        result = await runFullPrTriage({
+          cfg: params.cfg,
+          owner: params.item.owner,
+          repo: params.item.repo,
+          prNumber: params.item.prNumber,
+          headSha: params.headSha,
+          checkout,
+          inventory: params.inventory,
+          cwd: checkout.dir,
+          scope: params.scope,
+          refreshBeforeTool: async () => ensureTriageNotCancelled(params.pool, params.item),
+          durability: {
+            pool: params.pool,
+            workItemId: params.item.id,
+            installationId: params.item.installationId,
+          },
+        });
+      } catch (error) {
+        if (!(error instanceof TriageClosedPullRequestError)) throw error;
+        await publishTriageReportOnly({
           pool: params.pool,
           workItemId: params.item.id,
+          resourceKey: params.item.resourceKey,
           installationId: params.item.installationId,
-        },
-      });
+          prSurface: params.prSurface,
+          owner: params.item.owner,
+          repo: params.item.repo,
+          prNumber: params.item.prNumber,
+          headSha: params.headSha,
+          inventory: params.inventory,
+          previouslyResolvedCount: params.previouslyResolvedCount,
+          leaseEpoch: params.leaseEpoch,
+          ...params.reportContext,
+          body: reportOnlyBody({
+            message: TRIAGE_CLOSED_PR_NOTICE,
+            headSha: params.headSha,
+            inventoryCount: params.inventory.length,
+            previouslyResolvedCount: params.previouslyResolvedCount,
+            scope: params.scope,
+            threadRootCommentId: params.reportContext.threadRootCommentId,
+          }),
+        });
+        return { kind: "completed", degraded: true };
+      }
+      await ensureTriageNotCancelled(params.pool, params.item);
       if (!result.submitted || !result.payload) {
         const error = new AppError({
           code: "triage.missing_submit",
@@ -639,7 +713,9 @@ export async function executeTriageJob(
       captureTriageEvent(analytics, "triage started");
       const { prSurface } = env;
       const headSha = env.headSha;
+      await ensureTriageNotCancelled(pool, item);
       const branch = await loadPullRequestBranchInfo(prSurface);
+      await ensureTriageNotCancelled(pool, item);
       if (!branch.sameRepo) {
         return handleForkPrReport({
           pool,
@@ -660,6 +736,7 @@ export async function executeTriageJob(
         scope,
         analytics,
       });
+      await ensureTriageNotCancelled(pool, item);
       if (discovered.inventory.length === 0) {
         return publishEmptyInventoryReport({
           pool,
@@ -683,6 +760,8 @@ export async function executeTriageJob(
         captureTriageEvent(analytics, "triage skipped", { reason: "report_already_published" });
         return { kind: "completed" };
       }
+
+      await ensureTriageNotCancelled(pool, item);
 
       const resumeParams = {
         cfg,

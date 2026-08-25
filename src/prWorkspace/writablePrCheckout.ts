@@ -84,6 +84,10 @@ type WritablePrCheckoutParams = {
    * Omitted or App source: bot author+committer with no App Co-authored-by.
    */
   readonly commitAttribution?: TriageCommitAttribution;
+  /** Final PR-state guard invoked immediately before creating a commit. */
+  readonly beforeCommit?: () => Promise<void>;
+  /** Final PR-state guard invoked immediately before pushing the branch. */
+  readonly beforePush?: () => Promise<void>;
   readonly remoteUrlOverride?: string;
 };
 
@@ -502,6 +506,7 @@ export async function withWritablePrCheckout<T>(
             message: "commitFix rejected: staged diff is not minimal",
           });
         }
+        await params.beforeCommit?.();
         await git(commitArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS, gitIdentityEnv(person));
         const { stdout: sha } = await git(["rev-parse", "HEAD"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         const committedSha = sha.trim();
@@ -509,6 +514,7 @@ export async function withWritablePrCheckout<T>(
         return { sha: committedSha, diff };
       },
       push: async () => {
+        await params.beforePush?.();
         try {
           await git(
             ["push", "origin", `HEAD:refs/heads/${headRef}`],

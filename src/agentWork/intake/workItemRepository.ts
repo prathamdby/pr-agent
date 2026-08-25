@@ -464,6 +464,13 @@ export type CancelledActiveReview = {
   readonly headSha: string;
 };
 
+export type CancelledActiveTriage = {
+  readonly id: string;
+  readonly headSha: string;
+  readonly ackTargets: readonly AckTarget[];
+  readonly replyTarget: ReplyTarget;
+};
+
 /**
  * Cancel every queued/running review for a PR (auto or slash).
  * Both queued and running become `cancelled` immediately so the slash uniqueness
@@ -535,6 +542,98 @@ export async function cancelActiveReviews(
 		    AND type = 'review'
 		    AND status = 'running'
 		  RETURNING id, source, head_sha, created_at`,
+    [resourceKey, lastError, payloadPatch],
+  );
+  return [...mapRows(running.rows), ...mapRows(queued.rows)];
+}
+
+function triageAckTargets(
+  payload: TriageWorkPayload,
+  prNumber: number | undefined,
+): readonly AckTarget[] {
+  if (payload.ackTargets != null && payload.ackTargets.length > 0) return payload.ackTargets;
+  if (prNumber == null) return [];
+  return [
+    { kind: "pr", prNumber },
+    payload.replyTarget.kind === "inlineReviewThread"
+      ? { kind: "reviewComment", commentId: payload.commentId }
+      : { kind: "issueComment", commentId: payload.commentId },
+  ];
+}
+
+/**
+ * Cancel every queued/running slash triage for a PR on close/merge.
+ * Running rows carry cancel_requested_at so an in-process Pi session stops at
+ * its next tool checkpoint; both states become terminal immediately.
+ */
+export async function cancelActiveTriage(
+  client: PoolClient,
+  resourceKey: string,
+  attribution: ReviewCancelAttribution,
+  prNumber?: number,
+): Promise<readonly CancelledActiveTriage[]> {
+  const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
+  const lastError = reviewCancelLastError(attribution);
+  const mapRows = (
+    rows: readonly {
+      id: string;
+      head_sha: string;
+      created_at: Date | string;
+      payload: unknown;
+    }[],
+  ): CancelledActiveTriage[] =>
+    [...rows]
+      .sort((a, b) => {
+        const ta = new Date(a.created_at).getTime();
+        const tb = new Date(b.created_at).getTime();
+        if (tb !== ta) return tb - ta;
+        return b.id.localeCompare(a.id);
+      })
+      .map((row) => {
+        const payload = parseWorkItemPayload("triage", row.payload);
+        return {
+          id: row.id,
+          headSha: row.head_sha,
+          ackTargets: triageAckTargets(payload, prNumber),
+          replyTarget: payload.replyTarget,
+        };
+      });
+
+  const queued = await client.query<{
+    id: string;
+    head_sha: string;
+    created_at: Date | string;
+    payload: unknown;
+  }>(
+    `UPDATE agent_work_items
+			   SET status = 'cancelled',
+			       last_error = $2,
+			       completed_at = now(),
+			       updated_at = now(),
+			       payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
+		 WHERE resource_key = $1
+		   AND type = 'triage'
+		   AND status = 'queued'
+		 RETURNING id, head_sha, created_at, payload`,
+    [resourceKey, lastError, payloadPatch],
+  );
+  const running = await client.query<{
+    id: string;
+    head_sha: string;
+    created_at: Date | string;
+    payload: unknown;
+  }>(
+    `UPDATE agent_work_items
+			   SET status = 'cancelled',
+			       cancel_requested_at = COALESCE(cancel_requested_at, now()),
+			       last_error = $2,
+			       completed_at = now(),
+			       updated_at = now(),
+			       payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
+		 WHERE resource_key = $1
+		   AND type = 'triage'
+		   AND status = 'running'
+		 RETURNING id, head_sha, created_at, payload`,
     [resourceKey, lastError, payloadPatch],
   );
   return [...mapRows(running.rows), ...mapRows(queued.rows)];

@@ -13,11 +13,13 @@ import {
   type TriageVerdict,
 } from "../../review/triageSchema.js";
 import {
+  TRIAGE_CLOSED_PR_NOTICE,
   TRIAGE_PUBLISH_LENS,
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
 } from "../../settings/index.js";
+import { TriageClosedPullRequestError } from "./triageErrors.js";
 import { recordPublishStep } from "../../agentWork/repository.js";
 import {
   operationIntentMarker,
@@ -79,7 +81,7 @@ type TriageCommittedDetail = {
   readonly diff: string;
 };
 
-export type TriagePushOutcome = "not-needed" | "pushed" | "stale";
+export type TriagePushOutcome = "not-needed" | "pushed" | "stale" | "closed";
 
 type TriagePriorPush = {
   readonly pushOutcome: TriagePushOutcome;
@@ -97,7 +99,7 @@ export type PublishTriageResult = {
 };
 
 export function isTriagePushOutcome(value: unknown): value is TriagePushOutcome {
-  return value === "not-needed" || value === "pushed" || value === "stale";
+  return value === "not-needed" || value === "pushed" || value === "stale" || value === "closed";
 }
 
 function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
@@ -148,9 +150,14 @@ function storedTriagePushRecord(params: {
     commits: params.commits,
     baseHeadSha: params.headSha,
   };
-  if (params.outcome === "stale") {
-    // Keep staleHead so mixed-version workers still parse this row.
-    return { ...shared, staleHead: true, attemptedShas: params.committedShas };
+  if (params.outcome === "stale" || params.outcome === "closed") {
+    // Preserve attempted SHAs for terminal no-push outcomes; staleHead keeps
+    // the stale variant compatible with older workers.
+    return {
+      ...shared,
+      ...(params.outcome === "stale" ? { staleHead: true } : {}),
+      attemptedShas: params.committedShas,
+    };
   }
   return {
     ...shared,
@@ -371,15 +378,22 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         }),
       });
     } catch (error) {
-      if (!(error instanceof StaleHeadPushError)) {
+      if (error instanceof TriageClosedPullRequestError) {
+        pushOutcome = "closed";
+        captureTriageEvent(analytics, "triage degraded", {
+          step: "publish_push",
+          reason: "closed_pull_request",
+        });
+      } else if (error instanceof StaleHeadPushError) {
+        pushOutcome = "stale";
+        captureTriageEvent(analytics, "triage degraded", {
+          step: "publish_push",
+          reason: "stale_head",
+        });
+      } else {
         captureTriageFailure(analytics, "publish_push", error);
         throw error;
       }
-      pushOutcome = "stale";
-      captureTriageEvent(analytics, "triage degraded", {
-        step: "publish_push",
-        reason: "stale_head",
-      });
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
         leaseEpoch: params.leaseEpoch,
@@ -387,7 +401,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
         detail: storedTriagePushRecord({
-          outcome: "stale",
+          outcome: pushOutcome,
           headSha: params.headSha,
           committedShas,
           commits: committedDetails,
@@ -532,6 +546,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         commits: pushOutcome === "pushed" ? committedDetails : [],
         previouslyResolvedCount: params.previouslyResolvedCount,
         notice: [
+          pushOutcome === "closed" ? TRIAGE_CLOSED_PR_NOTICE : undefined,
           pushOutcome === "stale" ? TRIAGE_STALE_HEAD_NOTICE : undefined,
           missingThreadAction ? TRIAGE_THREAD_RESOLUTION_NOTICE : undefined,
         ]

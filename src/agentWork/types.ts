@@ -67,6 +67,15 @@ export type AckJobData = JobCorrelation & {
     readonly cancelledWorkItemIds?: readonly string[];
     readonly attribution: ReviewCancelAttribution;
   };
+  /** Terminal acknowledgement for a queued/running triage cancelled by PR close. */
+  readonly cancelTriage?: {
+    readonly workItemId: string;
+    /** Absent on stale pre-deploy ack jobs; reader falls back to workItemId. */
+    readonly cancelledWorkItemIds?: readonly string[];
+    readonly attribution: ReviewCancelAttribution;
+    readonly targets: readonly AckTarget[];
+    readonly replyTarget: ReplyTarget;
+  };
   readonly reply?: {
     readonly target: ReplyTarget;
     readonly body: string;
@@ -165,6 +174,8 @@ export type TriageWorkPayload = {
   readonly replyTarget: ReplyTarget;
   readonly publishDegraded?: boolean;
   readonly ackTargets?: readonly AckTarget[];
+  /** Set when close/merge intake cancels the triage work item. */
+  readonly cancelAttribution?: ReviewCancelAttribution;
 };
 
 export type VerificationWorkPayload = {

@@ -35,6 +35,9 @@ export type PullRequestForFileList = {
   readonly additions: number;
   readonly deletions: number;
   readonly changed_files: number;
+  readonly state?: "open" | "closed";
+  readonly merged?: boolean;
+  readonly merged_at?: string | null;
   readonly head?: {
     readonly sha?: string | null;
     readonly repo?: { readonly full_name?: string | null } | null;
@@ -43,6 +46,17 @@ export type PullRequestForFileList = {
     readonly repo?: { readonly full_name?: string | null } | null;
   } | null;
 };
+
+/**
+ * A triage checkout may write only while GitHub still considers the PR open and
+ * unmerged. Missing lifecycle fields fail closed because callers use this
+ * predicate immediately before branch mutations.
+ */
+export function isPullRequestOpenAndUnmerged(pullRequest: PullRequestForFileList): boolean {
+  return (
+    pullRequest.state === "open" && pullRequest.merged === false && pullRequest.merged_at === null
+  );
+}
 
 type PatchBudgetState = {
   patchCapReached: boolean;

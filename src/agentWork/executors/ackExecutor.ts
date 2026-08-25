@@ -6,7 +6,9 @@ import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publ
 import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,
+  GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
+  triageCancelledNotice,
 } from "../../settings/index.js";
 import { createPrSurface } from "../../github/prSurface.js";
 import { mintInstallationToken } from "../durableJob.js";
@@ -188,6 +190,17 @@ async function publishCancelProgress(
   });
 }
 
+async function publishTriageCancellation(
+  prSurface: ReturnType<typeof ackPrSurface>,
+  data: AckJobData & { readonly cancelTriage: NonNullable<AckJobData["cancelTriage"]> },
+): Promise<void> {
+  await prSurface.setAcknowledgementReaction(data.cancelTriage.targets, GITHUB_REACTION_MINUS_ONE);
+  await prSurface.replyAt(
+    data.cancelTriage.replyTarget,
+    triageCancelledNotice(data.cancelTriage.attribution),
+  );
+}
+
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
   try {
@@ -218,6 +231,18 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
     } catch (error) {
       logWarn("ack_cancel_progress_failed", {
         workItemId: data.cancelProgress.workItemId,
+        resourceKey,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (data.cancelTriage) {
+    try {
+      await publishTriageCancellation(prSurface, { ...data, cancelTriage: data.cancelTriage });
+    } catch (error) {
+      logWarn("ack_cancel_triage_failed", {
+        workItemId: data.cancelTriage.workItemId,
         resourceKey,
         message: error instanceof Error ? error.message : String(error),
       });

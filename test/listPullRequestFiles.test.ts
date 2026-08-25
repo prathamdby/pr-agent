@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { listPullRequestFilesPaginated } from "../src/github/listPullRequestFiles.js";
+import {
+  isPullRequestOpenAndUnmerged,
+  listPullRequestFilesPaginated,
+  type PullRequestForFileList,
+} from "../src/github/listPullRequestFiles.js";
 import { installationOctokit } from "../src/github/appAuth.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 
 function makeOctokitStub(pullsListFiles: ReturnType<typeof vi.fn>) {
   return {
@@ -125,5 +130,34 @@ describe("listPullRequestFilesPaginated", () => {
     expect(out.files[1]?.patch).toBeUndefined();
     expect(out.files[1]?.patchOmitted).toBe(true);
     expect(out.warning).toContain("Unified diff patches omitted for 1 file(s) after 2 byte cap.");
+  });
+});
+
+describe("isPullRequestOpenAndUnmerged", () => {
+  const base: PullRequestForFileList = {
+    additions: 0,
+    deletions: 0,
+    changed_files: 0,
+    state: "open",
+    merged: false,
+    merged_at: null,
+  };
+
+  it.each([
+    ["complete open and unmerged state", base, true],
+    ["missing state", { ...base, state: undefined }, false],
+    ["missing merged flag", { ...base, merged: undefined }, false],
+    ["missing merged timestamp", { ...base, merged_at: undefined }, false],
+    ["open but merged", { ...base, merged: true }, false],
+    ["open with a merge timestamp", { ...base, merged_at: "2026-01-01T00:00:00Z" }, false],
+    ["closed and unmerged", { ...base, state: "closed" }, false],
+  ] as const)("fails closed for %s", (_label, pullRequest, expected) => {
+    expect(isPullRequestOpenAndUnmerged(pullRequest)).toBe(expected);
+  });
+
+  it("keeps the fake surface default write-eligible", async () => {
+    const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+
+    expect(isPullRequestOpenAndUnmerged((await fake.surface.getHead()).pullRequest)).toBe(true);
   });
 });

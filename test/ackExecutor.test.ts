@@ -5,6 +5,7 @@ import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
 import type { AckJobData } from "../src/agentWork/types.js";
 import {
   GITHUB_REACTION_EYES,
+  GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
   REVIEW_SUMMARY_SENTINEL,
 } from "../src/settings/index.js";
@@ -74,6 +75,7 @@ import {
   REVIEW_PROGRESS_QUEUE_LABEL,
   REVIEW_PROGRESS_QUEUED_NOTE,
   reviewProgressCancelledNote,
+  triageCancelledNotice,
 } from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
 
@@ -327,6 +329,63 @@ describe("executeAckJob", () => {
       }),
     );
   });
+
+  it("publishes a terminal triage cancellation reaction and no-push notice", async () => {
+    const data = {
+      ...ackData(),
+      cancelTriage: {
+        workItemId: "triage-cancelled",
+        cancelledWorkItemIds: ["triage-cancelled"],
+        attribution: { kind: "merged" as const },
+        targets: [
+          { kind: "pr" as const, prNumber: 1 },
+          { kind: "issueComment" as const, commentId: 10 },
+        ],
+        replyTarget: { kind: "prConversation" as const, prNumber: 1 },
+      },
+    } satisfies AckJobData;
+
+    await executeAckJob(cfg, pool, data);
+
+    expect(surfaceBundle.controls.reactions).toContainEqual({
+      targets: data.cancelTriage.targets,
+      kind: GITHUB_REACTION_MINUS_ONE,
+    });
+    expect(surfaceBundle.controls.replies).toContainEqual({
+      target: data.cancelTriage.replyTarget,
+      body: triageCancelledNotice(data.cancelTriage.attribution),
+    });
+  });
+
+  it.each([
+    { label: "closed", attribution: { kind: "closed" as const } },
+    { label: "user", attribution: { kind: "user" as const, login: "alice" } },
+  ])(
+    "preserves %s triage cancellation attribution in the terminal notice",
+    async ({ attribution }) => {
+      const data = {
+        ...ackData(),
+        cancelTriage: {
+          workItemId: "triage-cancelled",
+          cancelledWorkItemIds: ["triage-cancelled"],
+          attribution,
+          targets: [{ kind: "pr" as const, prNumber: 1 }],
+          replyTarget: { kind: "prConversation" as const, prNumber: 1 },
+        },
+      } satisfies AckJobData;
+
+      await executeAckJob(cfg, pool, data);
+
+      expect(surfaceBundle.controls.reactions).toContainEqual({
+        targets: data.cancelTriage.targets,
+        kind: GITHUB_REACTION_MINUS_ONE,
+      });
+      expect(surfaceBundle.controls.replies).toContainEqual({
+        target: data.cancelTriage.replyTarget,
+        body: triageCancelledNotice(attribution),
+      });
+    },
+  );
 
   it("falls back to upsert when cancelProgress finds a foreign stub", async () => {
     const foreign = renderReviewProgressComment({
