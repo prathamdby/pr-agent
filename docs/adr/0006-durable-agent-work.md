@@ -1,4 +1,4 @@
-# ADR 0009 — Durable agent work queue
+# ADR 0006 — Durable agent work queue
 
 ## Status
 
@@ -14,7 +14,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 1. **Durable intake** — Webhook dispatch records `webhook_events`, `webhook_event_replays`, `agent_work_items`, and pg-boss jobs in one Postgres transaction. The HTTP response is sent only after the transaction commits.
 
-2. **Postgres + pg-boss** — Use Postgres for app-owned workflow state and pg-boss for delivery, retries, heartbeat, expiration, and dead-letter retention. Per-PR mutual exclusion is the **PR actor lease** ([ADR 0038](0038-pr-actor-lease.md)); work queues use the `standard` policy.
+2. **Postgres + pg-boss** — Use Postgres for app-owned workflow state and pg-boss for delivery, retries, heartbeat, expiration, and dead-letter retention. Per-PR mutual exclusion is the **PR actor lease** ([ADR 0030](0030-pr-actor-lease.md)); work queues use the `standard` policy.
 
 3. **Web/worker split** — `ROLE=web` serves `/health`, `/ready`, and `/webhooks`. `ROLE=worker` runs acknowledgement, CI-refresh, review, ask, description, triage, verification, and retention workers from the same image.
 
@@ -24,7 +24,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 6. **Fresh token execution** — Jobs store `installationId`; workers mint installation tokens immediately before GitHub operations.
 
-7. **Superseding and lanes** — Automated reviews use latest-head-wins semantics for the same PR. `/ask` uses a separate queue and reserved worker capacity. [ADR 0028](0028-orchestrated-review.md) replaced per-lens singleton keys and progress comments with one active review slot per pull request.
+7. **Superseding and lanes** — Automated reviews use latest-head-wins semantics for the same PR. `/ask` uses a separate queue and reserved worker capacity. [ADR 0020](0020-orchestrated-review.md) replaced per-lens singleton keys and progress comments with one active review slot per pull request.
 
 8. **Publish idempotency** — `publish_records` tracks progress comments, inline review publishing, summary comments, and label sync so at-least-once job execution can resume safely.
 
@@ -32,8 +32,8 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 - GitHub may redeliver if Postgres is unavailable during intake because the app returns `503` instead of acknowledging unpersisted work.
 - Acknowledgement reactions and progress comments are fast but asynchronous; they may appear shortly after the webhook response.
-- ~~`key_strict_fifo` blocks a pull request while a pg-boss review job is failed or an orphan holder remains.~~ Superseded by [ADR 0038](0038-pr-actor-lease.md): per-PR mutual exclusion moved to the `pr_actor_leases` table, all work queues use the `standard` policy, and the slot-release/reaper repair paths are deleted.
-- In-process review/ask semaphores and ADR 0007's "synchronous webhook contract unchanged" consequence are superseded for agent work.
+- ~~`key_strict_fifo` blocks a pull request while a pg-boss review job is failed or an orphan holder remains.~~ Superseded by [ADR 0030](0030-pr-actor-lease.md): per-PR mutual exclusion moved to the `pr_actor_leases` table, all work queues use the `standard` policy, and the slot-release/reaper repair paths are deleted.
+- In-process review/ask semaphores and ADR 0004's "synchronous webhook contract unchanged" consequence are superseded for agent work.
 
 ## Reversal
 

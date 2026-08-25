@@ -6,4 +6,4 @@ globs:
   - "src/agent/tools/**"
 ---
 
-Local PR workspace at the reviewed `headSha` is the sole publishable code authority (ADR 0032). Findings that cite a path/line range must pass `assertFindingsHaveEvidence` against the work-item `EvidenceLedger` (`src/review/findings/evidenceValidator.ts`) before inline or summary publish. Code index / FTS / symbol-index hits are navigation hints only — never publish authority without a following workspace read. Sparse checkout coverage must not be treated as full-repo certainty.
+Local PR workspace at the reviewed `headSha` is the sole publishable code authority (ADR 0024). Findings that cite a path/line range must pass `assertFindingsHaveEvidence` against the work-item `EvidenceLedger` (`src/review/findings/evidenceValidator.ts`) before inline or summary publish. Code index / FTS / symbol-index hits are navigation hints only — never publish authority without a following workspace read. Sparse checkout coverage must not be treated as full-repo certainty.

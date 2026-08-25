@@ -1,4 +1,4 @@
-# ADR 0030 — Remove merge verdict from the review summary
+# ADR 0022 — Remove merge verdict from the review summary
 
 ## Status
 

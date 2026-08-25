@@ -6,7 +6,7 @@ import {
 } from "../../github/markdownFormat.js";
 import type { CiFailureDetail, CiSummary } from "./ciSummaryTypes.js";
 
-/** HTML comment markers for surgical CI-cell refresh (ADR 0026). */
+/** HTML comment markers for surgical CI-cell refresh (ADR 0018). */
 export const CI_SUMMARY_CELL_START = "<!-- pr-agent:ci-summary -->";
 export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 

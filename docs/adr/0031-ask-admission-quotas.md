@@ -1,4 +1,4 @@
-# ADR 0039 — Durable ask admission quotas
+# ADR 0031 — Durable ask admission quotas
 
 ## Status
 

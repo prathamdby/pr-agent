@@ -1,6 +1,6 @@
 # Cursor Cloud specific instructions
 
-Operator setup for Cursor Cloud VMs. Not loaded into ADR 0027 trusted review context (see [AGENTS.md](../AGENTS.md)).
+Operator setup for Cursor Cloud VMs. Not loaded into ADR 0019 trusted review context (see [AGENTS.md](../AGENTS.md)).
 
 ## Services overview
 
@@ -19,5 +19,5 @@ Operator setup for Cursor Cloud VMs. Not loaded into ADR 0027 trusted review con
 - **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`.
 - **Unit tests (`nub run test`)** do not need Postgres. **Integration tests** require a reachable DB: `docker compose up -d postgres` then `DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub run test:integration` (exits nonzero without Postgres). Inventory-only: `nub run test:integration:inventory`. Use `nub run --node test` if Vitest shows augmentation-related flakiness.
 - **Lint/fmt commands**: `nub run lint` (oxlint, type-aware), `nub run typecheck` (tsc), `nub run fmt:check` (oxfmt). Combined: `nub run check:code`.
-- **Ignored build scripts warning** from Nub is expected for some transitive deps (`esbuild`, `protobufjs`). The worker image does not need a native `sqlite3` build for the agent runtime (see ADR 0031).
+- **Ignored build scripts warning** from Nub is expected for some transitive deps (`esbuild`, `protobufjs`). The worker image does not need a native `sqlite3` build for the agent runtime (see ADR 0023).
 - **Vercel site deploys** install pinned Nub via [`site/vercel.json`](../site/vercel.json) (`npm install -g @nubjs/nub@…` + `nub ci --filter pr-agent-landing...`), then `nub run build`. The repo is Nub identity (`packageManager: nub@…`, `nub.lock`, install knobs in [`nub.jsonc`](../nub.jsonc)).

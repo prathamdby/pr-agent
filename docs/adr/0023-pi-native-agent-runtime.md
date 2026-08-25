@@ -1,9 +1,9 @@
-# ADR 0031: Pi-native agent runtime
+# ADR 0023: Pi-native agent runtime
 
 ## Status
 
 Accepted. Supersedes the former Cursor dual-runtime / `AGENT_PROVIDER` path.
-Read-only local investigation remains in [ADR 0015](0015-agent-runner-local-pr-workspace.md).
+Read-only local investigation remains in [ADR 0011](0011-agent-runner-local-pr-workspace.md).
 
 ## Context
 

@@ -1,4 +1,4 @@
-# ADR 0026 — LLM-authored CI summary from condensed Actions logs
+# ADR 0018 — LLM-authored CI summary from condensed Actions logs
 
 ## Status
 
@@ -12,8 +12,8 @@ Product intent shifted: maintainers (and coding agents) need a natural-language 
 
 Constraints that still hold:
 
-1. Investigation budget stays on the local PR workspace ([ADR 0015](0015-agent-runner-local-pr-workspace.md)) — do not give the review agent open-ended GitHub log tools as the primary CI path.
-2. Layout stays in code ([ADR 0005](0005-structured-review-output.md)) — the model fills structured fields; the server renders the HTML table cell.
+1. Investigation budget stays on the local PR workspace ([ADR 0011](0011-agent-runner-local-pr-workspace.md)) — do not give the review agent open-ended GitHub log tools as the primary CI path.
+2. Layout stays in code ([ADR 0003](0003-structured-review-output.md)) — the model fills structured fields; the server renders the HTML table cell.
 3. Auto-review remains `opened`-only — do not re-run full review on every push just to refresh CI.
 
 ## Decision

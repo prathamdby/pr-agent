@@ -1,4 +1,4 @@
-# ADR 0036 — Validate then repair tool inputs
+# ADR 0028 — Validate then repair tool inputs
 
 ## Status
 

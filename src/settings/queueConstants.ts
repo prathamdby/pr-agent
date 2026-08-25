@@ -19,7 +19,7 @@ export const VERIFICATION_DEAD_LETTER_QUEUE = "agent-work-verification-dead";
 export const CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
-/** Queues whose work types execute under a PR actor lease (see migration 023, ADR 0038). */
+/** Queues whose work types execute under a PR actor lease (see migration 023, ADR 0030). */
 export const LEASED_WORK_QUEUES = [
   REVIEW_QUEUE,
   DESCRIPTION_QUEUE,

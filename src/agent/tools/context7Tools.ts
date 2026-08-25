@@ -220,7 +220,7 @@ const CONTEXT7_PI_TOOLS = CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => toPiTool(n
  * Library-docs lookup tools the review agent uses to verify upstream API claims.
  * Calls https://context7.com/api directly; SDK was avoided because its constructor
  * rejects missing API keys, which would break anonymous fallback.
- * See docs/adr/0003-context7-docs-tool.md.
+ * See docs/adr/0002-context7-docs-tool.md.
  */
 export function buildContext7Tools({
   apiKey,

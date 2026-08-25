@@ -1,4 +1,4 @@
-# ADR 0003 — Context7 docs tool, direct REST instead of `@upstash/context7-sdk`
+# ADR 0002 — Context7 docs tool, direct REST instead of `@upstash/context7-sdk`
 
 ## Status
 

@@ -316,7 +316,7 @@ export async function applyAutomatedPullRequestIntake(
 
 /**
  * Enqueues CI-refresh jobs for a completed workflow_run / check_suite on matching PR heads.
- * No agent_work_item row — fire-and-forget like ack (ADR 0026).
+ * No agent_work_item row — fire-and-forget like ack (ADR 0018).
  */
 export async function applyCiRefreshIntake(
   boss: PgBoss,

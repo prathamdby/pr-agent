@@ -1,4 +1,4 @@
-# ADR 0018 — Triage autofix work type
+# ADR 0013 — Triage autofix work type
 
 ## Status
 
@@ -22,7 +22,7 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 
 5. **Push-or-nothing publish.** Triage pushes before posting `Fixed in` replies or resolving threads. A non-fast-forward push writes a stale-head report and performs no thread actions. Triage never force-pushes, rebases, or amends.
 
-6. **Dismissed requires an authorized maintainer decision.** A dismissed verdict requires a non-bot reply from a known GitHub user whose server-preserved association is allowed by `MAINTAINER_DECISION_ASSOCIATIONS`, and the reply must belong to the matching finding thread. Reply text remains untrusted evidence; missing authorization metadata fails closed. Thread-resolution behavior is defined by the later publish amendments in ADR 0037.
+6. **Dismissed requires an authorized maintainer decision.** A dismissed verdict requires a non-bot reply from a known GitHub user whose server-preserved association is allowed by `MAINTAINER_DECISION_ASSOCIATIONS`, and the reply must belong to the matching finding thread. Reply text remains untrusted evidence; missing authorization metadata fails closed. Thread-resolution behavior is defined by the later publish amendments in ADR 0029.
 
 7. **PR lifecycle guard.** Close/merge intake cancels queued and running triage work. Running Pi sessions stop at their next checkpoint, and the writable checkout re-reads PR state through `PrSurface` immediately before commit and before push. A closed or merged PR is terminal for triage writes: it receives no commit or push and gets a clear no-push outcome.
 
@@ -35,7 +35,7 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 ## Consequences
 
 - GitHub App setup now needs **Contents: read/write** for `/triage`.
-- A bot push fires a normal `synchronize` webhook and a **verification run** ([ADR 0020](0020-verification-run-work-type.md)), not a re-review. That is expected validation, not a loop, because `/triage` never auto-runs and verification never pushes.
+- A bot push fires a normal `synchronize` webhook and a **verification run** ([ADR 0014](0014-verification-run-work-type.md)), not a re-review. That is expected validation, not a loop, because `/triage` never auto-runs and verification never pushes.
 - `publish_records` now tracks `triage_push`, `triage_thread_actions`, and `triage_report` for crash-safe retries.
 
 ## Reversal

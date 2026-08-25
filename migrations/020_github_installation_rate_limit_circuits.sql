@@ -1,4 +1,4 @@
--- Cross-replica GitHub rate-limit circuit state (ADR 0007 MVP).
+-- Cross-replica GitHub rate-limit circuit state (ADR 0004 MVP).
 -- Scoped to installation_id + open_until + last_error_kind only.
 CREATE TABLE IF NOT EXISTS github_installation_rate_limit_circuits (
   installation_id bigint PRIMARY KEY,

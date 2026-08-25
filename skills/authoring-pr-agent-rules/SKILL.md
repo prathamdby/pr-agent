@@ -12,7 +12,7 @@ description: >
 
 ## Overview
 
-One structured pass → inventory gaps → emit **new** one-gotcha `.mdc` files under **`.pr-agent/`** (leading dot). That directory is the only durable preference memory the PR Agent loads (`REPO_POLICY_DIRNAME` in `src/settings/reviewConstants.ts`, ADR 0025).
+One structured pass → inventory gaps → emit **new** one-gotcha `.mdc` files under **`.pr-agent/`** (leading dot). That directory is the only durable preference memory the PR Agent loads (`REPO_POLICY_DIRNAME` in `src/settings/reviewConstants.ts`, ADR 0017).
 
 **Core principle:** A rule earns its slot only if a careful reviewer of _this_ repo would miss the bug without it.
 
@@ -79,7 +79,7 @@ globs:
   - "src/agent/triage/**"
 ---
 
-Feature harnesses must call `createFeaturePiSession` → `createPiSession` in `src/agent/runtime/piSession.ts`. Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep the web import graph free of Pi/models (`test/webImportGraph.test.ts`, ADR 0031).
+Feature harnesses must call `createFeaturePiSession` → `createPiSession` in `src/agent/runtime/piSession.ts`. Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep the web import graph free of Pi/models (`test/webImportGraph.test.ts`, ADR 0023).
 
 ````
 </Good>

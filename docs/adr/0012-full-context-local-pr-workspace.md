@@ -1,8 +1,8 @@
-# ADR 0017: Full-context local PR workspace
+# ADR 0012: Full-context local PR workspace
 
 ## Status
 
-Accepted. Supersedes the earlier changed-file-only materialization and local-git diff authority. Read-only investigation and workspace resource ownership remain in [ADR 0015](0015-agent-runner-local-pr-workspace.md).
+Accepted. Supersedes the earlier changed-file-only materialization and local-git diff authority. Read-only investigation and workspace resource ownership remain in [ADR 0011](0011-agent-runner-local-pr-workspace.md).
 
 ## Context
 

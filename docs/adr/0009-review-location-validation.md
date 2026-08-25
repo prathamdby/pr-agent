@@ -1,4 +1,4 @@
-# ADR 0012 — Cached diff validation and best-effort inline publish
+# ADR 0009 — Cached diff validation and best-effort inline publish
 
 > **Changelog:** §6 revised 2026-05-25 — narrowed **Public-output sanitizer** after false-positive whole-field redaction on normal review prose (see PR #38).
 
@@ -16,7 +16,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 2. **Server-side placement** — Validate each finding against cached ranges before calling GitHub. Unresolvable findings become **summary-only findings**; the model does not choose placement.
 
-3. **Summary always publishes** — Always upsert the structured PR conversation summary when the run succeeds. Incremental inline batches ([ADR 0028](0028-orchestrated-review.md)) are best-effort; GitHub rejections are logged privately and become **summary-only findings**.
+3. **Summary always publishes** — Always upsert the structured PR conversation summary when the run succeeds. Incremental inline batches ([ADR 0020](0020-orchestrated-review.md)) are best-effort; GitHub rejections are logged privately and become **summary-only findings**.
 
 4. **Deterministic failure notice** — When publish is exhausted, upsert a neutral review failure notice without model-authored fallback prose, attempt counts, or internal API details.
 
@@ -29,7 +29,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 - Reviews with invalid inline anchors still deliver actionable findings in the summary.
 - Inline thread count may be lower on large or patch-omitted diffs; summary markers show `Inline thread posted` vs `Summary only`.
 - Cached diff may be stale if the PR head moves during a long run; `commit_id: headSha` reduces but does not eliminate that risk.
-- ADR 0005’s “summary does not duplicate inline bodies” assumption is relaxed: the summary now includes compact details for all findings.
+- ADR 0003’s “summary does not duplicate inline bodies” assumption is relaxed: the summary now includes compact details for all findings.
 - Findings and overviews may mention repository symbols and tooling names; only secret-shaped substrings are scrubbed at publish.
 
 ## Reversal

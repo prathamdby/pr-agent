@@ -23,7 +23,7 @@
         "Uses `.pr-agent/` not `pr-agent/`",
         "Uses `.mdc` not bare `.md` policy notes",
         "Does not recreate existing rule filenames as duplicates",
-        "Cites loader contract (REPO_POLICY_DIRNAME / ADR 0025) when defying authority"
+        "Cites loader contract (REPO_POLICY_DIRNAME / ADR 0017) when defying authority"
       ]
     },
     {

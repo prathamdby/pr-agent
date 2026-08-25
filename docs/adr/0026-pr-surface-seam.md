@@ -1,4 +1,4 @@
-# ADR 0034 — PR surface seam on the worker path
+# ADR 0026 — PR surface seam on the worker path
 
 ## Status
 
@@ -6,9 +6,9 @@ Accepted.
 
 ## Context
 
-Webhook-path PR I/O once used an Effect `Context.Tag`. [ADR 0009](0009-durable-agent-work.md) moved reactions, progress comments, reviews, and ask replies onto durable workers. After that move, worker executors called Octokit helpers and threaded `token` / `expiresAtTs` through `githubPrSurface.ts`, `reviewPriorFeedback.ts`, and CI helpers — leaving no single worker-path seam.
+Webhook-path PR I/O once used an Effect `Context.Tag`. [ADR 0006](0006-durable-agent-work.md) moved reactions, progress comments, reviews, and ask replies onto durable workers. After that move, worker executors called Octokit helpers and threaded `token` / `expiresAtTs` through `githubPrSurface.ts`, `reviewPriorFeedback.ts`, and CI helpers — leaving no single worker-path seam.
 
-An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as the Pi runtime: [ADR 0009](0009-durable-agent-work.md) workers are Promise/pg-boss jobs, not Effect fibers, and [ADR 0031](0031-pi-native-agent-runtime.md) established a Promise factory + interface seam (`createPiSession` / `PiSession`) with a CI import-graph guard instead of Context tags.
+An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as the Pi runtime: [ADR 0006](0006-durable-agent-work.md) workers are Promise/pg-boss jobs, not Effect fibers, and [ADR 0023](0023-pi-native-agent-runtime.md) established a Promise factory + interface seam (`createPiSession` / `PiSession`) with a CI import-graph guard instead of Context tags.
 
 ## Decision
 

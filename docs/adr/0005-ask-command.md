@@ -1,14 +1,14 @@
-# ADR 0008 — `/ask` command and conversational mentions
+# ADR 0005 — `/ask` command and conversational mentions
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for execution, concurrency, and webhook response timing. Production uses pg-boss workers only. Bare thread replies without an `@bot` mention do not enqueue ask work. Durable admission limits for both triggers are defined in [ADR 0039](0039-ask-admission-quotas.md).
+Accepted. Superseded in part by [ADR 0006](0006-durable-agent-work.md) for execution, concurrency, and webhook response timing. Production uses pg-boss workers only. Bare thread replies without an `@bot` mention do not enqueue ask work. Durable admission limits for both triggers are defined in [ADR 0031](0031-ask-admission-quotas.md).
 
 ## Context
 
 Contributors and reviewers need to ask ad hoc questions about PR code (for example, "what is this hook for?") and to follow up on inline findings ("why is this a P0?") without triggering a full review. Upstream [qodo-pr-agent](https://github.com/qodo-ai/pr-agent) implements `/ask` as a single LLM call with the PR diff (or selected diff hunk for inline comments) embedded in the prompt.
 
-This repo already runs reviews through a Pi-AI tool loop over a local PR workspace ([ADR 0015](0015-agent-runner-local-pr-workspace.md), [ADR 0031](0031-pi-native-agent-runtime.md)). Production ask execution uses pg-boss workers ([ADR 0009](0009-durable-agent-work.md)).
+This repo already runs reviews through a Pi-AI tool loop over a local PR workspace ([ADR 0011](0011-agent-runner-local-pr-workspace.md), [ADR 0023](0023-pi-native-agent-runtime.md)). Production ask execution uses pg-boss workers ([ADR 0006](0006-durable-agent-work.md)).
 
 ## Decision
 

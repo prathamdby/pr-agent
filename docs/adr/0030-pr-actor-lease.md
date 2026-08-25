@@ -1,8 +1,8 @@
-# ADR 0038 — PR actor lease replaces split review-slot ownership
+# ADR 0030 — PR actor lease replaces split review-slot ownership
 
 ## Status
 
-Accepted. Amends ADR 0009 consequences (the `key_strict_fifo` / `releaseReviewQueueSlot` bullet no longer holds). Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
+Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQueueSlot` bullet no longer holds). Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 

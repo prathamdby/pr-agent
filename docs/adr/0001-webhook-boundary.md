@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for dedupe persistence and dispatch side effects (no installation token on the web fiber). Validation library is Valibot ([ADR 0035](0035-replace-zod-with-valibot.md)).
+Accepted. Superseded in part by [ADR 0006](0006-durable-agent-work.md) for dedupe persistence and dispatch side effects (no installation token on the web fiber). Validation library is Valibot ([ADR 0027](0027-replace-zod-with-valibot.md)).
 
 ## Context
 
@@ -11,7 +11,7 @@ GitHub App webhooks are untyped JSON at the HTTP boundary. The service must vali
 ## Decision
 
 1. **Per-event Valibot schemas** live under `src/webhook/payloads/`, composed with `v.object` so each event type admits only the fields that path uses.
-2. **Dispatch order** is fixed: **verify the raw body → parse + validate → transactional Postgres delivery dedupe, body-hash replay reservation, and enqueue → HTTP response**. **Ignored** `X-GitHub-Event` values record an ignored decision without enqueueing agent work, but still consume the bounded body-hash replay window. Parse failures **do not** insert a `webhook_events` or `webhook_event_replays` row, so a retry after a transient validation error is not dropped as a “duplicate.” The web fiber does **not** mint an installation token; workers mint tokens at job execution time ([ADR 0009](0009-durable-agent-work.md)).
+2. **Dispatch order** is fixed: **verify the raw body → parse + validate → transactional Postgres delivery dedupe, body-hash replay reservation, and enqueue → HTTP response**. **Ignored** `X-GitHub-Event` values record an ignored decision without enqueueing agent work, but still consume the bounded body-hash replay window. Parse failures **do not** insert a `webhook_events` or `webhook_event_replays` row, so a retry after a transient validation error is not dropped as a “duplicate.” The web fiber does **not** mint an installation token; workers mint tokens at job execution time ([ADR 0006](0006-durable-agent-work.md)).
 3. **Vitest** exercises pure seams (`verifySignature`, `parseSlashCommand`, `parseGithubPayload`, durable intake via `AgentWorkScheduler`, dispatch ordering).
 
 ## Consequences

@@ -1,8 +1,8 @@
-# ADR 0033: Prompt cache stability for Pi agent sessions
+# ADR 0025: Prompt cache stability for Pi agent sessions
 
 ## Status
 
-Accepted. Extends [ADR 0031](0031-pi-native-agent-runtime.md).
+Accepted. Extends [ADR 0023](0023-pi-native-agent-runtime.md).
 
 ## Context
 
@@ -39,7 +39,7 @@ premiums by default.
    cache write amplification when provider usage totals are known, while preserving
    raw cache read/write totals and any provider-reported 1h cache write split.
 
-Feature harnesses keep using the single Pi session seam from ADR 0031. No generic
+Feature harnesses keep using the single Pi session seam from ADR 0023. No generic
 prompt-caching framework and no deferred-tool subsystem for this change.
 
 ## Consequences

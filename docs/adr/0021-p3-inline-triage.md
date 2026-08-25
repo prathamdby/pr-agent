@@ -1,4 +1,4 @@
-# ADR 0029 — P3 inline threads for triage autofix
+# ADR 0021 — P3 inline threads for triage autofix
 
 ## Status
 
@@ -6,11 +6,11 @@ Accepted.
 
 ## Context
 
-P3 findings were summary-only by design ([ADR 0005](0005-structured-review-output.md)): title + deep-link in the review summary, no Files-tab thread. `/triage` inventoriable work is built from unresolved bot **inline** finding threads ([ADR 0018](0018-triage-autofix-work-type.md)), so P3 never entered triage inventory and could not be autofixed. Maintainers still saw P3 in the summary table and wanted the same verify-and-fix loop.
+P3 findings were summary-only by design ([ADR 0003](0003-structured-review-output.md)): title + deep-link in the review summary, no Files-tab thread. `/triage` inventoriable work is built from unresolved bot **inline** finding threads ([ADR 0013](0013-triage-autofix-work-type.md)), so P3 never entered triage inventory and could not be autofixed. Maintainers still saw P3 in the summary table and wanted the same verify-and-fix loop.
 
 ## Decision
 
-1. **P3 is inline-eligible.** `isInlineSeverity` includes P3. When a commentable RIGHT-line anchor resolves, publish posts a normal inline thread (severity label, detail, Prompt to fix). Unanchored P3 stays summary-only like any other severity. Specialist progress ticks count accepted ledger placements (inline plus summary-only); see [ADR 0028](0028-orchestrated-review.md).
+1. **P3 is inline-eligible.** `isInlineSeverity` includes P3. When a commentable RIGHT-line anchor resolves, publish posts a normal inline thread (severity label, detail, Prompt to fix). Unanchored P3 stays summary-only like any other severity. Specialist progress ticks count accepted ledger placements (inline plus summary-only); see [ADR 0020](0020-orchestrated-review.md).
 
 2. **`fixPrompt` required for P3.** Same field contract as P0–P2 so the accordion and triage agent have a concrete fix direction.
 

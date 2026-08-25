@@ -1,12 +1,12 @@
-# ADR 0028. Orchestrated review runs
+# ADR 0020. Orchestrated review runs
 
 ## Status
 
 Accepted.
 
 This ADR replaces separate security, quality, and tests lens work items and
-sentinels. It amends [ADR 0005](0005-structured-review-output.md),
-[ADR 0009](0009-durable-agent-work.md), and [ADR 0011](0011-review-pointer-link.md).
+sentinels. It amends [ADR 0003](0003-structured-review-output.md),
+[ADR 0006](0006-durable-agent-work.md), and [ADR 0008](0008-review-pointer-link.md).
 
 ## Context
 
@@ -120,10 +120,10 @@ run uses the general mode.
 
 ## Impact on earlier ADRs
 
-- [ADR 0005](0005-structured-review-output.md) still defines the validated
+- [ADR 0003](0003-structured-review-output.md) still defines the validated
   payload schema used by the summary publisher. Its old single-submit wording
   does not describe orchestration.
-- [ADR 0011](0011-review-pointer-link.md) now applies to the single general
+- [ADR 0008](0008-review-pointer-link.md) now applies to the single general
   review summary per pull request, not independent lenses.
 - Historical `review-security`, `review-quality`, and `review-tests` sentinels
   and commands remain readable for compatibility only.

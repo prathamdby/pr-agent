@@ -1,8 +1,8 @@
-# ADR 0015: Read-only local PR workspace investigation
+# ADR 0011: Read-only local PR workspace investigation
 
 ## Status
 
-Accepted for read-only investigation tools, workspace resource ownership, and stale-head reschedule. Pi is the only agent runtime ([ADR 0031](0031-pi-native-agent-runtime.md)). Full-head checkout and GitHub `listFiles` diff authority are defined in [ADR 0017](0017-full-context-local-pr-workspace.md).
+Accepted for read-only investigation tools, workspace resource ownership, and stale-head reschedule. Pi is the only agent runtime ([ADR 0023](0023-pi-native-agent-runtime.md)). Full-head checkout and GitHub `listFiles` diff authority are defined in [ADR 0012](0012-full-context-local-pr-workspace.md).
 
 ## Context
 

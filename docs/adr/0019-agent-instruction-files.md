@@ -1,4 +1,4 @@
-# ADR 0027 — Root agent instruction files in review trusted context
+# ADR 0019 — Root agent instruction files in review trusted context
 
 ## Status
 

@@ -140,7 +140,7 @@ Webhook handler path is always `/webhooks` (see [`src/effect/server.ts`](src/eff
 
 ## Choose an LLM provider
 
-LLM calls run on the **worker** only, through the Pi coding-agent runtime ([ADR 0031](docs/adr/0031-pi-native-agent-runtime.md)).
+LLM calls run on the **worker** only, through the Pi coding-agent runtime ([ADR 0023](docs/adr/0023-pi-native-agent-runtime.md)).
 
 | What                    | Env vars                                            | Used for                                                               |
 | ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -201,7 +201,7 @@ Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/featur
 | Restart review      | On demand (cancels the active run, latest commit) | `/review force`      |
 | Help                | On demand                                         | `/help`              |
 
-Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0014](docs/adr/0014-lightweight-review-completion.md)).
+Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0010](docs/adr/0010-lightweight-review-completion.md)).
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`).
 
@@ -268,11 +268,11 @@ flowchart LR
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)) verifies the signature, parses the payload, applies delivery-ID and body-hash replay protection in Postgres, and schedules work. It does not create installation tokens or post to the PR.
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)) admits asks through durable actor, repository, installation, outstanding-work, and provider-budget state, then inserts `agent_work_items` and enqueues pg-boss jobs.
 3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` or `check_suite` completes later.
-4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep. One active run per PR per work type is enforced by the `pr_actor_leases` table ([ADR 0038](docs/adr/0038-pr-actor-lease.md)), not by queue policy, so a crashed worker's run is taken over once its lease lapses. Ask quota reservations release from terminal work-item transitions ([ADR 0039](docs/adr/0039-ask-admission-quotas.md)).
+4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep. One active run per PR per work type is enforced by the `pr_actor_leases` table ([ADR 0030](docs/adr/0030-pr-actor-lease.md)), not by queue policy, so a crashed worker's run is taken over once its lease lapses. Ask quota reservations release from terminal work-item transitions ([ADR 0031](docs/adr/0031-ask-admission-quotas.md)).
 5. **Feature executors** ([`src/agentWork/executors/`](src/agentWork/executors/)) create a GitHub installation token, open a local PR workspace (or a writable checkout for triage), run the agent, and publish through the epoch- and cancellation-fenced `PrSurface` mutation boundary for leased work; ask remains unleased.
 6. **Reviews** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)) inspect the PR, write a specialist brief, run four specialists in parallel, publish inline thread batches, then write the final summary.
 
-Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Design background: [ADR 0009](docs/adr/0009-durable-agent-work.md), [ADR 0008](docs/adr/0008-ask-command.md).
+Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Design background: [ADR 0006](docs/adr/0006-durable-agent-work.md), [ADR 0005](docs/adr/0005-ask-command.md).
 
 ## Local development
 
@@ -326,6 +326,6 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 
 **Logging.** Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings. AppError messages, contexts, raw values, causes, arrays, objects, and circular references are recursively sanitized at log and analytics boundaries; safe codes and identifiers remain available. See [the telemetry redaction policy](docs/operations.md#security).
 
-**Ask safety.** `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0010](docs/adr/0010-ask-red-team-hardening.md)).
+**Ask safety.** `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)).
 
 More security detail: [docs/operations.md](docs/operations.md#security).

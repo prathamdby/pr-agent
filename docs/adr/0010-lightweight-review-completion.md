@@ -1,4 +1,4 @@
-# ADR 0014 — Lightweight review completion for docs-only auto-reviews
+# ADR 0010 — Lightweight review completion for docs-only auto-reviews
 
 ## Status
 
