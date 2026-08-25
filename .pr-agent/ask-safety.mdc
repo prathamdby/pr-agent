@@ -5,4 +5,4 @@ globs:
   - "src/agentWork/intake/askIntake.ts"
 ---
 
-Ask is explain-only: do not change finding severity, dismiss findings, or mutate review summaries (ADR 0008/0010). Keep ask defenses always on: `bot_meta` short-circuit without LLM; untrusted framing for question/anchors; `buildAskGithubTools` force owner/repo/PR and sensitive-path gate; `sanitizeAskAnswerText` / `redactOutboundSecrets` before post. Do not widen ask tools to unscoped GitHub or skip outbound redaction.
+Ask is explain-only: do not change finding severity, dismiss findings, or mutate review summaries (ADR 0005/0007). Keep ask defenses always on: `bot_meta` short-circuit without LLM; untrusted framing for question/anchors; `buildAskGithubTools` force owner/repo/PR and sensitive-path gate; `sanitizeAskAnswerText` / `redactOutboundSecrets` before post. Do not widen ask tools to unscoped GitHub or skip outbound redaction.

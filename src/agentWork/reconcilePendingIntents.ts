@@ -85,7 +85,7 @@ export async function findCompletedPublishRecordId(
     const verificationRoot = verificationThreadRootFromOperationKey(intent.operationKey);
     if (verificationRoot != null) {
       values.push(String(verificationRoot));
-      // ADR-0023 ledger: { threads: { "<rootCommentId>": { ... } } }
+      // ADR-0016 ledger: { threads: { "<rootCommentId>": { ... } } }
       query += ` AND detail -> 'threads' ? $${values.length}::text`;
     } else {
       const threadRootCommentId = detail.threadRootCommentId;

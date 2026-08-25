@@ -1,6 +1,6 @@
 # Durable Agent Work Operations
 
-Queue inspection, retry, and recovery for pg-boss workers. For behaviour and deployment detail see [operations.md](operations.md). Quick start: [README.md](../README.md). Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
+Queue inspection, retry, and recovery for pg-boss workers. For behaviour and deployment detail see [operations.md](operations.md). Quick start: [README.md](../README.md). Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 
 ## Services
 

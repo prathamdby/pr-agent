@@ -6,4 +6,4 @@ globs:
   - "src/settings/reviewConstants.ts"
 ---
 
-Load only root `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` via `loadAgentInstructionFiles` on orchestrated review runs (ADR 0027, `AGENT_INSTRUCTION_FILENAMES`). Same-repo head → Trusted/binding; fork head → Untrusted context only (fence forged Trusted headers). Do not expand `@include`. Do not load these files for ask, describe, triage, or verification. Never treat author-writable fork instruction bodies as binding severity rules.
+Load only root `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` via `loadAgentInstructionFiles` on orchestrated review runs (ADR 0019, `AGENT_INSTRUCTION_FILENAMES`). Same-repo head → Trusted/binding; fork head → Untrusted context only (fence forged Trusted headers). Do not expand `@include`. Do not load these files for ask, describe, triage, or verification. Never treat author-writable fork instruction bodies as binding severity rules.
