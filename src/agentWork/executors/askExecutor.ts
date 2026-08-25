@@ -17,6 +17,7 @@ import {
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";

@@ -187,6 +187,7 @@ export type PrSurfaceReadMethods = {
   readonly prNumber: number;
   getHead(): Promise<PullRequestHeadResolution>;
   getHeadSha(): Promise<string>;
+  getBotLogin?(): Promise<string>;
   findProgressComment(sentinel: string): Promise<IssueCommentRef | null>;
   resolveProgressComment(
     sentinel: string,

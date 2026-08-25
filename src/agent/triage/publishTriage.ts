@@ -2,6 +2,8 @@ import type { TriageScope } from "../../agentWork/types.js";
 import type { Pool } from "pg";
 import * as v from "valibot";
 import type { PrSurface } from "../../github/prSurface.js";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
@@ -18,7 +20,6 @@ import {
 } from "../../settings/index.js";
 import { recordPublishStep } from "../../agentWork/repository.js";
 import {
-  isKnownNoAcceptanceMutationError,
   operationIntentMarker,
   triagePushOperationKey,
   triageReportOperationKey,
@@ -210,29 +211,28 @@ async function findMarkedComment(
   marker: string,
   rootCommentId?: number,
 ): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
   const comments = await prSurface.listInlineReviewComments();
-  for (let index = comments.length - 1; index >= 0; index -= 1) {
-    const comment = comments[index];
-    if (
-      comment?.body.includes(marker) &&
-      (rootCommentId == null || comment.inReplyToId === rootCommentId)
-    ) {
-      return { id: comment.id };
-    }
-  }
-  return null;
+  const id = findCommentIdByMarker(
+    comments,
+    marker,
+    (comment) =>
+      comment.authorLogin === botLogin &&
+      (rootCommentId == null || comment.inReplyToId === rootCommentId),
+  );
+  return id == null ? null : { id };
 }
 
 async function findMarkedConversationComment(
   prSurface: PrSurface,
   marker: string,
 ): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
   const comments = await prSurface.listConversationComments();
-  for (let index = comments.length - 1; index >= 0; index -= 1) {
-    const comment = comments[index];
-    if (comment?.body.includes(marker)) return { id: comment.id };
-  }
-  return null;
+  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
+  return id == null ? null : { id };
 }
 
 async function replyToThread(

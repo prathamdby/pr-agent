@@ -1,5 +1,5 @@
 import { githubErrorMessage } from "./githubErrors.js";
-import { isKnownNoAcceptanceMutationError } from "../agentWork/withOperationIntent.js";
+import { isKnownNoAcceptanceMutationError } from "./mutationErrorContract.js";
 
 function objectValue(value: unknown, key: string): unknown {
   if (typeof value !== "object" || value == null) return undefined;

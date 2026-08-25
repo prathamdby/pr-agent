@@ -221,6 +221,7 @@ export function createFakePrSurface(
     readonly id: number;
     readonly url: string;
     readonly review: ThreadBatchReview;
+    readonly authorLogin: string;
   }> = [];
 
   let headSha = options?.headSha ?? "fake-head-sha";
@@ -443,6 +444,10 @@ export function createFakePrSurface(
       return headSha;
     },
 
+    async getBotLogin() {
+      return "pr-agent[bot]";
+    },
+
     async setAcknowledgementReaction(targets, kind) {
       events.push({ kind: "setAcknowledgementReaction", targets, reaction: kind });
       reactions.push({ targets: [...targets], kind });
@@ -590,7 +595,12 @@ export function createFakePrSurface(
       threadBatches.push(review);
       const reviewId = nextReviewId++;
       const reviewUrl = `https://github.com/${params.owner}/${params.repo}/pull/${params.prNumber}#pullrequestreview-${reviewId}`;
-      publishedThreadBatches.push({ id: reviewId, url: reviewUrl, review });
+      publishedThreadBatches.push({
+        id: reviewId,
+        url: reviewUrl,
+        review,
+        authorLogin: "pr-agent[bot]",
+      });
       return {
         reviewId,
         reviewUrl,
@@ -602,6 +612,7 @@ export function createFakePrSurface(
         const review = publishedThreadBatches[index];
         if (
           review != null &&
+          review.authorLogin === "pr-agent[bot]" &&
           review.review.body.includes(marker) &&
           (commitId == null || review.review.commitId === commitId)
         ) {

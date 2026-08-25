@@ -512,6 +512,10 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       return (await this.getHead()).headSha;
     },
 
+    async getBotLogin() {
+      return (await getAppBotIdentity(cfg)).login;
+    },
+
     async setAcknowledgementReaction(targets, kind) {
       const { token, expiresAtTs } = await ensureAuth();
       const botId = await ensureBotUserId();
@@ -644,12 +648,14 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
     async findPublishedThreadBatch(marker, commitId) {
       const { token, expiresAtTs } = await ensureAuth();
+      const bot = await getAppBotIdentity(cfg);
       const found = await findPullRequestReviewByMarker(
         token,
         owner,
         repo,
         prNumber,
         marker,
+        bot.login,
         commitId,
         expiresAtTs,
       );
@@ -826,10 +832,10 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       };
     },
 
-    async publishDescription(cfg, payload, operationMarker) {
+    async publishDescription(surfaceCfg, payload, operationMarker) {
       const { token, expiresAtTs } = await ensureAuth();
       return publishDescriptionOnPullRequest({
-        cfg,
+        cfg: surfaceCfg,
         token,
         tokenExpiresAtTs: expiresAtTs,
         owner,

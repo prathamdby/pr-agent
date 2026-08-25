@@ -6,10 +6,11 @@ import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema.js";
 import type { PrSurface } from "../github/prSurface.js";
+import { findCommentIdByMarker } from "../github/prSurfaceHelpers.js";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 import {
-  isKnownNoAcceptanceMutationError,
   operationIntentMarker,
   reviewSummaryOperationKey,
   withOperationIntent,
@@ -32,12 +33,11 @@ async function findSummaryCommentByOperationMarker(
   prSurface: PrSurface,
   marker: string,
 ): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
   const comments = await prSurface.listConversationComments();
-  for (let index = comments.length - 1; index >= 0; index -= 1) {
-    const comment = comments[index];
-    if (comment?.body.includes(marker)) return { id: comment.id };
-  }
-  return null;
+  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
+  return id == null ? null : { id };
 }
 
 /** Auto-review docs-only path: publish lightweight summary or skip when work is cancelled. */

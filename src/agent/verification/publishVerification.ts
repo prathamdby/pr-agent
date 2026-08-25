@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 import type { PrSurface } from "../../github/prSurface.js";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
 import {
@@ -17,7 +19,6 @@ import {
   type VerificationThreadState,
 } from "../../agentWork/verificationThreadLedger.js";
 import {
-  isKnownNoAcceptanceMutationError,
   operationIntentMarker,
   verificationThreadOperationKey,
   withOperationIntent,
@@ -87,19 +88,20 @@ async function recoverVerificationMutation(params: {
   readonly rootCommentId: number;
   readonly requiresResolved: boolean;
 }): Promise<number | undefined | null> {
+  const botLogin = await params.prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
   const comments = await params.prSurface.listInlineReviewComments();
-  const markedComment = [...comments]
-    .toReversed()
-    .find(
-      (comment) =>
-        comment.inReplyToId === params.rootCommentId && comment.body.includes(params.marker),
-    );
+  const markedCommentId = findCommentIdByMarker(
+    comments,
+    params.marker,
+    (comment) => comment.authorLogin === botLogin && comment.inReplyToId === params.rootCommentId,
+  );
   if (params.requiresResolved) {
     const threads = await params.prSurface.listInlineReviewThreads();
     if (threads.byRootCommentId.get(params.rootCommentId)?.isResolved !== true) return null;
-    return markedComment?.id;
+    return markedCommentId ?? undefined;
   }
-  return markedComment == null ? null : markedComment.id;
+  return markedCommentId;
 }
 
 function resolveStubCommentId(
@@ -202,6 +204,42 @@ function verificationIntentDetail(
   };
 }
 
+async function withVerificationThreadOperation(
+  params: PublishVerificationParams,
+  verdict: VerificationVerdict,
+  requiresResolved: boolean,
+  mutate: (operationMarker: string) => Promise<number | undefined>,
+): Promise<number | undefined> {
+  const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
+  const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+  return withOperationIntent<number | undefined>({
+    client: params.pool,
+    workItemId: params.workItemId,
+    leaseEpoch: params.leaseEpoch,
+    operationKey,
+    mutationKind: "github.verification_thread",
+    detail: verificationIntentDetail(
+      params,
+      verdict.threadRootCommentId,
+      verdict.verdict,
+      operationMarker,
+    ),
+    recover: async () => {
+      const recovered = await recoverVerificationMutation({
+        prSurface: params.prSurface,
+        marker: operationMarker,
+        rootCommentId: verdict.threadRootCommentId,
+        requiresResolved,
+      });
+      return recovered == null
+        ? { kind: "absent" as const }
+        : { kind: "reconciled" as const, value: recovered };
+    },
+    isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+    mutate: () => mutate(operationMarker),
+  });
+}
+
 function recordVerificationHistoryOutcome(
   params: PublishVerificationParams,
   thread: BotFindingThread,
@@ -251,33 +289,11 @@ export async function publishVerification(
           degraded = true;
           break;
         }
-        const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
-        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-        const stubCommentId = await withOperationIntent<number | undefined>({
-          client: params.pool,
-          workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
-          operationKey,
-          mutationKind: "github.verification_thread",
-          detail: verificationIntentDetail(
-            params,
-            verdict.threadRootCommentId,
-            verdict.verdict,
-            operationMarker,
-          ),
-          recover: async () => {
-            const recovered = await recoverVerificationMutation({
-              prSurface: params.prSurface,
-              marker: operationMarker,
-              rootCommentId: verdict.threadRootCommentId,
-              requiresResolved: true,
-            });
-            return recovered == null
-              ? { kind: "absent" as const }
-              : { kind: "reconciled" as const, value: recovered };
-          },
-          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-          mutate: async () => {
+        const stubCommentId = await withVerificationThreadOperation(
+          params,
+          verdict,
+          true,
+          async (operationMarker) => {
             const priorStubId = resolveStubCommentId(thread, prior);
             let nextStubCommentId: number | undefined = priorStubId;
             if (priorStubId != null) {
@@ -293,7 +309,7 @@ export async function publishVerification(
             }
             return nextStubCommentId;
           },
-        });
+        );
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,
@@ -309,45 +325,22 @@ export async function publishVerification(
       case "skipped": {
         // When compare is truncated, omitted paths must not suppress still-open stubs.
         if (changedMembershipComplete && !changedFiles.has(thread.path)) break;
-        const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
-        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-        const body = withStubMarker(
-          redactReviewText(`**Verification**: Still open - ${verdict.reason}`),
-          operationMarker,
-        );
-        const stubCommentId = await withOperationIntent<number>({
-          client: params.pool,
-          workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
-          operationKey,
-          mutationKind: "github.verification_thread",
-          detail: verificationIntentDetail(
-            params,
-            verdict.threadRootCommentId,
-            verdict.verdict,
-            operationMarker,
-          ),
-          recover: async () => {
-            const recovered = await recoverVerificationMutation({
-              prSurface: params.prSurface,
-              marker: operationMarker,
-              rootCommentId: verdict.threadRootCommentId,
-              requiresResolved: false,
-            });
-            return recovered == null
-              ? { kind: "absent" as const }
-              : { kind: "reconciled" as const, value: recovered };
-          },
-          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-          mutate: () =>
+        const stubCommentId = await withVerificationThreadOperation(
+          params,
+          verdict,
+          false,
+          async (operationMarker) =>
             upsertStubComment({
               prSurface: params.prSurface,
               prNumber: params.prNumber,
               thread,
               stubCommentId: resolveStubCommentId(thread, prior),
-              body,
+              body: withStubMarker(
+                redactReviewText(`**Verification**: Still open - ${verdict.reason}`),
+                operationMarker,
+              ),
             }),
-        });
+        );
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,
@@ -370,47 +363,24 @@ export async function publishVerification(
           degraded = true;
           break;
         }
-        const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
-        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-        const body = dismissedReplyBody(verdict, thread, params.policyResult, operationMarker);
-        const stubCommentId = await withOperationIntent<number>({
-          client: params.pool,
-          workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
-          operationKey,
-          mutationKind: "github.verification_thread",
-          detail: verificationIntentDetail(
-            params,
-            verdict.threadRootCommentId,
-            verdict.verdict,
-            operationMarker,
-          ),
-          recover: async () => {
-            const recovered = await recoverVerificationMutation({
-              prSurface: params.prSurface,
-              marker: operationMarker,
-              rootCommentId: verdict.threadRootCommentId,
-              requiresResolved: true,
-            });
-            return recovered == null
-              ? { kind: "absent" as const }
-              : { kind: "reconciled" as const, value: recovered };
-          },
-          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-          mutate: async () => {
+        const stubCommentId = await withVerificationThreadOperation(
+          params,
+          verdict,
+          true,
+          async (operationMarker) => {
             const createdStubCommentId = await upsertStubComment({
               prSurface: params.prSurface,
               prNumber: params.prNumber,
               thread,
               stubCommentId: resolveStubCommentId(thread, prior),
-              body,
+              body: dismissedReplyBody(verdict, thread, params.policyResult, operationMarker),
             });
             if (!resolution.isResolved) {
               await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
             }
             return createdStubCommentId;
           },
-        });
+        );
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,

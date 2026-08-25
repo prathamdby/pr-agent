@@ -23,9 +23,9 @@ import {
   sanitizeMermaidDiagram,
   validateSanitizedMermaidFence,
 } from "./mermaidDiagram.js";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import {
   descriptionPrBodyOperationKey,
-  isKnownNoAcceptanceMutationError,
   operationIntentMarker,
   type OperationIntentContext,
   withOperationIntent,

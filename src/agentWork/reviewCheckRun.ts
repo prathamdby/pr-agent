@@ -2,6 +2,8 @@ import type { Pool } from "pg";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
+import { httpStatus } from "../github/httpStatus.js";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import type { PrSurface } from "../github/prSurface.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
 import { checkRunFindingsSummary } from "../github/statusCopy.js";
@@ -21,11 +23,7 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "./repository.js";
-import {
-  isKnownNoAcceptanceMutationError,
-  reviewCheckOperationKey,
-  withOperationIntent,
-} from "./withOperationIntent.js";
+import { reviewCheckOperationKey, withOperationIntent } from "./withOperationIntent.js";
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 

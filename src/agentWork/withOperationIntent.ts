@@ -11,6 +11,8 @@ import {
 } from "./operationIntentRepository.js";
 import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
 import { assertPrActorLeaseHeld } from "./prActorLease.js";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
+import { httpStatus } from "../github/httpStatus.js";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
@@ -137,60 +139,22 @@ export function operationIntentMarker(operationKey: string, operationInstance: s
     .slice(0, 24)} -->`;
 }
 
-function reconcileDetailFor<T>(
+function resolveReconcileDetail<T>(
   params: WithOperationIntentParams<T>,
   result: T,
+  hasResult: boolean,
 ): Record<string, unknown> {
+  if (!hasResult && typeof params.reconcileDetail === "function") return {};
   return typeof params.reconcileDetail === "function"
     ? params.reconcileDetail(result)
     : (params.reconcileDetail ?? {});
 }
 
-function staticReconcileDetail<T>(params: WithOperationIntentParams<T>): Record<string, unknown> {
-  return typeof params.reconcileDetail === "function" ? {} : (params.reconcileDetail ?? {});
-}
-
-function errorStatus(error: unknown): number | undefined {
-  if (typeof error !== "object" || error == null) return undefined;
-  const value = error as Record<string, unknown>;
-  if (typeof value.status === "number") return value.status;
-  const response = value.response;
-  if (typeof response === "object" && response != null) {
-    const responseStatus = (response as Record<string, unknown>).status;
-    if (typeof responseStatus === "number") return responseStatus;
-  }
-  return undefined;
-}
-
 function isRemoteMutationError(error: unknown): boolean {
-  if (errorStatus(error) != null) return true;
+  if (httpStatus(error) != null) return true;
   if (typeof error !== "object" || error == null) return false;
   const value = error as Record<string, unknown>;
   return typeof value.response === "object" && value.response != null;
-}
-
-/**
- * Conservative provider contract used by mutation callers. Status alone is
- * not enough to prove rejection: a 422/5xx can arrive after acceptance.
- */
-export function isKnownNoAcceptanceMutationError(error: unknown): boolean {
-  if (typeof error !== "object" || error == null) return false;
-  const value = error as Record<string, unknown>;
-  if (value.accepted === false || value.mutationAccepted === false) return true;
-  const response = value.response;
-  if (typeof response === "object" && response != null) {
-    const responseValue = response as Record<string, unknown>;
-    if (responseValue.accepted === false || responseValue.mutationAccepted === false) {
-      return true;
-    }
-    const data = responseValue.data;
-    if (typeof data === "object" && data != null) {
-      const dataValue = data as Record<string, unknown>;
-      if (dataValue.accepted === false || dataValue.mutationAccepted === false) return true;
-    }
-  }
-  const status = errorStatus(error);
-  return status === 400 || status === 401 || status === 403 || status === 404;
 }
 
 function hasStashedResult(detail: Record<string, unknown>): boolean {
@@ -222,7 +186,7 @@ async function finishWithStashedResult<T>(
       publishRecordId: params.publishRecordId,
       ...leaseEpochDetail(params),
       detail: {
-        ...staticReconcileDetail(params),
+        ...resolveReconcileDetail(params, undefined as T, false),
         [OPERATION_INTENT_RESULT_KEY]: intent.detail[OPERATION_INTENT_RESULT_KEY],
       },
     });
@@ -256,7 +220,7 @@ async function recoverByExactEvidence<T>(
   if (recovery.kind !== "reconciled") return { found: false };
 
   const resultDetail = {
-    ...reconcileDetailFor(params, recovery.value),
+    ...resolveReconcileDetail(params, recovery.value, true),
     ...recovery.detail,
     [OPERATION_INTENT_RESULT_KEY]:
       recovery.value === undefined ? null : (recovery.value as unknown),
@@ -299,7 +263,7 @@ async function recoverAfterMutatingWithoutResult<T>(
       publishRecordId,
       ...leaseEpochDetail(params),
       detail: {
-        ...staticReconcileDetail(params),
+        ...resolveReconcileDetail(params, undefined as T, false),
         reconciledFromPublishRecord: true,
         recoveredAfterMutating: true,
       },
@@ -326,7 +290,7 @@ async function recoverAfterMutatingWithoutResult<T>(
     status: "outcome_unknown",
     ...leaseEpochDetail(params),
     detail: {
-      ...staticReconcileDetail(params),
+      ...resolveReconcileDetail(params, undefined as T, false),
       [OPERATION_INTENT_MUTATING_KEY]: false,
       errorCode: "operation_intent.mutation_outcome_unknown",
       errorMessage:
@@ -425,7 +389,7 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
     await assertMutationReady(params);
     // Always stash __result (null = void) so redelivery is idempotent without remutate.
     const resultDetail = {
-      ...reconcileDetailFor(params, result),
+      ...resolveReconcileDetail(params, result, true),
       [OPERATION_INTENT_RESULT_KEY]: result === undefined ? null : (result as unknown),
     };
     await mergeOperationIntentDetail(params.client, {
@@ -465,7 +429,7 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
         status: knownNoAcceptance ? "failed" : "outcome_unknown",
         ...leaseEpochDetail(params),
         detail: {
-          ...staticReconcileDetail(params),
+          ...resolveReconcileDetail(params, undefined as T, false),
           // Clear marker only when the provider proved that no mutation landed.
           [OPERATION_INTENT_MUTATING_KEY]: false,
           errorCode: knownNoAcceptance

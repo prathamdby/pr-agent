@@ -2,7 +2,6 @@ import type { Config } from "../../config.js";
 import type { Pool, PoolClient } from "pg";
 import { AppError } from "../../errors/appError.js";
 import {
-  isKnownNoAcceptanceMutationError,
   operationIntentMarker,
   reviewCommitStatusOperationKey,
   reviewLabelsOperationKey,
@@ -24,6 +23,8 @@ import {
 } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
+import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
+import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import {
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_WAIT_MS,
@@ -90,12 +91,11 @@ async function findSummaryCommentByOperationMarker(
   prSurface: PrSurface,
   marker: string,
 ): Promise<{ readonly id: number } | null> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return null;
   const comments = await prSurface.listConversationComments();
-  for (let index = comments.length - 1; index >= 0; index -= 1) {
-    const comment = comments[index];
-    if (comment?.body.includes(marker)) return { id: comment.id };
-  }
-  return null;
+  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
+  return id == null ? null : { id };
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;

@@ -147,6 +147,7 @@ export async function findPullRequestReviewByMarker(
   repo: string,
   pullNumber: number,
   marker: string,
+  authorLogin: string,
   commitId?: string,
   expiresAtTs?: number,
 ): Promise<{ id: number; url: string } | null> {
@@ -170,6 +171,7 @@ export async function findPullRequestReviewByMarker(
     if (
       review != null &&
       typeof review.body === "string" &&
+      review.user?.login === authorLogin &&
       review.body.includes(marker) &&
       (commitId == null || review.commit_id === commitId)
     ) {
