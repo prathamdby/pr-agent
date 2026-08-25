@@ -1,5 +1,10 @@
 import { noopAnalyticsSink } from "./noop.js";
 import type { AnalyticsSink, CaptureEventInput } from "./types.js";
+import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "../errors/appError.js";
+import {
+  sanitizeTelemetryRecord,
+  sanitizeTelemetryString,
+} from "../security/sanitizeTelemetryValue.js";
 
 type AnalyticsState = {
   readonly sink: AnalyticsSink;
@@ -47,7 +52,13 @@ export function isAnalyticsEnabled(): boolean {
 }
 
 export function captureEvent(input: CaptureEventInput): void {
-  state.sink.captureEvent(input);
+  state.sink.captureEvent({
+    ...input,
+    distinctId: sanitizeTelemetryString(input.distinctId),
+    ...(input.properties !== undefined
+      ? { properties: sanitizeTelemetryRecord(input.properties) ?? {} }
+      : {}),
+  });
 }
 
 export function captureException(
@@ -55,7 +66,17 @@ export function captureException(
   distinctId: string,
   properties?: Record<string, unknown>,
 ): void {
-  state.sink.captureException(error, distinctId, properties);
+  const safeProperties = sanitizeTelemetryRecord(properties);
+  const safeErrorFields = errorAnalyticsFields(error);
+  const forwardedProperties =
+    safeProperties === undefined && Object.keys(safeErrorFields).length === 0
+      ? undefined
+      : { ...safeProperties, ...safeErrorFields };
+  state.sink.captureException(
+    sanitizeErrorForTelemetry(error),
+    sanitizeTelemetryString(distinctId),
+    forwardedProperties,
+  );
 }
 
 export function shutdownAnalytics(): Promise<void> {

@@ -8,7 +8,9 @@ import {
 } from "evlog";
 import { createLoggerStorage } from "evlog/toolkit";
 import { captureException, isAnalyticsEnabled } from "./analytics/index.js";
+import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "./errors/appError.js";
 import type { Config } from "./config.js";
+import { sanitizeTelemetryRecord } from "./security/sanitizeTelemetryValue.js";
 
 export type { RequestLogger };
 
@@ -85,7 +87,7 @@ export function recordEvent(
   if (fields === undefined) {
     events.push({ event, level, at: Date.now() });
   } else {
-    events.push({ event, level, ...fields, at: Date.now() });
+    events.push({ event, level, ...sanitizeTelemetryRecord(fields), at: Date.now() });
   }
   logger.set({ lastEvent: event });
 }
@@ -96,16 +98,17 @@ function recordOrGlobal(
   event: string,
   meta?: Record<string, unknown>,
 ): void {
+  const safeMeta = sanitizeTelemetryRecord(meta);
   const logger = tryUseLogger();
   if (logger) {
-    recordEvent(logger, event, meta, level);
+    recordEvent(logger, event, safeMeta, level);
     return;
   }
   if (!isLevelEnabled(level)) return;
-  if (meta === undefined) {
+  if (safeMeta === undefined) {
     globalFn({ event });
   } else {
-    globalFn({ event, ...meta });
+    globalFn({ event, ...safeMeta });
   }
 }
 
@@ -135,30 +138,16 @@ function analyticsDistinctIdFromMeta(meta?: Record<string, unknown>): string {
   return "server";
 }
 
-function unknownErrorMessage(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return String(value);
-  }
-  if (typeof value === "symbol") return value.description ?? "Symbol";
-  try {
-    return JSON.stringify(value) ?? "null";
-  } catch {
-    return Object.prototype.toString.call(value);
-  }
-}
-
 function errorFromLogErrorArgs(
   event: string,
   meta?: Record<string, unknown>,
   error?: unknown,
 ): Error {
-  if (error instanceof Error) return error;
-  if (error !== undefined) return new Error(unknownErrorMessage(error));
+  if (error !== undefined) return sanitizeErrorForTelemetry(error);
   if (typeof meta?.message === "string" && meta.message.length > 0) {
-    return new Error(meta.message);
+    return sanitizeErrorForTelemetry(new Error(meta.message));
   }
-  return new Error(event);
+  return sanitizeErrorForTelemetry(new Error(event));
 }
 
 function forwardLogErrorToAnalytics(
@@ -175,6 +164,7 @@ function forwardLogErrorToAnalytics(
       properties[key] = value;
     }
   }
+  Object.assign(properties, errorAnalyticsFields(error));
 
   captureException(
     errorFromLogErrorArgs(event, meta, error),
@@ -184,8 +174,9 @@ function forwardLogErrorToAnalytics(
 }
 
 export function logError(event: string, meta?: Record<string, unknown>, error?: unknown): void {
-  recordOrGlobal("error", (p) => globalLog.error(p), event, meta);
-  forwardLogErrorToAnalytics(event, meta, error);
+  const safeMeta = sanitizeTelemetryRecord(meta);
+  recordOrGlobal("error", (p) => globalLog.error(p), event, safeMeta);
+  forwardLogErrorToAnalytics(event, safeMeta, error);
 }
 
 export type OperationLoggerMeta = {
@@ -230,7 +221,10 @@ export function createOperationLogger(meta: OperationLoggerMeta): AuditableLogge
       requestId: meta.requestId,
     }),
   );
-  if (meta.context) logger.set(meta.context);
+  if (meta.context) {
+    const safeContext = sanitizeTelemetryRecord(meta.context);
+    if (safeContext !== undefined) logger.set(safeContext);
+  }
   return logger;
 }
 
@@ -238,6 +232,9 @@ async function emitPrepared(
   logger: RequestLogger,
   overrides?: Record<string, unknown>,
 ): Promise<void> {
+  const context = logger.getContext();
+  const safeContext = sanitizeTelemetryRecord(context);
+  if (safeContext !== undefined && safeContext !== context) logger.set(safeContext);
   filterEventsInPlace(logger);
   logger.set({ emitted: true });
   await Promise.resolve(logger.emit(overrides));
@@ -252,7 +249,7 @@ export async function runWithOperationLogger<T>(
     try {
       return await fn();
     } catch (e) {
-      opLog.error(e instanceof Error ? e : new Error(String(e)));
+      opLog.error(sanitizeErrorForTelemetry(e));
       throw e;
     } finally {
       try {

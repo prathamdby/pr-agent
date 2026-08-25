@@ -8,6 +8,7 @@ import {
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
 import { initAnalytics, shutdownAnalytics } from "../src/analytics/index.js";
+import { AppError } from "../src/errors/appError.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 
@@ -156,7 +157,7 @@ describe("durableJob analytics forwarding", () => {
       }),
     });
     expect(client?.captureException).toHaveBeenCalledWith(
-      boom,
+      expect.objectContaining({ name: "Error", message: "enqueue failed" }),
       "installation:99",
       expect.objectContaining({
         event: "agent_work_failed",
@@ -215,5 +216,60 @@ describe("durableJob analytics forwarding", () => {
         provider_error_kind: "quota",
       }),
     });
+  });
+
+  it("sanitizes AppError fields on terminal durable-job failures", async () => {
+    const item = makeReviewWorkItem({
+      status: "running",
+      id: "wi-secret",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    const token = ["ghp", "1234567890123456789012345678901234"].join("_");
+    const boom = new AppError({
+      code: "agent_work.failed",
+      message: `worker failed Bearer ${token}`,
+      context: {
+        workItemId: item.id,
+        rawValue: { database: "postgres://user:pass@db/app" },
+      },
+      cause: new Error("OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz"),
+    });
+    const job = {
+      id: "job-secret",
+      data: { workItemId: item.id },
+      retryCount: 3,
+      retryLimit: 3,
+      signal: new AbortController().signal,
+    } as unknown as JobWithMetadata<{ workItemId: string }>;
+
+    await expect(
+      runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job,
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockRejectedValue(boom),
+      }),
+    ).resolves.toBeUndefined();
+
+    const call = mockPostHog.instances[0]?.captureException.mock.calls[0];
+    expect(call?.[0]).not.toBe(boom);
+    expect(call?.[2]).toMatchObject({
+      errorCode: "agent_work.failed",
+      errorContext: { workItemId: item.id },
+    });
+    const json = JSON.stringify({ error: call?.[0], properties: call?.[2] });
+    expect(json).not.toContain(token);
+    expect(json).not.toContain("postgres://");
+    expect(json).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
   });
 });

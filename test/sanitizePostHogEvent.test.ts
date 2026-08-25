@@ -4,7 +4,7 @@ import {
   type PostHogEventMessage,
 } from "../src/security/sanitizePostHogEvent.js";
 
-const TOKEN = "ghp_1234567890123456789012345678901234";
+const TOKEN = ["ghp", "1234567890123456789012345678901234"].join("_");
 
 describe("sanitizePostHogEvent", () => {
   it("returns null unchanged", () => {
@@ -167,5 +167,59 @@ describe("sanitizePostHogEvent", () => {
     expect(contextLine).toContain("ghp_");
     expect(String(sanitized?.properties?.error_message)).toContain("[redacted]");
     expect(String(sanitized?.properties?.error_message)).not.toContain("ghp_");
+  });
+
+  it("redacts camel and snake AppError fields recursively and breaks cycles", () => {
+    const context: Record<string, unknown> = {
+      workItemId: "work-1",
+      rawValue: {
+        apiKey: "opaque-provider-key",
+        nested: [`Bearer ${TOKEN}`],
+      },
+    };
+    context.self = context;
+    const event: PostHogEventMessage = {
+      distinctId: "installation:1",
+      event: "agent_work_failed",
+      properties: {
+        message: `request failed Bearer ${TOKEN}`,
+        errorMessage: `OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz`,
+        error_context: context,
+        errorCause: {
+          error_message: `DATABASE_URL=postgres://user:pass@db/app`,
+          values: [`Bearer ${TOKEN}`, { privateKey: "secret" }],
+        },
+        error_code: "worker.failed",
+        unsupported: {
+          bigint: 42n,
+          symbol: Symbol("safe"),
+          function: () => "not serialized",
+        },
+      },
+    };
+
+    const sanitized = sanitizePostHogEvent(event);
+    const properties = sanitized?.properties as Record<string, unknown>;
+    const json = JSON.stringify(sanitized);
+    expect(properties.error_code).toBe("worker.failed");
+    expect(properties.errorMessage).toContain("[redacted]");
+    expect((properties.error_context as Record<string, unknown>).workItemId).toBe("work-1");
+    expect((properties.error_context as Record<string, unknown>).self).toBe("[circular]");
+    expect(JSON.stringify(sanitized)).not.toContain("opaque-provider-key");
+    expect(json).not.toContain(TOKEN);
+    expect(json).not.toContain("postgres://");
+    expect(json).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(json).toContain("[redacted]");
+  });
+
+  it("does not return the original event when sanitization is not an object", () => {
+    const event = {
+      distinctId: "installation:1",
+      event: "broken",
+      toJSON() {
+        return "nope";
+      },
+    };
+    expect(sanitizePostHogEvent(event)).toEqual({ properties: {} });
   });
 });

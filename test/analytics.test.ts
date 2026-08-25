@@ -73,7 +73,7 @@ describe("analytics facade", () => {
     });
 
     const beforeSend = mockPostHog.instances[0]?.options.before_send;
-    const token = "ghp_1234567890123456789012345678901234";
+    const token = ["ghp", "1234567890123456789012345678901234"].join("_");
     const sanitized = beforeSend?.({
       distinctId: "installation:1",
       event: "triage failed",
@@ -102,9 +102,36 @@ describe("analytics facade", () => {
       event: "work item failed",
       properties: { type: "review" },
     });
-    expect(client?.captureException).toHaveBeenCalledWith(err, "installation:1", {
-      type: "review",
-    });
+    expect(client?.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Error", message: "fail" }),
+      "installation:1",
+      {
+        type: "review",
+      },
+    );
+  });
+
+  it("sanitizes distinct ids before forwarding events and exceptions", async () => {
+    const analytics = await import("../src/analytics/index.js");
+
+    await analytics.initAnalytics({ projectToken: "token", host: "" });
+    const token = ["ghp", "1234567890123456789012345678901234"].join("_");
+    const databaseUrl = ["postgres:", "//user:pass@db/app"].join("");
+    const apiKey = ["sk", "-abcdefghijklmnopqrstuvwxyz"].join("");
+    const distinctId = `Bearer ${token} ${databaseUrl} ${apiKey}`;
+
+    analytics.captureEvent({ distinctId, event: "work item failed" });
+    analytics.captureException(new Error("boom"), distinctId);
+
+    const client = mockPostHog.instances[0];
+    const eventDistinctId = client?.capture.mock.calls[0]?.[0]?.distinctId as string;
+    const exceptionDistinctId = client?.captureException.mock.calls[0]?.[1] as string;
+    expect(eventDistinctId).toContain("[redacted]");
+    expect(exceptionDistinctId).toContain("[redacted]");
+    expect(eventDistinctId).not.toContain(token);
+    expect(exceptionDistinctId).not.toContain(token);
+    expect(JSON.stringify(client?.capture.mock.calls[0])).not.toContain(databaseUrl);
+    expect(JSON.stringify(client?.captureException.mock.calls[0])).not.toContain(apiKey);
   });
 
   it("shuts down the client and no-ops shutdown when disabled", async () => {
@@ -149,13 +176,53 @@ describe("analytics facade", () => {
     const client = mockPostHog.instances[0];
     expect(client?.captureException).toHaveBeenCalledTimes(1);
     const call = client?.captureException.mock.calls[0];
-    expect(call?.[0]).toBe(err);
+    expect(call?.[0]).not.toBe(err);
+    expect(call?.[0]).toMatchObject({ name: "AppError", message: "boom" });
     expect(call?.[1]).toBe("installation:42");
     expect(call?.[2]).toMatchObject({
       event: "agent_work_failed",
       errorCode: "agent_work.failed",
       errorContext: { workItemId: "w1" },
     });
+  });
+
+  it("sanitizes AppError telemetry before both analytics forwarding paths", async () => {
+    const analytics = await import("../src/analytics/index.js");
+    await analytics.initAnalytics({ projectToken: "token", host: "" });
+
+    const { AppError, errorLogFields } = await import("../src/errors/appError.js");
+    const { logError } = await import("../src/evlog.js");
+    const token = ["ghp", "1234567890123456789012345678901234"].join("_");
+    const error = new AppError({
+      code: "agent_work.failed",
+      message: `failed Bearer ${token}`,
+      context: {
+        workItemId: "w1",
+        rawValue: { database: "postgres://user:pass@db/app" },
+      },
+      cause: new Error("OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz"),
+    });
+
+    logError(
+      "agent_work_failed",
+      {
+        installationId: 42,
+        ...errorLogFields(error),
+      },
+      error,
+    );
+
+    const call = mockPostHog.instances[0]?.captureException.mock.calls[0];
+    const forwardedError = call?.[0] as Error;
+    const properties = call?.[2] as Record<string, unknown>;
+    expect(forwardedError).not.toBe(error);
+    expect(forwardedError.message).toContain("[redacted]");
+    expect(properties.errorCode).toBe("agent_work.failed");
+    expect(properties.errorContext).toMatchObject({ workItemId: "w1" });
+    const json = JSON.stringify({ forwardedError, properties });
+    expect(json).not.toContain(token);
+    expect(json).not.toContain("postgres://");
+    expect(json).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
   });
 
   it("does not forward logError when analytics is disabled", async () => {
