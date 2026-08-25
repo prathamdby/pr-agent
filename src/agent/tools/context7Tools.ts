@@ -140,14 +140,15 @@ async function context7Get(
   if (!res.ok) {
     let detail = "";
     try {
-      const body = (await res.json()) as { error?: string; message?: string };
-      detail = body.error ?? body.message ?? "";
-    } catch {
+      const rawBody = await res.text();
       try {
-        detail = await res.text();
+        const body = JSON.parse(rawBody) as { error?: string; message?: string };
+        detail = body.error ?? body.message ?? "";
       } catch {
-        /* response body is unreadable; keep detail empty */
+        detail = rawBody;
       }
+    } catch {
+      /* response body is unreadable; keep detail empty */
     }
     detail = redactContext7Response(detail, apiKey);
     throw new AppError({
@@ -182,7 +183,7 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
     schema: resolveLibraryIdSchema,
     run: async ({ libraryName, query }, apiKey, maxResponseBytes) => {
       const safeLibraryName = assertContext7LibraryName(libraryName);
-      const safeQuery = query == null ? "" : prepareContext7OutboundText("query", query);
+      const safeQuery = query == null ? "" : prepareContext7OutboundText("query", query, apiKey);
       const text = await context7Get(
         "/v2/libs/search",
         {
@@ -200,7 +201,7 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
     schema: getLibraryDocsSchema,
     run: async ({ libraryId, topic }, apiKey, maxResponseBytes) => {
       const safeLibraryId = assertContext7LibraryId(libraryId);
-      const safeTopic = topic == null ? "" : prepareContext7OutboundText("topic", topic);
+      const safeTopic = topic == null ? "" : prepareContext7OutboundText("topic", topic, apiKey);
       const params: Record<string, string> = {
         libraryId: safeLibraryId,
         type: "txt",

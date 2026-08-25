@@ -44,6 +44,7 @@ export const BOT_SECRET_PATTERNS: readonly RegExp[] = [
   /\bsk-[A-Za-z0-9_-]{10,}\b/g,
   /\bAIza[0-9A-Za-z_-]{35}\b/g,
   /\bpostgres(?:ql)?:\/\/\S+/gi,
+  /\bctx7sk-[A-Za-z0-9_-]{10,}\b/gi,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,

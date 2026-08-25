@@ -24,7 +24,10 @@ type Context7PolicyReason =
   | "repository_content"
   | "conversation_content";
 
-const URL_PATTERN = /(?:\b(?:https?|ftp|file|data|javascript):\/\/|\bwww\.|%[0-9a-f]{2})/i;
+const URL_PATTERN =
+  /(?:\b(?:https?|ftp|file):\/\/|\b(?:blob|data|javascript|mailto):|\bwww\.|%[0-9a-f]{2})/i;
+const BARE_HOST_PATTERN =
+  /(?:\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.){2,}[a-z]{2,}\b|\b[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z]{2,}[/:?#][^\s]*)/i;
 const PROMPT_CONTENT_PATTERNS: readonly RegExp[] = [
   /\b(?:ignore|disregard|forget|override)\b[\s\S]{0,48}\b(?:previous|prior|above|system|developer)\b[\s\S]{0,48}\b(?:instructions?|rules?|prompt)\b/i,
   /<\s*\/?\s*(?:system|developer|user|assistant|tool|prompt|instructions?|user_question|thread_transcript)\b/i,
@@ -37,7 +40,6 @@ const REPOSITORY_CONTENT_PATTERNS: readonly RegExp[] = [
   /```|\/\*|\*\/|(?:^|\s)\/\//,
   /\b(?:diff --git|git\s+(?:diff|show|log|status)|index\s+[0-9a-f]{7,}|@@\s*-\d)/i,
   /(?:^|\s)(?:import|export|const|let|var|function|class|interface|type)\s+[A-Za-z_$]/m,
-  /(?:=>|[{};])/,
   /(?:^|\s)(?:src|test|tests|lib|app|docs)\/[^\s]+\.(?:[cm]?[jt]sx?|json|md|ya?ml|py|go|rs|java|rb|php)\b/i,
   /(?:^|\s)(?:package\.json|(?:pnpm|npm|yarn)[-]lock\.(?:yaml|yml|json)|\.env(?:\.[^\s]+)?|[^\s/]+\.(?:pem|key))\b/i,
 ];
@@ -47,7 +49,6 @@ const CONVERSATION_CONTENT_PATTERNS: readonly RegExp[] = [
   /\b(?:pull\s+request|pr\s+comment|review\s+comment|issue\s+comment|thread\s+transcript|conversation)\b/i,
   /\bpr\s*#?\d+\b/i,
   /\b(?:reviewer|author|maintainer)\s*:/i,
-  /\bPR\b/i,
   /(?:^|\s)@[A-Za-z0-9][A-Za-z0-9_-]*/,
 ];
 
@@ -91,6 +92,7 @@ function containsControlCharacter(value: string): boolean {
 export function prepareContext7OutboundText(
   field: Context7OutboundTextField,
   value: string,
+  apiKey: string = "",
 ): string {
   const trimmed = value.trim();
   if (trimmed.length === 0) return "";
@@ -99,9 +101,15 @@ export function prepareContext7OutboundText(
     rejectContext7Input(field, "control_character");
   }
 
+  const normalizedApiKey = apiKey.trim();
+  if (normalizedApiKey && trimmed.includes(normalizedApiKey)) {
+    rejectContext7Input(field, "secret_shaped_content");
+  }
   const redacted = redactOutboundSecrets(trimmed);
   if (redacted !== trimmed) rejectContext7Input(field, "secret_shaped_content");
-  if (URL_PATTERN.test(trimmed)) rejectContext7Input(field, "url_content");
+  if (URL_PATTERN.test(trimmed) || BARE_HOST_PATTERN.test(trimmed)) {
+    rejectContext7Input(field, "url_content");
+  }
   if (PROMPT_CONTENT_PATTERNS.some((pattern) => pattern.test(trimmed))) {
     rejectContext7Input(field, "prompt_content");
   }
