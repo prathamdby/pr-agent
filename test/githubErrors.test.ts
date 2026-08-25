@@ -31,6 +31,43 @@ describe("isDuplicateCheckRunCreationError", () => {
     ).toBe(true);
   });
 
+  it("accepts alternate duplicate shapes and rejects unrelated messages", () => {
+    expect(
+      isDuplicateCheckRunCreationError({
+        status: 422,
+        errors: [{ resource: "CheckRun", code: "duplicate" }],
+      }),
+    ).toBe(true);
+    expect(
+      isDuplicateCheckRunCreationError({
+        status: 422,
+        data: {
+          errors: [{ resource: "CheckRun", code: "custom", message: "DUPLICATE" }],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isDuplicateCheckRunCreationError({
+        status: 422,
+        response: {
+          data: {
+            errors: [{ resource: "PullRequest", code: "already_exists" }],
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isDuplicateCheckRunCreationError({
+        status: 422,
+        response: {
+          data: {
+            errors: [{ resource: "CheckRun", code: "custom", message: "duplicated" }],
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("rejects bare and unrelated validation failures", () => {
     expect(isDuplicateCheckRunCreationError({ status: 422, message: "already exists" })).toBe(
       false,

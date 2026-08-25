@@ -1,6 +1,6 @@
 import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
-import { paginateOctokitPages } from "./paginateOctokit.js";
+import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
 import {
   CHECK_RUNS_MAX_PAGES,
   CHECK_RUNS_PAGE_SIZE,
@@ -28,8 +28,7 @@ export async function findReviewCheckRunByName(
   expiresAtTs?: number,
 ): Promise<{ id: number; url: string | null } | null> {
   const octokit = installationOctokit(token, expiresAtTs);
-  let truncated = false;
-  const runs = await paginateOctokitPages({
+  const { items: runs, truncated } = await paginateOctokitPagesWithMeta({
     perPage: CHECK_RUNS_PAGE_SIZE,
     maxPages: CHECK_RUNS_MAX_PAGES,
     fetchPage: async (page, perPage) => {
@@ -42,9 +41,6 @@ export async function findReviewCheckRunByName(
         per_page: perPage,
         page,
       });
-      if (page >= CHECK_RUNS_MAX_PAGES && data.check_runs.length >= perPage) {
-        truncated = true;
-      }
       return data.check_runs;
     },
   });

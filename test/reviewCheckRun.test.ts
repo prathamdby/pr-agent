@@ -494,6 +494,55 @@ describe("review check run lifecycle", () => {
     expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
   });
 
+  it("does not cancel when the provider omits external id", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [
+        {
+          id: 556,
+          name: "PR Agent Review",
+          externalId: null,
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel when the provider check-run view is truncated", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
+    const prSurface = makePrSurface();
+    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
+      checkRuns: [
+        {
+          id: 557,
+          name: "PR Agent Review",
+          externalId: "wi-1",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      checkRunsComplete: false,
+      legacyStatuses: [],
+    });
+
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
+  });
+
   it("does not cancel when exact remote identity is ambiguous", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
     const prSurface = makePrSurface();

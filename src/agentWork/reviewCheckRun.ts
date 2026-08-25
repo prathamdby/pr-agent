@@ -362,6 +362,7 @@ async function findOpenReviewCheckRunId(
 ): Promise<number | null> {
   try {
     const status = await prSurface.getCiStatus(headSha);
+    if (status.checkRunsComplete === false) return null;
     const matches = status.checkRuns.filter(
       (run) =>
         run.name === reviewCheckRunName() &&

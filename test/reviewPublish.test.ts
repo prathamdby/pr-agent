@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import { CHECK_RUNS_PAGE_SIZE, COMMENTS_PAGE_SIZE } from "../src/settings/index.js";
+import {
+  CHECK_RUNS_MAX_PAGES,
+  CHECK_RUNS_PAGE_SIZE,
+  COMMENTS_PAGE_SIZE,
+} from "../src/settings/index.js";
 import { syncReviewLabels } from "../src/review/run/reviewLabels.js";
 
 const {
@@ -421,5 +425,26 @@ describe("review check runs", () => {
     await expect(
       findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
     ).resolves.toBeNull();
+  });
+
+  it("leaves recovery unresolved when pagination reaches its cap", async () => {
+    for (let page = 1; page <= CHECK_RUNS_MAX_PAGES; page++) {
+      listCheckRunsForRef.mockResolvedValueOnce({
+        data: {
+          check_runs: Array.from({ length: CHECK_RUNS_PAGE_SIZE }, (_, index) => ({
+            id: page * CHECK_RUNS_PAGE_SIZE + index,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            external_id: page === 2 && index === 0 ? "wi-1" : `other-${page}-${index}`,
+            html_url: null,
+          })),
+        },
+      });
+    }
+
+    await expect(
+      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
+    ).resolves.toBeNull();
+    expect(listCheckRunsForRef).toHaveBeenCalledTimes(CHECK_RUNS_MAX_PAGES);
   });
 });

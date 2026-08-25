@@ -707,7 +707,11 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         listCheckRunsForHead(token, owner, repo, headSha, expiresAtTs),
         listLegacyCommitStatusesForHead(token, owner, repo, headSha, expiresAtTs),
       ]);
-      return { checkRuns, legacyStatuses };
+      return {
+        checkRuns: checkRuns.checkRuns,
+        checkRunsComplete: !checkRuns.truncated,
+        legacyStatuses,
+      };
     },
 
     async listFailingActionsJobs(headSha) {

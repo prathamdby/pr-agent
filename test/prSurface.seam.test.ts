@@ -286,4 +286,34 @@ describe("PrSurface seam", () => {
     await expect(surface.startReviewCheck("abc123", "work-1")).rejects.toBe(validationError);
     expect(findReviewCheckRunByName).not.toHaveBeenCalled();
   });
+
+  it("does not recover duplicate-like errors with a non-422 status", async () => {
+    for (const status of [403, 500]) {
+      const error = Object.assign(new Error("already exists"), {
+        status,
+        response: {
+          data: {
+            errors: [{ resource: "CheckRun", code: "already_exists" }],
+          },
+        },
+      });
+      vi.mocked(createReviewCheckRun).mockRejectedValueOnce(error);
+
+      const surface = createPrSurface({
+        cfg: makeTestConfig(),
+        installationId: 1,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installation: {
+          token: "tok",
+          expiresAtTs: Date.now() + 3_600_000,
+          ttlMs: 3_600_000,
+        },
+      });
+
+      await expect(surface.startReviewCheck("abc123", "work-1")).rejects.toBe(error);
+    }
+    expect(findReviewCheckRunByName).not.toHaveBeenCalled();
+  });
 });
