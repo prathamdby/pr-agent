@@ -8,6 +8,7 @@ import {
   numberCandidatePairs,
   parseBoundPolicyYesIds,
   resolveBoundPolicyFooters,
+  type BoundPolicyJudgePair,
 } from "../src/review/publish/boundPolicyJudge.js";
 import { candidatePolicyPairs, type RepoPolicyRule } from "../src/review/repoPolicy.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
@@ -57,7 +58,10 @@ function sameRepoPolicy(rules: readonly RepoPolicyRule[]) {
 describe("parseBoundPolicyYesIds", () => {
   it("keeps asked ids and drops extras", () => {
     expect(
-      parseBoundPolicyYesIds('{"yes":["p1",".pr-agent/always.mdc","p9","p0"]}', new Set(["p0", "p1"])),
+      parseBoundPolicyYesIds(
+        '{"yes":["p1",".pr-agent/always.mdc","p9","p0"]}',
+        new Set(["p0", "p1"]),
+      ),
     ).toEqual(["p1", "p0"]);
   });
 
@@ -110,7 +114,7 @@ describe("buildBoundPolicyJudgeUserMessage", () => {
     ]);
     expect(message).toContain("Asked ids: p0");
     expect(message).toContain("Return the yes subset");
-    expect(message).toContain("<bound_policy_finding untrusted=\"true\">");
+    expect(message).toContain('<bound_policy_finding untrusted="true">');
     expect(message).toContain("Rule `.pr-agent/always.mdc`");
     expect(message).not.toContain("fixPrompt");
     expect(message).not.toContain("suggestedCode");
@@ -177,7 +181,7 @@ describe("resolveBoundPolicyFooters", () => {
   });
 
   it("never sends a glob-mismatch pair to the judge", async () => {
-    const judge = vi.fn(async (pairs) => {
+    const judge = vi.fn(async (pairs: readonly BoundPolicyJudgePair[]) => {
       expect(pairs).toHaveLength(0);
       return ["p0"];
     });
@@ -202,7 +206,7 @@ describe("resolveBoundPolicyFooters", () => {
     const findings = Array.from({ length: 10 }, (_, index) =>
       findingAt("src/a.ts", index + 1, `Finding ${index + 1}`),
     );
-    const judge = vi.fn(async (pairs) => {
+    const judge = vi.fn(async (pairs: readonly BoundPolicyJudgePair[]) => {
       expect(pairs).toHaveLength(10);
       expect(pairs.every((pair) => pair.relativePath === ".pr-agent/always.mdc")).toBe(true);
       return ["p1", "p4"];

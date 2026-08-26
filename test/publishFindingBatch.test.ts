@@ -12,6 +12,7 @@ import {
   type FindingLedger,
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.js";
+import type { BoundPolicyJudgePair } from "../src/review/publish/boundPolicyJudge.js";
 import { reviewFindingSchema, type ReviewFinding } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
@@ -289,7 +290,7 @@ describe("publishFindingBatch", () => {
 
   it("prints Bound only for judged-yes same-repo rules", async () => {
     const findings = Array.from({ length: 10 }, (_, index) => findingAt(10 + index));
-    const judge = vi.fn(async () => ["p1", "p7"]);
+    const judge = vi.fn(async (_pairs: readonly BoundPolicyJudgePair[]) => ["p1", "p7"]);
     const result = await publishFindingBatch(
       findings,
       batchContext(createFindingLedger(), undefined, {
@@ -332,7 +333,9 @@ describe("publishFindingBatch", () => {
     const bodies = (harness.publishThreadBatch.mock.calls[0]?.[0]?.comments ?? []).map(
       (comment) => comment.body,
     );
-    const boundBodies = bodies.filter((body) => body.includes("<sub>Bound · .pr-agent/always.mdc</sub>"));
+    const boundBodies = bodies.filter((body) =>
+      body.includes("<sub>Bound · .pr-agent/always.mdc</sub>"),
+    );
     expect(boundBodies).toHaveLength(2);
     expect(bodies.some((body) => body.includes("auth.mdc"))).toBe(false);
     expect(bodies.some((body) => body.includes("Rule ·"))).toBe(false);

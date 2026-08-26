@@ -47,7 +47,7 @@ export const BOUND_POLICY_JUDGE_SYSTEM_PROMPT = [
   "You judge whether a review finding violates a bound same-repo repo policy rule.",
   "Most findings do not violate a given always-apply rule. Default no.",
   "You receive only the asked pairs. Each pair is self-contained.",
-  "Reply with JSON only: {\"yes\":[\"p0\"]} using pair ids from the asked list.",
+  'Reply with JSON only: {"yes":["p0"]} using pair ids from the asked list.',
   "Include an id only when the finding is an evidenced violation of that pair's rule.",
   "Never invent a path. Never emit an id that was not asked. When unsure, omit the id.",
 ].join("\n");
@@ -105,7 +105,10 @@ export async function citedSnippetForFinding(params: {
   const text = await params.readCheckoutFile(finding.file);
   if (text == null || text.length === 0) return undefined;
   const lines = text.split(/\r?\n/);
-  const slice = lines.slice(finding.startLine - 1, finding.endLine).join("\n").trim();
+  const slice = lines
+    .slice(finding.startLine - 1, finding.endLine)
+    .join("\n")
+    .trim();
   if (!slice) return undefined;
   return slice.slice(0, BOUND_POLICY_SNIPPET_MAX_CHARS);
 }
@@ -128,9 +131,7 @@ export function buildBoundPolicyJudgePairs(
   }));
 }
 
-export function buildBoundPolicyJudgeUserMessage(
-  pairs: readonly BoundPolicyJudgePair[],
-): string {
+export function buildBoundPolicyJudgeUserMessage(pairs: readonly BoundPolicyJudgePair[]): string {
   const asked = pairs.map((pair) => pair.id).join(", ");
   const blocks = pairs.map((pair) => {
     const findingLines = [

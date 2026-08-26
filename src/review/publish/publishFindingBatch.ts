@@ -19,10 +19,7 @@ import {
 } from "../findings/findingPipeline.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
-import {
-  resolveBoundPolicyFooters,
-  type BoundPolicyJudge,
-} from "./boundPolicyJudge.js";
+import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
 import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
 import {
   deterministicInlineBatchId,

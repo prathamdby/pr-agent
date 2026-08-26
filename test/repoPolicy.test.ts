@@ -429,7 +429,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
   });
 
   it("treats always-apply as a candidate for any file", () => {
-    expect(ruleConsidersFile(sampleRules.policy.rules[0]!, "README.md")).toBe(true);
+    expect(ruleConsidersFile(sampleRules.policy.rules[0], "README.md")).toBe(true);
     expect(
       candidatePolicyPairs({
         policy: sampleRules,
@@ -440,8 +440,8 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
   });
 
   it("keeps a glob-matching rule only for matching files", () => {
-    expect(ruleConsidersFile(sampleRules.policy.rules[1]!, "src/auth/login.ts")).toBe(true);
-    expect(ruleConsidersFile(sampleRules.policy.rules[1]!, "src/db/query.ts")).toBe(false);
+    expect(ruleConsidersFile(sampleRules.policy.rules[1], "src/auth/login.ts")).toBe(true);
+    expect(ruleConsidersFile(sampleRules.policy.rules[1], "src/db/query.ts")).toBe(false);
     expect(
       candidatePolicyPairs({
         policy: sampleRules,
