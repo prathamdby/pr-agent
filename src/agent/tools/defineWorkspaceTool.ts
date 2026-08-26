@@ -7,7 +7,9 @@ import { parseToolInput } from "./parseToolInput.js";
 export type LocalTool<TSchema extends v.GenericSchema = v.GenericSchema> = {
   readonly description: string;
   readonly schema: TSchema;
-  readonly run: (parsed: v.InferOutput<TSchema>) => Promise<unknown>;
+  // Valibot `InferOutput<GenericSchema>` is unknown; `any` keeps defineLocalTool assignable.
+  // eslint-disable-next-line typescript/no-explicit-any
+  readonly run: (parsed: any) => Promise<unknown>;
 };
 
 export function defineLocalTool<TSchema extends v.GenericSchema>(tool: {

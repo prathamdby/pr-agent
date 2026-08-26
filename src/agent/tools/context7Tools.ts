@@ -72,7 +72,9 @@ type ReviewTool<TSchema extends v.GenericSchema = v.GenericSchema> = {
   readonly description: string;
   readonly schema: TSchema;
   readonly run: (
-    parsed: v.InferOutput<TSchema>,
+    // Valibot `InferOutput<GenericSchema>` is unknown; `any` keeps tool `run` assignable.
+    // eslint-disable-next-line typescript/no-explicit-any
+    parsed: any,
     apiKey: string,
     maxResponseBytes: number,
   ) => Promise<Context7ToolResponse>;
