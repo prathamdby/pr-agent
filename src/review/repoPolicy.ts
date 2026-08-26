@@ -88,6 +88,23 @@ function ruleApplies(rule: RepoPolicyRule, changedFiles?: readonly string[]): bo
   );
 }
 
+/**
+ * Same-repo `.mdc` paths that bind this finding file.
+ * Fork, absent, invalid, or empty policy yields nothing. Order matches the loader.
+ */
+export function boundPolicyPaths(params: {
+  readonly policy: RepoPolicyResult;
+  readonly sameRepo?: boolean;
+  readonly file: string;
+}): readonly string[] {
+  if (params.sameRepo !== true || params.policy.kind !== "ok") {
+    return [];
+  }
+  return params.policy.policy.rules
+    .filter((rule) => ruleApplies(rule, [params.file]))
+    .map((rule) => rule.relativePath);
+}
+
 function parseMdcContent(
   raw: string,
 ):

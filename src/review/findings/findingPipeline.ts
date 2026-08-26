@@ -54,23 +54,11 @@ export function prepareReviewPayloadForPublish(params: {
   headSha?: string;
   checkoutCoverage?: CheckoutCoverage;
   isPathInCheckout?: (path: string) => boolean;
-  allowViolatedRule?: boolean;
 }):
   | { ok: true; prepared: PreparedReviewPayload }
   | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
   const normalized = normalizeReviewPayload(params.payload);
-  const withoutUntrustedRules =
-    params.allowViolatedRule === false
-      ? {
-          ...normalized,
-          findings: normalized.findings.map((finding) => {
-            if (finding.violatedRule == null) return finding;
-            const { violatedRule: _violatedRule, ...rest } = finding;
-            return rest;
-          }),
-        }
-      : normalized;
-  const deduped = dedupeReviewFindings(withoutUntrustedRules.findings);
+  const deduped = dedupeReviewFindings(normalized.findings);
   const minConfidence = params.reviewMinConfidence ?? 1;
   const confidenceFiltered = deduped.filter(
     (finding) => finding.confidence == null || finding.confidence >= minConfidence,

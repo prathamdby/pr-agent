@@ -1,7 +1,9 @@
 import * as v from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import {
   coerceReviewPayloadInput,
+  createReviewPayloadSchema,
   formatReviewValidationError,
   isCheckFailingSeverity,
   isInlineSeverity,
@@ -292,14 +294,14 @@ describe("coerceReviewPayloadInput", () => {
   });
 });
 
-describe("reviewFinding violatedRule", () => {
-  it("accepts optional flat .pr-agent/*.mdc path and legacy payloads without it", () => {
-    const withRule = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Policy violation",
+describe("reviewFinding leftover violatedRule", () => {
+  it("drops leftover violatedRule and still accepts the payload", () => {
+    const parsed = v.safeParse(reviewPayloadSchema, {
+      prCharacter: "Unknown key must not fail the payload",
       findings: [
         {
-          ...makeFinding("P2", "breaks layout rule"),
-          violatedRule: ".pr-agent/module-layout.mdc",
+          ...makeFinding("P2", "ordinary bug"),
+          violatedRule: ".pr-agent/testing.mdc",
         },
       ],
       size: "S",
@@ -307,68 +309,15 @@ describe("reviewFinding violatedRule", () => {
       securityConcerns: null,
       followUps: [],
     });
-    expect(withRule.success).toBe(true);
-    if (withRule.success) {
-      expect(withRule.output.findings[0]?.violatedRule).toBe(".pr-agent/module-layout.mdc");
-    }
-
-    const legacy = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "No policy field",
-      findings: [makeFinding("P2", "ordinary bug")],
-      size: "S",
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    });
-    expect(legacy.success).toBe(true);
-    if (legacy.success) {
-      expect(legacy.output.findings[0]?.violatedRule).toBeUndefined();
-    }
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.output.findings[0]).not.toHaveProperty("violatedRule");
+    expect(parsed.output.findings[0]?.title).toBe("ordinary bug");
   });
 
-  it("rejects empty, nested, parent, and non-.pr-agent violatedRule paths", () => {
-    for (const violatedRule of [
-      "",
-      "pr-agent/foo.mdc",
-      ".pr-agent/../secrets.mdc",
-      ".pr-agent/nested/foo.mdc",
-      "AGENTS.md",
-      ".pr-agent/foo.txt",
-      ".pr-agent/..mdc",
-      ".pr-agent/...mdc",
-      ".pr-agent/.mdc",
-      " .pr-agent/foo.mdc",
-      ".pr-agent/foo.mdc ",
-      null,
-      `.pr-agent/${"a".repeat(67)}.mdc`,
-    ]) {
-      const parsed = v.safeParse(reviewPayloadSchema, {
-        prCharacter: "Bad rule path",
-        findings: [{ ...makeFinding("P2", "bad rule"), violatedRule }],
-        size: "S",
-        relevantTests: "no",
-        securityConcerns: null,
-        followUps: [],
-      });
-      expect(parsed.success, `expected reject for ${JSON.stringify(violatedRule)}`).toBe(false);
-    }
-  });
-
-  it("accepts the exactly-80-char violatedRule path and rejects over-max", () => {
-    const exactly80 = `.pr-agent/${"a".repeat(66)}.mdc`;
-    expect(exactly80.length).toBe(80);
-    const accepted = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Max rule path",
-      findings: [{ ...makeFinding("P2", "max path"), violatedRule: exactly80 }],
-      size: "S",
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    });
-    expect(accepted.success).toBe(true);
-    if (accepted.success) {
-      expect(accepted.output.findings[0]?.violatedRule).toBe(exactly80);
-    }
+  it("omits violatedRule from the static review payload schema", () => {
+    const schema = toJsonSchema(createReviewPayloadSchema(), { errorMode: "ignore" });
+    expect(JSON.stringify(schema)).not.toContain("violatedRule");
   });
 });
 

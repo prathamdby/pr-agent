@@ -62,6 +62,8 @@ describe("renderReviewSummaryComment", () => {
     expect(body).not.toContain("_No findings._");
     expect(body).not.toContain("### Findings");
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
+    expect(body).not.toContain("Bound ·");
+    expect(body).not.toContain("Rule ·");
   });
 
   it("renders a CI gate row when a CI summary is provided", () => {
@@ -781,7 +783,7 @@ describe("renderInlineThreadBody", () => {
     expect(body).not.toContain("\\`\\`\\`literal");
   });
 
-  it("appends a subscript rule footer after Prompt to fix when violatedRule is set", () => {
+  it("appends a Bound footer after Prompt to fix for each bound path", () => {
     const body = renderInlineThreadBody(
       {
         severity: "P2",
@@ -791,16 +793,36 @@ describe("renderInlineThreadBody", () => {
         title: "Cross-layer import",
         detail: "Worker imports a web-only module.",
         fixPrompt: "Move the shared helper into a neutral module.",
-        violatedRule: ".pr-agent/web-worker-boundary.mdc",
       },
       inlineCtx,
+      [".pr-agent/web-worker-boundary.mdc"],
     );
 
-    expect(body).toContain("</details>\n\n<sub>Rule · .pr-agent/web-worker-boundary.mdc</sub>");
-    expect(body.endsWith("<sub>Rule · .pr-agent/web-worker-boundary.mdc</sub>")).toBe(true);
+    expect(body).toContain("</details>\n\n<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>");
+    expect(body.endsWith("<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>")).toBe(true);
+    expect(body).not.toContain("Rule ·");
   });
 
-  it("omits the rule footer when violatedRule is absent", () => {
+  it("lists several bound paths as one subscript line each", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P2",
+        file: "src/review/foo.ts",
+        startLine: 10,
+        endLine: 12,
+        title: "Cross-layer import",
+        detail: "Worker imports a web-only module.",
+        fixPrompt: "Move the shared helper into a neutral module.",
+      },
+      inlineCtx,
+      [".pr-agent/module-layout.mdc", ".pr-agent/web-worker-boundary.mdc"],
+    );
+
+    expect(body).toContain("<sub>Bound · .pr-agent/module-layout.mdc</sub>");
+    expect(body).toContain("<sub>Bound · .pr-agent/web-worker-boundary.mdc</sub>");
+  });
+
+  it("omits the Bound footer when no paths are bound", () => {
     const body = renderInlineThreadBody(
       {
         severity: "P1",
@@ -814,10 +836,11 @@ describe("renderInlineThreadBody", () => {
       inlineCtx,
     );
 
+    expect(body).not.toContain("<sub>Bound");
     expect(body).not.toContain("<sub>Rule");
   });
 
-  it("HTML-escapes violatedRule in the subscript footer", () => {
+  it("HTML-escapes bound paths in the subscript footer", () => {
     const body = renderInlineThreadBody(
       {
         severity: "P3",
@@ -827,13 +850,13 @@ describe("renderInlineThreadBody", () => {
         title: "Style",
         detail: "Formatting.",
         fixPrompt: "Reformat.",
-        violatedRule: ".pr-agent/evil<script>.mdc",
       },
       inlineCtx,
+      [".pr-agent/evil<script>.mdc"],
     );
 
-    expect(body).toContain("<sub>Rule · .pr-agent/evil&lt;script&gt;.mdc</sub>");
-    expect(body).not.toContain("<sub>Rule · .pr-agent/evil<script>.mdc</sub>");
+    expect(body).toContain("<sub>Bound · .pr-agent/evil&lt;script&gt;.mdc</sub>");
+    expect(body).not.toContain("<sub>Bound · .pr-agent/evil<script>.mdc</sub>");
   });
 });
 

@@ -18,6 +18,7 @@ import {
   prepareReviewPayloadForPublish,
 } from "../findings/findingPipeline.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
+import { boundPolicyPaths, type RepoPolicyResult } from "../repoPolicy.js";
 import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
 import {
   deterministicInlineBatchId,
@@ -89,7 +90,8 @@ export type FindingBatchContext = {
   readonly evidenceLedger?: EvidenceLedger;
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
-  readonly allowViolatedRule?: boolean;
+  readonly repoPolicy?: RepoPolicyResult;
+  readonly sameRepo?: boolean;
   readonly pool?: Pool;
   readonly installationId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
@@ -199,7 +201,6 @@ export async function publishFindingBatch(
     headSha: context.ctx.headSha,
     checkoutCoverage: context.checkoutCoverage,
     isPathInCheckout: context.isPathInCheckout,
-    allowViolatedRule: context.allowViolatedRule,
   });
   if (!prepared.ok) {
     throw new AppError({
@@ -307,7 +308,16 @@ export async function publishFindingBatch(
       event: "COMMENT",
       commitId: context.ctx.headSha,
       inlinePlacements: targets.inline,
-      renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
+      renderCommentBody: (finding) =>
+        renderInlineThreadBody(
+          finding,
+          context.ctx,
+          boundPolicyPaths({
+            policy: context.repoPolicy ?? { kind: "absent" },
+            sameRepo: context.sameRepo,
+            file: finding.file,
+          }),
+        ),
     });
   const inlineResult = await (context.operationIntent == null
     ? publishInline()

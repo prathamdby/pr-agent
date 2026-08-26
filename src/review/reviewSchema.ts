@@ -6,7 +6,6 @@ import {
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
-  REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
@@ -28,8 +27,6 @@ const severitySchema = v.picklist(["P0", "P1", "P2", "P3"]);
 export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "style"] as const;
 export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
 
-const VIOLATED_RULE_PATH_RE = /^\.pr-agent\/[A-Za-z0-9][A-Za-z0-9._-]*\.mdc$/;
-
 export const reviewFindingEntries = {
   severity: severitySchema,
   file: v.pipe(v.string(), v.minLength(1)),
@@ -43,9 +40,6 @@ export const reviewFindingEntries = {
   ),
   confidence: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(5))),
   category: v.optional(v.picklist(REVIEW_FINDING_CATEGORIES)),
-  violatedRule: v.optional(
-    v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS)),
-  ),
 };
 
 export const reviewFindingSchema = v.pipe(
@@ -60,13 +54,6 @@ export const reviewFindingSchema = v.pipe(
       "fixPrompt is required for P0/P1/P2/P3 findings",
     ),
     ["fixPrompt"],
-  ),
-  v.forward(
-    v.check(
-      (f) => f.violatedRule == null || VIOLATED_RULE_PATH_RE.test(f.violatedRule),
-      "violatedRule must be a flat .pr-agent/<name>.mdc path",
-    ),
-    ["violatedRule"],
   ),
 );
 

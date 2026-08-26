@@ -22,10 +22,6 @@ export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayloa
         finding.suggestedCode == null
           ? finding.suggestedCode
           : redactReviewText(finding.suggestedCode),
-      violatedRule:
-        finding.violatedRule == null
-          ? finding.violatedRule
-          : redactReviewText(finding.violatedRule),
     })),
   };
 }

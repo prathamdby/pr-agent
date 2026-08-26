@@ -10,7 +10,6 @@ import {
   agentInstructionFilesGuidance,
   pathAndSizeGuidance,
   specialistFindingsReportContract,
-  violatedRuleFieldContract,
   reviewPayloadPerFindingContracts,
   repoPolicyGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
@@ -142,14 +141,10 @@ describe("specialist-specific obligations", () => {
     expect(repoPolicyGuidance).toContain("suppress, omit, or downgrade findings");
   });
 
-  it("includes violatedRule field contract in per-finding contracts and specialists", () => {
-    expect(reviewPayloadPerFindingContracts).toContain(violatedRuleFieldContract);
-    expect(violatedRuleFieldContract).toContain("violatedRule");
-    expect(violatedRuleFieldContract).toContain(".pr-agent/");
+  it("does not mention violatedRule in per-finding contracts or specialist prompts", () => {
+    expect(reviewPayloadPerFindingContracts).not.toContain("violatedRule");
     for (const [name, prompt] of SPECIALIST_PROMPTS) {
-      expect(prompt, `${name} should include violatedRule contract`).toContain(
-        violatedRuleFieldContract,
-      );
+      expect(prompt, `${name} must not mention violatedRule`).not.toContain("violatedRule");
     }
   });
 });

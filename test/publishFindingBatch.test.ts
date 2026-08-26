@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as v from "valibot";
 import type { Pool } from "pg";
 import {
   deterministicInlineBatchId,
@@ -11,7 +12,7 @@ import {
   type FindingLedger,
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import { reviewFindingSchema, type ReviewFinding } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import {
@@ -262,6 +263,64 @@ describe("publishFindingBatch", () => {
     expect(result.kind).toBe("published");
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
     await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
+  });
+
+  it("drops leftover violatedRule and posts no Bound footer without policy", async () => {
+    const parsed = v.safeParse(reviewFindingSchema, {
+      ...finding,
+      violatedRule: ".pr-agent/testing.mdc",
+    });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.output).not.toHaveProperty("violatedRule");
+
+    const result = await publishFindingBatch(
+      [parsed.output],
+      batchContext(createFindingLedger(), undefined, { seedFindings: [parsed.output] }),
+    );
+
+    expect(result.kind).toBe("published");
+    const commentBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.comments?.[0]?.body ?? "";
+    expect(commentBody).not.toContain("violatedRule");
+    expect(commentBody).not.toContain("Rule ·");
+    expect(commentBody).not.toContain("Bound ·");
+    expect(commentBody).not.toContain(".pr-agent/testing.mdc");
+  });
+
+  it("appends Bound paths from same-repo policy on the matching file", async () => {
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        sameRepo: true,
+        repoPolicy: {
+          kind: "ok",
+          policy: {
+            rules: [
+              {
+                filename: "always.mdc",
+                relativePath: ".pr-agent/always.mdc",
+                alwaysApply: true,
+                globs: [],
+                body: "Always apply.",
+              },
+              {
+                filename: "auth.mdc",
+                relativePath: ".pr-agent/auth.mdc",
+                alwaysApply: false,
+                globs: ["src/auth/**"],
+                body: "Auth only.",
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe("published");
+    const commentBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.comments?.[0]?.body ?? "";
+    expect(commentBody).toContain("<sub>Bound · .pr-agent/always.mdc</sub>");
+    expect(commentBody).not.toContain("auth.mdc");
+    expect(commentBody).not.toContain("Rule ·");
   });
 
   it("redacts secret-shaped finding text before the GitHub write", async () => {
