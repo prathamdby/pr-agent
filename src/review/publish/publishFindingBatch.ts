@@ -18,6 +18,8 @@ import {
   prepareReviewPayloadForPublish,
 } from "../findings/findingPipeline.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
+import type { RepoPolicyResult } from "../repoPolicy.js";
+import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
 import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
 import {
   deterministicInlineBatchId,
@@ -89,7 +91,10 @@ export type FindingBatchContext = {
   readonly evidenceLedger?: EvidenceLedger;
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
-  readonly allowViolatedRule?: boolean;
+  readonly repoPolicy?: RepoPolicyResult;
+  readonly sameRepo?: boolean;
+  readonly boundPolicyJudge?: BoundPolicyJudge;
+  readonly readCheckoutFile?: (path: string) => Promise<string | undefined>;
   readonly pool?: Pool;
   readonly installationId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
@@ -199,7 +204,6 @@ export async function publishFindingBatch(
     headSha: context.ctx.headSha,
     checkoutCoverage: context.checkoutCoverage,
     isPathInCheckout: context.isPathInCheckout,
-    allowViolatedRule: context.allowViolatedRule,
   });
   if (!prepared.ok) {
     throw new AppError({
@@ -295,6 +299,15 @@ export async function publishFindingBatch(
   const operationKey = reviewInlineBatchOperationKey(batchId);
   const operationMarker =
     intentWorkItemId == null ? null : operationIntentMarker(operationKey, intentWorkItemId);
+  const boundByKey = await resolveBoundPolicyFooters({
+    policy: context.repoPolicy ?? { kind: "absent" },
+    sameRepo: context.sameRepo,
+    findings: targets.inline.map((placement) => placement.finding),
+    judge: context.boundPolicyJudge,
+    evidenceLedger: context.evidenceLedger,
+    isPathInCheckout: context.isPathInCheckout,
+    readCheckoutFile: context.readCheckoutFile,
+  });
   const publishInline = () =>
     publishInlineReviewComments({
       prSurface: context.prSurface,
@@ -307,7 +320,12 @@ export async function publishFindingBatch(
       event: "COMMENT",
       commitId: context.ctx.headSha,
       inlinePlacements: targets.inline,
-      renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
+      renderCommentBody: (finding) =>
+        renderInlineThreadBody(
+          finding,
+          context.ctx,
+          boundByKey.get(reviewFindingPlacementKey(finding)) ?? [],
+        ),
     });
   const inlineResult = await (context.operationIntent == null
     ? publishInline()

@@ -19,7 +19,7 @@ const frontmatterSchema = v.looseObject({
   alwaysApply: v.optional(v.boolean()),
 });
 
-type RepoPolicyRule = {
+export type RepoPolicyRule = {
   readonly filename: string;
   readonly relativePath: string;
   readonly alwaysApply: boolean;
@@ -80,12 +80,46 @@ function effectiveAlwaysApply(params: {
   return params.globs.length === 0;
 }
 
+function globMatchesFile(rule: RepoPolicyRule, file: string): boolean {
+  return rule.globs.some((pattern) => matchesPathGlob(file, pattern));
+}
+
+/** Always-apply, or this file matches a glob. Prompt bind and footer prefilter share this. */
+export function ruleConsidersFile(rule: RepoPolicyRule, file: string): boolean {
+  return rule.alwaysApply || globMatchesFile(rule, file);
+}
+
 function ruleApplies(rule: RepoPolicyRule, changedFiles?: readonly string[]): boolean {
-  if (rule.alwaysApply) return true;
   if (!changedFiles) return true;
-  return rule.globs.some((pattern) =>
-    changedFiles.some((filename) => matchesPathGlob(filename, pattern)),
-  );
+  return changedFiles.some((filename) => ruleConsidersFile(rule, filename));
+}
+
+export type PolicyCandidatePair<T extends { readonly file: string }> = {
+  readonly finding: T;
+  readonly rule: RepoPolicyRule;
+};
+
+/**
+ * Finding × bound same-repo rule pairs that consider `finding.file`.
+ * Fork, absent, invalid, or empty policy yields nothing. Order is findings then loader rules.
+ */
+export function candidatePolicyPairs<T extends { readonly file: string }>(params: {
+  readonly policy: RepoPolicyResult;
+  readonly sameRepo?: boolean;
+  readonly findings: readonly T[];
+}): readonly PolicyCandidatePair<T>[] {
+  if (params.sameRepo !== true || params.policy.kind !== "ok") {
+    return [];
+  }
+  const pairs: PolicyCandidatePair<T>[] = [];
+  for (const finding of params.findings) {
+    for (const rule of params.policy.policy.rules) {
+      if (ruleConsidersFile(rule, finding.file)) {
+        pairs.push({ finding, rule });
+      }
+    }
+  }
+  return pairs;
 }
 
 function parseMdcContent(

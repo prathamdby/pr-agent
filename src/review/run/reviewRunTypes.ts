@@ -8,6 +8,7 @@ import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 import type { RecordPublishStepWithCoordination } from "../publish/publishSummaryOnly.js";
 import type { FeatureSessionDurability } from "../../agent/runtime/sessionDurability.js";
+import type { RepoPolicyResult } from "../repoPolicy.js";
 
 export type ReviewRunParams = {
   readonly cfg: Config;
@@ -42,6 +43,7 @@ export type ReviewRunParams = {
   readonly severityFloor?: number;
   readonly codeIndexSnapshotId?: string;
   readonly sameRepo?: boolean;
+  readonly repoPolicy?: RepoPolicyResult;
 };
 
 export type ReviewRunResult = {

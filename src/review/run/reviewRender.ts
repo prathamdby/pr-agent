@@ -226,12 +226,16 @@ function renderSuggestedCodeBlock(finding: ReviewFinding): string[] {
   return ["", "```suggestion", escapedCode, "```"];
 }
 
-function renderViolatedRuleFooter(finding: ReviewFinding): string[] {
-  if (finding.violatedRule == null) return [];
-  return ["", `<sub>Rule · ${escapeTableHtml(finding.violatedRule)}</sub>`];
+function renderBoundPolicyFooter(boundPaths: readonly string[]): string[] {
+  if (boundPaths.length === 0) return [];
+  return ["", ...boundPaths.map((path) => `<sub>Bound · ${escapeTableHtml(path)}</sub>`)];
 }
 
-export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
+export function renderInlineThreadBody(
+  finding: ReviewFinding,
+  ctx: RenderContext,
+  boundPaths: readonly string[] = [],
+): string {
   const lines = [
     `**${finding.severity}** · **${finding.title}**`,
     "",
@@ -248,7 +252,7 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
     "```",
     "",
     "</details>",
-    ...renderViolatedRuleFooter(finding),
+    ...renderBoundPolicyFooter(boundPaths),
   ];
   return lines.join("\n");
 }

@@ -46,7 +46,6 @@ describe("reviewPublicOutput", () => {
           detail: "Uses OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz in example.",
           fixPrompt: "Remove the assignment from docs.",
           suggestedCode: 'const token = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz";',
-          violatedRule: ".pr-agent/ghp_1234567890123456789012345678901234567890.mdc",
         },
       ],
       size: "S",
@@ -60,7 +59,6 @@ describe("reviewPublicOutput", () => {
     expect(redacted.findings[0]?.detail).not.toContain("sk-");
     expect(redacted.findings[0]?.suggestedCode).toContain("[redacted]");
     expect(redacted.findings[0]?.suggestedCode).not.toContain("sk-");
-    expect(redacted.findings[0]?.violatedRule).toContain("[redacted]");
-    expect(redacted.findings[0]?.violatedRule).not.toContain("ghp_");
+    expect(redacted.findings[0]).not.toHaveProperty("violatedRule");
   });
 });

@@ -281,19 +281,15 @@ describe("findingPipeline", () => {
     expect(result.prepared.payload.findings).toHaveLength(2);
   });
 
-  it("strips violatedRule when untrusted repo policy cannot bind", () => {
-    const item = finding({
-      title: "Fork policy",
-      violatedRule: ".pr-agent/module-layout.mdc",
-    });
+  it("keeps a valid payload when leftover unknown finding keys are already absent", () => {
+    const item = finding({ title: "Fork policy" });
     const result = prepareReviewPayloadForPublish({
       payload: payload({ findings: [item] }),
-      allowViolatedRule: false,
     });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.prepared.payload.findings[0]?.violatedRule).toBeUndefined();
+    expect(result.prepared.payload.findings[0]).not.toHaveProperty("violatedRule");
     expect(result.prepared.payload.findings[0]?.title).toBe("Fork policy");
   });
 });

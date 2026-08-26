@@ -618,24 +618,8 @@ async function runFullReviewAgainstRepositoryView(args: {
 
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
   const sameRepo = isSameRepoPullRequest(pullRequest);
-  const [repoPolicyBlock, agentInstructionFilesBlock] = await Promise.all([
-    loadAndRenderTrustedBlock({
-      load: () => loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES),
-      renderOk: (result) =>
-        renderRepoPolicyBlock({
-          policy: result.policy,
-          changedFiles,
-          sameRepo,
-        }),
-      onNonOk: (result) => {
-        if (result.kind === "invalid") {
-          logWarn("repo_policy_invalid", {
-            path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
-            reason: result.reason,
-          });
-        }
-      },
-    }),
+  const [repoPolicy, agentInstructionFilesBlock] = await Promise.all([
+    loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES),
     loadAndRenderTrustedBlock({
       load: () => loadAgentInstructionFiles(repositoryView.agentCwd, MAX_AGENT_INSTRUCTION_BYTES),
       renderOk: (result) =>
@@ -645,6 +629,20 @@ async function runFullReviewAgainstRepositoryView(args: {
         }),
     }),
   ]);
+  if (repoPolicy.kind === "invalid") {
+    logWarn("repo_policy_invalid", {
+      path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
+      reason: repoPolicy.reason,
+    });
+  }
+  const repoPolicyBlock =
+    repoPolicy.kind === "ok"
+      ? renderRepoPolicyBlock({
+          policy: repoPolicy.policy,
+          changedFiles,
+          sameRepo,
+        }) || undefined
+      : undefined;
 
   const trustedContext = buildTrustedReviewContextForReview({
     preflight: repositoryView.preflight,
@@ -685,6 +683,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     workspace: repositoryView.workspace,
     codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
     sameRepo,
+    repoPolicy,
     shouldLinkToSummary,
     progressCommentIdHint,
     hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(

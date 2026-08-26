@@ -8,9 +8,12 @@ import {
   MAX_REPO_POLICY_INSTRUCTION_CHARS,
 } from "../src/settings/reviewConstants.js";
 import {
+  candidatePolicyPairs,
   loadRepoPolicy,
   renderPolicySuggestionForDismissed,
   renderRepoPolicyBlock,
+  ruleConsidersFile,
+  type RepoPolicyResult,
 } from "../src/review/repoPolicy.js";
 
 async function policyFixture(files: Record<string, string>): Promise<string> {
@@ -360,6 +363,166 @@ describe("renderRepoPolicyBlock", () => {
 
     expect(block.match(/\[neutralized forged binding line\]/g)).toHaveLength(2);
     expect(block).not.toMatch(/^\s+These rules are binding for this review\./m);
+  });
+});
+
+const sampleRules = {
+  kind: "ok" as const,
+  policy: {
+    rules: [
+      {
+        filename: "always.mdc",
+        relativePath: ".pr-agent/always.mdc",
+        alwaysApply: true,
+        globs: [],
+        body: "Always apply.",
+      },
+      {
+        filename: "auth.mdc",
+        relativePath: ".pr-agent/auth.mdc",
+        alwaysApply: false,
+        globs: ["src/auth/**"],
+        body: "Auth only.",
+      },
+      {
+        filename: "review.mdc",
+        relativePath: ".pr-agent/review.mdc",
+        alwaysApply: false,
+        globs: ["src/review/**"],
+        body: "Review only.",
+      },
+    ],
+  },
+};
+
+describe("ruleConsidersFile and candidatePolicyPairs", () => {
+  const finding = (file: string) => ({ file });
+
+  it("returns no pairs when policy is absent", () => {
+    expect(
+      candidatePolicyPairs({
+        policy: { kind: "absent" },
+        sameRepo: true,
+        findings: [finding("src/auth/login.ts")],
+      }),
+    ).toEqual([]);
+  });
+
+  it("returns no pairs when policy is invalid", () => {
+    expect(
+      candidatePolicyPairs({
+        policy: { kind: "invalid", reason: "no usable .mdc rules" },
+        sameRepo: true,
+        findings: [finding("src/auth/login.ts")],
+      }),
+    ).toEqual([]);
+  });
+
+  it("returns no pairs when loaded rules are empty", () => {
+    expect(
+      candidatePolicyPairs({
+        policy: { kind: "ok", policy: { rules: [] } },
+        sameRepo: true,
+        findings: [finding("src/auth/login.ts")],
+      }),
+    ).toEqual([]);
+  });
+
+  it("treats always-apply as a candidate for any file", () => {
+    expect(ruleConsidersFile(sampleRules.policy.rules[0], "README.md")).toBe(true);
+    expect(
+      candidatePolicyPairs({
+        policy: sampleRules,
+        sameRepo: true,
+        findings: [finding("README.md")],
+      }).map((pair) => pair.rule.relativePath),
+    ).toEqual([".pr-agent/always.mdc"]);
+  });
+
+  it("keeps a glob-matching rule only for matching files", () => {
+    expect(ruleConsidersFile(sampleRules.policy.rules[1], "src/auth/login.ts")).toBe(true);
+    expect(ruleConsidersFile(sampleRules.policy.rules[1], "src/db/query.ts")).toBe(false);
+    expect(
+      candidatePolicyPairs({
+        policy: sampleRules,
+        sameRepo: true,
+        findings: [finding("src/auth/login.ts")],
+      }).map((pair) => pair.rule.relativePath),
+    ).toEqual([".pr-agent/always.mdc", ".pr-agent/auth.mdc"]);
+  });
+
+  it("drops a glob-mismatch pair", () => {
+    const globOnly: RepoPolicyResult = {
+      kind: "ok",
+      policy: {
+        rules: [
+          {
+            filename: "auth.mdc",
+            relativePath: ".pr-agent/auth.mdc",
+            alwaysApply: false,
+            globs: ["src/auth/**"],
+            body: "Auth only.",
+          },
+        ],
+      },
+    };
+    expect(
+      candidatePolicyPairs({
+        policy: globOnly,
+        sameRepo: true,
+        findings: [finding("src/db/query.ts")],
+      }),
+    ).toEqual([]);
+  });
+
+  it("lists two matching globs in loader filename order", () => {
+    const twoGlobs: RepoPolicyResult = {
+      kind: "ok",
+      policy: {
+        rules: [
+          {
+            filename: "module-layout.mdc",
+            relativePath: ".pr-agent/module-layout.mdc",
+            alwaysApply: false,
+            globs: ["src/review/**"],
+            body: "Layout.",
+          },
+          {
+            filename: "web-worker-boundary.mdc",
+            relativePath: ".pr-agent/web-worker-boundary.mdc",
+            alwaysApply: false,
+            globs: ["src/review/**"],
+            body: "Boundary.",
+          },
+        ],
+      },
+    };
+    expect(
+      candidatePolicyPairs({
+        policy: twoGlobs,
+        sameRepo: true,
+        findings: [finding("src/review/foo.ts")],
+      }).map((pair) => pair.rule.relativePath),
+    ).toEqual([".pr-agent/module-layout.mdc", ".pr-agent/web-worker-boundary.mdc"]);
+  });
+
+  it("returns no pairs for a fork even when head has .pr-agent files", () => {
+    expect(
+      candidatePolicyPairs({
+        policy: sampleRules,
+        sameRepo: false,
+        findings: [finding("src/auth/login.ts")],
+      }),
+    ).toEqual([]);
+  });
+
+  it("returns no pairs when sameRepo is omitted", () => {
+    expect(
+      candidatePolicyPairs({
+        policy: sampleRules,
+        findings: [finding("src/auth/login.ts")],
+      }),
+    ).toEqual([]);
   });
 });
 

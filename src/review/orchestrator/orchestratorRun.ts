@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
@@ -19,7 +20,9 @@ import {
   PUBLISH_RECOVERY_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
 } from "../../settings/index.js";
+import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import { createAgentCiSummaryAuthor } from "../ci/authorCiSummary.js";
+import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.js";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
 import type { ReviewPayload } from "../reviewSchema.js";
 import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.js";
@@ -273,7 +276,17 @@ export async function runOrchestratedPrReview(
     prSurface: setup.prSurface,
 
     cachedDiffIndex: setup.cachedDiffIndex,
-    allowViolatedRule: params.sameRepo === true,
+    repoPolicy: params.repoPolicy,
+    sameRepo: params.sameRepo,
+    boundPolicyJudge: createBoundPolicyJudge(params.cfg),
+    readCheckoutFile: async (relativePath) => {
+      try {
+        const safePath = assertWorkspacePath(params.workspace.agentCwd, relativePath);
+        return await readFile(safePath, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
     recordPublishStep: params.recordPublishStep,
     operationIntent: params.recordPublishStep?.summaryCommentCoordination
       ? {
