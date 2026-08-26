@@ -233,12 +233,12 @@ export function renderReviewProgressComment(params: {
       ]);
     }
   }
-  const progressNote =
-    params.tickState == null
-      ? REVIEW_PROGRESS_QUEUED_NOTE
-      : params.tickState.kind === "terminal"
-        ? terminalProgressNote(params.tickState.reason, params.source)
-        : REVIEW_PROGRESS_NOTE;
+  let progressNote = REVIEW_PROGRESS_NOTE;
+  if (params.tickState == null) {
+    progressNote = REVIEW_PROGRESS_QUEUED_NOTE;
+  } else if (params.tickState.kind === "terminal") {
+    progressNote = terminalProgressNote(params.tickState.reason, params.source);
+  }
   return [
     REVIEW_SUMMARY_SENTINEL,
     "",

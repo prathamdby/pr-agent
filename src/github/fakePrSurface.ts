@@ -384,8 +384,8 @@ export function createFakePrSurface(
     setPriorInlineFeedback(next) {
       priorInlineFeedback = [...next];
     },
-    setBotFindingThreads(threads) {
-      botFindingThreads = [...threads];
+    setBotFindingThreads(nextThreads) {
+      botFindingThreads = [...nextThreads];
     },
     setReviewCommentParentGraph(nodes) {
       reviewCommentParentGraph = [...nodes];

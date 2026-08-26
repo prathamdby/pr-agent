@@ -33,133 +33,214 @@ function keyPart(value: unknown): string {
   return String(value);
 }
 
+type QuotaQueryResult = { rows: unknown[]; rowCount: number };
+
+function emptyResult(): QuotaQueryResult {
+  return { rows: [], rowCount: 0 };
+}
+
+function handleInsertBucket(buckets: Map<string, Bucket>, values: unknown[]): QuotaQueryResult {
+  const scope = String(values[0]);
+  const scopeKey = String(values[1]);
+  const key = `${scope}:${scopeKey}`;
+  if (!buckets.has(key)) {
+    buckets.set(key, {
+      scope,
+      scope_key: scopeKey,
+      token_balance: Number(values[2]),
+      last_refill_at: new Date(),
+      outstanding_count: 0,
+      provider_tokens_used: 0,
+      provider_tokens_reserved: 0,
+      provider_window_started_at: new Date(),
+    });
+  }
+  return { rows: [], rowCount: 1 };
+}
+
+function handleSelectBucket(buckets: Map<string, Bucket>, values: unknown[]): QuotaQueryResult {
+  const bucket = buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
+  return { rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 };
+}
+
+function handleUpdateProviderUsage(
+  buckets: Map<string, Bucket>,
+  values: unknown[],
+): QuotaQueryResult {
+  const bucket = buckets.get(`installation:${keyPart(values[0])}`);
+  if (!bucket) return emptyResult();
+  bucket.provider_tokens_reserved = Math.max(
+    0,
+    bucket.provider_tokens_reserved - Number(values[1]),
+  );
+  bucket.provider_tokens_used += Number(values[2]);
+  return { rows: [{ scope_key: bucket.scope_key }], rowCount: 1 };
+}
+
+function handleReserveProviderTokens(
+  buckets: Map<string, Bucket>,
+  values: unknown[],
+): QuotaQueryResult {
+  const bucket = buckets.get(`installation:${keyPart(values[0])}`);
+  if (!bucket) return emptyResult();
+  bucket.provider_tokens_reserved += Number(values[1]);
+  return { rows: [], rowCount: 1 };
+}
+
+function handleIncrementOutstanding(
+  buckets: Map<string, Bucket>,
+  values: unknown[],
+): QuotaQueryResult {
+  const bucket = buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
+  if (!bucket) return emptyResult();
+  bucket.token_balance = Number(values[2]);
+  bucket.outstanding_count += 1;
+  return { rows: [], rowCount: 1 };
+}
+
+function handleRefillBucket(buckets: Map<string, Bucket>, values: unknown[]): QuotaQueryResult {
+  const bucket = buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
+  if (!bucket) return emptyResult();
+  bucket.token_balance = Number(values[2]);
+  bucket.provider_tokens_used = Number(values[3]);
+  bucket.provider_window_started_at = values[4] as Date;
+  bucket.last_refill_at = new Date();
+  return { rows: [], rowCount: 1 };
+}
+
+function handleReleaseOutstanding(
+  buckets: Map<string, Bucket>,
+  values: unknown[],
+): QuotaQueryResult {
+  const bucket = buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
+  if (!bucket) return emptyResult();
+  bucket.outstanding_count = Math.max(0, bucket.outstanding_count - 1);
+  bucket.provider_tokens_reserved = Math.max(
+    0,
+    bucket.provider_tokens_reserved - Number(values[2]),
+  );
+  return { rows: [], rowCount: 1 };
+}
+
+function handleUpdateBucket(
+  buckets: Map<string, Bucket>,
+  text: string,
+  values: unknown[],
+): QuotaQueryResult | null {
+  if (text.includes("provider_tokens_used = provider_tokens_used + $3")) {
+    return handleUpdateProviderUsage(buckets, values);
+  }
+  if (text.includes("provider_tokens_reserved = provider_tokens_reserved + $2")) {
+    return handleReserveProviderTokens(buckets, values);
+  }
+  if (text.includes("outstanding_count = outstanding_count + 1")) {
+    return handleIncrementOutstanding(buckets, values);
+  }
+  if (text.includes("provider_tokens_used = $4")) {
+    return handleRefillBucket(buckets, values);
+  }
+  if (text.includes("outstanding_count = GREATEST")) {
+    return handleReleaseOutstanding(buckets, values);
+  }
+  return null;
+}
+
+function handleInsertReservation(
+  reservations: Map<string, Reservation>,
+  values: unknown[],
+): QuotaQueryResult {
+  const [workItemId, actor, repository, installation, reserved] = values;
+  reservations.set(String(workItemId), {
+    work_item_id: String(workItemId),
+    actor_scope_key: String(actor),
+    repository_scope_key: String(repository),
+    installation_scope_key: String(installation),
+    reserved_provider_tokens: Number(reserved),
+    provider_usage_known: false,
+    released_at: null,
+  });
+  return { rows: [], rowCount: 1 };
+}
+
+function handleSelectReservation(
+  reservations: Map<string, Reservation>,
+  text: string,
+  values: unknown[],
+): QuotaQueryResult {
+  const reservation = reservations.get(String(values[0]));
+  if (text.includes("SELECT actor_scope_key")) {
+    return { rows: reservation ? [reservation] : [], rowCount: reservation ? 1 : 0 };
+  }
+  return {
+    rows: reservation
+      ? [
+          {
+            installation_scope_key: reservation.installation_scope_key,
+            reserved_provider_tokens: reservation.reserved_provider_tokens,
+            provider_usage_known: reservation.provider_usage_known,
+            released_at: reservation.released_at,
+          },
+        ]
+      : [],
+    rowCount: reservation ? 1 : 0,
+  };
+}
+
+function handleUpdateReservation(
+  reservations: Map<string, Reservation>,
+  text: string,
+  values: unknown[],
+): QuotaQueryResult {
+  const reservation = reservations.get(String(values[0]));
+  if (!reservation) return emptyResult();
+  if (text.includes("provider_usage_known = true")) {
+    reservation.provider_usage_known = true;
+    reservation.reserved_provider_tokens = 0;
+  } else {
+    reservation.released_at = new Date();
+  }
+  return { rows: [], rowCount: 1 };
+}
+
+function emptyBucket(scope: string, scopeKey: string): Bucket {
+  return {
+    scope,
+    scope_key: scopeKey,
+    token_balance: 0,
+    last_refill_at: new Date(Date.now()),
+    outstanding_count: 0,
+    provider_tokens_used: 0,
+    provider_tokens_reserved: 0,
+    provider_window_started_at: new Date(Date.now()),
+  };
+}
+
 class FakeQuotaClient {
   readonly buckets = new Map<string, Bucket>();
   readonly reservations = new Map<string, Reservation>();
 
-  async query(sql: string, values: unknown[] = []): Promise<{ rows: unknown[]; rowCount: number }> {
+  async query(sql: string, values: unknown[] = []): Promise<QuotaQueryResult> {
     const text = sql.replaceAll(/\s+/g, " ");
     if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text)) return { rows: [], rowCount: 0 };
-
     if (text.includes("INSERT INTO ask_quota_buckets")) {
-      const scope = String(values[0]);
-      const scopeKey = String(values[1]);
-      const key = `${scope}:${scopeKey}`;
-      if (!this.buckets.has(key)) {
-        this.buckets.set(key, {
-          scope,
-          scope_key: scopeKey,
-          token_balance: Number(values[2]),
-          last_refill_at: new Date(),
-          outstanding_count: 0,
-          provider_tokens_used: 0,
-          provider_tokens_reserved: 0,
-          provider_window_started_at: new Date(),
-        });
-      }
-      return { rows: [], rowCount: 1 };
+      return handleInsertBucket(this.buckets, values);
     }
-
     if (text.includes("FROM ask_quota_buckets") && text.includes("FOR UPDATE")) {
-      const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-      return { rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 };
+      return handleSelectBucket(this.buckets, values);
     }
-
     if (text.includes("UPDATE ask_quota_buckets")) {
-      if (text.includes("provider_tokens_used = provider_tokens_used + $3")) {
-        const bucket = this.buckets.get(`installation:${keyPart(values[0])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
-        bucket.provider_tokens_reserved = Math.max(
-          0,
-          bucket.provider_tokens_reserved - Number(values[1]),
-        );
-        bucket.provider_tokens_used += Number(values[2]);
-        return { rows: [{ scope_key: bucket.scope_key }], rowCount: 1 };
-      }
-
-      if (text.includes("provider_tokens_reserved = provider_tokens_reserved + $2")) {
-        const bucket = this.buckets.get(`installation:${keyPart(values[0])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
-        bucket.provider_tokens_reserved += Number(values[1]);
-        return { rows: [], rowCount: 1 };
-      }
-
-      if (text.includes("outstanding_count = outstanding_count + 1")) {
-        const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
-        bucket.token_balance = Number(values[2]);
-        bucket.outstanding_count += 1;
-        return { rows: [], rowCount: 1 };
-      }
-
-      if (text.includes("provider_tokens_used = $4")) {
-        const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
-        bucket.token_balance = Number(values[2]);
-        bucket.provider_tokens_used = Number(values[3]);
-        bucket.provider_window_started_at = values[4] as Date;
-        bucket.last_refill_at = new Date();
-        return { rows: [], rowCount: 1 };
-      }
-
-      if (text.includes("outstanding_count = GREATEST")) {
-        const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
-        if (!bucket) return { rows: [], rowCount: 0 };
-        bucket.outstanding_count = Math.max(0, bucket.outstanding_count - 1);
-        bucket.provider_tokens_reserved = Math.max(
-          0,
-          bucket.provider_tokens_reserved - Number(values[2]),
-        );
-        return { rows: [], rowCount: 1 };
-      }
+      const updated = handleUpdateBucket(this.buckets, text, values);
+      if (updated) return updated;
     }
-
     if (text.includes("INSERT INTO ask_quota_reservations")) {
-      const [workItemId, actor, repository, installation, reserved] = values;
-      this.reservations.set(String(workItemId), {
-        work_item_id: String(workItemId),
-        actor_scope_key: String(actor),
-        repository_scope_key: String(repository),
-        installation_scope_key: String(installation),
-        reserved_provider_tokens: Number(reserved),
-        provider_usage_known: false,
-        released_at: null,
-      });
-      return { rows: [], rowCount: 1 };
+      return handleInsertReservation(this.reservations, values);
     }
-
     if (text.includes("FROM ask_quota_reservations") && text.includes("FOR UPDATE")) {
-      const reservation = this.reservations.get(String(values[0]));
-      if (text.includes("SELECT actor_scope_key")) {
-        return { rows: reservation ? [reservation] : [], rowCount: reservation ? 1 : 0 };
-      }
-      return {
-        rows: reservation
-          ? [
-              {
-                installation_scope_key: reservation.installation_scope_key,
-                reserved_provider_tokens: reservation.reserved_provider_tokens,
-                provider_usage_known: reservation.provider_usage_known,
-                released_at: reservation.released_at,
-              },
-            ]
-          : [],
-        rowCount: reservation ? 1 : 0,
-      };
+      return handleSelectReservation(this.reservations, text, values);
     }
-
     if (text.includes("UPDATE ask_quota_reservations")) {
-      const reservation = this.reservations.get(String(values[0]));
-      if (!reservation) return { rows: [], rowCount: 0 };
-      if (text.includes("provider_usage_known = true")) {
-        reservation.provider_usage_known = true;
-        reservation.reserved_provider_tokens = 0;
-      } else {
-        reservation.released_at = new Date();
-      }
-      return { rows: [], rowCount: 1 };
+      return handleUpdateReservation(this.reservations, text, values);
     }
-
     throw new Error(`unexpected quota query: ${text}`);
   }
 
@@ -269,16 +350,6 @@ describe("ask admission quotas", () => {
         askInstallationRefillSeconds: 60,
       });
       const client = new FakeQuotaClient();
-      const emptyBucket = (scope: string, scopeKey: string): Bucket => ({
-        scope,
-        scope_key: scopeKey,
-        token_balance: 0,
-        last_refill_at: new Date(Date.now()),
-        outstanding_count: 0,
-        provider_tokens_used: 0,
-        provider_tokens_reserved: 0,
-        provider_window_started_at: new Date(Date.now()),
-      });
 
       client.buckets.set("actor:actor:9:7", emptyBucket("actor", "actor:9:7"));
       await expect(admission(client, "ask-rate-actor", 7, "app", limited)).resolves.toEqual({

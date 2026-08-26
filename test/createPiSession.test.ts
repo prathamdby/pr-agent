@@ -422,8 +422,8 @@ describe("createPiSession.send", () => {
   it("aborts and rejects when a prompt exceeds the configured timeout", async () => {
     const abort = vi.fn();
     const session = {
-      subscribe: () => () => {},
-      prompt: () => new Promise<void>(() => {}),
+      subscribe: () => () => undefined,
+      prompt: () => new Promise<void>(() => undefined),
       abort,
       setActiveToolsByName: vi.fn(),
       setThinkingLevel: vi.fn(),
@@ -524,7 +524,7 @@ describe("createPiSession.send", () => {
       throw new Error("sdk dispose failed");
     });
     const session = {
-      subscribe: () => () => {},
+      subscribe: () => () => undefined,
       prompt: async () => undefined,
       abort: vi.fn(),
       setActiveToolsByName: vi.fn(),

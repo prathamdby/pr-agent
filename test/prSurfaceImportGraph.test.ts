@@ -35,7 +35,7 @@ export function stripCommentsAndStringLiterals(text: string): string {
   let out = "";
   let i = 0;
   while (i < text.length) {
-    const ch = text[i]!;
+    const ch = text[i];
     const next = text[i + 1];
     if (ch === "/" && next === "/") {
       i += 2;
@@ -131,7 +131,7 @@ function functionParameterList(signature: string): string | null {
   if (open < 0) return null;
   let depth = 0;
   for (let i = open; i < signature.length; i++) {
-    const ch = signature[i]!;
+    const ch = signature[i];
     if (ch === "(") depth += 1;
     if (ch === ")") {
       depth -= 1;
@@ -198,7 +198,7 @@ export function buildThing(
 `;
     const signatures = exportedSignatureTexts(fixture);
     expect(signatures).toHaveLength(1);
-    expect(forbiddenExportedParam(signatures[0]!)).toBe("token: string");
+    expect(forbiddenExportedParam(signatures[0])).toBe("token: string");
   });
 
   it("does not flag comment-only installationOctokit mentions", () => {

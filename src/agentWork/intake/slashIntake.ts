@@ -320,7 +320,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     const cancelled = await cancelActiveReviews(ctx.client, resourceKey, attribution);
     if (cancelled.length > 0) {
       cancelProgress = {
-        workItemId: cancelled[0]!.id,
+        workItemId: cancelled[0].id,
         cancelledWorkItemIds: cancelled.map((row) => row.id),
         attribution,
       };
@@ -329,7 +329,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
         fields: {
           type: "review",
           source: "slash",
-          workItemId: cancelled[0]!.id,
+          workItemId: cancelled[0].id,
           resourceKey,
           cancelledCount: cancelled.length,
           cancelledByLogin: attribution.login,
@@ -398,7 +398,7 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
     });
     return;
   }
-  const primary = cancelled[0]!;
+  const primary = cancelled[0];
   const cancelledWorkItemIds = cancelled.map((row) => row.id);
   await enqueueSlashAck(ctx, {
     cancelProgress: {

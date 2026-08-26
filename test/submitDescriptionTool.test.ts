@@ -163,7 +163,7 @@ describe("submitDescription tool", () => {
         }),
       }),
     );
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.prFiles).toBeUndefined();
   });
 
@@ -175,7 +175,7 @@ describe("submitDescription tool", () => {
       prFiles: { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.prFiles).toEqual([
       { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
     ]);
@@ -194,7 +194,7 @@ describe("submitDescription tool", () => {
       prFiles,
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.prFiles).toHaveLength(5);
   });
 });

@@ -297,23 +297,24 @@ export function safeRecordThreadFindingHistoryOutcome(
     readonly outcome: Exclude<FindingHistoryOutcome, "open">;
   },
 ): void {
-  if (!cfg.findingHistoryEnabled) return;
-  void lookupThreadFingerprint(client, {
-    resourceKey: params.resourceKey,
-    thread: params.thread,
-  })
-    .then((fingerprint) => {
-      if (fingerprint == null) return;
-      return recordFindingHistoryOutcome(client, params.scope, fingerprint, params.outcome);
+  if (cfg.findingHistoryEnabled) {
+    void lookupThreadFingerprint(client, {
+      resourceKey: params.resourceKey,
+      thread: params.thread,
     })
-    .catch((error) => {
-      logWarn("finding_history_thread_outcome_failed", {
-        owner: params.scope.owner,
-        repo: params.scope.repo,
-        outcome: params.outcome,
-        message: error instanceof Error ? error.message : String(error),
+      .then((fingerprint) => {
+        if (fingerprint == null) return Promise.resolve();
+        return recordFindingHistoryOutcome(client, params.scope, fingerprint, params.outcome);
+      })
+      .catch((error) => {
+        logWarn("finding_history_thread_outcome_failed", {
+          owner: params.scope.owner,
+          repo: params.scope.repo,
+          outcome: params.outcome,
+          message: error instanceof Error ? error.message : String(error),
+        });
       });
-    });
+  }
 }
 
 export async function safeLoadCrossPrSuppressionFingerprints(

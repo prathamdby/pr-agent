@@ -150,7 +150,8 @@ describe("collectQueueDiagnostics", () => {
     expect(report.staleQueuedWorkItems).toEqual([
       { workItemId: "wi-stale", resourceKey: "o/r#5", workType: "review", ageSeconds: 612 },
     ]);
-    const staleSql = String(vi.mocked(pool.query).mock.calls[1]?.[0]);
+    const staleSql = vi.mocked(pool.query).mock.calls[1]?.[0];
+    if (typeof staleSql !== "string") throw new Error("expected stale SQL");
     expect(staleSql).toContain("NOT EXISTS");
     expect(staleSql).toContain("pgboss.job");
     logQueueDiagnosticsReport(report);

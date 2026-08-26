@@ -96,12 +96,16 @@ export async function executeVerificationJob(
       ]);
 
       const compareFilesTruncated = pushDeltaFiles?.truncated === true;
-      const changedFilePaths =
-        pushDeltaFiles != null
-          ? compareFilesTruncated
-            ? [...new Set([...pushDeltaFiles.files, ...prFiles.files.map((file) => file.filename)])]
-            : pushDeltaFiles.files
-          : ([] as readonly string[]);
+      let changedFilePaths: readonly string[] = [];
+      if (pushDeltaFiles != null) {
+        if (compareFilesTruncated) {
+          changedFilePaths = [
+            ...new Set([...pushDeltaFiles.files, ...prFiles.files.map((file) => file.filename)]),
+          ];
+        } else {
+          changedFilePaths = pushDeltaFiles.files;
+        }
+      }
 
       if (compareFilesTruncated) {
         logWarn("verification_compare_files_truncated", {

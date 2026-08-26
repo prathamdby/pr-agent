@@ -264,7 +264,8 @@ describe("promoteAskFromWebhookEvent", () => {
         const quotaResult = askQuotaQuery(sql, values);
         if (quotaResult) return quotaResult;
         if (sql.includes("INSERT INTO agent_work_items")) {
-          payloadJson = String(values?.[12] ?? "");
+          const payload = values?.[12];
+          payloadJson = typeof payload === "string" ? payload : "";
           return { rows: [{ id: "ask-redacted" }] };
         }
         throw new Error(`unexpected: ${sql.slice(0, 80)}`);

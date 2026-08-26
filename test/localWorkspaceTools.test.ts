@@ -89,7 +89,7 @@ function mockWorkspace(
     },
     lookupSymbol: overrides?.lookupSymbol ?? (() => []),
     getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
-    cleanup: async () => {},
+    cleanup: async () => undefined,
   };
 }
 

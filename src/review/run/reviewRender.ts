@@ -344,6 +344,125 @@ type ReviewSummaryRenderCtx = RenderContext & {
   partialCoverageNote?: string;
 };
 
+function appendReviewSummaryFindingRows(
+  tableRows: Array<[string, string]>,
+  visiblePlacements: readonly InlinePlacement[],
+  ctx: ReviewSummaryRenderCtx,
+  options: SummaryRenderOptions,
+): string[] {
+  const summaryOnlyAccordions: string[] = [];
+  if (visiblePlacements.length === 0) {
+    tableRows.push([renderTableStrong("Findings"), escapeTableHtml(REVIEW_FINDINGS_NONE)]);
+    return summaryOnlyAccordions;
+  }
+  for (const placement of visiblePlacements) {
+    const f = placement.finding;
+    tableRows.push([
+      renderTableStrong(renderSeverityLabel(f)),
+      renderFindingTableCellHtml(
+        placement,
+        ctx,
+        {
+          title: f.title,
+          detail: f.detail,
+          fixPrompt: f.fixPrompt,
+        },
+        options.compact,
+      ),
+    ]);
+    if (
+      options.includeSummaryAccordions &&
+      !placement.inlinePosted &&
+      f.severity !== "P3" &&
+      f.fixPrompt != null &&
+      f.fixPrompt.length > 0
+    ) {
+      summaryOnlyAccordions.push(
+        ...renderSummaryOnlyFixAccordion(f.severity, f.title, f.fixPrompt),
+      );
+    }
+  }
+  return summaryOnlyAccordions;
+}
+
+function appendReviewSummaryGatesTable(
+  tableRows: Array<[string, string]>,
+  payload: ReviewPayload,
+  ctx: ReviewSummaryRenderCtx,
+): void {
+  tableRows.push([renderTableStrong("Relevant tests"), escapeTableHtml(payload.relevantTests)]);
+  tableRows.push([
+    renderTableStrong("Security"),
+    payload.securityConcerns != null
+      ? escapeTablePlainCell(payload.securityConcerns)
+      : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
+  ]);
+  if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
+    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary)]);
+  }
+  for (const item of payload.followUps) {
+    tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);
+  }
+}
+
+function appendReviewSummaryOptionalSections(
+  rows: string[],
+  payload: ReviewPayload,
+  ctx: ReviewSummaryRenderCtx,
+  options: SummaryRenderOptions,
+  summaryOnlyAccordions: readonly string[],
+): void {
+  if (ctx.partialCoverageNote) {
+    rows.push("");
+    rows.push(ctx.partialCoverageNote);
+  }
+  if (summaryOnlyAccordions.length > 0) {
+    rows.push("");
+    rows.push(...summaryOnlyAccordions);
+  }
+  if (options.includeAgentFixAccordion && ctx.placements.length > 0) {
+    rows.push("");
+    rows.push(
+      assembleAgentFixAccordion(renderAgentFixPrompt(payload, ctx, ctx.placements, ctx.ciSummary)),
+    );
+  }
+  if (options.compactionNote) {
+    rows.push("");
+    rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_SUMMARY_COMPACTION_NOTE));
+  }
+  if (options.omittedFindingCount != null && options.omittedFindingCount > 0) {
+    rows.push("");
+    rows.push(
+      renderGitHubAlert(
+        REVIEW_OVERVIEW_ALERT,
+        `${options.omittedFindingCount} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`,
+      ),
+    );
+  }
+  rows.push("");
+  rows.push(
+    renderStaleReviewMetadataComment({
+      headSha: ctx.headSha,
+      mode: ctx.mode,
+      stale: ctx.staleReview ?? false,
+    }),
+  );
+  if (ctx.hasDescriptionReviewMap) {
+    rows.push("");
+    rows.push(
+      `See the [review map](https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}) in the PR description.`,
+    );
+  }
+  rows.push("");
+  rows.push(
+    renderReviewRunFooter({
+      headSha: ctx.headSha,
+      durationMs: ctx.runFooter.durationMs,
+      model: ctx.runFooter.model,
+    }),
+  );
+}
+
 /** Expects `ctx.placements` pre-sorted by severity, file, and line. */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
@@ -367,115 +486,15 @@ function buildReviewSummaryBody(
   const tableRows: Array<[string, string]> = [
     [renderTableStrong("Size"), renderTableCode(payload.size)],
   ];
-
-  const summaryOnlyAccordions: string[] = [];
-
-  if (visiblePlacements.length === 0) {
-    tableRows.push([renderTableStrong("Findings"), escapeTableHtml(REVIEW_FINDINGS_NONE)]);
-  } else {
-    for (const placement of visiblePlacements) {
-      const f = placement.finding;
-      tableRows.push([
-        renderTableStrong(renderSeverityLabel(f)),
-        renderFindingTableCellHtml(
-          placement,
-          ctx,
-          {
-            title: f.title,
-            detail: f.detail,
-            fixPrompt: f.fixPrompt,
-          },
-          options.compact,
-        ),
-      ]);
-      if (
-        options.includeSummaryAccordions &&
-        !placement.inlinePosted &&
-        f.severity !== "P3" &&
-        f.fixPrompt != null &&
-        f.fixPrompt.length > 0
-      ) {
-        summaryOnlyAccordions.push(
-          ...renderSummaryOnlyFixAccordion(f.severity, f.title, f.fixPrompt),
-        );
-      }
-    }
-  }
-
-  tableRows.push([renderTableStrong("Relevant tests"), escapeTableHtml(payload.relevantTests)]);
-  tableRows.push([
-    renderTableStrong("Security"),
-    payload.securityConcerns != null
-      ? escapeTablePlainCell(payload.securityConcerns)
-      : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
-  ]);
-
-  if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
-    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary)]);
-  }
-
-  for (const item of payload.followUps) {
-    tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);
-  }
-
+  const summaryOnlyAccordions = appendReviewSummaryFindingRows(
+    tableRows,
+    visiblePlacements,
+    ctx,
+    options,
+  );
+  appendReviewSummaryGatesTable(tableRows, payload, ctx);
   rows.push(renderKeyValueTable(tableRows));
-
-  if (ctx.partialCoverageNote) {
-    rows.push("");
-    rows.push(ctx.partialCoverageNote);
-  }
-
-  if (summaryOnlyAccordions.length > 0) {
-    rows.push("");
-    rows.push(...summaryOnlyAccordions);
-  }
-
-  if (options.includeAgentFixAccordion && ctx.placements.length > 0) {
-    rows.push("");
-    rows.push(
-      assembleAgentFixAccordion(renderAgentFixPrompt(payload, ctx, ctx.placements, ctx.ciSummary)),
-    );
-  }
-
-  if (options.compactionNote) {
-    rows.push("");
-    rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_SUMMARY_COMPACTION_NOTE));
-  }
-
-  if (options.omittedFindingCount != null && options.omittedFindingCount > 0) {
-    rows.push("");
-    rows.push(
-      renderGitHubAlert(
-        REVIEW_OVERVIEW_ALERT,
-        `${options.omittedFindingCount} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`,
-      ),
-    );
-  }
-
-  rows.push("");
-  rows.push(
-    renderStaleReviewMetadataComment({
-      headSha: ctx.headSha,
-      mode: ctx.mode,
-      stale: ctx.staleReview ?? false,
-    }),
-  );
-
-  if (ctx.hasDescriptionReviewMap) {
-    rows.push("");
-    rows.push(
-      `See the [review map](https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}) in the PR description.`,
-    );
-  }
-
-  rows.push("");
-  rows.push(
-    renderReviewRunFooter({
-      headSha: ctx.headSha,
-      durationMs: ctx.runFooter.durationMs,
-      model: ctx.runFooter.model,
-    }),
-  );
+  appendReviewSummaryOptionalSections(rows, payload, ctx, options, summaryOnlyAccordions);
 
   return rows.join("\n").trimEnd();
 }

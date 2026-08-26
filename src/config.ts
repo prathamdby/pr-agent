@@ -256,16 +256,35 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
   return key;
 }
 
-export async function loadConfig() {
-  const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
+function readFindingHistorySettings() {
+  return {
+    findingHistoryEnabled: readStrictBoolean(
+      ENV.FINDING_HISTORY_ENABLED,
+      DEFAULT_FINDING_HISTORY_ENABLED,
+    ),
+    findingHistoryDismissSuppressAfter: readPositiveNumber(
+      ENV.FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
+      DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
+    ),
+    findingHistoryLookbackDays: readPositiveNumber(
+      ENV.FINDING_HISTORY_LOOKBACK_DAYS,
+      DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
+    ),
+  };
+}
 
-  const githubAppId = requireEnv(ENV.GITHUB_APP_ID);
-  const githubAppPrivateKey = normalizeGithubAppPrivateKey(requireEnv(ENV.GITHUB_APP_PRIVATE_KEY));
-  const webhookSecret = requireEnv(ENV.WEBHOOK_SECRET);
-  const databaseUrl = requireEnv(ENV.DATABASE_URL);
+function readCodeIndexSettings() {
+  return {
+    codeIndexMode: readEnum(ENV.CODE_INDEX_MODE, CODE_INDEX_MODES, DEFAULT_CODE_INDEX_MODE),
+    codeIndexWaitMs: readNonNegativeNumber(ENV.CODE_INDEX_WAIT_MS, DEFAULT_CODE_INDEX_WAIT_MS),
+    codeIndexRetentionSeconds: readPositiveNumber(
+      ENV.CODE_INDEX_RETENTION_SECONDS,
+      DEFAULT_CODE_INDEX_RETENTION_SECONDS,
+    ),
+  };
+}
 
-  const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
-
+async function readProviderSettings(role: "web" | "worker") {
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
   const piOrchestratorProvider = optionalEnv(
@@ -292,45 +311,6 @@ export async function loadConfig() {
       },
     });
   }
-  const piThinkingCeiling = readEnum(
-    ENV.PI_THINKING_CEILING,
-    ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
-    DEFAULT_PI_THINKING_CEILING,
-  );
-  const agentResumeSnapshotKey = optionalEnv(
-    ENV.AGENT_RESUME_SNAPSHOT_KEY,
-    DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
-  ).trim();
-  const agentResumeSnapshotMarginSeconds = readNonNegativeNumber(
-    ENV.AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
-    DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
-  );
-  const agentEventsEnabled = readStrictBoolean(
-    ENV.AGENT_EVENTS_ENABLED,
-    DEFAULT_AGENT_EVENTS_ENABLED,
-  );
-  const agentEventsRetentionSeconds = readNonNegativeNumber(
-    ENV.AGENT_EVENTS_RETENTION_SECONDS,
-    DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
-  );
-  const findingHistoryEnabled = readStrictBoolean(
-    ENV.FINDING_HISTORY_ENABLED,
-    DEFAULT_FINDING_HISTORY_ENABLED,
-  );
-  const findingHistoryDismissSuppressAfter = readPositiveNumber(
-    ENV.FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
-    DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
-  );
-  const findingHistoryLookbackDays = readPositiveNumber(
-    ENV.FINDING_HISTORY_LOOKBACK_DAYS,
-    DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
-  );
-  const codeIndexMode = readEnum(ENV.CODE_INDEX_MODE, CODE_INDEX_MODES, DEFAULT_CODE_INDEX_MODE);
-  const codeIndexWaitMs = readNonNegativeNumber(ENV.CODE_INDEX_WAIT_MS, DEFAULT_CODE_INDEX_WAIT_MS);
-  const codeIndexRetentionSeconds = readPositiveNumber(
-    ENV.CODE_INDEX_RETENTION_SECONDS,
-    DEFAULT_CODE_INDEX_RETENTION_SECONDS,
-  );
   const modelsJsonPath = resolveModelsJsonPath({
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
@@ -362,6 +342,51 @@ export async function loadConfig() {
       });
     }
   }
+  return {
+    piProvider,
+    piModel,
+    piOrchestratorProvider,
+    piOrchestratorModel,
+    piFallbackProvider,
+    piFallbackModel,
+    piThinkingCeiling: readEnum(
+      ENV.PI_THINKING_CEILING,
+      ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
+      DEFAULT_PI_THINKING_CEILING,
+    ),
+    modelsJsonPath,
+    piApi,
+  };
+}
+
+export async function loadConfig() {
+  const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
+
+  const githubAppId = requireEnv(ENV.GITHUB_APP_ID);
+  const githubAppPrivateKey = normalizeGithubAppPrivateKey(requireEnv(ENV.GITHUB_APP_PRIVATE_KEY));
+  const webhookSecret = requireEnv(ENV.WEBHOOK_SECRET);
+  const databaseUrl = requireEnv(ENV.DATABASE_URL);
+
+  const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
+  const provider = await readProviderSettings(role);
+  const findingHistory = readFindingHistorySettings();
+  const codeIndex = readCodeIndexSettings();
+  const agentResumeSnapshotKey = optionalEnv(
+    ENV.AGENT_RESUME_SNAPSHOT_KEY,
+    DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
+  ).trim();
+  const agentResumeSnapshotMarginSeconds = readNonNegativeNumber(
+    ENV.AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
+    DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
+  );
+  const agentEventsEnabled = readStrictBoolean(
+    ENV.AGENT_EVENTS_ENABLED,
+    DEFAULT_AGENT_EVENTS_ENABLED,
+  );
+  const agentEventsRetentionSeconds = readNonNegativeNumber(
+    ENV.AGENT_EVENTS_RETENTION_SECONDS,
+    DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+  );
 
   const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
   const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
@@ -552,7 +577,7 @@ export async function loadConfig() {
     DEFAULT_LOG_LEVEL,
   );
 
-  const logPrettyDefault = process.env.NODE_ENV === "production" ? false : true;
+  const logPrettyDefault = process.env.NODE_ENV !== "production";
   const logPretty = readStrictBoolean(ENV.LOG_PRETTY, logPrettyDefault);
   const logRedact = readStrictBoolean(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
 
@@ -574,6 +599,21 @@ export async function loadConfig() {
     commitStatus: readStrictBoolean(ENV.FEATURE_COMMIT_STATUS, DEFAULT_FEATURE_COMMIT_STATUS),
     titleRewrite: readStrictBoolean(ENV.FEATURE_TITLE_REWRITE, DEFAULT_FEATURE_TITLE_REWRITE),
   } satisfies Features;
+
+  const {
+    piProvider,
+    piModel,
+    piOrchestratorProvider,
+    piOrchestratorModel,
+    piFallbackProvider,
+    piFallbackModel,
+    piThinkingCeiling,
+    modelsJsonPath,
+    piApi,
+  } = provider;
+  const { findingHistoryEnabled, findingHistoryDismissSuppressAfter, findingHistoryLookbackDays } =
+    findingHistory;
+  const { codeIndexMode, codeIndexWaitMs, codeIndexRetentionSeconds } = codeIndex;
 
   return {
     port,

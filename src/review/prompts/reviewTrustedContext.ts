@@ -14,7 +14,10 @@ import { formatSymbolIndexStatusLine } from "../../prWorkspace/symbolIndex.js";
 import type { CodeIndexPrepareResult } from "../../codeIndex/buildJob.js";
 import { formatCodeIndexStatusLine } from "../../codeIndex/buildJob.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { formatPriorInlineFeedbackBlock } from "../run/reviewPriorFeedback.js";
+import {
+  formatPriorInlineFeedbackBlock,
+  type PriorInlineFeedbackThread,
+} from "../run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 function buildTrustedReviewContextBlock(
@@ -87,6 +90,38 @@ export function buildTrustedReviewContextForReview(params: {
   });
 }
 
+function clonePriorInlineThread(thread: PriorInlineFeedbackThread): PriorInlineFeedbackThread {
+  const cloned: PriorInlineFeedbackThread = {
+    path: thread.path,
+    startLine: thread.startLine,
+    endLine: thread.endLine,
+    botTitleSnippet: thread.botTitleSnippet,
+    humanReplies: [...thread.humanReplies],
+    threadUrl: thread.threadUrl,
+  };
+  if (thread.authorizedReplies != null) {
+    return {
+      ...cloned,
+      authorizedReplies: [...thread.authorizedReplies],
+      ...(thread.untrustedReplies != null
+        ? { untrustedReplies: [...thread.untrustedReplies] }
+        : {}),
+      ...(thread.replies != null ? { replies: [...thread.replies] } : {}),
+    };
+  }
+  if (thread.untrustedReplies != null) {
+    return {
+      ...cloned,
+      untrustedReplies: [...thread.untrustedReplies],
+      ...(thread.replies != null ? { replies: [...thread.replies] } : {}),
+    };
+  }
+  if (thread.replies != null) {
+    return { ...cloned, replies: [...thread.replies] };
+  }
+  return cloned;
+}
+
 export async function fetchPriorInlineFeedbackBlockForReview(params: {
   prSurface: PrSurface;
   botUserId: number;
@@ -100,21 +135,7 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
       params.reviewLens,
       params.maintainerDecisionAssociations,
     );
-    return (
-      formatPriorInlineFeedbackBlock(
-        threads.map((thread) => ({
-          ...thread,
-          humanReplies: [...thread.humanReplies],
-          ...(thread.authorizedReplies != null
-            ? { authorizedReplies: [...thread.authorizedReplies] }
-            : {}),
-          ...(thread.untrustedReplies != null
-            ? { untrustedReplies: [...thread.untrustedReplies] }
-            : {}),
-          ...(thread.replies != null ? { replies: [...thread.replies] } : {}),
-        })),
-      ) || undefined
-    );
+    return formatPriorInlineFeedbackBlock(threads.map(clonePriorInlineThread)) || undefined;
   } catch (error) {
     params.onPriorFeedbackError?.(error);
     return undefined;

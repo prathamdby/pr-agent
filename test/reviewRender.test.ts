@@ -140,7 +140,9 @@ describe("renderReviewSummaryComment", () => {
       ],
     });
     const placements = testPlacements(payload.findings).map((p) => ({
-      ...p,
+      finding: p.finding,
+      inlineLine: p.inlineLine,
+      inlinePosted: p.inlinePosted,
       inlineCommentUrl: "https://github.com/acme/widgets/pull/42#discussion_r99",
     }));
     const body = renderReviewSummaryComment(payload, {

@@ -337,7 +337,8 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs[0]?.data.reply).toMatchObject({
       target: { kind: "inlineReviewThread", prNumber: 7, inReplyToCommentId: 50 },
     });
-    expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toContain("full-PR");
+    const firstReply = sentJobs[0]?.data.reply as { body?: string } | undefined;
+    expect(firstReply?.body ?? "").toContain("full-PR");
   });
 
   it("stores triage scope in the work item payload", async () => {
@@ -468,7 +469,8 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
     expect(sentJobs[0]?.data.progress).toBeUndefined();
     expect(sentJobs[0]?.data.workItemId).toBeUndefined();
-    expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toContain("already queued");
+    const firstReply = sentJobs[0]?.data.reply as { body?: string } | undefined;
+    expect(firstReply?.body ?? "").toContain("already queued");
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "agent_work_enqueued" }),
     );
@@ -517,9 +519,8 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs.map((j) => j.queue)).not.toContain(DESCRIPTION_QUEUE);
     expect(sentJobs[0]?.data.progress).toBeUndefined();
     expect(sentJobs[0]?.data.workItemId).toBeUndefined();
-    expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toBe(
-      DESCRIPTION_ALREADY_IN_PROGRESS,
-    );
+    const firstReply = sentJobs[0]?.data.reply as { body?: string } | undefined;
+    expect(firstReply?.body ?? "").toBe(DESCRIPTION_ALREADY_IN_PROGRESS);
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "agent_work_enqueued" }),
     );

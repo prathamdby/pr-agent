@@ -41,11 +41,11 @@ import {
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_QUEUE,
 } from "../../src/settings/index.js";
-import { hasDatabase, integrationPool } from "./db.js";
+import { hasDatabase, integrationPool, requireDatabaseUrl } from "./db.js";
 
 const OWNER = "intake-tx-it";
 const EVENT = "intake-tx-it";
-const DATABASE_URL = process.env.DATABASE_URL!;
+const DATABASE_URL = requireDatabaseUrl();
 const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE] as const;
 
 const queueConfig: QueueConfig = {

@@ -185,7 +185,7 @@ export function createMemoryOperationIntentStore() {
     ): Promise<readonly OperationIntentRow[]> {
       return [...rows.values()]
         .filter((row) => row.workItemId === workItemId && row.status === "pending")
-        .sort((a, b) => a.createdAtMs - b.createdAtMs)
+        .toSorted((a, b) => a.createdAtMs - b.createdAtMs)
         .map(toRow);
     },
   };

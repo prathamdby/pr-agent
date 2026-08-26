@@ -44,7 +44,7 @@ function mockCheckout(dir: string, commitImpl?: WritablePrCheckout["commit"]): W
         sha: "b".repeat(40),
         diff: `diff for ${files.join(",")} (${subject})`,
       })),
-    push: async () => {},
+    push: async () => undefined,
     listCommittedShas: () => [],
     listCommittedDetails: () => [],
   };

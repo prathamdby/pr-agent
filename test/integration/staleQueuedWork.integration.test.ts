@@ -22,10 +22,10 @@ import {
   STALE_QUEUED_WORK_GRACE_SECONDS,
 } from "../../src/settings/index.js";
 import type { QueueConfig } from "../../src/agentWork/types.js";
-import { hasDatabase, integrationPool } from "./db.js";
+import { hasDatabase, integrationPool, requireDatabaseUrl } from "./db.js";
 
 const OWNER = "stale-queue-it";
-const DATABASE_URL = process.env.DATABASE_URL!;
+const DATABASE_URL = requireDatabaseUrl();
 
 const queueConfig: QueueConfig = {
   queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,

@@ -479,6 +479,28 @@ export type CancelledActiveTriage = {
  * Writes `cancelAttribution` on the payload for the cancelled progress notice.
  * Returns running rows first (newest), then queued — ack primary owns the stub.
  */
+function mapCancelledActiveReviewRows(
+  rows: readonly {
+    id: string;
+    source: WorkSource;
+    head_sha: string;
+    created_at: Date | string;
+  }[],
+): CancelledActiveReview[] {
+  return [...rows]
+    .toSorted((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
+      if (tb !== ta) return tb - ta;
+      return b.id.localeCompare(a.id);
+    })
+    .map((row) => ({
+      id: row.id,
+      source: row.source,
+      headSha: row.head_sha,
+    }));
+}
+
 export async function cancelActiveReviews(
   client: PoolClient,
   resourceKey: string,
@@ -486,26 +508,6 @@ export async function cancelActiveReviews(
 ): Promise<readonly CancelledActiveReview[]> {
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
   const lastError = reviewCancelLastError(attribution);
-  const mapRows = (
-    rows: readonly {
-      id: string;
-      source: WorkSource;
-      head_sha: string;
-      created_at: Date | string;
-    }[],
-  ): CancelledActiveReview[] =>
-    [...rows]
-      .sort((a, b) => {
-        const ta = new Date(a.created_at).getTime();
-        const tb = new Date(b.created_at).getTime();
-        if (tb !== ta) return tb - ta;
-        return b.id.localeCompare(a.id);
-      })
-      .map((row) => ({
-        id: row.id,
-        source: row.source,
-        headSha: row.head_sha,
-      }));
 
   const queued = await client.query<{
     id: string;
@@ -544,7 +546,10 @@ export async function cancelActiveReviews(
 		  RETURNING id, source, head_sha, created_at`,
     [resourceKey, lastError, payloadPatch],
   );
-  return [...mapRows(running.rows), ...mapRows(queued.rows)];
+  return [
+    ...mapCancelledActiveReviewRows(running.rows),
+    ...mapCancelledActiveReviewRows(queued.rows),
+  ];
 }
 
 function triageAckTargets(
@@ -583,7 +588,7 @@ export async function cancelActiveTriage(
     }[],
   ): CancelledActiveTriage[] =>
     [...rows]
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         const ta = new Date(a.created_at).getTime();
         const tb = new Date(b.created_at).getTime();
         if (tb !== ta) return tb - ta;

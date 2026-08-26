@@ -30,7 +30,7 @@ function buildField(seed: number, count: number): string[] {
   let n = seed;
   for (let i = 0; i < count; i += 1) {
     n = (n * 1103515245 + 12345) & 0x7fffffff;
-    out.push(GLYPHS[n % GLYPHS.length]!);
+    out.push(GLYPHS[n % GLYPHS.length]);
   }
   return out;
 }

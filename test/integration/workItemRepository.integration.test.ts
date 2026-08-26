@@ -459,35 +459,35 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
 
     const firstId = await inTransaction(pool, (client) =>
       createReviewWorkItem(client, {
-        webhookEventId: events[0]!,
+        webhookEventId: events[0],
         source: "auto",
         ref: makeRef(repo, 101),
       }),
     );
     const secondId = await inTransaction(pool, (client) =>
       createReviewWorkItem(client, {
-        webhookEventId: events[1]!,
+        webhookEventId: events[1],
         source: "auto",
         ref: makeRef(repo, 102),
       }),
     );
     const thirdId = await inTransaction(pool, (client) =>
       createReviewWorkItem(client, {
-        webhookEventId: events[2]!,
+        webhookEventId: events[2],
         source: "auto",
         ref: makeRef(repo, 103),
       }),
     );
     const runningId = await inTransaction(pool, (client) =>
       createReviewWorkItem(client, {
-        webhookEventId: events[3]!,
+        webhookEventId: events[3],
         source: "auto",
         ref: makeRef(repo, 104),
       }),
     );
     const askId = await inTransaction(pool, (client) =>
       createAskWorkItem(client, {
-        webhookEventId: events[4]!,
+        webhookEventId: events[4],
         ref: makeRef(repo, 105),
         question: "queue noise?",
         replyTarget: { kind: "prConversation", prNumber: 105 },

@@ -6,7 +6,8 @@ function runtimeImportGraph(entry: string): Set<string> {
   const seen = new Set<string>();
   const queue = [entry];
   while (queue.length > 0) {
-    const file = queue.shift()!;
+    const file = queue.shift();
+    if (file == null) continue;
     if (seen.has(file) || !existsSync(file)) continue;
     seen.add(file);
     const text = readFileSync(file, "utf8");
@@ -15,7 +16,7 @@ function runtimeImportGraph(entry: string): Set<string> {
       .replace(/^import\s+type\s+[\s\S]*?from\s+["'][^"']+["'];?\s*$/gm, "")
       .replace(/^import\s+type\s+[^;]+;?\s*$/gm, "");
     for (const match of stripped.matchAll(/from\s+["'](\.[^"']+)["']/g)) {
-      let spec = match[1]!;
+      let spec = match[1];
       if (spec.endsWith(".js")) spec = `${spec.slice(0, -3)}.ts`;
       else if (!spec.endsWith(".ts")) spec = `${spec}.ts`;
       const next = resolve(dirname(file), spec).replace(`${process.cwd()}/`, "");

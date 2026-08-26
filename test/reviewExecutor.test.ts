@@ -780,7 +780,8 @@ describe("executeReviewJob", () => {
       (args) => (args[0] as { event?: string }).event === "review profiled",
     );
     expect(call).toBeDefined();
-    const properties = (call?.[0] as { properties: Record<string, unknown> }).properties;
+    if (call == null) throw new Error("expected review profiled event");
+    const properties = (call[0] as { properties: Record<string, unknown> }).properties;
     expect(properties).toMatchObject({
       outcome: "published",
       wall_clock_ms: 12_000,
@@ -912,9 +913,11 @@ describe("executeReviewJob", () => {
         }),
       }),
     );
-    const properties = (
-      mocks.captureEvent.mock.calls[0]?.[0] as { properties: Record<string, unknown> }
-    ).properties;
+    const profiledEvent = mocks.captureEvent.mock.calls[0]?.[0] as
+      | { properties: Record<string, unknown> }
+      | undefined;
+    if (profiledEvent == null) throw new Error("expected review profiled event");
+    const properties = profiledEvent.properties;
     expect(properties).not.toHaveProperty("error_message");
     expect(JSON.stringify(properties)).not.toContain("orchestrator exploded");
     expect(JSON.stringify(properties)).not.toContain("/tmp/secret.ts");

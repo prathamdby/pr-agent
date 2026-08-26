@@ -22,6 +22,14 @@ export type CiAuthorInput = {
 
 export type CiSummaryAuthor = (input: CiAuthorInput) => Promise<CiSummaryLlmFields | null>;
 
+function headlineForNonFailingStatus(
+  status: Extract<CiSummaryStatus, "passing" | "pending" | "none">,
+): string {
+  if (status === "passing") return "✅ All CI is passing";
+  if (status === "pending") return "⏳ CI still running";
+  return "No CI checks on this head";
+}
+
 function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -69,13 +77,9 @@ export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmF
   }
 
   const headline =
-    input.status === "passing"
-      ? "✅ All CI is passing"
-      : input.status === "pending"
-        ? "⏳ CI still running"
-        : input.status === "none"
-          ? "No CI checks on this head"
-          : redactReviewText(llm.headline);
+    input.status === "failing"
+      ? redactReviewText(llm.headline)
+      : headlineForNonFailingStatus(input.status);
 
   return {
     status: input.status,
@@ -88,12 +92,7 @@ export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
   return async (input) => {
     if (input.status !== "failing") {
       return {
-        headline:
-          input.status === "passing"
-            ? "✅ All CI is passing"
-            : input.status === "pending"
-              ? "⏳ CI still running"
-              : "No CI checks on this head",
+        headline: headlineForNonFailingStatus(input.status),
         failures: [],
       };
     }

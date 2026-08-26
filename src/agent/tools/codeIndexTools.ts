@@ -22,6 +22,25 @@ export const searchCodeIndexSchema = v.object({
   limit: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), CODE_INDEX_MAX_RESULTS),
 });
 
+function codeIndexHint(
+  row: { path: string; start_line: number; end_line: number },
+  preview: string | undefined,
+): { path: string; startLine: number; endLine: number; preview?: string } {
+  if (preview == null) {
+    return {
+      path: row.path,
+      startLine: row.start_line,
+      endLine: row.end_line,
+    };
+  }
+  return {
+    path: row.path,
+    startLine: row.start_line,
+    endLine: row.end_line,
+    preview,
+  };
+}
+
 async function verifyChunkHash(
   workspace: LocalPrWorkspace,
   path: string,
@@ -97,12 +116,9 @@ export function buildCodeIndexTools(params: {
           }
         }),
       );
-      const hints = verifiedRows.map(({ row, hashOk }) => ({
-        path: row.path,
-        startLine: row.start_line,
-        endLine: row.end_line,
-        ...(hashOk ? { preview: previewForChunk(row.content) } : {}),
-      }));
+      const hints = verifiedRows.map(({ row, hashOk }) =>
+        codeIndexHint(row, hashOk ? previewForChunk(row.content) : undefined),
+      );
       return { hints };
     },
   });

@@ -88,6 +88,84 @@ function slashGateLayer(
   return Layer.mergeAll(schedulerLayer, handlersLayer);
 }
 
+function intakeFenceLayer(calls: string[]) {
+  const schedulerLayer = Layer.succeed(
+    AgentWorkScheduler,
+    AgentWorkScheduler.of({
+      recordIgnored: () =>
+        Effect.sync(() => {
+          calls.push("recordIgnored");
+        }),
+      submitAutomatedReview: () =>
+        Effect.sync(() => {
+          calls.push("submitAutomatedReview");
+        }),
+      submitSlashCommand: () =>
+        Effect.sync(() => {
+          calls.push("submitSlashCommand");
+        }),
+      submitCiRefresh: () =>
+        Effect.sync(() => {
+          calls.push("submitCiRefresh");
+        }),
+      ping: () => Effect.succeed(true),
+    }),
+  );
+  const handlersLayer = Layer.succeed(
+    WebhookHandlers,
+    WebhookHandlers.of({
+      pullRequest: () =>
+        Effect.sync(() => {
+          calls.push("pullRequest");
+        }),
+      issueComment: () =>
+        Effect.sync(() => {
+          calls.push("issueComment");
+        }),
+      pullRequestReviewComment: () =>
+        Effect.sync(() => {
+          calls.push("pullRequestReviewComment");
+        }),
+      ciRefresh: () =>
+        Effect.sync(() => {
+          calls.push("ciRefresh");
+        }),
+    }),
+  );
+  return Layer.mergeAll(schedulerLayer, handlersLayer);
+}
+
+function ciRefreshCaptureLayer(
+  captured: Array<{
+    readonly headSha: string;
+    readonly prNumbers: readonly number[];
+    readonly owner: string;
+    readonly repo: string;
+    readonly installationId: number;
+  }>,
+) {
+  const scheduler = Layer.succeed(
+    AgentWorkScheduler,
+    AgentWorkScheduler.of({
+      recordIgnored: () => Effect.void,
+      submitAutomatedReview: () => Effect.void,
+      submitSlashCommand: () => Effect.void,
+      submitCiRefresh: (_headers, data) =>
+        Effect.sync(() => {
+          captured.push({
+            headSha: data.headSha,
+            prNumbers: data.prNumbers,
+            owner: data.owner,
+            repo: data.repo,
+            installationId: data.installationId,
+          });
+        }),
+      ping: () => Effect.succeed(true),
+    }),
+  );
+  return Layer.mergeAll(scheduler, WebhookHandlersCore.pipe(Layer.provide(scheduler)));
+}
+
 describe("processWebhookPostRequestEffect", () => {
   beforeEach(() => {
     mocks.getAppBotIdentity.mockReset();
@@ -226,53 +304,6 @@ describe("processWebhookPostRequestEffect", () => {
 
     expect(out).toEqual({ status: 422, body: "unprocessable entity" });
   });
-
-  function intakeFenceLayer(calls: string[]) {
-    const schedulerLayer = Layer.succeed(
-      AgentWorkScheduler,
-      AgentWorkScheduler.of({
-        recordIgnored: () =>
-          Effect.sync(() => {
-            calls.push("recordIgnored");
-          }),
-        submitAutomatedReview: () =>
-          Effect.sync(() => {
-            calls.push("submitAutomatedReview");
-          }),
-        submitSlashCommand: () =>
-          Effect.sync(() => {
-            calls.push("submitSlashCommand");
-          }),
-        submitCiRefresh: () =>
-          Effect.sync(() => {
-            calls.push("submitCiRefresh");
-          }),
-        ping: () => Effect.succeed(true),
-      }),
-    );
-    const handlersLayer = Layer.succeed(
-      WebhookHandlers,
-      WebhookHandlers.of({
-        pullRequest: () =>
-          Effect.sync(() => {
-            calls.push("pullRequest");
-          }),
-        issueComment: () =>
-          Effect.sync(() => {
-            calls.push("issueComment");
-          }),
-        pullRequestReviewComment: () =>
-          Effect.sync(() => {
-            calls.push("pullRequestReviewComment");
-          }),
-        ciRefresh: () =>
-          Effect.sync(() => {
-            calls.push("ciRefresh");
-          }),
-      }),
-    );
-    return Layer.mergeAll(schedulerLayer, handlersLayer);
-  }
 
   it("returns 422 and skips durable work for invalid identifiers on every event", async () => {
     const cases = [
@@ -682,37 +713,6 @@ describe("processWebhookPostRequestEffect", () => {
     expect(slashCalls).toEqual([]);
   });
 
-  function ciRefreshCaptureLayer(
-    captured: Array<{
-      readonly headSha: string;
-      readonly prNumbers: readonly number[];
-      readonly owner: string;
-      readonly repo: string;
-      readonly installationId: number;
-    }>,
-  ) {
-    const scheduler = Layer.succeed(
-      AgentWorkScheduler,
-      AgentWorkScheduler.of({
-        recordIgnored: () => Effect.void,
-        submitAutomatedReview: () => Effect.void,
-        submitSlashCommand: () => Effect.void,
-        submitCiRefresh: (_headers, data) =>
-          Effect.sync(() => {
-            captured.push({
-              headSha: data.headSha,
-              prNumbers: data.prNumbers,
-              owner: data.owner,
-              repo: data.repo,
-              installationId: data.installationId,
-            });
-          }),
-        ping: () => Effect.succeed(true),
-      }),
-    );
-    return Layer.mergeAll(scheduler, WebhookHandlersCore.pipe(Layer.provide(scheduler)));
-  }
-
   it("dispatches ciRefresh for completed check_suite with normalized head source", async () => {
     const captured: Array<{
       readonly headSha: string;
@@ -848,7 +848,7 @@ describe("processWebhookPostRequestEffect", () => {
       ),
     );
 
-    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => undefined);
     settingsOverrides.webhookTimeoutMs = 1;
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
@@ -907,7 +907,7 @@ describe("processWebhookPostRequestEffect", () => {
         }),
       ),
     );
-    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => undefined);
     settingsOverrides.webhookTimeoutMs = 1;
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
@@ -958,7 +958,7 @@ describe("processWebhookPostRequestEffect", () => {
       ),
     );
 
-    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => undefined);
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
     try {

@@ -95,20 +95,26 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
 
 vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
   runSpecialist: vi.fn(
-    (params: {
+    (specialistParams: {
       readonly specialist: SpecialistId;
       readonly briefMessage: string;
       readonly signal?: AbortSignal;
     }) => {
-      const outcome = testState.outcomes.get(params.specialist);
-      if (!outcome) throw new Error(`Missing ${params.specialist} outcome`);
-      testState.briefMessages.push(params.briefMessage);
-      if (params.signal) testState.signals.set(params.specialist, params.signal);
+      const outcome = testState.outcomes.get(specialistParams.specialist);
+      if (!outcome) throw new Error(`Missing ${specialistParams.specialist} outcome`);
+      testState.briefMessages.push(specialistParams.briefMessage);
+      if (specialistParams.signal) {
+        testState.signals.set(specialistParams.specialist, specialistParams.signal);
+      }
       return new Promise<SpecialistOutcome>((resolve) => {
-        outcome.promise.then(resolve);
-        params.signal?.addEventListener("abort", () => resolve(failed(params.specialist)), {
-          once: true,
-        });
+        void outcome.promise.then(resolve);
+        specialistParams.signal?.addEventListener(
+          "abort",
+          () => resolve(failed(specialistParams.specialist)),
+          {
+            once: true,
+          },
+        );
       });
     },
   ),
@@ -116,8 +122,8 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
 
 vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
   buildPublishThreadTool: vi.fn(
-    (params: { resolveProgressCommentUrl: () => Promise<string | undefined> }) => {
-      testState.progressUrlResolvers.push(params.resolveProgressCommentUrl);
+    (threadToolParams: { resolveProgressCommentUrl: () => Promise<string | undefined> }) => {
+      testState.progressUrlResolvers.push(threadToolParams.resolveProgressCommentUrl);
       testState.ledger = createFindingLedger();
       return {
         piTool: { name: "publish_thread", description: "publish", parameters: {} },
@@ -166,19 +172,19 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
 vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
   createPublishSummaryState: vi.fn(() => ({ published: false, lastValidationError: null })),
   buildPublishSummaryTool: vi.fn(
-    (params: {
+    (summaryToolParams: {
       state: { published: boolean };
       getCoverage: () => ReviewCoverage;
       ciAuthor?: unknown;
     }) => {
-      testState.summaryToolCiAuthors.push(params.ciAuthor);
+      testState.summaryToolCiAuthors.push(summaryToolParams.ciAuthor);
       return {
         piTool: { name: "publish_summary", description: "summary", parameters: {} },
         executor: vi.fn(async () => {
           testState.publishOrder.push("summary");
-          const coverage = params.getCoverage();
+          const coverage = summaryToolParams.getCoverage();
           testState.summaryNotes.push(coverage.kind === "partial" ? coverage.note : undefined);
-          params.state.published = true;
+          summaryToolParams.state.published = true;
           return { ok: true, summaryCommentId: 9 };
         }),
       };
@@ -188,7 +194,7 @@ vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
 
 vi.mock("../src/review/orchestrator/stubTick.js", () => ({
   tickProgressComment: vi.fn(
-    async (params: {
+    async (tickParams: {
       progressRevision: number;
       tickState: {
         kind: string;
@@ -197,10 +203,10 @@ vi.mock("../src/review/orchestrator/stubTick.js", () => ({
       };
     }) => {
       testState.ticks.push({
-        progressRevision: params.progressRevision,
-        kind: params.tickState.kind,
-        recon: params.tickState.recon,
-        specialists: params.tickState.specialists,
+        progressRevision: tickParams.progressRevision,
+        kind: tickParams.tickState.kind,
+        recon: tickParams.tickState.recon,
+        specialists: tickParams.tickState.specialists,
       });
     },
   ),
@@ -214,10 +220,13 @@ vi.mock("../src/review/run/reviewRunFallback.js", () => ({
 
 vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
   publishReviewSummaryOnly: vi.fn(
-    async (params: { readonly payload: Record<string, unknown>; readonly ciAuthor?: unknown }) => {
+    async (summaryParams: {
+      readonly payload: Record<string, unknown>;
+      readonly ciAuthor?: unknown;
+    }) => {
       testState.publishOrder.push("summary");
-      testState.deterministicSummaries.push(params.payload);
-      testState.deterministicCiAuthors.push(params.ciAuthor);
+      testState.deterministicSummaries.push(summaryParams.payload);
+      testState.deterministicCiAuthors.push(summaryParams.ciAuthor);
       return { kind: "published", summaryCommentId: 10 };
     },
   ),
@@ -403,13 +412,14 @@ describe("runOrchestratedPrReview", () => {
         role: "orchestrator",
         primary: { provider: "openai", model: "gpt-4o-mini" },
         send: vi.fn(async (prompt) => {
-          const phase = prompt.includes("Inspect this pull request")
-            ? "recon"
-            : prompt.startsWith("Judge the ")
-              ? "judgment"
-              : prompt.includes("Synthesize the final")
-                ? "synthesis"
-                : null;
+          let phase: "recon" | "judgment" | "synthesis" | null = null;
+          if (prompt.includes("Inspect this pull request")) {
+            phase = "recon";
+          } else if (prompt.startsWith("Judge the ")) {
+            phase = "judgment";
+          } else if (prompt.includes("Synthesize the final")) {
+            phase = "synthesis";
+          }
           if (testState.sendDelay?.phase === phase) {
             const delay = testState.sendDelay;
             testState.sendDelay = null;
@@ -572,7 +582,7 @@ describe("runOrchestratedPrReview", () => {
           dispose: vi.fn(async () => {
             testState.sessionDisposals += 1;
           }),
-          restartWithFallback: (params) => restart(params),
+          restartWithFallback: (fallbackParams) => restart(fallbackParams),
           getStructuredState: () => structuredState,
           setStructuredState: () => undefined,
         };
@@ -589,7 +599,7 @@ describe("runOrchestratedPrReview", () => {
           }
           return runSuccessfulTurn(prompt);
         },
-        (params) => restartWithFallback(params),
+        (fallbackParams) => restartWithFallback(fallbackParams),
       );
       restartWithFallback.mockImplementation(async (restartParams) => {
         expect(restartParams.structuredState).toEqual(primaryState);

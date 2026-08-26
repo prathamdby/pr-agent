@@ -322,6 +322,108 @@ export async function publishTriageReportOnly(params: ReportOnlyParams): Promise
   }
 }
 
+async function publishTriagePushResult(params: {
+  readonly publish: PublishTriageParams;
+  readonly analytics: TriageAnalyticsRef;
+  readonly committedShas: readonly string[];
+  readonly committedDetails: readonly TriageCommittedDetail[];
+}): Promise<TriagePushOutcome> {
+  const { publish, analytics, committedShas, committedDetails } = params;
+  let pushOutcome: TriagePushOutcome = publish.priorPush?.pushOutcome ?? "not-needed";
+  if (publish.priorPush) return pushOutcome;
+  if (committedShas.length === 0) {
+    await recordPublishStep(publish.pool, {
+      workItemId: publish.workItemId,
+      leaseEpoch: publish.leaseEpoch,
+      resourceKey: publish.resourceKey,
+      reviewLens: TRIAGE_PUBLISH_LENS,
+      step: "triage_push",
+      detail: storedTriagePushRecord({
+        outcome: "not-needed",
+        headSha: publish.headSha,
+        committedShas: [],
+        commits: [],
+        payload: publish.payload,
+      }),
+    });
+    return "not-needed";
+  }
+  try {
+    const operationKey = triagePushOperationKey(publish.resourceKey);
+    await withOperationIntent({
+      client: publish.pool,
+      workItemId: publish.workItemId,
+      leaseEpoch: publish.leaseEpoch,
+      signal: publish.signal,
+      operationKey,
+      mutationKind: "github.triage_push",
+      detail: {
+        step: "triage_push",
+        resourceKey: publish.resourceKey,
+        reviewLens: TRIAGE_PUBLISH_LENS,
+      },
+      recover: async () => {
+        const pushed = await publish.prSurface.listPushedCommits();
+        return committedShas.every((sha) => pushed.some((commit) => commit.sha === sha))
+          ? { kind: "reconciled" as const, value: undefined }
+          : { kind: "absent" as const };
+      },
+      isKnownNoAcceptanceError: (error) =>
+        error instanceof StaleHeadPushError || isKnownNoAcceptanceMutationError(error),
+      mutate: async () => {
+        await publish.checkout.push();
+      },
+    });
+    pushOutcome = "pushed";
+    await recordPublishStep(publish.pool, {
+      workItemId: publish.workItemId,
+      leaseEpoch: publish.leaseEpoch,
+      resourceKey: publish.resourceKey,
+      reviewLens: TRIAGE_PUBLISH_LENS,
+      step: "triage_push",
+      detail: storedTriagePushRecord({
+        outcome: "pushed",
+        headSha: publish.headSha,
+        committedShas,
+        commits: committedDetails,
+        payload: publish.payload,
+      }),
+    });
+  } catch (error) {
+    if (error instanceof TriageClosedPullRequestError) {
+      pushOutcome = "closed";
+      captureTriageEvent(analytics, "triage degraded", {
+        step: "publish_push",
+        reason: "closed_pull_request",
+      });
+    } else if (error instanceof StaleHeadPushError) {
+      pushOutcome = "stale";
+      captureTriageEvent(analytics, "triage degraded", {
+        step: "publish_push",
+        reason: "stale_head",
+      });
+    } else {
+      captureTriageFailure(analytics, "publish_push", error);
+      throw error;
+    }
+    await recordPublishStep(publish.pool, {
+      workItemId: publish.workItemId,
+      leaseEpoch: publish.leaseEpoch,
+      resourceKey: publish.resourceKey,
+      reviewLens: TRIAGE_PUBLISH_LENS,
+      step: "triage_push",
+      detail: storedTriagePushRecord({
+        outcome: pushOutcome,
+        headSha: publish.headSha,
+        committedShas,
+        commits: committedDetails,
+        payload: publish.payload,
+      }),
+    });
+  }
+  return pushOutcome;
+}
+
 export async function publishTriage(params: PublishTriageParams): Promise<PublishTriageResult> {
   const analytics: TriageAnalyticsRef = {
     installationId: params.installationId,
@@ -331,114 +433,50 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
     workItemId: params.workItemId,
     scope: params.scope,
   };
-  let pushOutcome: TriagePushOutcome = params.priorPush?.pushOutcome ?? "not-needed";
-  let missingThreadAction = false;
   const committedShas = params.checkout.listCommittedShas();
   const committedDetails = params.checkout.listCommittedDetails();
-  if (!params.priorPush && committedShas.length > 0) {
-    try {
-      const operationKey = triagePushOperationKey(params.resourceKey);
-      await withOperationIntent<void>({
-        client: params.pool,
-        workItemId: params.workItemId,
-        leaseEpoch: params.leaseEpoch,
-        signal: params.signal,
-        operationKey,
-        mutationKind: "github.triage_push",
-        detail: {
-          step: "triage_push",
-          resourceKey: params.resourceKey,
-          reviewLens: TRIAGE_PUBLISH_LENS,
-        },
-        recover: async () => {
-          const pushed = await params.prSurface.listPushedCommits();
-          return committedShas.every((sha) => pushed.some((commit) => commit.sha === sha))
-            ? { kind: "reconciled" as const, value: undefined }
-            : { kind: "absent" as const };
-        },
-        isKnownNoAcceptanceError: (error) =>
-          error instanceof StaleHeadPushError || isKnownNoAcceptanceMutationError(error),
-        mutate: async () => {
-          await params.checkout.push();
-        },
-      });
-      pushOutcome = "pushed";
-      await recordPublishStep(params.pool, {
-        workItemId: params.workItemId,
-        leaseEpoch: params.leaseEpoch,
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
-        step: "triage_push",
-        detail: storedTriagePushRecord({
-          outcome: "pushed",
-          headSha: params.headSha,
-          committedShas,
-          commits: committedDetails,
-          payload: params.payload,
-        }),
-      });
-    } catch (error) {
-      if (error instanceof TriageClosedPullRequestError) {
-        pushOutcome = "closed";
-        captureTriageEvent(analytics, "triage degraded", {
-          step: "publish_push",
-          reason: "closed_pull_request",
-        });
-      } else if (error instanceof StaleHeadPushError) {
-        pushOutcome = "stale";
-        captureTriageEvent(analytics, "triage degraded", {
-          step: "publish_push",
-          reason: "stale_head",
-        });
-      } else {
-        captureTriageFailure(analytics, "publish_push", error);
-        throw error;
-      }
-      await recordPublishStep(params.pool, {
-        workItemId: params.workItemId,
-        leaseEpoch: params.leaseEpoch,
-        resourceKey: params.resourceKey,
-        reviewLens: TRIAGE_PUBLISH_LENS,
-        step: "triage_push",
-        detail: storedTriagePushRecord({
-          outcome: pushOutcome,
-          headSha: params.headSha,
-          committedShas,
-          commits: committedDetails,
-          payload: params.payload,
-        }),
-      });
-    }
-  } else if (!params.priorPush) {
-    await recordPublishStep(params.pool, {
-      workItemId: params.workItemId,
-      leaseEpoch: params.leaseEpoch,
-      resourceKey: params.resourceKey,
-      reviewLens: TRIAGE_PUBLISH_LENS,
-      step: "triage_push",
-      detail: storedTriagePushRecord({
-        outcome: "not-needed",
-        headSha: params.headSha,
-        committedShas: [],
-        commits: [],
-        payload: params.payload,
-      }),
-    });
-  }
+  const pushOutcome = await publishTriagePushResult({
+    publish: params,
+    analytics,
+    committedShas,
+    committedDetails,
+  });
+  const missingThreadAction = await publishTriageThreadActions({
+    publish: params,
+    analytics,
+    pushOutcome,
+  });
+  await publishTriageReportTable({
+    publish: params,
+    analytics,
+    pushOutcome,
+    committedDetails,
+    missingThreadAction,
+  });
+  recordTriageFindingHistory(params);
+  return { pushOutcome, missingThreadAction };
+}
 
+async function publishTriageThreadActions(params: {
+  readonly publish: PublishTriageParams;
+  readonly analytics: TriageAnalyticsRef;
+  readonly pushOutcome: TriagePushOutcome;
+}): Promise<boolean> {
+  const { publish, analytics, pushOutcome } = params;
+  let missingThreadAction = false;
   const actedThreadIds = new Set(
-    await loadActedThreadIds(params.pool, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
+    await loadActedThreadIds(publish.pool, {
+      workItemId: publish.workItemId,
+      resourceKey: publish.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       step: "triage_thread_actions",
     }),
   );
-  const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
-  for (const verdict of params.payload.verdicts) {
+  const threadById = new Map(publish.inventory.map((thread) => [thread.rootCommentId, thread]));
+  for (const verdict of publish.payload.verdicts) {
     if (!shouldResolveTriageThread(verdict, pushOutcome)) continue;
     const thread = threadById.get(verdict.threadRootCommentId);
-    const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
+    const resolution = publish.resolutionByRootCommentId.get(verdict.threadRootCommentId);
     if (!thread || !resolution) {
       missingThreadAction = true;
       captureTriageEvent(analytics, "triage degraded", {
@@ -456,23 +494,23 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
     ) {
       try {
         const operationKey = triageThreadOperationKey(verdict.threadRootCommentId);
-        const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-        await withOperationIntent<void>({
-          client: params.pool,
-          workItemId: params.workItemId,
-          leaseEpoch: params.leaseEpoch,
+        const operationMarker = operationIntentMarker(operationKey, publish.workItemId);
+        await withOperationIntent({
+          client: publish.pool,
+          workItemId: publish.workItemId,
+          leaseEpoch: publish.leaseEpoch,
           operationKey,
           mutationKind: "github.triage_thread_reply",
           detail: {
             step: "triage_thread_actions",
-            resourceKey: params.resourceKey,
+            resourceKey: publish.resourceKey,
             reviewLens: TRIAGE_PUBLISH_LENS,
             threadRootCommentId: verdict.threadRootCommentId,
             operationMarker,
           },
           recover: async () => {
             const existing = await findMarkedComment(
-              params.prSurface,
+              publish.prSurface,
               operationMarker,
               verdict.threadRootCommentId,
             );
@@ -483,7 +521,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
           isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: () =>
             replyToThread({
-              ...params,
+              ...publish,
               thread,
               verdict,
               operationMarker,
@@ -496,37 +534,37 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         throw error;
       }
       actedThreadIds.add(verdict.threadRootCommentId);
-      await recordActedThreadIds(params.pool, {
-        workItemId: params.workItemId,
-        resourceKey: params.resourceKey,
+      await recordActedThreadIds(publish.pool, {
+        workItemId: publish.workItemId,
+        resourceKey: publish.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_thread_actions",
         actedThreadIds: [...actedThreadIds],
-        leaseEpoch: params.leaseEpoch,
+        leaseEpoch: publish.leaseEpoch,
       });
     }
     try {
       const operationKey = `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`;
-      await withOperationIntent<void>({
-        client: params.pool,
-        workItemId: params.workItemId,
-        leaseEpoch: params.leaseEpoch,
+      await withOperationIntent({
+        client: publish.pool,
+        workItemId: publish.workItemId,
+        leaseEpoch: publish.leaseEpoch,
         operationKey,
         mutationKind: "github.triage_thread_resolve",
         detail: {
           step: "triage_thread_actions",
-          resourceKey: params.resourceKey,
+          resourceKey: publish.resourceKey,
           reviewLens: TRIAGE_PUBLISH_LENS,
           threadRootCommentId: verdict.threadRootCommentId,
         },
         recover: async () => {
-          const current = await params.prSurface.listInlineReviewThreads();
+          const current = await publish.prSurface.listInlineReviewThreads();
           return current.byRootCommentId.get(verdict.threadRootCommentId)?.isResolved === true
             ? { kind: "reconciled" as const, value: undefined }
             : { kind: "absent" as const };
         },
         isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-        mutate: () => params.prSurface.resolveInlineReviewThread(resolution.threadNodeId),
+        mutate: () => publish.prSurface.resolveInlineReviewThread(resolution.threadNodeId),
       });
     } catch (error) {
       captureTriageFailure(analytics, "thread_resolve", error, {
@@ -535,16 +573,26 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
       throw error;
     }
   }
+  return missingThreadAction;
+}
 
+async function publishTriageReportTable(params: {
+  readonly publish: PublishTriageParams;
+  readonly analytics: TriageAnalyticsRef;
+  readonly pushOutcome: TriagePushOutcome;
+  readonly committedDetails: readonly TriageCommittedDetail[];
+  readonly missingThreadAction: boolean;
+}): Promise<void> {
+  const { publish, analytics, pushOutcome, committedDetails, missingThreadAction } = params;
   try {
     await upsertTriageReport({
-      ...params,
+      ...publish,
       body: renderTriageReport({
-        headSha: params.headSha,
-        inventory: params.inventory,
-        payload: params.payload,
+        headSha: publish.headSha,
+        inventory: publish.inventory,
+        payload: publish.payload,
         commits: pushOutcome === "pushed" ? committedDetails : [],
-        previouslyResolvedCount: params.previouslyResolvedCount,
+        previouslyResolvedCount: publish.previouslyResolvedCount,
         notice: [
           pushOutcome === "closed" ? TRIAGE_CLOSED_PR_NOTICE : undefined,
           pushOutcome === "stale" ? TRIAGE_STALE_HEAD_NOTICE : undefined,
@@ -552,35 +600,36 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         ]
           .filter((notice) => notice != null)
           .join("\n\n"),
-        scope: params.scope,
-        threadRootCommentId: params.threadRootCommentId,
+        scope: publish.scope,
+        threadRootCommentId: publish.threadRootCommentId,
       }),
     });
   } catch (error) {
     captureTriageFailure(analytics, "publish_report", error);
     throw error;
   }
+}
 
-  if (params.findingHistoryCfg) {
-    const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
-    for (const verdict of params.payload.verdicts) {
-      const thread = threadById.get(verdict.threadRootCommentId);
-      if (!thread) continue;
-      safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
-        scope: {
-          installationId: params.installationId,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-          workItemId: params.workItemId,
-          headSha: params.headSha,
-        },
-        resourceKey: params.resourceKey,
-        thread,
-        outcome: verdict.verdict,
-      });
-    }
+function recordTriageFindingHistory(params: PublishTriageParams): void {
+  if (!params.findingHistoryCfg) return;
+  const findingHistoryThreadById = new Map(
+    params.inventory.map((thread) => [thread.rootCommentId, thread]),
+  );
+  for (const verdict of params.payload.verdicts) {
+    const thread = findingHistoryThreadById.get(verdict.threadRootCommentId);
+    if (!thread) continue;
+    safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
+      scope: {
+        installationId: params.installationId,
+        owner: params.owner,
+        repo: params.repo,
+        prNumber: params.prNumber,
+        workItemId: params.workItemId,
+        headSha: params.headSha,
+      },
+      resourceKey: params.resourceKey,
+      thread,
+      outcome: verdict.verdict,
+    });
   }
-
-  return { pushOutcome, missingThreadAction };
 }

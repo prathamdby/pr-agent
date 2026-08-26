@@ -146,7 +146,7 @@ export function wrapListPullRequestFilesDiffIngestion(
     const out = await original(args);
     cachedDiffIndex.listPullRequestFilesIngested = true;
     if (out && typeof out === "object") {
-      ingestListPullRequestFilesResult(cachedDiffIndex, out as ListPullRequestFilesToolResult);
+      ingestListPullRequestFilesResult(cachedDiffIndex, out);
     }
     return out;
   };

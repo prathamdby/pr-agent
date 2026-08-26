@@ -101,11 +101,12 @@ describe("settings inventory", () => {
       overrides?: Record<string, string | number>;
       importers?: Record<string, unknown>;
     };
-    expect(pkg.overrides).toBeTruthy();
-    expect(lock.overrides).toBeTruthy();
-    const pkgOverrides = pkg.overrides!;
+    const pkgOverrides = pkg.overrides;
+    const lockOverridesRaw = lock.overrides;
+    if (pkgOverrides == null) throw new Error("expected package.json overrides");
+    if (lockOverridesRaw == null) throw new Error("expected nub.lock overrides");
     const lockOverrides = Object.fromEntries(
-      Object.entries(lock.overrides!).map(([key, value]) => [key, String(value)]),
+      Object.entries(lockOverridesRaw).map(([key, value]) => [key, String(value)]),
     );
     expect(lockOverrides).toEqual(pkgOverrides);
     const workspaces = pkg.workspaces ?? [];

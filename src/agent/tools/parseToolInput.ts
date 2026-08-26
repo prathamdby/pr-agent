@@ -51,7 +51,7 @@ function baseNode(node: SchemaNode): SchemaNode {
  * shape we cannot walk — an unresolvable path is simply never repaired.
  */
 function schemaNodeAtPath(schema: v.GenericSchema, dotPath: string): SchemaNode | null {
-  let current: SchemaNode = schema as unknown as SchemaNode;
+  let current: SchemaNode = schema;
   if (dotPath === "") return current;
   for (const segment of dotPath.split(".")) {
     const base = baseNode(current);
@@ -149,7 +149,7 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
 ): ParsedToolInput<v.InferOutput<TSchema>> {
   const first = v.safeParse(schema, raw);
   if (first.success) {
-    return { ok: true, value: first.output as v.InferOutput<TSchema>, repairs: [] };
+    return { ok: true, value: first.output, repairs: [] };
   }
 
   const title = opts.errorTitle ?? "Tool input validation failed:";
@@ -199,5 +199,5 @@ export function parseToolInput<TSchema extends v.GenericSchema>(
       issues: second.issues,
     };
   }
-  return { ok: true, value: second.output as v.InferOutput<TSchema>, repairs };
+  return { ok: true, value: second.output, repairs };
 }

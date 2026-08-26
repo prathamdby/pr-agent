@@ -179,7 +179,7 @@ describe("reviewDiffPlacement", () => {
     }));
 
     const placements = planInlinePlacements(findings, createCachedPrDiffIndex()).map((p) => ({
-      ...p,
+      finding: p.finding,
       inlinePosted: true,
       inlineLine: p.finding.startLine,
     }));

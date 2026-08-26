@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
@@ -57,7 +56,11 @@ import {
   type SpecialistOutcome,
 } from "./orchestratorTypes.js";
 import { createOrchestratorPhaseRef } from "./phaseToolPolicy.js";
-import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
+import {
+  buildPublishSummaryTool,
+  createPublishSummaryState,
+  type PublishSummaryState,
+} from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
 import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
@@ -211,6 +214,598 @@ function deterministicPayload(params: {
   };
 }
 
+type RunGateResult = Awaited<ReturnType<ReviewRunGate["check"]>>;
+
+async function resolveOrchestratorProgressCommentUrl(params: {
+  readonly review: OrchestratedReviewRunParams;
+  readonly reviewMode: NonNullable<OrchestratedReviewRunParams["mode"]> | "review";
+}): Promise<string | undefined> {
+  const progressCommentCoordination = params.review.recordPublishStep?.summaryCommentCoordination;
+  let commentId: number | null | undefined;
+  if (progressCommentCoordination) {
+    try {
+      commentId = await getSummaryCommentGithubId(
+        progressCommentCoordination.pool,
+        progressCommentCoordination.resourceKey,
+        params.reviewMode,
+      );
+      if (commentId == null) {
+        commentId = params.review.progressCommentIdHint;
+      }
+    } catch (error) {
+      const appError = toAppError(error, {
+        code: "review.progress_comment_lookup_failed",
+      });
+      logWarn("review_progress_comment_lookup_failed", errorLogFields(appError));
+      commentId = params.review.progressCommentIdHint;
+    }
+  } else {
+    commentId = params.review.progressCommentIdHint;
+  }
+  return reviewCheckDetailsUrl(
+    params.review.owner,
+    params.review.repo,
+    params.review.prNumber,
+    commentId,
+  );
+}
+
+function orchestratorOperationIntent(
+  recordPublishStep: OrchestratedReviewRunParams["recordPublishStep"],
+):
+  | {
+      readonly client: NonNullable<
+        NonNullable<OrchestratedReviewRunParams["recordPublishStep"]>["summaryCommentCoordination"]
+      >["pool"];
+      readonly workItemId: string;
+      readonly resourceKey: string;
+      readonly leaseEpoch: number | null | undefined;
+    }
+  | undefined {
+  const coordination = recordPublishStep?.summaryCommentCoordination;
+  if (!coordination) return undefined;
+  return {
+    client: coordination.pool,
+    workItemId: coordination.workItemId,
+    resourceKey: coordination.resourceKey,
+    leaseEpoch: coordination.leaseEpoch,
+  };
+}
+
+function applyCreatedOrchestratorSession(
+  state: OrchestratedRunState,
+  created: Awaited<ReturnType<typeof createOrchestratorSession>>,
+): PiSession | null {
+  if (created.degraded) state.judgment = "degraded";
+  if (created.deadlineReached) {
+    state.lifecycle = { kind: "finalizing", reason: "deadline" };
+  }
+  return created.session;
+}
+
+function completeOrchestratedReviewResult(params: {
+  readonly review: OrchestratedReviewRunParams;
+  readonly state: OrchestratedRunState;
+  readonly summaryState: PublishSummaryState;
+  readonly publishAttempts: number;
+  readonly lastText: string;
+  readonly threadBatches: number;
+}): ReviewRunResult {
+  const specialistOutcomes: Record<string, number> = {};
+  for (const outcome of Object.values(params.state.outcomes)) {
+    if (!outcome) continue;
+    specialistOutcomes[outcome.kind] = (specialistOutcomes[outcome.kind] ?? 0) + 1;
+  }
+  setReviewRunMetricFields({
+    published: params.summaryState.published,
+    publishAttempts: params.publishAttempts,
+    specialistOutcomes,
+    threadBatches: params.threadBatches,
+    briefFallback: params.state.briefFallback,
+  });
+  logReviewRunCompleted({
+    judgment: params.state.judgment,
+    lifecycle: params.state.lifecycle.kind,
+  });
+  logInfo("review_orchestrator_completed", {
+    owner: params.review.owner,
+    repo: params.review.repo,
+    pr: params.review.prNumber,
+    completionOrder: params.state.completionOrder,
+    judgment: params.state.judgment,
+  });
+  const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
+  return {
+    lastAssistant: assistantFromText(
+      params.review.cfg,
+      params.lastText,
+      params.review.cfg.piProvider,
+    ),
+    published: params.summaryState.published,
+    publishAttempts: params.publishAttempts,
+    publishSuperseded: params.state.lifecycle.kind === "stopped",
+    ...(lastFailure != null ? { lastFailure } : {}),
+  };
+}
+
+function lifecycleFromRunGate(
+  gate: Exclude<RunGateResult, { kind: "continue" }>,
+): Extract<OrchestratedRunState["lifecycle"], { kind: "stopped" | "finalizing" }> {
+  if (gate.kind === "finalize") {
+    return { kind: "finalizing", reason: gate.reason };
+  }
+  if (gate.reason === "cancelled") {
+    return {
+      kind: "stopped",
+      reason: "cancelled",
+      attribution: gate.attribution,
+    };
+  }
+  return { kind: "stopped", reason: gate.reason };
+}
+
+async function createOrchestratorSession(params: {
+  readonly cfg: OrchestratedReviewRunParams["cfg"];
+  readonly cwd: string;
+  readonly tools: Parameters<typeof createFeaturePiSession>[0]["tools"];
+  readonly executors: Parameters<typeof createFeaturePiSession>[0]["executors"];
+  readonly durability: OrchestratedReviewRunParams["durability"];
+  readonly deadlineMs: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+}): Promise<{
+  readonly session: PiSession | null;
+  readonly sessionCreation: Promise<PiSession> | null;
+  readonly degraded: boolean;
+  readonly deadlineReached: boolean;
+}> {
+  let sessionCreation: Promise<PiSession> | null = null;
+  try {
+    sessionCreation = createFeaturePiSession({
+      role: "orchestrator",
+      cfg: params.cfg,
+      cwd: params.cwd,
+      systemPrompt: orchestratorSystemPrompt,
+      tools: params.tools,
+      executors: params.executors,
+      durability: params.durability,
+    });
+    const creation = await settleBefore(sessionCreation, params.deadlineMs);
+    if (creation.kind === "settled") {
+      return { session: creation.value, sessionCreation, degraded: false, deadlineReached: false };
+    }
+    if (creation.kind === "deadline") {
+      void sessionCreation
+        .then(async (lateSession) => {
+          await lateSession.abort().catch(() => undefined);
+          await lateSession.dispose().catch(() => undefined);
+        })
+        .catch(() => undefined);
+      const deadlineFailure = classifyFailure(
+        new AppError({
+          code: "review.orchestrator_session_create_deadline",
+          message: "Orchestrator session create deadline reached",
+          context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
+        }),
+        { phase: "recon" },
+      );
+      recordClassifiedFailure(deadlineFailure);
+      logWarn("review_orchestrator_session_create_deadline", {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        ...classifiedFailureLogFields(deadlineFailure),
+      });
+      return { session: null, sessionCreation, degraded: true, deadlineReached: true };
+    }
+    const appError = toAppError(creation.error, {
+      code: "review.orchestrator_session_create_failed",
+      context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
+    });
+    const failure = classifyFailure(appError, { phase: "recon" });
+    recordClassifiedFailure(failure);
+    logWarn("review_orchestrator_session_create_failed", {
+      ...errorLogFields(appError),
+      ...classifiedFailureLogFields(failure),
+    });
+    return { session: null, sessionCreation, degraded: true, deadlineReached: false };
+  } catch (error) {
+    const appError = toAppError(error, {
+      code: "review.orchestrator_session_create_failed",
+      context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
+    });
+    const failure = classifyFailure(appError, { phase: "recon" });
+    recordClassifiedFailure(failure);
+    logWarn("review_orchestrator_session_create_failed", {
+      ...errorLogFields(appError),
+      ...classifiedFailureLogFields(failure),
+    });
+    return { session: null, sessionCreation, degraded: true, deadlineReached: false };
+  }
+}
+
+function startSpecialistRuns(params: {
+  readonly review: OrchestratedReviewRunParams;
+  readonly brief: SpecialistBrief;
+  readonly submittedBrief: SpecialistBrief | null;
+  readonly workspaceTools: ReturnType<typeof buildReviewRunSetup>["workspaceTools"];
+  readonly evidenceLedger: ReturnType<typeof buildReviewRunSetup>["evidenceLedger"];
+  readonly shouldContinue: () => boolean;
+  readonly agentEvents: ReturnType<typeof resolveAgentEventsContext>;
+  readonly specialistControllers: Map<SpecialistId, AbortController>;
+}): Map<SpecialistId, Promise<SpecialistOutcome>> {
+  const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
+  for (const specialist of SPECIALIST_IDS) {
+    const controller = new AbortController();
+    params.specialistControllers.set(specialist, controller);
+    pending.set(
+      specialist,
+      runSpecialist({
+        cfg: params.review.cfg,
+        cwd: params.review.cwd ?? params.review.workspace.agentCwd,
+        specialist,
+        briefMessage: renderBriefMessage(
+          params.brief,
+          specialist,
+          params.submittedBrief == null
+            ? {
+                pullRequestMetadata: {
+                  title: params.review.prTitle,
+                  body: params.review.prBody,
+                },
+              }
+            : undefined,
+        ),
+        workspaceTools: params.workspaceTools,
+        timeoutMs: Math.max(
+          0,
+          Math.min(
+            params.review.cfg.reviewSpecialistTimeoutMs,
+            params.review.timing.remainingModelMs(),
+          ),
+        ),
+        shouldContinue: params.shouldContinue,
+        signal: controller.signal,
+        evidenceLedger: params.evidenceLedger,
+        headSha: params.review.headSha,
+        checkoutCoverage: params.review.workspace.getCoverage(),
+        isPathInCheckout: (path) => params.review.workspace.isPathInCheckout(path),
+        agentEvents: params.agentEvents ?? undefined,
+      }),
+    );
+  }
+  return pending;
+}
+
+async function runOrchestratorRecon(params: {
+  readonly review: OrchestratedReviewRunParams;
+  readonly state: OrchestratedRunState;
+  readonly session: PiSession | null;
+  readonly isSessionRetired: () => boolean;
+  readonly orchestratorUserContent: string;
+  readonly getBrief: () => SpecialistBrief | null;
+  readonly getValidationError: () => string | null;
+  readonly clearValidationError: () => void;
+  readonly sendWithRetry: OrchestratorFinalizeHooks["sendWithRetry"];
+  readonly lastText: { value: string };
+}): Promise<SpecialistBrief | null> {
+  if (params.session) {
+    const recon = await params.sendWithRetry(
+      "recon",
+      [params.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
+      { maxToolRounds: MAX_TOOL_ROUNDS },
+    );
+    if (recon.kind === "sent") params.lastText.value = recon.text;
+    else params.state.judgment = "degraded";
+  }
+
+  const reconSession = params.session;
+  if (params.getBrief() == null && !params.isSessionRetired() && reconSession) {
+    await runValidationRepairLoop({
+      rounds: VALIDATION_REPAIR_ROUNDS,
+      shouldContinue: () => params.getBrief() == null && !params.isSessionRetired(),
+      getValidationError: () => params.getValidationError() ?? "No specialist brief was submitted.",
+      clearValidationError: params.clearValidationError,
+      repair: async (validationError) => {
+        const repair = await params.sendWithRetry(
+          "recon",
+          [
+            validationError,
+            "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
+          ].join("\n\n"),
+        );
+        if (repair.kind === "sent") params.lastText.value = repair.text;
+        else params.state.judgment = "degraded";
+      },
+    });
+  }
+
+  const submittedBrief = params.getBrief();
+  if (submittedBrief == null) {
+    params.state.briefFallback = true;
+    logWarn("review_brief_fallback", {
+      owner: params.review.owner,
+      repo: params.review.repo,
+      pr: params.review.prNumber,
+      sessionRetired: params.isSessionRetired(),
+    });
+  }
+  return submittedBrief;
+}
+
+async function handleSpecialistCompletion(params: {
+  readonly review: OrchestratedReviewRunParams;
+  readonly state: OrchestratedRunState;
+  readonly session: PiSession | null;
+  readonly isSessionRetired: () => boolean;
+  readonly outcome: SpecialistOutcome;
+  readonly incrementPublishAttempts: () => void;
+  readonly lastText: { value: string };
+  readonly abortSpecialists: () => void;
+  readonly retireSession: () => Promise<void>;
+  readonly recordOutcome: OrchestratorFinalizeHooks["recordOutcome"];
+  readonly degradeReport: (
+    outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
+    error?: unknown,
+  ) => Promise<void>;
+  readonly sendWithRetry: OrchestratorFinalizeHooks["sendWithRetry"];
+  readonly applyPublishStop: () => Promise<boolean>;
+  readonly writeTick: () => Promise<void>;
+  readonly setSource: (source: SpecialistId) => void;
+  readonly getLedger: ReturnType<typeof buildPublishThreadTool>["getLedger"];
+}): Promise<void> {
+  try {
+    const gate = await params.review.gate.check();
+    if (gate.kind !== "continue") {
+      params.state.lifecycle = lifecycleFromRunGate(gate);
+      params.abortSpecialists();
+      await params.retireSession();
+      return;
+    }
+
+    await params.recordOutcome(params.outcome);
+    if (params.outcome.kind !== "report") return;
+    const judgmentSession = params.session;
+    if (params.state.judgment === "degraded" || params.isSessionRetired() || !judgmentSession) {
+      await params.degradeReport(params.outcome);
+      return;
+    }
+
+    params.setSource(params.outcome.specialist);
+    const ledgerBefore = params.getLedger();
+    params.incrementPublishAttempts();
+    const judgment = await params.sendWithRetry("judgment", renderJudgmentTurn(params.outcome), {
+      maxToolRounds: ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+    });
+    if (judgment.kind === "failed") {
+      await params.degradeReport(params.outcome, judgment.error);
+      return;
+    }
+    params.lastText.value = judgment.text;
+    if (await params.applyPublishStop()) return;
+    params.state.specialists[params.outcome.specialist] = specialistDonePhase(
+      ledgerBefore,
+      params.getLedger(),
+      params.outcome.specialist,
+    );
+    await params.writeTick();
+  } catch (error) {
+    await params.recordOutcome(params.outcome);
+    if (params.outcome.kind === "report") {
+      await params.degradeReport(params.outcome, error);
+      return;
+    }
+    throw error;
+  }
+}
+
+type OrchestratorFinalizeHooks = {
+  readonly recordOutcome: (outcome: SpecialistOutcome) => Promise<void>;
+  readonly degradeReport: (
+    outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
+  ) => Promise<void>;
+  readonly publishReportDeterministically: (
+    outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
+  ) => Promise<void>;
+  readonly publishFailureNotice: () => Promise<void>;
+  readonly publishDeterministicSummary: () => Promise<void>;
+  readonly writeTerminalTick: (
+    stopped: Extract<OrchestratedRunState["lifecycle"], { kind: "stopped" }>,
+  ) => Promise<void>;
+  readonly markCompleteUnlessStopped: () => void;
+  readonly applyPublishStop: () => Promise<boolean>;
+  readonly sendWithRetry: (
+    phase: "recon" | "judgment" | "synthesis",
+    prompt: string,
+    options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs">,
+  ) => Promise<SendResult>;
+  readonly acceptedFindings: () => ReturnType<
+    ReturnType<typeof buildPublishThreadTool>["getLedger"]
+  >["accepted"];
+  readonly summaryStopPending: () => boolean;
+  readonly incrementPublishAttempts: () => void;
+  readonly currentPublishAttempts: () => number;
+};
+
+async function finalizeOrchestratedReview(params: {
+  readonly review: OrchestratedReviewRunParams;
+  readonly state: OrchestratedRunState;
+  readonly summaryState: PublishSummaryState;
+  readonly session: PiSession | null;
+  readonly isSessionRetired: () => boolean;
+  readonly outcomes: readonly SpecialistOutcome[];
+  readonly getFatalError: () => AppError | null;
+  readonly lastText: { value: string };
+  readonly hooks: OrchestratorFinalizeHooks;
+}): Promise<void> {
+  await recordRemainingSpecialistOutcomes({
+    state: params.state,
+    outcomes: params.outcomes,
+    recordOutcome: params.hooks.recordOutcome,
+    degradeReport: params.hooks.degradeReport,
+  });
+  const fatalError = params.getFatalError();
+  if (fatalError != null) throw fatalError;
+
+  if (params.state.lifecycle.kind === "stopped") {
+    await params.hooks.writeTerminalTick(params.state.lifecycle);
+    return;
+  }
+  if (params.state.lifecycle.kind === "finalizing") {
+    await finalizeDeadlineReview({
+      state: params.state,
+      outcomes: params.outcomes,
+      hooks: params.hooks,
+    });
+    return;
+  }
+  if (params.state.failedSpecialists.length === SPECIALIST_IDS.length) {
+    await params.hooks.publishFailureNotice();
+    params.state.lifecycle = { kind: "complete" };
+    return;
+  }
+  if (params.state.judgment === "degraded" || params.isSessionRetired() || !params.session) {
+    await params.hooks.publishDeterministicSummary();
+    params.hooks.markCompleteUnlessStopped();
+    return;
+  }
+  await finalizeSynthesisReview({
+    review: params.review,
+    state: params.state,
+    summaryState: params.summaryState,
+    isSessionRetired: params.isSessionRetired,
+    lastText: params.lastText,
+    hooks: params.hooks,
+  });
+}
+
+async function recordRemainingSpecialistOutcomes(params: {
+  readonly state: OrchestratedRunState;
+  readonly outcomes: readonly SpecialistOutcome[];
+  readonly recordOutcome: OrchestratorFinalizeHooks["recordOutcome"];
+  readonly degradeReport: OrchestratorFinalizeHooks["degradeReport"];
+}): Promise<void> {
+  if (params.state.lifecycle.kind !== "running") return;
+  for (const outcome of params.outcomes) {
+    if (params.state.outcomes[outcome.specialist] != null) continue;
+    await params.recordOutcome(outcome);
+    if (outcome.kind === "report") await params.degradeReport(outcome);
+  }
+}
+
+async function finalizeDeadlineReview(params: {
+  readonly state: OrchestratedRunState;
+  readonly outcomes: readonly SpecialistOutcome[];
+  readonly hooks: OrchestratorFinalizeHooks;
+}): Promise<void> {
+  for (const outcome of params.outcomes) {
+    if (params.state.outcomes[outcome.specialist] == null) {
+      await params.hooks.recordOutcome(outcome);
+    }
+    if (
+      outcome.kind === "report" &&
+      params.state.specialists[outcome.specialist].phase === "running"
+    ) {
+      await params.hooks.publishReportDeterministically(outcome);
+    }
+  }
+  params.state.judgment = "degraded";
+  if (params.state.failedSpecialists.length === SPECIALIST_IDS.length) {
+    await params.hooks.publishFailureNotice();
+  } else {
+    await params.hooks.publishDeterministicSummary();
+  }
+  params.hooks.markCompleteUnlessStopped();
+}
+
+async function finalizeSynthesisReview(params: {
+  readonly review: OrchestratedReviewRunParams;
+  readonly state: OrchestratedRunState;
+  readonly summaryState: PublishSummaryState;
+  readonly isSessionRetired: () => boolean;
+  readonly lastText: { value: string };
+  readonly hooks: OrchestratorFinalizeHooks;
+}): Promise<void> {
+  const { state, summaryState, hooks, lastText } = params;
+  hooks.incrementPublishAttempts();
+  const overviewPolicy = resolveDescriptionWritingPolicy(params.review.workspace.stats);
+  const synthesisPrompt = renderSynthesisTurn({
+    acceptedFindings: hooks.acceptedFindings(),
+    partialSpecialists: state.failedSpecialists,
+    outcomes: state.completionOrder.flatMap((specialist) => {
+      const outcome = state.outcomes[specialist];
+      return outcome ? [outcome] : [];
+    }),
+    overviewPolicy,
+    fileCount: params.review.workspace.stats.fileCount,
+    totalChanges: params.review.workspace.stats.totalChanges,
+    truncated: params.review.workspace.stats.truncated,
+  });
+  const synthesis = await hooks.sendWithRetry("synthesis", synthesisPrompt);
+  if (synthesis.kind === "sent") lastText.value = synthesis.text;
+  else state.judgment = "degraded";
+  await hooks.applyPublishStop();
+
+  if (!summaryState.published && !params.isSessionRetired() && state.lifecycle.kind === "running") {
+    await runValidationRepairLoop({
+      rounds: VALIDATION_REPAIR_ROUNDS,
+      shouldContinue: () =>
+        !summaryState.published && !params.isSessionRetired() && state.lifecycle.kind === "running",
+      getValidationError: () =>
+        summaryState.lastValidationError ?? "The summary was not published.",
+      clearValidationError: () => {
+        summaryState.lastValidationError = null;
+      },
+      repair: async (validationError) => {
+        const repair = await hooks.sendWithRetry(
+          "synthesis",
+          [validationError, "Fix the summary and call publish_summary now."].join("\n\n"),
+        );
+        if (repair.kind === "sent") lastText.value = repair.text;
+        else state.judgment = "degraded";
+        await hooks.applyPublishStop();
+      },
+    });
+  }
+
+  for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS; round++) {
+    if (summaryState.published || params.isSessionRetired() || state.lifecycle.kind !== "running") {
+      break;
+    }
+    const recovery = await hooks.sendWithRetry(
+      "synthesis",
+      "Call publish_summary now with the complete final review. Do not reply with prose only.",
+    );
+    if (recovery.kind === "sent") lastText.value = recovery.text;
+    else state.judgment = "degraded";
+    await hooks.applyPublishStop();
+  }
+
+  if (hooks.summaryStopPending()) {
+    state.summary = { kind: "pending" };
+  } else if (summaryState.published) {
+    state.summary = { kind: "published" };
+  } else {
+    // Model/session stayed healthy but never landed publish_summary after recovery.
+    // Salvage accepted findings the same way as the degraded path instead of a hard fail.
+    if (state.judgment !== "degraded" && !params.isSessionRetired()) {
+      const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
+      logWarn("review_synthesis_publish_salvage", {
+        owner: params.review.owner,
+        repo: params.review.repo,
+        pr: params.review.prNumber,
+        publishAttempts: params.hooks.currentPublishAttempts(),
+        judgment: state.judgment,
+        lastValidationError: summaryState.lastValidationError,
+        ...(lastFailure != null ? classifiedFailureLogFields(lastFailure) : {}),
+      });
+    }
+    await hooks.publishDeterministicSummary();
+  }
+  hooks.markCompleteUnlessStopped();
+}
+
 export async function runOrchestratedPrReview(
   params: OrchestratedReviewRunParams,
 ): Promise<ReviewRunResult> {
@@ -237,31 +832,8 @@ export async function runOrchestratedPrReview(
   const briefTool = buildSpecialistBriefTool(phaseRef);
   const state = initialState();
   const agentEvents = resolveAgentEventsContext(params.cfg, params.durability);
-  const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
-  const resolveProgressCommentUrl = async (): Promise<string | undefined> => {
-    let commentId: number | null | undefined;
-    if (progressCommentCoordination) {
-      try {
-        commentId = await getSummaryCommentGithubId(
-          progressCommentCoordination.pool,
-          progressCommentCoordination.resourceKey,
-          reviewMode,
-        );
-        if (commentId == null) {
-          commentId = params.progressCommentIdHint;
-        }
-      } catch (error) {
-        const appError = toAppError(error, {
-          code: "review.progress_comment_lookup_failed",
-        });
-        logWarn("review_progress_comment_lookup_failed", errorLogFields(appError));
-        commentId = params.progressCommentIdHint;
-      }
-    } else {
-      commentId = params.progressCommentIdHint;
-    }
-    return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
-  };
+  const resolveProgressCommentUrl = () =>
+    resolveOrchestratorProgressCommentUrl({ review: params, reviewMode });
   const publishThread = buildPublishThreadTool({
     phaseRef,
     ctx: {
@@ -288,14 +860,7 @@ export async function runOrchestratedPrReview(
       }
     },
     recordPublishStep: params.recordPublishStep,
-    operationIntent: params.recordPublishStep?.summaryCommentCoordination
-      ? {
-          client: params.recordPublishStep.summaryCommentCoordination.pool,
-          workItemId: params.recordPublishStep.summaryCommentCoordination.workItemId,
-          resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
-          leaseEpoch: params.recordPublishStep.summaryCommentCoordination.leaseEpoch,
-        }
-      : undefined,
+    operationIntent: orchestratorOperationIntent(params.recordPublishStep),
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
     initialLedger: initialLedger(params),
@@ -350,74 +915,18 @@ export async function runOrchestratedPrReview(
     publish_thread: publishThread.executor,
     publish_summary: publishSummary.executor,
   };
-  let session: PiSession | null = null;
-  let sessionCreation: Promise<PiSession> | null = null;
-  try {
-    sessionCreation = createFeaturePiSession({
-      role: "orchestrator",
-      cfg: params.cfg,
-      cwd: params.cwd ?? params.workspace.agentCwd,
-      systemPrompt: orchestratorSystemPrompt,
-      tools: allTools,
-      executors: allExecutors,
-      durability: params.durability,
-    });
-    const creation = await settleBefore(
-      sessionCreation,
-      Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
-    );
-    if (creation.kind === "settled") {
-      session = creation.value;
-    } else if (creation.kind === "deadline") {
-      state.judgment = "degraded";
-      state.lifecycle = { kind: "finalizing", reason: "deadline" };
-      void sessionCreation
-        .then(async (lateSession) => {
-          await lateSession.abort().catch(() => undefined);
-          await lateSession.dispose().catch(() => undefined);
-        })
-        .catch(() => undefined);
-      const deadlineFailure = classifyFailure(
-        new AppError({
-          code: "review.orchestrator_session_create_deadline",
-          message: "Orchestrator session create deadline reached",
-          context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
-        }),
-        { phase: "recon" },
-      );
-      recordClassifiedFailure(deadlineFailure);
-      logWarn("review_orchestrator_session_create_deadline", {
-        owner: params.owner,
-        repo: params.repo,
-        pr: params.prNumber,
-        ...classifiedFailureLogFields(deadlineFailure),
-      });
-    } else {
-      state.judgment = "degraded";
-      const appError = toAppError(creation.error, {
-        code: "review.orchestrator_session_create_failed",
-        context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
-      });
-      const failure = classifyFailure(appError, { phase: "recon" });
-      recordClassifiedFailure(failure);
-      logWarn("review_orchestrator_session_create_failed", {
-        ...errorLogFields(appError),
-        ...classifiedFailureLogFields(failure),
-      });
-    }
-  } catch (error) {
-    state.judgment = "degraded";
-    const appError = toAppError(error, {
-      code: "review.orchestrator_session_create_failed",
-      context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
-    });
-    const failure = classifyFailure(appError, { phase: "recon" });
-    recordClassifiedFailure(failure);
-    logWarn("review_orchestrator_session_create_failed", {
-      ...errorLogFields(appError),
-      ...classifiedFailureLogFields(failure),
-    });
-  }
+  const createdSession = await createOrchestratorSession({
+    cfg: params.cfg,
+    cwd: params.cwd ?? params.workspace.agentCwd,
+    tools: allTools,
+    executors: allExecutors,
+    durability: params.durability,
+    deadlineMs: Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
+    owner: params.owner,
+    repo: params.repo,
+    prNumber: params.prNumber,
+  });
+  let session = applyCreatedOrchestratorSession(state, createdSession);
   const specialistControllers = new Map<SpecialistId, AbortController>();
   let sessionRetired = session == null;
   let lastText = "";
@@ -489,14 +998,7 @@ export async function runOrchestratedPrReview(
         };
       }
       if (gate.kind === "stop") {
-        state.lifecycle =
-          gate.reason === "cancelled"
-            ? {
-                kind: "stopped",
-                reason: "cancelled",
-                attribution: gate.attribution,
-              }
-            : { kind: "stopped", reason: gate.reason };
+        state.lifecycle = lifecycleFromRunGate(gate);
         abortSpecialists();
         await retireSession();
         return {
@@ -862,259 +1364,91 @@ export async function runOrchestratedPrReview(
     state.summary = { kind: "failed" };
   };
 
+  const lastTextRef = { value: lastText };
   try {
     await writeWorkerStartTick();
 
-    if (session) {
-      const recon = await sendWithRetry(
-        "recon",
-        [setup.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
-        { maxToolRounds: MAX_TOOL_ROUNDS },
-      );
-      if (recon.kind === "sent") lastText = recon.text;
-      else state.judgment = "degraded";
-    }
-
-    const reconSession = session;
-    if (briefTool.getBrief() == null && !sessionRetired && reconSession) {
-      await runValidationRepairLoop({
-        rounds: VALIDATION_REPAIR_ROUNDS,
-        shouldContinue: () => briefTool.getBrief() == null && !sessionRetired,
-        getValidationError: () =>
-          briefTool.getValidationError() ?? "No specialist brief was submitted.",
-        clearValidationError: briefTool.clearValidationError,
-        repair: async (validationError) => {
-          const repair = await sendWithRetry(
-            "recon",
-            [
-              validationError,
-              "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
-            ].join("\n\n"),
-          );
-          if (repair.kind === "sent") lastText = repair.text;
-          else state.judgment = "degraded";
-        },
-      });
-    }
-
-    const submittedBrief = briefTool.getBrief();
+    const submittedBrief = await runOrchestratorRecon({
+      review: params,
+      state,
+      session,
+      isSessionRetired: () => sessionRetired,
+      orchestratorUserContent: setup.orchestratorUserContent,
+      getBrief: briefTool.getBrief,
+      getValidationError: briefTool.getValidationError,
+      clearValidationError: briefTool.clearValidationError,
+      sendWithRetry,
+      lastText: lastTextRef,
+    });
     const brief = submittedBrief ?? fallbackBrief(params);
-    if (submittedBrief == null) {
-      state.briefFallback = true;
-      logWarn("review_brief_fallback", {
-        owner: params.owner,
-        repo: params.repo,
-        pr: params.prNumber,
-        sessionRetired,
-      });
-    }
     await markReconDoneAndTick();
 
-    const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
-    for (const specialist of SPECIALIST_IDS) {
-      const controller = new AbortController();
-      specialistControllers.set(specialist, controller);
-      pending.set(
-        specialist,
-        runSpecialist({
-          cfg: params.cfg,
-          cwd: params.cwd ?? params.workspace.agentCwd,
-          specialist,
-          briefMessage: renderBriefMessage(
-            brief,
-            specialist,
-            submittedBrief == null
-              ? {
-                  pullRequestMetadata: { title: params.prTitle, body: params.prBody },
-                }
-              : undefined,
-          ),
-          workspaceTools: setup.workspaceTools,
-          timeoutMs: Math.max(
-            0,
-            Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
-          ),
-          shouldContinue: () => state.lifecycle.kind === "running",
-          signal: controller.signal,
-          evidenceLedger: setup.evidenceLedger,
-          headSha: params.headSha,
-          checkoutCoverage: params.workspace.getCoverage(),
-          isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
-          agentEvents: agentEvents ?? undefined,
-        }),
-      );
-    }
+    const pending = startSpecialistRuns({
+      review: params,
+      brief,
+      submittedBrief,
+      workspaceTools: setup.workspaceTools,
+      evidenceLedger: setup.evidenceLedger,
+      shouldContinue: () => state.lifecycle.kind === "running",
+      agentEvents,
+      specialistControllers,
+    });
 
     const outcomes = await pumpSpecialistCompletions({
       pending,
       shouldContinue: () => state.lifecycle.kind === "running",
-      onOutcome: async (outcome) => {
-        try {
-          const gate = await params.gate.check();
-          if (gate.kind !== "continue") {
-            state.lifecycle =
-              gate.kind === "stop"
-                ? gate.reason === "cancelled"
-                  ? {
-                      kind: "stopped",
-                      reason: "cancelled",
-                      attribution: gate.attribution,
-                    }
-                  : { kind: "stopped", reason: gate.reason }
-                : { kind: "finalizing", reason: gate.reason };
-            abortSpecialists();
-            await retireSession();
-            return;
-          }
-
-          await recordOutcome(outcome);
-          if (outcome.kind !== "report") return;
-          const judgmentSession = session;
-          if (state.judgment === "degraded" || sessionRetired || !judgmentSession) {
-            await degradeReport(outcome);
-            return;
-          }
-
-          publishThread.setSource(outcome.specialist);
-          const ledgerBefore = publishThread.getLedger();
-          publishAttempts += 1;
-          const judgment = await sendWithRetry("judgment", renderJudgmentTurn(outcome), {
-            maxToolRounds: ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
-          });
-          if (judgment.kind === "failed") {
-            await degradeReport(outcome, judgment.error);
-            return;
-          }
-          lastText = judgment.text;
-          if (await applyPublishStop()) return;
-          state.specialists[outcome.specialist] = specialistDonePhase(
-            ledgerBefore,
-            publishThread.getLedger(),
-            outcome.specialist,
-          );
-          await writeTick();
-        } catch (error) {
-          await recordOutcome(outcome);
-          if (outcome.kind === "report") {
-            await degradeReport(outcome, error);
-            return;
-          }
-          throw error;
-        }
-      },
+      onOutcome: (outcome) =>
+        handleSpecialistCompletion({
+          review: params,
+          state,
+          session,
+          isSessionRetired: () => sessionRetired,
+          outcome,
+          incrementPublishAttempts: () => {
+            publishAttempts += 1;
+          },
+          lastText: lastTextRef,
+          abortSpecialists,
+          retireSession,
+          recordOutcome,
+          degradeReport,
+          sendWithRetry,
+          applyPublishStop,
+          writeTick,
+          setSource: publishThread.setSource,
+          getLedger: publishThread.getLedger,
+        }),
     });
 
-    if (state.lifecycle.kind === "running") {
-      for (const outcome of outcomes) {
-        if (state.outcomes[outcome.specialist] != null) continue;
-        await recordOutcome(outcome);
-        if (outcome.kind === "report") await degradeReport(outcome);
-      }
-    }
-
-    if (fatalError != null) throw fatalError;
-
-    if (state.lifecycle.kind === "stopped") {
-      await writeTerminalTick(state.lifecycle);
-    } else if (state.lifecycle.kind === "finalizing") {
-      for (const outcome of outcomes) {
-        if (state.outcomes[outcome.specialist] == null) await recordOutcome(outcome);
-        if (
-          outcome.kind === "report" &&
-          state.specialists[outcome.specialist].phase === "running"
-        ) {
-          await publishReportDeterministically(outcome);
-        }
-      }
-      state.judgment = "degraded";
-      if (state.failedSpecialists.length === SPECIALIST_IDS.length) {
-        await publishFailureNotice();
-      } else {
-        await publishDeterministicSummary();
-      }
-      markCompleteUnlessStopped();
-    } else if (state.failedSpecialists.length === SPECIALIST_IDS.length) {
-      await publishFailureNotice();
-      state.lifecycle = { kind: "complete" };
-    } else if (state.judgment === "degraded" || sessionRetired || !session) {
-      await publishDeterministicSummary();
-      markCompleteUnlessStopped();
-    } else {
-      publishAttempts += 1;
-      const overviewPolicy = resolveDescriptionWritingPolicy(params.workspace.stats);
-      const synthesisPrompt = renderSynthesisTurn({
-        acceptedFindings: publishThread.getLedger().accepted,
-        partialSpecialists: state.failedSpecialists,
-        outcomes: state.completionOrder.flatMap((specialist) => {
-          const outcome = state.outcomes[specialist];
-          return outcome ? [outcome] : [];
-        }),
-        overviewPolicy,
-        fileCount: params.workspace.stats.fileCount,
-        totalChanges: params.workspace.stats.totalChanges,
-        truncated: params.workspace.stats.truncated,
-      });
-      const synthesis = await sendWithRetry("synthesis", synthesisPrompt);
-      if (synthesis.kind === "sent") lastText = synthesis.text;
-      else state.judgment = "degraded";
-      await applyPublishStop();
-
-      if (!summaryState.published && !sessionRetired && state.lifecycle.kind === "running") {
-        await runValidationRepairLoop({
-          rounds: VALIDATION_REPAIR_ROUNDS,
-          shouldContinue: () =>
-            !summaryState.published && !sessionRetired && state.lifecycle.kind === "running",
-          getValidationError: () =>
-            summaryState.lastValidationError ?? "The summary was not published.",
-          clearValidationError: () => {
-            summaryState.lastValidationError = null;
-          },
-          repair: async (validationError) => {
-            const repair = await sendWithRetry(
-              "synthesis",
-              [validationError, "Fix the summary and call publish_summary now."].join("\n\n"),
-            );
-            if (repair.kind === "sent") lastText = repair.text;
-            else state.judgment = "degraded";
-            await applyPublishStop();
-          },
-        });
-      }
-
-      for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS; round++) {
-        if (summaryState.published || sessionRetired || state.lifecycle.kind !== "running") break;
-        const recovery = await sendWithRetry(
-          "synthesis",
-          "Call publish_summary now with the complete final review. Do not reply with prose only.",
-        );
-        if (recovery.kind === "sent") lastText = recovery.text;
-        else state.judgment = "degraded";
-        await applyPublishStop();
-      }
-
-      if (publishThread.getStopReason() != null || summaryState.stoppedReason != null) {
-        state.summary = { kind: "pending" };
-      } else if (summaryState.published) {
-        state.summary = { kind: "published" };
-      } else {
-        // Model/session stayed healthy but never landed publish_summary after recovery.
-        // Salvage accepted findings the same way as the degraded path instead of a hard fail.
-        if (state.judgment !== "degraded" && !sessionRetired) {
-          const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
-          logWarn("review_synthesis_publish_salvage", {
-            owner: params.owner,
-            repo: params.repo,
-            pr: params.prNumber,
-            publishAttempts,
-            judgment: state.judgment,
-            lastValidationError: summaryState.lastValidationError,
-            ...(lastFailure != null ? classifiedFailureLogFields(lastFailure) : {}),
-          });
-        }
-        await publishDeterministicSummary();
-      }
-      markCompleteUnlessStopped();
-    }
+    await finalizeOrchestratedReview({
+      review: params,
+      state,
+      summaryState,
+      session,
+      isSessionRetired: () => sessionRetired,
+      outcomes,
+      getFatalError: () => fatalError,
+      lastText: lastTextRef,
+      hooks: {
+        recordOutcome,
+        degradeReport,
+        publishReportDeterministically,
+        publishFailureNotice,
+        publishDeterministicSummary,
+        writeTerminalTick,
+        markCompleteUnlessStopped,
+        applyPublishStop,
+        sendWithRetry,
+        acceptedFindings: () => publishThread.getLedger().accepted,
+        summaryStopPending: () =>
+          publishThread.getStopReason() != null || summaryState.stoppedReason != null,
+        incrementPublishAttempts: () => {
+          publishAttempts += 1;
+        },
+        currentPublishAttempts: () => publishAttempts,
+      },
+    });
+    lastText = lastTextRef.value;
   } catch (error) {
     abortSpecialists();
     await retireSession();
@@ -1130,41 +1464,12 @@ export async function runOrchestratedPrReview(
     }
   }
 
-  const specialistOutcomes: Record<string, number> = {};
-  for (const outcome of Object.values(state.outcomes)) {
-    if (!outcome) continue;
-    specialistOutcomes[outcome.kind] = (specialistOutcomes[outcome.kind] ?? 0) + 1;
-  }
-  setReviewRunMetricFields({
-    published: summaryState.published,
+  return completeOrchestratedReviewResult({
+    review: params,
+    state,
+    summaryState,
     publishAttempts,
-    specialistOutcomes,
-    threadBatches: publishThread.getPublishedBatchCount(),
-    briefFallback: state.briefFallback,
-  });
-  logReviewRunCompleted({
-    judgment: state.judgment,
-    lifecycle: state.lifecycle.kind,
-  });
-  logInfo("review_orchestrator_completed", {
-    owner: params.owner,
-    repo: params.repo,
-    pr: params.prNumber,
-    completionOrder: state.completionOrder,
-    judgment: state.judgment,
-  });
-
-  const lastAssistant: AssistantMessage = assistantFromText(
-    params.cfg,
     lastText,
-    params.cfg.piProvider,
-  );
-  const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
-  return {
-    lastAssistant,
-    published: summaryState.published,
-    publishAttempts,
-    publishSuperseded: state.lifecycle.kind === "stopped",
-    ...(lastFailure != null ? { lastFailure } : {}),
-  };
+    threadBatches: publishThread.getPublishedBatchCount(),
+  });
 }

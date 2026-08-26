@@ -23,6 +23,10 @@ Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/) — this guide i
 
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
+## Lint
+
+[`.oxlintrc.json`](../.oxlintrc.json) is the only linter. `nub run lint` runs type-aware Oxlint. Every enabled rule is `error`. Categories: `correctness`, `suspicious`, and `perf`. Restriction is not a category; the file lists a short set (`eslint/complexity` at max 20 `modified`, plus `any` / `!` / empty functions / nested ternaries / quadratic spreads). Do not add React, Vue, Next, or jsx-a11y plugins. A leftover `off` needs a real false-positive caller in a comment, not a messy test.
+
 ## Landing site
 
 The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot.

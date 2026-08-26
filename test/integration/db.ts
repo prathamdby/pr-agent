@@ -9,7 +9,11 @@ const DATABASE_URL = process.env.DATABASE_URL;
  */
 export const hasDatabase = typeof DATABASE_URL === "string" && DATABASE_URL.length > 0;
 
-export function integrationPool(): Pool {
+export function requireDatabaseUrl(): string {
   if (!DATABASE_URL) throw new Error("DATABASE_URL is required for integration tests");
-  return new Pool({ connectionString: DATABASE_URL, max: 4 });
+  return DATABASE_URL;
+}
+
+export function integrationPool(): Pool {
+  return new Pool({ connectionString: requireDatabaseUrl(), max: 4 });
 }

@@ -14,7 +14,7 @@ async function load(extra: Record<string, string>) {
     ...BASE_ENV,
     GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
-  } as NodeJS.ProcessEnv;
+  };
   const { loadConfig } = await import("../src/config.js");
   return loadConfig();
 }
@@ -168,7 +168,7 @@ describe("loadConfig validation", () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-    } as NodeJS.ProcessEnv;
+    };
     delete process.env[ENV.DATABASE_URL];
     const { loadConfig } = await import("../src/config.js");
     await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {

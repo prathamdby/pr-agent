@@ -217,10 +217,10 @@ describe("local PR workspace", () => {
           );
           await expect(
             readFile(join(fullWorkspace.agentCwd, "support-link.txt"), "utf8"),
-          ).rejects.toThrow();
+          ).rejects.toThrow(/ENOENT/);
           await expect(
             writeFile(join(fullWorkspace.agentCwd, "src.txt"), "mutate"),
-          ).rejects.toThrow();
+          ).rejects.toThrow(/EACCES|EPERM/);
           expect(await fullWorkspace.getBlameForPath("src.txt")).toContain("src.txt");
           expect(fullWorkspace.diffIndex.listPullRequestFilesIngested).toBe(true);
           expect(
@@ -290,7 +290,7 @@ describe("local PR workspace", () => {
           expect(sparseWorkspace.checkoutPaths.has("support.txt")).toBe(false);
           await expect(
             readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8"),
-          ).rejects.toThrow();
+          ).rejects.toThrow(/ENOENT/);
           expect(await sparseWorkspace.getBlameForPath("support.txt")).toBe("");
           expect(sparseWorkspace.getCoverage()).toMatchObject({
             mode: "sparse",

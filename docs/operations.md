@@ -122,7 +122,7 @@ Canonical quick start steps live in [README.md](../README.md) **Host with Docker
 | `nub run build`                        | Compile to `dist/`                                                      |
 | `nub run start` / `node dist/index.js` | Run compiled `dist/`                                                    |
 | `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                                            |
-| `nub run lint`                         | Type-aware Oxlint (includes `site/`)                                    |
+| `nub run lint`                         | Type-aware Oxlint (includes `site/`); enabled rules are errors          |
 | `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`                                     |
 | `nub run lint:fix`                     | Oxlint with safe fixes                                                  |
 | `nub run fmt`                          | Format with Oxfmt                                                       |

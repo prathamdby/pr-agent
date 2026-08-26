@@ -285,7 +285,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       progressRevision: 1,
     });
 
-    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0] as string;
+    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0];
     expect(writtenBody).toContain("<strong>CI</strong>");
     expect(writtenBody).toContain("CI is still running");
     expect(writtenBody.indexOf("<strong>Source</strong>")).toBeLessThan(
@@ -493,7 +493,7 @@ describe("publishReview summary coordination", () => {
   });
 
   it("publishes the final summary at terminal progress revision under the progress lock", async () => {
-    const recordPublishStep = attachSummaryCommentCoordination(vi.fn(), {
+    const coordinatedRecordPublishStep = attachSummaryCommentCoordination(vi.fn(), {
       pool,
       workItemId: "wi-1",
       resourceKey: "o/r#1",
@@ -503,7 +503,7 @@ describe("publishReview summary coordination", () => {
       ...baseParams,
       publishState: testPublishState(),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep,
+      recordPublishStep: coordinatedRecordPublishStep,
     });
 
     expect(harness.findProgressComment).toHaveBeenCalled();

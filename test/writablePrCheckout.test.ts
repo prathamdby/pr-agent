@@ -210,7 +210,9 @@ describe("writable PR checkout", () => {
   );
 
   it("rejects bad subjects, oversized bodies, and uses -n", () => {
-    expect(() => buildCommitCommandArgs({ files: ["x"], subject: "fix(scope): nope" })).toThrow();
+    expect(() => buildCommitCommandArgs({ files: ["x"], subject: "fix(scope): nope" })).toThrow(
+      "Commit subject does not match the triage commit contract",
+    );
     expect(() =>
       buildCommitCommandArgs({
         files: ["x"],
@@ -460,7 +462,7 @@ describe("writable PR checkout", () => {
 
       await cleanupStaleLocalPrWorkspaces();
 
-      await expect(stat(staleDir)).rejects.toThrow();
+      await expect(stat(staleDir)).rejects.toThrow(/ENOENT/);
     } finally {
       await rm(staleDir, { recursive: true, force: true });
     }

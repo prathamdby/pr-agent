@@ -18,42 +18,42 @@ const {
   listReviews,
   installationOctokit,
 } = vi.hoisted(() => {
-  const listComments = vi.fn();
-  const updateComment = vi.fn();
-  const createCheckRun = vi.fn();
-  const updateCheckRun = vi.fn();
-  const listCheckRunsForRef = vi.fn();
-  const listLabelsOnIssue = vi.fn();
-  const createReview = vi.fn();
-  const listReviews = vi.fn();
-  const installationOctokit = vi.fn(() => ({
+  const listCommentsFn = vi.fn();
+  const updateCommentFn = vi.fn();
+  const createCheckRunFn = vi.fn();
+  const updateCheckRunFn = vi.fn();
+  const listCheckRunsForRefFn = vi.fn();
+  const listLabelsOnIssueFn = vi.fn();
+  const createReviewFn = vi.fn();
+  const listReviewsFn = vi.fn();
+  const installationOctokitFn = vi.fn(() => ({
     rest: {
       issues: {
-        listComments,
-        updateComment,
-        listLabelsOnIssue,
+        listComments: listCommentsFn,
+        updateComment: updateCommentFn,
+        listLabelsOnIssue: listLabelsOnIssueFn,
       },
       checks: {
-        create: createCheckRun,
-        update: updateCheckRun,
-        listForRef: listCheckRunsForRef,
+        create: createCheckRunFn,
+        update: updateCheckRunFn,
+        listForRef: listCheckRunsForRefFn,
       },
       pulls: {
-        createReview,
-        listReviews,
+        createReview: createReviewFn,
+        listReviews: listReviewsFn,
       },
     },
   }));
   return {
-    listComments,
-    updateComment,
-    createCheckRun,
-    updateCheckRun,
-    listCheckRunsForRef,
-    listLabelsOnIssue,
-    createReview,
-    listReviews,
-    installationOctokit,
+    listComments: listCommentsFn,
+    updateComment: updateCommentFn,
+    createCheckRun: createCheckRunFn,
+    updateCheckRun: updateCheckRunFn,
+    listCheckRunsForRef: listCheckRunsForRefFn,
+    listLabelsOnIssue: listLabelsOnIssueFn,
+    createReview: createReviewFn,
+    listReviews: listReviewsFn,
+    installationOctokit: installationOctokitFn,
   };
 });
 

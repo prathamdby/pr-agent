@@ -81,9 +81,9 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
     });
 
     const stored = await getSharedRateLimitCircuit(poolB, installationId);
-    expect(stored).not.toBeNull();
-    expect(stored!.lastErrorKind).toBe("secondary");
-    expect(stored!.openUntil.getTime()).toBe(now.getTime() + 60_000);
+    if (stored == null) throw new Error("expected shared rate-limit circuit");
+    expect(stored.lastErrorKind).toBe("secondary");
+    expect(stored.openUntil.getTime()).toBe(now.getTime() + 60_000);
 
     expect(await isSharedRateLimitCircuitOpen(poolB, installationId, now)).toBe(true);
     expect(
@@ -126,8 +126,9 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
       lastErrorKind: "secondary",
     });
     let row = await getSharedRateLimitCircuit(poolA, installationId);
-    expect(row!.openUntil.getTime()).toBe(t0.getTime() + 60_000);
-    expect(row!.lastErrorKind).toBe("secondary");
+    if (row == null) throw new Error("expected shared rate-limit circuit");
+    expect(row.openUntil.getTime()).toBe(t0.getTime() + 60_000);
+    expect(row.lastErrorKind).toBe("secondary");
 
     await upsertSharedRateLimitCircuit(poolA, {
       installationId,
@@ -135,7 +136,8 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
       lastErrorKind: "primary",
     });
     row = await getSharedRateLimitCircuit(poolA, installationId);
-    expect(row!.openUntil.getTime()).toBe(t1.getTime() + 60_000);
+    if (row == null) throw new Error("expected shared rate-limit circuit");
+    expect(row.openUntil.getTime()).toBe(t1.getTime() + 60_000);
   });
 
   it("openSharedRateLimitCircuit uses default SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS", async () => {
@@ -147,11 +149,12 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
       now,
     });
     const row = await getSharedRateLimitCircuit(poolA, 9);
-    expect(row!.openUntil.getTime()).toBe(now.getTime() + SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS);
+    if (row == null) throw new Error("expected shared rate-limit circuit");
+    expect(row.openUntil.getTime()).toBe(now.getTime() + SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS);
   });
 
   it("best-effort open guards invalid input and swallows write failure", async () => {
-    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     const query = vi.fn().mockRejectedValue(new Error("db down"));
     const pool = { query } as unknown as Pool;
 

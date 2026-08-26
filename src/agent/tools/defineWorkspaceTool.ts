@@ -7,7 +7,7 @@ import { parseToolInput } from "./parseToolInput.js";
 export type LocalTool<TSchema extends v.GenericSchema = v.GenericSchema> = {
   readonly description: string;
   readonly schema: TSchema;
-  readonly run: (parsed: any) => Promise<unknown>;
+  readonly run: (parsed: v.InferOutput<TSchema>) => Promise<unknown>;
 };
 
 export function defineLocalTool<TSchema extends v.GenericSchema>(tool: {

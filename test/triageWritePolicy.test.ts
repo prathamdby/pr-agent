@@ -10,11 +10,11 @@ import {
   normalizeRepoRelativePath,
 } from "../src/agent/triage/triageWritePolicy.js";
 
-describe("triageWritePolicy", () => {
-  async function tempRoot(): Promise<string> {
-    return mkdtemp(join(tmpdir(), "triage-write-policy-"));
-  }
+async function tempRoot(): Promise<string> {
+  return mkdtemp(join(tmpdir(), "triage-write-policy-"));
+}
 
+describe("triageWritePolicy", () => {
   it("normalizes repo-relative paths", () => {
     expect(normalizeRepoRelativePath("src\\a.ts")).toBe("src/a.ts");
     expect(normalizeRepoRelativePath("./src/a.ts")).toBe("src/a.ts");
@@ -173,6 +173,6 @@ describe("triageWritePolicy", () => {
         mode: "edit",
         implicatedPaths: new Set(["../outside.ts"]),
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Path traversal attempt detected/);
   });
 });

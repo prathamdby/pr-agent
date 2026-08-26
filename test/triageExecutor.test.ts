@@ -17,6 +17,15 @@ import {
 } from "./helpers/executorDurableHarness.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
 
+function inferTriagePushOutcome(detail: {
+  staleHead?: boolean;
+  commits?: readonly unknown[] | null;
+}): "stale" | "pushed" | "not-needed" {
+  if (detail.staleHead === true) return "stale";
+  if ((detail.commits?.length ?? 0) > 0) return "pushed";
+  return "not-needed";
+}
+
 const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
   getAppBotIdentity: vi.fn(),
@@ -151,13 +160,7 @@ describe("executeTriageJob", () => {
     mocks.parseStoredTriagePushDetail.mockImplementation((detail) => ({
       payload: detail.payload,
       commits: detail.commits,
-      pushOutcome:
-        detail.pushOutcome ??
-        (detail.staleHead === true
-          ? "stale"
-          : detail.commits?.length > 0
-            ? "pushed"
-            : "not-needed"),
+      pushOutcome: detail.pushOutcome ?? inferTriagePushOutcome(detail),
       pushedHeadSha: detail.pushedHeadSha,
     }));
     mocks.publishTriage.mockResolvedValue({

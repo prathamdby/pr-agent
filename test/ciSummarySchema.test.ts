@@ -28,7 +28,7 @@ describe("ciSummarySchema", () => {
         headline: "",
         failures: [],
       }),
-    ).toThrow();
+    ).toThrow(/Invalid length|minLength|Expected/i);
   });
 
   it("parses fenced JSON from model text", () => {

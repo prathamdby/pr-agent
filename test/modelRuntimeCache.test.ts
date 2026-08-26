@@ -21,10 +21,10 @@ describe("bindPromptCacheRetention", () => {
     const context = { messages: [] };
     const callerOptions = { maxTokens: 7, cacheRetention: "long" as const };
 
-    runtime.stream(model as never, context as never, callerOptions as never);
-    runtime.streamSimple(model as never, context as never, callerOptions as never);
-    runtime.complete(model as never, context as never, callerOptions as never);
-    runtime.completeSimple(model as never, context as never, callerOptions as never);
+    void runtime.stream(model as never, context, callerOptions);
+    void runtime.streamSimple(model as never, context, callerOptions);
+    void runtime.complete(model as never, context, callerOptions);
+    void runtime.completeSimple(model as never, context, callerOptions);
 
     for (const spy of [stream, streamSimple, complete, completeSimple]) {
       expect(spy).toHaveBeenCalledWith(

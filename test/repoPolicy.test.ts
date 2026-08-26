@@ -395,15 +395,17 @@ const sampleRules = {
   },
 };
 
-describe("ruleConsidersFile and candidatePolicyPairs", () => {
-  const finding = (file: string) => ({ file });
+function policyFinding(file: string) {
+  return { file };
+}
 
+describe("ruleConsidersFile and candidatePolicyPairs", () => {
   it("returns no pairs when policy is absent", () => {
     expect(
       candidatePolicyPairs({
         policy: { kind: "absent" },
         sameRepo: true,
-        findings: [finding("src/auth/login.ts")],
+        findings: [policyFinding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
@@ -413,7 +415,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
       candidatePolicyPairs({
         policy: { kind: "invalid", reason: "no usable .mdc rules" },
         sameRepo: true,
-        findings: [finding("src/auth/login.ts")],
+        findings: [policyFinding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
@@ -423,7 +425,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
       candidatePolicyPairs({
         policy: { kind: "ok", policy: { rules: [] } },
         sameRepo: true,
-        findings: [finding("src/auth/login.ts")],
+        findings: [policyFinding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
@@ -434,7 +436,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
       candidatePolicyPairs({
         policy: sampleRules,
         sameRepo: true,
-        findings: [finding("README.md")],
+        findings: [policyFinding("README.md")],
       }).map((pair) => pair.rule.relativePath),
     ).toEqual([".pr-agent/always.mdc"]);
   });
@@ -446,7 +448,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
       candidatePolicyPairs({
         policy: sampleRules,
         sameRepo: true,
-        findings: [finding("src/auth/login.ts")],
+        findings: [policyFinding("src/auth/login.ts")],
       }).map((pair) => pair.rule.relativePath),
     ).toEqual([".pr-agent/always.mdc", ".pr-agent/auth.mdc"]);
   });
@@ -470,7 +472,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
       candidatePolicyPairs({
         policy: globOnly,
         sameRepo: true,
-        findings: [finding("src/db/query.ts")],
+        findings: [policyFinding("src/db/query.ts")],
       }),
     ).toEqual([]);
   });
@@ -501,7 +503,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
       candidatePolicyPairs({
         policy: twoGlobs,
         sameRepo: true,
-        findings: [finding("src/review/foo.ts")],
+        findings: [policyFinding("src/review/foo.ts")],
       }).map((pair) => pair.rule.relativePath),
     ).toEqual([".pr-agent/module-layout.mdc", ".pr-agent/web-worker-boundary.mdc"]);
   });
@@ -511,7 +513,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
       candidatePolicyPairs({
         policy: sampleRules,
         sameRepo: false,
-        findings: [finding("src/auth/login.ts")],
+        findings: [policyFinding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
@@ -520,7 +522,7 @@ describe("ruleConsidersFile and candidatePolicyPairs", () => {
     expect(
       candidatePolicyPairs({
         policy: sampleRules,
-        findings: [finding("src/auth/login.ts")],
+        findings: [policyFinding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });

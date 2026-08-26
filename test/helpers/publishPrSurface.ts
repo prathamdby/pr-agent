@@ -13,7 +13,7 @@ export function publishTestPrSurface(
 
 export function upsertProgressBody(controls: FakePrSurfaceControls): string {
   const event = [...controls.events]
-    .reverse()
+    .toReversed()
     .find((entry) => entry.kind === "upsertProgressComment");
   return event?.kind === "upsertProgressComment" ? event.body : "";
 }

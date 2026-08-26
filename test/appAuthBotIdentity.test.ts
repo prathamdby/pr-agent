@@ -38,10 +38,12 @@ import {
 
 const cfg = { githubAppId: "111", githubAppPrivateKey: "k" } as const;
 
+function throwIfGetAuthenticatedWasNotCalled(): void {
+  throw new Error("getAuthenticated was not called");
+}
+
 function holdAuthenticatedAppResponse(): () => void {
-  let release: () => void = () => {
-    throw new Error("getAuthenticated was not called");
-  };
+  let release: () => void = throwIfGetAuthenticatedWasNotCalled;
   getAuthenticated.mockImplementation(
     () =>
       new Promise((resolve) => {

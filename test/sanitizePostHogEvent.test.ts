@@ -67,10 +67,13 @@ describe("sanitizePostHogEvent", () => {
     };
 
     const sanitized = sanitizePostHogEvent(event);
-    const entry = (sanitized?.properties?.$exception_list as unknown[])[0] as Record<
-      string,
-      unknown
-    >;
+    const exceptionList = sanitized?.properties?.$exception_list;
+    if (!Array.isArray(exceptionList)) throw new Error("expected exception list");
+    const firstException = exceptionList[0];
+    if (firstException == null || typeof firstException !== "object") {
+      throw new Error("expected exception entry");
+    }
+    const entry = firstException as Record<string, unknown>;
     expect(entry.type).toBe("Error");
     expect(String(entry.value)).toContain("[redacted]");
     expect(String(entry.value)).not.toContain("sk-");
@@ -122,35 +125,19 @@ describe("sanitizePostHogEvent", () => {
 
     const sanitized = sanitizePostHogEvent(event);
 
+    const sanitizedList = sanitized?.properties?.$exception_list;
+    if (!Array.isArray(sanitizedList)) throw new Error("expected sanitized exception list");
+    const sanitizedEntry = sanitizedList[0] as {
+      stacktrace?: { frames?: Array<{ pre_context?: unknown }> };
+    };
     expect(sanitized).not.toBe(event);
     expect(sanitized?.properties).not.toBe(properties);
-    expect(sanitized?.properties?.$exception_list).not.toBe(exceptionList);
-    expect((sanitized?.properties?.$exception_list as unknown[])[0]).not.toBe(exceptionEntry);
-    expect(
-      ((sanitized?.properties?.$exception_list as unknown[])[0] as { stacktrace: unknown })
-        .stacktrace,
-    ).not.toBe(stacktrace);
-    expect(
-      (
-        (sanitized?.properties?.$exception_list as unknown[])[0] as {
-          stacktrace: { frames: unknown[] };
-        }
-      ).stacktrace.frames,
-    ).not.toBe(frames);
-    expect(
-      (
-        (sanitized?.properties?.$exception_list as unknown[])[0] as {
-          stacktrace: { frames: unknown[] };
-        }
-      ).stacktrace.frames[0],
-    ).not.toBe(frame);
-    expect(
-      (
-        (sanitized?.properties?.$exception_list as unknown[])[0] as {
-          stacktrace: { frames: Array<{ pre_context: unknown }> };
-        }
-      ).stacktrace.frames[0].pre_context,
-    ).not.toBe(preContext);
+    expect(sanitizedList).not.toBe(exceptionList);
+    expect(sanitizedList[0]).not.toBe(exceptionEntry);
+    expect(sanitizedEntry.stacktrace).not.toBe(stacktrace);
+    expect(sanitizedEntry.stacktrace?.frames).not.toBe(frames);
+    expect(sanitizedEntry.stacktrace?.frames?.[0]).not.toBe(frame);
+    expect(sanitizedEntry.stacktrace?.frames?.[0]?.pre_context).not.toBe(preContext);
 
     expect(event.properties).toBe(properties);
     expect(properties.error_message).toBe(errorMessage);

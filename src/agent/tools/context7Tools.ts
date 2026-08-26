@@ -68,11 +68,11 @@ export type Context7ToolResponse = {
   readonly truncationReason?: string;
 };
 
-type ReviewTool = {
+type ReviewTool<TSchema extends v.GenericSchema = v.GenericSchema> = {
   readonly description: string;
-  readonly schema: v.GenericSchema;
+  readonly schema: TSchema;
   readonly run: (
-    parsed: any,
+    parsed: v.InferOutput<TSchema>,
     apiKey: string,
     maxResponseBytes: number,
   ) => Promise<Context7ToolResponse>;
@@ -84,7 +84,7 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
     description: t.description,
     parameters: toJsonSchema(t.schema, {
       errorMode: "ignore",
-    }) as PiTool["parameters"],
+    }),
   };
 }
 

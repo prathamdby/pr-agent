@@ -77,8 +77,10 @@ describe("cancelActiveReviews (PR close)", () => {
 
     expect(cancelled.map((row) => row.id)).toEqual(["running-1", "queued-auto", "queued-slash"]);
     expect(query).toHaveBeenCalledTimes(2);
-    const queuedSql = String(query.mock.calls[0]?.[0]);
-    const runningSql = String(query.mock.calls[1]?.[0]);
+    const queuedSql = query.mock.calls[0]?.[0];
+    const runningSql = query.mock.calls[1]?.[0];
+    if (typeof queuedSql !== "string") throw new Error("expected queued SQL");
+    if (typeof runningSql !== "string") throw new Error("expected running SQL");
     expect(queuedSql).toContain("type = 'review'");
     expect(queuedSql).not.toContain("source = 'auto'");
     expect(runningSql).toContain("cancel_requested_at");
@@ -185,7 +187,9 @@ describe("cancelActiveTriage (PR close)", () => {
       "Pull request closed",
       closedPatch,
     ]);
-    expect(String(query.mock.calls[1]?.[0])).toContain("cancel_requested_at");
+    const runningSql = query.mock.calls[1]?.[0];
+    if (typeof runningSql !== "string") throw new Error("expected running SQL");
+    expect(runningSql).toContain("cancel_requested_at");
   });
 });
 
@@ -541,7 +545,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
     const txSpy = vi
       .spyOn(postgres, "inTransaction")
       .mockImplementation(async (_pool, fn) => fn({ query: clientQuery } as unknown as PoolClient));
-    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => undefined);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {
@@ -556,9 +560,12 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         { merged: true },
       );
 
-      expect(clientQuery.mock.calls.every((call) => !String(call[0]).includes("status ="))).toBe(
-        true,
-      );
+      expect(
+        clientQuery.mock.calls.every((call) => {
+          const sql = call[0];
+          return typeof sql !== "string" || !sql.includes("status =");
+        }),
+      ).toBe(true);
       expect(recordSpy).toHaveBeenCalledWith(
         intakeLog,
         "deduped_delivery",
@@ -590,7 +597,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
     const txSpy = vi
       .spyOn(postgres, "inTransaction")
       .mockImplementation(async (_pool, fn) => fn({ query: clientQuery } as unknown as PoolClient));
-    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => undefined);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {

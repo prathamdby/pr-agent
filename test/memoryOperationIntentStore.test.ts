@@ -77,7 +77,7 @@ describe("memoryOperationIntentStore + real withOperationIntent", () => {
         detail: { batchId: "batch-stable" },
         mutate,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/crash before reconcile/);
 
     const pending = memoryOperationIntentStore.get("wi-9", "review:inline:batch-stable");
     expect(pending?.status).toBe("pending");

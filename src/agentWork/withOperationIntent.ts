@@ -161,10 +161,10 @@ function hasStashedResult(detail: Record<string, unknown>): boolean {
   return Object.prototype.hasOwnProperty.call(detail, OPERATION_INTENT_RESULT_KEY);
 }
 
-function stashedResultValue<T>(detail: Record<string, unknown>): T {
+function stashedResultValue(detail: Record<string, unknown>): unknown {
   // null is the durable sentinel for a successful void mutate() return.
   const value = detail[OPERATION_INTENT_RESULT_KEY];
-  return (value === null ? undefined : value) as T;
+  return value === null ? undefined : value;
 }
 
 function leaseEpochDetail<T>(
@@ -191,7 +191,7 @@ async function finishWithStashedResult<T>(
       },
     });
   }
-  return stashedResultValue<T>(intent.detail);
+  return stashedResultValue(intent.detail) as T;
 }
 
 type RecoveryAttempt<T> = { readonly found: true; readonly value: T } | { readonly found: false };
@@ -334,6 +334,128 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
   return runInOperationIntentFrame(params.operationKey, () => withOperationIntentBody(params));
 }
 
+type ExistingIntentResume<T> =
+  | { readonly kind: "done"; readonly value: T }
+  | { readonly kind: "claim" };
+
+async function resumeExistingOperationIntent<T>(
+  params: WithOperationIntentParams<T>,
+  intent: OperationIntentRow,
+): Promise<ExistingIntentResume<T>> {
+  // Mutation outcome already stashed (reconciled, or crash/DB blip after mutate).
+  // Never remutate when __result is present — finish status reconciliation only.
+  if (hasStashedResult(intent.detail)) {
+    return { kind: "done", value: await finishWithStashedResult(params, intent) };
+  }
+
+  // Reconciled without a return value (void mutate, or recovered publish_records):
+  // side effect is done — idempotent completion, never remutate.
+  if (intent.status === "reconciled") {
+    return { kind: "done", value: undefined as T };
+  }
+
+  // Crash between mutate() and __result: never auto-remutate. Resolve by evidence.
+  if (intent.status === "outcome_unknown") {
+    return { kind: "done", value: await recoverAfterMutatingWithoutResult(params, intent) };
+  }
+
+  // A provider-proven pre-acceptance failure is the only retryable path.
+  // Do not enter recovery — __mutating may still be present on older failed rows.
+  if (intent.status === "failed") {
+    return { kind: "claim" };
+  }
+  if (intent.detail[OPERATION_INTENT_MUTATING_KEY] === true) {
+    return { kind: "done", value: await recoverAfterMutatingWithoutResult(params, intent) };
+  }
+  return { kind: "claim" };
+}
+
+async function completeSuccessfulMutation<T>(
+  params: WithOperationIntentParams<T>,
+  result: T,
+): Promise<T> {
+  // A lease can be lost while GitHub is processing the request. Do not let a
+  // stale worker persist completion after that ambiguous remote outcome.
+  await assertMutationReady(params);
+  // Always stash __result (null = void) so redelivery is idempotent without remutate.
+  const resultDetail = {
+    ...resolveReconcileDetail(params, result, true),
+    [OPERATION_INTENT_RESULT_KEY]: result === undefined ? null : (result as unknown),
+  };
+  await mergeOperationIntentDetail(params.client, {
+    workItemId: params.workItemId,
+    operationKey: params.operationKey,
+    ...leaseEpochDetail(params),
+    detail: resultDetail,
+  });
+  await reconcileOperationIntent(params.client, {
+    workItemId: params.workItemId,
+    operationKey: params.operationKey,
+    status: "reconciled",
+    publishRecordId: params.publishRecordId,
+    ...leaseEpochDetail(params),
+    detail: resultDetail,
+  });
+  return result;
+}
+
+function mutationFailureCode(params: {
+  readonly mutateSucceeded: boolean;
+  readonly knownNoAcceptance: boolean;
+}): "operation_intent.mutation_failed" | "operation_intent.mutation_outcome_unknown" {
+  if (!params.mutateSucceeded && params.knownNoAcceptance) {
+    return "operation_intent.mutation_failed";
+  }
+  return "operation_intent.mutation_outcome_unknown";
+}
+
+async function recoverFailedMutation<T>(
+  params: WithOperationIntentParams<T>,
+  error: unknown,
+  mutateSucceeded: boolean,
+): Promise<T> {
+  // After mutate() returns, never mark failed — leave __mutating so redelivery
+  // takes the no-remutate recovery path instead of calling mutate() again.
+  const knownNoAcceptance =
+    params.isKnownNoAcceptanceError?.(error) ?? isKnownNoAcceptanceMutationError(error);
+  if (!mutateSucceeded) {
+    if (!knownNoAcceptance && (params.recover != null || isRemoteMutationError(error))) {
+      const intentForRecovery = await persistOperationIntent(params.client, {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+        mutationKind: params.mutationKind,
+        detail: params.detail,
+      });
+      const recovered = await recoverByExactEvidence(params, intentForRecovery, null);
+      if (recovered.found) return recovered.value;
+    }
+    await reconcileOperationIntent(params.client, {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      status: knownNoAcceptance ? "failed" : "outcome_unknown",
+      ...leaseEpochDetail(params),
+      detail: {
+        ...resolveReconcileDetail(params, undefined as T, false),
+        // Clear marker only when the provider proved that no mutation landed.
+        [OPERATION_INTENT_MUTATING_KEY]: false,
+        errorCode: knownNoAcceptance
+          ? "operation_intent.mutation_failed"
+          : "operation_intent.mutation_outcome_unknown",
+        errorMessage: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+      },
+    });
+  }
+  if (isAppError(error)) throw error;
+  throw toAppError(error, {
+    code: mutationFailureCode({ mutateSucceeded, knownNoAcceptance }),
+    context: {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      mutationKind: params.mutationKind,
+    },
+  });
+}
+
 async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>): Promise<T> {
   await assertMutationReady(params);
   const intent = await persistOperationIntent(params.client, {
@@ -345,30 +467,8 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
   });
   await assertMutationReady(params);
 
-  // Mutation outcome already stashed (reconciled, or crash/DB blip after mutate).
-  // Never remutate when __result is present — finish status reconciliation only.
-  if (hasStashedResult(intent.detail)) {
-    return finishWithStashedResult(params, intent);
-  }
-
-  // Reconciled without a return value (void mutate, or recovered publish_records):
-  // side effect is done — idempotent completion, never remutate.
-  if (intent.status === "reconciled") {
-    return undefined as T;
-  }
-
-  // Crash between mutate() and __result: never auto-remutate. Resolve by evidence.
-  if (intent.status === "outcome_unknown") {
-    return recoverAfterMutatingWithoutResult(params, intent);
-  }
-
-  // A provider-proven pre-acceptance failure is the only retryable path.
-  // Do not enter recovery — __mutating may still be present on older failed rows.
-  if (intent.status === "failed") {
-    // fall through to remutate
-  } else if (intent.detail[OPERATION_INTENT_MUTATING_KEY] === true) {
-    return recoverAfterMutatingWithoutResult(params, intent);
-  }
+  const existing = await resumeExistingOperationIntent(params, intent);
+  if (existing.kind === "done") return existing.value;
 
   await mergeOperationIntentDetail(params.client, {
     workItemId: params.workItemId,
@@ -384,76 +484,9 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
     await assertMutationReady(params);
     const result = await params.mutate();
     mutateSucceeded = true;
-    // A lease can be lost while GitHub is processing the request. Do not let a
-    // stale worker persist completion after that ambiguous remote outcome.
-    await assertMutationReady(params);
-    // Always stash __result (null = void) so redelivery is idempotent without remutate.
-    const resultDetail = {
-      ...resolveReconcileDetail(params, result, true),
-      [OPERATION_INTENT_RESULT_KEY]: result === undefined ? null : (result as unknown),
-    };
-    await mergeOperationIntentDetail(params.client, {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
-      ...leaseEpochDetail(params),
-      detail: resultDetail,
-    });
-    await reconcileOperationIntent(params.client, {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
-      status: "reconciled",
-      publishRecordId: params.publishRecordId,
-      ...leaseEpochDetail(params),
-      detail: resultDetail,
-    });
-    return result;
+    return await completeSuccessfulMutation(params, result);
   } catch (error) {
-    // After mutate() returns, never mark failed — leave __mutating so redelivery
-    // takes the no-remutate recovery path instead of calling mutate() again.
-    const knownNoAcceptance =
-      params.isKnownNoAcceptanceError?.(error) ?? isKnownNoAcceptanceMutationError(error);
-    if (!mutateSucceeded) {
-      if (!knownNoAcceptance && (params.recover != null || isRemoteMutationError(error))) {
-        const intentForRecovery = await persistOperationIntent(params.client, {
-          workItemId: params.workItemId,
-          operationKey: params.operationKey,
-          mutationKind: params.mutationKind,
-          detail: params.detail,
-        });
-        const recovered = await recoverByExactEvidence(params, intentForRecovery, null);
-        if (recovered.found) return recovered.value;
-      }
-      await reconcileOperationIntent(params.client, {
-        workItemId: params.workItemId,
-        operationKey: params.operationKey,
-        status: knownNoAcceptance ? "failed" : "outcome_unknown",
-        ...leaseEpochDetail(params),
-        detail: {
-          ...resolveReconcileDetail(params, undefined as T, false),
-          // Clear marker only when the provider proved that no mutation landed.
-          [OPERATION_INTENT_MUTATING_KEY]: false,
-          errorCode: knownNoAcceptance
-            ? "operation_intent.mutation_failed"
-            : "operation_intent.mutation_outcome_unknown",
-          errorMessage: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
-        },
-      });
-    }
-    if (isAppError(error)) throw error;
-    throw toAppError(error, {
-      code:
-        mutateSucceeded ||
-        (!knownNoAcceptance && (params.recover != null || isRemoteMutationError(error)))
-          ? "operation_intent.mutation_outcome_unknown"
-          : knownNoAcceptance
-            ? "operation_intent.mutation_failed"
-            : "operation_intent.mutation_outcome_unknown",
-      context: {
-        workItemId: params.workItemId,
-        operationKey: params.operationKey,
-        mutationKind: params.mutationKind,
-      },
-    });
+    return recoverFailedMutation(params, error, mutateSucceeded);
   }
 }
 

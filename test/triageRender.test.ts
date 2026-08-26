@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderTriageReport } from "../src/agent/triage/triageRender.js";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import type { TriagePayload } from "../src/review/triageSchema.js";
 import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
@@ -33,7 +32,7 @@ describe("renderTriageReport policy suggestion footer", () => {
         verdicts: [
           { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
     });
@@ -59,7 +58,7 @@ describe("renderTriageReport policy suggestion footer", () => {
             evidence: "fixed",
           },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
     });
@@ -85,7 +84,7 @@ describe("renderTriageReport policy suggestion footer", () => {
             evidence: "current code already handles this",
           },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
       notice: `${TRIAGE_STALE_HEAD_NOTICE}\n\n${TRIAGE_THREAD_RESOLUTION_NOTICE}`,

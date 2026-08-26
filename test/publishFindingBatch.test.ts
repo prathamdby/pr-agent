@@ -243,7 +243,7 @@ describe("publishFindingBatch", () => {
     expect(result.delta.postedInlineCount).toBe(1);
     expect(result.reviewId).toBe(1);
     await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
-    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain("FROM unnest($7::text[])");
     expect(values[6]).toEqual([fingerprintFinding(finding, "review")]);
   });

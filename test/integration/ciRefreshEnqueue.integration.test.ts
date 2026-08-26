@@ -21,11 +21,11 @@ import {
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
 } from "../../src/settings/index.js";
-import { hasDatabase, integrationPool } from "./db.js";
+import { hasDatabase, integrationPool, requireDatabaseUrl } from "./db.js";
 
 const OWNER = "ci-refresh-it";
 const EVENT = "workflow_run";
-const DATABASE_URL = process.env.DATABASE_URL!;
+const DATABASE_URL = requireDatabaseUrl();
 
 const queueConfig: QueueConfig = {
   queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
@@ -108,15 +108,15 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
       [EVENT, delivery],
     );
     expect(events).toHaveLength(1);
-    const webhookEventId = events[0]!.id;
+    const webhookEventId = events[0].id;
 
     const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.id).toBe(ciRefreshBossJobId(webhookEventId, prNumber));
-    expect(jobs[0]!.id).toMatch(
+    expect(jobs[0].id).toBe(ciRefreshBossJobId(webhookEventId, prNumber));
+    expect(jobs[0].id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_refresh",
       owner: OWNER,
       repo: "app",

@@ -180,25 +180,27 @@ function unwrapPayloadEnvelope(raw: unknown): {
   return { value: raw, coercions: [] };
 }
 
-function coerceFinding(raw: unknown, coercions: string[]): unknown {
-  if (typeof raw !== "object" || raw == null) return raw;
-  const r = raw as Record<string, unknown>;
-  let mutated = false;
-  let f: Record<string, unknown> = r;
+type FindingCoerceTarget = {
+  raw: Record<string, unknown>;
+  finding: Record<string, unknown>;
+  mutated: boolean;
+};
 
-  const touch = (): void => {
-    if (!mutated) {
-      f = { ...r };
-      mutated = true;
-    }
-  };
+function touchFinding(target: FindingCoerceTarget): void {
+  if (!target.mutated) {
+    target.finding = { ...target.raw };
+    target.mutated = true;
+  }
+}
 
+function coerceFindingLineRange(target: FindingCoerceTarget, coercions: string[]): void {
+  const r = target.raw;
   if ("line" in r && !("startLine" in r)) {
     const n = coercePositiveInt(r.line);
     if (n != null && n > 0) {
-      touch();
-      f.startLine = n;
-      f.endLine = n;
+      touchFinding(target);
+      target.finding.startLine = n;
+      target.finding.endLine = n;
       coercions.push("finding_line_to_start_end");
     }
   }
@@ -207,51 +209,58 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
     const start = coercePositiveInt(r.lines[0]);
     const end = r.lines.length >= 2 ? coercePositiveInt(r.lines[1]) : start;
     if (start != null && start > 0 && end != null && end > 0) {
-      touch();
-      f.startLine = start;
-      f.endLine = end;
+      touchFinding(target);
+      target.finding.startLine = start;
+      target.finding.endLine = end;
       coercions.push("finding_lines_array_to_start_end");
     }
   }
+}
 
+function coerceFindingNumericFields(target: FindingCoerceTarget, coercions: string[]): void {
+  const r = target.raw;
   if ("severity" in r) {
     const coerced = coerceSeverity(r.severity);
     if (coerced && coerced !== r.severity) {
-      touch();
-      f.severity = coerced;
+      touchFinding(target);
+      target.finding.severity = coerced;
       coercions.push("finding_severity_alias");
     }
   }
   if ("startLine" in r) {
     const n = coercePositiveInt(r.startLine);
     if (n != null && n > 0 && n !== r.startLine) {
-      touch();
-      f.startLine = n;
+      touchFinding(target);
+      target.finding.startLine = n;
       coercions.push("finding_startLine_number");
     }
   }
   if ("endLine" in r) {
     const n = coercePositiveInt(r.endLine);
     if (n != null && n > 0 && n !== r.endLine) {
-      touch();
-      f.endLine = n;
+      touchFinding(target);
+      target.finding.endLine = n;
       coercions.push("finding_endLine_number");
     }
   }
   if ("confidence" in r) {
     const n = coercePositiveInt(r.confidence);
     if (n != null && n >= 1 && n <= 5 && n !== r.confidence) {
-      touch();
-      f.confidence = n;
+      touchFinding(target);
+      target.finding.confidence = n;
       coercions.push("finding_confidence_number");
     }
   }
+}
+
+function coerceFindingTextFields(target: FindingCoerceTarget, coercions: string[]): void {
+  const r = target.raw;
   for (const field of ["file", "title"] as const) {
     if (field in r && typeof r[field] === "string") {
       const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
       if (changed) {
-        touch();
-        f[field] = text;
+        touchFinding(target);
+        target.finding[field] = text;
       }
     }
   }
@@ -259,20 +268,29 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
     if (field in r && typeof r[field] === "string") {
       const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
       if (changed) {
-        touch();
-        f[field] = text;
+        touchFinding(target);
+        target.finding[field] = text;
       }
     }
   }
   if ("fixPrompt" in r && typeof r.fixPrompt === "string") {
-    const rawFix = (mutated ? f.fixPrompt : r.fixPrompt) as string;
+    const rawFix = target.finding.fixPrompt as string;
     if (rawFix.trim().length === 0) {
-      touch();
-      delete f.fixPrompt;
+      touchFinding(target);
+      delete target.finding.fixPrompt;
       coercions.push("finding_fixPrompt_empty_removed");
     }
   }
-  return mutated ? f : raw;
+}
+
+function coerceFinding(raw: unknown, coercions: string[]): unknown {
+  if (typeof raw !== "object" || raw == null) return raw;
+  const r = raw as Record<string, unknown>;
+  const target: FindingCoerceTarget = { raw: r, finding: r, mutated: false };
+  coerceFindingLineRange(target, coercions);
+  coerceFindingNumericFields(target, coercions);
+  coerceFindingTextFields(target, coercions);
+  return target.mutated ? target.finding : raw;
 }
 
 export function coerceReviewPayloadInput(raw: unknown): {

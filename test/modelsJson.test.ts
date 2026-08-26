@@ -233,7 +233,7 @@ describe("loadConfig models.json", () => {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       ...extra,
-    } as NodeJS.ProcessEnv;
+    };
     const { loadConfig } = await import("../src/config.js");
     return loadConfig();
   }

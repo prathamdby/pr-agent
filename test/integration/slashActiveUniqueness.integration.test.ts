@@ -35,13 +35,13 @@ import {
 import type { QueueConfig } from "../../src/agentWork/types.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
 import { makeReviewWorkItem } from "../helpers/agentWorkItems.js";
-import { hasDatabase, integrationPool } from "./db.js";
+import { hasDatabase, integrationPool, requireDatabaseUrl } from "./db.js";
 
 const testFeatures = makeTestConfig().features;
 
 const OWNER = "slash-uniq-it";
 const EVENT = "slash-uniq-it";
-const DATABASE_URL = process.env.DATABASE_URL!;
+const DATABASE_URL = requireDatabaseUrl();
 const CLEANUP_QUEUES = [
   ACK_QUEUE,
   REVIEW_QUEUE,
@@ -242,7 +242,8 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
 
     const replacementJob = await reviewJobFor(boss, newWorkItemId);
     expect(replacementJob?.state).toBe("created");
-    const failedJob = await boss.getJobById(REVIEW_QUEUE, failedJobId!);
+    if (failedJobId == null) throw new Error("expected failed job id");
+    const failedJob = await boss.getJobById(REVIEW_QUEUE, failedJobId);
     expect(failedJob?.state).toBe("failed");
   });
 
@@ -309,9 +310,11 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(rows).toEqual(expect.arrayContaining([{ id: oldWorkItemId, status: "cancelled" }]));
     expect(newRow?.status).toBe("queued");
 
-    const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId!);
+    if (oldJobId == null) throw new Error("expected cancelled job id");
+    if (newRow == null) throw new Error("expected replacement work item");
+    const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId);
     expect(oldJob?.state).toBe("created");
-    const replacementJob = await reviewJobFor(boss, newRow!.id);
+    const replacementJob = await reviewJobFor(boss, newRow.id);
     expect(replacementJob?.state).toBe("created");
 
     const ackJobs = await boss.findJobs(ACK_QUEUE, {});
@@ -407,9 +410,11 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
     expect(rows45).toEqual([{ id: siblingWorkItemId, status: "running" }]);
 
-    const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId!);
+    if (oldJobId == null) throw new Error("expected cancelled job id");
+    if (siblingJobId == null) throw new Error("expected sibling job id");
+    const oldJob = await boss.getJobById(REVIEW_QUEUE, oldJobId);
     expect(oldJob?.state).toBe("created");
-    const siblingJob = await boss.getJobById(REVIEW_QUEUE, siblingJobId!);
+    const siblingJob = await boss.getJobById(REVIEW_QUEUE, siblingJobId);
     expect(siblingJob?.state).toBe("created");
 
     const ackJobs = await boss.findJobs(ACK_QUEUE, {});

@@ -75,22 +75,17 @@ export type MermaidValidationIssue = {
   readonly message: string;
 };
 
-function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
-  const issues: MermaidValidationIssue[] = [];
-  const lines = body.split("\n").filter((line) => line.trim().length > 0);
-  if (lines.length === 0) {
-    issues.push({ line: 1, message: "Diagram is empty." });
-    return issues;
-  }
-
-  const header = lines[0]?.trim() ?? "";
+function validateMermaidDiagramKind(
+  body: string,
+  header: string,
+  issues: MermaidValidationIssue[],
+): void {
   if (!FLOWCHART_HEADER.test(header)) {
     issues.push({
       line: 1,
       message: 'First line must be "flowchart LR" (or flowchart TB / graph LR).',
     });
   }
-
   if (body.includes("```")) {
     issues.push({
       line: 1,
@@ -100,7 +95,38 @@ function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
   if (body.includes("`")) {
     issues.push({ line: 1, message: "Remove backticks from diagram labels." });
   }
+}
 
+function validateMermaidNodeLabel(
+  label: string,
+  lineNo: number,
+  issues: MermaidValidationIssue[],
+): void {
+  if (label.startsWith('"') && label.endsWith('"')) return;
+  if (label.startsWith("/") && !label.endsWith("/")) {
+    issues.push({
+      line: lineNo,
+      message:
+        'Unquoted label starts with / but is not valid subroutine syntax — use quoted labels, e.g. A["api route"].',
+    });
+  } else if (label.includes("/")) {
+    issues.push({
+      line: lineNo,
+      message: 'Slash in unquoted label breaks GitHub — use quoted labels, e.g. A["api/route"].',
+    });
+  }
+  if (/[()]/.test(label)) {
+    issues.push({
+      line: lineNo,
+      message: "Parentheses in unquoted labels are unsafe — use quoted labels.",
+    });
+  }
+}
+
+function countAndValidateMermaidNodes(
+  lines: readonly string[],
+  issues: MermaidValidationIssue[],
+): number {
   let nodeCount = 0;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
@@ -110,42 +136,40 @@ function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
     const bracketLabels = line.matchAll(/(\b[A-Za-z][\w-]*)\[([^\]]+)\]/g);
     for (const match of bracketLabels) {
       nodeCount++;
-      const label = (match[2] ?? "").trim();
-      if (label.startsWith('"') && label.endsWith('"')) continue;
-      if (label.startsWith("/") && !label.endsWith("/")) {
-        issues.push({
-          line: lineNo,
-          message:
-            'Unquoted label starts with / but is not valid subroutine syntax — use quoted labels, e.g. A["api route"].',
-        });
-      } else if (label.includes("/")) {
-        issues.push({
-          line: lineNo,
-          message:
-            'Slash in unquoted label breaks GitHub — use quoted labels, e.g. A["api/route"].',
-        });
-      }
-      if (/[()]/.test(label) && !(label.startsWith('"') && label.endsWith('"'))) {
-        issues.push({
-          line: lineNo,
-          message: "Parentheses in unquoted labels are unsafe — use quoted labels.",
-        });
-      }
+      validateMermaidNodeLabel((match[2] ?? "").trim(), lineNo, issues);
     }
   }
-
   if (nodeCount > 12) {
     issues.push({
       line: 1,
       message: `Too many nodes (${nodeCount}); use at most 12 and group steps for large PRs.`,
     });
   }
+  return nodeCount;
+}
 
+function validateMermaidEdges(
+  body: string,
+  nodeCount: number,
+  issues: MermaidValidationIssue[],
+): void {
   const edgeCount = (body.match(/-->/g) ?? []).length;
   if (edgeCount === 0 && nodeCount > 0) {
     issues.push({ line: 1, message: "Diagram has nodes but no --> edges." });
   }
+}
 
+function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
+  const issues: MermaidValidationIssue[] = [];
+  const lines = body.split("\n").filter((line) => line.trim().length > 0);
+  if (lines.length === 0) {
+    issues.push({ line: 1, message: "Diagram is empty." });
+    return issues;
+  }
+
+  validateMermaidDiagramKind(body, lines[0]?.trim() ?? "", issues);
+  const nodeCount = countAndValidateMermaidNodes(lines, issues);
+  validateMermaidEdges(body, nodeCount, issues);
   return issues;
 }
 

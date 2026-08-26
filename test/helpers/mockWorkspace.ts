@@ -43,6 +43,6 @@ export function mockLocalPrWorkspace(
     },
     lookupSymbol: () => [],
     getSymbolIndexStatus: () => ({ available: false }),
-    cleanup: async () => {},
+    cleanup: async () => undefined,
   };
 }

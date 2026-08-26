@@ -167,7 +167,12 @@ function acceptedSummaryPlacements(params: {
     }
     if (placement.inlinePosted && !params.budgetExhausted) return [];
     const planned = plannedByKey.get(reviewFindingPlacementKey(placement.finding));
-    const reason = params.budgetExhausted ? "budget" : planned?.inlinePosted ? "cap" : "anchor";
+    let reason: Extract<AcceptedPlacement, { kind: "summary_only" }>["reason"] = "anchor";
+    if (params.budgetExhausted) {
+      reason = "budget";
+    } else if (planned?.inlinePosted) {
+      reason = "cap";
+    }
     return [summaryOnlyPlacement(placement, params.source, reason)];
   });
 }
@@ -192,39 +197,18 @@ function storedPlacement(
   };
 }
 
-export async function publishFindingBatch(
-  batch: readonly ReviewFinding[],
+type PreparedFindingTargets = ReturnType<typeof prepareFindingsForPublish>;
+
+function groupFindingBatchPlacements(
+  targets: PreparedFindingTargets,
   context: FindingBatchContext,
-): Promise<FindingBatchResult> {
-  const prepared = prepareReviewPayloadForPublish({
-    payload: batchPayload(batch),
-    cachedDiffIndex: context.cachedDiffIndex,
-    enforceInlineAnchorValidation: false,
-    evidenceLedger: context.evidenceLedger,
-    headSha: context.ctx.headSha,
-    checkoutCoverage: context.checkoutCoverage,
-    isPathInCheckout: context.isPathInCheckout,
-  });
-  if (!prepared.ok) {
-    throw new AppError({
-      code: "review.finding_batch_invalid",
-      message: prepared.error,
-    });
-  }
-
-  const remainingInline = Math.max(
-    0,
-    MAX_INLINE_REVIEW_COMMENTS - context.ledger.postedInlineCount,
-  );
-  const targets = prepareFindingsForPublish({
-    payload: prepared.prepared.payload,
-    cachedDiffIndex: context.cachedDiffIndex,
-    inlinePlacements: prepared.prepared.placements,
-    storedInlineFingerprints: [...context.ledger.suppressionFingerprints],
-    crossPrSuppressionFingerprints: context.crossPrSuppressionFingerprints,
-    maxInlineComments: remainingInline,
-  });
-
+):
+  | { readonly kind: "budget_exhausted"; readonly result: FindingBatchResult }
+  | { readonly kind: "empty"; readonly result: FindingBatchResult }
+  | {
+      readonly kind: "inline";
+      readonly acceptedBeforePublish: AcceptedPlacement[];
+    } {
   if (
     context.ledger.threadBudgetExhausted ||
     context.ledger.threadCallCount >= MAX_THREAD_PUBLISH_CALLS
@@ -238,11 +222,14 @@ export async function publishFindingBatch(
     });
     return {
       kind: "budget_exhausted",
-      delta: emptyDelta({
-        accepted,
-        suppressionFingerprints: acceptedFingerprints(accepted),
-        threadBudgetExhausted: true,
-      }),
+      result: {
+        kind: "budget_exhausted",
+        delta: emptyDelta({
+          accepted,
+          suppressionFingerprints: acceptedFingerprints(accepted),
+          threadBudgetExhausted: true,
+        }),
+      },
     };
   }
 
@@ -255,50 +242,27 @@ export async function publishFindingBatch(
   if (targets.inline.length === 0) {
     return {
       kind: "empty",
-      delta: emptyDelta({
-        accepted: acceptedBeforePublish,
-        suppressionFingerprints: acceptedFingerprints(acceptedBeforePublish),
-      }),
+      result: {
+        kind: "empty",
+        delta: emptyDelta({
+          accepted: acceptedBeforePublish,
+          suppressionFingerprints: acceptedFingerprints(acceptedBeforePublish),
+        }),
+      },
     };
   }
+  return { kind: "inline", acceptedBeforePublish };
+}
 
-  if (context.recordPublishStep && context.workItemId == null) {
-    throw new AppError({
-      code: "review.work_item_id_required",
-      message: "workItemId is required when recording an inline review batch",
-    });
-  }
-
-  const shouldAbort = (await context.shouldAbortPublish?.()) ?? false;
-  if (shouldAbort) {
-    return {
-      kind: "stopped",
-      reason: context.publishAbortState?.staleHead === true ? "stale_head" : "superseded",
-    };
-  }
-
-  const progressCommentUrl = (await context.resolveProgressCommentUrl())?.trim();
-  if (!progressCommentUrl) {
-    throw new AppError({
-      code: "review.progress_comment_url_required",
-      message:
-        "Progress comment URL is required before publishing a specialist review batch; the progress stub must exist first",
-    });
-  }
-
-  const findingFingerprints = targets.inline.map((placement) => placement.inlineFingerprint);
-  const intentWorkItemId = context.operationIntent?.workItemId ?? context.workItemId;
-  const batchId =
-    intentWorkItemId != null
-      ? deterministicInlineBatchId({
-          workItemId: intentWorkItemId,
-          specialist: context.source,
-          findingFingerprints,
-        })
-      : crypto.randomUUID();
-  const operationKey = reviewInlineBatchOperationKey(batchId);
-  const operationMarker =
-    intentWorkItemId == null ? null : operationIntentMarker(operationKey, intentWorkItemId);
+async function publishFindingBatchThreads(params: {
+  readonly context: FindingBatchContext;
+  readonly targets: PreparedFindingTargets;
+  readonly progressCommentUrl: string;
+  readonly batchId: string;
+  readonly operationKey: string;
+  readonly operationMarker: string | null;
+}): Promise<Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>> {
+  const { context, targets, progressCommentUrl, batchId, operationKey, operationMarker } = params;
   const boundByKey = await resolveBoundPolicyFooters({
     policy: context.repoPolicy ?? { kind: "absent" },
     sameRepo: context.sameRepo,
@@ -327,45 +291,57 @@ export async function publishFindingBatch(
           boundByKey.get(reviewFindingPlacementKey(finding)) ?? [],
         ),
     });
-  const inlineResult = await (context.operationIntent == null
-    ? publishInline()
-    : withOperationIntent<
-        Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
-      >({
-        client: context.operationIntent.client,
-        workItemId: context.operationIntent.workItemId,
-        operationKey,
-        mutationKind: "github.inline_review",
-        leaseEpoch: context.operationIntent.leaseEpoch,
-        detail: {
-          step: "inline_review",
-          resourceKey: context.operationIntent.resourceKey,
-          reviewLens: context.source,
-          batchId,
-          operationMarker,
-        },
-        recover: async () => {
-          if (operationMarker == null) return { kind: "absent" as const };
-          const found = await context.prSurface.findPublishedThreadBatch?.(
-            operationMarker,
-            context.ctx.headSha,
-          );
-          return found == null
-            ? { kind: "absent" as const }
-            : {
-                kind: "reconciled" as const,
-                value: {
-                  review: { id: found.reviewId, url: found.reviewUrl },
-                  postedPlacements: [...targets.inline],
-                  anchorDroppedPlacements: [],
-                  lineResolutionFallback: false,
-                },
-              };
-        },
-        isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
-        mutate: publishInline,
-      }));
+  if (context.operationIntent == null) {
+    return publishInline();
+  }
+  return withOperationIntent<
+    Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
+  >({
+    client: context.operationIntent.client,
+    workItemId: context.operationIntent.workItemId,
+    operationKey,
+    mutationKind: "github.inline_review",
+    leaseEpoch: context.operationIntent.leaseEpoch,
+    detail: {
+      step: "inline_review",
+      resourceKey: context.operationIntent.resourceKey,
+      reviewLens: context.source,
+      batchId,
+      operationMarker,
+    },
+    recover: async () => {
+      if (operationMarker == null) return { kind: "absent" as const };
+      const found = await context.prSurface.findPublishedThreadBatch?.(
+        operationMarker,
+        context.ctx.headSha,
+      );
+      return found == null
+        ? { kind: "absent" as const }
+        : {
+            kind: "reconciled" as const,
+            value: {
+              review: { id: found.reviewId, url: found.reviewUrl },
+              postedPlacements: [...targets.inline],
+              anchorDroppedPlacements: [],
+              lineResolutionFallback: false,
+            },
+          };
+    },
+    isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
+    mutate: publishInline,
+  });
+}
 
+async function recordPublishedFindingBatch(params: {
+  readonly context: FindingBatchContext;
+  readonly targets: PreparedFindingTargets;
+  readonly acceptedBeforePublish: readonly AcceptedPlacement[];
+  readonly inlineResult: Awaited<
+    ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>
+  >;
+  readonly batchId: string;
+}): Promise<FindingBatchResult> {
+  const { context, targets, acceptedBeforePublish, inlineResult, batchId } = params;
   const posted = inlineResult.postedPlacements;
   const anchorDropped = inlineResult.anchorDroppedPlacements.map((placement) =>
     summaryOnlyPlacement(placement, context.source, "anchor"),
@@ -455,4 +431,94 @@ export async function publishFindingBatch(
       postedInlineCount: posted.length,
     }),
   };
+}
+
+export async function publishFindingBatch(
+  batch: readonly ReviewFinding[],
+  context: FindingBatchContext,
+): Promise<FindingBatchResult> {
+  const prepared = prepareReviewPayloadForPublish({
+    payload: batchPayload(batch),
+    cachedDiffIndex: context.cachedDiffIndex,
+    enforceInlineAnchorValidation: false,
+    evidenceLedger: context.evidenceLedger,
+    headSha: context.ctx.headSha,
+    checkoutCoverage: context.checkoutCoverage,
+    isPathInCheckout: context.isPathInCheckout,
+  });
+  if (!prepared.ok) {
+    throw new AppError({
+      code: "review.finding_batch_invalid",
+      message: prepared.error,
+    });
+  }
+
+  const remainingInline = Math.max(
+    0,
+    MAX_INLINE_REVIEW_COMMENTS - context.ledger.postedInlineCount,
+  );
+  const targets = prepareFindingsForPublish({
+    payload: prepared.prepared.payload,
+    cachedDiffIndex: context.cachedDiffIndex,
+    inlinePlacements: prepared.prepared.placements,
+    storedInlineFingerprints: [...context.ledger.suppressionFingerprints],
+    crossPrSuppressionFingerprints: context.crossPrSuppressionFingerprints,
+    maxInlineComments: remainingInline,
+  });
+
+  const grouped = groupFindingBatchPlacements(targets, context);
+  if (grouped.kind !== "inline") return grouped.result;
+
+  if (context.recordPublishStep && context.workItemId == null) {
+    throw new AppError({
+      code: "review.work_item_id_required",
+      message: "workItemId is required when recording an inline review batch",
+    });
+  }
+
+  const shouldAbort = (await context.shouldAbortPublish?.()) ?? false;
+  if (shouldAbort) {
+    return {
+      kind: "stopped",
+      reason: context.publishAbortState?.staleHead === true ? "stale_head" : "superseded",
+    };
+  }
+
+  const progressCommentUrl = (await context.resolveProgressCommentUrl())?.trim();
+  if (!progressCommentUrl) {
+    throw new AppError({
+      code: "review.progress_comment_url_required",
+      message:
+        "Progress comment URL is required before publishing a specialist review batch; the progress stub must exist first",
+    });
+  }
+
+  const findingFingerprints = targets.inline.map((placement) => placement.inlineFingerprint);
+  const intentWorkItemId = context.operationIntent?.workItemId ?? context.workItemId;
+  const batchId =
+    intentWorkItemId != null
+      ? deterministicInlineBatchId({
+          workItemId: intentWorkItemId,
+          specialist: context.source,
+          findingFingerprints,
+        })
+      : crypto.randomUUID();
+  const operationKey = reviewInlineBatchOperationKey(batchId);
+  const operationMarker =
+    intentWorkItemId == null ? null : operationIntentMarker(operationKey, intentWorkItemId);
+  const inlineResult = await publishFindingBatchThreads({
+    context,
+    targets,
+    progressCommentUrl,
+    batchId,
+    operationKey,
+    operationMarker,
+  });
+  return recordPublishedFindingBatch({
+    context,
+    targets,
+    acceptedBeforePublish: grouped.acceptedBeforePublish,
+    inlineResult,
+    batchId,
+  });
 }

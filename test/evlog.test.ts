@@ -113,7 +113,8 @@ describe("evlog wide events", () => {
 
     const stored = (logger.getContext().events as Array<Record<string, unknown>>)[0];
     expect(stored?.errorMessage).toContain("[redacted]");
-    expect((stored?.errorContext as Record<string, unknown>).workItemId).toBe("work-1");
+    const errorContext = stored?.errorContext as Record<string, unknown> | undefined;
+    expect(errorContext?.workItemId).toBe("work-1");
     expect(stored?.circular).toBe("[circular]");
     expect(JSON.stringify(stored)).not.toContain("postgres://");
   });

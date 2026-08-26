@@ -15,7 +15,7 @@ type ListedFile = {
 const state = vi.hoisted(() => ({
   prepareCalls: 0,
   failNext: false,
-  cleanup: vi.fn(async () => {}),
+  cleanup: vi.fn(async () => undefined),
   pullsGetCalls: 0,
   listedFiles: [] as ListedFile[],
   changedFilesCount: 0,

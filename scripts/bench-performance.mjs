@@ -16,7 +16,7 @@ function mean(xs) {
 }
 
 function summarize(samples) {
-  const sorted = [...samples].sort((a, b) => a - b);
+  const sorted = [...samples].toSorted((a, b) => a - b);
   return {
     mean: mean(sorted),
     median: sorted[Math.floor(sorted.length / 2)],
@@ -57,7 +57,7 @@ function runNubScript(label, body) {
   });
   rmSync(script, { force: true });
   if (r.status !== 0) throw new Error(`nub ${label} failed: ${r.stderr || r.stdout}`);
-  const line = r.stdout.trim().split("\n").filter(Boolean).pop();
+  const line = r.stdout.trim().split("\n").findLast(Boolean);
   return JSON.parse(line);
 }
 

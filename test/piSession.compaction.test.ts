@@ -50,6 +50,16 @@ describe("compactionPolicyForRole", () => {
   });
 });
 
+async function createFeatureSessionForRole(role: AgentSessionRole) {
+  return createFeaturePiSession({
+    role,
+    cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+    systemPrompt: role,
+    tools: [],
+    executors: {},
+  });
+}
+
 describe("createFeaturePiSession compaction by role", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -65,19 +75,9 @@ describe("createFeaturePiSession compaction by role", () => {
     } as never);
   });
 
-  async function createForRole(role: AgentSessionRole) {
-    return createFeaturePiSession({
-      role,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
-      systemPrompt: role,
-      tools: [],
-      executors: {},
-    });
-  }
-
   it("passes SettingsManager compaction.enabled=false for orchestrator and specialist", async () => {
-    await createForRole("orchestrator");
-    await createForRole("specialist");
+    await createFeatureSessionForRole("orchestrator");
+    await createFeatureSessionForRole("specialist");
     const settings = vi.mocked(SettingsManager.inMemory).mock.calls.map((call) => call[0]);
     expect(settings).toEqual([
       { compaction: { enabled: false } },
@@ -86,7 +86,7 @@ describe("createFeaturePiSession compaction by role", () => {
   });
 
   it("passes SettingsManager compaction.enabled=true for ask", async () => {
-    await createForRole("ask");
+    await createFeatureSessionForRole("ask");
     expect(SettingsManager.inMemory).toHaveBeenCalledWith({
       compaction: { enabled: true },
     });

@@ -48,8 +48,8 @@ export function varyOnAccept(headers: Headers): void {
     headers.set("Vary", "Accept");
     return;
   }
-  const listed = existing.split(",").map((token) => token.trim().toLowerCase());
-  if (listed.includes("accept") || listed.includes("*")) {
+  const listed = new Set(existing.split(",").map((token) => token.trim().toLowerCase()));
+  if (listed.has("accept") || listed.has("*")) {
     return;
   }
   headers.set("Vary", `${existing}, Accept`);

@@ -89,7 +89,7 @@ export async function ensureBuildingSnapshot(
      RETURNING id, status, chunker_version`,
     [scope.installationId, scope.owner, scope.repo, scope.headSha, CODE_INDEX_CHUNKER_VERSION],
   );
-  return mapSnapshot(rows[0]!);
+  return mapSnapshot(rows[0]);
 }
 
 export async function getSnapshotById(

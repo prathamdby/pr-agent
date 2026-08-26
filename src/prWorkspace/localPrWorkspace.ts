@@ -273,14 +273,14 @@ function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
       oldPath: file.previousFilename,
     };
   }
-  const mapped: ChangedFileStatus =
-    status === "added"
-      ? "added"
-      : status === "removed"
-        ? "deleted"
-        : status === "modified" || status === "changed"
-          ? "modified"
-          : "other";
+  let mapped: ChangedFileStatus = "other";
+  if (status === "added") {
+    mapped = "added";
+  } else if (status === "removed") {
+    mapped = "deleted";
+  } else if (status === "modified" || status === "changed") {
+    mapped = "modified";
+  }
   return { path: file.filename, status: mapped };
 }
 

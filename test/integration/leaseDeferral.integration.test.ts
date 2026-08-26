@@ -22,9 +22,9 @@ import {
   REVIEW_QUEUE,
 } from "../../src/settings/index.js";
 import type { QueueConfig } from "../../src/agentWork/types.js";
-import { hasDatabase, integrationPool } from "./db.js";
+import { hasDatabase, integrationPool, requireDatabaseUrl } from "./db.js";
 
-const DATABASE_URL = process.env.DATABASE_URL!;
+const DATABASE_URL = requireDatabaseUrl();
 
 const queueConfig: QueueConfig = {
   queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,

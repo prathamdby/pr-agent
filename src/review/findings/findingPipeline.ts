@@ -44,6 +44,21 @@ export type PreparedFindingTargets = {
   };
 };
 
+function withRedactedFinding(placement: InlinePlacement, finding: ReviewFinding): InlinePlacement {
+  const next: InlinePlacement = {
+    finding,
+    inlineLine: placement.inlineLine,
+    inlinePosted: placement.inlinePosted,
+  };
+  if (placement.inlineCommentUrl == null) return next;
+  return {
+    finding,
+    inlineLine: placement.inlineLine,
+    inlinePosted: placement.inlinePosted,
+    inlineCommentUrl: placement.inlineCommentUrl,
+  };
+}
+
 export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
   reviewMinConfidence?: number;
@@ -117,7 +132,7 @@ export function prepareReviewPayloadForPublish(params: {
         message: "Review payload redaction lost finding identity",
       });
     }
-    return { ...placement, finding };
+    return withRedactedFinding(placement, finding);
   });
   return {
     ok: true,

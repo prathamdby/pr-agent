@@ -20,19 +20,28 @@ const MAX_RESPONSE_BYTES = CONTEXT7_RESPONSE_BYTES;
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
-    ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
+    status: init?.status,
+    statusText: init?.statusText,
+    headers: { "content-type": "application/json", ...headersOf(init) },
   });
 }
 
 function txtResponse(body: string, init?: ResponseInit): Response {
   return new Response(body, {
-    ...init,
-    headers: { "content-type": "text/plain", ...init?.headers },
+    status: init?.status,
+    statusText: init?.statusText,
+    headers: { "content-type": "text/plain", ...headersOf(init) },
   });
 }
 
-function headersOf(init: RequestInit | undefined): Record<string, string> {
+function fetchUrl(input: unknown): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  if (input instanceof Request) return input.url;
+  throw new Error("expected fetch URL");
+}
+
+function headersOf(init: RequestInit | ResponseInit | undefined): Record<string, string> {
   const h = init?.headers;
   if (!h) return {};
   if (h instanceof Headers) return Object.fromEntries(h.entries());
@@ -68,7 +77,9 @@ describe("buildContext7Tools — surface", () => {
         query: { type: "string" },
       },
     });
-    expect((tool?.parameters as { required?: string[] }).required).toContain("libraryName");
+    expect(tool?.parameters).toEqual(
+      expect.objectContaining({ required: expect.arrayContaining(["libraryName"]) }),
+    );
   });
 
   it("getLibraryDocs parameters declare object type and require libraryId", () => {
@@ -81,7 +92,9 @@ describe("buildContext7Tools — surface", () => {
         topic: { type: "string" },
       },
     });
-    expect((tool?.parameters as { required?: string[] }).required).toContain("libraryId");
+    expect(tool?.parameters).toEqual(
+      expect.objectContaining({ required: expect.arrayContaining(["libraryId"]) }),
+    );
   });
 });
 
@@ -104,7 +117,7 @@ describe("buildContext7Tools — executors", () => {
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0];
-      const u = new URL(String(url));
+      const u = new URL(fetchUrl(url));
       expect(u.origin + u.pathname).toBe("https://context7.com/api/v2/libs/search");
       expect(u.searchParams.get("libraryName")).toBe("react");
       expect(u.searchParams.get("query")).toBe("react");
@@ -135,7 +148,7 @@ describe("buildContext7Tools — executors", () => {
       });
 
       const [url, init] = fetchSpy.mock.calls[0];
-      const u = new URL(String(url));
+      const u = new URL(fetchUrl(url));
       expect(u.pathname).toBe("/api/v2/context");
       expect(u.searchParams.get("libraryId")).toBe("/facebook/react");
       expect(u.searchParams.get("type")).toBe("txt");
@@ -193,7 +206,7 @@ describe("buildContext7Tools — executors", () => {
       });
       await executors.getLibraryDocs({ libraryId: "/facebook/react" });
       const [url] = fetchSpy.mock.calls[0];
-      expect(new URL(String(url)).searchParams.get("query")).toBeNull();
+      expect(new URL(fetchUrl(url)).searchParams.get("query")).toBeNull();
     } finally {
       fetchSpy.mockRestore();
     }
@@ -213,8 +226,10 @@ describe("buildContext7Tools — executors", () => {
       await executors.resolveLibraryId({ libraryName: "react", query: "   " });
       await executors.getLibraryDocs({ libraryId: "/facebook/react", topic: " \t " });
 
-      expect(new URL(String(fetchSpy.mock.calls[0]?.[0])).searchParams.get("query")).toBe("react");
-      expect(new URL(String(fetchSpy.mock.calls[1]?.[0])).searchParams.get("query")).toBeNull();
+      expect(new URL(fetchUrl(fetchSpy.mock.calls[0]?.[0])).searchParams.get("query")).toBe(
+        "react",
+      );
+      expect(new URL(fetchUrl(fetchSpy.mock.calls[1]?.[0])).searchParams.get("query")).toBeNull();
     } finally {
       fetchSpy.mockRestore();
     }
@@ -241,10 +256,10 @@ describe("buildContext7Tools — executors", () => {
       });
 
       expect(fetchSpy).toHaveBeenCalledTimes(2);
-      expect(new URL(String(fetchSpy.mock.calls[0]?.[0])).searchParams.get("query")).toBe(
+      expect(new URL(fetchUrl(fetchSpy.mock.calls[0]?.[0])).searchParams.get("query")).toBe(
         "hooks and middleware",
       );
-      expect(new URL(String(fetchSpy.mock.calls[1]?.[0])).searchParams.get("query")).toBe(
+      expect(new URL(fetchUrl(fetchSpy.mock.calls[1]?.[0])).searchParams.get("query")).toBe(
         "schema typing",
       );
     } finally {
@@ -408,9 +423,8 @@ describe("buildContext7Tools — executors", () => {
         baseUrl: "https://evil.example",
       });
       const [url] = fetchSpy.mock.calls[0] ?? [];
-      expect(new URL(String(url)).origin + new URL(String(url)).pathname).toBe(
-        "https://context7.com/api/v2/libs/search",
-      );
+      const fetched = new URL(fetchUrl(url));
+      expect(fetched.origin + fetched.pathname).toBe("https://context7.com/api/v2/libs/search");
     } finally {
       fetchSpy.mockRestore();
     }
@@ -425,7 +439,7 @@ describe("buildContext7Tools — executors", () => {
     expect(assertContext7LibraryId(maxLibraryId)).toBe(maxLibraryId);
 
     for (const invalid of ["", "a/b", "/only", "/a/b/"]) {
-      expect(() => assertContext7LibraryId(invalid)).toThrow();
+      expect(() => assertContext7LibraryId(invalid)).toThrow(/Context7 libraryId rejected/);
     }
     for (const invalid of [
       "",
@@ -433,9 +447,11 @@ describe("buildContext7Tools — executors", () => {
       "react/",
       "@bad//name",
     ]) {
-      expect(() => assertContext7LibraryName(invalid)).toThrow();
+      expect(() => assertContext7LibraryName(invalid)).toThrow(/Context7 libraryName rejected/);
     }
-    expect(() => assertContext7LibraryId(`${maxLibraryId}a`)).toThrow();
+    expect(() => assertContext7LibraryId(`${maxLibraryId}a`)).toThrow(
+      /Context7 libraryId rejected/,
+    );
 
     const secretLibraryName = "ghp_1234567890123456789012345678901234";
     const secretLibraryId = "/org/sk-abcdefghijklmnopqrstuvwxyz";

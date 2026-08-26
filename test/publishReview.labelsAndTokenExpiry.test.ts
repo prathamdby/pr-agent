@@ -181,7 +181,7 @@ describe("publishReview labels and token expiry", () => {
   ])(
     "does not fail publish when label listing rejects with $name",
     async ({ rejection, message }) => {
-      const warnSpy = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+      const warnSpy = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
       harness.getLabels.mockRejectedValueOnce(rejection);
 
       await expect(

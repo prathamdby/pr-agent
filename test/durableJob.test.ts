@@ -198,7 +198,7 @@ function defaultMocks() {
   vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
-  } as Awaited<ReturnType<typeof appAuth.getAppBotIdentity>>);
+  });
 }
 
 describe("runDurableWorkItem", () => {
@@ -415,7 +415,7 @@ describe("runDurableWorkItem", () => {
     const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({
-      acceptItem: (it) => it.reviewLens != null,
+      acceptItem: (workItem) => workItem.reviewLens != null,
       execute,
     });
 
@@ -432,7 +432,7 @@ describe("runDurableWorkItem", () => {
 
     await expect(
       runReviewWorkItem({
-        acceptItem: (it) => it.reviewLens != null,
+        acceptItem: (workItem) => workItem.reviewLens != null,
         execute,
       }),
     ).rejects.toThrow(/Invalid review work item payload/);
@@ -590,7 +590,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(appAuth.mintInstallationAuth).mockImplementation(
       () =>
         new Promise((resolve) => {
-          mintGate.then(() =>
+          void mintGate.then(() =>
             resolve({
               type: "token",
               tokenType: "installation",
@@ -1237,6 +1237,10 @@ describe("runDurableWorkItem", () => {
   });
 });
 
+function acceptDurableResult(result: DurableExecutionResult): DurableExecutionResult {
+  return result;
+}
+
 describe("DurableExecutionResult assignability", () => {
   it("accepts completed, completed-degraded, and fully specified rescheduled", () => {
     expectTypeOf({ kind: "completed" as const }).toMatchTypeOf<DurableExecutionResult>();
@@ -1264,10 +1268,9 @@ describe("DurableExecutionResult assignability", () => {
   });
 
   it("constructs valid object literals", () => {
-    const accept = (result: DurableExecutionResult): DurableExecutionResult => result;
-    accept({ kind: "completed" });
-    accept({ kind: "completed", degraded: true });
-    accept({
+    acceptDurableResult({ kind: "completed" });
+    acceptDurableResult({ kind: "completed", degraded: true });
+    acceptDurableResult({
       kind: "rescheduled",
       replacementWorkItemId: "replacement-wi",
       afterComplete: async () => undefined,

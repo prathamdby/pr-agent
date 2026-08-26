@@ -3,10 +3,23 @@
   "plugins": ["typescript", "unicorn", "oxc", "vitest"],
   "categories": {
     "correctness": "error",
-    "suspicious": "warn"
+    "suspicious": "error",
+    "perf": "error"
   },
   "rules": {
-    "typescript/no-unsafe-type-assertion": "off"
+    "eslint/complexity": ["error", { "max": 20, "variant": "modified" }],
+    "typescript/no-explicit-any": "error",
+    "typescript/no-non-null-assertion": "error",
+    "eslint/no-empty-function": "error",
+    "eslint/no-nested-ternary": "error",
+    "oxc/no-accumulating-spread": "error",
+    "oxc/no-map-spread": "error",
+    // Validated JSON/unknown boundaries use `as` after guards (`reviewSchema`, `appError`, `config`).
+    "typescript/no-unsafe-type-assertion": "off",
+    // Serial GitHub/DB I/O is the product (`paginateOctokit`, `reviewPublishRetry`, migrations).
+    "eslint/no-await-in-loop": "off",
+    // `_exhaustive` never-checks and product `__mutating` / `__result` fields.
+    "eslint/no-underscore-dangle": "off"
   },
   "env": {
     "node": true
@@ -21,19 +34,14 @@
       "files": ["test/**/*.ts"],
       "env": { "vitest": true },
       "rules": {
-        "typescript/no-floating-promises": "off",
-        "typescript/no-unsafe-type-assertion": "off",
+        // Untyped `vi.fn()` is the test double style (`codeIndexPrepare.test.ts`).
         "vitest/require-mock-type-parameters": "off",
+        // `expect` after discriminated-union narrowing (`descriptionSchema.test.ts`).
         "vitest/no-conditional-expect": "off",
+        // Custom asserts: `assertPromptCostWithinBudget`, type-assignment `accept`, grep-gate `throw`.
         "vitest/expect-expect": "off",
-        "vitest/require-to-throw-message": "off",
-        "eslint/no-unsafe-optional-chaining": "off",
-        "typescript/no-misused-spread": "off",
-        "typescript/no-base-to-string": "off",
-        "typescript/unbound-method": "off",
-        "eslint/no-underscore-dangle": "off",
-        "eslint/no-shadow": "off",
-        "unicorn/consistent-function-scoping": "off"
+        // `expect(store.method)` Vitest matchers (`durableJob.test.ts`).
+        "typescript/unbound-method": "off"
       }
     }
   ]
