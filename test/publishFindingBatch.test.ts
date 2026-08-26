@@ -287,11 +287,19 @@ describe("publishFindingBatch", () => {
     expect(commentBody).not.toContain(".pr-agent/testing.mdc");
   });
 
-  it("appends Bound paths from same-repo policy on the matching file", async () => {
+  it("prints Bound only for judged-yes same-repo rules", async () => {
+    const findings = Array.from({ length: 10 }, (_, index) => findingAt(10 + index));
+    const judge = vi.fn(async () => ["p1", "p7"]);
     const result = await publishFindingBatch(
-      [finding],
+      findings,
       batchContext(createFindingLedger(), undefined, {
+        seedFindings: findings,
+        cachedDiffIndex: cachedDiffForLines(
+          "src/a.ts",
+          findings.map((item) => item.startLine),
+        ),
         sameRepo: true,
+        boundPolicyJudge: judge,
         repoPolicy: {
           kind: "ok",
           policy: {
@@ -317,10 +325,45 @@ describe("publishFindingBatch", () => {
     );
 
     expect(result.kind).toBe("published");
+    expect(judge).toHaveBeenCalledTimes(1);
+    const asked = judge.mock.calls[0]?.[0] ?? [];
+    expect(asked).toHaveLength(10);
+    expect(asked.every((pair) => pair.relativePath === ".pr-agent/always.mdc")).toBe(true);
+    const bodies = (harness.publishThreadBatch.mock.calls[0]?.[0]?.comments ?? []).map(
+      (comment) => comment.body,
+    );
+    const boundBodies = bodies.filter((body) => body.includes("<sub>Bound · .pr-agent/always.mdc</sub>"));
+    expect(boundBodies).toHaveLength(2);
+    expect(bodies.some((body) => body.includes("auth.mdc"))).toBe(false);
+    expect(bodies.some((body) => body.includes("Rule ·"))).toBe(false);
+  });
+
+  it("prints no Bound footer when the judge is missing", async () => {
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, {
+        sameRepo: true,
+        repoPolicy: {
+          kind: "ok",
+          policy: {
+            rules: [
+              {
+                filename: "always.mdc",
+                relativePath: ".pr-agent/always.mdc",
+                alwaysApply: true,
+                globs: [],
+                body: "Always apply.",
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(result.kind).toBe("published");
     const commentBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.comments?.[0]?.body ?? "";
-    expect(commentBody).toContain("<sub>Bound · .pr-agent/always.mdc</sub>");
-    expect(commentBody).not.toContain("auth.mdc");
-    expect(commentBody).not.toContain("Rule ·");
+    expect(commentBody).not.toContain("Bound ·");
+    expect(commentBody).not.toContain(".pr-agent/always.mdc");
   });
 
   it("redacts secret-shaped finding text before the GitHub write", async () => {

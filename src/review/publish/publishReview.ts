@@ -9,6 +9,7 @@ import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
+import type { BoundPolicyJudge } from "./boundPolicyJudge.js";
 import { publishFindingBatch } from "./publishFindingBatch.js";
 import {
   publishReviewSummaryOnly,
@@ -41,6 +42,8 @@ export async function publishReview(
     publishAbortState?: { readonly staleHead?: boolean };
     repoPolicy?: RepoPolicyResult;
     sameRepo?: boolean;
+    boundPolicyJudge?: BoundPolicyJudge;
+    readCheckoutFile?: (path: string) => Promise<string | undefined>;
   },
 ): Promise<void> {
   const resumedPlacements = params.resumedPlacements ?? [];
@@ -78,6 +81,8 @@ export async function publishReview(
     publishAbortState: params.publishAbortState,
     repoPolicy: params.repoPolicy,
     sameRepo: params.sameRepo,
+    boundPolicyJudge: params.boundPolicyJudge,
+    readCheckoutFile: params.readCheckoutFile,
     ledger,
   });
   if (batchResult.kind === "stopped") {

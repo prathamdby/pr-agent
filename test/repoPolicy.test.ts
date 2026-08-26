@@ -8,10 +8,11 @@ import {
   MAX_REPO_POLICY_INSTRUCTION_CHARS,
 } from "../src/settings/reviewConstants.js";
 import {
-  boundPolicyPaths,
+  candidatePolicyPairs,
   loadRepoPolicy,
   renderPolicySuggestionForDismissed,
   renderRepoPolicyBlock,
+  ruleConsidersFile,
   type RepoPolicyResult,
 } from "../src/review/repoPolicy.js";
 
@@ -365,8 +366,8 @@ describe("renderRepoPolicyBlock", () => {
   });
 });
 
-const sampleRules: RepoPolicyResult = {
-  kind: "ok",
+const sampleRules = {
+  kind: "ok" as const,
   policy: {
     rules: [
       {
@@ -394,58 +395,63 @@ const sampleRules: RepoPolicyResult = {
   },
 };
 
-describe("boundPolicyPaths", () => {
-  it("returns no paths when policy is absent", () => {
+describe("ruleConsidersFile and candidatePolicyPairs", () => {
+  const finding = (file: string) => ({ file });
+
+  it("returns no pairs when policy is absent", () => {
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: { kind: "absent" },
         sameRepo: true,
-        file: "src/auth/login.ts",
+        findings: [finding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
 
-  it("returns no paths when policy is invalid", () => {
+  it("returns no pairs when policy is invalid", () => {
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: { kind: "invalid", reason: "no usable .mdc rules" },
         sameRepo: true,
-        file: "src/auth/login.ts",
+        findings: [finding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
 
-  it("returns no paths when loaded rules are empty", () => {
+  it("returns no pairs when loaded rules are empty", () => {
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: { kind: "ok", policy: { rules: [] } },
         sameRepo: true,
-        file: "src/auth/login.ts",
+        findings: [finding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
 
-  it("includes always-apply rules on every file", () => {
+  it("treats always-apply as a candidate for any file", () => {
+    expect(ruleConsidersFile(sampleRules.policy.rules[0]!, "README.md")).toBe(true);
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: sampleRules,
         sameRepo: true,
-        file: "README.md",
-      }),
+        findings: [finding("README.md")],
+      }).map((pair) => pair.rule.relativePath),
     ).toEqual([".pr-agent/always.mdc"]);
   });
 
-  it("includes a glob-matching rule only on matching files", () => {
+  it("keeps a glob-matching rule only for matching files", () => {
+    expect(ruleConsidersFile(sampleRules.policy.rules[1]!, "src/auth/login.ts")).toBe(true);
+    expect(ruleConsidersFile(sampleRules.policy.rules[1]!, "src/db/query.ts")).toBe(false);
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: sampleRules,
         sameRepo: true,
-        file: "src/auth/login.ts",
-      }),
+        findings: [finding("src/auth/login.ts")],
+      }).map((pair) => pair.rule.relativePath),
     ).toEqual([".pr-agent/always.mdc", ".pr-agent/auth.mdc"]);
   });
 
-  it("stays silent when no glob matches", () => {
+  it("drops a glob-mismatch pair", () => {
     const globOnly: RepoPolicyResult = {
       kind: "ok",
       policy: {
@@ -461,10 +467,10 @@ describe("boundPolicyPaths", () => {
       },
     };
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: globOnly,
         sameRepo: true,
-        file: "src/db/query.ts",
+        findings: [finding("src/db/query.ts")],
       }),
     ).toEqual([]);
   });
@@ -492,29 +498,29 @@ describe("boundPolicyPaths", () => {
       },
     };
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: twoGlobs,
         sameRepo: true,
-        file: "src/review/foo.ts",
-      }),
+        findings: [finding("src/review/foo.ts")],
+      }).map((pair) => pair.rule.relativePath),
     ).toEqual([".pr-agent/module-layout.mdc", ".pr-agent/web-worker-boundary.mdc"]);
   });
 
-  it("returns no paths for a fork even when head has .pr-agent files", () => {
+  it("returns no pairs for a fork even when head has .pr-agent files", () => {
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: sampleRules,
         sameRepo: false,
-        file: "src/auth/login.ts",
+        findings: [finding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
 
-  it("returns no paths when sameRepo is omitted", () => {
+  it("returns no pairs when sameRepo is omitted", () => {
     expect(
-      boundPolicyPaths({
+      candidatePolicyPairs({
         policy: sampleRules,
-        file: "src/auth/login.ts",
+        findings: [finding("src/auth/login.ts")],
       }),
     ).toEqual([]);
   });
