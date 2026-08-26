@@ -197,18 +197,18 @@ export async function resolveBoundPolicyFooters(params: {
     return new Map();
   }
 
-  const snippets = new Map<string, string | undefined>();
-  for (const pair of numbered) {
-    snippets.set(
-      pair.id,
-      await citedSnippetForFinding({
+  const snippetEntries = await Promise.all(
+    numbered.map(async (pair) => {
+      const snippet = await citedSnippetForFinding({
         finding: pair.finding,
         evidenceLedger: params.evidenceLedger,
         isPathInCheckout: params.isPathInCheckout,
         readCheckoutFile: params.readCheckoutFile,
-      }),
-    );
-  }
+      });
+      return [pair.id, snippet] as const;
+    }),
+  );
+  const snippets = new Map<string, string | undefined>(snippetEntries);
 
   const judgePairs = buildBoundPolicyJudgePairs(numbered, snippets);
   let yesIds: readonly string[] = [];

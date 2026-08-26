@@ -147,6 +147,39 @@ describe("citedSnippetForFinding", () => {
   });
 });
 
+describe("resolveBoundPolicyFooters snippet reads", () => {
+  it("starts checkout reads for asked pairs together", async () => {
+    const findings = [findingAt("src/a.ts", 1), findingAt("src/b.ts", 1)];
+    const ledger = createTestEvidenceLedger();
+    for (const finding of findings) seedEvidenceForFinding(ledger, finding);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = 0;
+    const judge = vi.fn(async (pairs: readonly BoundPolicyJudgePair[]) => {
+      expect(pairs.map((pair) => pair.snippet)).toEqual(["alpha", "beta"]);
+      return [];
+    });
+    await resolveBoundPolicyFooters({
+      policy: sameRepoPolicy([alwaysApply]),
+      sameRepo: true,
+      findings,
+      judge,
+      evidenceLedger: ledger,
+      isPathInCheckout: () => true,
+      readCheckoutFile: async (path) => {
+        started += 1;
+        if (started === 2) release();
+        await gate;
+        return path === "src/a.ts" ? "alpha" : "beta";
+      },
+    });
+    expect(started).toBe(2);
+    expect(judge).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("resolveBoundPolicyFooters", () => {
   it("skips the pass when .pr-agent is absent", async () => {
     const judge = vi.fn(async () => ["p0"]);
