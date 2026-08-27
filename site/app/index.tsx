@@ -1,16 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Header } from "@/components/header";
-import { Hero } from "@/components/hero";
-import { Features } from "@/components/features";
-import { Capabilities } from "@/components/capabilities";
-import { Gallery } from "@/components/gallery";
-import { Providers } from "@/components/providers";
-import { Pricing } from "@/components/pricing";
-import { Alternatives } from "@/components/alternatives";
+import { Compare } from "@/components/compare";
 import { Faq } from "@/components/faq";
-import { Quickstart } from "@/components/quickstart";
 import { Footer } from "@/components/footer";
+import { Gallery } from "@/components/gallery";
+import { Header } from "@/components/header";
 import { JsonLd } from "@/components/json-ld";
+import { Opening } from "@/components/opening";
+import { Quickstart } from "@/components/quickstart";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -22,13 +18,9 @@ function Home() {
       <JsonLd />
       <Header />
       <main id="main-content" className="overflow-x-hidden">
-        <Hero />
-        <Features />
-        <Capabilities />
+        <Opening />
         <Gallery />
-        <Pricing />
-        <Providers />
-        <Alternatives />
+        <Compare />
         <Faq />
         <Quickstart />
       </main>

@@ -63,33 +63,29 @@ export function Gallery() {
       <div className="max-w-2xl">
         <h2
           id="examples-heading"
-          className="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
+          className="font-display text-[clamp(1.5rem,2.8vw,2.15rem)] leading-tight text-ink"
         >
           What lands on the pull request
         </h2>
-        <p className="mt-3 text-sm leading-relaxed text-ink-mute md:text-base">
+        <p className="mt-2 text-sm leading-snug text-ink-mute">
           Same summary, description, ask, and triage formats PR Agent posts on a real pull request.
+          Docs-only changes take a lighter path.
         </p>
       </div>
 
-      <ul className="mt-12 space-y-12 md:mt-16 md:space-y-16">
+      <ul className="mt-8 space-y-8 md:mt-10 md:space-y-10">
         {EXAMPLES.map((example, index) => {
           const flip = index % 2 === 1;
           return (
-            <li key={example.command} className="min-w-0">
-              <div
-                className={`flex flex-col gap-5 md:flex-row md:items-start md:gap-8 lg:gap-12 ${
-                  flip ? "md:flex-row-reverse" : ""
-                }`}
-              >
-                <div className="min-w-0 md:w-[min(100%,20rem)] md:shrink-0">
-                  <p className="font-mono text-sm text-bolt">{example.command}</p>
-                  <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">
-                    {example.label}
-                  </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-ink-mute">{example.detail}</p>
-                </div>
-                <div className="min-w-0 flex-1">
+            <li
+              key={example.command}
+              className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
+            >
+              <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
+                <p className="font-mono text-sm text-bolt">{example.command}</p>
+                <h3 className="mt-1.5 font-display text-xl text-ink">{example.label}</h3>
+                <p className="mt-1.5 text-sm leading-snug text-ink-mute">{example.detail}</p>
+                <div className="mt-4 min-w-0">
                   <ExampleBody example={example} />
                 </div>
               </div>

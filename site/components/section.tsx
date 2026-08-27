@@ -13,9 +13,7 @@ export function Section({ id, labelledBy, raised = false, children }: SectionPro
       id={id}
       aria-labelledby={labelledBy}
       className={
-        raised
-          ? "bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
-          : "px-4 py-16 sm:px-6 sm:py-20 md:py-24"
+        raised ? "bg-navy-raised px-4 py-8 sm:px-6 sm:py-10" : "px-4 py-8 sm:px-6 sm:py-10"
       }
     >
       <div className="mx-auto max-w-6xl">{children}</div>

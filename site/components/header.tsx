@@ -25,7 +25,7 @@ function navVisibility(hideBelow: "md" | "lg"): string {
 
 export function Header() {
   return (
-    <header className="animate-nav-settle absolute inset-x-0 top-0 z-40 px-4 pt-5 sm:px-6">
+    <header className="animate-nav-settle absolute inset-x-0 top-0 z-40 px-4 pt-4 sm:px-6">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
         <Link
           to="/"
