@@ -2,8 +2,8 @@ import { GhCode } from "@/components/github-output/primitives";
 
 export function ReviewArtifact() {
   return (
-    <div className="relative w-full origin-bottom-right" aria-hidden="true">
-      <div className="chamfer surface-panel edge-self relative overflow-hidden">
+    <div className="relative h-full w-full" aria-hidden="true">
+      <div className="chamfer surface-panel edge-self relative h-full min-h-0 overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-edge px-3 py-2.5 sm:px-4">
           <div className="min-w-0">
             <p className="truncate font-mono text-[11px] text-ink-mute">prathamdby/pr-agent#284</p>

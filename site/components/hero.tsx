@@ -21,9 +21,9 @@ function HeroCopy() {
   );
 }
 
-function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
+function HeroCta() {
   return (
-    <div className={align === "end" ? "text-right" : undefined}>
+    <div>
       <a
         href={DOCS_URL}
         target="_blank"
@@ -46,58 +46,21 @@ export function Hero() {
       </h1>
       <DiffField />
 
-      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-10 pt-28 sm:px-6 sm:pb-12 sm:pt-32 md:pb-14 lg:hidden">
-        <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] md:gap-8">
-          <p className="min-w-0 font-display text-[clamp(3.25rem,14vw,5.5rem)] leading-[0.85] tracking-[-0.03em] text-ink md:text-[clamp(3.5rem,7vw,5.5rem)]">
-            {PRODUCT_NAME}
-          </p>
-          <div className="min-w-0 w-full max-w-sm max-h-[14rem] overflow-hidden md:max-h-none md:max-w-none">
-            <div
-              className="[mask-image:linear-gradient(to_bottom,black_0%,black_70%,transparent_100%)]"
-              style={{
-                WebkitMaskImage:
-                  "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)",
-              }}
-            >
-              <ReviewArtifact />
-            </div>
+      <div className="relative z-10 mx-auto grid w-full max-w-6xl grid-cols-1 items-start gap-6 px-4 pb-10 pt-28 sm:px-6 sm:pb-12 sm:pt-32 md:grid-cols-2 md:gap-8 md:pb-14 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)] lg:items-stretch lg:gap-x-12 lg:gap-y-8 lg:pb-16">
+        <p className="min-w-0 font-display text-[clamp(3.25rem,10vw,8rem)] leading-[0.85] tracking-[-0.03em] text-ink">
+          {PRODUCT_NAME}
+        </p>
+
+        <div className="min-w-0 w-full max-h-[14rem] overflow-hidden md:col-start-2 md:row-span-2 md:row-start-1 md:max-h-none md:self-stretch">
+          <div className="h-full [mask-image:linear-gradient(to_bottom,black_0%,black_70%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_bottom,black_0%,black_70%,transparent_100%)] md:[mask-image:none] md:[-webkit-mask-image:none]">
+            <ReviewArtifact />
           </div>
         </div>
 
-        <div className="mt-8 border-t border-edge pt-7 md:mt-10 md:grid md:grid-cols-[minmax(0,1.4fr)_auto] md:items-end md:gap-8 md:pt-8">
-          <div className="min-w-0">
-            <HeroCopy />
-          </div>
-          <div className="mt-6 min-w-0 md:mt-0 md:justify-self-end md:text-right">
+        <div className="min-w-0 border-t border-edge pt-7 md:col-start-1 md:pt-8">
+          <HeroCopy />
+          <div className="mt-6">
             <HeroCta />
-          </div>
-        </div>
-      </div>
-
-      <div className="relative z-10 mx-auto hidden min-h-[100svh] w-full max-w-6xl flex-col px-6 pb-16 pt-32 lg:flex">
-        <div className="relative min-h-[22rem] flex-1">
-          <p className="relative z-20 max-w-[10ch] font-display text-[clamp(4.5rem,10vw,9rem)] leading-[0.85] tracking-[-0.03em] text-ink">
-            {PRODUCT_NAME}
-          </p>
-          <div className="absolute bottom-2 right-0 z-10 w-[min(44%,24rem)]">
-            <div
-              className="[mask-image:linear-gradient(to_bottom,black_0%,black_72%,transparent_100%)]"
-              style={{
-                WebkitMaskImage:
-                  "linear-gradient(to bottom, black 0%, black 72%, transparent 100%)",
-              }}
-            >
-              <ReviewArtifact />
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-auto grid grid-cols-[minmax(0,1.4fr)_auto] items-end gap-8 border-t border-edge pt-8">
-          <div className="min-w-0">
-            <HeroCopy />
-          </div>
-          <div className="min-w-0 justify-self-end">
-            <HeroCta align="end" />
           </div>
         </div>
       </div>

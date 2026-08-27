@@ -76,15 +76,20 @@ export function Gallery() {
         {EXAMPLES.map((example, index) => {
           const flip = index % 2 === 1;
           return (
-            <li
-              key={example.command}
-              className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
-            >
-              <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
-                <p className="font-mono text-sm text-bolt">{example.command}</p>
-                <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">{example.label}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-mute">{example.detail}</p>
-                <div className="mt-5 min-w-0">
+            <li key={example.command} className="min-w-0">
+              <div
+                className={`flex flex-col gap-5 md:flex-row md:items-start md:gap-8 lg:gap-12 ${
+                  flip ? "md:flex-row-reverse" : ""
+                }`}
+              >
+                <div className="min-w-0 md:w-[min(100%,20rem)] md:shrink-0">
+                  <p className="font-mono text-sm text-bolt">{example.command}</p>
+                  <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">
+                    {example.label}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-ink-mute">{example.detail}</p>
+                </div>
+                <div className="min-w-0 flex-1">
                   <ExampleBody example={example} />
                 </div>
               </div>
