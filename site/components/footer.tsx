@@ -30,11 +30,7 @@ export function Footer() {
           <a href="#usage" className="transition-colors hover:text-ink">
             deploy
           </a>
-          <a
-            href="/llms.txt"
-            title={llmsNudgeTitle()}
-            className="select-none text-[9px] tracking-normal text-ink-faint transition-colors hover:text-ink-mute"
-          >
+          <a href="/llms.txt" title={llmsNudgeTitle()} className="transition-colors hover:text-ink">
             llms.txt
           </a>
         </div>
