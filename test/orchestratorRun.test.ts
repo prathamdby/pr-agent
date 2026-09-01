@@ -980,6 +980,36 @@ describe("runOrchestratedPrReview", () => {
     ]);
   });
 
+  it("pollWatch does not call gate.check until watch.cancelled is true", async () => {
+    let gateChecks = 0;
+    let cancelRequested = false;
+    const run = runOrchestratedPrReview({
+      ...params(),
+      gate: {
+        check: async () => {
+          gateChecks += 1;
+          return cancelRequested
+            ? { kind: "stop", reason: "superseded" }
+            : { kind: "continue" };
+        },
+        watch: {
+          cancelled: async () => cancelRequested,
+          intervalMs: 5,
+        },
+      },
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const checksWhileClear = gateChecks;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(gateChecks).toBe(checksWhileClear);
+
+    cancelRequested = true;
+    await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
+    expect(gateChecks).toBeGreaterThan(checksWhileClear);
+  });
+
   it("aborts and joins every provider promise when the cancel watch fires during the pump wait", async () => {
     let gateChecks = 0;
     let cancelRequested = false;

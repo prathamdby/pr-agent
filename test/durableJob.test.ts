@@ -12,6 +12,7 @@ import {
 } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
 import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -314,6 +315,27 @@ describe("runDurableWorkItem", () => {
       }),
     );
     expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
+  });
+
+  it("defers deferred-head work while the PR actor lease is held, then resolves head on claim", async () => {
+    const item = makeItem({ headSha: DEFERRED_HEAD_SHA });
+    const resolveHeadSha = vi.fn(async () => ({ headSha: "resolved-head" }));
+    const execute = vi.fn().mockResolvedValue(completedResult());
+
+    mockFetchedItem(item);
+    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValueOnce({
+      acquired: false,
+      heldByWorkItemId: "wi-other",
+      leaseEpoch: 7,
+    });
+    await runReviewWorkItem({ resolveHeadSha, execute });
+    expect(execute).not.toHaveBeenCalled();
+    expect(resolveHeadSha).not.toHaveBeenCalled();
+
+    mockFetchedItem(item);
+    await runReviewWorkItem({ resolveHeadSha, execute });
+    expect(resolveHeadSha).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]?.[1].headSha).toBe("resolved-head");
   });
 
   it("returns when a lease deferral send is swallowed but a queued hop already exists", async () => {

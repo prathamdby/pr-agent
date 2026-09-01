@@ -5,12 +5,17 @@ import {
   replaceAutoWorkItem,
 } from "../src/agentWork/autoWorkEnqueue.js";
 
-function mockClient(options?: { readonly activeIds?: readonly string[] }): PoolClient & {
+function mockClient(options?: {
+  readonly queuedIds?: readonly string[];
+  readonly runningIds?: readonly string[];
+  readonly activeIds?: readonly string[];
+}): PoolClient & {
   lockKeys: unknown[];
   linkedIds: readonly string[];
 } {
   const lockKeys: unknown[] = [];
-  const activeIds = options?.activeIds ?? [];
+  const queuedIds = options?.queuedIds ?? options?.activeIds ?? [];
+  const runningIds = options?.runningIds ?? [];
   let linkedIds: readonly string[] = [];
   return {
     lockKeys,
@@ -24,10 +29,10 @@ function mockClient(options?: { readonly activeIds?: readonly string[] }): PoolC
         return { rows: [], rowCount: 0 };
       }
       if (sql.includes("UPDATE agent_work_items") && sql.includes("superseded")) {
-        return { rows: activeIds.map((id) => ({ id })), rowCount: activeIds.length };
+        return { rows: queuedIds.map((id) => ({ id })), rowCount: queuedIds.length };
       }
       if (sql.includes("cancel_requested_at")) {
-        return { rows: [], rowCount: 0 };
+        return { rows: runningIds.map((id) => ({ id })), rowCount: runningIds.length };
       }
       return { rows: [], rowCount: 0 };
     }),
@@ -86,6 +91,25 @@ describe("replaceAutoWorkItem", () => {
     expect(result).toEqual({ workItemId: "replacement-id", supersededIds: ["queued-1"] });
     expect(createWorkItem).toHaveBeenCalledTimes(1);
     expect(client.linkedIds).toEqual(["queued-1"]);
+  });
+
+  it("unions queued and running ids when superseding active auto work", async () => {
+    const client = mockClient({ queuedIds: ["queued-1", "queued-2"], runningIds: ["running-1"] });
+    const createWorkItem = vi.fn(async () => "replacement-id");
+
+    const result = await replaceActiveAutoWorkItem({
+      client,
+      target: { kind: "review", resourceKey: "owner/repo#42" },
+      createWorkItem,
+    });
+
+    expect(result).toEqual({
+      workItemId: "replacement-id",
+      supersededIds: ["queued-1", "queued-2", "running-1"],
+    });
+    expect(createWorkItem).toHaveBeenCalledTimes(1);
+    expect(client.lockKeys).toHaveLength(1);
+    expect(client.linkedIds).toEqual(["queued-1", "queued-2", "running-1"]);
   });
 
   it("creates no replacement when no active auto work exists", async () => {

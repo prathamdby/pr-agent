@@ -41,6 +41,23 @@ describe("planAutomatedPullRequestIntake", () => {
     ).toEqual(["verification"]);
   });
 
+  it("off review mode suppresses the push supersede", () => {
+    expect(
+      planAutomatedPullRequestIntake("synchronize", {
+        review: "off",
+        describe: "auto",
+        verification: "auto",
+      }).kinds,
+    ).not.toContain("reviewSupersede");
+    expect(
+      planAutomatedPullRequestIntake("synchronize", {
+        review: "off",
+        describe: "off",
+        verification: "off",
+      }).kinds,
+    ).toEqual([]);
+  });
+
   it("off and manual describe modes suppress the auto description", () => {
     expect(planAutomatedPullRequestIntake("opened", { ...allAuto, describe: "off" }).kinds).toEqual(
       ["review"],
