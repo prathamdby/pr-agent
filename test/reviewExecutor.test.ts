@@ -498,6 +498,35 @@ describe("executeReviewJob", () => {
     );
   });
 
+  it("reschedules an auto review when preflight observes a newer head", async () => {
+    mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "new-head",
+    });
+    mocks.buildStaleReschedule.mockReturnValue({
+      kind: "rescheduled",
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn(),
+      onRescheduleAbort: vi.fn(),
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ id: "wi-1", source: "auto" }),
+    );
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was rescheduled for a newer pull request head.",
+      }),
+    );
+  });
+
   it("does not create a stale-head replacement when a newer auto review already cancelled the parent", async () => {
     mockDurableExecution("auto");
     vi.spyOn(durableSurfaceBundle.surface, "getHeadSha").mockResolvedValue("new-head");
