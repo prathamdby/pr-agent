@@ -8,7 +8,7 @@ import type { DurableExecutionResult } from "../src/agentWork/durableJob.js";
 import type { ReviewJobData } from "../src/agentWork/types.js";
 import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
-import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
+import { DESCRIPTION_AGENT_HEADER, REVIEW_CANCEL_POLL_INTERVAL_MS } from "../src/settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface, type FakePrSurfaceEvent } from "../src/github/prSurface.js";
@@ -452,7 +452,13 @@ describe("executeReviewJob", () => {
         remainingModelMs: (now?: number) => number;
         remainingTotalMs: (now?: number) => number;
       };
-      gate: { check: () => Promise<{ kind: string }> };
+      gate: {
+        check: () => Promise<{ kind: string }>;
+        watch: {
+          cancelled: () => Promise<boolean>;
+          intervalMs: number;
+        };
+      };
       prTitle: string;
       prBody: string | null;
     };
@@ -462,6 +468,13 @@ describe("executeReviewJob", () => {
     await expect(params.gate.check()).resolves.toEqual({ kind: "continue" });
     expect(params.prTitle).toBe("");
     expect(params.prBody).toBeNull();
+
+    // The watch is the fast cancel probe the orchestrator polls mid-specialist:
+    // it must report the same durable cancel state the full gate checks.
+    mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    await expect(params.gate.watch.cancelled()).resolves.toBe(true);
+    await expect(params.gate.watch.cancelled()).resolves.toBe(false);
+    expect(params.gate.watch.intervalMs).toBe(REVIEW_CANCEL_POLL_INTERVAL_MS);
   });
 
   it("routes a stale-head gate stop through the existing slash reschedule path", async () => {

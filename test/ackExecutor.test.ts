@@ -4,6 +4,7 @@ import type { Config } from "../src/config.js";
 import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
 import type { AckJobData } from "../src/agentWork/types.js";
 import {
+  DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
@@ -172,6 +173,17 @@ describe("executeAckJob", () => {
         prSurface: surfaceBundle.surface,
       }),
     );
+  });
+
+  it("skips the check run for deferred-head progress until the review worker claims", async () => {
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-1",
+      progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
+    });
+
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalled();
+    expect(ensureReviewCheckRunStarted).not.toHaveBeenCalled();
   });
 
   it("includes queue position on the queued progress stub when lookup succeeds", async () => {

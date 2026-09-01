@@ -26,7 +26,7 @@ export type SpecialistOutcome =
       readonly durationMs: number;
     };
 
-type ReviewRunGateResult =
+export type ReviewRunGateResult =
   | { readonly kind: "continue" }
   | { readonly kind: "stop"; readonly reason: "superseded" | "stale_head" }
   | {
@@ -43,8 +43,20 @@ export type ReviewRunTiming = {
   readonly remainingTotalMs: (now?: number) => number;
 };
 
+export type ReviewRunGateWatch = {
+  /** Cheap cancel/supersede probe (one durable-state read) polled while specialists run. */
+  readonly cancelled: () => Promise<boolean>;
+  readonly intervalMs: number;
+};
+
 export type ReviewRunGate = {
   readonly check: () => Promise<ReviewRunGateResult>;
+  /**
+   * Optional fast cancel probe. Gate checks run only at send boundaries and
+   * outcome consumption; the watch closes that gap while the completion pump
+   * waits on long-running specialists.
+   */
+  readonly watch?: ReviewRunGateWatch;
 };
 
 export type SpecialistRunPhase =

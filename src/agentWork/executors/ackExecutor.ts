@@ -79,10 +79,8 @@ async function publishAckProgress(
   resourceKey: string,
 ): Promise<void> {
   const prSurface = ackPrSurface(cfg, data, installation);
-  const headSha =
-    data.progress.headSha === DEFERRED_HEAD_SHA
-      ? await prSurface.getHeadSha()
-      : data.progress.headSha;
+  const deferredHead = data.progress.headSha === DEFERRED_HEAD_SHA;
+  const headSha = deferredHead ? await prSurface.getHeadSha() : data.progress.headSha;
   const ciSummary = await buildCiSummaryForSurface(prSurface, {
     headSha,
     lightweight: true,
@@ -119,7 +117,9 @@ async function publishAckProgress(
     sentinel: REVIEW_SUMMARY_SENTINEL,
     progressRevision: 0,
   });
-  if (data.workItemId) {
+  // Deferred-head reviews resolve the binding head at claim time; starting the
+  // check run here would pin it to an earlier SHA if another push lands first.
+  if (data.workItemId && !deferredHead) {
     await ensureReviewCheckRunStarted(pool, {
       prSurface,
       owner: data.owner,

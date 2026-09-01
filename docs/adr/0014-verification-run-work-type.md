@@ -23,6 +23,7 @@ The concept already existed in the product under another name: a triage run veri
 ## Consequences
 
 - Does not reverse PR #164: a verification run never opens new findings, so push-time cost stays bounded by the number of open findings.
+- Amended 2026-09: a `synchronize` push now also cancels an in-flight auto review and enqueues one deferred-head replacement (`reviewSupersede` intake kind). This still does not reverse PR #164 — a push never _starts_ a review; it only redirects work that is already spending, and a push after the review finishes schedules verification only.
 - A `/triage` push fires `synchronize`, so triage fixes get independently confirmed by a verification run. Not a loop: verification never pushes.
 - Needs its own queue lane and work-item type; finding open/closed state must be readable from stored publish records and thread replies.
 

@@ -11,8 +11,17 @@ describe("planAutomatedPullRequestIntake", () => {
     ]);
   });
 
-  it("schedules verification only on synchronize", () => {
-    expect(planAutomatedPullRequestIntake("synchronize", allAuto).kinds).toEqual(["verification"]);
+  it("schedules review supersede and verification on synchronize", () => {
+    expect(planAutomatedPullRequestIntake("synchronize", allAuto).kinds).toEqual([
+      "reviewSupersede",
+      "verification",
+    ]);
+  });
+
+  it("schedules review supersede on synchronize even when verification is off", () => {
+    expect(
+      planAutomatedPullRequestIntake("synchronize", { ...allAuto, verification: "off" }).kinds,
+    ).toEqual(["reviewSupersede"]);
   });
 
   it("schedules nothing on reopened or unsupported actions", () => {
@@ -26,6 +35,12 @@ describe("planAutomatedPullRequestIntake", () => {
     ).toEqual(["description"]);
   });
 
+  it("manual review mode suppresses the push supersede", () => {
+    expect(
+      planAutomatedPullRequestIntake("synchronize", { ...allAuto, review: "manual" }).kinds,
+    ).toEqual(["verification"]);
+  });
+
   it("off and manual describe modes suppress the auto description", () => {
     expect(planAutomatedPullRequestIntake("opened", { ...allAuto, describe: "off" }).kinds).toEqual(
       ["review"],
@@ -33,12 +48,6 @@ describe("planAutomatedPullRequestIntake", () => {
     expect(
       planAutomatedPullRequestIntake("opened", { ...allAuto, describe: "manual" }).kinds,
     ).toEqual(["review"]);
-  });
-
-  it("off verification mode suppresses the auto verification", () => {
-    expect(
-      planAutomatedPullRequestIntake("synchronize", { ...allAuto, verification: "off" }).kinds,
-    ).toEqual([]);
   });
 
   it("schedules nothing on opened when review is manual and describe is off", () => {
