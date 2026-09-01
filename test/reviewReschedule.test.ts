@@ -719,11 +719,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
     await expect(result.afterComplete(boss)).rejects.toBe(leaseLost);
     await result.onRescheduleAbort(boss, leaseLost);
 
-    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(
-      pool,
-      "existing-replacement",
-      leaseLost,
-    );
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", leaseLost);
   });
 
   it("does not cancel after afterComplete marks the replacement enqueued", async () => {
