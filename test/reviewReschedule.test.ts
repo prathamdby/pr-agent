@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import { AppError } from "../src/errors/appError.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../src/settings/index.js";
 import {
   buildStaleReviewRescheduleResult,
@@ -17,9 +18,16 @@ import {
 import type { ReviewWorkItem } from "../src/agentWork/types.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 
+const mocks = vi.hoisted(() => ({
+  lockPrActorLeaseForUpdate: vi.fn(),
+}));
+
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
   markQueuedWorkCancelled: vi.fn(),
+}));
+vi.mock("../src/agentWork/prActorLease.js", () => ({
+  lockPrActorLeaseForUpdate: mocks.lockPrActorLeaseForUpdate,
 }));
 vi.mock("../src/db/postgres.js", () => ({
   inTransaction: async (
@@ -37,6 +45,8 @@ vi.mock("../src/evlog.js", () => ({
 
 import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/repository.js";
 import * as evlog from "../src/evlog.js";
+
+const LEASE_EPOCH = 7;
 
 function pendingReplacement(replacementWorkItemId: string) {
   return {
@@ -75,9 +85,34 @@ function bossWithReviewJobs(jobs: unknown[] = []): PgBoss {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.lockPrActorLeaseForUpdate.mockResolvedValue(undefined);
 });
 
 describe("createReviewRescheduleWorkItem", () => {
+  it("rejects a stale lease epoch before marker persistence", async () => {
+    const leaseLost = new AppError({
+      code: "agent_work.pr_actor_lease_lost",
+      message: "PR actor lease is no longer held by this execution",
+    });
+    mocks.lockPrActorLeaseForUpdate.mockRejectedValue(leaseLost);
+    const query = vi.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ id: "parent-wi", head_sha: DEFERRED_HEAD_SHA }],
+    });
+    const pool = { query } as unknown as Pool;
+    const item = makeItem({
+      payload: {
+        mode: "review",
+        source: "slash",
+        ...pendingReplacement("existing-replacement"),
+      },
+    });
+
+    await expect(createReviewRescheduleWorkItem(pool, item, 99)).rejects.toBe(leaseLost);
+
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("keeps the first persisted head_sha when replacement row already exists", async () => {
     const query = vi
       .fn()
@@ -95,6 +130,7 @@ describe("createReviewRescheduleWorkItem", () => {
           ...pendingReplacement("existing-replacement"),
         },
       }),
+      LEASE_EPOCH,
     );
 
     expect(replacement).toEqual({
@@ -123,6 +159,7 @@ describe("createReviewRescheduleWorkItem", () => {
           ...pendingReplacement("existing-replacement"),
         },
       }),
+      LEASE_EPOCH,
     );
 
     expect(replacement.replacementWorkItemId).toBe("existing-replacement");
@@ -141,7 +178,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createReviewRescheduleWorkItem(pool, makeItem());
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH);
 
     expect(replacement).toEqual({
       replacementWorkItemId: "generated-replacement",
@@ -167,7 +204,9 @@ describe("createReviewRescheduleWorkItem", () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    await expect(createReviewRescheduleWorkItem(pool, makeItem())).rejects.toMatchObject({
+    await expect(
+      createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH),
+    ).rejects.toMatchObject({
       code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
     });
     expect(query).toHaveBeenCalledTimes(1);
@@ -193,7 +232,7 @@ describe("createReviewRescheduleWorkItem", () => {
       },
     });
 
-    const result = await buildStaleReviewRescheduleResult(pool, parent);
+    const result = await buildStaleReviewRescheduleResult(pool, parent, LEASE_EPOCH);
     const insertParams = query.mock.calls.find((call) =>
       String(call[0]).includes("INSERT INTO agent_work_items"),
     )?.[1] as unknown[] | undefined;
@@ -224,7 +263,7 @@ describe("createReviewRescheduleWorkItem", () => {
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createReviewRescheduleWorkItem(pool, makeItem());
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH);
 
     expect(replacement.replacementWorkItemId).toBe("winner-replacement");
     expect(getWorkItem).toHaveBeenCalledWith(pool, "parent-wi");
@@ -251,6 +290,7 @@ describe("createReviewRescheduleWorkItem", () => {
           ...pendingReplacement("existing-replacement"),
         },
       }),
+      LEASE_EPOCH,
     );
     await result.afterComplete(boss);
 
@@ -266,7 +306,9 @@ describe("stale-head shared helpers", () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    await expect(tryBuildStaleReviewRescheduleResult(pool, makeItem())).resolves.toBeNull();
+    await expect(
+      tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH),
+    ).resolves.toBeNull();
   });
 
   it("tryBuild returns a reschedule result for a live parent", async () => {
@@ -281,7 +323,7 @@ describe("stale-head shared helpers", () => {
       .mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
-    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem());
+    const result = await tryBuildStaleReviewRescheduleResult(pool, makeItem(), LEASE_EPOCH);
     expect(result).toMatchObject({
       kind: "rescheduled",
       replacementWorkItemId: "generated-replacement",
@@ -300,6 +342,27 @@ describe("stale-head shared helpers", () => {
 });
 
 describe("enqueueReviewReschedule", () => {
+  it("rejects a stale lease epoch before deterministic enqueue", async () => {
+    const leaseLost = new AppError({
+      code: "agent_work.pr_actor_lease_lost",
+      message: "PR actor lease is no longer held by this execution",
+    });
+    mocks.lockPrActorLeaseForUpdate.mockRejectedValue(leaseLost);
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValue("job-id");
+    const findJobs = vi.fn().mockResolvedValue([]);
+    const boss = { send, findJobs } as unknown as PgBoss;
+
+    await expect(
+      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", 99),
+    ).rejects.toBe(leaseLost);
+
+    expect(findJobs).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("does not cancel a co-queued foreign work item on the singleton", async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
@@ -328,7 +391,7 @@ describe("enqueueReviewReschedule", () => {
     const deleteJob = vi.fn();
     const boss = { send, findJobs, cancel, deleteJob } as unknown as PgBoss;
 
-    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", LEASE_EPOCH);
 
     expect(cancel).not.toHaveBeenCalled();
     expect(deleteJob).not.toHaveBeenCalled();
@@ -354,6 +417,7 @@ describe("enqueueReviewReschedule", () => {
       }),
       "replacement-wi",
       "newhead",
+      LEASE_EPOCH,
     );
 
     expect(send).toHaveBeenCalledTimes(2);
@@ -374,7 +438,7 @@ describe("enqueueReviewReschedule", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", LEASE_EPOCH);
 
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
@@ -402,7 +466,7 @@ describe("enqueueReviewReschedule", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", LEASE_EPOCH);
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0]).toBe(ACK_QUEUE);
@@ -425,7 +489,7 @@ describe("enqueueReviewReschedule", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", LEASE_EPOCH);
 
     expect(send).toHaveBeenCalledTimes(1);
     expect(cancel).not.toHaveBeenCalled();
@@ -445,7 +509,7 @@ describe("enqueueReviewReschedule", () => {
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
     await expect(
-      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
+      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", LEASE_EPOCH),
     ).rejects.toMatchObject({ code: "agent_work.reschedule_enqueue_failed" });
 
     expect(send).toHaveBeenCalledTimes(1);
@@ -462,7 +526,7 @@ describe("enqueueReviewReschedule", () => {
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
     await expect(
-      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
+      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", LEASE_EPOCH),
     ).rejects.toMatchObject({ code: "agent_work.reschedule_enqueue_failed" });
 
     expect(send).toHaveBeenCalledTimes(2);
@@ -480,7 +544,7 @@ describe("enqueueReviewReschedule", () => {
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
     await expect(
-      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
+      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead", LEASE_EPOCH),
     ).rejects.toThrow(/review queue unavailable/);
 
     expect(send).toHaveBeenCalledTimes(1);
@@ -617,10 +681,49 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           ...pendingReplacement("existing-replacement"),
         },
       }),
+      LEASE_EPOCH,
     );
     await result.onRescheduleAbort(boss, boom);
 
     expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", boom);
+  });
+
+  it("cancels a persisted replacement when enqueue loses the lease", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    const leaseLost = new AppError({
+      code: "agent_work.pr_actor_lease_lost",
+      message: "PR actor lease is no longer held by this execution",
+    });
+    mocks.lockPrActorLeaseForUpdate
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(leaseLost);
+    const query = vi.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ head_sha: DEFERRED_HEAD_SHA }],
+    });
+    const pool = { query } as unknown as Pool;
+    const boss = bossWithReviewJobs();
+
+    const result = await buildStaleReviewRescheduleResult(
+      pool,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          ...pendingReplacement("existing-replacement"),
+        },
+      }),
+      LEASE_EPOCH,
+    );
+
+    await expect(result.afterComplete(boss)).rejects.toBe(leaseLost);
+    await result.onRescheduleAbort(boss, leaseLost);
+
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(
+      pool,
+      "existing-replacement",
+      leaseLost,
+    );
   });
 
   it("does not cancel after afterComplete marks the replacement enqueued", async () => {
@@ -644,6 +747,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           ...pendingReplacement("existing-replacement"),
         },
       }),
+      LEASE_EPOCH,
     );
     await result.afterComplete(boss);
     await result.onRescheduleAbort(boss, new Error("should not cancel"));
@@ -668,6 +772,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           ...enqueuedReplacement("existing-replacement"),
         },
       }),
+      LEASE_EPOCH,
     );
     const error = new Error("parent failed");
     await result.onRescheduleAbort(boss, error);

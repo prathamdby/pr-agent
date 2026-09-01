@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
+import type { DurableExecutionResult } from "../src/agentWork/durableJob.js";
 import type { ReviewJobData } from "../src/agentWork/types.js";
 import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
@@ -164,12 +165,17 @@ function mockAutoPrFiles(surface = durableSurfaceBundle.surface) {
   return vi.spyOn(surface, "listChangedFiles").mockResolvedValue(prFiles);
 }
 
+type CapturedDurableExecution = {
+  result?: DurableExecutionResult;
+};
+
 function mockDurableExecution(
   source: "auto" | "slash" = "slash",
   executionPullRequest: PullRequestForFileList | undefined = source === "slash"
     ? pullRequest
     : undefined,
-): void {
+): CapturedDurableExecution {
+  const captured: CapturedDurableExecution = {};
   durableSurfaceBundle = createFakePrSurface(
     { owner: "o", repo: "r", prNumber: 1 },
     { headSha: "head" },
@@ -180,7 +186,7 @@ function mockDurableExecution(
   }
   vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
     const item = makeItem(source);
-    await spec.execute(item, {
+    captured.result = await spec.execute(item, {
       prSurface: durableSurfaceBundle.surface,
       headSha: "head",
       leaseEpoch: 1,
@@ -193,6 +199,7 @@ function mockDurableExecution(
       },
     });
   });
+  return captured;
 }
 
 describe("executeReviewJob", () => {
@@ -472,6 +479,7 @@ describe("executeReviewJob", () => {
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ id: "wi-1" }),
+      1,
     );
   });
 
@@ -495,7 +503,160 @@ describe("executeReviewJob", () => {
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ id: "wi-1", source: "auto" }),
+      1,
     );
+  });
+
+  it("reschedules an auto review when preflight observes a newer head", async () => {
+    const captured = mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "new-head",
+    });
+    const afterComplete = vi.fn();
+    const onRescheduleAbort = vi.fn();
+    mocks.buildStaleReschedule.mockReturnValue({
+      kind: "rescheduled",
+      replacementWorkItemId: "replacement-wi",
+      afterComplete,
+      onRescheduleAbort,
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(captured.result).toEqual({
+      kind: "rescheduled",
+      replacementWorkItemId: "replacement-wi",
+      afterComplete,
+      onRescheduleAbort,
+    });
+    expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ id: "wi-1", source: "auto" }),
+      1,
+    );
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was rescheduled for a newer pull request head.",
+      }),
+    );
+  });
+
+  it("fails a stale one-shot replacement during auto preflight without building another", async () => {
+    mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "newer-head",
+    });
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      const item = makeReviewWorkItem({
+        id: "wi-replacement",
+        source: "auto",
+        status: "running",
+        headSha: "old-replacement-head",
+        payload: {
+          mode: "review",
+          source: "auto",
+          staleHeadRescheduled: true,
+        },
+      });
+      await spec.execute(item, {
+        prSurface: durableSurfaceBundle.surface,
+        headSha: "old-replacement-head",
+        leaseEpoch: 1,
+        signal: new AbortController().signal,
+      });
+    });
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+      code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
+    });
+
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { provenance: "missing", observedHeadSha: undefined },
+    { provenance: "empty", observedHeadSha: "" },
+  ])(
+    "keeps $provenance auto preflight SHA provenance on the strict mismatch path",
+    async ({ observedHeadSha }) => {
+      mockDurableExecution("auto");
+      vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+        ...prFiles,
+        headSha: observedHeadSha,
+      });
+
+      await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+        code: "github.head_sha_mismatch",
+      });
+
+      expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+      expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    },
+  );
+
+  it("falls through to strict SHA assertion when preflight reschedule is skipped", async () => {
+    mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "new-head",
+    });
+    mocks.shouldSkipWork.mockResolvedValue(true);
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+      code: "github.head_sha_mismatch",
+    });
+
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+  });
+
+  it("falls through to strict SHA assertion when stale-head replacement cannot be built", async () => {
+    mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "new-head",
+    });
+    mocks.buildStaleReschedule.mockResolvedValue(null);
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+      code: "github.head_sha_mismatch",
+    });
+
+    expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ id: "wi-1", source: "auto" }),
+      1,
+    );
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing review lease epoch before stale-head check completion", async () => {
+    mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "new-head",
+    });
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.execute(makeItem("auto"), {
+        prSurface: durableSurfaceBundle.surface,
+        headSha: "head",
+        leaseEpoch: null,
+        signal: new AbortController().signal,
+      });
+    });
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+      code: "agent_work.pr_actor_lease_lost",
+    });
+
+    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
   });
 
   it("does not create a stale-head replacement when a newer auto review already cancelled the parent", async () => {

@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
+import { AppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
@@ -213,13 +214,23 @@ function reviewRunGate(args: {
 async function scheduleStaleHeadReplacement(args: {
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
+  readonly leaseEpoch: number | null;
   readonly beforeBuild?: () => Promise<void>;
 }): Promise<StaleReviewRescheduleResult | undefined> {
+  if (args.leaseEpoch == null) {
+    throw new AppError({
+      code: "agent_work.pr_actor_lease_lost",
+      message: "PR actor lease is no longer held by this execution",
+      context: { workItemId: args.item.id },
+    });
+  }
   if (await shouldSkipWork(args.pool, args.item)) {
     return undefined;
   }
   await args.beforeBuild?.();
-  return (await tryBuildStaleReviewRescheduleResult(args.pool, args.item)) ?? undefined;
+  return (
+    (await tryBuildStaleReviewRescheduleResult(args.pool, args.item, args.leaseEpoch)) ?? undefined
+  );
 }
 
 /** Resume a parent that already persisted a replacement marker but has not finished enqueue. */
@@ -242,6 +253,7 @@ async function handleStaleHeadReschedule(args: {
   return scheduleStaleHeadReplacement({
     pool,
     item,
+    leaseEpoch,
     beforeBuild: async () => {
       await completeReviewCheckRun(pool, {
         prSurface,
@@ -318,6 +330,34 @@ async function runLightweightCompletionOrSkip(args: {
       undefined,
     ),
   );
+  const observedHeadSha = prefetchedPrFiles.headSha;
+  if (
+    observedHeadSha != null &&
+    observedHeadSha.length > 0 &&
+    observedHeadSha.toLowerCase() !== headSha.toLowerCase()
+  ) {
+    if (payload.staleHeadRescheduled) {
+      throw staleHeadReplacementExhaustedError(item);
+    }
+    const reschedule = await scheduleStaleHeadReplacement({
+      pool,
+      item,
+      leaseEpoch,
+      beforeBuild: () =>
+        completeCheckFromStoredSummary({
+          pool,
+          item,
+          reviewLens,
+          prSurface,
+          leaseEpoch,
+          conclusion: "cancelled",
+          summary: "Review was rescheduled for a newer pull request head.",
+        }),
+    });
+    if (reschedule) {
+      return { done: true, result: reschedule };
+    }
+  }
   assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
   const preflight = buildReviewPreflightMetadataFromPullRequestFiles(prefetchedPrFiles);
   const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
@@ -751,6 +791,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       const reschedule = await scheduleStaleHeadReplacement({
         pool,
         item,
+        leaseEpoch,
         beforeBuild: async () => {
           await completeCheckFromStoredSummary({
             pool,

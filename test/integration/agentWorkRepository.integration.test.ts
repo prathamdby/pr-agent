@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
+import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
@@ -47,6 +48,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE 'repo-it-%'");
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
   });
 
@@ -92,6 +94,18 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       ],
     );
     return id;
+  }
+
+  async function acquireReviewLease(id: string, resourceKey: string): Promise<number> {
+    const acquisition = await acquirePrActorLease(pool, {
+      resourceKey,
+      workType: "review",
+      workItemId: id,
+      holderId: "repo-it-holder",
+      ttlSeconds: 900,
+    });
+    if (!acquisition.acquired) throw new Error(`expected lease acquisition for ${id}`);
+    return acquisition.leaseEpoch;
   }
 
   async function getWorkRow(id: string): Promise<WorkRow> {
@@ -213,14 +227,45 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         },
       },
     });
+    const ordinaryEpoch = await acquireReviewLease(ordinary, `repo-it-${ordinary}`);
+    const legacyEpoch = await acquireReviewLease(legacy, `repo-it-${legacy}`);
+    const nestedEpoch = await acquireReviewLease(nested, `repo-it-${nested}`);
 
-    await expect(forceMarkRescheduledParentCompleted(pool, ordinary)).resolves.toBe(false);
-    await expect(forceMarkRescheduledParentCompleted(pool, legacy)).resolves.toBe(true);
-    await expect(forceMarkRescheduledParentCompleted(pool, nested)).resolves.toBe(true);
+    await expect(forceMarkRescheduledParentCompleted(pool, ordinary, ordinaryEpoch)).resolves.toBe(
+      false,
+    );
+    await expect(forceMarkRescheduledParentCompleted(pool, legacy, legacyEpoch)).resolves.toBe(
+      true,
+    );
+    await expect(forceMarkRescheduledParentCompleted(pool, nested, nestedEpoch)).resolves.toBe(
+      true,
+    );
 
     await expect(getWorkRow(ordinary)).resolves.toMatchObject({ status: "running" });
     await expect(getWorkRow(legacy)).resolves.toMatchObject({ status: "completed" });
     await expect(getWorkRow(nested)).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("fences forced rescheduled-parent completion on the active lease epoch", async () => {
+    const resourceKey = `repo-it-forced-complete-${randomUUID()}`;
+    const id = await insertWorkItem({
+      status: "running",
+      attemptCount: 1,
+      resourceKey,
+      payload: {
+        staleHeadReplacement: {
+          replacementWorkItemId: "replacement-wi",
+          state: "pending-enqueue",
+        },
+      },
+    });
+    const leaseEpoch = await acquireReviewLease(id, resourceKey);
+
+    await expect(forceMarkRescheduledParentCompleted(pool, id, leaseEpoch + 1)).resolves.toBe(
+      false,
+    );
+    await expect(getWorkRow(id)).resolves.toMatchObject({ status: "running" });
+    await expect(forceMarkRescheduledParentCompleted(pool, id, leaseEpoch)).resolves.toBe(true);
   });
 
   it("admits concurrent claims: single-actor exclusion lives on the PR actor lease", async () => {

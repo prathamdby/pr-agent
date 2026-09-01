@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
+import { AppError } from "../src/errors/appError.js";
 import {
   clearDurableAuthCachesForTest,
   mintInstallationToken,
@@ -761,7 +762,6 @@ describe("runDurableWorkItem", () => {
 
   it("terminal-fails stale-head replacement exhaustion without durable retry", async () => {
     mockFetchedItem(makeItem());
-    const { AppError } = await import("../src/errors/appError.js");
     const boom = new AppError({
       code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
       message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
@@ -780,6 +780,30 @@ describe("runDurableWorkItem", () => {
       boom,
       1,
     );
+  });
+
+  it("runs cancellation cleanup when a head mismatch becomes skippable after execute", async () => {
+    const item = makeItem({ status: "running" });
+    mockFetchedItem(item);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const mismatch = new AppError({
+      code: "github.head_sha_mismatch",
+      message: "Pull request head SHA new does not match work item headSha old",
+    });
+    const execute = vi.fn().mockRejectedValue(mismatch);
+    const onCancelled = vi.fn().mockResolvedValue(undefined);
+
+    await runReviewWorkItem({ execute, onCancelled });
+
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
+    expect(onCancelled).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wi-1" }),
+      expect.anything(),
+      "skipped_after_error",
+      1,
+    );
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
   it("on terminal pg-boss attempt: marks failed and invokes onTerminalFailure", async () => {
@@ -819,6 +843,29 @@ describe("runDurableWorkItem", () => {
     expect(onTerminalFailure).not.toHaveBeenCalled();
   });
 
+  it("does not complete a rescheduled parent without a lease epoch", async () => {
+    mockFetchedItem(makeItem({ status: "running" }));
+    const afterComplete = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
+
+    await runDurableWorkItem({
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "review",
+      resolveHeadSha: async () => ({ headSha: "x" }),
+      execute,
+    });
+
+    expect(afterComplete).not.toHaveBeenCalled();
+    expect(repo.forceMarkRescheduledParentCompleted).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: null }),
+    );
+  });
+
   it("completes rescheduled parent via force mark when markWorkCompleted races", async () => {
     mockFetchedItem(
       makeItem({
@@ -841,7 +888,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(afterComplete).toHaveBeenCalledWith(boss);
-    expect(repo.forceMarkRescheduledParentCompleted).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.forceMarkRescheduledParentCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
@@ -1092,7 +1139,6 @@ describe("runDurableWorkItem", () => {
 
   it("swallows lease-lost errors without terminalising", async () => {
     mockFetchedItem(makeItem());
-    const { AppError } = await import("../src/errors/appError.js");
     const boom = new AppError({
       code: "agent_work.pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
