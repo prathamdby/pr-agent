@@ -120,6 +120,28 @@ export async function isPrActorLeaseHeld(
   return row != null;
 }
 
+export async function lockPrActorLeaseForUpdate(
+  client: PoolClient,
+  workItemId: string,
+  leaseEpoch: number,
+): Promise<void> {
+  const row = await queryOne<{ ok: number }>(
+    client,
+    `SELECT 1 AS ok
+       FROM pr_actor_leases
+      WHERE work_item_id = $1
+        AND lease_epoch = $2
+      FOR UPDATE`,
+    [workItemId, leaseEpoch],
+  );
+  if (row != null) return;
+  throw new AppError({
+    code: "agent_work.pr_actor_lease_lost",
+    message: "PR actor lease is no longer held by this execution",
+    context: { workItemId, leaseEpoch },
+  });
+}
+
 /** Fencing check before any durable write or GitHub mutation from a leased execution. */
 export async function assertPrActorLeaseHeld(
   db: Pool | PoolClient,

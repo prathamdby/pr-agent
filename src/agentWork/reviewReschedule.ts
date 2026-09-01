@@ -7,6 +7,7 @@ import { logInfo, logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
 import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
+import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
 import {
   installationGroupId,
@@ -113,8 +114,9 @@ export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
 export async function buildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,
+  leaseEpoch: number,
 ): Promise<StaleReviewRescheduleResult> {
-  const replacement = await createReviewRescheduleWorkItem(pool, item);
+  const replacement = await createReviewRescheduleWorkItem(pool, item, leaseEpoch);
   let replacementEnqueued = false;
   return {
     kind: "rescheduled",
@@ -126,6 +128,7 @@ export async function buildStaleReviewRescheduleResult(
         item,
         replacement.replacementWorkItemId,
         replacement.headSha,
+        leaseEpoch,
       );
       replacementEnqueued = true;
     },
@@ -146,9 +149,10 @@ export async function buildStaleReviewRescheduleResult(
 export async function tryBuildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,
+  leaseEpoch: number,
 ): Promise<StaleReviewRescheduleResult | null> {
   try {
-    return await buildStaleReviewRescheduleResult(pool, item);
+    return await buildStaleReviewRescheduleResult(pool, item, leaseEpoch);
   } catch (error) {
     if (isStaleHeadParentNotReschedulable(error)) return null;
     throw error;
@@ -158,8 +162,10 @@ export async function tryBuildStaleReviewRescheduleResult(
 export async function createReviewRescheduleWorkItem(
   pool: Pool,
   item: ReviewWorkItem,
+  leaseEpoch: number,
 ): Promise<ReviewRescheduleWorkItem> {
   return inTransaction(pool, async (client) => {
+    await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
     const parentLive = await client.query<{ id: string }>(
       `SELECT id FROM agent_work_items
         WHERE id = $1
@@ -320,11 +326,13 @@ export async function enqueueReviewReschedule(
   item: ReviewWorkItem,
   workItemId: string,
   replacementHeadSha: string,
+  leaseEpoch: number,
 ): Promise<void> {
   const reviewLens = item.reviewLens;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
 
   await inTransaction(pool, async (client) => {
+    await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
     const db = pgBossDb(client);
 
     const reviewData: ReviewJobData = {

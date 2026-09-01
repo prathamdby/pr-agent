@@ -135,7 +135,7 @@ export type ReviewWorkPayload = {
   readonly ackTargets?: readonly AckTarget[];
   /** Set when the run finished but structured publish did not succeed */
   readonly publishDegraded?: boolean;
-  /** Set on a one-time replacement run after stale head at publish time */
+  /** Set on the one-time replacement run after stale-head detection. */
   readonly staleHeadRescheduled?: boolean;
   /** Parent-owned replacement lifecycle. Absent when this review has no replacement. */
   readonly staleHeadReplacement?: StaleHeadReplacement;

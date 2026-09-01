@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { applySlashCommandIntake } from "../../src/agentWork/intake/slashIntake.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import {
   cancelOrphanedStaleHeadReplacementOnTerminalFailure,
   createReviewRescheduleWorkItem,
@@ -86,6 +87,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
+    await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
     boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
@@ -99,10 +101,23 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
     await deleteQueueJobs(boss);
   });
+
+  async function acquireReviewLease(workItemId: string, resourceKey: string): Promise<number> {
+    const acquisition = await acquirePrActorLease(pool, {
+      resourceKey,
+      workType: "review",
+      workItemId,
+      holderId: "slash-uniq-it-holder",
+      ttlSeconds: 900,
+    });
+    if (!acquisition.acquired) throw new Error(`expected lease acquisition for ${workItemId}`);
+    return acquisition.leaseEpoch;
+  }
 
   function makeDescribeInput(repo: string, delivery: string, commentId: number) {
     return {
@@ -642,10 +657,11 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
         },
       },
     });
+    const leaseEpoch = await acquireReviewLease(parentId, resourceKey);
 
-    await enqueueReviewReschedule(pool, boss, parent, replacementId, "sha-new");
+    await enqueueReviewReschedule(pool, boss, parent, replacementId, "sha-new", leaseEpoch);
     await boss.complete(REVIEW_QUEUE, replacementId, null, { includeQueued: true });
-    await enqueueReviewReschedule(pool, boss, parent, replacementId, "sha-new");
+    await enqueueReviewReschedule(pool, boss, parent, replacementId, "sha-new", leaseEpoch);
 
     const reviewJobs = await boss.findJobs(REVIEW_QUEUE, { id: replacementId });
     expect(reviewJobs).toHaveLength(1);
@@ -696,18 +712,23 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     const parent = await getWorkItem(pool, parentId);
     expect(parent?.type).toBe("review");
     if (parent?.type !== "review") throw new Error("expected review parent");
+    const leaseEpoch = await acquireReviewLease(parentId, resourceKey);
 
-    const first = await createReviewRescheduleWorkItem(pool, parent);
-    const second = await createReviewRescheduleWorkItem(pool, {
-      ...parent,
-      payload: {
-        ...parent.payload,
-        staleHeadReplacement: {
-          replacementWorkItemId: first.replacementWorkItemId,
-          state: "pending-enqueue",
+    const first = await createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
+    const second = await createReviewRescheduleWorkItem(
+      pool,
+      {
+        ...parent,
+        payload: {
+          ...parent.payload,
+          staleHeadReplacement: {
+            replacementWorkItemId: first.replacementWorkItemId,
+            state: "pending-enqueue",
+          },
         },
       },
-    });
+      leaseEpoch,
+    );
     expect(second.replacementWorkItemId).toBe(first.replacementWorkItemId);
 
     const persisted = await getWorkItem(pool, parentId);

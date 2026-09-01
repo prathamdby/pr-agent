@@ -303,6 +303,7 @@ export async function markWorkCompleted(
 export async function forceMarkRescheduledParentCompleted(
   pool: Pool,
   id: string,
+  leaseEpoch: number,
 ): Promise<boolean> {
   const result = await pool.query(
     `UPDATE agent_work_items
@@ -312,8 +313,9 @@ export async function forceMarkRescheduledParentCompleted(
 		  WHERE id = $1
 		    AND cancel_requested_at IS NULL
 		    AND ${STALE_HEAD_REPLACEMENT_ID_SQL} IS NOT NULL
-		    AND status IN ('running', 'queued')`,
-    [id],
+		    AND status IN ('running', 'queued')
+		    ${leaseFenceSql(2)}`,
+    [id, leaseEpoch],
   );
   return (result.rowCount ?? 0) > 0;
 }

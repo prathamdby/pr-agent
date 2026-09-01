@@ -9,8 +9,10 @@ import {
   releasePrActorLease,
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
 import {
   claimWorkForExecution,
+  getWorkItem,
   markWorkCompleted,
   markWorkPublishDegraded,
   updateRunningWorkHeadSha,
@@ -51,7 +53,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
          id, type, source, status, owner, repo, pr_number, installation_id,
          head_sha, review_lens, resource_key, payload
        )
-       VALUES ($1, 'review', 'auto', 'queued', $2, 'r', 1, 1, 'h', 'review', $3, '{}'::jsonb)`,
+       VALUES (
+         $1, 'review', 'auto', 'queued', $2, 'r', 1, 1, 'h', 'review', $3,
+         '{"mode":"review","source":"auto"}'::jsonb
+       )`,
       [id, OWNER, resourceKey],
     );
     await claimWorkForExecution(pool, id);
@@ -208,5 +213,84 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const row = await getLeaseRow(resourceKey);
     expect(row.work_item_id).toBe(second);
     expect(Number(row.lease_epoch)).toBe(2);
+  });
+
+  it("holds the lease-row lock until the stale-head handoff transaction commits", async () => {
+    const resourceKey = `${OWNER}/locked-handoff-${randomUUID().slice(0, 8)}#1`;
+    const parentId = await insertRunningWorkItem(resourceKey);
+    const successorId = await insertRunningWorkItem(resourceKey);
+    const acquisition = await acquire(resourceKey, parentId);
+    if (!acquisition.acquired) throw new Error("expected parent lease acquisition to succeed");
+    await pool.query(
+      `UPDATE pr_actor_leases
+          SET expires_at = now() - interval '1 second'
+        WHERE resource_key = $1 AND work_type = 'review'`,
+      [resourceKey],
+    );
+    const parent = await getWorkItem(pool, parentId);
+    if (parent?.type !== "review") throw new Error("expected review parent");
+
+    const blocker = await pool.connect();
+    const contender = await pool.connect();
+    const observer = await pool.connect();
+    let blockerOpen = false;
+    let handoff: ReturnType<typeof createReviewRescheduleWorkItem> | undefined;
+    let takeover: ReturnType<typeof acquirePrActorLease> | undefined;
+    try {
+      await blocker.query("BEGIN");
+      blockerOpen = true;
+      await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [parentId]);
+
+      handoff = createReviewRescheduleWorkItem(pool, parent, acquisition.leaseEpoch);
+      await expect
+        .poll(async () => {
+          const { rows } = await observer.query<{ count: number }>(
+            `SELECT COUNT(*)::int AS count
+               FROM pg_stat_activity
+              WHERE datname = current_database()
+                AND wait_event_type = 'Lock'
+                AND query LIKE '%SELECT id FROM agent_work_items%'`,
+          );
+          return rows[0]?.count ?? 0;
+        })
+        .toBeGreaterThan(0);
+
+      const { rows: contenderRows } = await contender.query<{ pid: number }>(
+        "SELECT pg_backend_pid() AS pid",
+      );
+      const contenderPid = contenderRows[0]?.pid;
+      if (contenderPid == null) throw new Error("missing contender backend pid");
+      takeover = acquirePrActorLease(contender, {
+        resourceKey,
+        workType: "review",
+        workItemId: successorId,
+        holderId: "lease-it-successor",
+        ttlSeconds: TTL_SECONDS,
+      });
+
+      await expect
+        .poll(async () => {
+          const { rows } = await observer.query<{ wait_event_type: string | null }>(
+            "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1",
+            [contenderPid],
+          );
+          return rows[0]?.wait_event_type;
+        })
+        .toBe("Lock");
+
+      await blocker.query("COMMIT");
+      blockerOpen = false;
+      await expect(handoff).resolves.toMatchObject({
+        replacementWorkItemId: expect.any(String),
+      });
+      await expect(takeover).resolves.toEqual({ acquired: true, leaseEpoch: 2 });
+    } finally {
+      if (blockerOpen) await blocker.query("ROLLBACK");
+      await handoff?.catch(() => undefined);
+      await takeover?.catch(() => undefined);
+      blocker.release();
+      contender.release();
+      observer.release();
+    }
   });
 });

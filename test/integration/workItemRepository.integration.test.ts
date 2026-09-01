@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
 import { inTransaction } from "../../src/db/postgres.js";
+import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import {
   createAskWorkItem,
   createDescriptionWorkItem,
@@ -47,6 +48,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
+    await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
   });
@@ -56,9 +58,22 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
   });
+
+  async function acquireReviewLease(workItemId: string, resourceKey: string): Promise<number> {
+    const acquisition = await acquirePrActorLease(pool, {
+      resourceKey,
+      workType: "review",
+      workItemId,
+      holderId: "work-item-repo-it-holder",
+      ttlSeconds: 900,
+    });
+    if (!acquisition.acquired) throw new Error(`expected lease acquisition for ${workItemId}`);
+    return acquisition.leaseEpoch;
+  }
 
   it("returns created id for slash review and records progress_comment", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
@@ -355,8 +370,9 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     const parent = await getWorkItem(pool, parentId);
     expect(parent?.type).toBe("review");
     if (parent?.type !== "review") throw new Error("expected review parent");
+    const leaseEpoch = await acquireReviewLease(parentId, resourceKey);
 
-    const replacement = await createReviewRescheduleWorkItem(pool, parent);
+    const replacement = await createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
     const owner = await getProgressCommentOwner(pool, resourceKey, "review");
 
     const persistedParent = await getWorkItem(pool, parentId);
@@ -368,7 +384,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     });
     expect(persistedParent.payload).not.toHaveProperty("staleHeadReplacementWorkItemId");
 
-    const reused = await createReviewRescheduleWorkItem(pool, persistedParent);
+    const reused = await createReviewRescheduleWorkItem(pool, persistedParent, leaseEpoch);
     expect(reused.replacementWorkItemId).toBe(replacement.replacementWorkItemId);
     const { rows: replacements } = await pool.query<{ id: string }>(
       `SELECT id FROM agent_work_items WHERE resource_key = $1 AND id <> $2`,

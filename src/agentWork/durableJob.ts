@@ -286,7 +286,7 @@ async function finishRescheduledParentWorkItem(
   itemId: string,
   type: WorkType,
   replacementWorkItemId: string,
-  leaseEpoch: number | null,
+  leaseEpoch: number,
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId, leaseEpoch)) {
     await clearResumeSnapshotsBestEffort(pool, itemId);
@@ -309,7 +309,7 @@ async function finishRescheduledParentWorkItem(
     });
     return;
   }
-  if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
+  if (await forceMarkRescheduledParentCompleted(pool, itemId, leaseEpoch)) {
     await clearResumeSnapshotsBestEffort(pool, itemId);
     logInfo("agent_work_completed", {
       type,
@@ -652,6 +652,13 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function completeRescheduledResult(
     result: Extract<DurableExecutionResult, { kind: "rescheduled" }>,
   ): Promise<void> {
+    if (leaseEpoch == null) {
+      throw new AppError({
+        code: "agent_work.pr_actor_lease_lost",
+        message: "PR actor lease is no longer held by this execution",
+        context: { workItemId: item.id },
+      });
+    }
     pendingRescheduleAbort = result.onRescheduleAbort;
     await result.afterComplete(spec.boss);
     // Enqueue finished (or was already done); do not cancel the replacement if parent complete fails.
