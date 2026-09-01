@@ -52,6 +52,7 @@ import {
   type OrchestratedRunState,
   type ReviewCoverage,
   type ReviewRunGate,
+  type ReviewRunGateResult,
   type ReviewRunTiming,
   type SpecialistId,
   type SpecialistOutcome,
@@ -448,6 +449,35 @@ export async function runOrchestratedPrReview(
     abortSpecialists();
     await retireSession();
     return true;
+  };
+
+  /** Map a non-continue gate result onto the shared stop path; true when the run stopped. */
+  const stopFromGateResult = async (gate: ReviewRunGateResult): Promise<boolean> => {
+    if (gate.kind === "continue") return false;
+    state.lifecycle =
+      gate.kind === "stop"
+        ? gate.reason === "cancelled"
+          ? {
+              kind: "stopped",
+              reason: "cancelled",
+              attribution: gate.attribution,
+            }
+          : { kind: "stopped", reason: gate.reason }
+        : { kind: "finalizing", reason: gate.reason };
+    abortSpecialists();
+    await retireSession();
+    return true;
+  };
+
+  /**
+   * Fast cancel probe while the pump waits on specialists: one cheap durable-state
+   * read; a hit routes through the full gate so stop reasons stay single-sourced.
+   */
+  const pollWatch = async (): Promise<void> => {
+    const watch = params.gate.watch;
+    if (watch == null || state.lifecycle.kind !== "running") return;
+    if (!(await watch.cancelled())) return;
+    await stopFromGateResult(await params.gate.check());
   };
 
   const sendWithRetry = async (
@@ -948,24 +978,16 @@ export async function runOrchestratedPrReview(
     const outcomes = await pumpSpecialistCompletions({
       pending,
       shouldContinue: () => state.lifecycle.kind === "running",
+      watch:
+        params.gate.watch == null
+          ? undefined
+          : {
+              intervalMs: params.gate.watch.intervalMs,
+              onPoll: pollWatch,
+            },
       onOutcome: async (outcome) => {
         try {
-          const gate = await params.gate.check();
-          if (gate.kind !== "continue") {
-            state.lifecycle =
-              gate.kind === "stop"
-                ? gate.reason === "cancelled"
-                  ? {
-                      kind: "stopped",
-                      reason: "cancelled",
-                      attribution: gate.attribution,
-                    }
-                  : { kind: "stopped", reason: gate.reason }
-                : { kind: "finalizing", reason: gate.reason };
-            abortSpecialists();
-            await retireSession();
-            return;
-          }
+          if (await stopFromGateResult(await params.gate.check())) return;
 
           await recordOutcome(outcome);
           if (outcome.kind !== "report") return;

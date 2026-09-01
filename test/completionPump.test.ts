@@ -197,6 +197,83 @@ describe("pumpSpecialistCompletions", () => {
     ]);
   });
 
+  it("polls the watch while waiting and stops handling once it closes the gate", async () => {
+    const correctness = deferred<SpecialistOutcome>();
+    const security = deferred<SpecialistOutcome>();
+    const handled: SpecialistId[] = [];
+    const pollCount = { value: 0 };
+    let gateOpen = true;
+    const pump = pumpSpecialistCompletions({
+      pending: new Map([
+        ["correctness", correctness.promise],
+        ["security", security.promise],
+      ]),
+      onOutcome: async (outcome) => {
+        handled.push(outcome.specialist);
+      },
+      shouldContinue: () => gateOpen,
+      watch: {
+        intervalMs: 5,
+        onPoll: async () => {
+          pollCount.value += 1;
+          // The poll observed a durable cancel request mid-run.
+          gateOpen = false;
+        },
+      },
+    });
+
+    // No specialist settles on its own; only the watch fires during the wait.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    correctness.resolve(emptyOutcome("correctness"));
+    security.resolve(emptyOutcome("security"));
+
+    const outcomes = await pump;
+
+    expect(pollCount.value).toBeGreaterThanOrEqual(1);
+    expect(handled).toEqual([]);
+    expect(outcomes.map((outcome) => outcome.specialist)).toEqual(["correctness", "security"]);
+  });
+
+  it("logs a watch poll failure and keeps delivering later outcomes", async () => {
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    const correctness = deferred<SpecialistOutcome>();
+    const security = deferred<SpecialistOutcome>();
+    const handled: SpecialistId[] = [];
+    let gateOpen = true;
+    let pollFails = true;
+    const pump = pumpSpecialistCompletions({
+      pending: new Map([
+        ["correctness", correctness.promise],
+        ["security", security.promise],
+      ]),
+      onOutcome: async (outcome) => {
+        handled.push(outcome.specialist);
+      },
+      shouldContinue: () => gateOpen,
+      watch: {
+        intervalMs: 5,
+        onPoll: async () => {
+          if (pollFails) throw new Error("db read failed");
+          gateOpen = false;
+        },
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    pollFails = false;
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    correctness.resolve(emptyOutcome("correctness"));
+    security.resolve(emptyOutcome("security"));
+
+    await pump;
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_specialist_gate_poll_failed",
+      expect.objectContaining({ errorMessage: "db read failed" }),
+    );
+    expect(handled).toEqual([]);
+  });
+
   it("logs a handler failure and continues with later specialist outcomes", async () => {
     const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     const correctness = deferred<SpecialistOutcome>();

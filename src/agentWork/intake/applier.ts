@@ -3,10 +3,15 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
 import {
+  DEFERRED_HEAD_SHA,
   REVIEW_CANCELLED_PR_CLOSED,
   reviewCancelAttributionForClosedPr,
 } from "../../settings/index.js";
-import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
+import {
+  replaceActiveAutoWorkItem,
+  replaceAutoWorkItem,
+  type AutoWorkSupersedeTarget,
+} from "../autoWorkEnqueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
@@ -153,6 +158,69 @@ async function applyPlannedAutomatedPullRequestIntake(
         },
       })),
     );
+  }
+
+  if (plan.kinds.includes("reviewSupersede")) {
+    const supersedeAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+    const { workItemId, supersededIds } = await replaceActiveAutoWorkItem({
+      client,
+      target: {
+        kind: "review",
+        resourceKey,
+      },
+      createWorkItem: () =>
+        createReviewWorkItem(client, {
+          webhookEventId: event.id,
+          // Deferred head: the replacement resolves the newest head at claim
+          // time, after the cancelled run releases the PR actor lease.
+          ref: { ...ref, headSha: DEFERRED_HEAD_SHA },
+          source: "auto",
+          ackTargets: supersedeAckTargets,
+        }),
+    });
+    if (workItemId != null) {
+      const ackData: AckJobData = {
+        kind: "ack",
+        workItemId,
+        installationId: ref.installationId,
+        owner: ref.owner,
+        repo: ref.repo,
+        prNumber: ref.prNumber,
+        targets: supersedeAckTargets,
+        progress: {
+          lens: "review",
+          headSha: DEFERRED_HEAD_SHA,
+          source: "auto",
+        },
+        ...correlation,
+      };
+      await enqueueAck(boss, client, ackData);
+      await enqueueReview(boss, client, ref, workItemId, correlation);
+      events.push(
+        {
+          name: "agent_work_cancel_requested",
+          fields: {
+            type: "review",
+            source: "auto",
+            workItemId: supersededIds[0],
+            resourceKey,
+            cancelledCount: supersededIds.length,
+            cancelledIds: supersededIds,
+            ...correlation,
+          },
+        },
+        {
+          name: "agent_work_enqueued",
+          fields: {
+            type: "review",
+            source: "auto",
+            workItemId,
+            resourceKey,
+            ...correlation,
+          },
+        },
+      );
+    }
   }
 
   if (plan.kinds.includes("description")) {

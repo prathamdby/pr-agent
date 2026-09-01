@@ -980,6 +980,34 @@ describe("runOrchestratedPrReview", () => {
     ]);
   });
 
+  it("aborts and joins every provider promise when the cancel watch fires during the pump wait", async () => {
+    let gateChecks = 0;
+    let cancelRequested = false;
+    const run = runOrchestratedPrReview({
+      ...params(),
+      gate: {
+        check: async () => {
+          gateChecks += 1;
+          return gateChecks === 1 ? { kind: "continue" } : { kind: "stop", reason: "superseded" };
+        },
+        watch: {
+          cancelled: async () => cancelRequested,
+          intervalMs: 5,
+        },
+      },
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+    // No specialist outcome resolves on its own: the durable cancel request is
+    // the only thing that can end this run while the pump waits.
+    cancelRequested = true;
+
+    await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
+    expect(gateChecks).toBeGreaterThanOrEqual(2);
+    expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
+    expect(testState.publishOrder).toEqual([]);
+    expect(testState.sessionDisposals).toBe(1);
+  });
+
   it("finalizes returned reports deterministically at the model deadline", async () => {
     let gateChecks = 0;
     const run = runOrchestratedPrReview(

@@ -1,9 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
-import { replaceAutoWorkItem } from "../src/agentWork/autoWorkEnqueue.js";
+import {
+  replaceActiveAutoWorkItem,
+  replaceAutoWorkItem,
+} from "../src/agentWork/autoWorkEnqueue.js";
 
-function mockClient(): PoolClient & { lockKeys: unknown[] } {
+function mockClient(options?: { readonly activeIds?: readonly string[] }): PoolClient & {
+  lockKeys: unknown[];
+  linkedIds: readonly string[];
+} {
   const lockKeys: unknown[] = [];
+  const activeIds = options?.activeIds ?? [];
+  let linkedIds: readonly string[] = [];
   return {
     lockKeys,
     query: vi.fn(async (sql: string, params?: unknown[]) => {
@@ -11,15 +19,22 @@ function mockClient(): PoolClient & { lockKeys: unknown[] } {
         lockKeys.push(params?.[0]);
         return { rows: [], rowCount: 0 };
       }
-      if (sql.includes("UPDATE agent_work_items") && sql.includes("superseded")) {
+      if (sql.includes("superseded_by")) {
+        linkedIds = (params?.[1] as readonly string[]) ?? [];
         return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("UPDATE agent_work_items") && sql.includes("superseded")) {
+        return { rows: activeIds.map((id) => ({ id })), rowCount: activeIds.length };
       }
       if (sql.includes("cancel_requested_at")) {
         return { rows: [], rowCount: 0 };
       }
       return { rows: [], rowCount: 0 };
     }),
-  } as unknown as PoolClient & { lockKeys: unknown[] };
+    get linkedIds() {
+      return linkedIds;
+    },
+  } as unknown as PoolClient & { lockKeys: unknown[]; linkedIds: readonly string[] };
 }
 
 describe("replaceAutoWorkItem", () => {
@@ -56,5 +71,35 @@ describe("replaceAutoWorkItem", () => {
     });
 
     expect(reviewClient.lockKeys[0]).not.toEqual(descriptionClient.lockKeys[0]);
+  });
+
+  it("creates a replacement and links superseded rows when active work exists", async () => {
+    const client = mockClient({ activeIds: ["queued-1"] });
+    const createWorkItem = vi.fn(async () => "replacement-id");
+
+    const result = await replaceActiveAutoWorkItem({
+      client,
+      target: { kind: "review", resourceKey: "owner/repo#42" },
+      createWorkItem,
+    });
+
+    expect(result).toEqual({ workItemId: "replacement-id", supersededIds: ["queued-1"] });
+    expect(createWorkItem).toHaveBeenCalledTimes(1);
+    expect(client.linkedIds).toEqual(["queued-1"]);
+  });
+
+  it("creates no replacement when no active auto work exists", async () => {
+    const client = mockClient();
+    const createWorkItem = vi.fn(async () => "replacement-id");
+
+    const result = await replaceActiveAutoWorkItem({
+      client,
+      target: { kind: "review", resourceKey: "owner/repo#42" },
+      createWorkItem,
+    });
+
+    expect(result).toEqual({ workItemId: null, supersededIds: [] });
+    expect(createWorkItem).not.toHaveBeenCalled();
+    expect(client.linkedIds).toEqual([]);
   });
 });

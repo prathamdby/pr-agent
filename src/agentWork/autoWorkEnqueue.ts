@@ -69,6 +69,24 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   };
 }
 
+/**
+ * Supersede queued auto work and request cancel on running rows under the intake
+ * lock. Returns the affected ids; an empty list means no active auto work.
+ */
+async function supersedeActiveAutoWork(
+  client: PoolClient,
+  target: AutoWorkSupersedeTarget,
+): Promise<readonly string[]> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    autoWorkIntakeLockKey(target),
+  ]);
+  const queuedQuery = supersedeQueuedSql(target);
+  const runningQuery = cancelRunningSql(target);
+  const queued = await client.query<{ id: string }>(queuedQuery.sql, queuedQuery.params);
+  const running = await client.query<{ id: string }>(runningQuery.sql, runningQuery.params);
+  return [...queued.rows, ...running.rows].map((r) => r.id);
+}
+
 /** Supersede queued auto work, request cancel on running, create replacement, link superseded rows. */
 export async function replaceAutoWorkItem(params: {
   readonly client: PoolClient;
@@ -78,14 +96,7 @@ export async function replaceAutoWorkItem(params: {
   readonly workItemId: string;
   readonly supersededIds: readonly string[];
 }> {
-  await params.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-    autoWorkIntakeLockKey(params.target),
-  ]);
-  const queuedQuery = supersedeQueuedSql(params.target);
-  const runningQuery = cancelRunningSql(params.target);
-  const queued = await params.client.query<{ id: string }>(queuedQuery.sql, queuedQuery.params);
-  const running = await params.client.query<{ id: string }>(runningQuery.sql, runningQuery.params);
-  const supersededIds = [...queued.rows, ...running.rows].map((r) => r.id);
+  const supersededIds = await supersedeActiveAutoWork(params.client, params.target);
   const workItemId = await params.createWorkItem();
   if (supersededIds.length > 0) {
     await params.client.query(
@@ -93,5 +104,30 @@ export async function replaceAutoWorkItem(params: {
       [workItemId, supersededIds],
     );
   }
+  return { workItemId, supersededIds };
+}
+
+/**
+ * Like replaceAutoWorkItem, but the replacement is created only when active auto
+ * work exists. A push must not start a review on a PR whose review already
+ * finished; it only redirects work that is still queued or running.
+ */
+export async function replaceActiveAutoWorkItem(params: {
+  readonly client: PoolClient;
+  readonly target: AutoWorkSupersedeTarget;
+  readonly createWorkItem: () => Promise<string>;
+}): Promise<{
+  readonly workItemId: string | null;
+  readonly supersededIds: readonly string[];
+}> {
+  const supersededIds = await supersedeActiveAutoWork(params.client, params.target);
+  if (supersededIds.length === 0) {
+    return { workItemId: null, supersededIds };
+  }
+  const workItemId = await params.createWorkItem();
+  await params.client.query(
+    `UPDATE agent_work_items SET superseded_by = $1 WHERE id = ANY($2::uuid[])`,
+    [workItemId, supersededIds],
+  );
   return { workItemId, supersededIds };
 }

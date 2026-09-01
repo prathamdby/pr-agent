@@ -5,6 +5,12 @@ export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
+/**
+ * How often the orchestrator polls durable cancel state while specialists run.
+ * Gate checks fire at send boundaries only; this closes the gap between them.
+ */
+export const REVIEW_CANCEL_POLL_INTERVAL_MS = 2_000;
+
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
 export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =

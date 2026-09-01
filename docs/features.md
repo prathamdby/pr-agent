@@ -7,8 +7,10 @@ Everything else is deployment wiring or operator tuning (see
 Modes: `off` = disabled entirely (slash commands reply with a notice, nothing
 runs), `manual` = slash command only, `auto` = slash command plus an automatic
 trigger. Auto triggers are fixed: review and describe fire when a PR is
-`opened`; verification fires on `synchronize` (every push). Custom trigger
-sets are intentionally not supported.
+`opened`; verification fires on `synchronize` (every push). A push while an
+auto review is still running cancels that review and replaces it with one for
+the new head; a push after the review finishes does not re-review. Custom
+trigger sets are intentionally not supported.
 
 | Setting                 | Values                             | Default  | Spends tokens? | What it does                                                                                 |
 | ----------------------- | ---------------------------------- | -------- | -------------- | -------------------------------------------------------------------------------------------- |

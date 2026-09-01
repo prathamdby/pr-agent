@@ -64,6 +64,7 @@ import {
   REPO_POLICY_DIRNAME,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
+  REVIEW_CANCEL_POLL_INTERVAL_MS,
   REVIEW_FINALIZATION_WINDOW_MS,
 } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
@@ -203,6 +204,12 @@ function reviewRunGate(args: {
       }
       if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
       return { kind: "continue" };
+    },
+    // One durable-state read per interval; a push that supersedes this review is
+    // observed mid-specialist instead of at the next gate checkpoint.
+    watch: {
+      cancelled: () => shouldSkipWork(args.pool, args.item),
+      intervalMs: REVIEW_CANCEL_POLL_INTERVAL_MS,
     },
   };
 }

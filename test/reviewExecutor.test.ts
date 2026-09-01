@@ -452,7 +452,13 @@ describe("executeReviewJob", () => {
         remainingModelMs: (now?: number) => number;
         remainingTotalMs: (now?: number) => number;
       };
-      gate: { check: () => Promise<{ kind: string }> };
+      gate: {
+        check: () => Promise<{ kind: string }>;
+        watch: {
+          cancelled: () => Promise<boolean>;
+          intervalMs: number;
+        };
+      };
       prTitle: string;
       prBody: string | null;
     };
@@ -462,6 +468,13 @@ describe("executeReviewJob", () => {
     await expect(params.gate.check()).resolves.toEqual({ kind: "continue" });
     expect(params.prTitle).toBe("");
     expect(params.prBody).toBeNull();
+
+    // The watch is the fast cancel probe the orchestrator polls mid-specialist:
+    // it must report the same durable cancel state the full gate checks.
+    mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    await expect(params.gate.watch.cancelled()).resolves.toBe(true);
+    await expect(params.gate.watch.cancelled()).resolves.toBe(false);
+    expect(params.gate.watch.intervalMs).toBeGreaterThan(0);
   });
 
   it("routes a stale-head gate stop through the existing slash reschedule path", async () => {

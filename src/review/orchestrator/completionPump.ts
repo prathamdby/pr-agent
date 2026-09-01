@@ -6,6 +6,11 @@ export async function pumpSpecialistCompletions(args: {
   readonly pending: ReadonlyMap<SpecialistId, Promise<SpecialistOutcome>>;
   readonly onOutcome: (outcome: SpecialistOutcome) => Promise<void>;
   readonly shouldContinue: () => boolean;
+  /** Optional poll while waiting: races each wait against intervalMs. */
+  readonly watch?: {
+    readonly intervalMs: number;
+    readonly onPoll: () => Promise<void>;
+  };
 }): Promise<SpecialistOutcome[]> {
   const completed: SpecialistOutcome[] = [];
   let notifyCompletion: (() => void) | undefined;
@@ -23,9 +28,36 @@ export async function pumpSpecialistCompletions(args: {
     while (true) {
       const outcome = completed.shift();
       if (outcome !== undefined) return outcome;
-      await new Promise<void>((resolve) => {
-        notifyCompletion = resolve;
+      const timedOut = await new Promise<boolean>((resolve) => {
+        let settled = false;
+        const timer =
+          args.watch == null
+            ? undefined
+            : setTimeout(() => {
+                if (!settled) {
+                  settled = true;
+                  resolve(true);
+                }
+              }, args.watch.intervalMs);
+        notifyCompletion = () => {
+          if (!settled) {
+            settled = true;
+            if (timer != null) clearTimeout(timer);
+            resolve(false);
+          }
+        };
       });
+      if (!timedOut) continue;
+      try {
+        await args.watch?.onPoll();
+      } catch (error) {
+        const appError = toAppError(error, {
+          code: "review.orchestrator_gate_poll_failed",
+        });
+        logWarn("review_specialist_gate_poll_failed", {
+          ...errorLogFields(appError),
+        });
+      }
     }
   }
 
