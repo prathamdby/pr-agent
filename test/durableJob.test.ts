@@ -843,6 +843,29 @@ describe("runDurableWorkItem", () => {
     expect(onTerminalFailure).not.toHaveBeenCalled();
   });
 
+  it("does not complete a rescheduled parent without a lease epoch", async () => {
+    mockFetchedItem(makeItem({ status: "running" }));
+    const afterComplete = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
+
+    await runDurableWorkItem({
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "review",
+      resolveHeadSha: async () => ({ headSha: "x" }),
+      execute,
+    });
+
+    expect(afterComplete).not.toHaveBeenCalled();
+    expect(repo.forceMarkRescheduledParentCompleted).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: null }),
+    );
+  });
+
   it("completes rescheduled parent via force mark when markWorkCompleted races", async () => {
     mockFetchedItem(
       makeItem({

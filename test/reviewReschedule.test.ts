@@ -688,6 +688,44 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
     expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", boom);
   });
 
+  it("cancels a persisted replacement when enqueue loses the lease", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    const leaseLost = new AppError({
+      code: "agent_work.pr_actor_lease_lost",
+      message: "PR actor lease is no longer held by this execution",
+    });
+    mocks.lockPrActorLeaseForUpdate
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(leaseLost);
+    const query = vi.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ head_sha: DEFERRED_HEAD_SHA }],
+    });
+    const pool = { query } as unknown as Pool;
+    const boss = bossWithReviewJobs();
+
+    const result = await buildStaleReviewRescheduleResult(
+      pool,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          ...pendingReplacement("existing-replacement"),
+        },
+      }),
+      LEASE_EPOCH,
+    );
+
+    await expect(result.afterComplete(boss)).rejects.toBe(leaseLost);
+    await result.onRescheduleAbort(boss, leaseLost);
+
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(
+      pool,
+      "existing-replacement",
+      leaseLost,
+    );
+  });
+
   it("does not cancel after afterComplete marks the replacement enqueued", async () => {
     const query = vi
       .fn()

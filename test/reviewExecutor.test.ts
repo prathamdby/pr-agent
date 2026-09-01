@@ -600,6 +600,22 @@ describe("executeReviewJob", () => {
     },
   );
 
+  it("falls through to strict SHA assertion when preflight reschedule is skipped", async () => {
+    mockDurableExecution("auto");
+    vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({
+      ...prFiles,
+      headSha: "new-head",
+    });
+    mocks.shouldSkipWork.mockResolvedValue(true);
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+      code: "github.head_sha_mismatch",
+    });
+
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+  });
+
   it("falls through to strict SHA assertion when stale-head replacement cannot be built", async () => {
     mockDurableExecution("auto");
     vi.spyOn(durableSurfaceBundle.surface, "listChangedFiles").mockResolvedValue({

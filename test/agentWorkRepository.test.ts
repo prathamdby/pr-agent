@@ -18,6 +18,7 @@ import {
   recordPublishStep,
   reserveReviewCheckRun,
   hasActiveReviewWorkItem,
+  forceMarkRescheduledParentCompleted,
 } from "../src/agentWork/repository.js";
 import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
 
@@ -371,5 +372,24 @@ describe("mapWorkItem payload boundary", () => {
     vi.mocked(queryOne).mockResolvedValue(reviewRow({ payload: { question: "wrong type shape" } }));
 
     await expect(getWorkItem(pool, "wi-1")).rejects.toBeInstanceOf(WorkItemPayloadValidationError);
+  });
+});
+
+describe("forceMarkRescheduledParentCompleted", () => {
+  it("fences forced completion on the supplied lease epoch", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 0 });
+    const fencedPool = { query } as unknown as Pool;
+
+    await expect(forceMarkRescheduledParentCompleted(fencedPool, "wi-1", 3)).resolves.toBe(false);
+
+    expect(String(query.mock.calls[0]?.[0])).toContain("pr_actor_leases");
+    expect(query.mock.calls[0]?.[1]).toEqual(["wi-1", 3]);
+  });
+
+  it("returns true when the lease fence matches", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const fencedPool = { query } as unknown as Pool;
+
+    await expect(forceMarkRescheduledParentCompleted(fencedPool, "wi-1", 3)).resolves.toBe(true);
   });
 });
