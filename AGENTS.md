@@ -39,6 +39,8 @@ This file gives agents the operating model for this repository. Direct maintaine
 - Keep scope tied to the requested outcome. Review feedback does not authorize adjacent cleanup or a redesign.
 - Honor explicit stop points. Do not commit, push, open a PR, or start external services past the point the developer requested.
 - Keep context lean. Read the files and history needed to prove the next decision, then act.
+- New test files are opt-in. Do not create unit, integration, end-to-end, or spec files, or new test-only helpers/fixtures, unless the user explicitly requests their creation or approves it first. A request to implement, fix, test, or verify something does not by itself authorize new test files. Assume no by default; ask only when creating them has a concrete benefit, not as a routine step.
+- Prefer running existing tests and direct browser/runtime checks without adding test files. Where test changes are in scope, exercise observable behavior rather than asserting source-code strings, implementation shapes, or that tests exist.
 
 ## Non-negotiables
 
@@ -105,7 +107,7 @@ Start with the smallest check that proves the changed contract, then run the rep
 
 For durable work, webhooks, or database paths, run the integration suite as well as the backend gate. For prompt, policy, or output changes, inspect the generated prompt or published record and verify the relevant seam tests. Record any unavailable external dependency instead of treating an unrun check as a pass.
 
-Keep focused tests proportional to the changed contract. Prefer strengthening the nearest existing test over adding duplicate coverage. Separate an environment or toolchain failure from a repository failure, and record the evidence for that distinction.
+When test changes are already in scope, keep them proportional to the changed contract. Strengthen the nearest existing test. Separate an environment or toolchain failure from a repository failure, and record the evidence for that distinction.
 
 ## Pull requests
 
