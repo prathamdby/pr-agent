@@ -270,6 +270,10 @@ describe("executeReviewJob", () => {
     mocks.buildTrustedContext.mockResolvedValue("trusted");
     mocks.fetchPriorFeedback.mockResolvedValue(undefined);
     mocks.getSummaryCommentGithubId.mockResolvedValue(1);
+    mocks.shouldSkipWork.mockResolvedValue(false);
+    mocks.getWorkItem.mockResolvedValue(null);
+    mocks.hasCompletedPublishStep.mockResolvedValue(false);
+    mocks.buildStaleReschedule.mockReset();
     mockRepositoryView();
     mockDurableExecution("slash");
   });
