@@ -988,9 +988,7 @@ describe("runOrchestratedPrReview", () => {
       gate: {
         check: async () => {
           gateChecks += 1;
-          return cancelRequested
-            ? { kind: "stop", reason: "superseded" }
-            : { kind: "continue" };
+          return cancelRequested ? { kind: "stop", reason: "superseded" } : { kind: "continue" };
         },
         watch: {
           cancelled: async () => cancelRequested,
