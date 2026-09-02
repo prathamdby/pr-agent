@@ -11,7 +11,7 @@ import {
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { REVIEW_CI_SUMMARY_MAX_FAILURES, REVIEW_SUMMARY_SENTINEL } from "../../settings/index.js";
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
-import { createPrSurface } from "../../github/prSurface.js";
+import { createPrSurface, type PrConversationComment } from "../../github/prSurface.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { hasActiveReviewWorkItem } from "../repository.js";
 import type { CiRefreshJobData } from "../types.js";
@@ -64,18 +64,29 @@ export async function executeCiRefreshJob(
     return;
   }
 
-  const conversationComments = await prSurface.listConversationComments();
+  let conversationComments: readonly PrConversationComment[];
+  try {
+    conversationComments = await prSurface.listConversationComments();
+  } catch (error) {
+    logWarn("ci_refresh_list_comments_failed", {
+      owner: data.owner,
+      repo: data.repo,
+      pr: data.prNumber,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
 
   for (const sentinel of SUMMARY_SENTINELS) {
     try {
-      const comment = conversationComments.findLast((c) => (c.body ?? "").startsWith(sentinel));
+      const comment = conversationComments.findLast((c) => c.body.startsWith(sentinel));
       if (comment == null) continue;
 
-      const meta = parseReviewMetaFromCommentBody(comment.body ?? "");
+      const meta = parseReviewMetaFromCommentBody(comment.body);
       if (meta == null || meta.headSha !== data.headSha) continue;
-      if (!commentBodyHasCiSummaryCell(comment.body ?? "")) continue;
+      if (!commentBodyHasCiSummaryCell(comment.body)) continue;
 
-      const patched = patchCiSummaryCellInCommentBody(comment.body ?? "", ciSummary);
+      const patched = patchCiSummaryCellInCommentBody(comment.body, ciSummary);
       if (patched == null || patched === comment.body) continue;
 
       await prSurface.editComment(comment.id, patched);

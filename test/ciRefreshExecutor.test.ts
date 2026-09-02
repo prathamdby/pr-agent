@@ -94,4 +94,14 @@ describe("executeCiRefreshJob", () => {
     ).toBe(true);
     expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(true);
   });
+
+  it("logs and returns without edits when listing comments fails", async () => {
+    vi.spyOn(surfaceBundle.surface, "listConversationComments").mockRejectedValueOnce(
+      new Error("rate limited"),
+    );
+
+    await expect(executeCiRefreshJob(cfg, pool, data)).resolves.toBeUndefined();
+
+    expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
+  });
 });
