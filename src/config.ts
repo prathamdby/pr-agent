@@ -552,7 +552,7 @@ export async function loadConfig() {
     DEFAULT_LOG_LEVEL,
   );
 
-  const logPrettyDefault = process.env.NODE_ENV === "production" ? false : true;
+  const logPrettyDefault = process.env.NODE_ENV !== "production";
   const logPretty = readStrictBoolean(ENV.LOG_PRETTY, logPrettyDefault);
   const logRedact = readStrictBoolean(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
 

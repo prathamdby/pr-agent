@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { AppError } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { CODE_INDEX_CHUNKER_VERSION } from "../settings/index.js";
 import type { CodeIndexChunk } from "./chunker.js";
@@ -89,7 +90,14 @@ export async function ensureBuildingSnapshot(
      RETURNING id, status, chunker_version`,
     [scope.installationId, scope.owner, scope.repo, scope.headSha, CODE_INDEX_CHUNKER_VERSION],
   );
-  return mapSnapshot(rows[0]!);
+  const row = rows[0];
+  if (!row) {
+    throw new AppError({
+      code: "code_index_snapshot_upsert_failed",
+      message: "INSERT did not return a snapshot row",
+    });
+  }
+  return mapSnapshot(row);
 }
 
 export async function getSnapshotById(

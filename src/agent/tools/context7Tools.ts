@@ -84,7 +84,7 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
     description: t.description,
     parameters: toJsonSchema(t.schema, {
       errorMode: "ignore",
-    }) as PiTool["parameters"],
+    }),
   };
 }
 

@@ -1,4 +1,4 @@
-import type { Api, AssistantMessage, ProviderId } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { AgentRunnerTurn } from "../agent/providers/interface.js";
 import type { PiSession } from "../agent/runtime/types.js";
@@ -7,8 +7,8 @@ export function assistantFromText(cfg: Config, text: string, provider: string): 
   return {
     role: "assistant",
     content: text ? [{ type: "text", text }] : [],
-    api: cfg.piApi as Api,
-    provider: (provider || cfg.piProvider) as ProviderId,
+    api: cfg.piApi,
+    provider: provider || cfg.piProvider,
     model: cfg.piModel,
     usage: {
       input: 0,

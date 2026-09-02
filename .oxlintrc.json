@@ -6,7 +6,13 @@
     "suspicious": "warn"
   },
   "rules": {
-    "typescript/no-unsafe-type-assertion": "off"
+    "typescript/no-unsafe-type-assertion": "off",
+    "eslint/no-underscore-dangle": [
+      "warn",
+      {
+        "allow": ["_exhaustive", "__mutating", "__result", "_parentReplacement"]
+      }
+    ]
   },
   "env": {
     "node": true

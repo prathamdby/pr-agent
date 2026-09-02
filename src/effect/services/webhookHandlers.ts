@@ -161,7 +161,7 @@ export const WebhookHandlersCore = Layer.effect(
             intakeLog,
             {
               pushBeforeSha: data.before,
-              merged: data.pull_request.merged === true,
+              merged: data.pull_request.merged,
             },
           );
         }),
