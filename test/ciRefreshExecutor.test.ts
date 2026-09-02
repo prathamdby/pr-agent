@@ -78,7 +78,7 @@ describe("executeCiRefreshJob", () => {
 
     expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
     expect(
-      surfaceBundle.controls.events.some((event) => event.kind === "findProgressComment"),
+      surfaceBundle.controls.events.some((event) => event.kind === "listConversationComments"),
     ).toBe(false);
     expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
   });
@@ -90,8 +90,18 @@ describe("executeCiRefreshJob", () => {
 
     expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
     expect(
-      surfaceBundle.controls.events.some((event) => event.kind === "findProgressComment"),
+      surfaceBundle.controls.events.some((event) => event.kind === "listConversationComments"),
     ).toBe(true);
     expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(true);
+  });
+
+  it("logs and returns without edits when listing comments fails", async () => {
+    vi.spyOn(surfaceBundle.surface, "listConversationComments").mockRejectedValueOnce(
+      new Error("rate limited"),
+    );
+
+    await expect(executeCiRefreshJob(cfg, pool, data)).resolves.toBeUndefined();
+
+    expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
   });
 });
