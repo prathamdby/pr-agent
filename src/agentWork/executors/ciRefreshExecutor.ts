@@ -64,9 +64,11 @@ export async function executeCiRefreshJob(
     return;
   }
 
+  const conversationComments = await prSurface.listConversationComments();
+
   for (const sentinel of SUMMARY_SENTINELS) {
     try {
-      const comment = await prSurface.findProgressComment(sentinel);
+      const comment = conversationComments.findLast((c) => (c.body ?? "").startsWith(sentinel));
       if (comment == null) continue;
 
       const meta = parseReviewMetaFromCommentBody(comment.body ?? "");

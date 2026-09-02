@@ -78,7 +78,7 @@ describe("executeCiRefreshJob", () => {
 
     expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
     expect(
-      surfaceBundle.controls.events.some((event) => event.kind === "findProgressComment"),
+      surfaceBundle.controls.events.some((event) => event.kind === "listConversationComments"),
     ).toBe(false);
     expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
   });
@@ -90,7 +90,7 @@ describe("executeCiRefreshJob", () => {
 
     expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
     expect(
-      surfaceBundle.controls.events.some((event) => event.kind === "findProgressComment"),
+      surfaceBundle.controls.events.some((event) => event.kind === "listConversationComments"),
     ).toBe(true);
     expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(true);
   });
