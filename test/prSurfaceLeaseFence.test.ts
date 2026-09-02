@@ -136,7 +136,6 @@ describe("PrSurface lease mutation boundary", () => {
       ["downloadActionsJobLogs", () => surface.downloadActionsJobLogs(1)],
       ["listCheckRunAnnotations", () => surface.listCheckRunAnnotations(1)],
       ["gitCredentialAuth", () => surface.gitCredentialAuth()],
-      ["gitCredentialToken", () => surface.gitCredentialToken()],
       ["listConversationComments", () => surface.listConversationComments()],
       ["listInlineReviewComments", () => surface.listInlineReviewComments()],
       ["getPullRequestBody", () => surface.getPullRequestBody()],

@@ -775,10 +775,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       return ensureAuth();
     },
 
-    async gitCredentialToken() {
-      return (await ensureAuth()).token;
-    },
-
     async listConversationComments() {
       const { token, expiresAtTs } = await ensureAuth();
       return listConversationCommentsForPr(token, owner, repo, prNumber, expiresAtTs);
