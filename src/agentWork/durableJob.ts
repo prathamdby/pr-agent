@@ -127,6 +127,9 @@ function startLeaseRenewal(
 }
 
 function combineAbortSignals(...signals: readonly AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any([...signals]);
+  }
   const controller = new AbortController();
   const abortFrom = (signal: AbortSignal): void => {
     if (!controller.signal.aborted) controller.abort(signal.reason);
