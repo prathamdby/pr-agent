@@ -395,6 +395,30 @@ const sampleRules = {
   },
 };
 
+describe("glob matching", () => {
+  const globRule = (globs: string[]) => ({
+    filename: "glob.mdc",
+    relativePath: ".pr-agent/glob.mdc",
+    alwaysApply: false,
+    globs,
+    body: "Glob rule.",
+  });
+
+  it("matches root-level and nested .ts files for **/*.ts", () => {
+    const rule = globRule(["**/*.ts"]);
+    expect(ruleConsidersFile(rule, "index.ts")).toBe(true);
+    expect(ruleConsidersFile(rule, "src/index.ts")).toBe(true);
+    expect(ruleConsidersFile(rule, "src/deep/nested/file.ts")).toBe(true);
+    expect(ruleConsidersFile(rule, "index.js")).toBe(false);
+  });
+
+  it("matches files under a prefix for src/**", () => {
+    const rule = globRule(["src/**"]);
+    expect(ruleConsidersFile(rule, "src/app.ts")).toBe(true);
+    expect(ruleConsidersFile(rule, "root.ts")).toBe(false);
+  });
+});
+
 describe("ruleConsidersFile and candidatePolicyPairs", () => {
   const finding = (file: string) => ({ file });
 
