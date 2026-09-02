@@ -27,42 +27,39 @@ import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlace
 import type { ReviewFinding } from "../../src/review/reviewSchema.js";
 import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTestHelpers.js";
 
-export type SubmitReviewState = {
-  published: boolean;
+export type PublishTestState = {
   inlineReviewIds: number[];
   threadCallCount: number;
-  lastValidationError: string | null;
-  publishCallCount: number;
-  publishCallsExhausted: boolean;
   /** Set when publish is skipped (superseded, cancelled, or abort-check failed). */
   publishSuperseded: boolean;
 };
 
-export function createSubmitReviewState(initial?: {
-  readonly published?: boolean;
+export function createPublishTestState(initial?: {
   readonly inlineReviewIds?: readonly number[];
   readonly threadCallCount?: number;
-}): SubmitReviewState {
+}): PublishTestState {
   return {
-    published: initial?.published ?? false,
     inlineReviewIds: [...(initial?.inlineReviewIds ?? [])],
     threadCallCount: initial?.threadCallCount ?? 0,
-    lastValidationError: null,
-    publishCallCount: 0,
-    publishCallsExhausted: false,
     publishSuperseded: false,
   };
 }
 
-/** Legacy full publish path retained for publishReview.* unit tests. */
-export async function publishReview(
+/**
+ * Test-only composer mirroring the orchestrated tool order (finding batch,
+ * then summary) through the live production functions. Validation,
+ * redaction, and rendering all execute inside publishFindingBatch and
+ * publishReviewSummaryOnly, so keep this order in sync with the orchestrator
+ * tools when that order changes.
+ */
+export async function runTestPublishFlow(
   params: ReviewPublishContext & {
     prSurface: PrSurface;
     mode?: AnyReviewLens;
     cfg: Pick<Config, "piModel" | "features">;
     payload: ReviewPayload;
     dedupedFindingCount?: number;
-    publishState: SubmitReviewState;
+    publishState: PublishTestState;
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
     progressCommentIdHint?: number | null;
@@ -150,9 +147,9 @@ export async function publishReview(
   }
 }
 
-/** Runs pre-publish pipeline then publishReview (legacy test harness). */
+/** Runs pre-publish pipeline then the test publish flow (legacy test harness). */
 export async function publishReviewForTest(
-  params: Parameters<typeof publishReview>[0] & {
+  params: Parameters<typeof runTestPublishFlow>[0] & {
     mode?: AnyReviewLens;
     evidenceLedger?: EvidenceLedger;
     headSha?: string;
@@ -170,7 +167,7 @@ export async function publishReviewForTest(
   if (!prepared.ok) {
     throw new Error(prepared.error);
   }
-  await publishReview({
+  await runTestPublishFlow({
     ...params,
     payload: prepared.prepared.payload,
     dedupedFindingCount: prepared.prepared.dedupedCount,
@@ -178,9 +175,9 @@ export async function publishReviewForTest(
 }
 
 export function testPublishState(
-  overrides: Partial<ReturnType<typeof createSubmitReviewState>> = {},
+  overrides: Partial<ReturnType<typeof createPublishTestState>> = {},
 ) {
-  return { ...createSubmitReviewState(), ...overrides };
+  return { ...createPublishTestState(), ...overrides };
 }
 
 export function testPlacements(
