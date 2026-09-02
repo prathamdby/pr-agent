@@ -400,7 +400,7 @@ describe("buildTriageWorkspaceTools", () => {
     const { root, executors } = await setup({
       files: { "src/app.ts": 'const msg = "OLD";\n' },
     });
-    const newText = 'const msg = "$1 $$ $&";';
+    const newText = 'const msg = "$1 $$ $& $` $\'";';
     const out = await executors.editWorkspaceFile({
       path: "src/app.ts",
       oldText: 'const msg = "OLD";',
