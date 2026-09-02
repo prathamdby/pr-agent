@@ -39,6 +39,7 @@ import {
   buildCommitCommandArgs,
   buildTriageCommitAttribution,
   formatCoAuthoredByTrailer,
+  gitIdentityEnv,
   gitPersonFromGithubUser,
   githubNoreplyEmail,
   StaleHeadPushError,
@@ -279,6 +280,66 @@ describe("writable PR checkout", () => {
       coAuthoredBy: [],
       source: "app",
     });
+  });
+
+  it("sanitizes line breaks in GitHub profile names", () => {
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: "Alice\nEvil\rTrailer",
+        type: "User",
+      }),
+    ).toEqual({ name: "Alice Evil Trailer", email: githubNoreplyEmail(42, "alice") });
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: "\n\r\n",
+        type: "User",
+      }),
+    ).toEqual({ name: "alice", email: githubNoreplyEmail(42, "alice") });
+  });
+
+  it("rejects commit identities with line breaks in name or email", () => {
+    const subject = "fix: guard null user";
+    const validCoAuthor = { name: "Bot", email: "bot@example.com" };
+
+    expect(() => gitIdentityEnv({ name: "Alice\nInject", email: "alice@example.com" })).toThrow(
+      AppError,
+    );
+    expect(() => gitIdentityEnv({ name: "Alice", email: "alice\n@example.com" })).toThrow(AppError);
+    try {
+      gitIdentityEnv({ name: "Alice\r", email: "alice@example.com" });
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+    }
+
+    expect(() =>
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject,
+        coAuthoredBy: [{ name: "Co\nAuthor", email: "co@example.com" }],
+      }),
+    ).toThrow(AppError);
+    expect(() =>
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject,
+        coAuthoredBy: [validCoAuthor, { name: "Other", email: "other\r@example.com" }],
+      }),
+    ).toThrow(AppError);
+    try {
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject,
+        coAuthoredBy: [{ name: "Co", email: "co@example.com\0" }],
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+    }
   });
 
   it("maps GitHub users to git people with noreply and bot rejection", () => {
