@@ -81,7 +81,7 @@ const FINDINGS: Record<ReviewLens, readonly Finding[]> = {
       severity: "P3",
       confidence: "c2",
       title: "Publish helper mixes formatting and I/O",
-      file: "src/review/publish/publishReview.ts",
+      file: "src/review/publish/publishSummaryOnly.ts",
       lines: "lines 210-240",
       marker: "Summary only",
     },
