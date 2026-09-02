@@ -41,14 +41,29 @@ describe("triageWritePolicy", () => {
     ".gitmodules",
     "pyproject.toml",
     "setup.py",
+    "setup.cfg",
+    "poetry.lock",
+    "uv.lock",
     "Cargo.toml",
+    "Cargo.lock",
     "go.mod",
+    "go.work",
+    "go.sum",
     "Gemfile",
+    "Gemfile.lock",
     "build.gradle",
+    "build.gradle.kts",
     "pom.xml",
     "CMakeLists.txt",
     "bunfig.toml",
     "deno.json",
+    "deno.jsonc",
+    "deno.lock",
+    "src/go.mod",
+    "subproject/build.gradle",
+    "lib/pyproject.toml",
+    "vendor/Cargo.toml",
+    "sub/Cargo.lock",
   ] as const)("denies control-plane path %s", (path) => {
     expect(isTriageControlPath(path)).toBe(true);
   });
@@ -68,6 +83,10 @@ describe("triageWritePolicy", () => {
     "src/lib.rs",
     "docs/guide.md",
     "test/foo.test.ts",
+    "pom.xml.template",
+    "CMakeLists.txt.bak",
+    "bunfig.toml.bak",
+    "deno.json.lock",
   ] as const)("allows non-control path %s", (path) => {
     expect(isTriageControlPath(path)).toBe(false);
   });
