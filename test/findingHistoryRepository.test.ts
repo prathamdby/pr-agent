@@ -6,9 +6,17 @@ import {
   lookupThreadFingerprint,
   recordFindingHistoryOutcome,
   safeLoadCrossPrSuppressionFingerprints,
+  safeRecordThreadFindingHistoryOutcome,
   safeUpsertFindingHistoryOpen,
   upsertFindingHistoryOpen,
 } from "../src/agentWork/findingHistoryRepository.js";
+
+vi.mock("../src/evlog.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.js")>();
+  return { ...actual, logWarn: vi.fn() };
+});
+
+import { logWarn } from "../src/evlog.js";
 
 const cfg = {
   findingHistoryEnabled: true,
@@ -133,6 +141,65 @@ describe("safeUpsertFindingHistoryOpen", () => {
       safeUpsertFindingHistoryOpen(pool, { findingHistoryEnabled: true }, openScope, ["fp-a"]),
     ).not.toThrow();
     await expect(query.mock.results[0]?.value).rejects.toThrow("db down");
+  });
+});
+
+describe("safeRecordThreadFindingHistoryOutcome", () => {
+  it("routes an inner outcome failure to the warning instead of rejecting", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            detail: {
+              batches: [
+                {
+                  workItemId: "wi-1",
+                  reviewId: 1,
+                  fingerprints: ["fp-1"],
+                  placements: [
+                    {
+                      finding: {
+                        severity: "P2",
+                        file: "a.ts",
+                        startLine: 5,
+                        endLine: 5,
+                        title: "t",
+                        detail: "d",
+                        fixPrompt: "f",
+                      },
+                      resolvedLine: 5,
+                      canonicalFingerprint: "fp-1",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("outcome write failed"));
+    const pool = { query } as unknown as Pool;
+
+    expect(() =>
+      safeRecordThreadFindingHistoryOutcome(
+        pool,
+        { findingHistoryEnabled: true },
+        {
+          scope: { ...openScope, workItemId: "wi-1" },
+          resourceKey: "acme/app#12",
+          thread: { path: "a.ts", line: 5 },
+          outcome: "fixed",
+        },
+      ),
+    ).not.toThrow();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "finding_history_thread_outcome_failed",
+      expect.objectContaining({ outcome: "fixed", message: "outcome write failed" }),
+    );
   });
 });
 

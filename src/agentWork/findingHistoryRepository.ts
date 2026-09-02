@@ -304,7 +304,7 @@ export function safeRecordThreadFindingHistoryOutcome(
   })
     .then((fingerprint) => {
       if (fingerprint == null) return;
-      void recordFindingHistoryOutcome(client, params.scope, fingerprint, params.outcome);
+      return recordFindingHistoryOutcome(client, params.scope, fingerprint, params.outcome);
     })
     .catch((error) => {
       logWarn("finding_history_thread_outcome_failed", {

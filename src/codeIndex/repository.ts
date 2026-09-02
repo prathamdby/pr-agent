@@ -93,7 +93,7 @@ export async function ensureBuildingSnapshot(
   const row = rows[0];
   if (!row) {
     throw new AppError({
-      code: "code_index_snapshot_upsert_failed",
+      code: "code_index.snapshot_upsert_failed",
       message: "INSERT did not return a snapshot row",
     });
   }
