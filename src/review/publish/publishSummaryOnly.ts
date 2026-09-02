@@ -22,7 +22,7 @@ import {
   reviewCheckRunOutcome,
 } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
-import type { PrSurface } from "../../github/prSurface.js";
+import type { IssueCommentRef, PrSurface } from "../../github/prSurface.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import {
@@ -171,21 +171,40 @@ async function upsertSummaryCommentWithoutRevision(
   return prSurface.upsertProgressComment(body, sentinel, scanned);
 }
 
-async function upsertSummaryCommentAtRevision(
+type PreparedRevisionUpsert =
+  | { readonly kind: "skipped"; readonly result: SummaryCommentUpsertResult }
+  | {
+      readonly kind: "write";
+      readonly body: string;
+      readonly hintCommentId?: number | null;
+      readonly stubPostedAtMs: number | null;
+    };
+
+function skippedRevisionResult(
+  currentComment: IssueCommentRef | null,
+  hintCommentId?: number | null,
+): SummaryCommentUpsertResult {
+  if (currentComment) {
+    return { id: currentComment.id, updated: false, skipped: true };
+  }
+  if (hintCommentId != null) {
+    return { id: hintCommentId, updated: false, skipped: true };
+  }
+  return { id: 0, updated: false, skipped: true };
+}
+
+async function prepareSummaryCommentAtRevision(
   params: Omit<SummaryCommentUpsertParams, "pool" | "progressRevision"> & {
     readonly progressRevision: ProgressCommentRevision;
-    readonly preloadedComment?: Awaited<ReturnType<PrSurface["findProgressComment"]>>;
+    readonly currentComment: IssueCommentRef | null;
   },
   client: PoolClient,
-): Promise<SummaryCommentUpsertResult> {
+): Promise<PreparedRevisionUpsert> {
   const [progressOwner, storedRevision] = await Promise.all([
     getProgressCommentOwner(client, params.resourceKey, params.reviewLens),
     getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
   ]);
-  const currentComment =
-    params.preloadedComment !== undefined
-      ? params.preloadedComment
-      : await params.prSurface.findProgressComment(params.sentinel);
+  const currentComment = params.currentComment;
   const bodyRevision = currentComment
     ? parseProgressRevisionState(currentComment.body ?? "")
     : null;
@@ -196,21 +215,19 @@ async function upsertSummaryCommentAtRevision(
     params.workItemId != null &&
     progressOwner.workItemId !== params.workItemId
   ) {
-    if (currentComment) {
-      return { id: currentComment.id, updated: false, skipped: true };
+    if (currentComment == null && params.hintCommentId == null) {
+      logWarn("review_progress_skipped_foreign_owner", {
+        resourceKey: params.resourceKey,
+        reviewLens: params.reviewLens,
+        workItemId: params.workItemId,
+        ownerWorkItemId: progressOwner.workItemId,
+        progressGeneration: progressOwner.generation,
+      });
     }
-    const hintId = params.hintCommentId;
-    if (hintId != null) {
-      return { id: hintId, updated: false, skipped: true };
-    }
-    logWarn("review_progress_skipped_foreign_owner", {
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      workItemId: params.workItemId,
-      ownerWorkItemId: progressOwner.workItemId,
-      progressGeneration: progressOwner.generation,
-    });
-    return { id: 0, updated: false, skipped: true };
+    return {
+      kind: "skipped",
+      result: skippedRevisionResult(currentComment, params.hintCommentId),
+    };
   }
   const storedRevisionForRun =
     storedRevision != null && storedRevision.workItemId === params.workItemId
@@ -220,9 +237,17 @@ async function upsertSummaryCommentAtRevision(
     bodyRevision != null && bodyRevision.workItemId === params.workItemId
       ? bodyRevision.revision
       : -1;
-  const currentRevision = currentComment ? Math.max(storedRevisionForRun, bodyRevisionForRun) : -1;
-  if (currentComment && currentRevision >= params.progressRevision) {
-    return { id: currentComment.id, updated: false, skipped: true };
+  // Body revision is the published watermark. Stored revision is the lock-time
+  // claim, so a retry after claim-but-before-GitHub can still write when the
+  // comment is behind. A newer claim still wins without holding the lock across HTTP.
+  if (currentComment && bodyRevisionForRun >= params.progressRevision) {
+    return { kind: "skipped", result: { id: currentComment.id, updated: false, skipped: true } };
+  }
+  if (storedRevisionForRun > params.progressRevision) {
+    return {
+      kind: "skipped",
+      result: skippedRevisionResult(currentComment, params.hintCommentId),
+    };
   }
 
   const stubPostedAtMs =
@@ -232,45 +257,32 @@ async function upsertSummaryCommentAtRevision(
         ? await getProgressStubPostedAtMs(client, params.resourceKey, params.reviewLens)
         : null;
 
-  // Persist stubPostedAtMs before the GitHub comment upsert so it survives
-  // even when the subsequent recordAgentWorkPublishStep call fails.
-  if (params.workItemId != null && stubPostedAtMs != null) {
-    await recordAgentWorkPublishStep(client, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      step: "progress_comment",
-      detail: { stubPostedAtMs },
-      leaseEpoch: params.leaseEpoch ?? null,
-    });
-  }
-
-  const result = await upsertSummaryCommentWithoutRevision({
-    ...params,
-    pool: client,
-    body: withProgressRevisionComment(
-      preserveCiSummaryRowInCommentBody(currentComment?.body ?? "", params.body),
-      params.progressRevision,
-      params.workItemId,
-    ),
-    hintCommentId: currentComment?.id ?? params.hintCommentId,
-  });
+  // Claim this revision under the advisory lock before the GitHub write so a
+  // concurrent older tick cannot pass the check after we unlock.
   if (params.workItemId != null) {
     await recordAgentWorkPublishStep(client, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
       step: "progress_comment",
-      githubId: result.id,
       leaseEpoch: params.leaseEpoch ?? null,
       detail: {
         progressRevision: params.progressRevision,
-        updated: result.updated,
         ...(stubPostedAtMs != null ? { stubPostedAtMs } : {}),
       },
     });
   }
-  return result;
+
+  return {
+    kind: "write",
+    body: withProgressRevisionComment(
+      preserveCiSummaryRowInCommentBody(currentComment?.body ?? "", params.body),
+      params.progressRevision,
+      params.workItemId,
+    ),
+    hintCommentId: currentComment?.id ?? params.hintCommentId,
+    stubPostedAtMs,
+  };
 }
 
 export async function upsertSummaryCommentWithCreationClaim(
@@ -280,21 +292,21 @@ export async function upsertSummaryCommentWithCreationClaim(
     return upsertSummaryCommentWithoutRevision(params);
   }
 
-  const preloadedComment = await params.prSurface.findProgressComment(params.sentinel);
+  const currentComment = await params.prSurface.findProgressComment(params.sentinel);
 
   const client = await params.pool.connect();
   const lockKey = JSON.stringify([params.resourceKey, params.reviewLens]);
   let lockAcquired = false;
   let outcome:
-    | { readonly kind: "success"; readonly value: SummaryCommentUpsertResult }
+    | { readonly kind: "success"; readonly value: PreparedRevisionUpsert }
     | { readonly kind: "error"; readonly error: unknown };
   try {
     await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
     lockAcquired = true;
     outcome = {
       kind: "success",
-      value: await upsertSummaryCommentAtRevision(
-        { ...params, progressRevision: params.progressRevision, preloadedComment },
+      value: await prepareSummaryCommentAtRevision(
+        { ...params, progressRevision: params.progressRevision, currentComment },
         client,
       ),
     };
@@ -318,7 +330,32 @@ export async function upsertSummaryCommentWithCreationClaim(
   client.release(unlockError === undefined ? undefined : true);
   if (outcome.kind === "error") throw outcome.error;
   if (unlockError !== undefined) throw unlockError;
-  return outcome.value;
+  if (outcome.value.kind === "skipped") return outcome.value.result;
+
+  const result = await upsertSummaryCommentWithoutRevision({
+    ...params,
+    pool: params.pool,
+    body: outcome.value.body,
+    hintCommentId: outcome.value.hintCommentId,
+  });
+  if (params.workItemId != null) {
+    await recordAgentWorkPublishStep(params.pool, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: params.reviewLens,
+      step: "progress_comment",
+      githubId: result.id,
+      leaseEpoch: params.leaseEpoch ?? null,
+      detail: {
+        progressRevision: params.progressRevision,
+        updated: result.updated,
+        ...(outcome.value.stubPostedAtMs != null
+          ? { stubPostedAtMs: outcome.value.stubPostedAtMs }
+          : {}),
+      },
+    });
+  }
+  return result;
 }
 
 export type PublishSummaryOnlyResult =
