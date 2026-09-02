@@ -6,6 +6,7 @@ import {
   createReviewWorkItem,
   createTriageWorkItem,
   createVerificationWorkItem,
+  fetchActiveVerificationWorkItem,
 } from "../src/agentWork/intake/workItemRepository.js";
 
 const ref = {
@@ -246,5 +247,60 @@ describe("createVerificationWorkItem", () => {
     expect(typeof payloadJson).toBe("string");
     const payload = JSON.parse(String(payloadJson)) as { pushBeforeSha?: string };
     expect(payload.pushBeforeSha).toBe(pushBeforeSha);
+  });
+
+  it("uses slash priority and payload source for slash verification", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: "verify-1" }] });
+    const client = { query } as unknown as PoolClient;
+
+    const result = await createVerificationWorkItem(client, {
+      webhookEventId: "00000000-0000-0000-0000-000000000007",
+      source: "slash",
+      ref,
+    });
+
+    expect(result).toEqual({ created: true, id: "verify-1" });
+    const params = query.mock.calls[0]?.[1] as unknown[];
+    expect(params).toEqual(expect.arrayContaining(["verification", "slash", 50]));
+    const payload = JSON.parse(String(params?.[params.length - 1])) as { source?: string };
+    expect(payload.source).toBe("slash");
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "ON CONFLICT (resource_key, type, review_lens)",
+    );
+    expect(String(query.mock.calls[0]?.[0])).toContain("type = 'verification'");
+  });
+
+  it("returns existing winner on slash verification uniqueness conflict", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: "verify-winner" }] });
+    const client = { query } as unknown as PoolClient;
+
+    const result = await createVerificationWorkItem(client, {
+      webhookEventId: "00000000-0000-0000-0000-000000000008",
+      source: "slash",
+      ref,
+    });
+
+    expect(result).toEqual({ created: false, id: "verify-winner" });
+  });
+});
+
+describe("fetchActiveVerificationWorkItem", () => {
+  it("returns the active verification id on hit", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: "v-1" }] });
+    const client = { query } as unknown as PoolClient;
+
+    await expect(fetchActiveVerificationWorkItem(client, "o/r#1")).resolves.toEqual({ id: "v-1" });
+    expect(String(query.mock.calls[0]?.[0])).toContain("type = 'verification'");
+    expect(String(query.mock.calls[0]?.[0])).toContain("status IN ('queued', 'running')");
+  });
+
+  it("returns null when no verification work is active", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const client = { query } as unknown as PoolClient;
+
+    await expect(fetchActiveVerificationWorkItem(client, "o/r#1")).resolves.toBeNull();
   });
 });

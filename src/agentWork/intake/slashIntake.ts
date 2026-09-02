@@ -10,6 +10,7 @@ import {
   SLASH_HELP_BODY,
   SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
   SLASH_REVIEW_FORCE_RESTARTED_BODY,
+  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
@@ -37,6 +38,7 @@ import {
   enqueueDescription,
   enqueueReview,
   enqueueTriage,
+  enqueueVerification,
   jobCorrelation,
 } from "./queueing.js";
 import { promoteAskFromWebhookEvent } from "./askIntake.js";
@@ -45,7 +47,9 @@ import {
   createDescriptionWorkItem,
   createReviewWorkItem,
   createTriageWorkItem,
+  createVerificationWorkItem,
   fetchActiveTriageWorkItem,
+  fetchActiveVerificationWorkItem,
 } from "./workItemRepository.js";
 
 export type SlashCommandInput = {
@@ -426,6 +430,42 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
+async function handleSlashVerify(ctx: SlashIntakeContext): Promise<void> {
+  const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  const active = await fetchActiveVerificationWorkItem(ctx.client, resourceKey);
+  if (active) {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY },
+    });
+    return;
+  }
+  const insert = await createVerificationWorkItem(ctx.client, {
+    webhookEventId: ctx.eventId,
+    ref: ctx.ref,
+    source: "slash",
+    ackTargets: ctx.baseAck.targets,
+  });
+  if (!insert.created) {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY },
+    });
+    return;
+  }
+  const workItemId = insert.id;
+  await enqueueSlashAck(ctx, { workItemId });
+  await enqueueVerification(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
+  ctx.events.push({
+    name: "agent_work_enqueued",
+    fields: {
+      type: "verification",
+      source: "slash",
+      workItemId,
+      resourceKey,
+      ...ctx.correlation,
+    },
+  });
+}
+
 async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
   await enqueueSlashAck(ctx, {
     reply: {
@@ -450,6 +490,7 @@ const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
   triage: handleSlashTriage,
   review: handleSlashReview,
   cancel: handleSlashCancel,
+  verify: handleSlashVerify,
 };
 
 export async function applySlashCommandIntake(
@@ -514,6 +555,7 @@ export async function applySlashCommandIntake(
       ask: features.ask === "off",
       describe: features.describe === "off",
       triage: features.triage === "off",
+      verify: features.verification === "off",
     };
     if (disabledByFeature[command]) {
       await enqueueSlashAck(ctx, {

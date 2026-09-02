@@ -16,7 +16,9 @@ import {
   SLASH_HELP_BODY,
   SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
   SLASH_REVIEW_FORCE_RESTARTED_BODY,
+  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
   TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
 } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 
@@ -1220,5 +1222,106 @@ describe("applySlashCommandIntake", () => {
 
   it("lists /review force in /help", async () => {
     expect(SLASH_HELP_BODY).toContain("`/review force`");
+  });
+
+  it("enqueues a verification work item and pg-boss job when /verify is run", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const workItemInserts: unknown[][] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [{ id: "work-verify" }] };
+        }
+        if (
+          sql.includes("type = 'verification'") &&
+          sql.includes("status IN ('queued', 'running')")
+        ) {
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/verify"), intakeLog));
+
+    expect(workItemInserts).toHaveLength(1);
+    expect(workItemInserts[0]).toContain("verification");
+    expect(workItemInserts[0]).toContain("slash");
+    expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, VERIFICATION_QUEUE]);
+    expect(sentJobs[0]?.data.workItemId).toBeDefined();
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_enqueued",
+        type: "verification",
+        source: "slash",
+      }),
+    );
+  });
+
+  it("replies with an in-progress notice when active verification already exists", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (
+          sql.includes("type = 'verification'") &&
+          sql.includes("status IN ('queued', 'running')")
+        ) {
+          return { rows: [{ id: "active-verify" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/verify"), intakeLog));
+
+    expect(sentJobs).toHaveLength(1);
+    expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
+    expect(sentJobs[0]?.data.reply).toEqual({
+      target: { kind: "prConversation", prNumber: 7 },
+      body: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
+    });
+    expect(sentJobs.map((j) => j.queue)).not.toContain(VERIFICATION_QUEUE);
+    expect(intakeLog.getContext().events ?? []).not.toContainEqual(
+      expect.objectContaining({ event: "agent_work_enqueued" }),
+    );
+  });
+
+  it("lists /verify in /help", async () => {
+    expect(SLASH_HELP_BODY).toContain("`/verify`");
   });
 });

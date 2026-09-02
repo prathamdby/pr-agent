@@ -179,7 +179,7 @@ export type TriageWorkPayload = {
 };
 
 export type VerificationWorkPayload = {
-  readonly source: "auto";
+  readonly source: WorkSource;
   readonly repositorySizeKb?: number;
   readonly pushBeforeSha?: string;
   readonly ackTargets?: readonly AckTarget[];
@@ -224,7 +224,7 @@ export type TriageWorkItem = WorkItemBase & {
 
 export type VerificationWorkItem = WorkItemBase & {
   readonly type: "verification";
-  readonly source: "auto";
+  readonly source: WorkSource;
   readonly reviewLens: null;
   readonly payload: VerificationWorkPayload;
 };

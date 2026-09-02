@@ -194,7 +194,7 @@ Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/featur
 | ------------------- | ------------------------------------------------- | -------------------- |
 | Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`            | `/review` always     |
 | PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`          | `/describe`          |
-| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto` | (no slash)           |
+| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto` | `/verify`            |
 | Ask                 | On demand when `FEATURE_ASK=manual`               | `/ask …` or `@bot …` |
 | Triage autofix      | On demand when `FEATURE_TRIAGE=manual`            | `/triage`            |
 | Cancel review       | On demand                                         | `/cancel`            |

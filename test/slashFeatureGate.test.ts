@@ -60,7 +60,7 @@ function makeBoss(sent: { queue: string; data: unknown }[]): PgBoss {
 }
 
 describe("slash command feature gating", () => {
-  it.each(["ask", "describe", "triage"] as const)(
+  it.each(["ask", "describe", "triage", "verify"] as const)(
     "replies with a disabled notice for /%s when its feature is off",
     async (command) => {
       const sent: { queue: string; data: unknown }[] = [];
@@ -70,6 +70,7 @@ describe("slash command feature gating", () => {
         ask: "off",
         describe: "off",
         triage: "off",
+        verification: "off",
       } as const;
 
       const events = await applySlashCommandIntake(
@@ -110,4 +111,19 @@ describe("slash command feature gating", () => {
 
     expect(events.map((event) => event.name)).toContain("agent_work_enqueued");
   });
+
+  it.each(["manual", "auto"] as const)(
+    "enqueues /verify normally when verification is %s",
+    async (mode) => {
+      const sent: { queue: string; data: unknown }[] = [];
+      const boss = makeBoss(sent);
+
+      const events = await applySlashCommandIntake(boss, makeClient(), makeInput("verify"), {
+        ...features,
+        verification: mode,
+      });
+
+      expect(events.map((event) => event.name)).toContain("agent_work_enqueued");
+    },
+  );
 });

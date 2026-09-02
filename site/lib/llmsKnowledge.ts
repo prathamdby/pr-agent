@@ -156,8 +156,8 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "/ask … or @bot …: answer a code question in the same thread.",
       "/triage: recheck open bot findings and push fixes for valid same-repo issues.",
       "/cancel: cancel a queued or running orchestrated review.",
+      "/verify: recheck open findings against the current pull request head.",
       "/help: list available commands.",
-      "Verification has no slash command. It runs on pull_request synchronize when FEATURE_VERIFICATION=auto.",
     ]),
   },
   {
@@ -170,7 +170,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "Auto triggers: review and describe on pull_request opened; verification on synchronize.",
       `${FEATURE_KEYS[0]}: manual | auto. Default auto. Orchestrated review. /review always works.`,
       `${FEATURE_KEYS[1]}: off | manual | auto. Default auto. PR description generation.`,
-      `${FEATURE_KEYS[2]}: off | auto. Default auto. Rechecks open findings on new pushes.`,
+      `${FEATURE_KEYS[2]}: off | manual | auto. Default auto. Rechecks open findings on synchronize or /verify.`,
       `${FEATURE_KEYS[3]}: off | manual. Default manual. /ask and @bot questions.`,
       `${FEATURE_KEYS[4]}: off | manual. Default manual. /triage autofix checkout, commit, and push.`,
       `${FEATURE_KEYS[5]}: off | size | size+security. Default size. Review labels on the PR. No model tokens.`,
