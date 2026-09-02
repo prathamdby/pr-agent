@@ -174,14 +174,18 @@ async function upsertSummaryCommentWithoutRevision(
 async function upsertSummaryCommentAtRevision(
   params: Omit<SummaryCommentUpsertParams, "pool" | "progressRevision"> & {
     readonly progressRevision: ProgressCommentRevision;
+    readonly preloadedComment?: Awaited<ReturnType<PrSurface["findProgressComment"]>>;
   },
   client: PoolClient,
 ): Promise<SummaryCommentUpsertResult> {
-  const [progressOwner, storedRevision, currentComment] = await Promise.all([
+  const [progressOwner, storedRevision] = await Promise.all([
     getProgressCommentOwner(client, params.resourceKey, params.reviewLens),
     getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
-    params.prSurface.findProgressComment(params.sentinel),
   ]);
+  const currentComment =
+    params.preloadedComment !== undefined
+      ? params.preloadedComment
+      : await params.prSurface.findProgressComment(params.sentinel);
   const bodyRevision = currentComment
     ? parseProgressRevisionState(currentComment.body ?? "")
     : null;
@@ -276,6 +280,8 @@ export async function upsertSummaryCommentWithCreationClaim(
     return upsertSummaryCommentWithoutRevision(params);
   }
 
+  const preloadedComment = await params.prSurface.findProgressComment(params.sentinel);
+
   const client = await params.pool.connect();
   const lockKey = JSON.stringify([params.resourceKey, params.reviewLens]);
   let lockAcquired = false;
@@ -288,7 +294,7 @@ export async function upsertSummaryCommentWithCreationClaim(
     outcome = {
       kind: "success",
       value: await upsertSummaryCommentAtRevision(
-        { ...params, progressRevision: params.progressRevision },
+        { ...params, progressRevision: params.progressRevision, preloadedComment },
         client,
       ),
     };
