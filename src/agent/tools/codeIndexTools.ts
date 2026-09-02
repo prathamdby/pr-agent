@@ -22,21 +22,16 @@ export const searchCodeIndexSchema = v.object({
   limit: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), CODE_INDEX_MAX_RESULTS),
 });
 
-async function verifyChunkHash(
+async function linesForChunkVerification(
   workspace: LocalPrWorkspace,
   path: string,
-  startLine: number,
-  endLine: number,
-  contentHash: Buffer,
-): Promise<boolean> {
+): Promise<string[] | null> {
   const normalized = path.replace(/\\/g, "/");
-  if (!workspace.isPathInCheckout(normalized)) return false;
+  if (!workspace.isPathInCheckout(normalized)) return null;
   const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
   const content = await readFile(safePath, "utf8").catch(() => null);
-  if (content == null) return false;
-  const lines = content.split("\n");
-  const slice = lines.slice(startLine - 1, endLine).join("\n");
-  return createHash("sha256").update(slice).digest().equals(contentHash);
+  if (content == null) return null;
+  return content.split("\n");
 }
 
 function toCodeIndexBundle(tool: LocalTool): {
@@ -80,17 +75,24 @@ export function buildCodeIndexTools(params: {
         limit,
         allowedPaths,
       );
+      // One read per path: hints often cluster on the same file, and the
+      // old per-row read re-read and re-split it for every hint.
+      const linesByPath = new Map<string, Promise<string[] | null>>();
+      const linesForPath = (path: string): Promise<string[] | null> => {
+        const cached = linesByPath.get(path);
+        if (cached) return cached;
+        const pending = linesForChunkVerification(params.workspace, path);
+        linesByPath.set(path, pending);
+        return pending;
+      };
       const verifiedRows = await Promise.all(
         rows.map(async (row) => {
           try {
             assertPathAllowedForAsk(row.path, params.pathGate);
-            const hashOk = await verifyChunkHash(
-              params.workspace,
-              row.path,
-              row.start_line,
-              row.end_line,
-              row.content_hash,
-            );
+            const lines = await linesForPath(row.path);
+            if (lines == null) return { row, hashOk: false };
+            const slice = lines.slice(row.start_line - 1, row.end_line).join("\n");
+            const hashOk = createHash("sha256").update(slice).digest().equals(row.content_hash);
             return { row, hashOk };
           } catch {
             return { row, hashOk: false };

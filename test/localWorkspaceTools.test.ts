@@ -634,6 +634,44 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("searchWorkspace uses the single-shot scan at full coverage with identical reporting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const files: Record<string, string> = {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/a.ts": "const needle = true;\n",
+        "src/b.ts": "const needle = true;\n",
+      };
+      await writeWorkspaceFiles(root, files);
+
+      const base = mockWorkspace(root, Object.keys(files));
+      const seen: GitGrepWorkspaceParams[] = [];
+      const workspace: LocalPrWorkspace = {
+        ...base,
+        grepLiteral: async (params) => {
+          seen.push(params);
+          return base.grepLiteral(params);
+        },
+      };
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
+        matches: Array<{ path: string }>;
+        truncated: boolean;
+        pathsSearched: number;
+        filesScanned: number;
+      };
+
+      expect(out.matches.map((match) => match.path).sort()).toEqual(["src/a.ts", "src/b.ts"]);
+      expect(out.truncated).toBe(false);
+      expect(out.pathsSearched).toBe(3);
+      expect(out.filesScanned).toBe(2);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.paths).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("readWorkspaceFile records evidence in the ledger on success", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
     try {

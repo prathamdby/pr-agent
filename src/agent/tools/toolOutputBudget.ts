@@ -191,9 +191,13 @@ function splitLines(text: string): string[] {
 
 function endLineForText(text: string): number {
   if (text.length === 0) return 0;
+  // `for..of` iterates Unicode code points; `\n` is BMP so an `indexOf`
+  // scan counts the same newlines without per-character decoding.
   let endLine = 1;
-  for (const char of text) {
-    if (char === "\n") endLine += 1;
+  let idx = text.indexOf("\n");
+  while (idx !== -1) {
+    endLine += 1;
+    idx = text.indexOf("\n", idx + 1);
   }
   if (text.endsWith("\n")) {
     endLine -= 1;

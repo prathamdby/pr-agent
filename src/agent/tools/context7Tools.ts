@@ -161,7 +161,9 @@ async function context7Get(
   const contentType = res.headers.get("content-type") ?? "";
   if (contentType.toLowerCase().includes("application/json")) {
     const body: unknown = await res.json();
-    return redactContext7Response(JSON.stringify(body, null, 2), apiKey);
+    // Compact serialization: identical content, ~40% fewer bytes/tokens
+    // than indented output on structured result lists.
+    return redactContext7Response(JSON.stringify(body), apiKey);
   }
   return redactContext7Response(await res.text(), apiKey);
 }

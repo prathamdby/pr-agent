@@ -121,20 +121,18 @@ function segmentsExcluding(
   excluded?: readonly number[],
 ): [number, number][] {
   if (!excluded || excluded.length === 0) return [[startLine, endLine]];
-  const skip = new Set(excluded);
+  // Interval walk over the sorted in-range clamp set: O(k log k) instead of
+  // a per-line scan of the whole [start, end] range.
+  const sorted = [...new Set(excluded)]
+    .filter((line) => line >= startLine && line <= endLine)
+    .sort((a, b) => a - b);
   const segments: [number, number][] = [];
-  let segmentStart: number | null = null;
-  for (let line = startLine; line <= endLine; line += 1) {
-    if (skip.has(line)) {
-      if (segmentStart !== null) {
-        segments.push([segmentStart, line - 1]);
-        segmentStart = null;
-      }
-      continue;
-    }
-    segmentStart ??= line;
+  let cur = startLine;
+  for (const line of sorted) {
+    if (line > cur) segments.push([cur, line - 1]);
+    cur = line + 1;
   }
-  if (segmentStart !== null) segments.push([segmentStart, endLine]);
+  if (cur <= endLine) segments.push([cur, endLine]);
   return segments;
 }
 
@@ -402,12 +400,23 @@ export function buildLocalWorkspaceTools(
       if (allowedPaths.length === 0) {
         return { matches: [], truncated: false, pathsSearched: 0, filesScanned: 0 };
       }
-      const result = await workspace.grepLiteral({
-        query,
-        maxResults,
-        maxOutputBytes: limits.searchMaxTotalBytes,
-        paths: allowedPaths,
-      });
+      // Full-tree coverage searches the same on-disk tree either way
+      // (symlinks are stripped at checkout, `.git` lives outside the
+      // worktree), so use the single-shot scan instead of one git grep
+      // process per 256-pathspec chunk.
+      const fullCoverage = allowedPaths.length === workspace.sortedCheckoutPaths.length;
+      const result = fullCoverage
+        ? await workspace.grepLiteral({
+            query,
+            maxResults,
+            maxOutputBytes: limits.searchMaxTotalBytes,
+          })
+        : await workspace.grepLiteral({
+            query,
+            maxResults,
+            maxOutputBytes: limits.searchMaxTotalBytes,
+            paths: allowedPaths,
+          });
       const truncated = result.truncated || result.matches.length > maxResults;
       if (truncated) {
         workspace.noteSearchTruncated();
