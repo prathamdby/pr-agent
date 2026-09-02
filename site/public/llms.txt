@@ -46,8 +46,8 @@ Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMB
 /ask … or @bot …: answer a code question in the same thread.
 /triage: recheck open bot findings and push fixes for valid same-repo issues.
 /cancel: cancel a queued or running orchestrated review.
+/verify: recheck open findings against the current pull request head.
 /help: list available commands.
-Verification has no slash command. It runs on pull_request synchronize when FEATURE_VERIFICATION=auto.
 
 ## FEATURE_* settings
 
@@ -56,7 +56,7 @@ Modes: off = disabled (slash replies with a notice), manual = slash only, auto =
 Auto triggers: review and describe on pull_request opened; verification on synchronize.
 FEATURE_REVIEW: manual | auto. Default auto. Orchestrated review. /review always works.
 FEATURE_DESCRIBE: off | manual | auto. Default auto. PR description generation.
-FEATURE_VERIFICATION: off | auto. Default auto. Rechecks open findings on new pushes.
+FEATURE_VERIFICATION: off | manual | auto. Default auto. Rechecks open findings on synchronize or /verify.
 FEATURE_ASK: off | manual. Default manual. /ask and @bot questions.
 FEATURE_TRIAGE: off | manual. Default manual. /triage autofix checkout, commit, and push.
 FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Review labels on the PR. No model tokens.

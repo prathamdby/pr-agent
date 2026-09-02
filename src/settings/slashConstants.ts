@@ -10,6 +10,7 @@ export const SLASH_HELP_BODY = [
   "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
   "- `/cancel` - cancel a queued or in-progress review on this PR",
   "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+  "- `/verify` - verify open findings against the current pull request head",
   "",
   "Notes:",
   "- What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.",
@@ -32,6 +33,10 @@ export const SLASH_CANCEL_NONE_BODY = "No review is queued or in progress for th
 
 /** Ack reply when `/cancel` cancels an active review. */
 export const SLASH_CANCEL_DONE_BODY = "Cancelled the in-progress review.";
+
+/** Ack reply when `/verify` finds an active verification. */
+export const SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY =
+  "A `/verify` run is already queued or in progress for this pull request.";
 
 export function slashDisabledBody(command: string): string {
   return `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`;

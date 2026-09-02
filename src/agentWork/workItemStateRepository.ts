@@ -102,13 +102,10 @@ function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore 
       };
     }
     case "verification": {
-      if (row.source !== "auto") {
-        invalidWorkItemRow(row, `expected source "auto", got "${row.source}"`);
-      }
       return {
         ...base,
         type: "verification",
-        source: "auto",
+        source: row.source,
         reviewLens: null,
       };
     }

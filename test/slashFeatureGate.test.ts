@@ -60,7 +60,7 @@ function makeBoss(sent: { queue: string; data: unknown }[]): PgBoss {
 }
 
 describe("slash command feature gating", () => {
-  it.each(["ask", "describe", "triage"] as const)(
+  it.each(["ask", "describe", "triage", "verify"] as const)(
     "replies with a disabled notice for /%s when its feature is off",
     async (command) => {
       const sent: { queue: string; data: unknown }[] = [];
@@ -70,6 +70,7 @@ describe("slash command feature gating", () => {
         ask: "off",
         describe: "off",
         triage: "off",
+        verification: "off",
       } as const;
 
       const events = await applySlashCommandIntake(

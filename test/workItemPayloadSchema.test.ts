@@ -52,6 +52,10 @@ describe("parseWorkItemPayload", () => {
     }
   });
 
+  it("accepts slash source on verification payloads", () => {
+    expect(parseWorkItemPayload("verification", { source: "slash" })).toEqual({ source: "slash" });
+  });
+
   it("accepts optional pushBeforeSha on verification payloads", () => {
     const pushBeforeSha = "f".repeat(40);
     expect(
@@ -72,7 +76,7 @@ describe("parseWorkItemPayload", () => {
     expect(() => parseWorkItemPayload("triage", validByType.verification())).toThrow(
       WorkItemPayloadValidationError,
     );
-    expect(() => parseWorkItemPayload("verification", validByType.triage())).toThrow(
+    expect(() => parseWorkItemPayload("verification", validByType.ask())).toThrow(
       WorkItemPayloadValidationError,
     );
   });

@@ -79,7 +79,7 @@ type AgentWorkInsert =
     })
   | (AgentWorkInsertCommon & {
       readonly type: "verification";
-      readonly source: "auto";
+      readonly source: WorkSource;
       readonly reviewLens: null;
       readonly payload: VerificationWorkPayload;
       readonly conflict: "none";
@@ -414,23 +414,25 @@ export async function createVerificationWorkItem(
   params: {
     webhookEventId: string;
     ref: PrRef;
+    source?: WorkSource;
     pushBeforeSha?: string;
     ackTargets?: readonly AckTarget[];
   },
 ): Promise<string> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
+  const source = params.source ?? "auto";
   const insert = await insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
     type: "verification",
-    source: "auto",
+    source,
     ref: params.ref,
     reviewLens: null,
     resourceKey,
-    priority: 0,
+    priority: source === "slash" ? 50 : 0,
     payload: {
-      source: "auto",
+      source,
       repositorySizeKb: params.ref.repositorySizeKb,
       ...(params.pushBeforeSha != null ? { pushBeforeSha: params.pushBeforeSha } : {}),
       ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
@@ -438,6 +440,24 @@ export async function createVerificationWorkItem(
     conflict: "none",
   });
   return insert.id;
+}
+
+export async function fetchActiveVerificationWorkItem(
+  client: PoolClient,
+  resourceKey: string,
+): Promise<{ id: string } | null> {
+  const result = await client.query<{ id: string }>(
+    `SELECT id
+			   FROM agent_work_items
+			  WHERE resource_key = $1
+			    AND type = 'verification'
+			    AND status IN ('queued', 'running')
+			  LIMIT 1`,
+    [resourceKey],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { id: row.id };
 }
 
 export async function fetchActiveTriageWorkItem(

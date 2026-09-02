@@ -166,7 +166,7 @@ const TriageWorkPayloadSchema = v.looseObject({
 });
 
 const VerificationWorkPayloadSchema = v.looseObject({
-  source: v.literal("auto"),
+  source: WorkSourceSchema,
   repositorySizeKb: v.optional(v.number()),
   pushBeforeSha: v.optional(v.pipe(v.string(), v.minLength(1))),
   ackTargets: v.optional(v.array(AckTargetSchema)),

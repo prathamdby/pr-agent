@@ -2,7 +2,7 @@
 
 export const REVIEW_FEATURE_MODES = ["manual", "auto"] as const;
 export const DESCRIBE_FEATURE_MODES = ["off", "manual", "auto"] as const;
-export const VERIFICATION_FEATURE_MODES = ["off", "auto"] as const;
+export const VERIFICATION_FEATURE_MODES = ["off", "manual", "auto"] as const;
 export const COMMAND_FEATURE_MODES = ["off", "manual"] as const;
 export const REVIEW_LABELS_MODES = ["off", "size", "size+security"] as const;
 
