@@ -1,6 +1,7 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import type { Db } from "pg-boss";
 import type { Config } from "../config.js";
+import { logWarn } from "../evlog.js";
 import {
   POSTGRES_CONNECTION_TIMEOUT_MS,
   POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
@@ -48,6 +49,9 @@ export async function inTransaction<T>(
       await client.query("ROLLBACK");
     } catch (error) {
       rollbackError = error;
+      logWarn("postgres_rollback_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
     throw e;
   } finally {
