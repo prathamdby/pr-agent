@@ -49,7 +49,7 @@ describe("validateReviewPayload", () => {
           findings: [
             {
               severity: "P1",
-              file: "src/submitReviewTool.ts",
+              file: "src/publishFindingBatch.ts",
               startLine: 1,
               endLine: 1,
               title: "submitReview retry path missing guard",

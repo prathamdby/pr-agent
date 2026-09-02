@@ -5,27 +5,11 @@ import { describe, expect, it } from "vitest";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
-import {
-  buildSubmitReviewTool,
-  createSubmitReviewState,
-} from "../src/review/publish/submitReviewTool.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
-import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
 import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
-import {
-  assertPromptCostWithinBudget,
-  measurePromptCost,
-  stableJson,
-  type PromptCost,
-} from "./helpers/promptCost.js";
+import { assertPromptCostWithinBudget, stableJson, type PromptCost } from "./helpers/promptCost.js";
 import { isRecord } from "../src/util/typeGuards.js";
-import { makeTestConfig } from "./helpers/config.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-
-function reviewPrSurface() {
-  return createFakePrSurface({ owner: "octo", repo: "hello", prNumber: 42 }).surface;
-}
 
 type PromptSurface = {
   readonly name: string;
@@ -52,8 +36,6 @@ const LOCAL_WORKSPACE_TOOL_NAMES = [
 ] as const;
 const CONTEXT7_TOOL_NAMES = ["getLibraryDocs", "resolveLibraryId"] as const;
 
-const cfg = makeTestConfig();
-
 describe("prompt cost baselines", () => {
   it("keeps prompt and tool surfaces within explicit budgets", () => {
     for (const surface of promptSurfaces()) {
@@ -72,57 +54,10 @@ describe("prompt cost baselines", () => {
     }
   });
 
-  it("keeps review user content bounded and structured", () => {
-    const content = representativeReviewUserContent();
-    expect(content).toContain("Target repository: octo/hello");
-    expect(content).toContain("Head commit SHA: abc123");
-    expect(content).toContain("submitReview exactly once");
-  });
-
   it("keeps structured review schema top-level fields required", () => {
     const jsonSchema = toJsonSchema(createReviewPayloadSchema(), { errorMode: "ignore" });
     const required = requiredFields(jsonSchema);
     expect(required.toSorted()).toEqual([...REVIEW_PAYLOAD_FIELDS].toSorted());
-  });
-
-  it("keeps submitReview tool contract stable", () => {
-    const { piTool } = buildSubmitReviewTool({
-      cfg,
-      prSurface: reviewPrSurface(),
-      ctx: {
-        owner: "octo",
-        repo: "hello",
-        prNumber: 42,
-        headSha: "abc123",
-        hasDescriptionReviewMap: false,
-      },
-      state: createSubmitReviewState(),
-    });
-    expect(piTool.name).toBe("submitReview");
-    expect(piTool.description).toContain("ReviewPayload");
-    expect(piTool.description).toContain("tool schema");
-    expect(piTool.description).not.toContain("Minimal valid example");
-    expect(requiredFields(piTool.parameters).toSorted()).toEqual(
-      [...REVIEW_PAYLOAD_FIELDS].toSorted(),
-    );
-  });
-
-  it("reduces static submitReview tool surface versus the prior field-list description", () => {
-    const { piTool } = buildSubmitReviewTool({
-      cfg,
-      prSurface: reviewPrSurface(),
-      ctx: {
-        owner: "octo",
-        repo: "hello",
-        prNumber: 42,
-        headSha: "abc123",
-        hasDescriptionReviewMap: false,
-      },
-      state: createSubmitReviewState(),
-    });
-    const bytes = measurePromptCost(stableJson(piTool)).bytes;
-    expect(bytes).toBeLessThan(2_500);
-    expect(bytes).toBeLessThan(2_050);
   });
 
   it("keeps investigation tool names stable", () => {
@@ -206,28 +141,11 @@ function promptSurfaces(): PromptSurface[] {
     apiKey: "",
     maxResponseBytes: 64_000,
   }).piTools;
-  const submitReviewTool = buildSubmitReviewTool({
-    cfg,
-    prSurface: reviewPrSurface(),
-    ctx: {
-      owner: "octo",
-      repo: "hello",
-      prNumber: 42,
-      headSha: "abc123",
-      hasDescriptionReviewMap: false,
-    },
-    state: createSubmitReviewState(),
-  }).piTool;
   return [
     {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
       budget: { bytes: 13_000, characters: 13_000, estimatedTokens: 3_250 },
-    },
-    {
-      name: "representative review user content",
-      content: representativeReviewUserContent(),
-      budget: { bytes: 400, characters: 400, estimatedTokens: 100 },
     },
     {
       name: "local workspace tool definitions",
@@ -241,23 +159,7 @@ function promptSurfaces(): PromptSurface[] {
       // Shared no-exfiltration descriptions are part of the tool contract.
       budget: { bytes: 2_000, characters: 2_000, estimatedTokens: 500 },
     },
-    {
-      name: "structured review submission tool",
-      content: stableJson(submitReviewTool),
-      budget: { bytes: 2_050, characters: 2_050, estimatedTokens: 513 },
-    },
   ];
-}
-
-function representativeReviewUserContent(): string {
-  return buildReviewRunUserContent({
-    owner: "octo",
-    repo: "hello",
-    prNumber: 42,
-    headSha: "abc123",
-    userSupplement: "Focus on the billing retry path.",
-    trustedContext: '<context trusted="server">\nChanged files: src/billing.ts\n</context>',
-  });
 }
 
 function requiredFields(schema: unknown): string[] {

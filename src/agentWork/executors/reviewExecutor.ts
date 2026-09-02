@@ -54,7 +54,7 @@ import {
   type ReviewWorkClaim,
 } from "../../review/run/reviewProfiler.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
+import { attachSummaryCommentCoordination } from "../../review/publish/publishSummaryOnly.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import { prBodyHasDescriptionReviewMap } from "../../agent/description/descriptionRender.js";
