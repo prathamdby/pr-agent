@@ -126,22 +126,10 @@ function startLeaseRenewal(
   return () => clearInterval(timer);
 }
 
-function combineAbortSignals(...signals: readonly AbortSignal[]): AbortSignal {
-  if (typeof AbortSignal.any === "function") {
-    return AbortSignal.any([...signals]);
-  }
-  const controller = new AbortController();
-  const abortFrom = (signal: AbortSignal): void => {
-    if (!controller.signal.aborted) controller.abort(signal.reason);
-  };
-  for (const signal of signals) {
-    if (signal.aborted) {
-      abortFrom(signal);
-      break;
-    }
-    signal.addEventListener("abort", () => abortFrom(signal), { once: true });
-  }
-  return controller.signal;
+function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
+  // Native on every supported runtime (engines node >=22.19.0, image
+  // node:22.22.0): no fallback branch to maintain.
+  return AbortSignal.any(signals);
 }
 
 function createLeaseMutationBoundary(params: {
