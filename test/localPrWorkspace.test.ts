@@ -354,8 +354,10 @@ describe("local PR workspace", () => {
         const workspaceDirsAfter = (await readdir(tmpdir())).filter((name) =>
           name.startsWith("pr-agent-workspace-"),
         );
-        expect(workspaceDirsAfter.length).toBe(workspaceDirsBefore.size);
-        expect(workspaceDirsAfter.every((name) => workspaceDirsBefore.has(name))).toBe(true);
+        const newlyCreatedDirs = workspaceDirsAfter.filter(
+          (name) => !workspaceDirsBefore.has(name),
+        );
+        expect(newlyCreatedDirs).toEqual([]);
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -409,7 +411,10 @@ describe("local PR workspace", () => {
         const workspaceDirsAfter = (await readdir(tmpdir())).filter((name) =>
           name.startsWith("pr-agent-workspace-"),
         );
-        expect(workspaceDirsAfter.length).toBe(workspaceDirsBefore.size);
+        const newlyCreatedDirs = workspaceDirsAfter.filter(
+          (name) => !workspaceDirsBefore.has(name),
+        );
+        expect(newlyCreatedDirs).toEqual([]);
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -504,7 +509,8 @@ describe("local PR workspace", () => {
     const dirsAfter = (await readdir(tmpdir())).filter((name) =>
       name.startsWith("pr-agent-workspace-"),
     );
-    expect(dirsAfter.every((name) => dirsBefore.has(name))).toBe(true);
+    const newlyCreatedDirs = dirsAfter.filter((name) => !dirsBefore.has(name));
+    expect(newlyCreatedDirs).toEqual([]);
   });
 });
 
