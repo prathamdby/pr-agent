@@ -396,6 +396,20 @@ describe("buildTriageWorkspaceTools", () => {
     expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe("const value = 2;\n");
   });
 
+  it("inserts replacement strings with dollar sequences literally", async () => {
+    const { root, executors } = await setup({
+      files: { "src/app.ts": 'const msg = "OLD";\n' },
+    });
+    const newText = 'const msg = "$1 $$ $&";';
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: 'const msg = "OLD";',
+      newText,
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe(`${newText}\n`);
+  });
+
   it("edits a CRLF file with the normalized text the model saw, preserving CRLF", async () => {
     const { root, executors } = await setup({
       files: { "src/app.ts": "const value = 1;\r\nconst other = 3;\r\n" },
