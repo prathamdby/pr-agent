@@ -110,7 +110,7 @@ describe("buildContext7Tools — executors", () => {
       expect(u.searchParams.get("query")).toBe("react");
       expect(headersOf(init).Authorization).toBeUndefined();
       expect(out).toMatchObject({
-        content: JSON.stringify({ results: [{ id: "/facebook/react", title: "React" }] }, null, 2),
+        content: JSON.stringify({ results: [{ id: "/facebook/react", title: "React" }] }),
         truncated: false,
         returnedBytes: expect.any(Number),
       });

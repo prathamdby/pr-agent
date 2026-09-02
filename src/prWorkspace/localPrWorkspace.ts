@@ -640,6 +640,7 @@ async function finishLocalPrWorkspace(
   let checkoutPaths = new Set<string>();
   let sortedCheckoutPaths: string[] = [];
   let searchTruncated = false;
+  const blameCache = new Map<string, Promise<string>>();
 
   function isPathInCheckout(path: string): boolean {
     return checkoutPaths.has(path.replace(/\\/g, "/"));
@@ -685,10 +686,23 @@ async function finishLocalPrWorkspace(
     if (!isPathInCheckout(normalized)) {
       return "";
     }
-    const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
-    return stdout.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES
-      ? `${stdout.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[blame truncated]`
-      : stdout;
+    // Blame is immutable at this workspace's pinned headSha, and the four
+    // specialists routinely blame the same path: one git process per path.
+    const cached = blameCache.get(normalized);
+    if (cached !== undefined) return cached;
+    const pending = (async () => {
+      const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
+      return stdout.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES
+        ? `${stdout.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[blame truncated]`
+        : stdout;
+    })();
+    blameCache.set(normalized, pending);
+    try {
+      return await pending;
+    } catch (error) {
+      if (blameCache.get(normalized) === pending) blameCache.delete(normalized);
+      throw error;
+    }
   }
 
   const grepLiteral = async (grepParams: GitGrepWorkspaceParams) => {
@@ -814,6 +828,7 @@ async function finishLocalPrWorkspace(
     getSymbolIndexStatus,
     cleanup: async () => {
       symbolIndex = null;
+      blameCache.clear();
       await resource.release();
     },
   };
