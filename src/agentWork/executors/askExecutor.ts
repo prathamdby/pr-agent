@@ -32,6 +32,7 @@ import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js"
 import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
 import { recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
+import { waitForReadySnapshot } from "../../codeIndex/repository.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 function replyTargetKindFromIntentDetail(
@@ -375,6 +376,19 @@ export async function executeAskJob(
             replyTarget: payload.replyTarget,
             commentId: payload.commentId,
           });
+          const ready =
+            cfg.codeIndexMode === "fts"
+              ? await waitForReadySnapshot(
+                  pool,
+                  {
+                    installationId: item.installationId,
+                    owner: item.owner,
+                    repo: item.repo,
+                    headSha,
+                  },
+                  0,
+                )
+              : null;
           const result = await runAskRun({
             cfg,
             prSurface,
@@ -394,6 +408,8 @@ export async function executeAskJob(
               workItemId: item.id,
               installationId: item.installationId,
             },
+            pool,
+            codeIndexSnapshotId: ready?.id,
           });
           await recordAskProviderUsage(pool, {
             workItemId: item.id,

@@ -1,3 +1,4 @@
+import type { Pool } from "pg";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -29,6 +30,8 @@ export type AskRunParams = {
   cwd?: string;
   workspace: LocalPrWorkspace;
   durability?: FeatureSessionDurability;
+  pool?: Pool;
+  codeIndexSnapshotId?: string;
 };
 
 export type AskRunResult = {
