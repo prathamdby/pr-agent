@@ -274,6 +274,49 @@ describe("pumpSpecialistCompletions", () => {
     expect(handled).toEqual([]);
   });
 
+  it("turns a rejected specialist promise into an error outcome without hanging", async () => {
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    const correctness = deferred<SpecialistOutcome>();
+    const security = Promise.reject(new Error("specialist crashed"));
+    const handled: SpecialistId[] = [];
+    const pump = pumpSpecialistCompletions({
+      pending: new Map([
+        ["correctness", correctness.promise],
+        ["security", security],
+      ]),
+      onOutcome: async (outcome) => {
+        handled.push(outcome.specialist);
+      },
+      shouldContinue: () => true,
+    });
+
+    correctness.resolve(emptyOutcome("correctness"));
+
+    const outcomes = await pump;
+
+    expect(handled).toEqual(["correctness", "security"]);
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes).toContainEqual(emptyOutcome("correctness"));
+    const rejected = outcomes.find((outcome) => outcome.specialist === "security");
+    expect(rejected).toMatchObject({
+      kind: "error",
+      specialist: "security",
+      durationMs: 0,
+      error: expect.objectContaining({
+        code: "review.specialist_promise_rejected",
+        message: "specialist crashed",
+      }),
+    });
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_specialist_promise_rejected",
+      expect.objectContaining({
+        specialist: "security",
+        errorCode: "review.specialist_promise_rejected",
+        errorMessage: "specialist crashed",
+      }),
+    );
+  });
+
   it("logs a handler failure and continues with later specialist outcomes", async () => {
     const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     const correctness = deferred<SpecialistOutcome>();

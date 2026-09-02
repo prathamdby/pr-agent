@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
-vi.mock("../src/review/publish/publishReview.js", () => ({
+vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
   upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({
     id: 42,
     updated: true,
@@ -15,7 +15,7 @@ vi.mock("../src/evlog.js", () => ({
 
 import { logWarn } from "../src/evlog.js";
 import { tickProgressComment } from "../src/review/orchestrator/stubTick.js";
-import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
+import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishSummaryOnly.js";
 
 const pool = {} as Pool;
 

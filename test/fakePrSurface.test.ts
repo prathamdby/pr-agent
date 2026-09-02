@@ -48,7 +48,7 @@ describe("createFakePrSurface", () => {
     await surface.setLabels(["bug", "review"]);
     expect(await surface.getLabels()).toEqual(["bug", "review"]);
     expect(controls.setLabels).toBeDefined();
-    expect(await surface.gitCredentialToken()).toBe("seed-token");
+    expect((await surface.gitCredentialAuth()).token).toBe("seed-token");
   });
 
   it("reflects rate limit circuit state", async () => {

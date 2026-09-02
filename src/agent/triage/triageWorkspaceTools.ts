@@ -264,7 +264,10 @@ export function buildTriageWorkspaceTools(params: {
       const content = await readFile(fullPath, "utf8");
       const matches = countOccurrences(content, oldText);
       if (matches === 1) {
-        await writeFile(fullPath, content.replace(oldText, newText));
+        await writeFile(
+          fullPath,
+          content.replace(oldText, () => newText),
+        );
         return { ok: true, path: rel };
       }
       if (matches > 1) {

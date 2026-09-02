@@ -4,7 +4,7 @@ import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
-import { upsertSummaryCommentWithCreationClaim } from "../publish/publishReview.js";
+import { upsertSummaryCommentWithCreationClaim } from "../publish/publishSummaryOnly.js";
 import { REVIEW_SUMMARY_SENTINEL, type WorkSource } from "../reviewSchema.js";
 import {
   renderReviewCancelledNotice,

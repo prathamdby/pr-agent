@@ -137,7 +137,13 @@ export function gitPersonFromGithubUser(user: {
   const login = user.login?.trim();
   if (!login) return null;
   if (user.type === "Bot" || login.endsWith("[bot]")) return null;
-  const name = (user.name?.trim() || login).trim();
+  const rawName = user.name?.trim() || login;
+  const name =
+    rawName
+      .replace(/[\r\n]+/g, " ")
+      .split("\0")
+      .join(" ")
+      .trim() || login;
   if (!name) return null;
   const email = (user.email?.trim() || githubNoreplyEmail(user.id, login)).trim();
   if (!email.includes("@")) return null;
@@ -148,17 +154,26 @@ export function formatCoAuthoredByTrailer(person: GitPerson): string {
   return `Co-authored-by: ${person.name} <${person.email}>`;
 }
 
+function gitPersonHasForbiddenChars(value: string): boolean {
+  return value.includes("\r") || value.includes("\n") || value.includes("\0");
+}
+
 function validateGitPerson(person: GitPerson, field: string): void {
   const name = person.name.trim();
   const email = person.email.trim();
-  if (!name || name.includes("<") || name.includes(">")) {
+  if (!name || name.includes("<") || name.includes(">") || gitPersonHasForbiddenChars(name)) {
     throw new AppError({
       code: "pr_workspace.commit_identity_invalid",
       message: `${field} name is invalid`,
       context: { field },
     });
   }
-  if (!email.includes("@") || email.includes("<") || email.includes(">")) {
+  if (
+    !email.includes("@") ||
+    email.includes("<") ||
+    email.includes(">") ||
+    gitPersonHasForbiddenChars(email)
+  ) {
     throw new AppError({
       code: "pr_workspace.commit_identity_invalid",
       message: `${field} email is invalid`,

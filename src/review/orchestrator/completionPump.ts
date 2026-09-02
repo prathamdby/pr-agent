@@ -15,13 +15,32 @@ export async function pumpSpecialistCompletions(args: {
   const completed: SpecialistOutcome[] = [];
   let notifyCompletion: (() => void) | undefined;
 
-  for (const promise of args.pending.values()) {
-    void promise.then((outcome) => {
-      completed.push(outcome);
-      const notify = notifyCompletion;
-      notifyCompletion = undefined;
-      notify?.();
-    });
+  for (const [specialist, promise] of args.pending.entries()) {
+    void promise
+      .then((outcome) => {
+        completed.push(outcome);
+        const notify = notifyCompletion;
+        notifyCompletion = undefined;
+        notify?.();
+      })
+      .catch((error: unknown) => {
+        const appError = toAppError(error, {
+          code: "review.specialist_promise_rejected",
+        });
+        logWarn("review_specialist_promise_rejected", {
+          specialist,
+          ...errorLogFields(appError),
+        });
+        completed.push({
+          kind: "error",
+          specialist,
+          error: appError,
+          durationMs: 0,
+        });
+        const notify = notifyCompletion;
+        notifyCompletion = undefined;
+        notify?.();
+      });
   }
 
   async function takeCompleted(): Promise<SpecialistOutcome> {

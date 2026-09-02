@@ -568,6 +568,52 @@ export type CancelledActiveTriage = {
   readonly replyTarget: ReplyTarget;
 };
 
+function sortWorkItemsByCreatedAtDesc<T extends { id: string; created_at: Date | string }>(
+  rows: readonly T[],
+): T[] {
+  return [...rows].toSorted((a, b) => {
+    const ta = new Date(a.created_at).getTime();
+    const tb = new Date(b.created_at).getTime();
+    if (tb !== ta) return tb - ta;
+    return b.id.localeCompare(a.id);
+  });
+}
+
+function mapCancelledReviewRows(
+  rows: readonly {
+    id: string;
+    source: WorkSource;
+    head_sha: string;
+    created_at: Date | string;
+  }[],
+): CancelledActiveReview[] {
+  return sortWorkItemsByCreatedAtDesc(rows).map((row) => ({
+    id: row.id,
+    source: row.source,
+    headSha: row.head_sha,
+  }));
+}
+
+function mapCancelledTriageRows(
+  rows: readonly {
+    id: string;
+    head_sha: string;
+    created_at: Date | string;
+    payload: unknown;
+  }[],
+  prNumber: number | undefined,
+): CancelledActiveTriage[] {
+  return sortWorkItemsByCreatedAtDesc(rows).map((row) => {
+    const payload = parseWorkItemPayload("triage", row.payload);
+    return {
+      id: row.id,
+      headSha: row.head_sha,
+      ackTargets: triageAckTargets(payload, prNumber),
+      replyTarget: payload.replyTarget,
+    };
+  });
+}
+
 /**
  * Cancel every queued/running review for a PR (auto or slash).
  * Both queued and running become `cancelled` immediately so the slash uniqueness
@@ -583,26 +629,6 @@ export async function cancelActiveReviews(
 ): Promise<readonly CancelledActiveReview[]> {
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
   const lastError = reviewCancelLastError(attribution);
-  const mapRows = (
-    rows: readonly {
-      id: string;
-      source: WorkSource;
-      head_sha: string;
-      created_at: Date | string;
-    }[],
-  ): CancelledActiveReview[] =>
-    [...rows]
-      .sort((a, b) => {
-        const ta = new Date(a.created_at).getTime();
-        const tb = new Date(b.created_at).getTime();
-        if (tb !== ta) return tb - ta;
-        return b.id.localeCompare(a.id);
-      })
-      .map((row) => ({
-        id: row.id,
-        source: row.source,
-        headSha: row.head_sha,
-      }));
 
   const queued = await client.query<{
     id: string;
@@ -641,7 +667,7 @@ export async function cancelActiveReviews(
 		  RETURNING id, source, head_sha, created_at`,
     [resourceKey, lastError, payloadPatch],
   );
-  return [...mapRows(running.rows), ...mapRows(queued.rows)];
+  return [...mapCancelledReviewRows(running.rows), ...mapCancelledReviewRows(queued.rows)];
 }
 
 function triageAckTargets(
@@ -671,30 +697,6 @@ export async function cancelActiveTriage(
 ): Promise<readonly CancelledActiveTriage[]> {
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
   const lastError = reviewCancelLastError(attribution);
-  const mapRows = (
-    rows: readonly {
-      id: string;
-      head_sha: string;
-      created_at: Date | string;
-      payload: unknown;
-    }[],
-  ): CancelledActiveTriage[] =>
-    [...rows]
-      .sort((a, b) => {
-        const ta = new Date(a.created_at).getTime();
-        const tb = new Date(b.created_at).getTime();
-        if (tb !== ta) return tb - ta;
-        return b.id.localeCompare(a.id);
-      })
-      .map((row) => {
-        const payload = parseWorkItemPayload("triage", row.payload);
-        return {
-          id: row.id,
-          headSha: row.head_sha,
-          ackTargets: triageAckTargets(payload, prNumber),
-          replyTarget: payload.replyTarget,
-        };
-      });
 
   const queued = await client.query<{
     id: string;
@@ -733,7 +735,10 @@ export async function cancelActiveTriage(
 		 RETURNING id, head_sha, created_at, payload`,
     [resourceKey, lastError, payloadPatch],
   );
-  return [...mapRows(running.rows), ...mapRows(queued.rows)];
+  return [
+    ...mapCancelledTriageRows(running.rows, prNumber),
+    ...mapCancelledTriageRows(queued.rows, prNumber),
+  ];
 }
 
 export async function createAskWorkItem(

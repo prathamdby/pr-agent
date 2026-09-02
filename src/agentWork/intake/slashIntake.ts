@@ -323,24 +323,27 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     };
     const cancelled = await cancelActiveReviews(ctx.client, resourceKey, attribution);
     if (cancelled.length > 0) {
-      cancelProgress = {
-        workItemId: cancelled[0]!.id,
-        cancelledWorkItemIds: cancelled.map((row) => row.id),
-        attribution,
-      };
-      ctx.events.push({
-        name: "agent_work_cancel_requested",
-        fields: {
-          type: "review",
-          source: "slash",
-          workItemId: cancelled[0]!.id,
-          resourceKey,
-          cancelledCount: cancelled.length,
-          cancelledByLogin: attribution.login,
-          force: true,
-          ...ctx.correlation,
-        },
-      });
+      const primary = cancelled[0];
+      if (primary) {
+        cancelProgress = {
+          workItemId: primary.id,
+          cancelledWorkItemIds: cancelled.map((row) => row.id),
+          attribution,
+        };
+        ctx.events.push({
+          name: "agent_work_cancel_requested",
+          fields: {
+            type: "review",
+            source: "slash",
+            workItemId: primary.id,
+            resourceKey,
+            cancelledCount: cancelled.length,
+            cancelledByLogin: attribution.login,
+            force: true,
+            ...ctx.correlation,
+          },
+        });
+      }
     }
   }
   const insert = await createReviewWorkItem(ctx.client, {
@@ -402,7 +405,8 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
     });
     return;
   }
-  const primary = cancelled[0]!;
+  const primary = cancelled[0];
+  if (primary == null) return;
   const cancelledWorkItemIds = cancelled.map((row) => row.id);
   await enqueueSlashAck(ctx, {
     cancelProgress: {

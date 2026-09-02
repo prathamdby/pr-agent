@@ -27,7 +27,7 @@ vi.mock("../src/evlog.js", async (importOriginal) => {
 import {
   attachSummaryCommentCoordination,
   upsertSummaryCommentWithCreationClaim,
-} from "../src/review/publish/publishReview.js";
+} from "../src/review/publish/publishSummaryOnly.js";
 import {
   claimSummaryCommentCreation,
   getProgressCommentOwner,
@@ -359,7 +359,9 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     const { pool: lockedPool, release } = createLockedPool();
     vi.mocked(getProgressCommentRevision).mockResolvedValue(null);
     harness.findProgressComment.mockResolvedValue(null);
-    vi.mocked(recordPublishStep).mockRejectedValueOnce(new Error("record failed"));
+    vi.mocked(recordPublishStep)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("record failed"));
 
     await expect(
       upsertSummaryCommentWithCreationClaim({
@@ -386,8 +388,72 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     ).resolves.toEqual({ id: 99, updated: false, skipped: true });
 
     expect(harness.upsertProgressComment).toHaveBeenCalledOnce();
-    expect(recordPublishStep).toHaveBeenCalledOnce();
+    expect(recordPublishStep).toHaveBeenCalledTimes(2);
     expect(release).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries after a claim recorded under the lock but before the GitHub write", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 2 });
+    harness.findProgressComment.mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\nno revision marker yet`,
+    });
+
+    const result = await upsertSummaryCommentWithCreationClaim({
+      ...claimBase(),
+      pool: lockedPool,
+      progressRevision: 2,
+    });
+
+    expect(result).toEqual({ id: 99, updated: false });
+    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0] as string;
+    expect(writtenBody).toContain("workItemId=wi-1 value=2");
+  });
+
+  it("logs the foreign-owner warning only without a comment or hint", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentOwner).mockResolvedValue({
+      workItemId: "wi-b",
+      generation: 2,
+    });
+    harness.findProgressComment.mockResolvedValue(null);
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        workItemId: "wi-a",
+        progressRevision: 0,
+      }),
+    ).resolves.toEqual({ id: 0, updated: false, skipped: true });
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_progress_skipped_foreign_owner",
+      expect.objectContaining({ ownerWorkItemId: "wi-b" }),
+    );
+
+    vi.mocked(logWarn).mockClear();
+    harness.findProgressComment.mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-b value=1 -->`,
+    });
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        workItemId: "wi-a",
+        progressRevision: 0,
+      }),
+    ).resolves.toMatchObject({ id: 88, updated: false, skipped: true });
+
+    expect(logWarn).not.toHaveBeenCalledWith(
+      "review_progress_skipped_foreign_owner",
+      expect.anything(),
+    );
   });
 
   it("records a revision after the GitHub upsert and unlocks on failure", async () => {
@@ -409,9 +475,63 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     ).rejects.toThrow("write failed");
 
     expect(getProgressCommentRevision).toHaveBeenCalledWith(client, "o/r#1", "review");
-    expect(recordPublishStep).not.toHaveBeenCalled();
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      client,
+      expect.objectContaining({
+        step: "progress_comment",
+        detail: expect.objectContaining({ progressRevision: 2 }),
+      }),
+    );
     expect(query.mock.calls.at(-1)?.[0]).toContain("pg_advisory_unlock");
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("does not hold the pooled client across GitHub progress-comment calls", async () => {
+    const { client, query, release } = createLockedPool();
+    const order: string[] = [];
+    const pool = {
+      connect: vi.fn(async () => {
+        order.push("connect");
+        return client;
+      }),
+    } as unknown as Pool;
+    query.mockImplementation(async (sql: string) => {
+      if (sql.includes("pg_advisory_lock")) order.push("lock");
+      if (sql.includes("pg_advisory_unlock")) order.push("unlock");
+      return { rows: [] };
+    });
+    release.mockImplementation(() => {
+      order.push("release");
+    });
+    harness.findProgressComment.mockImplementation(async () => {
+      order.push("find");
+      return {
+        id: 88,
+        url: "https://example.com/88",
+        body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=0 -->`,
+      };
+    });
+    harness.resolveProgressComment.mockImplementation(async () => {
+      order.push("resolve");
+      return { id: 88, url: "https://example.com/88" };
+    });
+    harness.upsertProgressComment.mockImplementation(async () => {
+      order.push("upsert");
+      return { id: 88, updated: true };
+    });
+
+    await upsertSummaryCommentWithCreationClaim({
+      ...claimBase(),
+      pool,
+      progressRevision: 2,
+    });
+
+    expect(order.indexOf("find")).toBeGreaterThan(-1);
+    expect(order.indexOf("find")).toBeLessThan(order.indexOf("connect"));
+    expect(order.indexOf("unlock")).toBeLessThan(order.indexOf("resolve"));
+    expect(order.indexOf("release")).toBeLessThan(order.indexOf("resolve"));
+    expect(order.indexOf("unlock")).toBeLessThan(order.indexOf("upsert"));
+    expect(order.indexOf("release")).toBeLessThan(order.indexOf("upsert"));
   });
 
   it("releases the client when advisory lock acquisition fails", async () => {

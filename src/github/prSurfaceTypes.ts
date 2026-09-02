@@ -219,7 +219,6 @@ export type PrSurfaceReadMethods = {
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;
   listCheckRunAnnotations(checkRunId: number): Promise<readonly CiCheckAnnotation[]>;
   gitCredentialAuth(): Promise<{ readonly token: string; readonly expiresAtTs: number }>;
-  gitCredentialToken(): Promise<string>;
   listConversationComments(): Promise<readonly PrConversationComment[]>;
   listInlineReviewComments(): Promise<readonly PrConversationComment[]>;
   getPullRequestBody(): Promise<string | null>;

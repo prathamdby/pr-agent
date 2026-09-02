@@ -273,7 +273,7 @@ async function listLifecycleReactions(
       repo,
       issue_number: target.prNumber,
       per_page: 100,
-    }) as Promise<readonly ListedReaction[]>;
+    });
   }
   if (target.kind === "issueComment") {
     return octokit.paginate(octokit.rest.reactions.listForIssueComment, {
@@ -281,14 +281,14 @@ async function listLifecycleReactions(
       repo,
       comment_id: target.commentId,
       per_page: 100,
-    }) as Promise<readonly ListedReaction[]>;
+    });
   }
   return octokit.paginate(octokit.rest.reactions.listForPullRequestReviewComment, {
     owner,
     repo,
     comment_id: target.commentId,
     per_page: 100,
-  }) as Promise<readonly ListedReaction[]>;
+  });
 }
 
 async function deleteReaction(
@@ -773,10 +773,6 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
     async gitCredentialAuth() {
       return ensureAuth();
-    },
-
-    async gitCredentialToken() {
-      return (await ensureAuth()).token;
     },
 
     async listConversationComments() {

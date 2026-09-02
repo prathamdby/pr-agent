@@ -207,7 +207,7 @@ export async function createReviewRescheduleWorkItem(
         [item.id, marker],
       );
       if ((updateResult.rowCount ?? 0) === 0) {
-        const refreshed = await getWorkItem(pool, item.id);
+        const refreshed = await getWorkItem(client, item.id);
         const persistedId =
           refreshed?.type === "review"
             ? refreshed.payload.staleHeadReplacement?.replacementWorkItemId

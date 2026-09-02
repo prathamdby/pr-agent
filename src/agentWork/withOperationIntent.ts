@@ -161,10 +161,10 @@ function hasStashedResult(detail: Record<string, unknown>): boolean {
   return Object.prototype.hasOwnProperty.call(detail, OPERATION_INTENT_RESULT_KEY);
 }
 
-function stashedResultValue<T>(detail: Record<string, unknown>): T {
+function stashedResultValue(detail: Record<string, unknown>): unknown {
   // null is the durable sentinel for a successful void mutate() return.
   const value = detail[OPERATION_INTENT_RESULT_KEY];
-  return (value === null ? undefined : value) as T;
+  return value === null ? undefined : value;
 }
 
 function leaseEpochDetail<T>(
@@ -191,7 +191,7 @@ async function finishWithStashedResult<T>(
       },
     });
   }
-  return stashedResultValue<T>(intent.detail);
+  return stashedResultValue(intent.detail) as T;
 }
 
 type RecoveryAttempt<T> = { readonly found: true; readonly value: T } | { readonly found: false };
@@ -230,6 +230,7 @@ async function recoverByExactEvidence<T>(
     operationKey: params.operationKey,
     status: "reconciled",
     publishRecordId: recovery.publishRecordId,
+    ...leaseEpochDetail(params),
     detail: resultDetail,
   });
   return { found: true, value: recovery.value };
@@ -351,9 +352,12 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
     return finishWithStashedResult(params, intent);
   }
 
-  // Reconciled without a return value (void mutate, or recovered publish_records):
-  // side effect is done — idempotent completion, never remutate.
+  // Reconciled without a stashed return value (void mutate, or recovered
+  // publish_records). Side effect is done — never remutate. If recover can
+  // rebuild a typed result, stash it so later retries do not return undefined.
   if (intent.status === "reconciled") {
+    const recovered = await recoverByExactEvidence(params, intent, null);
+    if (recovered.found) return recovered.value;
     return undefined as T;
   }
 

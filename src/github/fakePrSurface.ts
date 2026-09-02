@@ -92,7 +92,6 @@ export type FakePrSurfaceEvent =
   | { readonly kind: "downloadActionsJobLogs"; readonly jobId: number }
   | { readonly kind: "listCheckRunAnnotations"; readonly checkRunId: number }
   | { readonly kind: "gitCredentialAuth" }
-  | { readonly kind: "gitCredentialToken" }
   | { readonly kind: "listConversationComments" }
   | { readonly kind: "listInlineReviewComments" }
   | { readonly kind: "editReviewComment"; readonly commentId: number; readonly body: string }
@@ -384,8 +383,8 @@ export function createFakePrSurface(
     setPriorInlineFeedback(next) {
       priorInlineFeedback = [...next];
     },
-    setBotFindingThreads(threads) {
-      botFindingThreads = [...threads];
+    setBotFindingThreads(nextThreads) {
+      botFindingThreads = [...nextThreads];
     },
     setReviewCommentParentGraph(nodes) {
       reviewCommentParentGraph = [...nodes];
@@ -719,11 +718,6 @@ export function createFakePrSurface(
     async gitCredentialAuth() {
       events.push({ kind: "gitCredentialAuth" });
       return { token: credentialToken, expiresAtTs: credentialExpiresAtTs };
-    },
-
-    async gitCredentialToken() {
-      events.push({ kind: "gitCredentialToken" });
-      return (await this.gitCredentialAuth()).token;
     },
 
     async listConversationComments() {
