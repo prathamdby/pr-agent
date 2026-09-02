@@ -556,6 +556,81 @@ describe("withOperationIntent", () => {
     );
   });
 
+  it("returns undefined when recover finds no evidence on a reconciled intent without __result", async () => {
+    const mutate = vi.fn(async () => ({ id: 99 }));
+    const recover = vi.fn(async () => ({ kind: "absent" as const }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "reconciled",
+      publishRecordId: null,
+      detail: { recoveredAfterMutating: true },
+    });
+
+    await expect(withOperationIntent({ ...baseParams, recover, mutate })).resolves.toBeUndefined();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
+  it("wraps a recover-hook failure on a reconciled intent without __result", async () => {
+    const mutate = vi.fn(async () => ({ id: 99 }));
+    const recover = vi.fn(async () => {
+      throw new Error("evidence lookup failed");
+    });
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "reconciled",
+      publishRecordId: null,
+      detail: { recoveredAfterMutating: true },
+    });
+
+    await expect(withOperationIntent({ ...baseParams, recover, mutate })).rejects.toMatchObject({
+      code: "operation_intent.recovery_failed",
+    });
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("propagates leaseEpoch when reconciling exact-evidence recovery", async () => {
+    const mutate = vi.fn(async () => ({ id: 99 }));
+    const recoveredValue = { id: 7, updated: false };
+    const recover = vi.fn(async () => ({
+      kind: "reconciled" as const,
+      value: recoveredValue,
+    }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "reconciled",
+      publishRecordId: null,
+      detail: { recoveredAfterMutating: true },
+    });
+
+    const result = await withOperationIntent({
+      ...baseParams,
+      leaseEpoch: 7,
+      recover,
+      mutate,
+    });
+
+    expect(result).toEqual(recoveredValue);
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        status: "reconciled",
+        leaseEpoch: 7,
+      }),
+    );
+  });
+
   it("remutates after status failed even if __mutating residue remains", async () => {
     const mutate = vi.fn(async () => ({ commentId: 3 }));
     vi.mocked(persistOperationIntent).mockResolvedValue({

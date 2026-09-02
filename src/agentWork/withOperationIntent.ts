@@ -356,10 +356,8 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
   // publish_records). Side effect is done — never remutate. If recover can
   // rebuild a typed result, stash it so later retries do not return undefined.
   if (intent.status === "reconciled") {
-    if (params.recover != null) {
-      const recovered = await recoverByExactEvidence(params, intent, null);
-      if (recovered.found) return recovered.value;
-    }
+    const recovered = await recoverByExactEvidence(params, intent, null);
+    if (recovered.found) return recovered.value;
     return undefined as T;
   }
 
