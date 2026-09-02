@@ -53,6 +53,23 @@ export const TRIAGE_CONTROL_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)pnpm-workspace\.ya?ml$/i,
   /(^|\/)\.pubignore$/i,
   /(^|\/)pubspec\.ya?ml$/i,
+  /(^|\/)\.gitmodules$/i,
+  /(^|\/)pyproject\.toml$/i,
+  /(^|\/)setup\.(?:py|cfg)$/i,
+  /(^|\/)poetry\.lock$/i,
+  /(^|\/)uv\.lock$/i,
+  /(^|\/)Cargo\.toml$/i,
+  /(^|\/)Cargo\.lock$/i,
+  /(^|\/)go\.(?:mod|work)$/i,
+  /(^|\/)go\.sum$/i,
+  /(^|\/)Gemfile$/i,
+  /(^|\/)Gemfile\.lock$/i,
+  /(^|\/)build\.gradle(?:\.kts)?$/i,
+  /(^|\/)pom\.xml$/i,
+  /(^|\/)CMakeLists\.txt$/i,
+  /(^|\/)bunfig\.toml$/i,
+  /(^|\/)deno\.jsonc?$/i,
+  /(^|\/)deno\.lock$/i,
 ];
 
 /** New files may only be created under these explicitly safe path classes. */
