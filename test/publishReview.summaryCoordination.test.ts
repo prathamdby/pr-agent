@@ -392,6 +392,70 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     expect(release).toHaveBeenCalledTimes(2);
   });
 
+  it("retries after a claim recorded under the lock but before the GitHub write", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 2 });
+    harness.findProgressComment.mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\nno revision marker yet`,
+    });
+
+    const result = await upsertSummaryCommentWithCreationClaim({
+      ...claimBase(),
+      pool: lockedPool,
+      progressRevision: 2,
+    });
+
+    expect(result).toEqual({ id: 99, updated: false });
+    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0] as string;
+    expect(writtenBody).toContain("workItemId=wi-1 value=2");
+  });
+
+  it("logs the foreign-owner warning only without a comment or hint", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentOwner).mockResolvedValue({
+      workItemId: "wi-b",
+      generation: 2,
+    });
+    harness.findProgressComment.mockResolvedValue(null);
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        workItemId: "wi-a",
+        progressRevision: 0,
+      }),
+    ).resolves.toEqual({ id: 0, updated: false, skipped: true });
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_progress_skipped_foreign_owner",
+      expect.objectContaining({ ownerWorkItemId: "wi-b" }),
+    );
+
+    vi.mocked(logWarn).mockClear();
+    harness.findProgressComment.mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-b value=1 -->`,
+    });
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        workItemId: "wi-a",
+        progressRevision: 0,
+      }),
+    ).resolves.toMatchObject({ id: 88, updated: false, skipped: true });
+
+    expect(logWarn).not.toHaveBeenCalledWith(
+      "review_progress_skipped_foreign_owner",
+      expect.anything(),
+    );
+  });
+
   it("records a revision after the GitHub upsert and unlocks on failure", async () => {
     const { client, pool: lockedPool, query, release } = createLockedPool();
     vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 0 });
