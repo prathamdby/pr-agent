@@ -78,9 +78,10 @@ export async function buildCodeIndexFromWorkspace(
   if (snapshot.status === "ready") return;
 
   const client = await pool.connect();
+  let unlockError: unknown;
   try {
     // Serialize inline + worker builders for the same snapshot.
-    await client.query("SELECT pg_advisory_lock(hashtext($1::text))", [snapshot.id]);
+    await client.query("SELECT pg_advisory_lock(hashtextextended($1::text, 0))", [snapshot.id]);
     try {
       const current = await getSnapshotById(client, snapshot.id);
       if (!current || current.status === "ready") return;
@@ -101,12 +102,20 @@ export async function buildCodeIndexFromWorkspace(
         throw error;
       }
     } finally {
-      await client
-        .query("SELECT pg_advisory_unlock(hashtext($1::text))", [snapshot.id])
-        .catch(() => undefined);
+      try {
+        await client.query("SELECT pg_advisory_unlock(hashtextextended($1::text, 0))", [
+          snapshot.id,
+        ]);
+      } catch (error) {
+        unlockError = error;
+        logWarn("code_index_unlock_failed", {
+          snapshotId: snapshot.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   } finally {
-    client.release();
+    client.release(unlockError !== undefined ? true : undefined);
   }
 }
 
