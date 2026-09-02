@@ -562,9 +562,11 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
   }
 
   if (params.findingHistoryCfg) {
-    const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
+    const activeThreadById = new Map(
+      params.inventory.map((thread) => [thread.rootCommentId, thread]),
+    );
     for (const verdict of params.payload.verdicts) {
-      const thread = threadById.get(verdict.threadRootCommentId);
+      const thread = activeThreadById.get(verdict.threadRootCommentId);
       if (!thread) continue;
       safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
         scope: {

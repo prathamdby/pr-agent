@@ -161,10 +161,10 @@ function hasStashedResult(detail: Record<string, unknown>): boolean {
   return Object.prototype.hasOwnProperty.call(detail, OPERATION_INTENT_RESULT_KEY);
 }
 
-function stashedResultValue<T>(detail: Record<string, unknown>): T {
+function stashedResultValue(detail: Record<string, unknown>): unknown {
   // null is the durable sentinel for a successful void mutate() return.
   const value = detail[OPERATION_INTENT_RESULT_KEY];
-  return (value === null ? undefined : value) as T;
+  return value === null ? undefined : value;
 }
 
 function leaseEpochDetail<T>(
@@ -191,7 +191,7 @@ async function finishWithStashedResult<T>(
       },
     });
   }
-  return stashedResultValue<T>(intent.detail);
+  return stashedResultValue(intent.detail) as T;
 }
 
 type RecoveryAttempt<T> = { readonly found: true; readonly value: T } | { readonly found: false };
