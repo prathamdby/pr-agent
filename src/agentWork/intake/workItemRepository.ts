@@ -32,6 +32,19 @@ const SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
 const SLASH_ACTIVE_CONFLICT_TARGET = `(resource_key, type, review_lens)
      WHERE ${SLASH_ACTIVE_INDEX_PREDICATE}`;
 
+/**
+ * Partial unique index predicate from
+ * migrations/027_verification_slash_active_uniqueness.sql.
+ * Keep ON CONFLICT inference and winner SELECT in lockstep with that index.
+ */
+const VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
+       AND type = 'verification'
+       AND status IN ('queued', 'running')
+       AND (payload->>'staleHeadRescheduled') IS DISTINCT FROM 'true'`;
+
+const VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET = `(resource_key, type, review_lens)
+     WHERE ${VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE}`;
+
 /** Partial unique index from migrations/015_thread_reply_classification.sql */
 const ASK_WEBHOOK_CONFLICT_TARGET = `(webhook_event_id)
 		   WHERE type = 'ask' AND webhook_event_id IS NOT NULL`;
@@ -82,7 +95,7 @@ type AgentWorkInsert =
       readonly source: WorkSource;
       readonly reviewLens: null;
       readonly payload: VerificationWorkPayload;
-      readonly conflict: "none";
+      readonly conflict: "none" | "slash_active_verification";
     })
   | (AgentWorkInsertCommon & {
       readonly type: "ask";
@@ -149,6 +162,41 @@ async function insertAgentWorkItem(
 			    AND type = $2
 			    AND review_lens IS NOT DISTINCT FROM $3
 			    AND ${SLASH_ACTIVE_INDEX_PREDICATE}
+			  LIMIT 1`,
+        [params.resourceKey, params.type, params.reviewLens],
+      );
+      const existingId = existing.rows[0]?.id;
+      if (!existingId) {
+        throw new AppError({
+          code: "agent_work.slash_active_conflict_no_winner",
+          message: `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
+          context: { resourceKey: params.resourceKey, type: params.type },
+        });
+      }
+      return { created: false, id: existingId };
+    }
+    case "slash_active_verification": {
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO agent_work_items (
+		   ${AGENT_WORK_INSERT_COLUMNS}
+		 )
+		 VALUES (${AGENT_WORK_INSERT_VALUES})
+		 ON CONFLICT ${VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET}
+		 DO NOTHING
+		 RETURNING id`,
+        values,
+      );
+      const createdId = inserted.rows[0]?.id;
+      if (createdId) {
+        return { created: true, id: createdId };
+      }
+      const existing = await client.query<{ id: string }>(
+        `SELECT id
+			   FROM agent_work_items
+			  WHERE resource_key = $1
+			    AND type = $2
+			    AND review_lens IS NOT DISTINCT FROM $3
+			    AND ${VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE}
 			  LIMIT 1`,
         [params.resourceKey, params.type, params.reviewLens],
       );
@@ -409,19 +457,48 @@ export async function createTriageWorkItem(
   });
 }
 
+type VerificationWorkItemParams = {
+  webhookEventId: string;
+  ref: PrRef;
+  source?: WorkSource;
+  pushBeforeSha?: string;
+  ackTargets?: readonly AckTarget[];
+};
+
 export async function createVerificationWorkItem(
   client: PoolClient,
-  params: {
-    webhookEventId: string;
-    ref: PrRef;
-    source?: WorkSource;
-    pushBeforeSha?: string;
-    ackTargets?: readonly AckTarget[];
-  },
-): Promise<string> {
+  params: VerificationWorkItemParams & { source?: "auto" },
+): Promise<string>;
+export async function createVerificationWorkItem(
+  client: PoolClient,
+  params: VerificationWorkItemParams & { source: "slash" },
+): Promise<SlashActiveWorkInsertResult>;
+export async function createVerificationWorkItem(
+  client: PoolClient,
+  params: VerificationWorkItemParams & { source?: WorkSource },
+): Promise<string | SlashActiveWorkInsertResult> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
   const source = params.source ?? "auto";
+  if (source === "slash") {
+    return insertAgentWorkItem(client, {
+      id,
+      webhookEventId: params.webhookEventId,
+      type: "verification",
+      source,
+      ref: params.ref,
+      reviewLens: null,
+      resourceKey,
+      priority: 50,
+      payload: {
+        source,
+        repositorySizeKb: params.ref.repositorySizeKb,
+        ...(params.pushBeforeSha != null ? { pushBeforeSha: params.pushBeforeSha } : {}),
+        ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
+      } satisfies VerificationWorkPayload,
+      conflict: "slash_active_verification",
+    });
+  }
   const insert = await insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
@@ -430,7 +507,7 @@ export async function createVerificationWorkItem(
     ref: params.ref,
     reviewLens: null,
     resourceKey,
-    priority: source === "slash" ? 50 : 0,
+    priority: 0,
     payload: {
       source,
       repositorySizeKb: params.ref.repositorySizeKb,

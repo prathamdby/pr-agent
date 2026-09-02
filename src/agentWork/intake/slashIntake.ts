@@ -435,12 +435,19 @@ async function handleSlashVerify(ctx: SlashIntakeContext): Promise<void> {
     });
     return;
   }
-  const workItemId = await createVerificationWorkItem(ctx.client, {
+  const insert = await createVerificationWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     source: "slash",
     ackTargets: ctx.baseAck.targets,
   });
+  if (!insert.created) {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY },
+    });
+    return;
+  }
+  const workItemId = insert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueVerification(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   ctx.events.push({

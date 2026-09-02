@@ -1239,15 +1239,15 @@ describe("applySlashCommandIntake", () => {
           return { rows: [{ body_sha256: "hash" }] };
         }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [{ id: "work-verify" }] };
+        }
         if (
           sql.includes("type = 'verification'") &&
           sql.includes("status IN ('queued', 'running')")
         ) {
           return { rows: [] };
-        }
-        if (sql.includes("INSERT INTO agent_work_items")) {
-          workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-verify" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),

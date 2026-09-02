@@ -96,6 +96,9 @@ export async function executeVerificationJob(
       ]);
 
       const compareFilesTruncated = pushDeltaFiles?.truncated === true;
+      // A manual run has no push delta, so an empty file set must not read as
+      // "nothing changed": membership is unknown, not complete.
+      const changedMembershipTruncated = compareFilesTruncated || payload.pushBeforeSha == null;
       const changedFilePaths =
         pushDeltaFiles != null
           ? compareFilesTruncated
@@ -136,7 +139,7 @@ export async function executeVerificationJob(
             rootDir: view.agentCwd,
             inventory: unresolvedThreads,
             pushedCommits,
-            compareFilesTruncated,
+            compareFilesTruncated: changedMembershipTruncated,
             durability: {
               pool,
               workItemId: item.id,
@@ -196,7 +199,7 @@ export async function executeVerificationJob(
         resolutionByRootCommentId,
         payload: result.payload,
         changedFilePaths,
-        changedFilePathsTruncated: compareFilesTruncated,
+        changedFilePathsTruncated: changedMembershipTruncated,
         policyResult: result.policyResult,
         findingHistoryCfg: cfg,
         leaseEpoch: env.leaseEpoch,

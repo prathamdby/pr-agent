@@ -32,6 +32,7 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
 } from "../../src/settings/index.js";
 import type { QueueConfig } from "../../src/agentWork/types.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
@@ -48,6 +49,7 @@ const CLEANUP_QUEUES = [
   REVIEW_QUEUE,
   DESCRIPTION_QUEUE,
   TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
   ASK_QUEUE,
 ] as const;
 
@@ -77,6 +79,11 @@ async function deleteQueueJobs(boss: PgBoss): Promise<void> {
 
 async function reviewJobFor(boss: PgBoss, workItemId: string) {
   const jobs = await boss.findJobs(REVIEW_QUEUE, {});
+  return jobs.find((job) => (job.data as { workItemId?: string }).workItemId === workItemId);
+}
+
+async function verificationJobFor(boss: PgBoss, workItemId: string) {
+  const jobs = await boss.findJobs(VERIFICATION_QUEUE, {});
   return jobs.find((job) => (job.data as { workItemId?: string }).workItemId === workItemId);
 }
 
@@ -138,6 +145,25 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     };
   }
 
+  function makeVerifyInput(repo: string, delivery: string, commentId: number) {
+    return {
+      headers: {
+        event: EVENT,
+        delivery,
+        rawBody: Buffer.from(JSON.stringify({ delivery })),
+      },
+      installationId: 4242,
+      owner: OWNER,
+      repo,
+      prNumber: 78,
+      commentId,
+      commenterId: 11,
+      body: "/verify",
+      command: "verify",
+      replyTarget: { kind: "prConversation" as const, prNumber: 78 },
+    };
+  }
+
   it("concurrent same-scope /describe deliveries create one work item and one work job", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
     const deliveries = ["d-a", "d-b", "d-c"] as const;
@@ -176,6 +202,55 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
         (job.data as { owner?: string; repo?: string; prNumber?: number }).owner === OWNER &&
         (job.data as { repo?: string }).repo === repo &&
         (job.data as { prNumber?: number }).prNumber === 77,
+    );
+    expect(ackForResource.length).toBeGreaterThanOrEqual(1);
+    const winnerAcks = ackForResource.filter(
+      (job) => (job.data as { workItemId?: string }).workItemId === workItems.rows[0]?.id,
+    );
+    const loserAcks = ackForResource.filter(
+      (job) =>
+        (job.data as { workItemId?: string }).workItemId == null &&
+        (job.data as { reply?: { body?: string } }).reply?.body?.includes("already"),
+    );
+    expect(winnerAcks).toHaveLength(1);
+    expect(loserAcks.length).toBe(ackForResource.length - 1);
+  });
+
+  it("concurrent /verify deliveries create one work item and one work job", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const deliveries = ["v-a", "v-b", "v-c"] as const;
+
+    await Promise.all(
+      deliveries.map((delivery, index) =>
+        inTransaction(pool, (client) =>
+          applySlashCommandIntake(
+            boss,
+            client,
+            makeVerifyInput(repo, delivery, 2000 + index),
+            testFeatures,
+          ),
+        ),
+      ),
+    );
+
+    const resourceKey = prResourceKey(OWNER, repo, 78);
+    const workItems = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND type = 'verification' AND source = 'slash'`,
+      [resourceKey],
+    );
+    expect(workItems.rows).toHaveLength(1);
+    expect(workItems.rows[0]?.status).toBe("queued");
+
+    const matching = await verificationJobFor(boss, workItems.rows[0]?.id ?? "");
+    expect(matching?.state).toBe("created");
+
+    const ackJobs = await boss.findJobs(ACK_QUEUE, {});
+    const ackForResource = ackJobs.filter(
+      (job) =>
+        (job.data as { owner?: string; repo?: string; prNumber?: number }).owner === OWNER &&
+        (job.data as { repo?: string }).repo === repo &&
+        (job.data as { prNumber?: number }).prNumber === 78,
     );
     expect(ackForResource.length).toBeGreaterThanOrEqual(1);
     const winnerAcks = ackForResource.filter(

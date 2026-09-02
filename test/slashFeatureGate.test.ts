@@ -111,4 +111,19 @@ describe("slash command feature gating", () => {
 
     expect(events.map((event) => event.name)).toContain("agent_work_enqueued");
   });
+
+  it.each(["manual", "auto"] as const)(
+    "enqueues /verify normally when verification is %s",
+    async (mode) => {
+      const sent: { queue: string; data: unknown }[] = [];
+      const boss = makeBoss(sent);
+
+      const events = await applySlashCommandIntake(boss, makeClient(), makeInput("verify"), {
+        ...features,
+        verification: mode,
+      });
+
+      expect(events.map((event) => event.name)).toContain("agent_work_enqueued");
+    },
+  );
 });
