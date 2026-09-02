@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
@@ -126,9 +126,12 @@ function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
   return attachWorkItemPayload(mapWorkItemCore(row), row.payload);
 }
 
-export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem | null> {
+export async function getWorkItem(
+  client: Pool | PoolClient,
+  id: string,
+): Promise<AgentWorkItem | null> {
   const row = await queryOne<AgentWorkRow>(
-    pool,
+    client,
     `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
 		        review_lens, resource_key, attempt_count, payload, cancel_requested_at
 		   FROM agent_work_items
