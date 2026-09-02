@@ -16,7 +16,7 @@ trigger sets are intentionally not supported.
 | ----------------------- | ---------------------------------- | -------- | -------------- | -------------------------------------------------------------------------------------------- |
 | `FEATURE_REVIEW`        | `manual` \| `auto`                 | `auto`   | yes            | Orchestrated review. `auto` reviews each PR when opened; `/review` is always available.      |
 | `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`   | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.       |
-| `FEATURE_VERIFICATION`  | `off` \| `auto`                    | `auto`   | yes            | Re-checks open findings against new pushes and replies in their threads.                     |
+| `FEATURE_VERIFICATION`  | `off` \| `auto`                    | `auto`   | yes            | Re-checks open findings on synchronize; silently resolves fixed threads and edits stubs.     |
 | `FEATURE_ASK`           | `off` \| `manual`                  | `manual` | yes            | `/ask` and `@bot` question threads.                                                          |
 | `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual` | yes            | `/triage` autofix: checkout, commit, and push fixes for open bot findings.                   |
 | `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`   | no             | Review size / security labels synced onto the PR.                                            |
