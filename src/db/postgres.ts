@@ -37,16 +37,21 @@ export async function inTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect();
+  let rollbackError: unknown;
   try {
     await client.query("BEGIN");
     const result = await fn(client);
     await client.query("COMMIT");
     return result;
   } catch (e) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch (error) {
+      rollbackError = error;
+    }
     throw e;
   } finally {
-    client.release();
+    client.release(rollbackError !== undefined ? true : undefined);
   }
 }
 
