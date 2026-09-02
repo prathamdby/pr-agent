@@ -39,6 +39,7 @@ import {
   buildCommitCommandArgs,
   buildTriageCommitAttribution,
   formatCoAuthoredByTrailer,
+  gitIdentityEnv,
   gitPersonFromGithubUser,
   githubNoreplyEmail,
   StaleHeadPushError,
@@ -279,6 +280,121 @@ describe("writable PR checkout", () => {
       coAuthoredBy: [],
       source: "app",
     });
+  });
+
+  it("sanitizes line breaks and null bytes in GitHub profile names", () => {
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: "Alice\nEvil\rTrailer",
+        type: "User",
+      }),
+    ).toEqual({ name: "Alice Evil Trailer", email: githubNoreplyEmail(42, "alice") });
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: "\n\r\n",
+        type: "User",
+      }),
+    ).toEqual({ name: "alice", email: githubNoreplyEmail(42, "alice") });
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: "Alice\0Evil",
+        type: "User",
+      }),
+    ).toEqual({ name: "Alice Evil", email: githubNoreplyEmail(42, "alice") });
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: "\0\0",
+        type: "User",
+      }),
+    ).toEqual({ name: "alice", email: githubNoreplyEmail(42, "alice") });
+  });
+
+  it("rejects commit identities with forbidden characters in name or email", () => {
+    const subject = "fix: guard null user";
+    const validCoAuthor = { name: "Bot", email: "bot@example.com" };
+
+    for (const name of ["Alice\nInject", "Alice\0Inject"]) {
+      try {
+        gitIdentityEnv({ name, email: "alice@example.com" });
+      } catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+        continue;
+      }
+      expect.unreachable(`gitIdentityEnv accepted forbidden name ${JSON.stringify(name)}`);
+    }
+    try {
+      gitIdentityEnv({ name: "Alice", email: "alice\n@example.com" });
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+    }
+    try {
+      gitIdentityEnv({ name: "Alice\r", email: "alice@example.com" });
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+    }
+
+    for (const coAuthor of [
+      { name: "Co\nAuthor", email: "co@example.com" },
+      { name: "Co\0Author", email: "co@example.com" },
+    ]) {
+      try {
+        buildCommitCommandArgs({
+          files: ["x"],
+          subject,
+          coAuthoredBy: [coAuthor],
+        });
+      } catch (error) {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+        continue;
+      }
+      expect.unreachable(
+        `buildCommitCommandArgs accepted forbidden co-author ${JSON.stringify(coAuthor)}`,
+      );
+    }
+    expect(() =>
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject,
+        coAuthoredBy: [validCoAuthor, { name: "Other", email: "other\r@example.com" }],
+      }),
+    ).toThrow(AppError);
+    try {
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject,
+        coAuthoredBy: [{ name: "Co", email: "co@example.com\0" }],
+      });
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+    }
+
+    const personFromUntrustedProfile = gitPersonFromGithubUser({
+      id: 42,
+      login: "alice",
+      name: "Alice",
+      email: "alice\n@example.com",
+      type: "User",
+    });
+    expect(personFromUntrustedProfile).not.toBeNull();
+    try {
+      gitIdentityEnv(personFromUntrustedProfile!);
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.commit_identity_invalid");
+    }
   });
 
   it("maps GitHub users to git people with noreply and bot rejection", () => {
