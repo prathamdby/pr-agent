@@ -14,7 +14,7 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
 
 1. **`PrSurface`** (`src/github/prSurface.ts`) is the sole worker/feature entry for PR-surface GitHub I/O. Production code calls `createPrSurface`; tests use `createFakePrSurface`. Implementation stays in `prSurfaceImpl.ts` (not imported outside `src/github/`).
 
-2. **No installation tokens outside `src/github/`**. Executors receive `PrSurface` on `DurableExecutionContext` (and mint only inside `durableJob.ts` when constructing a surface). `gitCredentialToken()` is the only credential escape hatch for `src/prWorkspace/` git checkout.
+2. **No installation tokens outside `src/github/`**. Executors receive `PrSurface` on `DurableExecutionContext` (and mint only inside `durableJob.ts` when constructing a surface). `gitCredentialAuth()` is the only credential escape hatch for `src/prWorkspace/` git checkout.
 
 3. **CI guard** — `test/prSurfaceImportGraph.test.ts` fails when code outside `src/github/` imports `@octokit/*`, references `installationOctokit`, or exports signatures with `token: string` / `expiresAtTs` / `tokenExpiresAtTs` parameters.
 
