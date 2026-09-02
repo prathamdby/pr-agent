@@ -417,6 +417,13 @@ describe("glob matching", () => {
     expect(ruleConsidersFile(rule, "src/app.ts")).toBe(true);
     expect(ruleConsidersFile(rule, "root.ts")).toBe(false);
   });
+
+  it("treats sentinel-like glob text as literal instead of expanding it", () => {
+    const rule = globRule(["__GLOBSTAR_LEADING__"]);
+    expect(ruleConsidersFile(rule, "__GLOBSTAR_LEADING__")).toBe(true);
+    expect(ruleConsidersFile(rule, "src/app.ts")).toBe(false);
+    expect(ruleConsidersFile(rule, "app.ts")).toBe(false);
+  });
 });
 
 describe("ruleConsidersFile and candidatePolicyPairs", () => {

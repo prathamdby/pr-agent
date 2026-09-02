@@ -41,10 +41,14 @@ export const REPO_POLICY_ANTI_SUPPRESSION =
 
 function matchesPathGlob(filename: string, pattern: string): boolean {
   const normalizedPattern = pattern.replace(/\\/g, "/");
-  const globstarMiddle = "__GLOBSTAR_MIDDLE__";
-  const globstarTrailing = "__GLOBSTAR_TRAILING__";
-  const globstarLeading = "__GLOBSTAR_LEADING__";
-  const globstarStandalone = "__GLOBSTAR_STANDALONE__";
+  // NUL-delimited sentinels: a literal NUL can never appear in a real
+  // filename, so even a glob containing sentinel-like text can only fail
+  // closed (no match) instead of expanding to a wildcard. The previous
+  // double-underscore sentinels collided with literal glob text.
+  const globstarMiddle = "\0GLOBSTAR_MIDDLE\0";
+  const globstarTrailing = "\0GLOBSTAR_TRAILING\0";
+  const globstarLeading = "\0GLOBSTAR_LEADING\0";
+  const globstarStandalone = "\0GLOBSTAR_STANDALONE\0";
   const regexString = normalizedPattern
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
     .replace(/(^|\/)\*\*(\/|$)/g, (_match, before, after) => {
