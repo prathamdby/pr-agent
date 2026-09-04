@@ -9,7 +9,6 @@ import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseTool
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
-  reconRiskMapGuidance,
   renderJudgmentTurn,
   renderSynthesisTurn,
 } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
@@ -326,39 +325,43 @@ describe("orchestrator prompts", () => {
   });
 
   it("keeps the risk map inside existing brief fields and non-authoritative", () => {
-    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(reconRiskMapGuidance);
     expect(orchestratorSystemPrompt).toContain(
-      "existing brief fields. Submit one structured brief through `submit_specialist_brief`. The brief is prioritization, not a finding list.",
+      "Submit one structured brief through `submit_specialist_brief`. The brief is prioritization, not a finding list.",
     );
-    expect(reconRiskMapGuidance).toContain("Contract edges");
-    expect(reconRiskMapGuidance).toContain("Boundary states");
-    expect(reconRiskMapGuidance).toContain("Lifecycle and concurrency");
-    expect(reconRiskMapGuidance).toContain("State symmetry");
-    expect(reconRiskMapGuidance).toContain(
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("## Bounded risk map");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("Contract edges");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("Boundary states");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("Lifecycle and concurrency");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("State symmetry");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
       "Include a risk only when changed code or surrounding workspace evidence makes that dimension applicable",
     );
-    expect(reconRiskMapGuidance).toContain("empty or minimal riskAreas list");
-    expect(reconRiskMapGuidance).toContain("Do not invent risks to fill the structure");
-    expect(reconRiskMapGuidance).toContain("prioritization only");
-    expect(reconRiskMapGuidance).toContain("cannot publish or suppress findings");
-    expect(reconRiskMapGuidance).toContain("assign severity");
-    expect(reconRiskMapGuidance).toContain("Do not treat a risk hypothesis as a validated finding");
-    expect(reconRiskMapGuidance).toContain("do not claim completeness");
-    expect(reconRiskMapGuidance).toContain("all, none, every, or no callers");
-    expect(reconRiskMapGuidance).toContain("navigation hints");
-    expect(reconRiskMapGuidance).toContain("architecture notes for cross-cutting invariants");
-    expect(reconRiskMapGuidance).toContain("file map for navigation");
-    expect(reconRiskMapGuidance).toContain("risk areas for concrete hypotheses");
-    expect(reconRiskMapGuidance).toContain("specialist focus for assignment");
-    expect(reconRiskMapGuidance).toContain(
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("empty or minimal riskAreas list");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("Do not invent risks to fill the structure");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("prioritization only");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("cannot publish or suppress findings");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("assign severity");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
+      "Do not treat a risk hypothesis as a validated finding",
+    );
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("do not claim completeness");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("all, none, every, or no callers");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("navigation hints");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
+      "architecture notes for cross-cutting invariants",
+    );
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("file map for navigation");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("risk areas for concrete hypotheses");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("specialist focus for assignment");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(
       "Give related aspects to more than one specialist only when their questions are materially different",
     );
-    expect(reconRiskMapGuidance).toContain("sensitive persistence edges to security");
-    expect(reconRiskMapGuidance).toContain("state transitions to correctness");
-    expect(reconRiskMapGuidance).toContain("layer boundaries to quality");
-    expect(reconRiskMapGuidance).toContain("missing invariant coverage to tests");
-    expect(reconRiskMapGuidance).not.toContain("riskMap");
-    expect(reconRiskMapGuidance).not.toContain("call graph");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("sensitive persistence edges to security");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("state transitions to correctness");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("layer boundaries to quality");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("missing invariant coverage to tests");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).not.toContain("riskMap");
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).not.toContain("call graph");
   });
 
   it("requires one duplicate-aware publish_thread judgment call and permits zero findings", () => {
