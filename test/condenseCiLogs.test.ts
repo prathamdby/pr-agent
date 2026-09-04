@@ -6,8 +6,8 @@ import {
   mergeCondensedJobLogs,
   rawLogIntakeCap,
   selectEffectiveCiContext,
-  tailCapRawLogText,
 } from "../src/review/ci/condenseCiLogs.js";
+import { boundRawLogIntake } from "../src/review/ci/rawLogIntake.js";
 
 describe("condenseCiLogs", () => {
   it("detects Node 20 deprecation as noise", () => {
@@ -151,7 +151,7 @@ describe("condenseCiLogs", () => {
     ].join("\n");
     const headSentinel = "HEAD-ONLY-SENTINEL-do-not-keep";
     const huge = `${headSentinel}\n${"z".repeat(200_000)}\n${tailFailure}`;
-    const intake = tailCapRawLogText(huge);
+    const intake = boundRawLogIntake(huge);
 
     expect(intake.length).toBe(rawLogIntakeCap());
     expect(intake.length).toBeLessThan(huge.length);
@@ -164,13 +164,33 @@ describe("condenseCiLogs", () => {
     expect(condensed).toContain("exit code 1");
   });
 
+  it("keeps an early failure when teardown fills the tail window", () => {
+    const failure = [
+      "Format issues found in above 1 files. Run without `--check` to fix.",
+      "Error: Process completed with exit code 1.",
+    ].join("\n");
+    const teardown = `${"ok-line\n".repeat(20_000)}##[group]Run Post teardown`;
+    const huge = `${failure}\n${teardown}`;
+    const intake = boundRawLogIntake(huge);
+
+    expect(intake.length).toBe(rawLogIntakeCap());
+    expect(intake).toContain("Format issues found");
+    expect(intake).toContain("exit code 1");
+    expect(intake.endsWith(huge.slice(-rawLogIntakeCap()))).toBe(false);
+
+    const condensed = condenseJobLogText(huge);
+    expect(condensed).toContain("Format issues found");
+    expect(condensed).toContain("exit code 1");
+    expect(condensed).not.toContain("Post teardown");
+  });
+
   it("leaves logs inside the intake window unchanged before scanning", () => {
     const raw = [
       "Checking formatting...",
       "Format issues found in above 1 files. Run without `--check` to fix.",
       "Error: Process completed with exit code 1.",
     ].join("\n");
-    expect(tailCapRawLogText(raw)).toBe(raw);
-    expect(condenseJobLogText(raw)).toBe(condenseJobLogText(tailCapRawLogText(raw)));
+    expect(boundRawLogIntake(raw)).toBe(raw);
+    expect(condenseJobLogText(raw)).toBe(condenseJobLogText(boundRawLogIntake(raw)));
   });
 });

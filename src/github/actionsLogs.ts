@@ -1,7 +1,7 @@
+import { boundRawLogIntake } from "../review/ci/rawLogIntake.js";
 import {
   REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
   REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-  REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE,
 } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
@@ -26,11 +26,6 @@ export type ListFailingActionsJobsResult =
 export type DownloadActionsJobLogsResult =
   | { readonly ok: true; readonly text: string }
   | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
-
-function tailCapDownloadedJobLog(text: string): string {
-  const cap = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS * REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE;
-  return text.length <= cap ? text : text.slice(text.length - cap);
-}
 
 export function isMissingActionsPermissionError(error: unknown): boolean {
   const status = httpStatus(error);
@@ -129,7 +124,7 @@ export async function downloadActionsJobLogs(
     if (text == null || text.trim().length === 0) {
       return { ok: false, reason: "empty" };
     }
-    return { ok: true, text: tailCapDownloadedJobLog(text) };
+    return { ok: true, text: boundRawLogIntake(text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS) };
   } catch (error) {
     if (isMissingActionsPermissionError(error)) {
       return { ok: false, reason: "actions_permission" };

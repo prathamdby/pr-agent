@@ -178,7 +178,8 @@ export const REVIEW_CI_SUMMARY_LOG_MAX_JOBS = 3;
 export const REVIEW_CI_SUMMARY_FETCH_CONCURRENCY = 4;
 /**
  * Raw job-log intake is this many times the per-job condensed budget.
- * Failures live at the tail, so the dropped prefix is not scanned.
+ * The bound keeps the tail when it already has an error signal; otherwise a
+ * same-sized window that still includes the last error line.
  */
 export const REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE = 4;
 /** Max chars for model-authored CI headline / reason / fixHint fields. */

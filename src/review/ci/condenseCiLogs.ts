@@ -1,25 +1,11 @@
 import {
   REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
   REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-  REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE,
 } from "../../settings/index.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
+import { boundRawLogIntake, isDeprecationNoiseLine, lineHasCiErrorSignal } from "./rawLogIntake.js";
 
-/** Runner / toolchain noise that must not beat a real test/lint/build failure. */
-const DEPRECATION_NOISE_RE =
-  /\b(Node\.js\s*20\s+is\s+deprecated|actions\/[\w-]+@[\w./-]+\s+.*Node\.js|The following actions target Node\.js|Node\.js\s+\d+\s+actions?\s+are\s+deprecated)\b/i;
-
-const ERROR_SIGNAL_RE =
-  /\b(error|failed|failure|FAIL|AssertionError|TypeError|ENOENT|ELIFECYCLE|✖|✗|×|format issues|Process completed with exit code [1-9])\b/i;
-
-const FAILED_STEP_MARKERS = [
-  /^##\[error\]/i,
-  /^##\[group\].*(fail|error)/i,
-  /Process completed with exit code [1-9]/i,
-  /^Error:/i,
-  /Format issues found/i,
-  /\d+\s+failed/i,
-];
+export { boundRawLogIntake, isDeprecationNoiseLine, rawLogIntakeCap } from "./rawLogIntake.js";
 
 export type CondensedJobLog = {
   readonly name: string;
@@ -36,25 +22,6 @@ function collapseBlankLines(text: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
-export function rawLogIntakeCap(
-  perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-): number {
-  return perJobMaxChars * REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE;
-}
-
-/** Keeps the tail of a raw log before any line scan. */
-export function tailCapRawLogText(
-  raw: string,
-  perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-): string {
-  const cap = rawLogIntakeCap(perJobMaxChars);
-  return raw.length <= cap ? raw : raw.slice(raw.length - cap);
-}
-
-export function isDeprecationNoiseLine(line: string): boolean {
-  return DEPRECATION_NOISE_RE.test(line);
-}
-
 /**
  * Keeps failed-step tails and error lines; drops Node/Actions deprecation noise unless
  * it is the only remaining signal.
@@ -63,7 +30,7 @@ export function condenseJobLogText(
   raw: string,
   maxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
 ): string {
-  const intake = tailCapRawLogText(raw, maxChars);
+  const intake = boundRawLogIntake(raw, maxChars);
   const lines = intake.split(/\r?\n/);
   const kept: string[] = [];
   let sawRealError = false;
@@ -71,10 +38,7 @@ export function condenseJobLogText(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
-    if (isDeprecationNoiseLine(line)) continue;
-    const isMarker = FAILED_STEP_MARKERS.some((re) => re.test(line));
-    const isError = ERROR_SIGNAL_RE.test(line) && !isDeprecationNoiseLine(line);
-    if (isMarker || isError) {
+    if (lineHasCiErrorSignal(line)) {
       sawRealError = true;
       const start = Math.max(0, i - 2);
       for (let j = start; j <= i; j++) {
