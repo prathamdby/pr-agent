@@ -415,7 +415,7 @@ describe("ask admission quotas", () => {
     }
   });
 
-  it("resets the provider window once when admissions race at the window edge", async () => {
+  it("throttles a second same-instant admission after the window rolls", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-25T00:00:00.000Z"));
     try {
