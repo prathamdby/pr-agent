@@ -66,8 +66,12 @@ describe("specialist-specific obligations", () => {
     expect(prompt).not.toMatch(/\b(?:must|required to|need to) enumerate every\b/i);
     expect(prompt).toContain("Read-only investigation");
     expect(prompt).toContain("never execute shell, write, edit, or arbitrary GitHub actions");
-    expect(prompt).toContain("resolveLibraryId");
-    expect(prompt).toContain("getLibraryDocs");
+    expect(prompt).toContain(
+      "Verify suspected library or framework behavior with reviewed-head code or Context7 (`resolveLibraryId` then `getLibraryDocs`) before reporting.",
+    );
+    expect(prompt).not.toContain(
+      "When a finding hinges on third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs`",
+    );
     expect(prompt).toContain("## Reporting gate");
     expect(prompt).toContain("P0");
     expect(prompt).toContain("P1");
@@ -103,7 +107,7 @@ describe("specialist-specific obligations", () => {
     let cursor = methodStart;
     for (const step of steps) {
       const at = prompt.indexOf(step, cursor);
-      expect(at, step).toBeGreaterThan(cursor);
+      expect(at).toBeGreaterThan(cursor);
       cursor = at;
     }
   });
