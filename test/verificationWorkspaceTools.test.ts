@@ -260,9 +260,11 @@ describe("buildVerificationWorkspaceTools searchWorkspace", { timeout: 15_000 },
 
     const secretOut = (await executors.searchWorkspace({ query: blockedText })) as {
       matches: unknown[];
+      truncated?: boolean;
       filtered?: boolean;
     };
     expect(secretOut.matches).toEqual([]);
+    expect(secretOut.truncated).toBe(false);
     expect(secretOut.filtered).toBe(true);
     expect(JSON.stringify(secretOut)).not.toContain(blockedText);
 

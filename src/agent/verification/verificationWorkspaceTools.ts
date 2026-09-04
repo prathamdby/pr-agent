@@ -11,6 +11,7 @@ import {
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 } from "../../settings/index.js";
 import { isSensitivePath } from "../ask/askSafety.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
@@ -42,19 +43,42 @@ type VerificationSearchMatch = {
   readonly text: string;
 };
 
-async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {
-  const { stdout } = await exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-    cwd: root,
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_LFS_SKIP_SMUDGE: "1",
-    },
-    timeout: timeoutMs,
-    maxBuffer: 20 * 1024 * 1024,
-  });
-  return stdout;
+function execCode(error: unknown): unknown {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  return error.code;
+}
+
+function execStdout(error: unknown): string {
+  if (typeof error !== "object" || error === null || !("stdout" in error)) return "";
+  return typeof error.stdout === "string" ? error.stdout : "";
+}
+
+async function git(
+  root: string,
+  args: readonly string[],
+  timeoutMs: number,
+  maxBufferBytes = 20 * 1024 * 1024,
+): Promise<{ stdout: string; outputTruncated: boolean }> {
+  try {
+    const { stdout } = await exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_LFS_SKIP_SMUDGE: "1",
+      },
+      timeout: timeoutMs,
+      maxBuffer: maxBufferBytes,
+    });
+    return { stdout, outputTruncated: false };
+  } catch (error) {
+    if (execCode(error) === 1) return { stdout: "", outputTruncated: false };
+    if (execCode(error) === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+      return { stdout: execStdout(error), outputTruncated: true };
+    }
+    throw error;
+  }
 }
 
 export function buildVerificationWorkspaceTools(params: {
@@ -94,17 +118,13 @@ export function buildVerificationWorkspaceTools(params: {
       maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
     }),
     run: async ({ query, maxResults }) => {
-      // Avoid `git grep --max-count` so blocked hits cannot consume the cap.
-      const stdout = await git(
+      // No `--max-count`: blocked hits must not consume the result cap.
+      const { stdout, outputTruncated } = await git(
         root,
         ["grep", "-nF", "-I", "-e", query, "--", "."],
         LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-      ).catch((error: unknown) => {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
-          return "";
-        }
-        throw error;
-      });
+        LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+      );
       const lines = stdout.split("\n").filter(Boolean);
       const allowedPathCache = new Map<string, Promise<boolean>>();
       const matches: VerificationSearchMatch[] = [];
@@ -140,7 +160,7 @@ export function buildVerificationWorkspaceTools(params: {
       }
       return {
         matches: matches.slice(0, maxResults),
-        truncated: matches.length > maxResults,
+        truncated: outputTruncated || matches.length > maxResults,
         ...(filteredCount > 0 ? { filtered: true } : {}),
       };
     },
@@ -153,7 +173,11 @@ export function buildVerificationWorkspaceTools(params: {
     run: async ({ path }) => {
       const fullPath = await safePath(root, path);
       const rel = relativePath(root, fullPath);
-      const diff = await git(root, ["diff", "HEAD", "--", rel], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+      const { stdout: diff } = await git(
+        root,
+        ["diff", "HEAD", "--", rel],
+        LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+      );
       return { path: rel, diff };
     },
   });
