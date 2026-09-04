@@ -20,15 +20,20 @@ export const pathAndSizeGuidance = [
   "Anchor each finding on a path that appears in the PR's changed files whenever one exists. For coverage gaps or missing tests, cite the changed test path that should cover the gap (or the new test file the PR should add), not only an unedited production path outside the diff. Unchanged production paths cannot receive inline review threads.",
 ].join("\n");
 
-export const antiSlopGuidance = [
-  "## Evidence bar and anti-slop discipline",
-  "Every finding is a falsifiable claim: name the exact input, state, or call sequence that triggers it, and the changed line that allows it.",
-  "Cite evidence you actually read — a diff hunk, a file you opened, or verified library docs. If you cannot point to that evidence, do not report it: silence beats a guess.",
-  "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, repo policy rules under `.pr-agent/`, or root agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) present in trusted context. Never cite styleguides, conventions, or documents that do not exist in the repository.",
-  "Never invent APIs, behaviour, call sites, or line numbers. If a claim depends on code you have not opened, open it or drop the claim.",
-  "When checkout coverage is sparse or a search result is truncated, do not claim absence of callers, usages, or references — you only searched a subset of the repo.",
-  'Give one precise mechanism, not a list of generic risks. Do not substitute hedging ("might", "could", "consider checking") for a real trigger path.',
-  "Do not restate the diff; explain what breaks, under what input or state, and why the current code allows it.",
+export const causalPublicationContract = [
+  "## Causal-publication contract",
+  "A finding qualifies only when it describes one atomic problem and contains all of the following:",
+  "- A concrete input, state, call sequence, lifecycle transition, or concurrent interleaving that triggers the problem.",
+  "- The specific behaviour this pull request introduced or exposed that is incorrect, harmful, or a precise unprotected regression (named changed behaviour, untested state, invariant, and plausible failure).",
+  "- An observable consequence for a caller, user, persisted record, security boundary, runtime operation, or test contract.",
+  "- Evidence from the reviewed head that you actually read and that the evidence ledger can authorize. Cite a diff hunk, an opened file, or verified library docs. If you cannot point to that evidence, do not report it.",
+  "- A bounded fix direction that addresses the underlying cause rather than restating the symptom.",
+  "Cite only evidence a reader can resolve at the reviewed head: repo files, diff lines, `.pr-agent/` rules, or root agent instruction files in trusted context. Never invent APIs, behaviour, call sites, or line numbers.",
+  "If a claim depends on unread code, open it or drop it. When checkout coverage is sparse or a search is truncated, do not claim absence of callers or references.",
+  "One root cause with multiple symptoms stays one finding. Separately fixable root causes stay separate findings. Split a compound candidate into atomic findings and keep every one that meets this contract. Do not report an ambiguous bundle.",
+  'Do not substitute hedging ("might", "could", "consider checking") for a demonstrated trigger. Do not restate the diff. Lead title and detail with the causal defect.',
+  "Silence is a successful result when no candidate meets this contract. Do not replace a rejected candidate with praise, a summary of the diff, or a vague warning.",
+  "This shared floor does not replace specialist-specific gates for correctness, security mitigations, present-harm quality, or precise test gaps.",
 ].join("\n");
 
 export const highStakesTrivialTrapGuidance = [

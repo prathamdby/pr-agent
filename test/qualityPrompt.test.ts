@@ -10,7 +10,9 @@ describe("automatedQualitySystemPrompt", () => {
     expect(automatedQualitySystemPrompt).toContain("**P1**");
     expect(automatedQualitySystemPrompt).toContain("**P2**");
     expect(automatedQualitySystemPrompt).toContain("**P3**");
-    expect(automatedQualitySystemPrompt).toContain("Prescriptions are required");
+    expect(automatedQualitySystemPrompt).toContain(
+      "Prescriptions are required after a finding passes the present-harm gate",
+    );
     expect(automatedQualitySystemPrompt).not.toContain("securityConcerns");
   });
 

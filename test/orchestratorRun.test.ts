@@ -16,6 +16,7 @@ import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
+import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 
@@ -66,6 +67,8 @@ const testState = vi.hoisted(() => ({
     readonly ms: number;
   } | null,
   publishedBatchCount: 0,
+  judgmentBySource: new Map<SpecialistId, readonly ReviewFinding[]>(),
+  judgmentPrompts: [] as string[],
   synthesisPublishesSummary: true,
   progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
 }));
@@ -402,6 +405,8 @@ describe("runOrchestratedPrReview", () => {
     testState.createDelayMs = 0;
     testState.sendDelay = null;
     testState.publishedBatchCount = 0;
+    testState.judgmentBySource.clear();
+    testState.judgmentPrompts.length = 0;
     testState.progressUrlResolvers.length = 0;
     publishRecordMocks.getSummaryCommentGithubId.mockReset();
     publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(99);
@@ -443,6 +448,7 @@ describe("runOrchestratedPrReview", () => {
                 testState.submittedBrief ?? defaultSubmittedBrief(),
               );
           } else if (prompt.startsWith("Judge the ")) {
+            testState.judgmentPrompts.push(prompt);
             if (testState.judgmentFailuresRemaining > 0) {
               testState.judgmentFailuresRemaining -= 1;
               throw new Error("judgment provider failure");
@@ -452,7 +458,9 @@ describe("runOrchestratedPrReview", () => {
               throw new Error("publish_thread failed");
             }
             await sessionParams.refreshBeforeTool?.("publish_thread");
-            await executors.publish_thread?.({ findings: [] });
+            const source = testState.activeSource;
+            const findings = source ? (testState.judgmentBySource.get(source) ?? []) : [];
+            await executors.publish_thread?.({ findings });
           } else if (
             prompt.includes("Synthesize the final") ||
             prompt.includes("Call publish_summary now") ||
@@ -761,6 +769,250 @@ describe("runOrchestratedPrReview", () => {
         threadBatches: 4,
       });
     });
+  });
+
+  it("does not accept a speculative quality finding when judgment drops it", async () => {
+    const speculative: ReviewFinding = {
+      severity: "P2",
+      file: "src/quality.ts",
+      startLine: 1,
+      endLine: 1,
+      title: "Consider extracting a helper",
+      detail: "This file might be simpler if the wrapper were removed.",
+      fixPrompt: "Extract a helper to shorten the file.",
+    };
+    testState.judgmentBySource.set("quality", []);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("quality")?.resolve({
+      kind: "report",
+      specialist: "quality",
+      durationMs: 1,
+      report: { status: "findings", findings: [speculative] },
+    });
+    for (const specialist of ["correctness", "security", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.judgmentPrompts[0]).toContain(causalPublicationContract);
+    expect(testState.judgmentPrompts[0]).toContain("Consider extracting a helper");
+    expect(testState.publishOrder).toEqual(["quality", "summary"]);
+    expect(testState.ledger?.accepted ?? []).toEqual([]);
+  });
+
+  it("does not accept a generic coverage recommendation when judgment drops it", async () => {
+    const genericCoverage: ReviewFinding = {
+      severity: "P2",
+      file: "src/tests.ts",
+      startLine: 1,
+      endLine: 1,
+      title: "Add more tests",
+      detail: "Consider adding broader coverage for confidence.",
+      fixPrompt: "Adopt a test matrix for the module.",
+    };
+    testState.judgmentBySource.set("tests", []);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("tests")?.resolve({
+      kind: "report",
+      specialist: "tests",
+      durationMs: 1,
+      report: { status: "findings", findings: [genericCoverage] },
+    });
+    for (const specialist of ["correctness", "security", "quality"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.ledger?.accepted ?? []).toEqual([]);
+  });
+
+  it("accepts every atomic finding judgment splits from a compound report", async () => {
+    const compound: ReviewFinding = {
+      severity: "P1",
+      file: "src/quality.ts",
+      startLine: 1,
+      endLine: 12,
+      title: "Restore the discarded write and drop the stale fallback",
+      detail:
+        "Retry after timeout drops the in-flight write, and the fallback cache returns the stale record so callers persist the previous value.",
+      fixPrompt: "Own the in-flight write and drop the stale fallback.",
+    };
+    const writeOwnership: ReviewFinding = {
+      severity: "P1",
+      file: "src/quality.ts",
+      startLine: 4,
+      endLine: 6,
+      title: "Restore the discarded write on retry",
+      detail:
+        "When save() retries after a timeout, the in-flight write is dropped so the caller never persists the new value.",
+      fixPrompt: "Own the in-flight write on the retry path.",
+    };
+    const staleFallback: ReviewFinding = {
+      severity: "P1",
+      file: "src/quality.ts",
+      startLine: 8,
+      endLine: 10,
+      title: "Drop the stale cache fallback after timeout",
+      detail:
+        "The fallback cache returns the previous record after timeout, so callers persist stale data.",
+      fixPrompt: "Fail the retry instead of substituting the stale cache entry.",
+    };
+    testState.judgmentBySource.set("quality", [writeOwnership, staleFallback]);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("quality")?.resolve({
+      kind: "report",
+      specialist: "quality",
+      durationMs: 1,
+      report: { status: "findings", findings: [compound] },
+    });
+    for (const specialist of ["correctness", "security", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.judgmentPrompts[0]).toContain(
+      "Split a compound candidate into atomic problems",
+    );
+    expect(
+      (testState.ledger?.accepted.map((item) => item.placement.finding.title) ?? []).toSorted(),
+    ).toEqual([writeOwnership.title, staleFallback.title].toSorted());
+  });
+
+  it("does not accept a compound advisory bundle when judgment drops it", async () => {
+    const compound: ReviewFinding = {
+      severity: "P2",
+      file: "src/quality.ts",
+      startLine: 1,
+      endLine: 8,
+      title: "Simplify the helper and split the file",
+      detail: "The wrapper is thin and the file is long; also consider renaming locals.",
+      fixPrompt: "Extract helpers and split the file.",
+    };
+    testState.judgmentBySource.set("quality", []);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("quality")?.resolve({
+      kind: "report",
+      specialist: "quality",
+      durationMs: 1,
+      report: { status: "findings", findings: [compound] },
+    });
+    for (const specialist of ["correctness", "security", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.ledger?.accepted ?? []).toEqual([]);
+  });
+
+  it("accepts evidenced structural, test-gap, correctness, and security findings judgment keeps", async () => {
+    const structural: ReviewFinding = {
+      severity: "P1",
+      file: "src/quality.ts",
+      startLine: 4,
+      endLine: 6,
+      title: "Restore the discarded write on retry",
+      detail:
+        "When save() retries after a timeout, the fallback cache returns the stale record so callers persist the previous value.",
+      fixPrompt: "Own the in-flight write on the retry path and drop the stale fallback.",
+    };
+    const testGap: ReviewFinding = {
+      severity: "P2",
+      file: "src/tests.ts",
+      startLine: 2,
+      endLine: 2,
+      title: "rejects stale cache after a timed-out save",
+      detail:
+        "The PR now retries save() after timeout, but no test feeds a stale cache entry and asserts the caller does not persist it.",
+      fixPrompt: "it('rejects stale cache after a timed-out save', () => { /* assert */ })",
+    };
+    const correctnessFinding: ReviewFinding = {
+      severity: "P1",
+      file: "src/correctness.ts",
+      startLine: 3,
+      endLine: 3,
+      title: "Await the persist before returning success",
+      detail: "Returning ok before persist finishes lets the caller observe a missing row.",
+      fixPrompt: "Await persist() before returning ok.",
+    };
+    const securityFinding: ReviewFinding = {
+      severity: "P1",
+      file: "src/security.ts",
+      startLine: 5,
+      endLine: 5,
+      title: "Authorize the team-scoped lookup",
+      detail: "A caller-supplied teamId reaches the query with no ownership check.",
+      fixPrompt: "Bind the query to the authenticated team, not the request body.",
+      category: "security",
+    };
+    testState.judgmentBySource.set("quality", [structural]);
+    testState.judgmentBySource.set("tests", [testGap]);
+    testState.judgmentBySource.set("correctness", [correctnessFinding]);
+    testState.judgmentBySource.set("security", [securityFinding]);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("quality")?.resolve({
+      kind: "report",
+      specialist: "quality",
+      durationMs: 1,
+      report: { status: "findings", findings: [structural] },
+    });
+    testState.outcomes.get("tests")?.resolve({
+      kind: "report",
+      specialist: "tests",
+      durationMs: 1,
+      report: { status: "findings", findings: [testGap] },
+    });
+    testState.outcomes.get("correctness")?.resolve({
+      kind: "report",
+      specialist: "correctness",
+      durationMs: 1,
+      report: { status: "findings", findings: [correctnessFinding] },
+    });
+    testState.outcomes.get("security")?.resolve({
+      kind: "report",
+      specialist: "security",
+      durationMs: 1,
+      report: { status: "findings", findings: [securityFinding] },
+    });
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(
+      (testState.ledger?.accepted.map((item) => item.placement.finding.title) ?? []).toSorted(),
+    ).toEqual(
+      [
+        "Authorize the team-scoped lookup",
+        "Await the persist before returning success",
+        "Restore the discarded write on retry",
+        "rejects stale cache after a timed-out save",
+      ].toSorted(),
+    );
+  });
+
+  it("still accepts a P3 that meets the contract", async () => {
+    const lowImpact: ReviewFinding = {
+      severity: "P3",
+      file: "src/correctness.ts",
+      startLine: 8,
+      endLine: 8,
+      title: "Surface the ignored parse error to the log",
+      detail:
+        "A malformed optional header is swallowed, so operators cannot see why a request fell back.",
+      fixPrompt: "Log the parse failure on that fallback path.",
+    };
+    testState.judgmentBySource.set("correctness", [lowImpact]);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve({
+      kind: "report",
+      specialist: "correctness",
+      durationMs: 1,
+      report: { status: "findings", findings: [lowImpact] },
+    });
+    for (const specialist of ["security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.ledger?.accepted).toHaveLength(1);
+    expect(testState.ledger?.accepted[0]?.placement.finding.severity).toBe("P3");
   });
 
   it("skips judgment for an empty specialist outcome", async () => {

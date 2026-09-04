@@ -11,6 +11,10 @@ describe("automatedReviewTestsSystemPrompt", () => {
     expect(automatedReviewTestsSystemPrompt).toContain("**P2**");
     expect(automatedReviewTestsSystemPrompt).toContain("**P3**");
     expect(automatedReviewTestsSystemPrompt).toContain("Draft skeletons are required");
+    expect(automatedReviewTestsSystemPrompt).toContain("the exact changed behaviour");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "the plausible regression the test would catch",
+    );
     expect(automatedReviewTestsSystemPrompt).not.toContain("securityConcerns");
   });
 
