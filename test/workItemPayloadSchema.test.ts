@@ -66,6 +66,15 @@ describe("parseWorkItemPayload", () => {
     ).toEqual({ source: "auto", pushBeforeSha });
   });
 
+  it("keeps publishDegraded on verification payloads", () => {
+    expect(
+      parseWorkItemPayload("verification", {
+        source: "slash",
+        publishDegraded: true,
+      }),
+    ).toEqual({ source: "slash", publishDegraded: true });
+  });
+
   it("rejects cross-type payloads", () => {
     expect(() => parseWorkItemPayload("review", validByType.ask())).toThrow(
       WorkItemPayloadValidationError,

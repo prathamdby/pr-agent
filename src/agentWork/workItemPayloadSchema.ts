@@ -170,6 +170,7 @@ const VerificationWorkPayloadSchema = v.looseObject({
   repositorySizeKb: v.optional(v.number()),
   pushBeforeSha: v.optional(v.pipe(v.string(), v.minLength(1))),
   ackTargets: v.optional(v.array(AckTargetSchema)),
+  publishDegraded: v.optional(v.boolean()),
 });
 
 export class WorkItemPayloadValidationError extends AppError {

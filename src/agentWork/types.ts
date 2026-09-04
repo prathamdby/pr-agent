@@ -183,6 +183,8 @@ export type VerificationWorkPayload = {
   readonly repositorySizeKb?: number;
   readonly pushBeforeSha?: string;
   readonly ackTargets?: readonly AckTarget[];
+  /** Set when the run finished but structured publish did not succeed */
+  readonly publishDegraded?: boolean;
 };
 
 type WorkItemBase = PrRef & {

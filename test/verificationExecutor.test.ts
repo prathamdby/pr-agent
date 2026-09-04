@@ -59,6 +59,10 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
 
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import { executeVerificationJob } from "../src/agentWork/executors/verificationExecutor.js";
+import {
+  STALE_VERIFICATION_RESULT,
+  verificationHeadFreshness,
+} from "../src/agentWork/verificationPublishGate.js";
 import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
 
 const cfg = makeTestConfig();
@@ -132,6 +136,24 @@ function configureDefaultPrFiles() {
     { sha: "b".repeat(40), subject: "fix: guard user" },
   ]);
 }
+
+describe("verificationHeadFreshness", () => {
+  it("is fresh when bound and live heads match", () => {
+    expect(verificationHeadFreshness("a".repeat(40), "a".repeat(40))).toEqual({ kind: "fresh" });
+  });
+
+  it("is stale and keeps both SHAs when heads differ", () => {
+    expect(verificationHeadFreshness("a".repeat(40), "f".repeat(40))).toEqual({
+      kind: "stale",
+      boundHeadSha: "a".repeat(40),
+      latestHeadSha: "f".repeat(40),
+    });
+  });
+
+  it("uses completed+degraded as the stale terminal", () => {
+    expect(STALE_VERIFICATION_RESULT).toEqual({ kind: "completed", degraded: true });
+  });
+});
 
 describe("executeVerificationJob", () => {
   beforeEach(() => {
@@ -362,14 +384,14 @@ describe("executeVerificationJob", () => {
       label: "stale head × slash",
       source: "slash" as const,
       liveHeadSha: "f".repeat(40),
-      expected: { kind: "completed", degraded: true },
+      expected: STALE_VERIFICATION_RESULT,
       publishes: false,
     },
     {
       label: "stale head × auto",
       source: "auto" as const,
       liveHeadSha: "f".repeat(40),
-      expected: { kind: "completed", degraded: true },
+      expected: STALE_VERIFICATION_RESULT,
       publishes: false,
     },
   ] as const)(
