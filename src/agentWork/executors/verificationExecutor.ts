@@ -24,6 +24,10 @@ import {
 import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type VerificationJobData } from "../types.js";
+import {
+  STALE_VERIFICATION_RESULT,
+  verificationHeadFreshness,
+} from "../verificationPublishGate.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 export async function executeVerificationJob(
@@ -169,20 +173,20 @@ export async function executeVerificationJob(
         return { kind: "completed" };
       }
 
-      const latestHeadSha = await prSurface.getHeadSha();
-      if (latestHeadSha !== headSha) {
+      const freshness = verificationHeadFreshness(headSha, await prSurface.getHeadSha());
+      if (freshness.kind === "stale") {
         logInfo("verification_publish_skipped", {
           type: "verification",
           workItemId: item.id,
           resourceKey: item.resourceKey,
           reason: "stale_head",
-          boundHeadSha: headSha,
-          latestHeadSha,
+          boundHeadSha: freshness.boundHeadSha,
+          latestHeadSha: freshness.latestHeadSha,
           owner: item.owner,
           repo: item.repo,
           pr: item.prNumber,
         });
-        return { kind: "completed" };
+        return STALE_VERIFICATION_RESULT;
       }
 
       const publish = await publishVerification({

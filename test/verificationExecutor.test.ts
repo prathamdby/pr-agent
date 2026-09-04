@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { VerificationJobData } from "../src/agentWork/types.js";
+import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
 import {
   durablePrSurfaceControls,
@@ -58,6 +59,10 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
 
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import { executeVerificationJob } from "../src/agentWork/executors/verificationExecutor.js";
+import {
+  STALE_VERIFICATION_RESULT,
+  verificationHeadFreshness,
+} from "../src/agentWork/verificationPublishGate.js";
 import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
 
 const cfg = makeTestConfig();
@@ -131,6 +136,24 @@ function configureDefaultPrFiles() {
     { sha: "b".repeat(40), subject: "fix: guard user" },
   ]);
 }
+
+describe("verificationHeadFreshness", () => {
+  it("is fresh when bound and live heads match", () => {
+    expect(verificationHeadFreshness("a".repeat(40), "a".repeat(40))).toEqual({ kind: "fresh" });
+  });
+
+  it("is stale and keeps both SHAs when heads differ", () => {
+    expect(verificationHeadFreshness("a".repeat(40), "f".repeat(40))).toEqual({
+      kind: "stale",
+      boundHeadSha: "a".repeat(40),
+      latestHeadSha: "f".repeat(40),
+    });
+  });
+
+  it("uses completed+degraded as the stale terminal", () => {
+    expect(STALE_VERIFICATION_RESULT).toEqual({ kind: "completed", degraded: true });
+  });
+});
 
 describe("executeVerificationJob", () => {
   beforeEach(() => {
@@ -342,31 +365,84 @@ describe("executeVerificationJob", () => {
     expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
 
-  it("does not publish when head SHA is stale at publish time", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
-    mocks.runVerification.mockResolvedValue({
-      submitted: true,
-      payload: {
-        verdicts: [
-          {
-            verdict: "fixed",
-            threadRootCommentId: 1,
-            commitSha: "b".repeat(40),
-            evidence: "fixed",
-          },
-        ],
-      },
-    });
-    durablePrSurfaceControls().setHeadSha("f".repeat(40));
+  it.each([
+    {
+      label: "fresh head × slash",
+      source: "slash" as const,
+      liveHeadSha: "a".repeat(40),
+      expected: { kind: "completed" },
+      publishes: true,
+    },
+    {
+      label: "fresh head × auto",
+      source: "auto" as const,
+      liveHeadSha: "a".repeat(40),
+      expected: { kind: "completed" },
+      publishes: true,
+    },
+    {
+      label: "stale head × slash",
+      source: "slash" as const,
+      liveHeadSha: "f".repeat(40),
+      expected: STALE_VERIFICATION_RESULT,
+      publishes: false,
+    },
+    {
+      label: "stale head × auto",
+      source: "auto" as const,
+      liveHeadSha: "f".repeat(40),
+      expected: STALE_VERIFICATION_RESULT,
+      publishes: false,
+    },
+  ] as const)(
+    "maps $label publish-gate outcome",
+    async ({ source, liveHeadSha, expected, publishes }) => {
+      const boundHeadSha = "a".repeat(40);
+      const workItem = item({ source });
+      durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+      mocks.runVerification.mockResolvedValue({
+        submitted: true,
+        payload: {
+          verdicts: [
+            {
+              verdict: "fixed",
+              threadRootCommentId: 1,
+              commitSha: "b".repeat(40),
+              evidence: "fixed",
+            },
+          ],
+        },
+      });
+      durablePrSurfaceControls().setHeadSha(liveHeadSha);
+      const infoSpy = vi.spyOn(evlog, "logInfo");
 
-    await executeVerificationJob(cfg, pool, boss, job());
+      let executeResult: unknown;
+      mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+        executeResult = await spec.execute(workItem, {
+          prSurface: fakeDurablePrSurface(),
+          headSha: boundHeadSha,
+          leaseEpoch: 1,
+          signal: new AbortController().signal,
+        });
+      });
 
-    expect(mocks.runVerification).toHaveBeenCalled();
-    expect(durablePrSurfaceControls().events.some((event) => event.kind === "getHeadSha")).toBe(
-      true,
-    );
-    expect(mocks.publishVerification).not.toHaveBeenCalled();
-  });
+      await executeVerificationJob(cfg, pool, boss, job());
+
+      expect(executeResult).toEqual(expected);
+      expect(mocks.publishVerification).toHaveBeenCalledTimes(publishes ? 1 : 0);
+      if (!publishes) {
+        expect(infoSpy).toHaveBeenCalledWith(
+          "verification_publish_skipped",
+          expect.objectContaining({
+            reason: "stale_head",
+            boundHeadSha,
+            latestHeadSha: liveHeadSha,
+          }),
+        );
+      }
+      infoSpy.mockRestore();
+    },
+  );
 
   it("does not publish when cancel was requested before publish", async () => {
     durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
