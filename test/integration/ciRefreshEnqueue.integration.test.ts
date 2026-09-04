@@ -3,13 +3,18 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { applyCiRefreshIntake } from "../../src/agentWork/intake/applier.js";
-import { ciRefreshBossJobId } from "../../src/agentWork/intake/queueing.js";
+import {
+  ciRefreshBossJobId,
+  ciRefreshRetryBossJobId,
+  enqueueCiRefreshRetry,
+} from "../../src/agentWork/intake/queueing.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import type { QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
+import type { CiRefreshJobData, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import {
   CI_REFRESH_QUEUE,
+  CI_REFRESH_RETRY_DELAY_SECONDS,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
@@ -151,5 +156,39 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
     );
     expect(Number(rows[0]?.count ?? "0")).toBe(1);
     await expect(boss.findJobs(CI_REFRESH_QUEUE, {})).resolves.toHaveLength(1);
+  });
+
+  it("enqueues a retain hop with an attempt-scoped id and startAfter", async () => {
+    const webhookEventId = randomUUID();
+    const job: CiRefreshJobData = {
+      kind: "ci_refresh",
+      installationId: 9001,
+      owner: OWNER,
+      repo: "app",
+      prNumber: 9,
+      headSha: "retain-head",
+      webhookEventId,
+      attempt: 1,
+    };
+
+    const before = Date.now();
+    await expect(enqueueCiRefreshRetry(boss, job)).resolves.toBe("enqueued");
+    await expect(enqueueCiRefreshRetry(boss, job)).resolves.toBe("already_present");
+
+    const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.id).toBe(ciRefreshRetryBossJobId(webhookEventId, 9, 1));
+    expect(jobs[0]!.data).toMatchObject({
+      kind: "ci_refresh",
+      headSha: "retain-head",
+      attempt: 1,
+    });
+    const { rows } = await pool.query<{ start_after: Date }>(
+      "SELECT start_after FROM pgboss.job WHERE id = $1",
+      [jobs[0]!.id],
+    );
+    expect(rows[0]?.start_after.getTime()).toBeGreaterThan(
+      before + (CI_REFRESH_RETRY_DELAY_SECONDS - 5) * 1000,
+    );
   });
 });

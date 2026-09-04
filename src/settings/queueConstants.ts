@@ -19,6 +19,14 @@ export const VERIFICATION_DEAD_LETTER_QUEUE = "agent-work-verification-dead";
 export const CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
+/** Seconds a CI-refresh waits before retrying after it hits an active review. */
+export const CI_REFRESH_RETRY_DELAY_SECONDS = 15;
+/**
+ * Max retain hops after the original delivery. 15s × 120 = 30 minutes, enough
+ * for a typical orchestrated review; exhaustion stops silently.
+ */
+export const CI_REFRESH_RETRY_ATTEMPT_LIMIT = 120;
+
 /** Queues whose work types execute under a PR actor lease (see migration 023, ADR 0030). */
 export const LEASED_WORK_QUEUES = [
   REVIEW_QUEUE,

@@ -157,6 +157,8 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ACK_QUEUE`                                | `agent-work-ack`                                                                                                                                            |
 | `CI_REFRESH_QUEUE`                         | `agent-work-ci-refresh` — LLM CI cell refresh after `workflow_run` or `check_suite` completed                                                               |
+| `CI_REFRESH_RETRY_DELAY_SECONDS`           | 15, start-after delay when a refresh hits an active review and re-enqueues on the same lane                                                                 |
+| `CI_REFRESH_RETRY_ATTEMPT_LIMIT`           | 120, max retain hops after the original delivery (30 minutes at the delay above); exhaustion stops silently                                                 |
 | `REVIEW_QUEUE`                             | `agent-work-review`                                                                                                                                         |
 | `ASK_QUEUE`                                | `agent-work-ask`                                                                                                                                            |
 | `DESCRIPTION_QUEUE`                        | `agent-work-description`                                                                                                                                    |

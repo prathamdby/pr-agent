@@ -6,6 +6,8 @@ import {
   ACK_QUEUE,
   ASK_QUEUE,
   CI_REFRESH_QUEUE,
+  CI_REFRESH_RETRY_ATTEMPT_LIMIT,
+  CI_REFRESH_RETRY_DELAY_SECONDS,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
@@ -17,6 +19,7 @@ import {
   type AckJobData,
   type AskJobData,
   type CiRefreshJobData,
+  type CiRefreshRetainDecision,
   type DescriptionJobData,
   type JobCorrelation,
   type PrRef,
@@ -29,6 +32,24 @@ import {
 /** Deterministic pg-boss job id for one webhook delivery + PR (uuid column). */
 export function ciRefreshBossJobId(webhookEventId: string, prNumber: number): string {
   return uuidv5(webhookEventId, `ci-refresh:${prNumber}`);
+}
+
+/** Deterministic id for one retain hop of a delivery + PR. Distinct from the intake id. */
+export function ciRefreshRetryBossJobId(
+  webhookEventId: string,
+  prNumber: number,
+  attempt: number,
+): string {
+  return uuidv5(webhookEventId, `ci-refresh:${prNumber}:${attempt}`);
+}
+
+export function ciRefreshAttemptOf(data: CiRefreshJobData): number {
+  return data.attempt ?? 0;
+}
+
+export function decideCiRefreshRetain(attempt: number): CiRefreshRetainDecision {
+  if (attempt >= CI_REFRESH_RETRY_ATTEMPT_LIMIT) return { kind: "stop" };
+  return { kind: "retry", nextAttempt: attempt + 1 };
 }
 
 export function jobCorrelation(
@@ -197,4 +218,24 @@ export async function enqueueCiRefreshIdempotent(
     priority: 40,
     group: { id: installationGroupId(data.installationId) },
   });
+}
+
+/**
+ * Worker-side retain hop after an active review. Same lane, delayed start,
+ * attempt-scoped id so it cannot collide with the completed intake job.
+ */
+export async function enqueueCiRefreshRetry(
+  boss: PgBoss,
+  data: CiRefreshJobData,
+): Promise<"enqueued" | "already_present"> {
+  const attempt = ciRefreshAttemptOf(data);
+  const options: Parameters<PgBoss["send"]>[2] = {
+    startAfter: CI_REFRESH_RETRY_DELAY_SECONDS,
+    priority: 40,
+    group: { id: installationGroupId(data.installationId) },
+  };
+  if (data.webhookEventId) {
+    options.id = ciRefreshRetryBossJobId(data.webhookEventId, data.prNumber, attempt);
+  }
+  return sendBossJobIdempotent(boss, CI_REFRESH_QUEUE, data, options);
 }
