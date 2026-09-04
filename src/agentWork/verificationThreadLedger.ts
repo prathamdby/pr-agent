@@ -1,10 +1,11 @@
 import type { Pool } from "pg";
+import type { VerificationFailureSurface } from "../agent/verification/verificationFailureSignal.js";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
 import { recordPublishStep } from "./repository.js";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
 
-export type VerificationFailureSurface = "ci_cell" | "stub_line";
+export type { VerificationFailureSurface };
 
 export type VerificationFailureSignal = {
   readonly headSha: string;

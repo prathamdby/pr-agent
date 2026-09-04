@@ -3,9 +3,18 @@ import type { Pool } from "pg";
 import {
   loadVerificationThreadLedger,
   parseVerificationThreadLedger,
+  saveVerificationThreadLedger,
   upsertVerificationThreadState,
 } from "../src/agentWork/verificationThreadLedger.js";
 import { VERIFICATION_PUBLISH_LENS } from "../src/settings/index.js";
+
+const mocks = vi.hoisted(() => ({
+  recordPublishStep: vi.fn(),
+}));
+
+vi.mock("../src/agentWork/repository.js", () => ({
+  recordPublishStep: (...args: unknown[]) => mocks.recordPublishStep(...args),
+}));
 
 describe("verificationThreadLedger", () => {
   it("parses the threads map detail shape", () => {
@@ -98,6 +107,36 @@ describe("verificationThreadLedger", () => {
     });
     expect(next.threads["1"]?.stubCommentId).toBe(1);
     expect(next.threads["2"]?.terminal).toBe(true);
+  });
+
+  it("round-trips a failure signal through save and load", async () => {
+    let stored: unknown;
+    mocks.recordPublishStep.mockImplementation(async (_pool, params: { detail: unknown }) => {
+      stored = params.detail;
+    });
+    const query = vi.fn(async () => ({
+      rows: stored == null ? [] : [{ detail: stored }],
+    }));
+    const pool = { query } as unknown as Pool;
+    const ledger = {
+      threads: { "10": { lastVerdict: "skipped" as const } },
+      failureSignal: {
+        headSha: "a".repeat(40),
+        commentId: 88,
+        surface: "ci_cell" as const,
+      },
+    };
+
+    await saveVerificationThreadLedger(pool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      ledger,
+      leaseEpoch: 1,
+    });
+    const loaded = await loadVerificationThreadLedger(pool, { resourceKey: "o/r#1" });
+
+    expect(loaded.failureSignal).toEqual(ledger.failureSignal);
+    expect(loaded.threads["10"]?.lastVerdict).toBe("skipped");
   });
 
   it("loads an empty ledger when no publish record exists", async () => {

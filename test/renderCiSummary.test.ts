@@ -294,4 +294,23 @@ describe("renderCiSummary", () => {
     ].join("\n");
     expect(preserveCiSummaryRowInCommentBody(previous, next)).toBe(next);
   });
+
+  it("keeps a verification failure block when a full summary rewrite already has a CI cell", () => {
+    const failure = renderVerificationFailureBlock();
+    const previousCell = `${CI_SUMMARY_CELL_START}⏳ CI still running${failure}${CI_SUMMARY_CELL_END}`;
+    const nextCell = renderCiSummaryCell({
+      status: "passing",
+      headline: "✅ All CI is passing",
+      failures: [],
+    });
+    const previous = `<tr><td><strong>CI</strong></td><td>${previousCell}</td></tr>`;
+    const next = [
+      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
+      `<tr><td><strong>CI</strong></td><td>${nextCell}</td></tr>`,
+    ].join("\n");
+    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
+    expect(preserved).toContain("All CI is passing");
+    expect(preserved).toContain(VERIFICATION_FAILURE_TEXT);
+    expect(preserved).not.toContain("still running");
+  });
 });

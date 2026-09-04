@@ -1,10 +1,14 @@
 import {
+  extractVerificationFailureBlock,
+  injectVerificationFailureIntoCiCell,
+  preserveVerificationFailureBlock,
+} from "../../agent/verification/verificationFailureSignal.js";
+import {
   escapeTableHtml,
   escapeTablePlainCell,
   renderTableEm,
   renderTableLink,
 } from "../../github/markdownFormat.js";
-import { VERIFICATION_FAILURE_START } from "../../settings/index.js";
 import type { CiFailureDetail, CiSummary } from "./ciSummaryTypes.js";
 
 /** HTML comment markers for surgical CI-cell refresh (ADR 0018). */
@@ -13,9 +17,6 @@ export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 
 const CI_SUMMARY_CELL_RE =
   /<!--\s*pr-agent:ci-summary\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
-
-const VERIFICATION_FAILURE_BLOCK_RE =
-  /<!--\s*pr-agent:verification-failure\s*-->[\s\S]*?<!--\s*\/pr-agent:verification-failure\s*-->/;
 
 export type CiSummarySections = {
   readonly headline: string;
@@ -98,11 +99,9 @@ export function shouldRenderCiSummaryRow(
  */
 export function patchCiSummaryCellInCommentBody(body: string, summary: CiSummary): string | null {
   if (!CI_SUMMARY_CELL_RE.test(body)) return null;
-  const failure = body.match(VERIFICATION_FAILURE_BLOCK_RE)?.[0];
+  const failure = extractVerificationFailureBlock(body);
   let nextCell = renderCiSummaryCell(summary);
-  if (failure != null && !nextCell.includes(VERIFICATION_FAILURE_START)) {
-    nextCell = nextCell.replace(CI_SUMMARY_CELL_END, `${failure}${CI_SUMMARY_CELL_END}`);
-  }
+  if (failure != null) nextCell = injectVerificationFailureIntoCiCell(nextCell, failure);
   return body.replace(CI_SUMMARY_CELL_RE, nextCell);
 }
 
@@ -120,9 +119,10 @@ const SOURCE_TABLE_ROW_RE = /<tr><td><strong>Source<\/strong><\/td><td>[\s\S]*?<
  * fresh CI summary (ack posted it; specialist/terminal ticks should not drop it).
  */
 export function preserveCiSummaryRowInCommentBody(previousBody: string, nextBody: string): string {
-  if (commentBodyHasCiSummaryCell(nextBody)) return nextBody;
+  const nextWithFailure = preserveVerificationFailureBlock(previousBody, nextBody);
+  if (commentBodyHasCiSummaryCell(nextWithFailure)) return nextWithFailure;
   const ciRow = CI_SUMMARY_TABLE_ROW_RE.exec(previousBody)?.[0];
-  if (ciRow == null) return nextBody;
-  if (!SOURCE_TABLE_ROW_RE.test(nextBody)) return nextBody;
-  return nextBody.replace(SOURCE_TABLE_ROW_RE, (sourceRow) => `${sourceRow}\n${ciRow}`);
+  if (ciRow == null) return nextWithFailure;
+  if (!SOURCE_TABLE_ROW_RE.test(nextWithFailure)) return nextWithFailure;
+  return nextWithFailure.replace(SOURCE_TABLE_ROW_RE, (sourceRow) => `${sourceRow}\n${ciRow}`);
 }

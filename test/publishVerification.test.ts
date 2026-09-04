@@ -37,8 +37,10 @@ import {
 } from "../src/agent/verification/publishVerificationFailure.js";
 import {
   applyVerificationFailureToComment,
+  renderClearedVerificationFailureStub,
   renderVerificationFailureBlock,
 } from "../src/agent/verification/verificationFailureSignal.js";
+import * as operationIntent from "../src/agentWork/withOperationIntent.js";
 
 const thread = {
   rootCommentId: 1,
@@ -886,5 +888,153 @@ describe("publishVerificationFailure", () => {
     expect(conversationEdits()).toHaveLength(1);
     expect(conversationEdits()[0]?.body).not.toContain(VERIFICATION_FAILURE_TEXT);
     expect(conversationEdits()[0]?.body).toContain("All CI is passing");
+  });
+
+  it("does not edit again when the same head already has the failure block", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      88,
+    );
+
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(conversationEdits()).toHaveLength(1);
+  });
+
+  it("ignores a participant-owned failure marker", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setConversationComments([
+      {
+        id: 501,
+        inReplyToId: null,
+        authorLogin: "attacker",
+        body: renderVerificationFailureBlock(),
+      },
+    ]);
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      88,
+    );
+
+    const signal = await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(signal.commentId).toBe(88);
+    expect(conversationEdits()).toHaveLength(1);
+    expect(conversationEdits()[0]?.commentId).toBe(88);
+  });
+
+  it("skips rewriting an already-cleared failure stub", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setConversationComments([
+      {
+        id: 9,
+        inReplyToId: null,
+        authorLogin: "pr-agent[bot]",
+        body: renderClearedVerificationFailureStub(),
+      },
+    ]);
+
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(conversationEdits()).toHaveLength(0);
+  });
+
+  it("recovers a bot-owned failure comment and reports absent without a bot login", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setConversationComments([
+      {
+        id: 42,
+        inReplyToId: null,
+        authorLogin: "pr-agent[bot]",
+        body: renderVerificationFailureBlock(),
+      },
+    ]);
+
+    const recoveries: Array<{ kind: string; value?: number }> = [];
+    const spy = vi.spyOn(operationIntent, "withOperationIntent").mockImplementation(async (p) => {
+      const recovered = await p.recover?.({} as never, null);
+      if (recovered != null) {
+        recoveries.push(
+          recovered.kind === "reconciled"
+            ? { kind: recovered.kind, value: recovered.value as number }
+            : { kind: recovered.kind },
+        );
+      }
+      return 42;
+    });
+
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    expect(recoveries).toEqual([{ kind: "reconciled", value: 42 }]);
+
+    recoveries.length = 0;
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: { ...params.prSurface, getBotLogin: undefined },
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    expect(recoveries).toEqual([{ kind: "absent" }]);
+    spy.mockRestore();
   });
 });

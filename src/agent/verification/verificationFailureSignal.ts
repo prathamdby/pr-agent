@@ -23,8 +23,35 @@ export function renderVerificationFailureBlock(): string {
   return `${VERIFICATION_FAILURE_START}${VERIFICATION_FAILURE_TEXT}${VERIFICATION_FAILURE_END}`;
 }
 
+export function renderClearedVerificationFailureStub(): string {
+  return `${VERIFICATION_FAILURE_START}${VERIFICATION_FAILURE_END}`;
+}
+
+export function extractVerificationFailureBlock(body: string): string | undefined {
+  return body.match(VERIFICATION_FAILURE_BLOCK_RE)?.[0];
+}
+
+export function isClearedVerificationFailureStub(body: string): boolean {
+  return body.trim() === renderClearedVerificationFailureStub();
+}
+
 function commentHasVerificationFailure(body: string): boolean {
   return VERIFICATION_FAILURE_BLOCK_RE.test(body);
+}
+
+export function commentHasVisibleVerificationFailure(body: string): boolean {
+  return commentHasVerificationFailure(body) && !isClearedVerificationFailureStub(body);
+}
+
+export function injectVerificationFailureIntoCiCell(body: string, block: string): string {
+  if (body.includes(VERIFICATION_FAILURE_START) || !CI_SUMMARY_CELL_RE.test(body)) return body;
+  return body.replace(CI_SUMMARY_CELL_END, `${block}${CI_SUMMARY_CELL_END}`);
+}
+
+export function preserveVerificationFailureBlock(previousBody: string, nextBody: string): string {
+  const failure = extractVerificationFailureBlock(previousBody);
+  if (failure == null || nextBody.includes(VERIFICATION_FAILURE_START)) return nextBody;
+  return injectVerificationFailureIntoCiCell(nextBody, failure);
 }
 
 export function applyVerificationFailureToComment(body: string): AppliedVerificationFailure {

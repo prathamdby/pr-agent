@@ -1,12 +1,12 @@
 import type { Pool } from "pg";
 import type { PrSurface } from "../../github/prSurface.js";
+import type { PrConversationComment } from "../../github/prSurfaceTypes.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
-  VERIFICATION_FAILURE_END,
   VERIFICATION_FAILURE_START,
   VERIFICATION_PUBLISH_LENS,
 } from "../../settings/index.js";
@@ -25,6 +25,9 @@ import {
 } from "../../agentWork/withOperationIntent.js";
 import {
   applyVerificationFailureToComment,
+  commentHasVisibleVerificationFailure,
+  isClearedVerificationFailureStub,
+  renderClearedVerificationFailureStub,
   renderVerificationFailureBlock,
   stripVerificationFailureFromComment,
 } from "./verificationFailureSignal.js";
@@ -43,19 +46,14 @@ type PublishVerificationFailureParams = {
   readonly leaseEpoch: number | null;
 };
 
-type ConversationComment = {
-  readonly id: number;
-  readonly body: string;
-};
-
 function isReviewSummaryBody(body: string): boolean {
   return REVIEW_SUMMARY_SENTINELS.some((sentinel) => body.startsWith(sentinel));
 }
 
 function findHeadReviewComment(
-  comments: readonly ConversationComment[],
+  comments: readonly PrConversationComment[],
   headSha: string,
-): ConversationComment | undefined {
+): PrConversationComment | undefined {
   return comments.findLast(
     (comment) =>
       isReviewSummaryBody(comment.body) &&
@@ -64,15 +62,22 @@ function findHeadReviewComment(
 }
 
 function findFailureStubComment(
-  comments: readonly ConversationComment[],
-): ConversationComment | undefined {
+  comments: readonly PrConversationComment[],
+): PrConversationComment | undefined {
   return comments.findLast((comment) => comment.body.startsWith(VERIFICATION_FAILURE_START));
 }
 
 function findCommentWithFailure(
-  comments: readonly ConversationComment[],
-): ConversationComment | undefined {
-  return comments.findLast((comment) => comment.body.includes(VERIFICATION_FAILURE_START));
+  comments: readonly PrConversationComment[],
+): PrConversationComment | undefined {
+  return comments.findLast((comment) => commentHasVisibleVerificationFailure(comment.body));
+}
+
+async function botOwnedComments(prSurface: PrSurface): Promise<readonly PrConversationComment[]> {
+  const botLogin = await prSurface.getBotLogin?.();
+  if (botLogin == null) return [];
+  const comments = await prSurface.listConversationComments();
+  return comments.filter((comment) => comment.authorLogin === botLogin);
 }
 
 async function persistLedger(
@@ -101,7 +106,7 @@ async function recoverFailureCommentId(prSurface: PrSurface): Promise<number | u
 export async function publishVerificationFailure(
   params: PublishVerificationFailureParams,
 ): Promise<VerificationFailureSignal> {
-  const comments = await params.prSurface.listConversationComments();
+  const comments = await botOwnedComments(params.prSurface);
   const headReview = findHeadReviewComment(comments, params.headSha);
   const existingStub = findFailureStubComment(comments);
   const target = headReview ?? existingStub;
@@ -161,26 +166,25 @@ export async function publishVerificationFailure(
 export async function clearVerificationFailureSignal(
   params: PublishVerificationFailureParams,
 ): Promise<void> {
-  const comments = await params.prSurface.listConversationComments();
-  const target = findCommentWithFailure(comments);
-  if (target != null) {
-    const stripped = stripVerificationFailureFromComment(target.body);
-    if (stripped.changed) {
-      const nextBody = stripped.nextBody.trim().length > 0 ? stripped.nextBody : "";
-      if (nextBody.length > 0) {
-        await params.prSurface.editComment(target.id, nextBody);
-      } else {
-        await params.prSurface.editComment(target.id, renderClearedFailureStub());
-      }
-    }
-  }
+  const comments = await botOwnedComments(params.prSurface);
   const ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,
   });
+  const recorded = ledger.failureSignal;
+  const ledgerTarget =
+    recorded == null ? undefined : comments.find((comment) => comment.id === recorded.commentId);
+  const target = ledgerTarget ?? findCommentWithFailure(comments);
+  if (target != null) {
+    const stripped = stripVerificationFailureFromComment(target.body);
+    if (stripped.changed) {
+      const nextBody = stripped.nextBody.trim();
+      if (nextBody.length > 0) {
+        await params.prSurface.editComment(target.id, stripped.nextBody);
+      } else if (!isClearedVerificationFailureStub(target.body)) {
+        await params.prSurface.editComment(target.id, renderClearedVerificationFailureStub());
+      }
+    }
+  }
   if (ledger.failureSignal == null && target == null) return;
   await persistLedger(params, clearVerificationFailureSignalFromLedger(ledger));
-}
-
-function renderClearedFailureStub(): string {
-  return `${VERIFICATION_FAILURE_START}${VERIFICATION_FAILURE_END}`;
 }
