@@ -74,7 +74,7 @@ async function mapBounded<T, R>(
   mapper: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   if (items.length === 0) return [];
-  const results = new Array<R>(items.length);
+  const results: R[] = Array.from({ length: items.length });
   let cursor = 0;
   const workerCount = Math.min(Math.max(bound, 1), items.length);
   await Promise.all(
