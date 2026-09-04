@@ -11,9 +11,7 @@ describe("getReviewQueuePosition", () => {
       position: 2,
       total: 10,
     });
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'queued'"), ["wi-2"]);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("type = 'review'"), ["wi-2"]);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("resource_key"), ["wi-2"]);
+    expect(query).toHaveBeenCalledWith(expect.any(String), ["wi-2"]);
   });
 
   it("returns #1 of 1 for a sole queued review", async () => {

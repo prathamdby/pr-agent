@@ -150,7 +150,7 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   return row ? mapWorkItemCore(row) : null;
 }
 
-/** Wait-queue rank for the queued progress stub (`#2 of 10`). */
+/** Wait-queue rank for the queued progress stub (`#N of M`). */
 export type ReviewQueuePosition = {
   readonly position: number;
   readonly total: number;

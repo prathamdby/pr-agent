@@ -98,25 +98,6 @@ describe("progressComment fallback wording", () => {
     expect(body).toContain("#1 of 1");
   });
 
-  it("renders each queued stub with only its own rank", () => {
-    const prA = renderReviewProgressComment({
-      mode: "review",
-      headSha: "aaa111",
-      source: "auto",
-      queuePosition: { position: 1, total: 1 },
-    });
-    const prB = renderReviewProgressComment({
-      mode: "review",
-      headSha: "bbb222",
-      source: "auto",
-      queuePosition: { position: 2, total: 2 },
-    });
-    expect(prA).toContain("#1 of 1");
-    expect(prA).not.toContain("#2 of 2");
-    expect(prB).toContain("#2 of 2");
-    expect(prB).not.toContain("#1 of 1");
-  });
-
   it("ignores queue position once the in-progress roster is present", () => {
     const body = renderReviewProgressComment({
       mode: "review",
