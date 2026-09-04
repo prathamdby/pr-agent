@@ -26,7 +26,7 @@ This repo already runs reviews through a Pi-AI tool loop over a local PR workspa
 
 6. **Explain-only** — Ask runs do not change finding severity, dismiss findings, resolve threads, or edit review summaries.
 
-7. **Failure handling** — One retry nudge, then text-only fallback, then an honest short failure reply if still stuck. The terminal hook reads the durable `ask_reply` publish record and the delivered-reply recovery helper. A delivered answer suppresses the failure reply on every retry and crash-recovery path. An undelivered ask posts exactly one failure reply through the operation-intent path.
+7. **Failure handling** — One retry nudge, then text-only fallback, then an honest short failure reply if still stuck. The terminal hook treats only a completed `ask_reply` publish record or a recovered comment id as a delivered answer. An `outcome_unknown` answer mutation does not suppress the failure. An undelivered ask posts exactly one failure reply through the `ask:failure_reply` operation-intent key.
 
 8. **Style** — System prompt requires simple, humane prose with no em dashes and no AI-tell openers; enforcement is prompt-only (no post-processing).
 

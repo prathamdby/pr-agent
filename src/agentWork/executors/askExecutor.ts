@@ -29,7 +29,11 @@ import {
   reconcileOperationIntent,
 } from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
-import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
+import {
+  askFailureReplyOperationKey,
+  askReplyOperationKey,
+  withOperationIntent,
+} from "../withOperationIntent.js";
 import { recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
@@ -43,8 +47,13 @@ function replyTargetKindFromIntentDetail(
 }
 
 function askReplyLookupKeys(resourceKey: string, operationKey: string): readonly string[] {
-  const legacyKey = askReplyOperationKey(resourceKey);
-  return legacyKey === operationKey ? [operationKey] : [operationKey, legacyKey];
+  const scopedKey = askReplyOperationKey(resourceKey);
+  if (operationKey === scopedKey) return [operationKey];
+  // Failure-reply keys must not adopt a legacy ask:reply comment as already published.
+  if (operationKey.startsWith(`ask:reply:${resourceKey}`)) {
+    return [operationKey, scopedKey];
+  }
+  return [operationKey];
 }
 
 async function findAskReplyOnAnyTarget(params: {
@@ -248,6 +257,30 @@ async function recoverDeliveredAskReplyCommentId(params: {
     commentId: recovered.commentId,
     targetKind: recovered.targetKind ?? item.payload.replyTarget.kind,
   };
+}
+
+type AskFailureReplyDecision = "skip" | "publish";
+
+/** Confirmed delivery only. An outcome_unknown answer mutation is not delivery. */
+async function decideAskFailureReply(params: {
+  readonly cfg: Config;
+  readonly pool: Pool;
+  readonly prSurface: PrSurface;
+  readonly item: AskWorkItem;
+}): Promise<AskFailureReplyDecision> {
+  const { cfg, pool, prSurface, item } = params;
+  if (
+    await hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply")
+  ) {
+    return "skip";
+  }
+  const recovered = await recoverDeliveredAskReplyCommentId({
+    cfg,
+    pool,
+    prSurface,
+    item,
+  });
+  return recovered?.kind === "recovered" ? "skip" : "publish";
 }
 
 async function finalizeAskReplyPublish(params: {
@@ -523,33 +556,16 @@ export async function executeAskJob(
         },
       });
       if (!prSurface) return;
-      if (
-        await hasCompletedPublishStep(
-          pool,
-          item.id,
-          item.resourceKey,
-          ASK_PUBLISH_LENS,
-          "ask_reply",
-        )
-      ) {
-        return;
-      }
-      const recoveredReply = await recoverDeliveredAskReplyCommentId({
-        cfg,
-        pool,
-        prSurface,
-        item,
-      });
-      if (recoveredReply != null) return;
+      if ((await decideAskFailureReply({ cfg, pool, prSurface, item })) === "skip") return;
       const payload = item.payload;
-      const operationKey = askReplyOperationKey(item.resourceKey, item.payload.commentId);
+      const operationKey = askFailureReplyOperationKey(item.resourceKey, item.payload.commentId);
       await withOperationIntent({
         client: pool,
         workItemId: item.id,
         operationKey,
-        mutationKind: "github.ask_reply",
+        mutationKind: "github.ask_failure_reply",
         detail: {
-          step: "ask_reply",
+          step: "ask_failure_reply",
           resourceKey: item.resourceKey,
           reviewLens: ASK_PUBLISH_LENS,
           replyTargetKind: payload.replyTarget.kind,

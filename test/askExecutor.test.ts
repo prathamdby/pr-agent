@@ -3,7 +3,10 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AskJobData } from "../src/agentWork/types.js";
-import { askReplyOperationKey } from "../src/agentWork/withOperationIntent.js";
+import {
+  askFailureReplyOperationKey,
+  askReplyOperationKey,
+} from "../src/agentWork/withOperationIntent.js";
 import { makeTestConfig } from "./helpers/config.js";
 import {
   durablePrSurfaceControls,
@@ -446,9 +449,44 @@ describe("executeAskJob", () => {
     expect(durablePrSurfaceControls().replies[0]?.body).toContain(
       "could not complete this ask after retries",
     );
-    const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1", 99));
+    const intent = memoryOperationIntentStore.get("wi-1", askFailureReplyOperationKey("o/r#1", 99));
     expect(intent?.status).toBe("reconciled");
     expect(intent?.detail.__result).toEqual({ commentId: expect.any(Number) });
+  });
+
+  it("posts exactly one failure reply when answer intent is outcome_unknown and nothing was recovered", async () => {
+    const answerKey = askReplyOperationKey("o/r#1", 99);
+    await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-1",
+      operationKey: answerKey,
+      mutationKind: "github.ask_reply",
+      detail: { step: "ask_reply" },
+    });
+    await memoryOperationIntentStore.reconcile(pool, {
+      workItemId: "wi-1",
+      operationKey: answerKey,
+      status: "outcome_unknown",
+    });
+    mocks.findExistingAskReplyComment.mockResolvedValue(null);
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+      const item = askItem();
+      const prSurface = fakeDurablePrSurface();
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead after unknown mutate"));
+      await spec.onTerminalFailure?.(item, prSurface, new Error("retried hook"));
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain(
+      "could not complete this ask after retries",
+    );
+    const failure = memoryOperationIntentStore.get(
+      "wi-1",
+      askFailureReplyOperationKey("o/r#1", 99),
+    );
+    expect(failure?.status).toBe("reconciled");
+    expect(failure?.detail.__result).toEqual({ commentId: expect.any(Number) });
   });
 
   it("does not post terminal failure reply on non-terminal retry", async () => {
