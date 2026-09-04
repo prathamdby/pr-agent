@@ -15,6 +15,7 @@ import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
+import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 
@@ -47,6 +48,8 @@ const testState = vi.hoisted(() => ({
   judgmentExecutorFailuresRemaining: 0,
   lastSessionToolNames: [] as string[],
   reconSubmitsBrief: true,
+  submittedBrief: null as Record<string, unknown> | null,
+  sentPrompts: [] as string[],
   deterministicSummaries: [] as Array<Record<string, unknown>>,
   deterministicCiAuthors: [] as Array<unknown>,
   summaryToolCiAuthors: [] as Array<unknown>,
@@ -264,6 +267,21 @@ const workspace: LocalPrWorkspace = {
   cleanup: async () => undefined,
 };
 
+function defaultSubmittedBrief() {
+  return {
+    prIntent: "Add orchestrated reviews.",
+    architectureNotes: "One orchestrator owns publication.",
+    riskAreas: [] as Array<{ area: string; files: string[]; reason: string }>,
+    fileMap: "Four specialist files.",
+    specialistFocus: {
+      correctness: "Trace behavior.",
+      security: "Trace trust boundaries.",
+      quality: "Trace maintainability.",
+      tests: "Trace coverage.",
+    },
+  };
+}
+
 function finding(specialist: SpecialistId): ReviewFinding {
   return {
     severity: "P2",
@@ -374,6 +392,8 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentExecutorFailuresRemaining = 0;
     testState.lastSessionToolNames = [];
     testState.reconSubmitsBrief = true;
+    testState.submittedBrief = null;
+    testState.sentPrompts.length = 0;
     testState.deterministicSummaries.length = 0;
     testState.deterministicCiAuthors.length = 0;
     testState.summaryToolCiAuthors.length = 0;
@@ -403,6 +423,7 @@ describe("runOrchestratedPrReview", () => {
         role: "orchestrator",
         primary: { provider: "openai", model: "gpt-4o-mini" },
         send: vi.fn(async (prompt) => {
+          testState.sentPrompts.push(prompt);
           const phase = prompt.includes("Inspect this pull request")
             ? "recon"
             : prompt.startsWith("Judge the ")
@@ -418,18 +439,9 @@ describe("runOrchestratedPrReview", () => {
           }
           if (prompt.includes("Inspect this pull request")) {
             if (testState.reconSubmitsBrief)
-              await executors.submit_specialist_brief?.({
-                prIntent: "Add orchestrated reviews.",
-                architectureNotes: "One orchestrator owns publication.",
-                riskAreas: [],
-                fileMap: "Four specialist files.",
-                specialistFocus: {
-                  correctness: "Trace behavior.",
-                  security: "Trace trust boundaries.",
-                  quality: "Trace maintainability.",
-                  tests: "Trace coverage.",
-                },
-              });
+              await executors.submit_specialist_brief?.(
+                testState.submittedBrief ?? defaultSubmittedBrief(),
+              );
           } else if (prompt.startsWith("Judge the ")) {
             if (testState.judgmentFailuresRemaining > 0) {
               testState.judgmentFailuresRemaining -= 1;
@@ -520,18 +532,9 @@ describe("runOrchestratedPrReview", () => {
       const runSuccessfulTurn = async (prompt: string) => {
         if (prompt.includes("Inspect this pull request")) {
           if (testState.reconSubmitsBrief) {
-            await sessionParams.executors.submit_specialist_brief?.({
-              prIntent: "Add orchestrated reviews.",
-              architectureNotes: "One orchestrator owns publication.",
-              riskAreas: [],
-              fileMap: "Four specialist files.",
-              specialistFocus: {
-                correctness: "Trace behavior.",
-                security: "Trace trust boundaries.",
-                quality: "Trace maintainability.",
-                tests: "Trace coverage.",
-              },
-            });
+            await sessionParams.executors.submit_specialist_brief?.(
+              testState.submittedBrief ?? defaultSubmittedBrief(),
+            );
           }
         } else if (prompt.startsWith("Judge the ")) {
           await sessionParams.refreshBeforeTool?.("publish_thread");
@@ -835,6 +838,93 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.failureNotices).toBe(0);
     expect(testState.deterministicSummaries).toHaveLength(1);
     expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
+  });
+
+  it("dispatches specialists when recon submits an empty risk map", async () => {
+    const run = runOrchestratedPrReview(params());
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(
+      testState.sentPrompts.some((prompt) => prompt.includes(ORCHESTRATOR_RECON_INSTRUCTION)),
+    ).toBe(true);
+    expect(testState.briefMessages).toHaveLength(4);
+    for (const message of testState.briefMessages) {
+      expect(message).toContain("Add orchestrated reviews.");
+      expect(message).toContain("investigation hypotheses");
+    }
+  });
+
+  it("sends the risk-map recon instruction and routes a split brief to specialists", async () => {
+    testState.submittedBrief = {
+      prIntent: "Change the session token response shape and the authorization gate.",
+      architectureNotes: "Token issuer and API consumers must stay aligned.",
+      riskAreas: [
+        {
+          area: "Token response contract",
+          files: ["src/auth/token.ts", "src/api/session.ts"],
+          reason: "toSessionJson return shape changed. Verify producer versus consumer.",
+        },
+        {
+          area: "Authorization gate",
+          files: ["src/auth/authorize.ts"],
+          reason: "canAccess predicate changed. Verify missing and false roles are denied.",
+        },
+      ],
+      fileMap: "src/auth: token + authorize. src/api: session consumer.",
+      specialistFocus: {
+        correctness: "Verify toSessionJson versus readSession remain compatible.",
+        security: "Verify canAccess denies missing and forged roles.",
+        quality: "No present ownership harm. Keep focus minimal.",
+        tests: "Check missing coverage for the token shape and canAccess false path.",
+      },
+    };
+
+    const run = runOrchestratedPrReview(params());
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(
+      testState.sentPrompts.some((prompt) => prompt.includes(ORCHESTRATOR_RECON_INSTRUCTION)),
+    ).toBe(true);
+    expect(testState.briefMessages).toHaveLength(4);
+    const byFocus = {
+      correctness: testState.briefMessages.find((message) =>
+        message.includes("Verify toSessionJson versus readSession remain compatible."),
+      ),
+      security: testState.briefMessages.find((message) =>
+        message.includes("Verify canAccess denies missing and forged roles."),
+      ),
+      quality: testState.briefMessages.find((message) =>
+        message.includes("No present ownership harm. Keep focus minimal."),
+      ),
+      tests: testState.briefMessages.find((message) =>
+        message.includes("Check missing coverage for the token shape and canAccess false path."),
+      ),
+    };
+    expect(byFocus.correctness).toBeDefined();
+    expect(byFocus.security).toBeDefined();
+    expect(byFocus.quality).toBeDefined();
+    expect(byFocus.tests).toBeDefined();
+    for (const message of testState.briefMessages) {
+      expect(message).toContain(
+        "Change the session token response shape and the authorization gate.",
+      );
+      expect(message).toContain("Token response contract");
+      expect(message).toContain("Authorization gate");
+      expect(message).toContain("src/auth/token.ts");
+      expect(message).toContain("investigation hypotheses");
+      expect(message).toContain("Source: specialist_brief.pr_intent");
+      expect(message).toContain("Source: specialist_brief.risk_area");
+    }
+    expect(byFocus.correctness).not.toContain("Verify canAccess denies missing and forged roles.");
+    expect(byFocus.security).not.toContain(
+      "Verify toSessionJson versus readSession remain compatible.",
+    );
   });
 
   it("falls back to a deterministic brief when recon never submits one", async () => {

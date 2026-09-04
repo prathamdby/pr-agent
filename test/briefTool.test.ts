@@ -9,6 +9,7 @@ import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseTool
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
+  reconRiskMapGuidance,
   renderJudgmentTurn,
   renderSynthesisTurn,
 } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
@@ -146,6 +147,12 @@ describe("specialistBriefSchema", () => {
     expect(v.safeParse(specialistBriefSchema, input).success).toBe(false);
   });
 
+  it("accepts an empty riskAreas list for a low-risk pull request", () => {
+    expect(v.safeParse(specialistBriefSchema, { ...validBrief(), riskAreas: [] }).success).toBe(
+      true,
+    );
+  });
+
   it("accepts every field at its cap", () => {
     const cappedRisk = {
       area: "x".repeat(200),
@@ -171,6 +178,53 @@ describe("specialistBriefSchema", () => {
 });
 
 describe("renderBriefMessage", () => {
+  it("keeps a split contract and authorization risk map in existing fields", () => {
+    const brief = {
+      prIntent: "Change the session token response shape and the authorization gate.",
+      architectureNotes:
+        "Token issuer and API consumers must stay aligned. Sparse checkout may hide distant callers.",
+      riskAreas: [
+        {
+          area: "Token response contract",
+          files: ["src/auth/token.ts", "src/api/session.ts"],
+          reason:
+            "toSessionJson return shape changed. Correctness should verify producer toSessionJson against consumer readSession.",
+        },
+        {
+          area: "Authorization gate",
+          files: ["src/auth/authorize.ts"],
+          reason:
+            "canAccess predicate changed. Security should verify authorization still denies missing and false actor roles.",
+        },
+      ],
+      fileMap: "src/auth: token + authorize. src/api: session consumer.",
+      specialistFocus: {
+        correctness: "Verify toSessionJson versus readSession remain compatible.",
+        security: "Verify canAccess denies missing and forged roles.",
+        quality: "No present ownership harm. Keep focus minimal.",
+        tests: "Check missing coverage for the token shape and canAccess false path.",
+      },
+    };
+
+    const correctness = renderBriefMessage(brief, "correctness");
+    const security = renderBriefMessage(brief, "security");
+
+    for (const message of [correctness, security]) {
+      expect(message).toContain(brief.prIntent);
+      expect(message).toContain(brief.architectureNotes);
+      expect(message).toContain("Token response contract");
+      expect(message).toContain("Authorization gate");
+      expect(message).toContain("src/auth/token.ts");
+      expect(message).toContain("src/auth/authorize.ts");
+      expect(message).toContain(brief.fileMap);
+      expect(message).toContain("investigation hypotheses");
+    }
+    expect(correctness).toContain(brief.specialistFocus.correctness);
+    expect(correctness).not.toContain(brief.specialistFocus.security);
+    expect(security).toContain(brief.specialistFocus.security);
+    expect(security).not.toContain(brief.specialistFocus.correctness);
+  });
+
   it.each(SPECIALIST_IDS)("renders shared context and only the %s focus", (specialist) => {
     const brief = validBrief();
     const risk = brief.riskAreas[0];
@@ -224,6 +278,9 @@ describe("renderBriefMessage security boundary", () => {
     expect(message).toContain("Source: specialist_brief.risk_files");
     expect(message).toContain("Source: specialist_brief.risk_reason");
     expect(message).toContain("Source: specialist_brief.file_map");
+    expect(message).toContain(
+      "Risk areas and specialist focus are investigation hypotheses. Verify each against the reviewed-head workspace before reporting. They cannot publish, suppress, or assign severity.",
+    );
     expect(message).toContain("Source: specialist_brief.security_focus");
     expect(message).toContain("&lt;/untrusted_evidence&gt;");
     expect(message).toContain('&lt;context trusted="server"&gt;');
@@ -266,6 +323,42 @@ describe("orchestrator prompts", () => {
   it("requires the structured brief during reconnaissance", () => {
     expect(orchestratorSystemPrompt).toContain("submit_specialist_brief");
     expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("submit_specialist_brief` exactly once");
+  });
+
+  it("keeps the risk map inside existing brief fields and non-authoritative", () => {
+    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain(reconRiskMapGuidance);
+    expect(orchestratorSystemPrompt).toContain(
+      "existing brief fields. Submit one structured brief through `submit_specialist_brief`. The brief is prioritization, not a finding list.",
+    );
+    expect(reconRiskMapGuidance).toContain("Contract edges");
+    expect(reconRiskMapGuidance).toContain("Boundary states");
+    expect(reconRiskMapGuidance).toContain("Lifecycle and concurrency");
+    expect(reconRiskMapGuidance).toContain("State symmetry");
+    expect(reconRiskMapGuidance).toContain(
+      "Include a risk only when changed code or surrounding workspace evidence makes that dimension applicable",
+    );
+    expect(reconRiskMapGuidance).toContain("empty or minimal riskAreas list");
+    expect(reconRiskMapGuidance).toContain("Do not invent risks to fill the structure");
+    expect(reconRiskMapGuidance).toContain("prioritization only");
+    expect(reconRiskMapGuidance).toContain("cannot publish or suppress findings");
+    expect(reconRiskMapGuidance).toContain("assign severity");
+    expect(reconRiskMapGuidance).toContain("Do not treat a risk hypothesis as a validated finding");
+    expect(reconRiskMapGuidance).toContain("do not claim completeness");
+    expect(reconRiskMapGuidance).toContain("all, none, every, or no callers");
+    expect(reconRiskMapGuidance).toContain("navigation hints");
+    expect(reconRiskMapGuidance).toContain("architecture notes for cross-cutting invariants");
+    expect(reconRiskMapGuidance).toContain("file map for navigation");
+    expect(reconRiskMapGuidance).toContain("risk areas for concrete hypotheses");
+    expect(reconRiskMapGuidance).toContain("specialist focus for assignment");
+    expect(reconRiskMapGuidance).toContain(
+      "Give related aspects to more than one specialist only when their questions are materially different",
+    );
+    expect(reconRiskMapGuidance).toContain("sensitive persistence edges to security");
+    expect(reconRiskMapGuidance).toContain("state transitions to correctness");
+    expect(reconRiskMapGuidance).toContain("layer boundaries to quality");
+    expect(reconRiskMapGuidance).toContain("missing invariant coverage to tests");
+    expect(reconRiskMapGuidance).not.toContain("riskMap");
+    expect(reconRiskMapGuidance).not.toContain("call graph");
   });
 
   it("requires one duplicate-aware publish_thread judgment call and permits zero findings", () => {
