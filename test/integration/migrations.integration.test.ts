@@ -41,6 +41,7 @@ const EXPECTED_MIGRATIONS = [
   "025_ask_quotas.sql",
   "026_lease_fenced_side_effects.sql",
   "027_verification_slash_active_uniqueness.sql",
+  "028_triage_preview_step.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
