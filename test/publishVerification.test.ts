@@ -698,11 +698,13 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(controls.events.filter((event) => event.kind === "listConversationComments")).toHaveLength(
+    expect(
+      controls.events.filter((event) => event.kind === "listConversationComments"),
+    ).toHaveLength(0);
+    expect(controls.events.filter((event) => event.kind === "editComment")).toHaveLength(0);
+    expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(
       0,
     );
-    expect(controls.events.filter((event) => event.kind === "editComment")).toHaveLength(0);
-    expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(0);
     expect(controls.replies).toHaveLength(0);
     expect(controls.events.filter((event) => event.kind === "editReviewComment")).toHaveLength(0);
   });
@@ -714,14 +716,13 @@ function reviewSummaryBody(params: {
   readonly withCiCell: boolean;
   readonly headSha?: string;
 }): string {
-  const ci =
-    params.withCiCell === true
-      ? `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell({
-          status: "passing",
-          headline: "All CI is passing",
-          failures: [],
-        })}</td></tr>`
-      : "";
+  const ci = params.withCiCell
+    ? `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell({
+        status: "passing",
+        headline: "All CI is passing",
+        failures: [],
+      })}</td></tr>`
+    : "";
   return [
     REVIEW_SUMMARY_SENTINEL,
     "",
@@ -731,16 +732,22 @@ function reviewSummaryBody(params: {
   ].join("\n");
 }
 
-function conversationEdits(): Array<{ kind: string; commentId?: number; body?: string }> {
-  return controls.events.flatMap((event) => {
+type ConversationEdit = {
+  readonly kind: string;
+  readonly commentId?: number;
+  readonly body?: string;
+};
+
+function conversationEdits(): ConversationEdit[] {
+  const edits: ConversationEdit[] = [];
+  for (const event of controls.events) {
     if (event.kind === "editComment") {
-      return [{ kind: event.kind, commentId: event.commentId, body: event.body }];
+      edits.push({ kind: event.kind, commentId: event.commentId, body: event.body });
+    } else if (event.kind === "upsertProgressComment") {
+      edits.push({ kind: event.kind, body: event.body });
     }
-    if (event.kind === "upsertProgressComment") {
-      return [{ kind: event.kind, body: event.body }];
-    }
-    return [];
-  });
+  }
+  return edits;
 }
 
 describe("publishVerificationFailure", () => {
@@ -753,7 +760,11 @@ describe("publishVerificationFailure", () => {
       inventory: [thread],
       payload: { verdicts: [] },
     });
-    controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, reviewSummaryBody({ withCiCell: true }), 88);
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      88,
+    );
 
     const signal = await publishVerificationFailure({
       pool: params.pool,
@@ -834,7 +845,11 @@ describe("publishVerificationFailure", () => {
       inventory: many,
       payload: { verdicts: [] },
     });
-    controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, reviewSummaryBody({ withCiCell: true }), 3);
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      3,
+    );
 
     await publishVerificationFailure({
       pool: params.pool,

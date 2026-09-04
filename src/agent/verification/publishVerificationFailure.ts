@@ -6,6 +6,7 @@ import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
+  VERIFICATION_FAILURE_END,
   VERIFICATION_FAILURE_START,
   VERIFICATION_PUBLISH_LENS,
 } from "../../settings/index.js";
