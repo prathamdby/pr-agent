@@ -116,6 +116,8 @@ export type CiRefreshJobData = JobCorrelation & {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
+  /** 0 at intake. Each retain hop increments until the cap. */
+  readonly attempt: number;
 };
 
 export type StaleHeadReplacementState = "pending-enqueue" | "enqueued";

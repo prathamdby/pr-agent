@@ -1,5 +1,6 @@
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import { logDebug, logWarn } from "../../evlog.js";
 import { buildCiSummaryForSurface } from "../../review/ci/analyzeCi.js";
 import { createAgentCiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
@@ -13,6 +14,7 @@ import { REVIEW_CI_SUMMARY_MAX_FAILURES, REVIEW_SUMMARY_SENTINEL } from "../../s
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import { createPrSurface, type PrConversationComment } from "../../github/prSurface.js";
 import { mintInstallationToken } from "../durableJob.js";
+import { enqueueCiRefreshRetry, nextCiRefreshAttempt } from "../intake/queueing.js";
 import { hasActiveReviewWorkItem } from "../repository.js";
 import type { CiRefreshJobData } from "../types.js";
 import { prResourceKey } from "../types.js";
@@ -26,17 +28,24 @@ const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SEN
 export async function executeCiRefreshJob(
   cfg: Config,
   pool: Pool,
+  boss: PgBoss,
   data: CiRefreshJobData,
 ): Promise<void> {
-  const installation = await mintInstallationToken(cfg, data.installationId);
   if (await hasActiveReviewWorkItem(pool, prResourceKey(data.owner, data.repo, data.prNumber))) {
-    logDebug("ci_refresh_skipped_active_review", {
-      owner: data.owner,
-      repo: data.repo,
-      pr: data.prNumber,
-    });
+    const nextAttempt = nextCiRefreshAttempt(data.attempt);
+    if (nextAttempt != null) {
+      await enqueueCiRefreshRetry(boss, { ...data, attempt: nextAttempt });
+      logDebug("ci_refresh_skipped_will_retry", {
+        owner: data.owner,
+        repo: data.repo,
+        pr: data.prNumber,
+        attempt: data.attempt,
+        nextAttempt,
+      });
+    }
     return;
   }
+  const installation = await mintInstallationToken(cfg, data.installationId);
   const prSurface = createPrSurface({
     cfg,
     installationId: data.installationId,

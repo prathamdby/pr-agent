@@ -427,6 +427,7 @@ export async function applyCiRefreshIntake(
         repo: data.repo,
         prNumber,
         headSha: data.headSha,
+        attempt: 0,
         ...correlation,
       };
       const result = await enqueueCiRefreshIdempotent(boss, client, job, event.id);
