@@ -44,7 +44,9 @@ Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMB
 /review force: cancel any queued or running review and start a new one on the latest commit.
 /describe: write summary bullets and an optional diagram into the PR body.
 /ask … or @bot …: answer a code question in the same thread.
-/triage: recheck open bot findings and push fixes for valid same-repo issues.
+/triage: apply-mode fix for open bot findings. /triage preview renders would-be diffs without push. /triage all applies the previewed set (refused without a matching preview on this head).
+/triage preview: render the would-be unified diff. No commits, no push.
+/triage all: apply the previewed set (optional exclude <thread ids>). Refused without a matching preview on this head.
 /cancel: cancel a queued or running orchestrated review.
 /verify: recheck open findings against the current pull request head.
 /help: list available commands.
@@ -58,7 +60,7 @@ FEATURE_REVIEW: manual | auto. Default auto. Orchestrated review. /review always
 FEATURE_DESCRIBE: off | manual | auto. Default auto. PR description generation.
 FEATURE_VERIFICATION: off | manual | auto. Default auto. Rechecks open findings on synchronize or /verify.
 FEATURE_ASK: off | manual. Default manual. /ask and @bot questions.
-FEATURE_TRIAGE: off | manual. Default manual. /triage autofix checkout, commit, and push.
+FEATURE_TRIAGE: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.
 FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Review labels on the PR. No model tokens.
 FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review commit status. No model tokens.
 FEATURE_TITLE_REWRITE: false | true. Default false. Allows /describe to rewrite the PR title.
@@ -66,7 +68,7 @@ Landing-page capability copy:
 - Catch basics before a human opens the change. Runs when a pull request opens, or when you comment /review. Comments land next to the lines that need attention.
 - Turn a blank PR body into a readable summary. Runs when a pull request opens, or when you comment /describe. Summary bullets and an optional diagram go into the PR body.
 - Ask code questions without leaving GitHub. Comment /ask … or mention the bot with your question. Get an answer in the same thread, right where the code lives.
-- Revisit earlier findings on the pull request. Comment /triage on the pull request or on a finding thread. Checks open findings and can push fixes for valid same-repo issues.
+- Revisit earlier findings on the pull request. Comment /triage, or /triage preview then /triage all, on the pull request. Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.
 - Skip AI review when the PR is only docs. Runs automatically on small documentation-only changes. Docs-only pull requests take a lighter path instead of a full review.
 Landing-page review flow copy:
 - Deploy once on servers you control: Install PR Agent beside the rest of your stack. Your GitHub credentials and AI keys stay in your account, not a vendor dashboard.

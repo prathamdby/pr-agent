@@ -337,6 +337,12 @@ Writing policy is computed once per description run from workspace size stats (`
 | Symbol                               | Default / role                                      |
 | ------------------------------------ | --------------------------------------------------- |
 | `TRIAGE_SUMMARY_SENTINEL`            | `## PR Agent Triage`                                |
+| `TRIAGE_PREVIEW_SENTINEL`            | `## PR Agent Triage Preview`                        |
+| `TRIAGE_UNKNOWN_SUBCOMMAND`          | unknown `/triage` subcommand ack                    |
+| `TRIAGE_INVALID_EXCLUDE`             | `/triage all exclude` missing or non-digit ids ack  |
+| `TRIAGE_BULK_REQUIRES_PREVIEW`       | `/triage all` without a preview on this PR          |
+| `TRIAGE_BULK_PREVIEW_STALE`          | `/triage all` after the head moved since preview    |
+| `TRIAGE_BULK_PARTIAL_NOTICE`         | bulk report notice when some findings failed        |
 | `TRIAGE_ALREADY_IN_PROGRESS`         | duplicate `/triage` ack text                        |
 | `TRIAGE_FAILURE_MESSAGE`             | terminal failure PR comment                         |
 | `TRIAGE_NO_ELIGIBLE_FINDINGS`        | no triage-eligible unresolved findings report text  |

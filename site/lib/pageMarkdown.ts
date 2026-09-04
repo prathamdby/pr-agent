@@ -157,7 +157,7 @@ export function renderAgentInstructionsMarkdown(): string {
       "- The software costs nothing. The operator pays for hosting and model usage.",
       "- It runs two processes: a web role for signed webhook intake and a worker role for queues and model sessions. Both are required.",
       "- Model keys stay in the operator's environment. Review text reaches a model provider only when the operator's worker calls it.",
-      "- Slash commands are `/review`, `/describe`, `/ask`, `/triage`, `/verify`, `/cancel`, and `/help`. Verification also runs automatically on new pushes when `FEATURE_VERIFICATION=auto`.",
+      "- Slash commands are `/review`, `/describe`, `/ask`, `/triage` (`preview` / `all`), `/verify`, `/cancel`, and `/help`. Verification also runs automatically on new pushes when `FEATURE_VERIFICATION=auto`.",
     ]),
     "## Endpoints on this site",
     renderResourceLinks(),

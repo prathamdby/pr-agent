@@ -75,8 +75,9 @@ export const CAPABILITIES: CapabilityItem[] = [
   },
   {
     title: "Revisit earlier findings on the pull request",
-    trigger: "Comment /triage on the pull request or on a finding thread",
-    detail: "Checks open findings and can push fixes for valid same-repo issues.",
+    trigger: "Comment /triage, or /triage preview then /triage all, on the pull request",
+    detail:
+      "Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.",
   },
   {
     title: "Skip AI review when the PR is only docs",
@@ -257,7 +258,9 @@ export const SLASH_COMMANDS = [
   { cmd: "/review", tip: "Run a full review on the changes" },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
-  { cmd: "/triage", tip: "Recheck earlier findings and fix valid ones" },
+  { cmd: "/triage", tip: "Preview with /triage preview, apply with /triage all" },
+  { cmd: "/triage preview", tip: "Show the would-be unified diff. Nothing is pushed." },
+  { cmd: "/triage all", tip: "Apply the previewed set. Optional exclude <thread ids>." },
 ] as const;
 
 export const COMPOSE_SNIPPET = `cp .env.example .env
