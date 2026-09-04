@@ -315,7 +315,6 @@ export async function executeAskJob(
   boss: PgBoss,
   job: JobWithMetadata<AskJobData>,
 ): Promise<void> {
-  let answerDelivered = false;
   await runDurableWorkItem({
     cfg,
     pool,
@@ -330,7 +329,6 @@ export async function executeAskJob(
       const askReplyPublished = () =>
         hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
       if (await askReplyPublished()) {
-        answerDelivered = true;
         return { kind: "completed" };
       }
 
@@ -341,7 +339,6 @@ export async function executeAskJob(
         item,
       });
       if (recoveredReply?.kind === "recovered") {
-        answerDelivered = true;
         const status = await finalizeAskReplyPublish({
           pool,
           item,
@@ -356,7 +353,6 @@ export async function executeAskJob(
       if (recoveredReply?.kind === "outcome_unknown") {
         // The provider may have accepted the reply, but no exact marker was
         // found. Do not rerun the model or create a fallback reply.
-        answerDelivered = true;
         return { kind: "completed", degraded: true };
       }
 
@@ -462,7 +458,6 @@ export async function executeAskJob(
                 return { commentId: published.commentId };
               },
             });
-            answerDelivered = true;
             captureEvent({
               distinctId: `installation:${item.installationId}`,
               event: "ask answered",
@@ -507,8 +502,6 @@ export async function executeAskJob(
               });
               return { kind: "completed", degraded: true };
             }
-          } else {
-            answerDelivered = true;
           }
           return { kind: "completed" };
         },
@@ -530,7 +523,6 @@ export async function executeAskJob(
         },
       });
       if (!prSurface) return;
-      // Durable publish_records survive process death; answerDelivered does not.
       if (
         await hasCompletedPublishStep(
           pool,
@@ -542,20 +534,60 @@ export async function executeAskJob(
       ) {
         return;
       }
-      if (answerDelivered) return;
-      const payload = item.payload;
-      await publishAskAnswer(
+      const recoveredReply = await recoverDeliveredAskReplyCommentId({
         cfg,
+        pool,
         prSurface,
         item,
-        formatAskReply({
-          question: payload.question,
-          answer: "PR Agent could not complete this ask after retries. Please try again later.",
-          replyTarget: payload.replyTarget,
-        }),
-        askReplyOperationKey(item.resourceKey, item.payload.commentId),
-        true,
-      );
+      });
+      if (recoveredReply != null) return;
+      const payload = item.payload;
+      const operationKey = askReplyOperationKey(item.resourceKey, item.payload.commentId);
+      await withOperationIntent({
+        client: pool,
+        workItemId: item.id,
+        operationKey,
+        mutationKind: "github.ask_reply",
+        detail: {
+          step: "ask_reply",
+          resourceKey: item.resourceKey,
+          reviewLens: ASK_PUBLISH_LENS,
+          replyTargetKind: payload.replyTarget.kind,
+        },
+        recover: async () => {
+          const bot = await getAppBotIdentity(cfg);
+          const recovered = await findAskReplyOnAnyTarget({
+            prSurface,
+            item,
+            botLogin: bot.login,
+            operationKey,
+            operationInstance: item.id,
+          });
+          return recovered == null
+            ? { kind: "absent" as const }
+            : {
+                kind: "reconciled" as const,
+                value: { commentId: recovered.commentId },
+                detail: { replyTargetKind: recovered.targetKind },
+              };
+        },
+        isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+        mutate: async () => {
+          const published = await publishAskAnswer(
+            cfg,
+            prSurface,
+            item,
+            formatAskReply({
+              question: payload.question,
+              answer: "PR Agent could not complete this ask after retries. Please try again later.",
+              replyTarget: payload.replyTarget,
+            }),
+            operationKey,
+            true,
+          );
+          return { commentId: published.commentId };
+        },
+      });
     },
   });
 }
