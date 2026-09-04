@@ -39,7 +39,7 @@ Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Fiel
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in prompt modules under `src/review/prompts/` and `src/agent/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc).
+Long investigator prompt blocks stay in prompt modules under `src/review/prompts/` and `src/agent/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; the catalogue remains supporting recognition.
 
 ## README runtime topology diagram
 
