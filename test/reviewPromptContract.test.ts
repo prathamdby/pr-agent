@@ -85,6 +85,38 @@ describe("specialist-specific obligations", () => {
     expect(prompt).toContain(specialistFindingsReportContract);
   });
 
+  it("keeps the correctness investigation method steps in order", () => {
+    const prompt = buildAutomatedSystemPrompt();
+    const methodStart = prompt.indexOf("## Investigation method");
+    expect(methodStart).toBeGreaterThan(-1);
+
+    const steps = [
+      "1. Start from the correctness focus and risk areas in the specialist brief.",
+      "2. For each prioritized changed contract",
+      "3. For changed branches, comparisons, lookups, conversions, and fallbacks",
+      "4. For stateful behavior, compare the paired transitions",
+      "5. When the change touches asynchronous work or shared mutable state",
+      "6. Verify suspected library or framework behavior",
+      "7. Drop every hypothesis that cannot be tied to a reachable trigger",
+      "8. Submit one complete specialist report",
+    ];
+    let cursor = methodStart;
+    for (const step of steps) {
+      const at = prompt.indexOf(step, cursor);
+      expect(at, step).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+  });
+
+  it("pins the reachable-trigger and catalogue-match gates", () => {
+    const prompt = buildAutomatedSystemPrompt();
+
+    expect(prompt).toContain(
+      "Drop every hypothesis that cannot be tied to a reachable trigger and observable wrong behavior.",
+    );
+    expect(prompt).toContain("A catalogue match is not a finding.");
+  });
+
   it("keeps security-only severity mapping", () => {
     expect(automatedSecuritySystemPrompt).toContain(
       "Do not report general correctness bugs, style issues, or non-security logic errors",
