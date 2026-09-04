@@ -4,6 +4,7 @@ import {
   renderTableEm,
   renderTableLink,
 } from "../../github/markdownFormat.js";
+import { VERIFICATION_FAILURE_START } from "../../settings/index.js";
 import type { CiFailureDetail, CiSummary } from "./ciSummaryTypes.js";
 
 /** HTML comment markers for surgical CI-cell refresh (ADR 0018). */
@@ -12,6 +13,9 @@ export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 
 const CI_SUMMARY_CELL_RE =
   /<!--\s*pr-agent:ci-summary\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
+
+const VERIFICATION_FAILURE_BLOCK_RE =
+  /<!--\s*pr-agent:verification-failure\s*-->[\s\S]*?<!--\s*\/pr-agent:verification-failure\s*-->/;
 
 export type CiSummarySections = {
   readonly headline: string;
@@ -94,7 +98,12 @@ export function shouldRenderCiSummaryRow(
  */
 export function patchCiSummaryCellInCommentBody(body: string, summary: CiSummary): string | null {
   if (!CI_SUMMARY_CELL_RE.test(body)) return null;
-  return body.replace(CI_SUMMARY_CELL_RE, renderCiSummaryCell(summary));
+  const failure = body.match(VERIFICATION_FAILURE_BLOCK_RE)?.[0];
+  let nextCell = renderCiSummaryCell(summary);
+  if (failure != null && !nextCell.includes(VERIFICATION_FAILURE_START)) {
+    nextCell = nextCell.replace(CI_SUMMARY_CELL_END, `${failure}${CI_SUMMARY_CELL_END}`);
+  }
+  return body.replace(CI_SUMMARY_CELL_RE, nextCell);
 }
 
 export function commentBodyHasCiSummaryCell(body: string): boolean {

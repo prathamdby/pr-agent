@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   withPrRepositoryView: vi.fn(),
   runVerification: vi.fn(),
   publishVerification: vi.fn(),
+  publishVerificationFailure: vi.fn(),
+  clearVerificationFailureSignal: vi.fn(),
   loadRepoPolicy: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
@@ -42,6 +44,11 @@ vi.mock("../src/agent/verification/verificationRun.js", () => ({
 
 vi.mock("../src/agent/verification/publishVerification.js", () => ({
   publishVerification: mocks.publishVerification,
+}));
+
+vi.mock("../src/agent/verification/publishVerificationFailure.js", () => ({
+  publishVerificationFailure: mocks.publishVerificationFailure,
+  clearVerificationFailureSignal: mocks.clearVerificationFailureSignal,
 }));
 
 vi.mock("../src/review/repoPolicy.js", () => ({
@@ -173,6 +180,12 @@ describe("executeVerificationJob", () => {
       payload: { verdicts: [] },
     });
     mocks.publishVerification.mockResolvedValue({ degraded: false });
+    mocks.publishVerificationFailure.mockResolvedValue({
+      headSha: "a".repeat(40),
+      commentId: 1,
+      surface: "ci_cell",
+    });
+    mocks.clearVerificationFailureSignal.mockResolvedValue(undefined);
     mocks.loadRepoPolicy.mockResolvedValue({ kind: "absent" });
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
@@ -186,6 +199,8 @@ describe("executeVerificationJob", () => {
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runVerification).not.toHaveBeenCalled();
     expect(mocks.publishVerification).not.toHaveBeenCalled();
+    expect(mocks.publishVerificationFailure).not.toHaveBeenCalled();
+    expect(mocks.clearVerificationFailureSignal).toHaveBeenCalledTimes(1);
   });
 
   it("short-circuits when all findings are already resolved", async () => {
@@ -616,5 +631,42 @@ describe("executeVerificationJob", () => {
     if (truncated) {
       expect(executeResult).toEqual({ kind: "completed", degraded: true });
     }
+  });
+
+  it("does not publish a failure signal on a successful run", async () => {
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    expect(mocks.publishVerification).toHaveBeenCalled();
+    expect(mocks.publishVerificationFailure).not.toHaveBeenCalled();
+    expect(mocks.clearVerificationFailureSignal).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes one failure signal from the terminal failure hook", async () => {
+    let hooked = false;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+      await spec.onTerminalFailure?.(
+        item(),
+        fakeDurablePrSurface(),
+        new Error("provider timeout"),
+        1,
+      );
+      hooked = true;
+    });
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    expect(hooked).toBe(true);
+    expect(mocks.publishVerificationFailure).toHaveBeenCalledTimes(1);
+    expect(mocks.publishVerificationFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-1",
+        resourceKey: expect.any(String),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+      }),
+    );
+    expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
 });

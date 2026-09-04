@@ -14,6 +14,10 @@ import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadRes
 import { loadRepoPolicy } from "../../review/repoPolicy.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
+import {
+  clearVerificationFailureSignal,
+  publishVerificationFailure,
+} from "../../agent/verification/publishVerificationFailure.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import {
   MAX_REPO_POLICY_BYTES,
@@ -81,6 +85,14 @@ export async function executeVerificationJob(
           workItemId: item.id,
           resourceKey: item.resourceKey,
           threadCount: threads.length,
+        });
+        await clearVerificationFailureSignal({
+          pool,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          prSurface,
+          headSha,
+          leaseEpoch: env.leaseEpoch,
         });
         return { kind: "completed" };
       }
@@ -208,6 +220,14 @@ export async function executeVerificationJob(
         findingHistoryCfg: cfg,
         leaseEpoch: env.leaseEpoch,
       });
+      await clearVerificationFailureSignal({
+        pool,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        prSurface,
+        headSha,
+        leaseEpoch: env.leaseEpoch,
+      });
 
       const degraded = publish.degraded || resolutionDegraded || compareFilesTruncated;
       if (degraded) {
@@ -235,6 +255,17 @@ export async function executeVerificationJob(
         return { kind: "completed", degraded: true };
       }
       return { kind: "completed" };
+    },
+    onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {
+      if (!prSurface) return;
+      await publishVerificationFailure({
+        pool,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        prSurface,
+        headSha: item.headSha,
+        leaseEpoch: leaseEpoch ?? null,
+      });
     },
   });
 }

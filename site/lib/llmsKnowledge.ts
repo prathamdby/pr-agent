@@ -172,7 +172,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "Auto triggers: review and describe on pull_request opened; verification on synchronize.",
       `${FEATURE_KEYS[0]}: manual | auto. Default auto. Orchestrated review. /review always works.`,
       `${FEATURE_KEYS[1]}: off | manual | auto. Default auto. PR description generation.`,
-      `${FEATURE_KEYS[2]}: off | manual | auto. Default auto. Rechecks open findings on synchronize or /verify.`,
+      `${FEATURE_KEYS[2]}: off | manual | auto. Default auto. Rechecks open findings on synchronize or /verify. Terminal failure edits the CI cell or one stub line.`,
       `${FEATURE_KEYS[3]}: off | manual. Default manual. /ask and @bot questions.`,
       `${FEATURE_KEYS[4]}: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.`,
       `${FEATURE_KEYS[5]}: off | size | size+security. Default size. Review labels on the PR. No model tokens.`,

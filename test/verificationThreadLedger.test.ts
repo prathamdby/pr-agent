@@ -25,6 +25,33 @@ describe("verificationThreadLedger", () => {
     });
   });
 
+  it("parses an optional failure signal without dropping threads", () => {
+    const ledger = parseVerificationThreadLedger({
+      threads: {
+        "10": { lastVerdict: "skipped" },
+      },
+      failureSignal: {
+        headSha: "a".repeat(40),
+        commentId: 88,
+        surface: "ci_cell",
+      },
+    });
+    expect(ledger.threads["10"]?.lastVerdict).toBe("skipped");
+    expect(ledger.failureSignal).toEqual({
+      headSha: "a".repeat(40),
+      commentId: 88,
+      surface: "ci_cell",
+    });
+  });
+
+  it("ignores a malformed failure signal", () => {
+    const ledger = parseVerificationThreadLedger({
+      threads: {},
+      failureSignal: { headSha: "a".repeat(40), surface: "new_comment" },
+    });
+    expect(ledger.failureSignal).toBeUndefined();
+  });
+
   it("migrates legacy actedThreadIds into stub-less skipped entries", () => {
     const ledger = parseVerificationThreadLedger({ actedThreadIds: [1, 2, "x"] });
     expect(ledger.threads).toEqual({
