@@ -145,12 +145,14 @@ const DescriptionWorkPayloadSchema = v.looseObject({
   ackTargets: v.optional(v.array(AckTargetSchema)),
 });
 
-const TriageWorkPayloadSchema = v.looseObject({
+const TriageWorkPayloadFieldsSchema = v.looseObject({
   source: v.literal("slash"),
   repositorySizeKb: v.optional(v.number()),
   commenterId: v.optional(v.pipe(v.number(), v.integer())),
   commentId: positiveInt(),
   scope: v.picklist(["all", "thread"]),
+  mode: v.optional(v.picklist(["apply", "preview", "bulk"])),
+  excludeThreadRootCommentIds: v.optional(v.array(positiveInt())),
   threadAnchorCommentId: v.optional(positiveInt()),
   needsThreadRootResolution: v.optional(v.boolean()),
   replyTarget: ReplyTargetSchema,
@@ -164,6 +166,14 @@ const TriageWorkPayloadSchema = v.looseObject({
     ]),
   ),
 });
+
+const TriageWorkPayloadSchema = v.pipe(
+  TriageWorkPayloadFieldsSchema,
+  v.transform((input) => ({
+    ...input,
+    mode: input.mode ?? "apply",
+  })),
+);
 
 const VerificationWorkPayloadSchema = v.looseObject({
   source: WorkSourceSchema,

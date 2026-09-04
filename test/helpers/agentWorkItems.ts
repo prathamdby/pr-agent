@@ -120,6 +120,7 @@ export function makeTriageWorkItem(overrides: TriageOverrides = {}): TriageWorkI
       source: "slash",
       commentId: 5,
       scope: "all",
+      mode: "apply",
       replyTarget: { kind: "prConversation", prNumber: 1 },
       ...payload,
     },

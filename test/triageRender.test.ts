@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { renderTriageReport } from "../src/agent/triage/triageRender.js";
+import {
+  classifyTriageBulkOutcome,
+  classifyTriageBulkOutcomes,
+  renderTriagePreview,
+  renderTriageReport,
+} from "../src/agent/triage/triageRender.js";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import type { TriagePayload } from "../src/review/triageSchema.js";
 import {
+  TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
 } from "../src/settings/index.js";
@@ -95,5 +101,147 @@ describe("renderTriageReport policy suggestion footer", () => {
     expect(result).toContain(TRIAGE_THREAD_RESOLUTION_NOTICE);
     expect(result).toContain("1 Already resolved");
     expect(result).not.toContain("Pushed commits:");
+  });
+});
+
+describe("renderTriagePreview", () => {
+  it("renders per-finding unified diffs and the next /triage all command", () => {
+    const result = renderTriagePreview({
+      headSha: "a".repeat(40),
+      inventory: [thread(11), thread(22, { titleSnippet: "P2 · Other", path: "src/b.ts" })],
+      hunks: [
+        {
+          threadRootCommentId: 11,
+          subject: "fix: guard user",
+          diff: "diff --git a/src/app.ts b/src/app.ts\n+ok\n",
+        },
+      ],
+    });
+
+    expect(result).toContain(TRIAGE_PREVIEW_SENTINEL);
+    expect(result).toContain("Thread root: `11`");
+    expect(result).toContain("Thread root: `22`");
+    expect(result).toContain("```diff");
+    expect(result).toContain("diff --git a/src/app.ts b/src/app.ts");
+    expect(result).toContain("No would-be diff for this finding.");
+    expect(result).toContain("`/triage all`");
+    expect(result).toContain("exclude <thread ids>");
+    expect(result).toContain("Nothing was committed or pushed");
+  });
+});
+
+describe("classifyTriageBulkOutcomes", () => {
+  it("classifies applied, skipped, and failed findings for a partial bulk report", () => {
+    const inventory = [thread(1), thread(2), thread(3), thread(4)];
+    const outcomes = classifyTriageBulkOutcomes({
+      inventory,
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
+          { verdict: "skipped", threadRootCommentId: 2, reason: "later" },
+          { verdict: "fixed", threadRootCommentId: 3, commitSha: "c".repeat(40), evidence: "done" },
+        ],
+      } as TriagePayload,
+      commitByThreadRootCommentId: new Map([[1, "b".repeat(40)]]),
+      commitErrors: [{ threadRootCommentId: 3 }],
+      excludedIds: new Set([2]),
+      notInPreviewIds: new Set([4]),
+      pushed: true,
+    });
+
+    expect(outcomes.get(1)).toBe("applied");
+    expect(outcomes.get(2)).toBe("skipped");
+    expect(outcomes.get(3)).toBe("failed");
+    expect(outcomes.get(4)).toBe("skipped");
+
+    const report = renderTriageReport({
+      headSha: "a".repeat(40),
+      inventory,
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
+          { verdict: "skipped", threadRootCommentId: 2, reason: "later" },
+          { verdict: "fixed", threadRootCommentId: 3, commitSha: "c".repeat(40), evidence: "done" },
+        ],
+      } as TriagePayload,
+      commits: [{ sha: "b".repeat(40), subject: "fix: one", diff: "+ok\n" }],
+      previouslyResolvedCount: 0,
+      bulkOutcomes: outcomes,
+    });
+    expect(report).toContain("| Outcome |");
+    expect(report).toContain("applied");
+    expect(report).toContain("skipped");
+    expect(report).toContain("failed");
+  });
+});
+
+describe("classifyTriageBulkOutcome", () => {
+  it("skips excluded or not-in-preview findings and fails approved misses", () => {
+    expect(
+      classifyTriageBulkOutcome({
+        excluded: true,
+        notInPreview: false,
+        hasCommit: false,
+        commitError: false,
+        pushed: false,
+      }),
+    ).toBe("skipped");
+    expect(
+      classifyTriageBulkOutcome({
+        excluded: false,
+        notInPreview: true,
+        hasCommit: false,
+        commitError: false,
+        pushed: false,
+      }),
+    ).toBe("skipped");
+    expect(
+      classifyTriageBulkOutcome({
+        excluded: false,
+        notInPreview: false,
+        hasCommit: false,
+        commitError: false,
+        pushed: false,
+      }),
+    ).toBe("failed");
+    expect(
+      classifyTriageBulkOutcome({
+        verdict: {
+          verdict: "fixed",
+          threadRootCommentId: 1,
+          commitSha: "b".repeat(40),
+          evidence: "done",
+        },
+        excluded: false,
+        notInPreview: false,
+        hasCommit: true,
+        commitError: false,
+        pushed: true,
+      }),
+    ).toBe("applied");
+  });
+});
+
+describe("renderTriageReport bulk outcomes", () => {
+  it("adds an Outcome column for bulk runs", () => {
+    const result = renderTriageReport({
+      headSha: "a".repeat(40),
+      inventory: [thread(1), thread(2, { titleSnippet: "P2 · Other" })],
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
+        ],
+      } as TriagePayload,
+      commits: [],
+      previouslyResolvedCount: 0,
+      bulkOutcomes: new Map<number, "applied" | "skipped" | "failed">([
+        [1, "applied"],
+        [2, "skipped"],
+      ]),
+    });
+
+    expect(result).toContain("| Severity | Finding | Location | Verdict | Outcome | Thread |");
+    expect(result).toContain("applied");
+    expect(result).toContain("skipped");
   });
 });

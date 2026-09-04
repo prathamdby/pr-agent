@@ -2,6 +2,17 @@
 import { sanitizeGithubLogin, type ReviewCancelAttribution } from "./reviewConstants.js";
 
 export const TRIAGE_SUMMARY_SENTINEL = "## PR Agent Triage";
+export const TRIAGE_PREVIEW_SENTINEL = "## PR Agent Triage Preview";
+export const TRIAGE_UNKNOWN_SUBCOMMAND =
+  "Unknown `/triage` command. Use `/triage`, `/triage preview`, or `/triage all` (optional `exclude <thread ids>`).";
+export const TRIAGE_INVALID_EXCLUDE =
+  "`/triage all exclude` needs one or more thread root comment ids (digits, comma or space separated).";
+export const TRIAGE_BULK_REQUIRES_PREVIEW =
+  "`/triage all` needs a preceding `/triage preview` on this pull request head. Run `/triage preview`, read the would-be diff, then `/triage all`.";
+export const TRIAGE_BULK_PREVIEW_STALE =
+  "The pull request head changed since `/triage preview`. Run `/triage preview` again on the current head, then `/triage all`.";
+export const TRIAGE_BULK_PARTIAL_NOTICE =
+  "Partial triage: some findings applied and others did not.";
 export const TRIAGE_CLOSED_PR_NOTICE =
   "Triage was cancelled because the pull request is closed or merged; no fixes were pushed.";
 export const TRIAGE_CANCELLED_MERGED_NOTICE =

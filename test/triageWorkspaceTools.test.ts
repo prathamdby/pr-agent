@@ -599,4 +599,20 @@ describe("buildTriageWorkspaceTools", () => {
       body: ["unique oldText match"],
     });
   });
+
+  it("records commitFix errors on workspace state and rethrows", async () => {
+    const commit = vi.fn(async () => {
+      throw new Error("disk full");
+    });
+    const { executors, state } = await setup({ commit });
+    await expect(
+      executors.commitFix({
+        threadRootCommentId: 101,
+        files: ["src/app.ts"],
+        subject: "fix: boom",
+      }),
+    ).rejects.toThrow("disk full");
+    expect(state.commitErrors).toEqual([{ threadRootCommentId: 101, error: "disk full" }]);
+    expect(state.commitByThreadRootCommentId.size).toBe(0);
+  });
 });

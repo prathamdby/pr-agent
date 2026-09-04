@@ -8,6 +8,7 @@ import type {
   AskWorkPayload,
   DescriptionWorkPayload,
   ReviewWorkPayload,
+  TriageMode,
   TriageScope,
   TriageWorkPayload,
   VerificationWorkPayload,
@@ -425,6 +426,8 @@ export async function createTriageWorkItem(
     commentId: number;
     commenterId?: number;
     scope: TriageScope;
+    mode?: TriageMode;
+    excludeThreadRootCommentIds?: readonly number[];
     threadAnchorCommentId?: number;
     needsThreadRootResolution?: boolean;
     replyTarget: ReplyTarget;
@@ -448,6 +451,11 @@ export async function createTriageWorkItem(
       commentId: params.commentId,
       commenterId: params.commenterId,
       scope: params.scope,
+      ...(params.mode != null && params.mode !== "apply" ? { mode: params.mode } : {}),
+      ...(params.excludeThreadRootCommentIds != null &&
+      params.excludeThreadRootCommentIds.length > 0
+        ? { excludeThreadRootCommentIds: params.excludeThreadRootCommentIds }
+        : {}),
       threadAnchorCommentId: params.threadAnchorCommentId,
       needsThreadRootResolution: params.needsThreadRootResolution,
       replyTarget: params.replyTarget,

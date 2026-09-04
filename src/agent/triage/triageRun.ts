@@ -12,6 +12,10 @@ export type TriageRunResult = {
   readonly submitted: boolean;
   readonly payload: TriagePayload | null;
   readonly commitByThreadRootCommentId: ReadonlyMap<number, string>;
+  readonly commitErrors: readonly {
+    readonly threadRootCommentId: number;
+    readonly error: string;
+  }[];
 };
 
 export async function runFullPrTriage(params: {

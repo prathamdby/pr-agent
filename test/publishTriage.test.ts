@@ -37,11 +37,14 @@ import {
   isTriagePushOutcome,
   parseStoredTriagePushDetail,
   publishTriage,
+  publishTriagePreview,
   publishTriageReportOnly,
   type TriagePushOutcome,
 } from "../src/agent/triage/publishTriage.js";
 import {
+  TRIAGE_BULK_PARTIAL_NOTICE,
   TRIAGE_CLOSED_PR_NOTICE,
+  TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
 } from "../src/settings/index.js";
@@ -1317,5 +1320,98 @@ describe("publishTriage push outcomes", () => {
     expect(triagePushRecords()).toEqual([
       expect.objectContaining({ pushOutcome: "closed", attemptedShas: ["abcdef123456"] }),
     ]);
+  });
+
+  it("publishes a preview comment and records the triage_preview step", async () => {
+    const fake = publishTestPrSurface();
+    const hunks = [
+      {
+        threadRootCommentId: 1,
+        subject: "fix: guard user",
+        diff: "diff --git a/src/app.ts b/src/app.ts\n+ok\n",
+      },
+    ];
+
+    await publishTriagePreview({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      inventory: [thread],
+      previouslyResolvedCount: 0,
+      hunks,
+    });
+
+    expect(upsertProgressBody(fake.controls)).toContain(TRIAGE_PREVIEW_SENTINEL);
+    expect(upsertProgressBody(fake.controls)).toContain("```diff");
+    expect(resolveThreadIds(fake.controls)).toHaveLength(0);
+    expect(fake.controls.replies).toHaveLength(0);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "triage_preview",
+        detail: {
+          headSha: "a".repeat(40),
+          threadRootCommentIds: [1],
+          hunks,
+        },
+      }),
+    );
+  });
+
+  it("marks a bulk run Partial when some findings apply and others fail", async () => {
+    const fake = publishTestPrSurface();
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread, secondThread],
+      resolutionByRootCommentId: new Map([
+        [1, { threadNodeId: "node", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef123456",
+            evidence: "fixed",
+          },
+          {
+            verdict: "fixed",
+            threadRootCommentId: 2,
+            commitSha: "c".repeat(40),
+            evidence: "fixed",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+      bulkClassification: {
+        excludedIds: new Set(),
+        notInPreviewIds: new Set(),
+        commitByThreadRootCommentId: new Map([[1, "abcdef123456"]]),
+        commitErrors: [{ threadRootCommentId: 2 }],
+      },
+    });
+
+    expect(result.partialBulk).toBe(true);
+    expect(upsertProgressBody(fake.controls)).toContain(TRIAGE_BULK_PARTIAL_NOTICE);
+    expect(upsertProgressBody(fake.controls)).toContain("applied");
+    expect(upsertProgressBody(fake.controls)).toContain("failed");
   });
 });

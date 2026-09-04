@@ -18,10 +18,13 @@ import {
   TriageClosedPullRequestError,
 } from "../../agent/triage/triageErrors.js";
 import {
+  parseStoredTriagePreviewDetail,
   parseStoredTriagePushDetail,
   publishTriage,
+  publishTriagePreview,
   publishTriageReportOnly,
   type PublishTriageResult,
+  type StoredTriagePreviewDetail,
   type StoredTriagePushDetail,
 } from "../../agent/triage/publishTriage.js";
 import {
@@ -31,10 +34,13 @@ import {
 } from "../triageAnalytics.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
+  TRIAGE_BULK_PREVIEW_STALE,
+  TRIAGE_BULK_REQUIRES_PREVIEW,
   TRIAGE_CLOSED_PR_NOTICE,
   TRIAGE_FAILURE_MESSAGE,
   TRIAGE_FORK_PR_NOTICE,
   TRIAGE_NO_ELIGIBLE_FINDINGS,
+  TRIAGE_PUBLISH_LENS,
   TRIAGE_QUEUE,
   TRIAGE_THREAD_NOT_ELIGIBLE,
   TRIAGE_SUMMARY_SENTINEL,
@@ -49,6 +55,7 @@ import {
 import {
   getCompletedPublishStepDetail,
   getCompletedPublishStepDetailWithoutNewerStep,
+  getLatestCompletedPublishStepDetail,
   hasCompletedPublishStep,
   listTriageEligibleInlineReviews,
   shouldSkipWork,
@@ -58,7 +65,12 @@ import {
   runDurableWorkItem,
   type DurableExecutionResult,
 } from "../durableJob.js";
-import { type TriageJobData, type TriageWorkPayload, type AgentWorkItem } from "../types.js";
+import {
+  triageMode,
+  type TriageJobData,
+  type TriageWorkPayload,
+  type AgentWorkItem,
+} from "../types.js";
 
 type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
 
@@ -214,7 +226,8 @@ function storedPushMatchesInventory(
 function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult {
   return publish.pushOutcome === "stale" ||
     publish.pushOutcome === "closed" ||
-    publish.missingThreadAction
+    publish.missingThreadAction ||
+    publish.partialBulk === true
     ? { kind: "completed", degraded: true }
     : { kind: "completed" };
 }
@@ -551,6 +564,10 @@ async function runFreshTriageAgent(params: {
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
+  readonly mode: ReturnType<typeof triageMode>;
+  readonly reportInventory?: readonly BotFindingThread[];
+  readonly excludedIds?: ReadonlySet<number>;
+  readonly notInPreviewIds?: ReadonlySet<number>;
 }): Promise<TriageExecuteResult> {
   const triggerer = await resolveTriggererGitPerson({
     prSurface: params.prSurface,
@@ -567,6 +584,7 @@ async function runFreshTriageAgent(params: {
     source: commitAttribution.source,
   });
   const { token } = await params.prSurface.gitCredentialAuth();
+  const preview = params.mode === "preview";
   return withWritablePrCheckout(
     {
       owner: params.item.owner,
@@ -576,18 +594,27 @@ async function runFreshTriageAgent(params: {
       installationToken: token,
       botIdentity: params.botIdentity,
       commitAttribution,
-      beforeCommit: () =>
-        ensureTriageWriteAllowed({
-          pool: params.pool,
-          item: params.item,
-          prSurface: params.prSurface,
-        }),
-      beforePush: () =>
-        ensureTriageWriteAllowed({
-          pool: params.pool,
-          item: params.item,
-          prSurface: params.prSurface,
-        }),
+      beforeCommit: preview
+        ? () => ensureTriageNotCancelled(params.pool, params.item)
+        : () =>
+            ensureTriageWriteAllowed({
+              pool: params.pool,
+              item: params.item,
+              prSurface: params.prSurface,
+            }),
+      beforePush: preview
+        ? async () => {
+            throw new AppError({
+              code: "triage.preview_push_blocked",
+              message: "Triage preview cannot push",
+            });
+          }
+        : () =>
+            ensureTriageWriteAllowed({
+              pool: params.pool,
+              item: params.item,
+              prSurface: params.prSurface,
+            }),
     },
     async (checkout) => {
       captureTriageEvent(params.analytics, "triage agent started", {
@@ -640,6 +667,8 @@ async function runFreshTriageAgent(params: {
         return { kind: "completed", degraded: true };
       }
       await ensureTriageNotCancelled(params.pool, params.item);
+      const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
+      const commitErrors = result.commitErrors ?? [];
       if (!result.submitted || !result.payload) {
         const error = new AppError({
           code: "triage.missing_submit",
@@ -649,6 +678,46 @@ async function runFreshTriageAgent(params: {
           submitted: result.submitted,
         });
         throw error;
+      }
+      if (preview) {
+        const detailBySha = new Map(
+          checkout.listCommittedDetails().map((commit) => [commit.sha.toLowerCase(), commit]),
+        );
+        const hunks = [...commitByThreadRootCommentId.entries()].flatMap(
+          ([threadRootCommentId, sha]) => {
+            const detail = detailBySha.get(sha.toLowerCase());
+            return detail == null
+              ? []
+              : [
+                  {
+                    threadRootCommentId,
+                    subject: detail.subject,
+                    diff: detail.diff,
+                  },
+                ];
+          },
+        );
+        await publishTriagePreview({
+          pool: params.pool,
+          workItemId: params.item.id,
+          resourceKey: params.item.resourceKey,
+          installationId: params.item.installationId,
+          prSurface: params.prSurface,
+          owner: params.item.owner,
+          repo: params.item.repo,
+          prNumber: params.item.prNumber,
+          headSha: params.headSha,
+          inventory: params.inventory,
+          previouslyResolvedCount: params.previouslyResolvedCount,
+          leaseEpoch: params.leaseEpoch,
+          hunks,
+          ...params.reportContext,
+        });
+        captureTriageEvent(params.analytics, "triage preview published", {
+          inventory_count: params.inventory.length,
+          hunk_count: hunks.length,
+        });
+        return { kind: "completed" };
       }
       const publish = await publishTriage({
         pool: params.pool,
@@ -661,16 +730,29 @@ async function runFreshTriageAgent(params: {
         prNumber: params.item.prNumber,
         headSha: params.headSha,
         checkout,
-        inventory: params.inventory,
+        inventory: params.reportInventory ?? params.inventory,
         resolutionByRootCommentId: params.resolutionByRootCommentId,
         payload: result.payload,
         previouslyResolvedCount: params.previouslyResolvedCount,
         findingHistoryCfg: params.cfg,
         leaseEpoch: params.leaseEpoch,
         signal: params.signal,
+        ...(params.mode === "bulk"
+          ? {
+              bulkClassification: {
+                excludedIds: params.excludedIds ?? new Set(),
+                notInPreviewIds: params.notInPreviewIds ?? new Set(),
+                commitByThreadRootCommentId,
+                commitErrors,
+              },
+            }
+          : {}),
         ...params.reportContext,
       });
       const completed = completedFromPublish(publish);
+      if (params.mode === "bulk" && (commitErrors.length > 0 || publish.partialBulk === true)) {
+        return { kind: "completed", degraded: true };
+      }
       if (completed.degraded) {
         captureTriageEvent(params.analytics, "triage degraded", {
           step: "publish",
@@ -706,6 +788,7 @@ export async function executeTriageJob(
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const scope = item.payload.scope ?? "all";
+      const mode = triageMode(item.payload);
       const analytics = triageAnalyticsRef(item, scope);
       captureTriageEvent(analytics, "triage started");
       const { prSurface } = env;
@@ -713,7 +796,7 @@ export async function executeTriageJob(
       await ensureTriageNotCancelled(pool, item);
       const branch = await loadPullRequestBranchInfo(prSurface);
       await ensureTriageNotCancelled(pool, item);
-      if (!branch.sameRepo) {
+      if (!branch.sameRepo && mode !== "preview") {
         return handleForkPrReport({
           pool,
           item,
@@ -725,6 +808,66 @@ export async function executeTriageJob(
         });
       }
 
+      let storedPreview: StoredTriagePreviewDetail | null = null;
+      if (mode === "bulk") {
+        storedPreview = parseStoredTriagePreviewDetail(
+          await getLatestCompletedPublishStepDetail(
+            pool,
+            item.resourceKey,
+            TRIAGE_PUBLISH_LENS,
+            "triage_preview",
+          ),
+        );
+        if (storedPreview == null) {
+          await publishTriageReportOnly({
+            pool,
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            installationId: item.installationId,
+            prSurface,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha,
+            inventory: [],
+            previouslyResolvedCount: 0,
+            leaseEpoch: env.leaseEpoch,
+            body: reportOnlyBody({
+              message: TRIAGE_BULK_REQUIRES_PREVIEW,
+              headSha,
+              inventoryCount: 0,
+              previouslyResolvedCount: 0,
+              scope,
+            }),
+          });
+          return { kind: "completed" };
+        }
+        if (storedPreview.headSha.toLowerCase() !== headSha.toLowerCase()) {
+          await publishTriageReportOnly({
+            pool,
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            installationId: item.installationId,
+            prSurface,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha,
+            inventory: [],
+            previouslyResolvedCount: 0,
+            leaseEpoch: env.leaseEpoch,
+            body: reportOnlyBody({
+              message: TRIAGE_BULK_PREVIEW_STALE,
+              headSha,
+              inventoryCount: 0,
+              previouslyResolvedCount: 0,
+              scope,
+            }),
+          });
+          return { kind: "completed" };
+        }
+      }
+
       const discovered = await resolveInventoryAndScope({
         cfg,
         pool,
@@ -734,7 +877,31 @@ export async function executeTriageJob(
         analytics,
       });
       await ensureTriageNotCancelled(pool, item);
-      if (discovered.inventory.length === 0) {
+
+      const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
+      const previewIds = new Set(storedPreview?.threadRootCommentIds ?? []);
+      const currentInventory = discovered.inventory;
+      const excludedIds = new Set(
+        currentInventory
+          .filter((thread) => excludeIds.has(thread.rootCommentId))
+          .map((thread) => thread.rootCommentId),
+      );
+      const notInPreviewIds = new Set(
+        mode === "bulk"
+          ? currentInventory
+              .filter((thread) => !previewIds.has(thread.rootCommentId))
+              .map((thread) => thread.rootCommentId)
+          : [],
+      );
+      const approvedInventory =
+        mode === "bulk"
+          ? currentInventory.filter(
+              (thread) =>
+                previewIds.has(thread.rootCommentId) && !excludeIds.has(thread.rootCommentId),
+            )
+          : currentInventory;
+
+      if (currentInventory.length === 0) {
         return publishEmptyInventoryReport({
           pool,
           item,
@@ -751,10 +918,39 @@ export async function executeTriageJob(
         });
       }
 
-      if (
-        await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", "triage_report")
-      ) {
-        captureTriageEvent(analytics, "triage skipped", { reason: "report_already_published" });
+      if (mode === "bulk" && approvedInventory.length === 0) {
+        await publishTriageReportOnly({
+          pool,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          installationId: item.installationId,
+          prSurface,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha,
+          inventory: currentInventory,
+          previouslyResolvedCount: discovered.previouslyResolvedCount,
+          leaseEpoch: env.leaseEpoch,
+          ...discovered.reportContext,
+          body: reportOnlyBody({
+            message: `No approved findings to apply. Excluded: ${
+              [...excludedIds].join(", ") || "none"
+            }. Not in preview: ${[...notInPreviewIds].join(", ") || "none"}.`,
+            headSha,
+            inventoryCount: currentInventory.length,
+            previouslyResolvedCount: discovered.previouslyResolvedCount,
+            scope,
+          }),
+        });
+        return { kind: "completed" };
+      }
+
+      const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
+      if (await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", doneStep)) {
+        captureTriageEvent(analytics, "triage skipped", {
+          reason: mode === "preview" ? "preview_already_published" : "report_already_published",
+        });
         return { kind: "completed" };
       }
 
@@ -768,21 +964,28 @@ export async function executeTriageJob(
         headSha,
         headRef: branch.headRef,
         analytics,
-        inventory: discovered.inventory,
+        inventory: approvedInventory,
         resolutionByRootCommentId: discovered.resolutionByRootCommentId,
         previouslyResolvedCount: discovered.previouslyResolvedCount,
         reportContext: discovered.reportContext,
         leaseEpoch: env.leaseEpoch,
         signal: env.signal,
       };
-      const resumed = await tryResumeStoredPush(resumeParams);
-      if (resumed != null) return resumed;
+
+      if (mode !== "preview") {
+        const resumed = await tryResumeStoredPush(resumeParams);
+        if (resumed != null) return resumed;
+      }
 
       return runFreshTriageAgent({
         ...resumeParams,
         cfg,
         botIdentity: discovered.botIdentity,
         scope,
+        mode,
+        reportInventory: currentInventory,
+        excludedIds,
+        notInPreviewIds,
       });
     },
     onTerminalFailure: async (item, prSurface) => {

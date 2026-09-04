@@ -120,6 +120,10 @@ export function triageReportOperationKey(resourceKey: string): string {
   return `triage:report:${resourceKey}`;
 }
 
+export function triagePreviewOperationKey(resourceKey: string): string {
+  return `triage:preview:${resourceKey}`;
+}
+
 export function verificationThreadOperationKey(rootCommentId: number): string {
   return `verification:thread:${rootCommentId}`;
 }

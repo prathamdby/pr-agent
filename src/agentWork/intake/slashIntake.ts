@@ -14,6 +14,8 @@ import {
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
+  TRIAGE_INVALID_EXCLUDE,
+  TRIAGE_UNKNOWN_SUBCOMMAND,
   sanitizeGithubLogin,
   slashDisabledBody,
   type Features,
@@ -25,11 +27,12 @@ import {
   type AckTarget,
   type JobCorrelation,
   type PrRef,
+  type TriageMode,
   type WebhookHeaders,
   prResourceKey,
 } from "../types.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
-import { isReviewForceCommand } from "../../commands/parseSlashCommand.js";
+import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import { captureTriageEvent } from "../triageAnalytics.js";
@@ -68,6 +71,8 @@ export type SlashCommandInput = {
   readonly replyTarget: ReplyTarget;
   readonly codeAnchor?: CodeAnchor;
   readonly triageScope?: "all" | "thread";
+  readonly triageMode?: TriageMode;
+  readonly excludeThreadRootCommentIds?: readonly number[];
   readonly threadAnchorCommentId?: number;
   readonly needsThreadRootResolution?: boolean;
   /** App bot login for `@mention` ask parsing. */
@@ -202,8 +207,35 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  const parsed = parseTriageCommand(ctx.input.body) ?? { kind: "apply" as const };
+  if (parsed.kind === "invalid") {
+    captureTriageEvent(
+      {
+        installationId: ctx.input.installationId,
+        owner: ctx.input.owner,
+        repo: ctx.input.repo,
+        prNumber: ctx.input.prNumber,
+      },
+      "triage rejected",
+      { reason: parsed.reason },
+    );
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body:
+          parsed.reason === "invalid_exclude" ? TRIAGE_INVALID_EXCLUDE : TRIAGE_UNKNOWN_SUBCOMMAND,
+      },
+    });
+    return;
+  }
+  const mode: TriageMode = parsed.kind;
+  const excludeThreadRootCommentIds =
+    parsed.kind === "bulk" ? parsed.excludeThreadRootCommentIds : undefined;
   const isInlineReply = ctx.input.replyTarget.kind === "inlineReviewThread";
-  const scope = ctx.input.triageScope ?? (isInlineReply ? undefined : ("all" as const));
+  const scope =
+    mode === "bulk"
+      ? ("all" as const)
+      : (ctx.input.triageScope ?? (isInlineReply ? undefined : ("all" as const)));
   if (isInlineReply && scope == null) {
     captureTriageEvent(
       {
@@ -262,6 +294,8 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     commentId: ctx.input.commentId,
     commenterId: ctx.input.commenterId,
     scope: triageScope,
+    mode,
+    excludeThreadRootCommentIds,
     threadAnchorCommentId: ctx.input.threadAnchorCommentId,
     needsThreadRootResolution: ctx.input.needsThreadRootResolution,
     replyTarget: ctx.input.replyTarget,

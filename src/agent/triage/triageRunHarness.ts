@@ -126,6 +126,7 @@ export async function runTriageHarness(params: {
       submitted: setup.submitState.submitted,
       payload: setup.submitState.payload,
       commitByThreadRootCommentId: setup.workspaceState.commitByThreadRootCommentId,
+      commitErrors: [...setup.workspaceState.commitErrors],
     };
   } finally {
     await session.dispose();
