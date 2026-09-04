@@ -5,7 +5,6 @@ import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { isPullRequestOpenAndUnmerged } from "../../github/listPullRequestFiles.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import {
@@ -14,6 +13,7 @@ import {
 } from "../../review/run/reviewPriorFeedback.js";
 import { runFullPrTriage } from "../../agent/triage/triageRun.js";
 import {
+  assertTriagePullRequestWritable,
   TriageCancelledError,
   TriageClosedPullRequestError,
 } from "../../agent/triage/triageErrors.js";
@@ -232,10 +232,7 @@ async function ensureTriageWriteAllowed(params: {
   readonly prSurface: PrSurface;
 }): Promise<void> {
   await ensureTriageNotCancelled(params.pool, params.item);
-  const { pullRequest } = await params.prSurface.getHead();
-  if (!isPullRequestOpenAndUnmerged(pullRequest)) {
-    throw new TriageClosedPullRequestError();
-  }
+  await assertTriagePullRequestWritable(params.prSurface);
 }
 
 function resolveEmptyInventoryOutcome(params: {
