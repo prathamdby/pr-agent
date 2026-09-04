@@ -5,6 +5,11 @@ import {
   renderTriagePreview,
   renderTriageReport,
 } from "../src/agent/triage/triageRender.js";
+import {
+  pathsFromUnifiedDiff,
+  previewApprovalSets,
+  remapBulkPayload,
+} from "../src/agent/triage/previewApproval.js";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import type { TriagePayload } from "../src/review/triageSchema.js";
 import {
@@ -243,5 +248,67 @@ describe("renderTriageReport bulk outcomes", () => {
     expect(result).toContain("| Severity | Finding | Location | Verdict | Outcome | Thread |");
     expect(result).toContain("applied");
     expect(result).toContain("skipped");
+  });
+});
+
+describe("preview approval", () => {
+  it("approves only displayed hunks that remain in inventory and are not excluded", () => {
+    const approval = previewApprovalSets({
+      inventory: [thread(1), thread(2), thread(3)],
+      preview: {
+        threadRootCommentIds: [1, 2],
+        hunks: [
+          {
+            threadRootCommentId: 1,
+            subject: "fix: one",
+            diff: "diff --git a/src/app.ts b/src/app.ts\n+ok\n",
+          },
+          { threadRootCommentId: 2, subject: "fix: two", diff: "   " },
+        ],
+      },
+      excludeIds: new Set([2]),
+    });
+    expect(approval.approvedInventory.map((item) => item.rootCommentId)).toEqual([1]);
+    expect([...approval.approvedIds]).toEqual([1]);
+    expect(approval.approvedHunks.map((hunk) => hunk.threadRootCommentId)).toEqual([1]);
+    expect([...approval.notInPreviewIds]).toEqual([3]);
+    expect([...approval.excludedIds]).toEqual([2]);
+  });
+
+  it("rewrites applied commit SHAs and drops excluded or unapplied fixed verdicts", () => {
+    expect(
+      remapBulkPayload({
+        payload: {
+          verdicts: [
+            {
+              verdict: "fixed",
+              threadRootCommentId: 1,
+              commitSha: "c".repeat(40),
+              evidence: "done",
+            },
+            {
+              verdict: "fixed",
+              threadRootCommentId: 2,
+              commitSha: "c".repeat(40),
+              evidence: "done",
+            },
+            { verdict: "skipped", threadRootCommentId: 3, reason: "later" },
+          ],
+        },
+        approvedIds: new Set([1, 3]),
+        appliedCommits: new Map([[1, "d".repeat(40)]]),
+      }),
+    ).toEqual({
+      verdicts: [
+        { verdict: "fixed", threadRootCommentId: 1, commitSha: "d".repeat(40), evidence: "done" },
+        { verdict: "skipped", threadRootCommentId: 3, reason: "later" },
+      ],
+    });
+  });
+
+  it("reads b/ paths from a unified diff", () => {
+    expect(pathsFromUnifiedDiff("diff --git a/src/old.ts b/src/app.ts\n+ok\n")).toEqual([
+      "src/app.ts",
+    ]);
   });
 });

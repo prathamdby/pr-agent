@@ -49,7 +49,9 @@ function parseTriageBulkCommand(first: string): ParsedTriageCommand {
   const ids: number[] = [];
   for (const token of tokens) {
     if (!/^[1-9][0-9]*$/.test(token)) return { kind: "invalid", reason: "invalid_exclude" };
-    ids.push(Number(token));
+    const id = Number(token);
+    if (!Number.isSafeInteger(id)) return { kind: "invalid", reason: "invalid_exclude" };
+    ids.push(id);
   }
   if (ids.length === 0) return { kind: "invalid", reason: "invalid_exclude" };
   return { kind: "bulk", excludeThreadRootCommentIds: ids };

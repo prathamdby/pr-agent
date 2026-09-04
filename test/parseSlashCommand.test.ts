@@ -71,6 +71,10 @@ describe("parseTriageCommand", () => {
       kind: "invalid",
       reason: "invalid_exclude",
     });
+    expect(parseTriageCommand("/triage all exclude 9007199254740993")).toEqual({
+      kind: "invalid",
+      reason: "invalid_exclude",
+    });
     expect(parseTriageCommand("/triage Preview")).toEqual({
       kind: "invalid",
       reason: "unknown_subcommand",

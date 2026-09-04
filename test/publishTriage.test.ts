@@ -35,6 +35,7 @@ import { recordPublishStep } from "../src/agentWork/repository.js";
 import { triagePushOperationKey } from "../src/agentWork/withOperationIntent.js";
 import {
   isTriagePushOutcome,
+  parseStoredTriagePreviewDetail,
   parseStoredTriagePushDetail,
   publishTriage,
   publishTriagePreview,
@@ -1346,6 +1347,7 @@ describe("publishTriage push outcomes", () => {
       inventory: [thread],
       previouslyResolvedCount: 0,
       hunks,
+      payload: { verdicts: [fixedVerdict] },
     });
 
     expect(upsertProgressBody(fake.controls)).toContain(TRIAGE_PREVIEW_SENTINEL);
@@ -1360,9 +1362,45 @@ describe("publishTriage push outcomes", () => {
           headSha: "a".repeat(40),
           threadRootCommentIds: [1],
           hunks,
+          payload: { verdicts: [fixedVerdict] },
         },
       }),
     );
+  });
+
+  it("rejects a stored preview that does not pin a payload", () => {
+    expect(
+      parseStoredTriagePreviewDetail({
+        headSha: "a".repeat(40),
+        threadRootCommentIds: [1],
+        hunks: [],
+      }),
+    ).toBeNull();
+    expect(
+      parseStoredTriagePreviewDetail({
+        headSha: "a".repeat(40),
+        threadRootCommentIds: [1],
+        hunks: [
+          {
+            threadRootCommentId: 1,
+            subject: "fix: guard user",
+            diff: "diff --git a/src/app.ts b/src/app.ts\n+ok\n",
+          },
+        ],
+        payload: { verdicts: [fixedVerdict] },
+      }),
+    ).toEqual({
+      headSha: "a".repeat(40),
+      threadRootCommentIds: [1],
+      hunks: [
+        {
+          threadRootCommentId: 1,
+          subject: "fix: guard user",
+          diff: "diff --git a/src/app.ts b/src/app.ts\n+ok\n",
+        },
+      ],
+      payload: { verdicts: [fixedVerdict] },
+    });
   });
 
   it("marks a bulk run Partial when some findings apply and others fail", async () => {

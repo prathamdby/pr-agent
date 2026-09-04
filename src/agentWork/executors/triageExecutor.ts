@@ -13,6 +13,11 @@ import {
 } from "../../review/run/reviewPriorFeedback.js";
 import { runFullPrTriage } from "../../agent/triage/triageRun.js";
 import {
+  previewApprovalSets,
+  remapBulkPayload,
+  replayPreviewHunks,
+} from "../../agent/triage/previewApproval.js";
+import {
   assertTriagePullRequestWritable,
   TriageCancelledError,
   TriageClosedPullRequestError,
@@ -564,10 +569,7 @@ async function runFreshTriageAgent(params: {
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
-  readonly mode: ReturnType<typeof triageMode>;
-  readonly reportInventory?: readonly BotFindingThread[];
-  readonly excludedIds?: ReadonlySet<number>;
-  readonly notInPreviewIds?: ReadonlySet<number>;
+  readonly mode: "apply" | "preview";
 }): Promise<TriageExecuteResult> {
   const triggerer = await resolveTriggererGitPerson({
     prSurface: params.prSurface,
@@ -668,7 +670,6 @@ async function runFreshTriageAgent(params: {
       }
       await ensureTriageNotCancelled(params.pool, params.item);
       const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
-      const commitErrors = result.commitErrors ?? [];
       if (!result.submitted || !result.payload) {
         const error = new AppError({
           code: "triage.missing_submit",
@@ -711,6 +712,7 @@ async function runFreshTriageAgent(params: {
           previouslyResolvedCount: params.previouslyResolvedCount,
           leaseEpoch: params.leaseEpoch,
           hunks,
+          payload: result.payload,
           ...params.reportContext,
         });
         captureTriageEvent(params.analytics, "triage preview published", {
@@ -730,27 +732,133 @@ async function runFreshTriageAgent(params: {
         prNumber: params.item.prNumber,
         headSha: params.headSha,
         checkout,
-        inventory: params.reportInventory ?? params.inventory,
+        inventory: params.inventory,
         resolutionByRootCommentId: params.resolutionByRootCommentId,
         payload: result.payload,
         previouslyResolvedCount: params.previouslyResolvedCount,
         findingHistoryCfg: params.cfg,
         leaseEpoch: params.leaseEpoch,
         signal: params.signal,
-        ...(params.mode === "bulk"
-          ? {
-              bulkClassification: {
-                excludedIds: params.excludedIds ?? new Set(),
-                notInPreviewIds: params.notInPreviewIds ?? new Set(),
-                commitByThreadRootCommentId,
-                commitErrors,
-              },
-            }
-          : {}),
         ...params.reportContext,
       });
       const completed = completedFromPublish(publish);
-      if (params.mode === "bulk" && (commitErrors.length > 0 || publish.partialBulk === true)) {
+      if (completed.degraded) {
+        captureTriageEvent(params.analytics, "triage degraded", {
+          step: "publish",
+          push_outcome: publish.pushOutcome,
+          missing_thread_action: publish.missingThreadAction,
+        });
+      } else {
+        captureTriageEvent(params.analytics, "triage published", {
+          inventory_count: params.inventory.length,
+          previously_resolved_count: params.previouslyResolvedCount,
+          commit_count: checkout.listCommittedShas().length,
+          push_outcome: publish.pushOutcome,
+        });
+      }
+      return completed;
+    },
+  );
+}
+
+async function runBulkFromPreview(params: {
+  readonly cfg: Config;
+  readonly pool: Pool;
+  readonly item: TriageWorkItem;
+  readonly prSurface: PrSurface;
+  readonly headSha: string;
+  readonly headRef: string;
+  readonly botIdentity: BotIdentity;
+  readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
+  readonly analytics: TriageAnalyticsRef;
+  readonly inventory: readonly BotFindingThread[];
+  readonly approvedHunks: readonly {
+    readonly threadRootCommentId: number;
+    readonly subject: string;
+    readonly diff: string;
+  }[];
+  readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
+  readonly previouslyResolvedCount: number;
+  readonly reportContext: TriageReportContext;
+  readonly leaseEpoch: number | null;
+  readonly signal: AbortSignal;
+  readonly preview: StoredTriagePreviewDetail;
+  readonly approvedIds: ReadonlySet<number>;
+  readonly excludedIds: ReadonlySet<number>;
+  readonly notInPreviewIds: ReadonlySet<number>;
+}): Promise<TriageExecuteResult> {
+  const triggerer = await resolveTriggererGitPerson({
+    prSurface: params.prSurface,
+    commenterId: params.item.payload.commenterId,
+    botIdentity: params.botIdentity,
+    analytics: params.analytics,
+  });
+  const commitAttribution = buildTriageCommitAttribution({
+    botIdentity: params.botIdentity,
+    triggerer,
+  });
+  const { token } = await params.prSurface.gitCredentialAuth();
+  return withWritablePrCheckout(
+    {
+      owner: params.item.owner,
+      repo: params.item.repo,
+      headRef: params.headRef,
+      headSha: params.headSha,
+      installationToken: token,
+      botIdentity: params.botIdentity,
+      commitAttribution,
+      beforeCommit: () =>
+        ensureTriageWriteAllowed({
+          pool: params.pool,
+          item: params.item,
+          prSurface: params.prSurface,
+        }),
+      beforePush: () =>
+        ensureTriageWriteAllowed({
+          pool: params.pool,
+          item: params.item,
+          prSurface: params.prSurface,
+        }),
+    },
+    async (checkout) => {
+      const replayed = await replayPreviewHunks({
+        checkout,
+        hunks: params.approvedHunks,
+      });
+      const payload = remapBulkPayload({
+        payload: params.preview.payload,
+        approvedIds: params.approvedIds,
+        appliedCommits: replayed.commitByThreadRootCommentId,
+      });
+      await ensureTriageNotCancelled(params.pool, params.item);
+      const publish = await publishTriage({
+        pool: params.pool,
+        workItemId: params.item.id,
+        resourceKey: params.item.resourceKey,
+        installationId: params.item.installationId,
+        prSurface: params.prSurface,
+        owner: params.item.owner,
+        repo: params.item.repo,
+        prNumber: params.item.prNumber,
+        headSha: params.headSha,
+        checkout,
+        inventory: params.inventory,
+        resolutionByRootCommentId: params.resolutionByRootCommentId,
+        payload,
+        previouslyResolvedCount: params.previouslyResolvedCount,
+        findingHistoryCfg: params.cfg,
+        leaseEpoch: params.leaseEpoch,
+        signal: params.signal,
+        bulkClassification: {
+          excludedIds: params.excludedIds,
+          notInPreviewIds: params.notInPreviewIds,
+          commitByThreadRootCommentId: replayed.commitByThreadRootCommentId,
+          commitErrors: replayed.commitErrors,
+        },
+        ...params.reportContext,
+      });
+      const completed = completedFromPublish(publish);
+      if (replayed.commitErrors.length > 0 || publish.partialBulk === true) {
         return { kind: "completed", degraded: true };
       }
       if (completed.degraded) {
@@ -878,28 +986,16 @@ export async function executeTriageJob(
       });
       await ensureTriageNotCancelled(pool, item);
 
-      const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
-      const previewIds = new Set(storedPreview?.threadRootCommentIds ?? []);
       const currentInventory = discovered.inventory;
-      const excludedIds = new Set(
-        currentInventory
-          .filter((thread) => excludeIds.has(thread.rootCommentId))
-          .map((thread) => thread.rootCommentId),
-      );
-      const notInPreviewIds = new Set(
-        mode === "bulk"
-          ? currentInventory
-              .filter((thread) => !previewIds.has(thread.rootCommentId))
-              .map((thread) => thread.rootCommentId)
-          : [],
-      );
-      const approvedInventory =
-        mode === "bulk"
-          ? currentInventory.filter(
-              (thread) =>
-                previewIds.has(thread.rootCommentId) && !excludeIds.has(thread.rootCommentId),
-            )
-          : currentInventory;
+      const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
+      const approval =
+        mode === "bulk" && storedPreview != null
+          ? previewApprovalSets({
+              inventory: currentInventory,
+              preview: storedPreview,
+              excludeIds,
+            })
+          : null;
 
       if (currentInventory.length === 0) {
         return publishEmptyInventoryReport({
@@ -918,7 +1014,7 @@ export async function executeTriageJob(
         });
       }
 
-      if (mode === "bulk" && approvedInventory.length === 0) {
+      if (mode === "bulk" && approval != null && approval.approvedInventory.length === 0) {
         await publishTriageReportOnly({
           pool,
           workItemId: item.id,
@@ -935,8 +1031,8 @@ export async function executeTriageJob(
           ...discovered.reportContext,
           body: reportOnlyBody({
             message: `No approved findings to apply. Excluded: ${
-              [...excludedIds].join(", ") || "none"
-            }. Not in preview: ${[...notInPreviewIds].join(", ") || "none"}.`,
+              [...approval.excludedIds].join(", ") || "none"
+            }. Not in preview: ${[...approval.notInPreviewIds].join(", ") || "none"}.`,
             headSha,
             inventoryCount: currentInventory.length,
             previouslyResolvedCount: discovered.previouslyResolvedCount,
@@ -964,7 +1060,7 @@ export async function executeTriageJob(
         headSha,
         headRef: branch.headRef,
         analytics,
-        inventory: approvedInventory,
+        inventory: approval?.approvedInventory ?? currentInventory,
         resolutionByRootCommentId: discovered.resolutionByRootCommentId,
         previouslyResolvedCount: discovered.previouslyResolvedCount,
         reportContext: discovered.reportContext,
@@ -977,16 +1073,41 @@ export async function executeTriageJob(
         if (resumed != null) return resumed;
       }
 
-      return runFreshTriageAgent({
-        ...resumeParams,
-        cfg,
-        botIdentity: discovered.botIdentity,
-        scope,
-        mode,
-        reportInventory: currentInventory,
-        excludedIds,
-        notInPreviewIds,
-      });
+      switch (mode) {
+        case "bulk":
+          if (storedPreview == null || approval == null) {
+            throw new AppError({
+              code: "triage.invalid_preview",
+              message: "Bulk apply reached execution without a parsed preview",
+            });
+          }
+          return runBulkFromPreview({
+            ...resumeParams,
+            cfg,
+            botIdentity: discovered.botIdentity,
+            scope,
+            inventory: currentInventory,
+            approvedHunks: approval.approvedHunks,
+            preview: storedPreview,
+            approvedIds: approval.approvedIds,
+            excludedIds: approval.excludedIds,
+            notInPreviewIds: approval.notInPreviewIds,
+          });
+        case "preview":
+        case "apply":
+          return runFreshTriageAgent({
+            ...resumeParams,
+            inventory: currentInventory,
+            cfg,
+            botIdentity: discovered.botIdentity,
+            scope,
+            mode,
+          });
+        default: {
+          const exhaustive: never = mode;
+          return exhaustive;
+        }
+      }
     },
     onTerminalFailure: async (item, prSurface) => {
       if (!prSurface) return;

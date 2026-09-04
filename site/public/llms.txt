@@ -44,9 +44,9 @@ Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMB
 /review force: cancel any queued or running review and start a new one on the latest commit.
 /describe: write summary bullets and an optional diagram into the PR body.
 /ask … or @bot …: answer a code question in the same thread.
-/triage: apply-mode fix for open bot findings. /triage preview renders would-be diffs without push. /triage all applies the previewed set (refused without a matching preview on this head).
+/triage: apply-mode fix for open bot findings. /triage preview renders would-be diffs without push. /triage all replays those stored hunks (refused without a matching preview on this head).
 /triage preview: render the would-be unified diff. No commits, no push.
-/triage all: apply the previewed set (optional exclude <thread ids>). Refused without a matching preview on this head.
+/triage all: replay the stored preview hunks (optional exclude <thread ids>). Refused without a matching preview on this head. Does not start a second agent run.
 /cancel: cancel a queued or running orchestrated review.
 /verify: recheck open findings against the current pull request head.
 /help: list available commands.

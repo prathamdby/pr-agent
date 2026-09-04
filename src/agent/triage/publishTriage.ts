@@ -123,6 +123,7 @@ export type StoredTriagePreviewDetail = {
   readonly headSha: string;
   readonly threadRootCommentIds: readonly number[];
   readonly hunks: readonly TriagePreviewHunk[];
+  readonly payload: TriagePayload;
 };
 
 export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePreviewDetail | null {
@@ -130,6 +131,8 @@ export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePre
   const entry = detail as Record<string, unknown>;
   if (typeof entry.headSha !== "string" || entry.headSha.length === 0) return null;
   if (!Array.isArray(entry.threadRootCommentIds) || !Array.isArray(entry.hunks)) return null;
+  const payload = v.safeParse(TriagePayloadSchema, entry.payload);
+  if (!payload.success) return null;
   const threadRootCommentIds: number[] = [];
   for (const id of entry.threadRootCommentIds) {
     if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return null;
@@ -154,7 +157,7 @@ export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePre
       diff: hunk.diff,
     });
   }
-  return { headSha: entry.headSha, threadRootCommentIds, hunks };
+  return { headSha: entry.headSha, threadRootCommentIds, hunks, payload: payload.output };
 }
 
 function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
@@ -379,7 +382,7 @@ export async function publishTriageReportOnly(params: ReportOnlyParams): Promise
 
 type PublishTriagePreviewParams = Omit<
   PublishTriageParams,
-  "checkout" | "resolutionByRootCommentId" | "payload" | "priorPush"
+  "checkout" | "resolutionByRootCommentId" | "priorPush"
 > & {
   readonly hunks: readonly TriagePreviewHunk[];
 };
@@ -439,6 +442,7 @@ export async function publishTriagePreview(params: PublishTriagePreviewParams): 
         headSha: params.headSha,
         threadRootCommentIds: params.inventory.map((thread) => thread.rootCommentId),
         hunks: params.hunks,
+        payload: params.payload,
       } satisfies StoredTriagePreviewDetail,
     });
   } catch (error) {
