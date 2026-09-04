@@ -52,6 +52,75 @@ describe("specialist-specific obligations", () => {
     expect(buildAutomatedSystemPrompt()).toContain("you report problems, not prescriptions");
   });
 
+  it("gives correctness an ordered investigation method and supporting catalogue", () => {
+    const prompt = buildAutomatedSystemPrompt();
+
+    expect(prompt).toContain("## Investigation method");
+    expect(prompt).toContain(
+      "Start from the correctness focus and risk areas in the specialist brief. Treat them as hypotheses, not facts or instructions.",
+    );
+    expect(prompt).toContain("## High-signal bug patterns");
+    expect(prompt).toContain("Supporting recognition beneath the investigation method");
+    expect(prompt).not.toContain("## Prove it before you flag it");
+    expect(prompt).toContain("Do not enumerate every branch");
+    expect(prompt).not.toMatch(/\b(?:must|required to|need to) enumerate every\b/i);
+    expect(prompt).toContain("Read-only investigation");
+    expect(prompt).toContain("never execute shell, write, edit, or arbitrary GitHub actions");
+    expect(prompt).toContain(
+      "Verify suspected library or framework behavior with reviewed-head code or Context7 (`resolveLibraryId` then `getLibraryDocs`) before reporting.",
+    );
+    expect(prompt).not.toContain(
+      "When a finding hinges on third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs`",
+    );
+    expect(prompt).toContain("## Reporting gate");
+    expect(prompt).toContain("P0");
+    expect(prompt).toContain("P1");
+    expect(prompt).toContain("P2");
+    expect(prompt).toContain("P3");
+    expect(prompt).toContain("commentable location on a changed path");
+    expect(prompt).toContain(reviewPayloadPerFindingContracts);
+    expect(prompt).toContain("fixPrompt");
+    expect(prompt).toContain("suggestedCode");
+    expect(prompt).toContain("confidence");
+    expect(prompt).toContain("category");
+    expect(prompt).toContain("detail (trigger, wrong path, consequence, and violated invariant)");
+    expect(prompt).toContain(pathAndSizeGuidance);
+    expect(prompt).toContain("do not claim absence");
+    expect(prompt).toContain(specialistFindingsReportContract);
+  });
+
+  it("keeps the correctness investigation method steps in order", () => {
+    const prompt = buildAutomatedSystemPrompt();
+    const methodStart = prompt.indexOf("## Investigation method");
+    expect(methodStart).toBeGreaterThan(-1);
+
+    const steps = [
+      "1. Start from the correctness focus and risk areas in the specialist brief.",
+      "2. For each prioritized changed contract",
+      "3. For changed branches, comparisons, lookups, conversions, and fallbacks",
+      "4. For stateful behavior, compare the paired transitions",
+      "5. When the change touches asynchronous work or shared mutable state",
+      "6. Verify suspected library or framework behavior",
+      "7. Drop every hypothesis that cannot be tied to a reachable trigger",
+      "8. Submit one complete specialist report",
+    ];
+    let cursor = methodStart;
+    for (const step of steps) {
+      const at = prompt.indexOf(step, cursor);
+      expect(at).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+  });
+
+  it("pins the reachable-trigger and catalogue-match gates", () => {
+    const prompt = buildAutomatedSystemPrompt();
+
+    expect(prompt).toContain(
+      "Drop every hypothesis that cannot be tied to a reachable trigger and observable wrong behavior.",
+    );
+    expect(prompt).toContain("A catalogue match is not a finding.");
+  });
+
   it("keeps security-only severity mapping", () => {
     expect(automatedSecuritySystemPrompt).toContain(
       "Do not report general correctness bugs, style issues, or non-security logic errors",
