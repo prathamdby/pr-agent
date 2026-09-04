@@ -10,6 +10,8 @@ import {
   shouldRenderCiSummaryRow,
 } from "../src/review/ci/renderCiSummary.js";
 import type { CiSummary } from "../src/review/ci/ciSummaryTypes.js";
+import { renderVerificationFailureBlock } from "../src/agent/verification/verificationFailureSignal.js";
+import { VERIFICATION_FAILURE_TEXT } from "../src/settings/index.js";
 
 describe("renderCiSummary", () => {
   it("formats failing CI fields as plain text for the agent fix prompt", () => {
@@ -203,6 +205,23 @@ describe("renderCiSummary", () => {
     expect(patched).toContain("headSha=abc123");
   });
 
+  it("keeps a verification failure block when the CI cell is refreshed", () => {
+    const failure = renderVerificationFailureBlock();
+    const original = [
+      "## PR Agent Review",
+      "",
+      `| CI | ${CI_SUMMARY_CELL_START}⏳ CI still running${failure}${CI_SUMMARY_CELL_END} |`,
+    ].join("\n");
+    const patched = patchCiSummaryCellInCommentBody(original, {
+      status: "passing",
+      headline: "✅ All CI is passing",
+      failures: [],
+    });
+    expect(patched).toContain("All CI is passing");
+    expect(patched).toContain(VERIFICATION_FAILURE_TEXT);
+    expect(patched).not.toContain("still running");
+  });
+
   it("returns null when CI cell markers are missing", () => {
     const body = "## PR Agent Review\n\nNo CI cell here.\n";
     expect(commentBodyHasCiSummaryCell(body)).toBe(false);
@@ -274,5 +293,24 @@ describe("renderCiSummary", () => {
       `<tr><td><strong>CI</strong></td><td>${ciCell}</td></tr>`,
     ].join("\n");
     expect(preserveCiSummaryRowInCommentBody(previous, next)).toBe(next);
+  });
+
+  it("keeps a verification failure block when a full summary rewrite already has a CI cell", () => {
+    const failure = renderVerificationFailureBlock();
+    const previousCell = `${CI_SUMMARY_CELL_START}⏳ CI still running${failure}${CI_SUMMARY_CELL_END}`;
+    const nextCell = renderCiSummaryCell({
+      status: "passing",
+      headline: "✅ All CI is passing",
+      failures: [],
+    });
+    const previous = `<tr><td><strong>CI</strong></td><td>${previousCell}</td></tr>`;
+    const next = [
+      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
+      `<tr><td><strong>CI</strong></td><td>${nextCell}</td></tr>`,
+    ].join("\n");
+    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
+    expect(preserved).toContain("All CI is passing");
+    expect(preserved).toContain(VERIFICATION_FAILURE_TEXT);
+    expect(preserved).not.toContain("still running");
   });
 });

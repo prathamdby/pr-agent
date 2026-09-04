@@ -24,6 +24,8 @@ The useful signal from verification is asymmetric:
 
 **Amendment (PR #307):** when a prior verification stub exists, `fixed` / `already-resolved` edit that stub in place to a short success line before resolve. This does not create a new reply; it only clears a stale still-open signal left from an earlier skipped publish.
 
+**Amendment (failed-run visibility):** Terminal verification failure is the other half of the silence contract. A failed run edits the existing CI cell for the bound execution head, or writes one bounded stub line, with a `/verify` retry pointer. Mutation targets are bot-owned conversation comments. It never posts a new finding reply or a comment that scales with finding count. Successful publish stays silent. A later summary or CI-cell rewrite keeps an active failure block until a successful verification run clears it. The stale-head terminal value stays on the companion spec; this amendment only renders a failure or degraded outcome it is given.
+
 ## Consequences
 
 - Fewer GitHub write calls per verification run (one GraphQL resolve per fixed thread instead of reply + resolve).

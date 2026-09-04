@@ -182,6 +182,8 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                                    |
 | `VERIFICATION_PUBLISH_LENS`                | `verification`                                                                                                                                              |
 | `VERIFICATION_STUB_MARKER`                 | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                  |
+| `VERIFICATION_FAILURE_START` / `_END`      | `<!-- pr-agent:verification-failure -->` markers around the one in-place terminal-failure signal                                                            |
+| `VERIFICATION_FAILURE_TEXT`                | `Verification did not complete. Run \`/verify\` to try again.`                                                                                              |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                       |
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                             |
 | `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery; the armed redelivery re-checks until the lease frees or lapses                         |

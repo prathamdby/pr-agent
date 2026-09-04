@@ -373,6 +373,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   const phaseState: WorkItemPhaseState = { phase: "claiming" };
   let seededInstallation: InstallationToken | undefined;
   let executionPrSurface: PrSurface | undefined;
+  let boundHeadSha: string | undefined;
   let workClaim: WorkClaim | undefined;
   /** Set while a reschedule afterComplete may still need abort on terminal failure. */
   let pendingRescheduleAbort: ((boss: PgBoss, error: unknown) => Promise<void>) | undefined;
@@ -625,6 +626,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     const resolvedHead = await spec.resolveHeadSha(prSurface, item);
     const headSha = resolvedHead.headSha;
     if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, leaseEpoch)) {
+      boundHeadSha = headSha;
       executionPrSurface = prSurface;
       return {
         prSurface,
@@ -745,6 +747,11 @@ export async function runDurableWorkItem<T extends WorkType>(
     await recheckSkippableAndCancel("retry_claim_rejected");
   }
 
+  function itemForHooks(): TypedItem {
+    if (boundHeadSha == null || boundHeadSha === item.headSha) return item;
+    return { ...item, headSha: boundHeadSha };
+  }
+
   async function invokeTerminalFailureHook(error: unknown): Promise<void> {
     if (!spec.onTerminalFailure) return;
     if (spec.prActorLease && leaseEpoch == null) {
@@ -756,7 +763,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     try {
       const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
-      await spec.onTerminalFailure(item, prSurface, error, leaseEpoch);
+      await spec.onTerminalFailure(itemForHooks(), prSurface, error, leaseEpoch);
     } catch (publishError) {
       logWarn("agent_work_terminal_failure_hook_failed", {
         type: spec.type,

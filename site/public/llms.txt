@@ -58,7 +58,7 @@ Modes: off = disabled (slash replies with a notice), manual = slash only, auto =
 Auto triggers: review and describe on pull_request opened; verification on synchronize.
 FEATURE_REVIEW: manual | auto. Default auto. Orchestrated review. /review always works.
 FEATURE_DESCRIBE: off | manual | auto. Default auto. PR description generation.
-FEATURE_VERIFICATION: off | manual | auto. Default auto. Rechecks open findings on synchronize or /verify.
+FEATURE_VERIFICATION: off | manual | auto. Default auto. Rechecks open findings on synchronize or /verify. Terminal failure edits the CI cell or one stub line.
 FEATURE_ASK: off | manual. Default manual. /ask and @bot questions.
 FEATURE_TRIAGE: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.
 FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Review labels on the PR. No model tokens.

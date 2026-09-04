@@ -3,7 +3,13 @@ import type { Pool } from "pg";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.js";
 import type { VerificationPayload } from "../src/review/triageSchema.js";
-import { VERIFICATION_STUB_MARKER } from "../src/settings/index.js";
+import {
+  REVIEW_SUMMARY_SENTINEL,
+  VERIFICATION_FAILURE_START,
+  VERIFICATION_FAILURE_TEXT,
+  VERIFICATION_STUB_MARKER,
+} from "../src/settings/index.js";
+import { renderCiSummaryCell } from "../src/review/ci/renderCiSummary.js";
 import {
   publishTestPrSurface,
   resolveThreadIds,
@@ -25,6 +31,16 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
 });
 
 import { publishVerification } from "../src/agent/verification/publishVerification.js";
+import {
+  clearVerificationFailureSignal,
+  publishVerificationFailure,
+} from "../src/agent/verification/publishVerificationFailure.js";
+import {
+  applyVerificationFailureToComment,
+  renderClearedVerificationFailureStub,
+  renderVerificationFailureBlock,
+} from "../src/agent/verification/verificationFailureSignal.js";
+import * as operationIntent from "../src/agentWork/withOperationIntent.js";
 
 const thread = {
   rootCommentId: 1,
@@ -665,5 +681,360 @@ describe("publishVerification", () => {
       controls.events.some((e) => e.kind === "editReviewComment" && e.commentId === 4242),
     ).toBe(true);
     expect(controls.replies).toHaveLength(0);
+  });
+
+  it("leaves zero conversation output on a successful silent-resolve run", async () => {
+    await publishVerification(
+      baseParams({
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "fixed",
+              threadRootCommentId: 1,
+              commitSha: "abcdef1",
+              evidence: "null check added",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(
+      controls.events.filter((event) => event.kind === "listConversationComments"),
+    ).toHaveLength(0);
+    expect(controls.events.filter((event) => event.kind === "editComment")).toHaveLength(0);
+    expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(
+      0,
+    );
+    expect(controls.replies).toHaveLength(0);
+    expect(controls.events.filter((event) => event.kind === "editReviewComment")).toHaveLength(0);
+  });
+});
+
+const HEAD_SHA = "a".repeat(40);
+
+function reviewSummaryBody(params: {
+  readonly withCiCell: boolean;
+  readonly headSha?: string;
+}): string {
+  const ci = params.withCiCell
+    ? `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell({
+        status: "passing",
+        headline: "All CI is passing",
+        failures: [],
+      })}</td></tr>`
+    : "";
+  return [
+    REVIEW_SUMMARY_SENTINEL,
+    "",
+    `<table>${ci}</table>`,
+    "",
+    `<!-- pr-agent:review-meta headSha=${params.headSha ?? HEAD_SHA} lens=review stale=false -->`,
+  ].join("\n");
+}
+
+type ConversationEdit = {
+  readonly kind: string;
+  readonly commentId?: number;
+  readonly body?: string;
+};
+
+function conversationEdits(): ConversationEdit[] {
+  const edits: ConversationEdit[] = [];
+  for (const event of controls.events) {
+    if (event.kind === "editComment") {
+      edits.push({ kind: event.kind, commentId: event.commentId, body: event.body });
+    } else if (event.kind === "upsertProgressComment") {
+      edits.push({ kind: event.kind, body: event.body });
+    }
+  }
+  return edits;
+}
+
+describe("publishVerificationFailure", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("edits the existing CI cell once with the retry pointer", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      88,
+    );
+
+    const signal = await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(signal).toEqual({ headSha: HEAD_SHA, commentId: 88, surface: "ci_cell" });
+    expect(conversationEdits()).toHaveLength(1);
+    expect(conversationEdits()[0]?.kind).toBe("editComment");
+    expect(conversationEdits()[0]?.commentId).toBe(88);
+    expect(conversationEdits()[0]?.body).toContain(VERIFICATION_FAILURE_TEXT);
+    expect(conversationEdits()[0]?.body).toContain("`/verify`");
+    expect(conversationEdits()[0]?.body).toContain("All CI is passing");
+    expect(controls.replies).toHaveLength(0);
+  });
+
+  it("appends one stub line when the head review comment has no CI cell", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: false }),
+      77,
+    );
+
+    const signal = await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(signal.surface).toBe("stub_line");
+    expect(signal.commentId).toBe(77);
+    expect(conversationEdits()).toHaveLength(1);
+    expect(conversationEdits()[0]?.body).toContain(VERIFICATION_FAILURE_TEXT);
+    expect(conversationEdits()[0]?.body).toContain(REVIEW_SUMMARY_SENTINEL);
+    expect(controls.replies).toHaveLength(0);
+  });
+
+  it("writes one stub comment when no head review comment exists", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+
+    const signal = await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(signal.surface).toBe("stub_line");
+    expect(conversationEdits()).toHaveLength(1);
+    expect(conversationEdits()[0]?.kind).toBe("upsertProgressComment");
+    expect(conversationEdits()[0]?.body).toBe(renderVerificationFailureBlock());
+    expect(conversationEdits()[0]?.body?.startsWith(VERIFICATION_FAILURE_START)).toBe(true);
+    expect(controls.replies).toHaveLength(0);
+  });
+
+  it("stays constant size when many findings are open", async () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      ...thread,
+      rootCommentId: index + 1,
+    }));
+    const params = baseParams({
+      inventory: many,
+      payload: { verdicts: [] },
+    });
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      3,
+    );
+
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(conversationEdits()).toHaveLength(1);
+    expect(controls.replies).toHaveLength(0);
+    const body = conversationEdits()[0]?.body ?? "";
+    expect(body.split(VERIFICATION_FAILURE_TEXT).length - 1).toBe(1);
+  });
+
+  it("clears a prior failure signal so later success is silent again", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    const failed = applyVerificationFailureToComment(reviewSummaryBody({ withCiCell: true }));
+    controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, failed.nextBody, 88);
+
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(conversationEdits()).toHaveLength(1);
+    expect(conversationEdits()[0]?.body).not.toContain(VERIFICATION_FAILURE_TEXT);
+    expect(conversationEdits()[0]?.body).toContain("All CI is passing");
+  });
+
+  it("does not edit again when the same head already has the failure block", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      88,
+    );
+
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(conversationEdits()).toHaveLength(1);
+  });
+
+  it("ignores a participant-owned failure marker", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setConversationComments([
+      {
+        id: 501,
+        inReplyToId: null,
+        authorLogin: "attacker",
+        body: renderVerificationFailureBlock(),
+      },
+    ]);
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewSummaryBody({ withCiCell: true }),
+      88,
+    );
+
+    const signal = await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(signal.commentId).toBe(88);
+    expect(conversationEdits()).toHaveLength(1);
+    expect(conversationEdits()[0]?.commentId).toBe(88);
+  });
+
+  it("skips rewriting an already-cleared failure stub", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setConversationComments([
+      {
+        id: 9,
+        inReplyToId: null,
+        authorLogin: "pr-agent[bot]",
+        body: renderClearedVerificationFailureStub(),
+      },
+    ]);
+
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    await clearVerificationFailureSignal({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+
+    expect(conversationEdits()).toHaveLength(0);
+  });
+
+  it("recovers a bot-owned failure comment and reports absent without a bot login", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [] },
+    });
+    controls.setConversationComments([
+      {
+        id: 42,
+        inReplyToId: null,
+        authorLogin: "pr-agent[bot]",
+        body: renderVerificationFailureBlock(),
+      },
+    ]);
+
+    const recoveries: Array<{ kind: string; value?: number }> = [];
+    const spy = vi.spyOn(operationIntent, "withOperationIntent").mockImplementation(async (p) => {
+      const recovered = await p.recover?.({} as never, null);
+      if (recovered != null) {
+        recoveries.push(
+          recovered.kind === "reconciled"
+            ? { kind: recovered.kind, value: recovered.value as number }
+            : { kind: recovered.kind },
+        );
+      }
+      return 42;
+    });
+
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: params.prSurface,
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    expect(recoveries).toEqual([{ kind: "reconciled", value: 42 }]);
+
+    recoveries.length = 0;
+    await publishVerificationFailure({
+      pool: params.pool,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      prSurface: { ...params.prSurface, getBotLogin: undefined },
+      headSha: HEAD_SHA,
+      leaseEpoch: 1,
+    });
+    expect(recoveries).toEqual([{ kind: "absent" }]);
+    spy.mockRestore();
   });
 });

@@ -128,6 +128,10 @@ export function verificationThreadOperationKey(rootCommentId: number): string {
   return `verification:thread:${rootCommentId}`;
 }
 
+export function verificationFailureOperationKey(headSha: string): string {
+  return `verification:failure:${headSha}`;
+}
+
 export function reviewCheckOperationKey(workItemId: string): string {
   return `review:check_run:${workItemId}`;
 }

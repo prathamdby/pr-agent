@@ -828,6 +828,26 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
+  it("passes the resolved head to onTerminalFailure after a deferred-head resolve", async () => {
+    mockFetchedItem(makeItem({ headSha: DEFERRED_HEAD_SHA }));
+    const boom = new Error("dead");
+    const execute = vi.fn().mockRejectedValue(boom);
+    const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+
+    await runReviewWorkItem({
+      job: makeJob(3, 3),
+      resolveHeadSha: async () => ({ headSha: "resolved-head" }),
+      execute,
+      onTerminalFailure,
+    });
+
+    expect(onTerminalFailure).toHaveBeenCalledTimes(1);
+    expect(onTerminalFailure.mock.calls[0]?.[0]).toMatchObject({
+      id: "wi-1",
+      headSha: "resolved-head",
+    });
+  });
+
   it("on terminal pg-boss attempt: marks failed and invokes onTerminalFailure", async () => {
     mockFetchedItem(makeItem());
     const boom = new Error("dead");

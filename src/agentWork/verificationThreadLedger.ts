@@ -1,8 +1,17 @@
 import type { Pool } from "pg";
+import type { VerificationFailureSurface } from "../agent/verification/verificationFailureSignal.js";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
 import { recordPublishStep } from "./repository.js";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
+
+export type { VerificationFailureSurface };
+
+export type VerificationFailureSignal = {
+  readonly headSha: string;
+  readonly commentId: number;
+  readonly surface: VerificationFailureSurface;
+};
 
 export type VerificationThreadState = {
   readonly stubCommentId?: number;
@@ -13,6 +22,7 @@ export type VerificationThreadState = {
 
 export type VerificationThreadLedger = {
   readonly threads: Readonly<Record<string, VerificationThreadState>>;
+  readonly failureSignal?: VerificationFailureSignal;
 };
 
 const VERIFICATION_THREAD_ACTIONS_STEP = "verification_thread_actions" as const;
@@ -24,6 +34,30 @@ function isVerdict(value: unknown): value is VerificationThreadVerdict {
     value === "fixed" ||
     value === "already-resolved"
   );
+}
+
+function parseFailureSurface(value: unknown): VerificationFailureSurface | null {
+  switch (value) {
+    case "ci_cell":
+    case "stub_line":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function parseFailureSignal(value: unknown): VerificationFailureSignal | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const surface = parseFailureSurface(record.surface);
+  if (surface == null) return undefined;
+  if (typeof record.headSha !== "string" || record.headSha.length === 0) return undefined;
+  if (typeof record.commentId !== "number" || !Number.isInteger(record.commentId)) return undefined;
+  return {
+    headSha: record.headSha,
+    commentId: record.commentId,
+    surface,
+  };
 }
 
 function parseThreadState(value: unknown): VerificationThreadState | null {
@@ -43,6 +77,14 @@ function parseThreadState(value: unknown): VerificationThreadState | null {
   };
 }
 
+function withParsedFailureSignal(
+  threads: Readonly<Record<string, VerificationThreadState>>,
+  detail: Record<string, unknown>,
+): VerificationThreadLedger {
+  const failureSignal = parseFailureSignal(detail.failureSignal);
+  return failureSignal == null ? { threads } : { threads, failureSignal };
+}
+
 export function parseVerificationThreadLedger(detail: unknown): VerificationThreadLedger {
   if (!detail || typeof detail !== "object") {
     return { threads: {} };
@@ -54,20 +96,20 @@ export function parseVerificationThreadLedger(detail: unknown): VerificationThre
       const parsed = parseThreadState(value);
       if (parsed) threads[key] = parsed;
     }
-    return { threads };
+    return withParsedFailureSignal(threads, record);
   }
 
   // Legacy shape from per-work-item actedThreadIds checkpoints.
   const acted = record.actedThreadIds;
   if (!Array.isArray(acted)) {
-    return { threads: {} };
+    return withParsedFailureSignal({}, record);
   }
   const threads: Record<string, VerificationThreadState> = {};
   for (const item of acted) {
     if (!Number.isInteger(item)) continue;
     threads[String(item)] = { lastVerdict: "skipped" };
   }
-  return { threads };
+  return withParsedFailureSignal(threads, record);
 }
 
 export async function loadVerificationThreadLedger(
@@ -103,7 +145,12 @@ export async function saveVerificationThreadLedger(
     resourceKey: params.resourceKey,
     reviewLens: VERIFICATION_PUBLISH_LENS,
     step: VERIFICATION_THREAD_ACTIONS_STEP,
-    detail: { threads: params.ledger.threads },
+    detail: {
+      threads: params.ledger.threads,
+      ...(params.ledger.failureSignal != null
+        ? { failureSignal: params.ledger.failureSignal }
+        : {}),
+    },
     leaseEpoch: params.leaseEpoch,
   });
 }
@@ -114,9 +161,23 @@ export function upsertVerificationThreadState(
   state: VerificationThreadState,
 ): VerificationThreadLedger {
   return {
+    ...ledger,
     threads: {
       ...ledger.threads,
       [String(rootCommentId)]: state,
     },
   };
+}
+
+export function upsertVerificationFailureSignal(
+  ledger: VerificationThreadLedger,
+  failureSignal: VerificationFailureSignal,
+): VerificationThreadLedger {
+  return { ...ledger, failureSignal };
+}
+
+export function clearVerificationFailureSignalFromLedger(
+  ledger: VerificationThreadLedger,
+): VerificationThreadLedger {
+  return { threads: ledger.threads };
 }
