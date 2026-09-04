@@ -171,6 +171,16 @@ export const REVIEW_CI_SUMMARY_LOG_MAX_BYTES = 24_000;
 export const REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS = 12_000;
 /** Max jobs whose logs are downloaded for one CI summary. */
 export const REVIEW_CI_SUMMARY_LOG_MAX_JOBS = 3;
+/**
+ * Parallel annotation and job-log fetches for one CI summary.
+ * Small enough to stay far below GitHub secondary rate-limit territory.
+ */
+export const REVIEW_CI_SUMMARY_FETCH_CONCURRENCY = 4;
+/**
+ * Raw job-log intake is this many times the per-job condensed budget.
+ * Failures live at the tail, so the dropped prefix is not scanned.
+ */
+export const REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE = 4;
 /** Max chars for model-authored CI headline / reason / fixHint fields. */
 export const REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS = 240;
 export const REVIEW_CI_SUMMARY_REASON_MAX_CHARS = 400;

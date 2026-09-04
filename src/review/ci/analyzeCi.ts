@@ -1,6 +1,8 @@
 import { isMissingChecksPermissionError } from "../../github/ciStatus.js";
+import { classifyGithubError } from "../../github/githubErrors.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import {
+  REVIEW_CI_SUMMARY_FETCH_CONCURRENCY,
   REVIEW_CI_SUMMARY_GRANT_ACTIONS,
   REVIEW_CI_SUMMARY_GRANT_CHECKS,
   REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
@@ -16,6 +18,7 @@ import {
   type CiSummaryAuthor,
 } from "./authorCiSummary.js";
 import type {
+  CiCheckAnnotation,
   CiCheckRunSnapshot,
   CiFailureDetail,
   CiLegacyStatus,
@@ -65,6 +68,47 @@ type FetchCiLogContextResult = {
   readonly actionsPermissionMissing: boolean;
 };
 
+async function mapBounded<T, R>(
+  items: readonly T[],
+  bound: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.min(Math.max(bound, 1), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        if (index >= items.length) return;
+        const item = items[index];
+        if (item === undefined) continue;
+        results[index] = await mapper(item, index);
+      }
+    }),
+  );
+  return results;
+}
+
+function checkOutputChunks(run: CiCheckRunSnapshot): string[] {
+  return [run.outputTitle, run.outputSummary, run.outputText]
+    .filter((part): part is string => part != null && part.trim().length > 0)
+    .map((part) => part.trim());
+}
+
+function formatFailureAnnotations(annotations: readonly CiCheckAnnotation[]): string[] {
+  const failureAnnotations = annotations.filter((a) => a.annotationLevel === "failure");
+  const lines: string[] = [];
+  for (const annotation of failureAnnotations.slice(0, 5)) {
+    const loc =
+      annotation.startLine != null ? `${annotation.path}:${annotation.startLine}` : annotation.path;
+    lines.push(`${loc} — ${annotation.message}`);
+  }
+  return lines;
+}
+
 async function fetchCiLogContext(options: {
   readonly prSurface: PrSurface;
   readonly headSha: string;
@@ -74,32 +118,39 @@ async function fetchCiLogContext(options: {
   const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
   const failing = options.failingChecks.slice(0, maxFailures);
 
+  const annotationBatches = await mapBounded(
+    failing,
+    REVIEW_CI_SUMMARY_FETCH_CONCURRENCY,
+    async (run) => {
+      try {
+        return {
+          annotations: await options.prSurface.listCheckRunAnnotations(run.id),
+          rateLimited: false,
+        };
+      } catch (error) {
+        return {
+          annotations: [],
+          rateLimited: classifyGithubError(error) === "rate_limit",
+        };
+      }
+    },
+  );
+
   const outputParts: string[] = [];
-  for (const run of failing) {
-    const chunks = [run.outputTitle, run.outputSummary, run.outputText]
-      .filter((part): part is string => part != null && part.trim().length > 0)
-      .map((part) => part.trim());
+  for (let i = 0; i < failing.length; i++) {
+    const run = failing[i];
+    if (run == null) continue;
+    const chunks = checkOutputChunks(run);
     if (chunks.length > 0) {
       outputParts.push(`### Check: ${run.name}\n${chunks.join("\n")}`);
     }
-    try {
-      const annotations = await options.prSurface.listCheckRunAnnotations(run.id);
-      const failureAnnotations = annotations.filter((a) => a.annotationLevel === "failure");
-      for (const annotation of failureAnnotations.slice(0, 5)) {
-        const loc =
-          annotation.startLine != null
-            ? `${annotation.path}:${annotation.startLine}`
-            : annotation.path;
-        outputParts.push(`${loc} — ${annotation.message}`);
-      }
-    } catch {
-      // annotations are best-effort fallback
-    }
+    outputParts.push(...formatFailureAnnotations(annotationBatches[i]?.annotations ?? []));
   }
   const checkOutput = outputParts.join("\n\n");
 
   let jobs: CondensedJobLog[] = [];
   let actionsPermissionMissing = false;
+  let logFetchRateLimited = false;
   try {
     const listed = await options.prSurface.listFailingActionsJobs(options.headSha);
     if (!listed.ok) {
@@ -111,10 +162,17 @@ async function fetchCiLogContext(options: {
       });
     } else {
       const selected = listed.jobs.slice(0, REVIEW_CI_SUMMARY_LOG_MAX_JOBS);
-      for (const job of selected) {
-        const downloaded = await options.prSurface.downloadActionsJobLogs(job.id);
-        if (!downloaded.ok) {
-          if (downloaded.reason === "actions_permission") {
+      const downloaded = await mapBounded(
+        selected,
+        REVIEW_CI_SUMMARY_FETCH_CONCURRENCY,
+        async (job) => options.prSurface.downloadActionsJobLogs(job.id),
+      );
+      for (let i = 0; i < selected.length; i++) {
+        const job = selected[i];
+        const result = downloaded[i];
+        if (job == null || result == null) continue;
+        if (!result.ok) {
+          if (result.reason === "actions_permission") {
             actionsPermissionMissing = true;
             logDebug("review_ci_summary_actions_unavailable", {
               owner: options.prSurface.owner,
@@ -129,17 +187,28 @@ async function fetchCiLogContext(options: {
         jobs.push({
           name: job.name,
           url: job.htmlUrl ?? undefined,
-          text: condenseJobLogText(downloaded.text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS),
+          text: condenseJobLogText(result.text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS),
         });
       }
     }
   } catch (error) {
+    logFetchRateLimited = classifyGithubError(error) === "rate_limit";
     logDebug("review_ci_summary_actions_logs_failed", {
       owner: options.prSurface.owner,
       repo: options.prSurface.repo,
       message: error instanceof Error ? error.message : String(error),
     });
     jobs = [];
+  }
+
+  const rateLimited =
+    annotationBatches.filter((batch) => batch.rateLimited).length + (logFetchRateLimited ? 1 : 0);
+  if (rateLimited > 0) {
+    logDebug("review_ci_summary_github_429", {
+      owner: options.prSurface.owner,
+      repo: options.prSurface.repo,
+      count: rateLimited,
+    });
   }
 
   return {

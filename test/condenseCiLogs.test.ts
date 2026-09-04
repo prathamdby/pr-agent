@@ -4,7 +4,9 @@ import {
   condenseJobLogText,
   isDeprecationNoiseLine,
   mergeCondensedJobLogs,
+  rawLogIntakeCap,
   selectEffectiveCiContext,
+  tailCapRawLogText,
 } from "../src/review/ci/condenseCiLogs.js";
 
 describe("condenseCiLogs", () => {
@@ -140,5 +142,35 @@ describe("condenseCiLogs", () => {
     expect(Buffer.byteLength(bounded, "utf8")).toBeLessThanOrEqual(20);
     expect(bounded).toContain("tail-marker");
     expect(bounded).not.toContain("head-marker");
+  });
+
+  it("caps raw intake to the tail window and keeps the failure digest", () => {
+    const tailFailure = [
+      "Format issues found in above 1 files. Run without `--check` to fix.",
+      "Error: Process completed with exit code 1.",
+    ].join("\n");
+    const headSentinel = "HEAD-ONLY-SENTINEL-do-not-keep";
+    const huge = `${headSentinel}\n${"z".repeat(200_000)}\n${tailFailure}`;
+    const intake = tailCapRawLogText(huge);
+
+    expect(intake.length).toBe(rawLogIntakeCap());
+    expect(intake.length).toBeLessThan(huge.length);
+    expect(intake).toContain("Format issues found");
+    expect(intake).not.toContain(headSentinel);
+
+    const condensed = condenseJobLogText(huge);
+    expect(condensed).toBe(condenseJobLogText(intake));
+    expect(condensed).toContain("Format issues found");
+    expect(condensed).toContain("exit code 1");
+  });
+
+  it("leaves logs inside the intake window unchanged before scanning", () => {
+    const raw = [
+      "Checking formatting...",
+      "Format issues found in above 1 files. Run without `--check` to fix.",
+      "Error: Process completed with exit code 1.",
+    ].join("\n");
+    expect(tailCapRawLogText(raw)).toBe(raw);
+    expect(condenseJobLogText(raw)).toBe(condenseJobLogText(tailCapRawLogText(raw)));
   });
 });

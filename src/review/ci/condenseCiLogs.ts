@@ -1,6 +1,7 @@
 import {
   REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
   REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
+  REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE,
 } from "../../settings/index.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
 
@@ -35,6 +36,21 @@ function collapseBlankLines(text: string): string {
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
+export function rawLogIntakeCap(
+  perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
+): number {
+  return perJobMaxChars * REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE;
+}
+
+/** Keeps the tail of a raw log before any line scan. */
+export function tailCapRawLogText(
+  raw: string,
+  perJobMaxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
+): string {
+  const cap = rawLogIntakeCap(perJobMaxChars);
+  return raw.length <= cap ? raw : raw.slice(raw.length - cap);
+}
+
 export function isDeprecationNoiseLine(line: string): boolean {
   return DEPRECATION_NOISE_RE.test(line);
 }
@@ -47,9 +63,11 @@ export function condenseJobLogText(
   raw: string,
   maxChars: number = REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
 ): string {
-  const lines = raw.split(/\r?\n/);
+  const intake = tailCapRawLogText(raw, maxChars);
+  const lines = intake.split(/\r?\n/);
   const kept: string[] = [];
   let sawRealError = false;
+  let keptChars = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
@@ -62,22 +80,20 @@ export function condenseJobLogText(
       for (let j = start; j <= i; j++) {
         const candidate = lines[j] ?? "";
         if (isDeprecationNoiseLine(candidate)) continue;
-        kept.push(candidate);
+        keptChars = pushKeptLine(kept, keptChars, candidate, maxChars);
       }
-      // Keep a short tail after the error for context.
       for (let j = i + 1; j < Math.min(lines.length, i + 6); j++) {
         const candidate = lines[j] ?? "";
         if (isDeprecationNoiseLine(candidate)) continue;
-        kept.push(candidate);
+        keptChars = pushKeptLine(kept, keptChars, candidate, maxChars);
       }
     }
   }
 
   let condensed: string;
   if (kept.length > 0) {
-    condensed = collapseBlankLines([...new Set(kept)].join("\n"));
+    condensed = collapseBlankLines(kept.join("\n"));
   } else if (!sawRealError) {
-    // No real errors found: keep the last non-noise lines (may include deprecation if sole signal).
     const tail = lines
       .filter((line) => line.trim().length > 0)
       .slice(-40)
@@ -99,6 +115,18 @@ export function condenseJobLogText(
     condensed = condensed.slice(condensed.length - maxChars);
   }
   return redactReviewText(condensed);
+}
+
+function pushKeptLine(kept: string[], keptChars: number, line: string, maxChars: number): number {
+  if (kept.includes(line)) return keptChars;
+  kept.push(line);
+  let nextChars = keptChars + line.length + (keptChars > 0 ? 1 : 0);
+  while (kept.length > 1 && nextChars > maxChars) {
+    const dropped = kept.shift();
+    if (dropped == null) break;
+    nextChars -= dropped.length + 1;
+  }
+  return nextChars;
 }
 
 /**
