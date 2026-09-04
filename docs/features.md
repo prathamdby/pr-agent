@@ -17,11 +17,11 @@ trigger sets are intentionally not supported.
 | `FEATURE_REVIEW`        | `manual` \| `auto`                 | `auto`   | yes            | Orchestrated review. `auto` reviews each PR when opened; `/review` is always available.                                                                              |
 | `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`   | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                               |
 | `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`   | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line. |
-| `FEATURE_ASK`           | `off` \| `manual`                  | `manual` | yes            | `/ask` and `@bot` question threads.                                                                             |
-| `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual` | yes            | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                     |
-| `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`   | no             | Review size / security labels synced onto the PR.                                                               |
-| `FEATURE_COMMIT_STATUS` | `false` \| `true`                  | `false`  | no             | Posts the `pr-agent/review` commit status on the PR head; usable in branch protection rules.                    |
-| `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `false`  | no             | Allows `/describe` to rewrite the PR title.                                                                     |
+| `FEATURE_ASK`           | `off` \| `manual`                  | `manual` | yes            | `/ask` and `@bot` question threads.                                                                                                                                  |
+| `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual` | yes            | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                                                                          |
+| `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`   | no             | Review size / security labels synced onto the PR.                                                                                                                    |
+| `FEATURE_COMMIT_STATUS` | `false` \| `true`                  | `false`  | no             | Posts the `pr-agent/review` commit status on the PR head; usable in branch protection rules.                                                                         |
+| `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `false`  | no             | Allows `/describe` to rewrite the PR title.                                                                                                                          |
 
 Notes:
 
