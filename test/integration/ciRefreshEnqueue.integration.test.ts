@@ -191,4 +191,27 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
       before + (CI_REFRESH_RETRY_DELAY_SECONDS - 5) * 1000,
     );
   });
+
+  it("coalesces retain hops for the same PR head", async () => {
+    const shared = {
+      kind: "ci_refresh" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: "app",
+      prNumber: 11,
+      headSha: "same-head",
+      attempt: 1,
+    };
+
+    await expect(
+      enqueueCiRefreshRetry(boss, { ...shared, webhookEventId: randomUUID() }),
+    ).resolves.toBe("enqueued");
+    await expect(
+      enqueueCiRefreshRetry(boss, { ...shared, webhookEventId: randomUUID() }),
+    ).resolves.toBe("already_present");
+
+    const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.data).toMatchObject({ headSha: "same-head", prNumber: 11 });
+  });
 });

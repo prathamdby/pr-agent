@@ -52,6 +52,13 @@ export function decideCiRefreshRetain(attempt: number): CiRefreshRetainDecision 
   return { kind: "retry", nextAttempt: attempt + 1 };
 }
 
+/** One pending retain hop per PR head and attempt. Later deliveries join that hop. */
+export function ciRefreshRetainSingletonKey(
+  data: Pick<CiRefreshJobData, "owner" | "repo" | "prNumber" | "headSha" | "attempt">,
+): string {
+  return `${data.owner}/${data.repo}#${data.prNumber}:${data.headSha}:${ciRefreshAttemptOf(data)}`;
+}
+
 export function jobCorrelation(
   eventId: string,
   headers: Pick<WebhookHeaders, "delivery">,
@@ -231,6 +238,8 @@ export async function enqueueCiRefreshRetry(
   const attempt = ciRefreshAttemptOf(data);
   const options: Parameters<PgBoss["send"]>[2] = {
     startAfter: CI_REFRESH_RETRY_DELAY_SECONDS,
+    singletonKey: ciRefreshRetainSingletonKey(data),
+    singletonSeconds: CI_REFRESH_RETRY_DELAY_SECONDS,
     priority: 40,
     group: { id: installationGroupId(data.installationId) },
   };

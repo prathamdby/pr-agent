@@ -14,6 +14,7 @@ import * as prSurfaceModule from "../src/github/prSurface.js";
 import {
   ciRefreshAttemptOf,
   ciRefreshBossJobId,
+  ciRefreshRetainSingletonKey,
   ciRefreshRetryBossJobId,
   decideCiRefreshRetain,
 } from "../src/agentWork/intake/queueing.js";
@@ -126,11 +127,14 @@ describe("executeCiRefreshJob", () => {
     await executeCiRefreshJob(cfg, pool, boss, data);
 
     expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
+    expect(mocks.mintInstallationToken).not.toHaveBeenCalled();
     expect(send).toHaveBeenCalledWith(
       CI_REFRESH_QUEUE,
       expect.objectContaining({ kind: "ci_refresh", headSha: "head", attempt: 1 }),
       expect.objectContaining({
         startAfter: CI_REFRESH_RETRY_DELAY_SECONDS,
+        singletonKey: ciRefreshRetainSingletonKey({ ...data, attempt: 1 }),
+        singletonSeconds: CI_REFRESH_RETRY_DELAY_SECONDS,
         priority: 40,
         id: ciRefreshRetryBossJobId(data.webhookEventId!, 7, 1),
       }),
@@ -182,6 +186,7 @@ describe("executeCiRefreshJob", () => {
 
     await executeCiRefreshJob(cfg, pool, fakeBoss(), data);
 
+    expect(mocks.mintInstallationToken).toHaveBeenCalled();
     expect(mocks.hasActiveReviewWorkItem).toHaveBeenCalledWith(pool, "o/r#7");
     expect(
       surfaceBundle.controls.events.some((event) => event.kind === "listConversationComments"),

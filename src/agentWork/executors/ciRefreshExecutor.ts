@@ -35,7 +35,6 @@ export async function executeCiRefreshJob(
   boss: PgBoss,
   data: CiRefreshJobData,
 ): Promise<void> {
-  const installation = await mintInstallationToken(cfg, data.installationId);
   if (await hasActiveReviewWorkItem(pool, prResourceKey(data.owner, data.repo, data.prNumber))) {
     const attempt = ciRefreshAttemptOf(data);
     const decision = decideCiRefreshRetain(attempt);
@@ -59,6 +58,7 @@ export async function executeCiRefreshJob(
     }
     return;
   }
+  const installation = await mintInstallationToken(cfg, data.installationId);
   const prSurface = createPrSurface({
     cfg,
     installationId: data.installationId,
