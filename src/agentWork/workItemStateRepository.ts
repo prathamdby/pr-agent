@@ -150,16 +150,16 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   return row ? mapWorkItemCore(row) : null;
 }
 
-/** Wait-queue rank for the queued progress stub (`#2 of 10`). */
+/** Wait-queue rank for the queued progress stub (`#N of M`). */
 export type ReviewQueuePosition = {
   readonly position: number;
   readonly total: number;
 };
 
 /**
- * Rank of a still-queued review work item among all queued reviews; null when not waiting.
- * Scan cost is O(queued work items of every type) under the (status) index until a
- * `(type, status, created_at)` covering index lands; no migration in this change.
+ * Rank of a still-queued review among queued reviews for the same resource key;
+ * null when not waiting. `resource_key` is already indexed
+ * (`agent_work_items_resource_type_status_idx`).
  */
 export async function getReviewQueuePosition(
   pool: Pool,
@@ -168,17 +168,18 @@ export async function getReviewQueuePosition(
   const row = await queryOne<{ position: number; total: number }>(
     pool,
     `WITH target AS (
-       SELECT id, created_at
+       SELECT id, created_at, resource_key
          FROM agent_work_items
         WHERE id = $1
           AND type = 'review'
           AND status = 'queued'
      ),
      queued AS (
-       SELECT id, created_at
-         FROM agent_work_items
-        WHERE type = 'review'
-          AND status = 'queued'
+       SELECT q.id, q.created_at
+         FROM agent_work_items q
+         JOIN target t ON q.resource_key = t.resource_key
+        WHERE q.type = 'review'
+          AND q.status = 'queued'
      )
      SELECT
        (SELECT COUNT(*)::int FROM queued q, target t

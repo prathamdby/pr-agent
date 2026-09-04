@@ -38,8 +38,6 @@ import {
 } from "../orchestrator/orchestratorTypes.js";
 import { renderStaleReviewMetadataComment } from "./reviewRender.js";
 
-export type { ReviewQueuePosition };
-
 const PROGRESS_REVISION_RE =
   /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
 

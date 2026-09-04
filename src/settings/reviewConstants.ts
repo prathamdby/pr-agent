@@ -23,7 +23,7 @@ export const REVIEW_FAILURE_ALERT = "CAUTION";
 export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
 /** Progress stub while the review work item is still queued (before the review worker claims it). */
 export const REVIEW_PROGRESS_QUEUED_NOTE = "Review queued on the latest commit.";
-/** Queued progress stub table label for wait-queue rank among review work items. */
+/** Queued progress stub table label for wait-queue rank among queued reviews for the same pull request (resource key). */
 export const REVIEW_PROGRESS_QUEUE_LABEL = "Queue";
 
 /** Sanitize a GitHub login for public progress-stub attribution. */
