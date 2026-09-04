@@ -17,7 +17,9 @@ import {
   SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
   SLASH_REVIEW_FORCE_RESTARTED_BODY,
   SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
+  TRIAGE_INVALID_EXCLUDE,
   TRIAGE_QUEUE,
+  TRIAGE_UNKNOWN_SUBCOMMAND,
   VERIFICATION_QUEUE,
 } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
@@ -223,6 +225,179 @@ describe("applySlashCommandIntake", () => {
         type: "triage",
       }),
     );
+    const applyPayload = JSON.parse(String(workItemInserts[0]?.at(-1)));
+    expect(applyPayload.mode).toBeUndefined();
+  });
+
+  it("acks an unknown /triage subcommand without creating a work item", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const workItemInserts: unknown[][] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [{ id: "work-triage" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/triage all extra"), intakeLog),
+    );
+
+    expect(workItemInserts).toHaveLength(0);
+    expect(sentJobs).toEqual([
+      expect.objectContaining({
+        queue: ACK_QUEUE,
+        data: expect.objectContaining({
+          reply: expect.objectContaining({ body: TRIAGE_UNKNOWN_SUBCOMMAND }),
+        }),
+      }),
+    ]);
+  });
+
+  it("acks invalid /triage all exclude without creating a work item", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const workItemInserts: unknown[][] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [{ id: "work-triage" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/triage all exclude abc"), intakeLog),
+    );
+
+    expect(workItemInserts).toHaveLength(0);
+    expect(sentJobs).toEqual([
+      expect.objectContaining({
+        queue: ACK_QUEUE,
+        data: expect.objectContaining({
+          reply: expect.objectContaining({ body: TRIAGE_INVALID_EXCLUDE }),
+        }),
+      }),
+    ]);
+  });
+
+  it("enqueues /triage preview with mode on the payload", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const payloads: unknown[] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          payloads.push(JSON.parse(String(params?.at(-1))));
+          return { rows: [{ id: "work-triage" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/triage preview"), intakeLog),
+    );
+
+    expect(payloads).toEqual([expect.objectContaining({ mode: "preview" })]);
+    expect(sentJobs.map((job) => job.queue)).toEqual([ACK_QUEUE, TRIAGE_QUEUE]);
+  });
+
+  it("enqueues /triage all exclude with bulk mode and ids", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const payloads: unknown[] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          payloads.push(JSON.parse(String(params?.at(-1))));
+          return { rows: [{ id: "work-triage" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/triage all exclude 11,22"), intakeLog),
+    );
+
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        mode: "bulk",
+        excludeThreadRootCommentIds: [11, 22],
+      }),
+    ]);
+    expect(sentJobs.map((job) => job.queue)).toEqual([ACK_QUEUE, TRIAGE_QUEUE]);
   });
 
   it("dedups an active triage work item", async () => {
@@ -387,6 +562,60 @@ describe("applySlashCommandIntake", () => {
     expect(payload.scope).toBe("all");
     expect(payload.needsThreadRootResolution).toBeUndefined();
     expect(payload.replyTarget).toEqual({ kind: "prConversation", prNumber: 7 });
+    expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, TRIAGE_QUEUE]);
+  });
+
+  it("enqueues /triage all as bulk with full-PR scope and exclude ids", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const workItemInserts: unknown[][] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_event_replays")) {
+          return { rows: [{ body_sha256: "hash" }] };
+        }
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("SELECT id, payload")) return { rows: [] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [{ id: "work-triage-bulk" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(
+        {
+          ...makeSlashInput("/triage all exclude 11,22"),
+          replyTarget: {
+            kind: "inlineReviewThread",
+            prNumber: 7,
+            inReplyToCommentId: 50,
+          },
+          triageScope: "thread",
+          threadAnchorCommentId: 50,
+        },
+        intakeLog,
+      ),
+    );
+
+    const payload = JSON.parse(String(workItemInserts[0]?.at(-1)));
+    expect(payload.mode).toBe("bulk");
+    expect(payload.scope).toBe("all");
+    expect(payload.excludeThreadRootCommentIds).toEqual([11, 22]);
     expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, TRIAGE_QUEUE]);
   });
 

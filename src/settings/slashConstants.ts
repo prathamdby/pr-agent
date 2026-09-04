@@ -10,6 +10,8 @@ export const SLASH_HELP_BODY = [
   "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
   "- `/cancel` - cancel a queued or in-progress review on this PR",
   "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+  "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
+  "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
   "- `/verify` - verify open findings against the current pull request head",
   "",
   "Notes:",

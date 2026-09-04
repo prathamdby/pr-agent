@@ -35,8 +35,14 @@ import {
 
 const exec = promisify(execFile);
 
+export type TriageCommitError = {
+  readonly threadRootCommentId: number;
+  readonly error: string;
+};
+
 export type TriageWorkspaceToolState = {
   readonly commitByThreadRootCommentId: Map<number, string>;
+  readonly commitErrors: TriageCommitError[];
 };
 
 async function safeReadPath(root: string, path: string): Promise<string> {
@@ -135,7 +141,7 @@ async function git(root: string, args: readonly string[], timeoutMs: number): Pr
 }
 
 export function createTriageWorkspaceToolState(): TriageWorkspaceToolState {
-  return { commitByThreadRootCommentId: new Map() };
+  return { commitByThreadRootCommentId: new Map(), commitErrors: [] };
 }
 
 export function buildTriageWorkspaceTools(params: {
@@ -385,9 +391,15 @@ export function buildTriageWorkspaceTools(params: {
         files,
         implicatedPaths,
       });
-      const result = await params.checkout.commit({ files: [...staged], subject, body });
-      params.state.commitByThreadRootCommentId.set(threadRootCommentId, result.sha);
-      return result;
+      try {
+        const result = await params.checkout.commit({ files: [...staged], subject, body });
+        params.state.commitByThreadRootCommentId.set(threadRootCommentId, result.sha);
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        params.state.commitErrors.push({ threadRootCommentId, error: message });
+        throw error;
+      }
     },
   });
 

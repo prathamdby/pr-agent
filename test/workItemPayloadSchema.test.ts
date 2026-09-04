@@ -52,6 +52,32 @@ describe("parseWorkItemPayload", () => {
     }
   });
 
+  it("defaults missing triage mode to apply and accepts bulk exclude lists", () => {
+    const base = {
+      source: "slash" as const,
+      commentId: 1,
+      scope: "all" as const,
+      replyTarget: { kind: "prConversation" as const, prNumber: 1 },
+    };
+    expect(parseWorkItemPayload("triage", base)).toMatchObject({ mode: "apply" });
+    expect(
+      parseWorkItemPayload("triage", {
+        ...base,
+        mode: "bulk",
+        excludeThreadRootCommentIds: [11, 22],
+      }),
+    ).toMatchObject({
+      mode: "bulk",
+      excludeThreadRootCommentIds: [11, 22],
+    });
+    expect(
+      parseWorkItemPayload("triage", {
+        ...base,
+        mode: "preview",
+      }),
+    ).toMatchObject({ mode: "preview" });
+  });
+
   it("accepts slash source on verification payloads", () => {
     expect(parseWorkItemPayload("verification", { source: "slash" })).toEqual({ source: "slash" });
   });

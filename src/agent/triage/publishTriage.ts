@@ -13,7 +13,9 @@ import {
   type TriageVerdict,
 } from "../../review/triageSchema.js";
 import {
+  TRIAGE_BULK_PARTIAL_NOTICE,
   TRIAGE_CLOSED_PR_NOTICE,
+  TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_PUBLISH_LENS,
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
@@ -23,6 +25,7 @@ import { assertTriagePullRequestWritable, TriageClosedPullRequestError } from ".
 import { recordPublishStep } from "../../agentWork/repository.js";
 import {
   operationIntentMarker,
+  triagePreviewOperationKey,
   triagePushOperationKey,
   triageReportOperationKey,
   triageThreadOperationKey,
@@ -43,7 +46,13 @@ import {
   StaleHeadPushError,
   type WritablePrCheckout,
 } from "../../prWorkspace/writablePrCheckout.js";
-import { renderTriageReport } from "./triageRender.js";
+import {
+  classifyTriageBulkOutcomes,
+  renderTriagePreview,
+  renderTriageReport,
+  type TriageBulkOutcome,
+  type TriagePreviewHunk,
+} from "./triageRender.js";
 
 type PublishTriageParams = {
   readonly pool: Pool;
@@ -66,6 +75,13 @@ type PublishTriageParams = {
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
   readonly leaseEpoch: number | null;
   readonly signal?: AbortSignal;
+  readonly bulkOutcomes?: ReadonlyMap<number, TriageBulkOutcome>;
+  readonly bulkClassification?: {
+    readonly excludedIds: ReadonlySet<number>;
+    readonly notInPreviewIds: ReadonlySet<number>;
+    readonly commitByThreadRootCommentId: ReadonlyMap<number, string>;
+    readonly commitErrors: readonly { readonly threadRootCommentId: number }[];
+  };
 };
 
 type ReportOnlyParams = Omit<
@@ -96,10 +112,52 @@ export type StoredTriagePushDetail = TriagePriorPush & {
 export type PublishTriageResult = {
   readonly pushOutcome: TriagePushOutcome;
   readonly missingThreadAction: boolean;
+  readonly partialBulk?: boolean;
 };
 
 export function isTriagePushOutcome(value: unknown): value is TriagePushOutcome {
   return value === "not-needed" || value === "pushed" || value === "stale" || value === "closed";
+}
+
+export type StoredTriagePreviewDetail = {
+  readonly headSha: string;
+  readonly threadRootCommentIds: readonly number[];
+  readonly hunks: readonly TriagePreviewHunk[];
+  readonly payload: TriagePayload;
+};
+
+export function parseStoredTriagePreviewDetail(detail: unknown): StoredTriagePreviewDetail | null {
+  if (typeof detail !== "object" || detail == null) return null;
+  const entry = detail as Record<string, unknown>;
+  if (typeof entry.headSha !== "string" || entry.headSha.length === 0) return null;
+  if (!Array.isArray(entry.threadRootCommentIds) || !Array.isArray(entry.hunks)) return null;
+  const payload = v.safeParse(TriagePayloadSchema, entry.payload);
+  if (!payload.success) return null;
+  const threadRootCommentIds: number[] = [];
+  for (const id of entry.threadRootCommentIds) {
+    if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return null;
+    threadRootCommentIds.push(id);
+  }
+  const hunks: TriagePreviewHunk[] = [];
+  for (const raw of entry.hunks) {
+    if (typeof raw !== "object" || raw == null) return null;
+    const hunk = raw as Record<string, unknown>;
+    if (
+      typeof hunk.threadRootCommentId !== "number" ||
+      !Number.isInteger(hunk.threadRootCommentId) ||
+      hunk.threadRootCommentId <= 0 ||
+      typeof hunk.subject !== "string" ||
+      typeof hunk.diff !== "string"
+    ) {
+      return null;
+    }
+    hunks.push({
+      threadRootCommentId: hunk.threadRootCommentId,
+      subject: hunk.subject,
+      diff: hunk.diff,
+    });
+  }
+  return { headSha: entry.headSha, threadRootCommentIds, hunks, payload: payload.output };
 }
 
 function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
@@ -322,6 +380,77 @@ export async function publishTriageReportOnly(params: ReportOnlyParams): Promise
   }
 }
 
+type PublishTriagePreviewParams = Omit<
+  PublishTriageParams,
+  "checkout" | "resolutionByRootCommentId" | "priorPush"
+> & {
+  readonly hunks: readonly TriagePreviewHunk[];
+};
+
+export async function publishTriagePreview(params: PublishTriagePreviewParams): Promise<void> {
+  const analytics: TriageAnalyticsRef = {
+    installationId: params.installationId,
+    owner: params.owner,
+    repo: params.repo,
+    prNumber: params.prNumber,
+    workItemId: params.workItemId,
+    scope: params.scope,
+  };
+  const body = renderTriagePreview({
+    headSha: params.headSha,
+    inventory: params.inventory,
+    hunks: params.hunks,
+    scope: params.scope,
+    threadRootCommentId: params.threadRootCommentId,
+  });
+  const operationKey = triagePreviewOperationKey(params.resourceKey);
+  const operationMarker = operationIntentMarker(operationKey, params.workItemId);
+  try {
+    const result = await withOperationIntent<{ readonly id: number; readonly updated: boolean }>({
+      client: params.pool,
+      workItemId: params.workItemId,
+      leaseEpoch: params.leaseEpoch,
+      operationKey,
+      mutationKind: "github.triage_preview",
+      detail: {
+        step: "triage_preview",
+        resourceKey: params.resourceKey,
+        reviewLens: TRIAGE_PUBLISH_LENS,
+        operationMarker,
+      },
+      recover: async () => {
+        const existing = await findMarkedConversationComment(params.prSurface, operationMarker);
+        return existing == null
+          ? { kind: "absent" as const }
+          : { kind: "reconciled" as const, value: { id: existing.id, updated: false } };
+      },
+      isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+      mutate: () =>
+        params.prSurface.upsertProgressComment(
+          `${redactReviewText(body)}\n${operationMarker}`,
+          TRIAGE_PREVIEW_SENTINEL,
+        ),
+    });
+    await recordPublishStep(params.pool, {
+      workItemId: params.workItemId,
+      leaseEpoch: params.leaseEpoch,
+      resourceKey: params.resourceKey,
+      reviewLens: TRIAGE_PUBLISH_LENS,
+      step: "triage_preview",
+      githubId: result.id,
+      detail: {
+        headSha: params.headSha,
+        threadRootCommentIds: params.inventory.map((thread) => thread.rootCommentId),
+        hunks: params.hunks,
+        payload: params.payload,
+      } satisfies StoredTriagePreviewDetail,
+    });
+  } catch (error) {
+    captureTriageFailure(analytics, "publish_preview", error);
+    throw error;
+  }
+}
+
 export async function publishTriage(params: PublishTriageParams): Promise<PublishTriageResult> {
   const analytics: TriageAnalyticsRef = {
     installationId: params.installationId,
@@ -540,6 +669,23 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
     }
   }
 
+  const bulkOutcomes =
+    params.bulkClassification != null
+      ? classifyTriageBulkOutcomes({
+          inventory: params.inventory,
+          payload: params.payload,
+          commitByThreadRootCommentId: params.bulkClassification.commitByThreadRootCommentId,
+          commitErrors: params.bulkClassification.commitErrors,
+          excludedIds: params.bulkClassification.excludedIds,
+          notInPreviewIds: params.bulkClassification.notInPreviewIds,
+          pushed: pushOutcome === "pushed",
+        })
+      : params.bulkOutcomes;
+  const partialBulk =
+    bulkOutcomes != null &&
+    [...bulkOutcomes.values()].some((outcome) => outcome === "applied") &&
+    [...bulkOutcomes.values()].some((outcome) => outcome === "failed");
+
   try {
     await upsertTriageReport({
       ...params,
@@ -553,11 +699,13 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
           pushOutcome === "closed" ? TRIAGE_CLOSED_PR_NOTICE : undefined,
           pushOutcome === "stale" ? TRIAGE_STALE_HEAD_NOTICE : undefined,
           missingThreadAction ? TRIAGE_THREAD_RESOLUTION_NOTICE : undefined,
+          partialBulk ? TRIAGE_BULK_PARTIAL_NOTICE : undefined,
         ]
           .filter((notice) => notice != null)
           .join("\n\n"),
         scope: params.scope,
         threadRootCommentId: params.threadRootCommentId,
+        bulkOutcomes,
       }),
     });
   } catch (error) {
@@ -588,5 +736,5 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
     }
   }
 
-  return { pushOutcome, missingThreadAction };
+  return { pushOutcome, missingThreadAction, ...(partialBulk ? { partialBulk: true } : {}) };
 }

@@ -5,8 +5,11 @@ import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { TriageJobData } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
+  TRIAGE_BULK_PREVIEW_STALE,
+  TRIAGE_BULK_REQUIRES_PREVIEW,
   TRIAGE_CLOSED_PR_NOTICE,
   TRIAGE_FAILURE_MESSAGE,
+  TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_NOT_ELIGIBLE,
 } from "../src/settings/index.js";
@@ -23,12 +26,16 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
   withWritablePrCheckout: vi.fn(),
   runFullPrTriage: vi.fn(),
+  replayPreviewHunks: vi.fn(),
   parseStoredTriagePushDetail: vi.fn(),
+  parseStoredTriagePreviewDetail: vi.fn(),
   publishTriage: vi.fn(),
+  publishTriagePreview: vi.fn(),
   publishTriageReportOnly: vi.fn(),
   recordPublishStep: vi.fn(),
   getCompletedPublishStepDetail: vi.fn(),
   getCompletedPublishStepDetailWithoutNewerStep: vi.fn(),
+  getLatestCompletedPublishStepDetail: vi.fn(),
   hasCompletedPublishStep: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
@@ -59,9 +66,16 @@ vi.mock("../src/agent/triage/triageRun.js", () => ({
   runFullPrTriage: mocks.runFullPrTriage,
 }));
 
+vi.mock("../src/agent/triage/previewApproval.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agent/triage/previewApproval.js")>();
+  return { ...actual, replayPreviewHunks: mocks.replayPreviewHunks };
+});
+
 vi.mock("../src/agent/triage/publishTriage.js", () => ({
   parseStoredTriagePushDetail: mocks.parseStoredTriagePushDetail,
+  parseStoredTriagePreviewDetail: mocks.parseStoredTriagePreviewDetail,
   publishTriage: mocks.publishTriage,
+  publishTriagePreview: mocks.publishTriagePreview,
   publishTriageReportOnly: mocks.publishTriageReportOnly,
 }));
 
@@ -69,6 +83,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
   getCompletedPublishStepDetailWithoutNewerStep:
     mocks.getCompletedPublishStepDetailWithoutNewerStep,
+  getLatestCompletedPublishStepDetail: mocks.getLatestCompletedPublishStepDetail,
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
   listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
   recordPublishStep: mocks.recordPublishStep,
@@ -108,6 +123,39 @@ function mockDurableExecution(workItem = item()): void {
   );
 }
 
+function storedPreview(
+  overrides: {
+    readonly headSha?: string;
+    readonly threadRootCommentIds?: readonly number[];
+    readonly hunks?: readonly {
+      readonly threadRootCommentId: number;
+      readonly subject: string;
+      readonly diff: string;
+    }[];
+  } = {},
+) {
+  const threadRootCommentIds = overrides.threadRootCommentIds ?? [1];
+  return {
+    headSha: overrides.headSha ?? "a".repeat(40),
+    threadRootCommentIds,
+    hunks:
+      overrides.hunks ??
+      threadRootCommentIds.map((threadRootCommentId) => ({
+        threadRootCommentId,
+        subject: "fix: app",
+        diff: "diff --git a/src/app.ts b/src/app.ts\n+ok\n",
+      })),
+    payload: {
+      verdicts: threadRootCommentIds.map((threadRootCommentId) => ({
+        verdict: "fixed" as const,
+        threadRootCommentId,
+        commitSha: "c".repeat(40),
+        evidence: "fixed",
+      })),
+    },
+  };
+}
+
 function configureDefaultThreads(
   entries: ReadonlyArray<readonly [number, { threadNodeId: string; isResolved: boolean }]>,
 ) {
@@ -145,9 +193,15 @@ describe("executeTriageJob", () => {
         listCommittedDetails: () => [],
       }),
     );
+    mocks.replayPreviewHunks.mockResolvedValue({
+      commitByThreadRootCommentId: new Map([[1, "d".repeat(40)]]),
+      commitErrors: [],
+    });
     mocks.runFullPrTriage.mockResolvedValue({
       submitted: true,
       payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "later" }] },
+      commitByThreadRootCommentId: new Map(),
+      commitErrors: [],
     });
     mocks.parseStoredTriagePushDetail.mockImplementation((detail) => ({
       payload: detail.payload,
@@ -166,9 +220,33 @@ describe("executeTriageJob", () => {
       missingThreadAction: false,
     });
     mocks.publishTriageReportOnly.mockResolvedValue(undefined);
+    mocks.publishTriagePreview.mockImplementation(
+      async (params: {
+        prSurface: { upsertProgressComment: (body: string, sentinel: string) => Promise<unknown> };
+        inventory: { rootCommentId: number }[];
+        hunks: unknown[];
+        headSha: string;
+      }) => {
+        await params.prSurface.upsertProgressComment(
+          TRIAGE_PREVIEW_SENTINEL,
+          TRIAGE_PREVIEW_SENTINEL,
+        );
+        await mocks.recordPublishStep(pool, {
+          step: "triage_preview",
+          detail: {
+            headSha: params.headSha,
+            threadRootCommentIds: params.inventory.map((thread) => thread.rootCommentId),
+            hunks: params.hunks,
+            payload: "payload" in params ? params.payload : undefined,
+          },
+        });
+      },
+    );
+    mocks.parseStoredTriagePreviewDetail.mockImplementation((detail) => detail);
     mocks.recordPublishStep.mockResolvedValue(undefined);
     mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
+    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(null);
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
@@ -1079,5 +1157,190 @@ describe("executeTriageJob", () => {
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toBe(TRIAGE_FAILURE_MESSAGE);
+  });
+
+  it("preview publishes a conversation comment and never pushes or mutates threads", async () => {
+    const push = vi.fn();
+    const committed = [
+      {
+        sha: "c".repeat(40),
+        subject: "fix: app",
+        diff: "diff --git a/src/app.ts b/src/app.ts\n+ok\n",
+      },
+    ];
+    mocks.withWritablePrCheckout.mockImplementation(async (_params, run) =>
+      run({
+        dir: "/tmp/checkout",
+        headRef: "branch",
+        baseSha: "a".repeat(40),
+        commit: vi.fn(),
+        push,
+        listCommittedShas: () => committed.map((entry) => entry.sha),
+        listCommittedDetails: () => committed,
+      }),
+    );
+    mocks.runFullPrTriage.mockResolvedValue({
+      submitted: true,
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "c".repeat(40),
+            evidence: "fixed",
+          },
+        ],
+      },
+      commitByThreadRootCommentId: new Map([[1, "c".repeat(40)]]),
+      commitErrors: [],
+    });
+    mockDurableExecution(item({ payload: { mode: "preview" } }));
+
+    const repliesBefore = durablePrSurfaceControls().replies.length;
+    const resolveBefore = durablePrSurfaceControls().events.filter(
+      (event) => event.kind === "resolveInlineReviewThread",
+    ).length;
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.publishTriage).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(mocks.publishTriagePreview).toHaveBeenCalled();
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        step: "triage_preview",
+        detail: expect.objectContaining({
+          headSha: "a".repeat(40),
+          threadRootCommentIds: [1],
+          payload: expect.objectContaining({
+            verdicts: [expect.objectContaining({ threadRootCommentId: 1, verdict: "fixed" })],
+          }),
+        }),
+      }),
+    );
+    expect(
+      durablePrSurfaceControls().events.some(
+        (event) =>
+          event.kind === "upsertProgressComment" && event.sentinel === TRIAGE_PREVIEW_SENTINEL,
+      ),
+    ).toBe(true);
+    expect(durablePrSurfaceControls().replies).toHaveLength(repliesBefore);
+    expect(
+      durablePrSurfaceControls().events.filter(
+        (event) => event.kind === "resolveInlineReviewThread",
+      ),
+    ).toHaveLength(resolveBefore);
+  });
+
+  it("bulk without a preview refuses report-only and never checks out", async () => {
+    mockDurableExecution(item({ payload: { mode: "bulk" } }));
+    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(null);
+    mocks.parseStoredTriagePreviewDetail.mockReturnValue(null);
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(TRIAGE_BULK_REQUIRES_PREVIEW),
+      }),
+    );
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+  });
+
+  it("bulk with a preview for another headSha refuses", async () => {
+    mockDurableExecution(item({ payload: { mode: "bulk" } }));
+    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(
+      storedPreview({ headSha: "b".repeat(40) }),
+    );
+    mocks.parseStoredTriagePreviewDetail.mockReturnValue(
+      storedPreview({ headSha: "b".repeat(40) }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(TRIAGE_BULK_PREVIEW_STALE),
+      }),
+    );
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+  });
+
+  it("bulk with exclude replays only the remaining preview hunks", async () => {
+    durablePrSurfaceControls().setBotFindingThreads([
+      {
+        rootCommentId: 1,
+        lens: "review",
+        path: "src/app.ts",
+        line: 1,
+        severity: "P1",
+        titleSnippet: "P1 · One",
+        humanReplies: [],
+        threadUrl: "https://github.test/1",
+      },
+      {
+        rootCommentId: 2,
+        lens: "review",
+        path: "src/b.ts",
+        line: 2,
+        severity: "P2",
+        titleSnippet: "P2 · Two",
+        humanReplies: [],
+        threadUrl: "https://github.test/2",
+      },
+    ]);
+    configureDefaultThreads([
+      [1, { threadNodeId: "n1", isResolved: false }],
+      [2, { threadNodeId: "n2", isResolved: false }],
+    ]);
+    mockDurableExecution(
+      item({
+        payload: { mode: "bulk", excludeThreadRootCommentIds: [2] },
+      }),
+    );
+    mocks.parseStoredTriagePreviewDetail.mockReturnValue(
+      storedPreview({ threadRootCommentIds: [1, 2] }),
+    );
+    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(
+      storedPreview({ threadRootCommentIds: [1, 2] }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+    expect(mocks.replayPreviewHunks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hunks: [expect.objectContaining({ threadRootCommentId: 1 })],
+      }),
+    );
+    expect(mocks.publishTriage).toHaveBeenCalled();
+  });
+
+  it("bulk happy path calls publishTriage", async () => {
+    mockDurableExecution(item({ payload: { mode: "bulk" } }));
+    mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
+    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+    expect(mocks.replayPreviewHunks).toHaveBeenCalled();
+    expect(mocks.publishTriage).toHaveBeenCalled();
+    expect(mocks.publishTriagePreview).not.toHaveBeenCalled();
+  });
+
+  it("skips a second apply or bulk run when triage_report already completed", async () => {
+    mocks.hasCompletedPublishStep.mockResolvedValue(true);
+    mockDurableExecution(item({ payload: { mode: "bulk" } }));
+    mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
+    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(mocks.publishTriage).not.toHaveBeenCalled();
   });
 });

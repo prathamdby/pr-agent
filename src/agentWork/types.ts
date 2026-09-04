@@ -165,12 +165,18 @@ export type DescriptionWorkPayload = {
 
 export type TriageScope = "all" | "thread";
 
+/** Apply is the existing `/triage` path. Preview and bulk are the issue 542 pair. */
+export type TriageMode = "apply" | "preview" | "bulk";
+
 export type TriageWorkPayload = {
   readonly source: "slash";
   readonly repositorySizeKb?: number;
   readonly commenterId?: number;
   readonly commentId: number;
   readonly scope: TriageScope;
+  /** Absent on rows written before preview/bulk. Readers treat missing as `apply`. */
+  readonly mode?: TriageMode;
+  readonly excludeThreadRootCommentIds?: readonly number[];
   readonly threadAnchorCommentId?: number;
   readonly needsThreadRootResolution?: boolean;
   readonly replyTarget: ReplyTarget;
@@ -179,6 +185,10 @@ export type TriageWorkPayload = {
   /** Set when close/merge intake cancels the triage work item. */
   readonly cancelAttribution?: ReviewCancelAttribution;
 };
+
+export function triageMode(payload: Pick<TriageWorkPayload, "mode">): TriageMode {
+  return payload.mode ?? "apply";
+}
 
 export type VerificationWorkPayload = {
   readonly source: WorkSource;

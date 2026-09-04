@@ -38,9 +38,31 @@ export type PublishStep =
   | "triage_push"
   | "triage_thread_actions"
   | "triage_report"
+  | "triage_preview"
   | "verification_thread_actions";
 type SharedPublishStep = Exclude<PublishStep, "ask_reply" | "check_run">;
 type AskPublishStep = Extract<PublishStep, "ask_reply">;
+
+export async function getLatestCompletedPublishStepDetail(
+  pool: Pool,
+  resourceKey: string,
+  reviewLens: PublishLens,
+  step: PublishStep,
+): Promise<Record<string, unknown> | null> {
+  const row = await queryOne<{ detail: Record<string, unknown> | null }>(
+    pool,
+    `SELECT detail
+		   FROM publish_records
+		  WHERE resource_key = $1
+		    AND review_lens = $2
+		    AND step = $3
+		    AND status = 'completed'
+		  ORDER BY updated_at DESC
+		  LIMIT 1`,
+    [resourceKey, reviewLens, step],
+  );
+  return row?.detail ?? null;
+}
 
 export async function hasCompletedPublishStep(
   pool: Pool,

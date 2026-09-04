@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isReviewForceCommand, parseSlashCommand } from "../src/commands/parseSlashCommand.js";
+import {
+  isReviewForceCommand,
+  parseSlashCommand,
+  parseTriageCommand,
+} from "../src/commands/parseSlashCommand.js";
 
 describe("parseSlashCommand", () => {
   it("parses first non-empty line command", () => {
@@ -19,6 +23,70 @@ describe("parseSlashCommand", () => {
     expect(parseSlashCommand("hello")).toBe(null);
     expect(parseSlashCommand("hello\n/review")).toBe(null);
     expect(parseSlashCommand("")).toBe(null);
+  });
+});
+
+describe("parseTriageCommand", () => {
+  it("returns null when the command is not triage", () => {
+    expect(parseTriageCommand("/review")).toBe(null);
+    expect(parseTriageCommand("hello")).toBe(null);
+  });
+
+  it("parses apply, preview, and bulk", () => {
+    expect(parseTriageCommand("/triage")).toEqual({ kind: "apply" });
+    expect(parseTriageCommand("/triage   ")).toEqual({ kind: "apply" });
+    expect(parseTriageCommand(" \n/triage preview")).toEqual({ kind: "preview" });
+    expect(parseTriageCommand("/triage preview and read this")).toEqual({ kind: "preview" });
+    expect(parseTriageCommand("/triage all")).toEqual({
+      kind: "bulk",
+      excludeThreadRootCommentIds: [],
+    });
+  });
+
+  it("parses exclude lists as thread root comment ids", () => {
+    expect(parseTriageCommand("/triage all exclude 11,22")).toEqual({
+      kind: "bulk",
+      excludeThreadRootCommentIds: [11, 22],
+    });
+    expect(parseTriageCommand("/triage all exclude 11 22")).toEqual({
+      kind: "bulk",
+      excludeThreadRootCommentIds: [11, 22],
+    });
+  });
+
+  it("rejects unknown subcommands and bad exclude lists", () => {
+    expect(parseTriageCommand("/triage all extra")).toEqual({
+      kind: "invalid",
+      reason: "unknown_subcommand",
+    });
+    expect(parseTriageCommand("/triage all excluded")).toEqual({
+      kind: "invalid",
+      reason: "unknown_subcommand",
+    });
+    expect(parseTriageCommand("/triage all exclude")).toEqual({
+      kind: "invalid",
+      reason: "invalid_exclude",
+    });
+    expect(parseTriageCommand("/triage all exclude abc")).toEqual({
+      kind: "invalid",
+      reason: "invalid_exclude",
+    });
+    expect(parseTriageCommand("/triage all exclude 9007199254740993")).toEqual({
+      kind: "invalid",
+      reason: "invalid_exclude",
+    });
+    expect(parseTriageCommand("/triage Preview")).toEqual({
+      kind: "invalid",
+      reason: "unknown_subcommand",
+    });
+    expect(parseTriageCommand("/triage please")).toEqual({
+      kind: "invalid",
+      reason: "unknown_subcommand",
+    });
+    expect(parseTriageCommand("/triage force")).toEqual({
+      kind: "invalid",
+      reason: "unknown_subcommand",
+    });
   });
 });
 
