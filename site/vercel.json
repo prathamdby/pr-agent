@@ -2,5 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "tanstack-start",
   "installCommand": "npm install -g --ignore-scripts=false @nubjs/nub@0.7.2 && cd .. && nub ci --filter pr-agent-landing...",
-  "buildCommand": "nub run build"
+  "buildCommand": "nub --node run build"
 }
