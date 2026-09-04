@@ -12,11 +12,9 @@ import {
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
 import {
-  ciRefreshAttemptOf,
-  ciRefreshBossJobId,
-  ciRefreshRetainSingletonKey,
-  ciRefreshRetryBossJobId,
-  decideCiRefreshRetain,
+  ciRefreshJobId,
+  ciRefreshSingletonKey,
+  nextCiRefreshAttempt,
 } from "../src/agentWork/intake/queueing.js";
 
 let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 7 });
@@ -64,6 +62,7 @@ const data: CiRefreshJobData = {
   repo: "r",
   prNumber: 7,
   headSha: "head",
+  attempt: 0,
   webhookEventId: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
 };
 
@@ -71,32 +70,28 @@ function fakeBoss(send: PgBoss["send"] = vi.fn().mockResolvedValue("job-id")) {
   return { send } as unknown as PgBoss;
 }
 
-describe("decideCiRefreshRetain", () => {
+describe("nextCiRefreshAttempt", () => {
   it("retries from the first hop through the last slot before the cap", () => {
-    expect(decideCiRefreshRetain(0)).toEqual({ kind: "retry", nextAttempt: 1 });
-    expect(ciRefreshAttemptOf({ ...data, attempt: undefined })).toBe(0);
-    expect(ciRefreshAttemptOf({ ...data, attempt: 4 })).toBe(4);
-    expect(decideCiRefreshRetain(CI_REFRESH_RETRY_ATTEMPT_LIMIT - 1)).toEqual({
-      kind: "retry",
-      nextAttempt: CI_REFRESH_RETRY_ATTEMPT_LIMIT,
-    });
+    expect(nextCiRefreshAttempt(0)).toBe(1);
+    expect(nextCiRefreshAttempt(CI_REFRESH_RETRY_ATTEMPT_LIMIT - 1)).toBe(
+      CI_REFRESH_RETRY_ATTEMPT_LIMIT,
+    );
   });
 
   it("stops at the cap so retain cannot spin", () => {
     for (let attempt = 0; attempt < CI_REFRESH_RETRY_ATTEMPT_LIMIT + 5; attempt++) {
-      const decision = decideCiRefreshRetain(attempt);
       if (attempt >= CI_REFRESH_RETRY_ATTEMPT_LIMIT) {
-        expect(decision).toEqual({ kind: "stop" });
+        expect(nextCiRefreshAttempt(attempt)).toBeNull();
       } else {
-        expect(decision).toEqual({ kind: "retry", nextAttempt: attempt + 1 });
+        expect(nextCiRefreshAttempt(attempt)).toBe(attempt + 1);
       }
     }
   });
 
-  it("uses an attempt-scoped job id distinct from intake", () => {
+  it("uses an attempt-scoped job id so hops cannot collide", () => {
     const eventId = data.webhookEventId!;
-    expect(ciRefreshRetryBossJobId(eventId, 7, 1)).not.toBe(ciRefreshBossJobId(eventId, 7));
-    expect(ciRefreshRetryBossJobId(eventId, 7, 1)).not.toBe(ciRefreshRetryBossJobId(eventId, 7, 2));
+    expect(ciRefreshJobId(eventId, 7, 0)).not.toBe(ciRefreshJobId(eventId, 7, 1));
+    expect(ciRefreshJobId(eventId, 7, 1)).not.toBe(ciRefreshJobId(eventId, 7, 2));
   });
 });
 
@@ -133,10 +128,10 @@ describe("executeCiRefreshJob", () => {
       expect.objectContaining({ kind: "ci_refresh", headSha: "head", attempt: 1 }),
       expect.objectContaining({
         startAfter: CI_REFRESH_RETRY_DELAY_SECONDS,
-        singletonKey: ciRefreshRetainSingletonKey({ ...data, attempt: 1 }),
+        singletonKey: ciRefreshSingletonKey({ ...data, attempt: 1 }),
         singletonSeconds: CI_REFRESH_RETRY_DELAY_SECONDS,
         priority: 40,
-        id: ciRefreshRetryBossJobId(data.webhookEventId!, 7, 1),
+        id: ciRefreshJobId(data.webhookEventId!, 7, 1),
       }),
     );
     expect(

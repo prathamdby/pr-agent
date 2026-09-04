@@ -19,7 +19,6 @@ import {
   type AckJobData,
   type AskJobData,
   type CiRefreshJobData,
-  type CiRefreshRetainDecision,
   type DescriptionJobData,
   type JobCorrelation,
   type PrRef,
@@ -29,34 +28,22 @@ import {
   type WebhookHeaders,
 } from "../types.js";
 
-/** Deterministic pg-boss job id for one webhook delivery + PR (uuid column). */
-export function ciRefreshBossJobId(webhookEventId: string, prNumber: number): string {
-  return uuidv5(webhookEventId, `ci-refresh:${prNumber}`);
-}
-
-/** Deterministic id for one retain hop of a delivery + PR. Distinct from the intake id. */
-export function ciRefreshRetryBossJobId(
-  webhookEventId: string,
-  prNumber: number,
-  attempt: number,
-): string {
+/** Deterministic pg-boss id for one delivery + PR + attempt. */
+export function ciRefreshJobId(webhookEventId: string, prNumber: number, attempt: number): string {
   return uuidv5(webhookEventId, `ci-refresh:${prNumber}:${attempt}`);
 }
 
-export function ciRefreshAttemptOf(data: Pick<CiRefreshJobData, "attempt">): number {
-  return data.attempt ?? 0;
-}
-
-export function decideCiRefreshRetain(attempt: number): CiRefreshRetainDecision {
-  if (attempt >= CI_REFRESH_RETRY_ATTEMPT_LIMIT) return { kind: "stop" };
-  return { kind: "retry", nextAttempt: attempt + 1 };
-}
-
-/** One pending retain hop per PR head and attempt. Later deliveries join that hop. */
-export function ciRefreshRetainSingletonKey(
+/** One pending job per PR head and attempt. Later same-head sends join that slot. */
+export function ciRefreshSingletonKey(
   data: Pick<CiRefreshJobData, "owner" | "repo" | "prNumber" | "headSha" | "attempt">,
 ): string {
-  return `${data.owner}/${data.repo}#${data.prNumber}:${data.headSha}:${ciRefreshAttemptOf(data)}`;
+  return `${data.owner}/${data.repo}#${data.prNumber}:${data.headSha}:${data.attempt}`;
+}
+
+/** Next retain hop, or null when the cap is exhausted. */
+export function nextCiRefreshAttempt(attempt: number): number | null {
+  if (attempt >= CI_REFRESH_RETRY_ATTEMPT_LIMIT) return null;
+  return attempt + 1;
 }
 
 export function jobCorrelation(
@@ -212,39 +199,47 @@ export async function enqueueVerification(
   });
 }
 
-/** Idempotent CI refresh: one job per webhook delivery + PR. */
+function ciRefreshSendOptions(
+  data: CiRefreshJobData,
+  extra: Pick<NonNullable<Parameters<PgBoss["send"]>[2]>, "db" | "startAfter">,
+): NonNullable<Parameters<PgBoss["send"]>[2]> {
+  const options: NonNullable<Parameters<PgBoss["send"]>[2]> = {
+    ...extra,
+    singletonKey: ciRefreshSingletonKey(data),
+    singletonSeconds: CI_REFRESH_RETRY_DELAY_SECONDS,
+    priority: 40,
+    group: { id: installationGroupId(data.installationId) },
+  };
+  if (data.webhookEventId) {
+    options.id = ciRefreshJobId(data.webhookEventId, data.prNumber, data.attempt);
+  }
+  return options;
+}
+
+/** Idempotent CI refresh: one job per webhook delivery + PR + attempt. */
 export async function enqueueCiRefreshIdempotent(
   boss: PgBoss,
   client: PoolClient,
   data: CiRefreshJobData,
   webhookEventId: string,
 ): Promise<"enqueued" | "already_present"> {
-  return sendBossJobIdempotent(boss, CI_REFRESH_QUEUE, data, {
-    db: pgBossDb(client),
-    id: ciRefreshBossJobId(webhookEventId, data.prNumber),
-    priority: 40,
-    group: { id: installationGroupId(data.installationId) },
-  });
+  return sendBossJobIdempotent(
+    boss,
+    CI_REFRESH_QUEUE,
+    data,
+    ciRefreshSendOptions({ ...data, webhookEventId }, { db: pgBossDb(client) }),
+  );
 }
 
-/**
- * Worker-side retain hop after an active review. Same lane, delayed start,
- * attempt-scoped id so it cannot collide with the completed intake job.
- */
+/** Delayed retain hop after an active review. Same send options as intake. */
 export async function enqueueCiRefreshRetry(
   boss: PgBoss,
   data: CiRefreshJobData,
 ): Promise<"enqueued" | "already_present"> {
-  const attempt = ciRefreshAttemptOf(data);
-  const options: Parameters<PgBoss["send"]>[2] = {
-    startAfter: CI_REFRESH_RETRY_DELAY_SECONDS,
-    singletonKey: ciRefreshRetainSingletonKey(data),
-    singletonSeconds: CI_REFRESH_RETRY_DELAY_SECONDS,
-    priority: 40,
-    group: { id: installationGroupId(data.installationId) },
-  };
-  if (data.webhookEventId) {
-    options.id = ciRefreshRetryBossJobId(data.webhookEventId, data.prNumber, attempt);
-  }
-  return sendBossJobIdempotent(boss, CI_REFRESH_QUEUE, data, options);
+  return sendBossJobIdempotent(
+    boss,
+    CI_REFRESH_QUEUE,
+    data,
+    ciRefreshSendOptions(data, { startAfter: CI_REFRESH_RETRY_DELAY_SECONDS }),
+  );
 }

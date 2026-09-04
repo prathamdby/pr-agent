@@ -14,11 +14,7 @@ import { REVIEW_CI_SUMMARY_MAX_FAILURES, REVIEW_SUMMARY_SENTINEL } from "../../s
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import { createPrSurface, type PrConversationComment } from "../../github/prSurface.js";
 import { mintInstallationToken } from "../durableJob.js";
-import {
-  ciRefreshAttemptOf,
-  decideCiRefreshRetain,
-  enqueueCiRefreshRetry,
-} from "../intake/queueing.js";
+import { enqueueCiRefreshRetry, nextCiRefreshAttempt } from "../intake/queueing.js";
 import { hasActiveReviewWorkItem } from "../repository.js";
 import type { CiRefreshJobData } from "../types.js";
 import { prResourceKey } from "../types.js";
@@ -36,25 +32,16 @@ export async function executeCiRefreshJob(
   data: CiRefreshJobData,
 ): Promise<void> {
   if (await hasActiveReviewWorkItem(pool, prResourceKey(data.owner, data.repo, data.prNumber))) {
-    const attempt = ciRefreshAttemptOf(data);
-    const decision = decideCiRefreshRetain(attempt);
-    switch (decision.kind) {
-      case "retry":
-        await enqueueCiRefreshRetry(boss, { ...data, attempt: decision.nextAttempt });
-        logDebug("ci_refresh_skipped_will_retry", {
-          owner: data.owner,
-          repo: data.repo,
-          pr: data.prNumber,
-          attempt,
-          nextAttempt: decision.nextAttempt,
-        });
-        break;
-      case "stop":
-        break;
-      default: {
-        const _exhaustive: never = decision;
-        void _exhaustive;
-      }
+    const nextAttempt = nextCiRefreshAttempt(data.attempt);
+    if (nextAttempt != null) {
+      await enqueueCiRefreshRetry(boss, { ...data, attempt: nextAttempt });
+      logDebug("ci_refresh_skipped_will_retry", {
+        owner: data.owner,
+        repo: data.repo,
+        pr: data.prNumber,
+        attempt: data.attempt,
+        nextAttempt,
+      });
     }
     return;
   }

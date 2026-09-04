@@ -116,14 +116,9 @@ export type CiRefreshJobData = JobCorrelation & {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  /** Retain hops already used. Absent on first-generation jobs (treated as 0). */
-  readonly attempt?: number;
+  /** 0 at intake. Each retain hop increments until the cap. */
+  readonly attempt: number;
 };
-
-/** Active-review retain outcome. Cap exhaustion is terminal; it does not re-enqueue. */
-export type CiRefreshRetainDecision =
-  | { readonly kind: "retry"; readonly nextAttempt: number }
-  | { readonly kind: "stop" };
 
 export type StaleHeadReplacementState = "pending-enqueue" | "enqueued";
 

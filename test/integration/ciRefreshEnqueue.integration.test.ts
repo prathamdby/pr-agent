@@ -3,11 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { applyCiRefreshIntake } from "../../src/agentWork/intake/applier.js";
-import {
-  ciRefreshBossJobId,
-  ciRefreshRetryBossJobId,
-  enqueueCiRefreshRetry,
-} from "../../src/agentWork/intake/queueing.js";
+import { ciRefreshJobId, enqueueCiRefreshRetry } from "../../src/agentWork/intake/queueing.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import type { CiRefreshJobData, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -117,7 +113,7 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
 
     const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.id).toBe(ciRefreshBossJobId(webhookEventId, prNumber));
+    expect(jobs[0]!.id).toBe(ciRefreshJobId(webhookEventId, prNumber, 0));
     expect(jobs[0]!.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
@@ -127,6 +123,7 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
       repo: "app",
       prNumber,
       headSha,
+      attempt: 0,
       webhookEventId,
     });
   });
@@ -177,7 +174,7 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
 
     const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.id).toBe(ciRefreshRetryBossJobId(webhookEventId, 9, 1));
+    expect(jobs[0]!.id).toBe(ciRefreshJobId(webhookEventId, 9, 1));
     expect(jobs[0]!.data).toMatchObject({
       kind: "ci_refresh",
       headSha: "retain-head",
@@ -190,6 +187,35 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
     expect(rows[0]?.start_after.getTime()).toBeGreaterThan(
       before + (CI_REFRESH_RETRY_DELAY_SECONDS - 5) * 1000,
     );
+  });
+
+  it("coalesces first hops for the same PR head", async () => {
+    const shared = {
+      installationId: 9001,
+      owner: OWNER,
+      repo: "app",
+      headSha: "intake-head",
+      prNumbers: [12],
+    };
+
+    await applyCiRefreshIntake(
+      boss,
+      pool,
+      headers(`intake-a-${randomUUID().slice(0, 8)}`),
+      shared,
+      intakeLog(),
+    );
+    await applyCiRefreshIntake(
+      boss,
+      pool,
+      headers(`intake-b-${randomUUID().slice(0, 8)}`),
+      shared,
+      intakeLog(),
+    );
+
+    const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.data).toMatchObject({ headSha: "intake-head", prNumber: 12, attempt: 0 });
   });
 
   it("coalesces retain hops for the same PR head", async () => {
