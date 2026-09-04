@@ -76,6 +76,12 @@ export function askReplyOperationKey(resourceKey: string, targetCommentId?: numb
     : `ask:reply:${resourceKey}:${targetCommentId}`;
 }
 
+export function askFailureReplyOperationKey(resourceKey: string, targetCommentId?: number): string {
+  return targetCommentId == null
+    ? `ask:failure_reply:${resourceKey}`
+    : `ask:failure_reply:${resourceKey}:${targetCommentId}`;
+}
+
 export function descriptionPrBodyOperationKey(resourceKey: string): string {
   return `description:pr_body:${resourceKey}`;
 }

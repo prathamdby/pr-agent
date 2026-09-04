@@ -29,7 +29,11 @@ import {
   reconcileOperationIntent,
 } from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
-import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
+import {
+  askFailureReplyOperationKey,
+  askReplyOperationKey,
+  withOperationIntent,
+} from "../withOperationIntent.js";
 import { recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
@@ -43,8 +47,13 @@ function replyTargetKindFromIntentDetail(
 }
 
 function askReplyLookupKeys(resourceKey: string, operationKey: string): readonly string[] {
-  const legacyKey = askReplyOperationKey(resourceKey);
-  return legacyKey === operationKey ? [operationKey] : [operationKey, legacyKey];
+  const scopedKey = askReplyOperationKey(resourceKey);
+  if (operationKey === scopedKey) return [operationKey];
+  // Failure-reply keys must not adopt a legacy ask:reply comment as already published.
+  if (operationKey.startsWith(`ask:reply:${resourceKey}`)) {
+    return [operationKey, scopedKey];
+  }
+  return [operationKey];
 }
 
 async function findAskReplyOnAnyTarget(params: {
@@ -250,6 +259,30 @@ async function recoverDeliveredAskReplyCommentId(params: {
   };
 }
 
+type AskFailureReplyDecision = "skip" | "publish";
+
+/** Confirmed delivery only. An outcome_unknown answer mutation is not delivery. */
+async function decideAskFailureReply(params: {
+  readonly cfg: Config;
+  readonly pool: Pool;
+  readonly prSurface: PrSurface;
+  readonly item: AskWorkItem;
+}): Promise<AskFailureReplyDecision> {
+  const { cfg, pool, prSurface, item } = params;
+  if (
+    await hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply")
+  ) {
+    return "skip";
+  }
+  const recovered = await recoverDeliveredAskReplyCommentId({
+    cfg,
+    pool,
+    prSurface,
+    item,
+  });
+  return recovered?.kind === "recovered" ? "skip" : "publish";
+}
+
 async function finalizeAskReplyPublish(params: {
   readonly pool: Pool;
   readonly item: AskWorkItem;
@@ -315,7 +348,6 @@ export async function executeAskJob(
   boss: PgBoss,
   job: JobWithMetadata<AskJobData>,
 ): Promise<void> {
-  let answerDelivered = false;
   await runDurableWorkItem({
     cfg,
     pool,
@@ -330,7 +362,6 @@ export async function executeAskJob(
       const askReplyPublished = () =>
         hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
       if (await askReplyPublished()) {
-        answerDelivered = true;
         return { kind: "completed" };
       }
 
@@ -341,7 +372,6 @@ export async function executeAskJob(
         item,
       });
       if (recoveredReply?.kind === "recovered") {
-        answerDelivered = true;
         const status = await finalizeAskReplyPublish({
           pool,
           item,
@@ -356,7 +386,6 @@ export async function executeAskJob(
       if (recoveredReply?.kind === "outcome_unknown") {
         // The provider may have accepted the reply, but no exact marker was
         // found. Do not rerun the model or create a fallback reply.
-        answerDelivered = true;
         return { kind: "completed", degraded: true };
       }
 
@@ -462,7 +491,6 @@ export async function executeAskJob(
                 return { commentId: published.commentId };
               },
             });
-            answerDelivered = true;
             captureEvent({
               distinctId: `installation:${item.installationId}`,
               event: "ask answered",
@@ -507,8 +535,6 @@ export async function executeAskJob(
               });
               return { kind: "completed", degraded: true };
             }
-          } else {
-            answerDelivered = true;
           }
           return { kind: "completed" };
         },
@@ -530,32 +556,54 @@ export async function executeAskJob(
         },
       });
       if (!prSurface) return;
-      // Durable publish_records survive process death; answerDelivered does not.
-      if (
-        await hasCompletedPublishStep(
-          pool,
-          item.id,
-          item.resourceKey,
-          ASK_PUBLISH_LENS,
-          "ask_reply",
-        )
-      ) {
-        return;
-      }
-      if (answerDelivered) return;
+      if ((await decideAskFailureReply({ cfg, pool, prSurface, item })) === "skip") return;
       const payload = item.payload;
-      await publishAskAnswer(
-        cfg,
-        prSurface,
-        item,
-        formatAskReply({
-          question: payload.question,
-          answer: "PR Agent could not complete this ask after retries. Please try again later.",
-          replyTarget: payload.replyTarget,
-        }),
-        askReplyOperationKey(item.resourceKey, item.payload.commentId),
-        true,
-      );
+      const operationKey = askFailureReplyOperationKey(item.resourceKey, item.payload.commentId);
+      await withOperationIntent({
+        client: pool,
+        workItemId: item.id,
+        operationKey,
+        mutationKind: "github.ask_failure_reply",
+        detail: {
+          step: "ask_failure_reply",
+          resourceKey: item.resourceKey,
+          reviewLens: ASK_PUBLISH_LENS,
+          replyTargetKind: payload.replyTarget.kind,
+        },
+        recover: async () => {
+          const bot = await getAppBotIdentity(cfg);
+          const recovered = await findAskReplyOnAnyTarget({
+            prSurface,
+            item,
+            botLogin: bot.login,
+            operationKey,
+            operationInstance: item.id,
+          });
+          return recovered == null
+            ? { kind: "absent" as const }
+            : {
+                kind: "reconciled" as const,
+                value: { commentId: recovered.commentId },
+                detail: { replyTargetKind: recovered.targetKind },
+              };
+        },
+        isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+        mutate: async () => {
+          const published = await publishAskAnswer(
+            cfg,
+            prSurface,
+            item,
+            formatAskReply({
+              question: payload.question,
+              answer: "PR Agent could not complete this ask after retries. Please try again later.",
+              replyTarget: payload.replyTarget,
+            }),
+            operationKey,
+            true,
+          );
+          return { commentId: published.commentId };
+        },
+      });
     },
   });
 }
