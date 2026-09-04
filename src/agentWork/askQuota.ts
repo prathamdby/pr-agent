@@ -194,10 +194,15 @@ async function lockAndRefillBucket(
   let providerTokensUsed = numberValue(row.provider_tokens_used);
   let providerWindowStartedAt = new Date(row.provider_window_started_at);
   const providerTokensReserved = numberValue(row.provider_tokens_reserved);
+  // Only settled spend belongs to the expired window, so only
+  // provider_tokens_used resets. A reservation that straddles the boundary
+  // stays in provider_tokens_reserved and keeps counting against the new
+  // window. Settlement later converts it to used in whichever window is current,
+  // so it is charged to one window and never twice. Folding it into used here
+  // would double-count it at settlement.
   if (
     params.scope === "installation" &&
     config.askProviderBudgetTokens > 0 &&
-    providerTokensReserved === 0 &&
     now - providerWindowStartedAt.getTime() >= config.askProviderBudgetWindowSeconds * 1000
   ) {
     providerTokensUsed = 0;

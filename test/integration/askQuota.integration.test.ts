@@ -309,4 +309,72 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
     const unknown = await admitAndInsert(unknownId, 9, config);
     expect(unknown).toEqual({ kind: "throttled", reason: "provider_budget" });
   });
+
+  it("rolls an expired provider window under concurrent admissions", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 4,
+    };
+    const straddlerId = randomUUID();
+    await expect(admitAndInsert(straddlerId, 7, config)).resolves.toEqual({
+      kind: "admitted",
+      providerReservationTokens: 4,
+    });
+
+    await pool.query(
+      `UPDATE ask_quota_buckets
+          SET provider_tokens_used = 8,
+              provider_window_started_at = now() - ($1::bigint * interval '1 second')
+        WHERE scope = 'installation' AND scope_key = $2`,
+      [config.askProviderBudgetWindowSeconds, `installation:${INSTALLATION_ID}`],
+    );
+
+    const admissions = await Promise.all([
+      admitAndInsert(randomUUID(), 8, config),
+      admitAndInsert(randomUUID(), 9, config),
+    ]);
+
+    expect(admissions.filter((result) => result.kind === "admitted")).toHaveLength(1);
+    expect(admissions.filter((result) => result.kind === "throttled")).toHaveLength(1);
+    expect(admissions.find((result) => result.kind === "throttled")).toEqual({
+      kind: "throttled",
+      reason: "provider_budget",
+    });
+
+    const bucket = await pool.query<{
+      provider_tokens_used: number;
+      provider_tokens_reserved: number;
+      provider_window_started_at: Date;
+    }>(
+      `SELECT provider_tokens_used::int AS provider_tokens_used,
+              provider_tokens_reserved::int AS provider_tokens_reserved,
+              provider_window_started_at
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+    const installation = bucket.rows[0];
+    expect(installation).toMatchObject({
+      provider_tokens_used: 0,
+      provider_tokens_reserved: 8,
+    });
+    expect(new Date(installation?.provider_window_started_at ?? 0).getTime()).toBeGreaterThan(
+      Date.now() - 10_000,
+    );
+
+    const straddler = await pool.query<{
+      reserved_provider_tokens: number;
+      released_at: Date | null;
+    }>(
+      `SELECT reserved_provider_tokens::int AS reserved_provider_tokens, released_at
+         FROM ask_quota_reservations
+        WHERE work_item_id = $1`,
+      [straddlerId],
+    );
+    expect(straddler.rows[0]).toMatchObject({
+      reserved_provider_tokens: 4,
+      released_at: null,
+    });
+  });
 });
