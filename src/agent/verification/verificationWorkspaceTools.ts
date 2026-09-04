@@ -5,6 +5,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
+import { logDebug } from "../../evlog.js";
 import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
@@ -14,6 +15,8 @@ import {
 import { isSensitivePath } from "../ask/askSafety.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
 import { readBudgetedWorkspaceTextFile } from "../tools/readWorkspaceTextFile.js";
+import { isTriageSearchPathAllowed } from "../triage/triageWorkspaceTools.js";
+import { normalizeRepoRelativePath } from "../triage/triageWritePolicy.js";
 
 const exec = promisify(execFile);
 
@@ -32,6 +35,12 @@ async function safePath(root: string, path: string): Promise<string> {
 function relativePath(root: string, fullPath: string): string {
   return relative(root, fullPath).replace(/\\/g, "/");
 }
+
+type VerificationSearchMatch = {
+  readonly path: string;
+  readonly line: number;
+  readonly text: string;
+};
 
 async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {
   const { stdout } = await exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
@@ -85,9 +94,10 @@ export function buildVerificationWorkspaceTools(params: {
       maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
     }),
     run: async ({ query, maxResults }) => {
+      // Avoid `git grep --max-count` so blocked hits cannot consume the cap.
       const stdout = await git(
         root,
-        ["grep", "-nF", "-I", `--max-count=${maxResults + 1}`, "-e", query, "--", "."],
+        ["grep", "-nF", "-I", "-e", query, "--", "."],
         LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
       ).catch((error: unknown) => {
         if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
@@ -95,20 +105,44 @@ export function buildVerificationWorkspaceTools(params: {
         }
         throw error;
       });
-      const matches = stdout
-        .split("\n")
-        .filter(Boolean)
-        .slice(0, maxResults)
-        .map((line) => {
-          const first = line.indexOf(":");
-          const second = line.indexOf(":", first + 1);
-          return {
-            path: line.slice(0, first),
-            line: Number(line.slice(first + 1, second)),
-            text: line.slice(second + 1),
-          };
+      const lines = stdout.split("\n").filter(Boolean);
+      const allowedPathCache = new Map<string, Promise<boolean>>();
+      const matches: VerificationSearchMatch[] = [];
+      let filteredCount = 0;
+      for (const line of lines) {
+        const first = line.indexOf(":");
+        const second = line.indexOf(":", first + 1);
+        if (first < 1 || second < 0) continue;
+        const rawPath = line.slice(0, first);
+        const normalizedPath = normalizeRepoRelativePath(rawPath);
+        let allowed = allowedPathCache.get(normalizedPath);
+        if (!allowed) {
+          allowed = isTriageSearchPathAllowed(root, normalizedPath);
+          allowedPathCache.set(normalizedPath, allowed);
+        }
+        if (!(await allowed)) {
+          filteredCount += 1;
+          continue;
+        }
+        const lineNumber = Number(line.slice(first + 1, second));
+        if (!Number.isInteger(lineNumber) || lineNumber < 1) continue;
+        matches.push({
+          path: normalizedPath,
+          line: lineNumber,
+          text: line.slice(second + 1),
         });
-      return { matches, truncated: stdout.split("\n").filter(Boolean).length > maxResults };
+      }
+      if (filteredCount > 0) {
+        logDebug("verification_search_matches_filtered", {
+          filteredCount,
+          reason: "sensitive_or_control_path",
+        });
+      }
+      return {
+        matches: matches.slice(0, maxResults),
+        truncated: matches.length > maxResults,
+        ...(filteredCount > 0 ? { filtered: true } : {}),
+      };
     },
   });
 
