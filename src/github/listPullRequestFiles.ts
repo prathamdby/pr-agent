@@ -50,7 +50,8 @@ export type PullRequestForFileList = {
 /**
  * A triage checkout may write only while GitHub still considers the PR open and
  * unmerged. Missing lifecycle fields fail closed because callers use this
- * predicate immediately before branch mutations.
+ * predicate immediately before branch mutations and again after a push settles,
+ * where a close or merge that raced the push must read as closed.
  */
 export function isPullRequestOpenAndUnmerged(pullRequest: PullRequestForFileList): boolean {
   return (

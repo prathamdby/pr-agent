@@ -5,6 +5,7 @@ import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { TriageJobData } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
+  TRIAGE_CLOSED_PR_NOTICE,
   TRIAGE_FAILURE_MESSAGE,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_NOT_ELIGIBLE,
@@ -270,6 +271,92 @@ describe("executeTriageJob", () => {
         }),
       }),
     );
+  });
+
+  it("handles closure that lands while the push is in flight as degraded no-push triage", async () => {
+    const { publishTriage: realPublishTriage } = await vi.importActual<
+      typeof import("../src/agent/triage/publishTriage.js")
+    >("../src/agent/triage/publishTriage.js");
+    mocks.publishTriage.mockImplementation(realPublishTriage);
+    const committedSha = "c".repeat(40);
+    const committed = [{ sha: committedSha, subject: "fix: app", diff: "+ok\n" }];
+    const gitPush = vi.fn(async () => {
+      durablePrSurfaceControls().setPullRequest({
+        additions: 1,
+        deletions: 0,
+        changed_files: 1,
+        state: "closed",
+        merged: true,
+        merged_at: "2026-01-01T00:00:00Z",
+        head: { sha: "a".repeat(40) },
+      });
+    });
+    const payload = {
+      verdicts: [
+        {
+          verdict: "fixed" as const,
+          threadRootCommentId: 1,
+          commitSha: committedSha,
+          evidence: "fixed",
+        },
+      ],
+    };
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
+      executeResult = await spec.execute(item(), {
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        signal: new AbortController().signal,
+      });
+    });
+    mocks.withWritablePrCheckout.mockImplementation(async (params, run) => {
+      const checkout = {
+        dir: "/tmp/checkout",
+        headRef: "branch",
+        baseSha: "a".repeat(40),
+        commit: vi.fn(async () => {
+          await params.beforeCommit?.();
+          return { sha: committedSha, diff: "+ok\n" };
+        }),
+        push: vi.fn(async () => {
+          await params.beforePush?.();
+          await gitPush();
+        }),
+        listCommittedShas: () => committed.map((entry) => entry.sha),
+        listCommittedDetails: () => [...committed],
+      };
+      return run(checkout);
+    });
+    mocks.runFullPrTriage.mockImplementation(async ({ checkout }) => {
+      await checkout.commit({ files: ["src/app.ts"], subject: "fix: app" });
+      return {
+        submitted: true,
+        payload,
+      };
+    });
+    const publishPool = {
+      query: vi.fn(async () => ({ rows: [] })),
+    } as unknown as Pool;
+
+    await executeTriageJob(cfg, publishPool, boss, job());
+
+    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(gitPush).toHaveBeenCalledTimes(1);
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
+    expect(
+      durablePrSurfaceControls().events.some((event) => event.kind === "resolveInlineReviewThread"),
+    ).toBe(false);
+    const progress = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL);
+    expect(progress?.body).toContain(TRIAGE_CLOSED_PR_NOTICE);
+    expect(progress?.body).not.toContain("Pushed commits:");
+    const pushRecords = mocks.recordPublishStep.mock.calls.flatMap(([, params]) =>
+      params.step === "triage_push" ? [params.detail] : [],
+    );
+    expect(pushRecords).toEqual([
+      expect.objectContaining({ pushOutcome: "closed", attemptedShas: [committedSha] }),
+    ]);
+    expect(pushRecords[0]).not.toHaveProperty("pushedShas");
   });
 
   it("stops before fetching branch information when cancellation is observed", async () => {

@@ -2,6 +2,7 @@ import type { TriageScope } from "../../agentWork/types.js";
 import type { Pool } from "pg";
 import * as v from "valibot";
 import type { PrSurface } from "../../github/prSurface.js";
+import { isPullRequestOpenAndUnmerged } from "../../github/listPullRequestFiles.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
@@ -362,6 +363,15 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
           await params.checkout.push();
         },
       });
+      // The pre-push guard cannot see a close or merge that lands while git is
+      // pushing. Re-check after the intent settles rather than inside mutate().
+      // Recover reconciles a landed push from listPushedCommits() without
+      // calling push(), and a throw inside mutate() after git succeeded would
+      // let that recovery publish the push as a success.
+      const { pullRequest } = await params.prSurface.getHead();
+      if (!isPullRequestOpenAndUnmerged(pullRequest)) {
+        throw new TriageClosedPullRequestError();
+      }
       pushOutcome = "pushed";
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
