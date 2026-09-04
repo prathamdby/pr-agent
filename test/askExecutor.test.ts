@@ -268,6 +268,53 @@ describe("executeAskJob", () => {
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
 
+  it("skips terminal failure reply when a fresh hook finds a stashed ask_reply intent", async () => {
+    const operationKey = askReplyOperationKey("o/r#1", 99);
+    await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-1",
+      operationKey,
+      mutationKind: "github.ask_reply",
+      detail: { step: "ask_reply", __result: { commentId: 4242 } },
+    });
+    await memoryOperationIntentStore.reconcile(pool, {
+      workItemId: "wi-1",
+      operationKey,
+      status: "reconciled",
+    });
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+      const item = askItem();
+      const prSurface = fakeDurablePrSurface();
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead after crash"));
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
+  });
+
+  it("skips terminal failure reply when a fresh hook recovers the delivered reply", async () => {
+    await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-1",
+      operationKey: askReplyOperationKey("o/r#1", 99),
+      mutationKind: "github.ask_reply",
+      detail: { step: "ask_reply" },
+    });
+    mocks.findExistingAskReplyComment.mockResolvedValue({
+      commentId: 5151,
+      targetKind: "prConversation",
+    });
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+      const item = askItem();
+      const prSurface = fakeDurablePrSurface();
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead after crash"));
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
+    expect(mocks.findExistingAskReplyComment).toHaveBeenCalled();
+  });
+
   it("falls back to a PR comment when inline thread reply fails", async () => {
     const item = makeAskWorkItem({
       headSha: "head",
@@ -383,6 +430,25 @@ describe("executeAskJob", () => {
       "could not complete this ask after retries",
     );
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("**Question:** what changed?");
+  });
+
+  it("posts exactly one failure reply when a fresh hook finds nothing durable", async () => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+      const item = askItem();
+      const prSurface = fakeDurablePrSurface();
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
+      await spec.onTerminalFailure?.(item, prSurface, new Error("retried hook"));
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain(
+      "could not complete this ask after retries",
+    );
+    const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1", 99));
+    expect(intent?.status).toBe("reconciled");
+    expect(intent?.detail.__result).toEqual({ commentId: expect.any(Number) });
   });
 
   it("does not post terminal failure reply on non-terminal retry", async () => {
