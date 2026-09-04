@@ -27,7 +27,10 @@ workers, repositories, or installations.
 4. When an installation provider token budget is enabled, intake reserves a
    configured maximum per ask. Exact Pi usage replaces that reservation. If the
    provider reports no usage, the reservation is charged at its maximum so an
-   unknown result cannot reopen budget capacity without accounting.
+   unknown result cannot reopen budget capacity without accounting. The
+   installation window resets on elapsed wall-clock time regardless of
+   outstanding reservations. A reservation that straddles the reset stays
+   reserved against the new window and is never charged to two windows.
 5. A rejected ask creates no work item or ask queue job. Intake sends a static
    reply through the high-priority acknowledgement queue. Quota bucket state is
    retained in Postgres and inactive rows are removed by the normal retention

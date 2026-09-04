@@ -354,40 +354,105 @@ describe("ask admission quotas", () => {
     }
   });
 
-  it("does not reset an expired provider window while usage is reserved", async () => {
-    const client = new FakeQuotaClient();
-    client.buckets.set("installation:installation:9", {
-      scope: "installation",
-      scope_key: "installation:9",
-      token_balance: 100,
-      last_refill_at: new Date(),
-      outstanding_count: 0,
-      provider_tokens_used: 8,
-      provider_tokens_reserved: 6,
-      provider_window_started_at: new Date(Date.now() - 2 * 86_400_000),
-    });
-    const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
-    });
+  it("rolls an expired provider window on the clock while usage is reserved", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:00.000Z"));
+    try {
+      const client = new FakeQuotaClient();
+      const budget = config({
+        askProviderBudgetTokens: 10,
+        askProviderReservationTokens: 4,
+      });
+      const straddlerId = "ask-provider-straddler";
+      const windowStartedAt = new Date(Date.now());
+      client.buckets.set("installation:installation:9", {
+        scope: "installation",
+        scope_key: "installation:9",
+        token_balance: 100,
+        last_refill_at: new Date(Date.now()),
+        outstanding_count: 1,
+        provider_tokens_used: 8,
+        provider_tokens_reserved: 4,
+        provider_window_started_at: windowStartedAt,
+      });
+      client.reservations.set(straddlerId, {
+        work_item_id: straddlerId,
+        actor_scope_key: "actor:9:7",
+        repository_scope_key: "repository:9:acme/app",
+        installation_scope_key: "installation:9",
+        reserved_provider_tokens: 4,
+        provider_usage_known: false,
+        released_at: null,
+      });
 
-    await expect(
-      admitAsk(
-        client as never,
-        {
-          workItemId: "ask-provider-window",
-          installationId: 9,
-          owner: "Acme",
-          repo: "app",
-          commenterId: 8,
-        },
-        budget,
-      ),
-    ).resolves.toEqual({ kind: "throttled", reason: "provider_budget" });
-    expect(client.buckets.get("installation:installation:9")).toMatchObject({
-      provider_tokens_used: 8,
-      provider_tokens_reserved: 6,
-    });
+      vi.advanceTimersByTime(budget.askProviderBudgetWindowSeconds * 1000);
+
+      await expect(
+        admission(client, "ask-provider-next-window", 8, "app", budget),
+      ).resolves.toEqual({ kind: "admitted", providerReservationTokens: 4 });
+      expect(client.buckets.get("installation:installation:9")).toMatchObject({
+        provider_tokens_used: 0,
+        provider_tokens_reserved: 8,
+        outstanding_count: 2,
+        provider_window_started_at: new Date(Date.now()),
+      });
+      expect(client.reservations.get(straddlerId)).toMatchObject({
+        reserved_provider_tokens: 4,
+        provider_usage_known: false,
+        released_at: null,
+      });
+
+      await recordAskProviderUsage(client.pool(), {
+        workItemId: straddlerId,
+        usage: { estimated: false, totalTokens: 3 },
+      });
+      expect(client.buckets.get("installation:installation:9")).toMatchObject({
+        provider_tokens_used: 3,
+        provider_tokens_reserved: 4,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resets the provider window once when admissions race at the window edge", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-25T00:00:00.000Z"));
+    try {
+      const client = new FakeQuotaClient();
+      const budget = config({
+        askProviderBudgetTokens: 10,
+        askProviderReservationTokens: 6,
+      });
+      client.buckets.set("installation:installation:9", {
+        scope: "installation",
+        scope_key: "installation:9",
+        token_balance: 100,
+        last_refill_at: new Date(Date.now()),
+        outstanding_count: 1,
+        provider_tokens_used: 8,
+        provider_tokens_reserved: 4,
+        provider_window_started_at: new Date(Date.now()),
+      });
+
+      vi.advanceTimersByTime(budget.askProviderBudgetWindowSeconds * 1000);
+
+      await expect(admission(client, "ask-provider-edge-1", 8, "app", budget)).resolves.toEqual({
+        kind: "admitted",
+        providerReservationTokens: 6,
+      });
+      await expect(admission(client, "ask-provider-edge-2", 9, "app", budget)).resolves.toEqual({
+        kind: "throttled",
+        reason: "provider_budget",
+      });
+      expect(client.buckets.get("installation:installation:9")).toMatchObject({
+        provider_tokens_used: 0,
+        provider_tokens_reserved: 10,
+        provider_window_started_at: new Date(Date.now()),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reserves provider budget and reconciles exact usage", async () => {
