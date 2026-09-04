@@ -79,9 +79,7 @@ describe("specialist-specific obligations", () => {
     expect(prompt).toContain("suggestedCode");
     expect(prompt).toContain("confidence");
     expect(prompt).toContain("category");
-    expect(prompt).toContain(
-      "detail (trigger, wrong path, consequence, and violated invariant)",
-    );
+    expect(prompt).toContain("detail (trigger, wrong path, consequence, and violated invariant)");
     expect(prompt).toContain(pathAndSizeGuidance);
     expect(prompt).toContain("do not claim absence");
     expect(prompt).toContain(specialistFindingsReportContract);
