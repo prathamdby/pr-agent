@@ -12,6 +12,7 @@ import {
   specialistFindingsReportContract,
   reviewPayloadPerFindingContracts,
   repoPolicyGuidance,
+  causalPublicationContract,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { context7OutboundDataGuidance } from "../src/agent/prompts/toolingDiscipline.js";
@@ -30,6 +31,17 @@ describe("review prompt shared contract blocks", () => {
         specialistFindingsReportContract,
       );
     }
+  });
+
+  it("reuses the shared causal-publication contract in every specialist", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
+      expect(prompt, `${name} should include the causal-publication contract`).toContain(
+        causalPublicationContract,
+      );
+    }
+    expect(causalPublicationContract).toContain("one atomic problem");
+    expect(causalPublicationContract).toContain("evidence ledger can authorize");
+    expect(causalPublicationContract).toContain("bounded fix direction");
   });
 
   it("requires one specialist report in every review", () => {
@@ -130,9 +142,16 @@ describe("specialist-specific obligations", () => {
     );
   });
 
-  it("keeps quality restructuring prescriptions", () => {
-    expect(automatedQualitySystemPrompt).toContain("Prescriptions are required");
-    expect(automatedQualitySystemPrompt).toContain("code-judo move");
+  it("keeps quality prescriptions behind the present-harm gate", () => {
+    expect(automatedQualitySystemPrompt).toContain(
+      "Prescriptions are required after a finding passes the present-harm gate",
+    );
+    expect(automatedQualitySystemPrompt).toContain("present structural harm");
+    expect(automatedQualitySystemPrompt).not.toContain("code-judo");
+    expect(automatedQualitySystemPrompt).not.toContain("1k-line");
+    expect(automatedQualitySystemPrompt).not.toContain("thin wrapper");
+    expect(automatedQualitySystemPrompt).not.toContain("Be ambitious");
+    expect(automatedQualitySystemPrompt).not.toContain("Clean design over merely working");
   });
 
   it("keeps tests draft skeleton guidance", () => {
@@ -140,6 +159,14 @@ describe("specialist-specific obligations", () => {
       "Draft skeletons are required when this specialist reports findings",
     );
     expect(automatedReviewTestsSystemPrompt).toContain("draft test skeleton");
+    expect(automatedReviewTestsSystemPrompt).toContain("the exact changed behaviour");
+    expect(automatedReviewTestsSystemPrompt).toContain("the invariant that should hold");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "the plausible regression the test would catch",
+    );
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "General calls for more coverage, framework adoption, broad test matrices, or confidence-only tests are not findings",
+    );
   });
 
   it("gates test suggestions on project testing posture", () => {

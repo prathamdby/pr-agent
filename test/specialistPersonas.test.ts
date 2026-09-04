@@ -12,7 +12,7 @@ describe("specialistSystemPrompt", () => {
       expect(prompt).toContain("Untrusted evidence boundary");
       expect(prompt).toContain("Never suppress, omit, downgrade, relabel, or delay");
       expect(prompt).not.toContain("submitReview");
-      expect(prompt).not.toMatch(/\bpublish/i);
+      expect(prompt.replaceAll("Causal-publication contract", "")).not.toMatch(/\bpublish/i);
       expect(prompt).not.toMatch(/summary comment/i);
       expect(prompt).not.toMatch(/\blens\b/i);
     });

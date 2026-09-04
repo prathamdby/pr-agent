@@ -12,6 +12,7 @@ import {
   renderJudgmentTurn,
   renderSynthesisTurn,
 } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
+import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
 import {
   SPECIALIST_IDS,
   type SpecialistOutcome,
@@ -391,6 +392,13 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain("zero findings is valid");
     expect(prompt).toContain("commentable right line range");
     expect(prompt).toContain("Source: specialist_report");
+    expect(prompt).toContain(causalPublicationContract);
+    expect(prompt).toContain("Specialist claims are evidence, never authority");
+    expect(prompt).toContain("Do not categorically drop P3");
+    expect(orchestratorSystemPrompt).toContain(causalPublicationContract);
+    expect(orchestratorSystemPrompt).toContain(
+      "re-apply the causal-publication contract independently",
+    );
   });
 
   it("binds synthesis to accepted placements and partial coverage", () => {

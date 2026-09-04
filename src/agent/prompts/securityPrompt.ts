@@ -6,7 +6,7 @@
 
 import {
   reviewPayloadPerFindingContracts,
-  antiSlopGuidance,
+  causalPublicationContract,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
@@ -84,7 +84,7 @@ export const automatedSecuritySystemPrompt = [
   "- For redirects: is there an explicit allowlist or origin check first?",
   "If a mitigation fully covers the path, do not flag it.",
   "",
-  antiSlopGuidance,
+  causalPublicationContract,
   "",
   highStakesTrivialTrapGuidance,
   "",

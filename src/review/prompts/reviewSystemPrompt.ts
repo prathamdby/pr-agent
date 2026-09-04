@@ -1,7 +1,7 @@
 import {
   pathAndSizeGuidance,
   reviewPayloadPerFindingContracts,
-  antiSlopGuidance,
+  causalPublicationContract,
   highStakesTrivialTrapGuidance,
   securityTripwiresGuidance,
   proseContractGuidance,
@@ -62,7 +62,7 @@ export function buildAutomatedSystemPrompt(): string {
     "- Injection and auth invariants: SQL/XSS/command/template injection, CSRF/OAuth state validation gaps, timing-unsafe compares.",
     "- API/contract breaks: schema, serializer, or signature changes that desync callers, tests, or docs.",
     "",
-    antiSlopGuidance,
+    causalPublicationContract,
     "",
     highStakesTrivialTrapGuidance,
     "",
