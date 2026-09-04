@@ -43,7 +43,7 @@ export function ciRefreshRetryBossJobId(
   return uuidv5(webhookEventId, `ci-refresh:${prNumber}:${attempt}`);
 }
 
-export function ciRefreshAttemptOf(data: CiRefreshJobData): number {
+export function ciRefreshAttemptOf(data: Pick<CiRefreshJobData, "attempt">): number {
   return data.attempt ?? 0;
 }
 
