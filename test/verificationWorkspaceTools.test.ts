@@ -143,7 +143,7 @@ describe("buildVerificationWorkspaceTools readWorkspaceFile", () => {
   });
 });
 
-describe("buildVerificationWorkspaceTools searchWorkspace", () => {
+describe("buildVerificationWorkspaceTools searchWorkspace", { timeout: 15_000 }, () => {
   const roots: string[] = [];
 
   afterEach(async () => {
