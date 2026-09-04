@@ -826,6 +826,58 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.ledger?.accepted ?? []).toEqual([]);
   });
 
+  it("accepts every atomic finding judgment splits from a compound report", async () => {
+    const compound: ReviewFinding = {
+      severity: "P1",
+      file: "src/quality.ts",
+      startLine: 1,
+      endLine: 12,
+      title: "Restore the discarded write and drop the stale fallback",
+      detail:
+        "Retry after timeout drops the in-flight write, and the fallback cache returns the stale record so callers persist the previous value.",
+      fixPrompt: "Own the in-flight write and drop the stale fallback.",
+    };
+    const writeOwnership: ReviewFinding = {
+      severity: "P1",
+      file: "src/quality.ts",
+      startLine: 4,
+      endLine: 6,
+      title: "Restore the discarded write on retry",
+      detail:
+        "When save() retries after a timeout, the in-flight write is dropped so the caller never persists the new value.",
+      fixPrompt: "Own the in-flight write on the retry path.",
+    };
+    const staleFallback: ReviewFinding = {
+      severity: "P1",
+      file: "src/quality.ts",
+      startLine: 8,
+      endLine: 10,
+      title: "Drop the stale cache fallback after timeout",
+      detail:
+        "The fallback cache returns the previous record after timeout, so callers persist stale data.",
+      fixPrompt: "Fail the retry instead of substituting the stale cache entry.",
+    };
+    testState.judgmentBySource.set("quality", [writeOwnership, staleFallback]);
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("quality")?.resolve({
+      kind: "report",
+      specialist: "quality",
+      durationMs: 1,
+      report: { status: "findings", findings: [compound] },
+    });
+    for (const specialist of ["correctness", "security", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.judgmentPrompts[0]).toContain(
+      "Split a compound candidate into atomic problems",
+    );
+    expect(
+      (testState.ledger?.accepted.map((item) => item.placement.finding.title) ?? []).toSorted(),
+    ).toEqual([writeOwnership.title, staleFallback.title].toSorted());
+  });
+
   it("does not accept a compound advisory bundle when judgment drops it", async () => {
     const compound: ReviewFinding = {
       severity: "P2",

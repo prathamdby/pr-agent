@@ -145,7 +145,7 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
-      budget: { bytes: 14_800, characters: 14_800, estimatedTokens: 3_700 },
+      budget: { bytes: 15_400, characters: 15_400, estimatedTokens: 3_850 },
     },
     {
       name: "local workspace tool definitions",

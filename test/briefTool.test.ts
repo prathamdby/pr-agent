@@ -395,6 +395,10 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain(causalPublicationContract);
     expect(prompt).toContain("Specialist claims are evidence, never authority");
     expect(prompt).toContain("Do not categorically drop P3");
+    expect(prompt).toContain(
+      "Publish each that meets the contract. Do not publish the bundle, and do not drop a second qualifying atomic problem.",
+    );
+    expect(prompt).not.toContain("Keep one evidenced problem or publish nothing");
     expect(orchestratorSystemPrompt).toContain(causalPublicationContract);
     expect(orchestratorSystemPrompt).toContain(
       "re-apply the causal-publication contract independently",

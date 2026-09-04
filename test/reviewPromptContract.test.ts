@@ -42,6 +42,17 @@ describe("review prompt shared contract blocks", () => {
     expect(causalPublicationContract).toContain("one atomic problem");
     expect(causalPublicationContract).toContain("evidence ledger can authorize");
     expect(causalPublicationContract).toContain("bounded fix direction");
+    expect(causalPublicationContract).toContain("precise unprotected regression");
+    expect(causalPublicationContract).toContain(
+      "named changed behaviour, untested state, invariant, and plausible failure",
+    );
+    expect(causalPublicationContract).toContain(
+      "Split a compound candidate into atomic findings and keep every one that meets this contract",
+    );
+    expect(causalPublicationContract).toContain("Do not report an ambiguous bundle");
+    expect(causalPublicationContract.replaceAll("Causal-publication contract", "")).not.toMatch(
+      /\bpublish/i,
+    );
   });
 
   it("requires one specialist report in every review", () => {
@@ -62,6 +73,11 @@ describe("review prompt shared contract blocks", () => {
 describe("specialist-specific obligations", () => {
   it("keeps general correctness reporting gate", () => {
     expect(buildAutomatedSystemPrompt()).toContain("you report problems, not prescriptions");
+    expect(buildAutomatedSystemPrompt()).toContain(
+      "real low-impact defect that meets the contract",
+    );
+    expect(buildAutomatedSystemPrompt()).not.toContain("minor or low-confidence");
+    expect(buildAutomatedSystemPrompt()).not.toContain("### Confidence calibration");
   });
 
   it("gives correctness an ordered investigation method and supporting catalogue", () => {
@@ -140,6 +156,10 @@ describe("specialist-specific obligations", () => {
     expect(automatedSecuritySystemPrompt).toContain(
       "Security specialist: set category to security",
     );
+    expect(automatedSecuritySystemPrompt).toContain(
+      "concrete attacker-controlled trigger and an observable boundary consequence",
+    );
+    expect(automatedSecuritySystemPrompt).not.toContain("no exploitability claimed");
   });
 
   it("keeps quality prescriptions behind the present-harm gate", () => {
@@ -167,6 +187,10 @@ describe("specialist-specific obligations", () => {
     expect(automatedReviewTestsSystemPrompt).toContain(
       "General calls for more coverage, framework adoption, broad test matrices, or confidence-only tests are not findings",
     );
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "real low-impact missing check that still names the changed behaviour, untested state, invariant, and plausible regression",
+    );
+    expect(automatedReviewTestsSystemPrompt).not.toContain("nice-to-have coverage");
   });
 
   it("gates test suggestions on project testing posture", () => {

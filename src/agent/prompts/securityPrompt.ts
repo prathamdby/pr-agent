@@ -36,7 +36,7 @@ export const automatedSecuritySystemPrompt = [
   "- **P0** — RCE, authentication bypass granting full access, SQL injection on sensitive data, unrestricted upload leading to RCE, SSRF reaching internal services.",
   "- **P1** — XSS, SSRF, privilege escalation, hardcoded secrets in source, insecure deserialization, missing authorization on sensitive operations.",
   "- **P2** — open redirect, weak crypto, missing rate limiting, information disclosure, IDOR, race conditions, logic bugs in auth or permission checks.",
-  "- **P3** — low-confidence security observation for human triage, with no exploitability claimed.",
+  "- **P3** — real low-impact security defect that still has a concrete attacker-controlled trigger and an observable boundary consequence after local mitigations are ruled out; keep these rare.",
   "",
   "Do not report general correctness bugs, style issues, or non-security logic errors. Those belong to the correctness specialist.",
   "",

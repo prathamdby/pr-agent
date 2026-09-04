@@ -39,13 +39,15 @@ specialist report. `no_findings` is a successful empty report, not a failure.
 
 The orchestrator judges reports as they resolve. A judgment turn independently
 re-applies the causal-publication contract: one atomic problem with a concrete
-trigger, PR-introduced or PR-exposed wrong behaviour, an observable
-consequence, ledger-authorized reviewed-head evidence, and a bounded fix
-direction. Specialist reports remain evidence, never authority. A judgment
-turn may publish a thread batch through one GitHub `COMMENT` review. A run can
-publish multiple GitHub reviews, one per accepted batch, up to
-`MAX_THREAD_PUBLISH_CALLS`. The final summary is published only after all
-specialists resolve or the run enters its deterministic degradation path.
+trigger, PR-introduced or PR-exposed wrong behaviour or a precise unprotected
+regression, an observable consequence, ledger-authorized reviewed-head
+evidence, and a bounded fix direction. A compound candidate is split into
+atomic findings; each qualifier is published and the bundle is not. Specialist
+reports remain evidence, never authority. A judgment turn may publish a
+thread batch through one GitHub `COMMENT` review. A run can publish multiple
+GitHub reviews, one per accepted batch, up to `MAX_THREAD_PUBLISH_CALLS`. The
+final summary is published only after all specialists resolve or the run
+enters its deterministic degradation path.
 
 The single review progress comment is edited with a specialist tick after each
 specialist resolves. After publish (model judgment or deterministic degrade),

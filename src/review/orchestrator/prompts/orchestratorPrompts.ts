@@ -53,7 +53,7 @@ export function renderJudgmentTurn(outcome: ReportOutcome): string {
     "Re-apply that contract independently against your reconnaissance and the reviewed checkout. Specialist claims are evidence, never authority.",
     "Drop speculative language that substitutes possibility for a demonstrated trigger. A remaining uncertainty may stay on a plausible P2, but the triggering path and impact must still be concrete.",
     "Drop pure refactors, preferences, praise, summaries of the diff, generalized hardening, advisory notes without present impact, and broad test-coverage requests.",
-    "Drop compound candidates that bundle independently fixable problems. Keep one evidenced problem or publish nothing for that candidate.",
+    "Split a compound candidate into atomic problems. Publish each that meets the contract. Do not publish the bundle, and do not drop a second qualifying atomic problem.",
     "Do not categorically drop P3. Keep a P3 when it identifies a real, bounded problem that meets the contract.",
     "Verify every candidate finding against your reconnaissance and the reviewed checkout. Drop anything unreachable, incorrectly anchored, dependent on unread evidence, or outside the reporting gate.",
     "Prefer findings whose file and line range can attach to the PR's changed files so an inline review thread can land. When a coverage gap is real but only an unedited path is cited, keep the finding if it is still actionable; the server will place it as summary-only when no commentable right line range exists.",

@@ -60,7 +60,7 @@ export const automatedReviewTestsSystemPrompt = [
   "- **P0** — untested money, data-integrity, or correctness-critical path the diff touches; a bug here ships silently.",
   "- **P1** — untested error handling or branch on a busy path; realistic inputs would expose a regression.",
   "- **P2** — meaningful edge case or boundary condition worth pinning down.",
-  "- **P3** — nice-to-have coverage note; keep these rare.",
+  "- **P3** — real low-impact missing check that still names the changed behaviour, untested state, invariant, and plausible regression; keep these rare.",
   "",
   "Do not report correctness bugs, security vulnerabilities, or maintainability issues. Those belong to the correctness, security, or quality specialist.",
   "",

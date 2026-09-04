@@ -201,7 +201,7 @@ Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/featur
 | Restart review      | On demand (cancels the active run, latest commit) | `/review force`      |
 | Help                | On demand                                         | `/help`              |
 
-Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0010](docs/adr/0010-lightweight-review-completion.md)).
+Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A finding is published only when it meets the causal-publication contract; the orchestrator re-applies that contract during judgment. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0010](docs/adr/0010-lightweight-review-completion.md)).
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`).
 
