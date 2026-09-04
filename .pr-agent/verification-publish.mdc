@@ -4,4 +4,4 @@ globs:
   - "src/agentWork/executors/verificationExecutor.ts"
 ---
 
-Verification run is read-only: no new findings, no code edits, no writable PR checkout. One verification stub per inline review thread (`<!-- pr-agent:verification-stub -->`), edited in place. Fixed and already-resolved quietly resolve; dismissed edits the stub (evidence + policy suggestion) then resolves. Stale superseded runs must not publish (ADR 0014–0016).
+Verification run is read-only: no new findings, no code edits, no writable PR checkout. One verification stub per inline review thread (`<!-- pr-agent:verification-stub -->`), edited in place. Fixed and already-resolved quietly resolve; dismissed edits the stub (evidence + policy suggestion) then resolves. Stale superseded runs must not publish (ADR 0014–0016). A stale-head skip at the publish gate completes degraded, never as clean success.

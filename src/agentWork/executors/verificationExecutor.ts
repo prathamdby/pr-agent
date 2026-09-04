@@ -182,7 +182,9 @@ export async function executeVerificationJob(
           repo: item.repo,
           pr: item.prNumber,
         });
-        return { kind: "completed" };
+        // Bound head is not the live head. Completed without degraded would
+        // count this run as a successful check.
+        return { kind: "completed", degraded: true };
       }
 
       const publish = await publishVerification({

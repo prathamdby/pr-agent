@@ -43,6 +43,7 @@ type VerificationOverrides = Omit<
   Partial<VerificationWorkItem>,
   "type" | "payload" | "reviewLens" | "source"
 > & {
+  source?: VerificationWorkItem["source"];
   payload?: Partial<VerificationWorkPayload>;
 };
 
@@ -129,14 +130,14 @@ export function makeTriageWorkItem(overrides: TriageOverrides = {}): TriageWorkI
 export function makeVerificationWorkItem(
   overrides: VerificationOverrides = {},
 ): VerificationWorkItem {
-  const { payload, ...rest } = overrides;
+  const { payload, source = "auto", ...rest } = overrides;
   return {
     ...base,
     type: "verification",
-    source: "auto",
+    source,
     reviewLens: null,
     payload: {
-      source: "auto",
+      source,
       ...payload,
     },
     ...rest,
