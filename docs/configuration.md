@@ -361,13 +361,13 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### Ask safety
 
-| Symbol                            | Default                                                                                                  |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `MAX_ASK_QUESTION_CHARS`          | 8192                                                                                                     |
-| `MAX_ASK_THREAD_TRANSCRIPT_CHARS` | 24000                                                                                                    |
-| `ASK_META_REFUSAL`                | meta-probe reply                                                                                         |
-| `BOT_META_PATTERNS`               | regex set                                                                                                |
-| `BOT_SECRET_PATTERNS`             | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens                       |
+| Symbol                            | Default                                                                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `MAX_ASK_QUESTION_CHARS`          | 8192                                                                                                                    |
+| `MAX_ASK_THREAD_TRANSCRIPT_CHARS` | 24000                                                                                                                   |
+| `ASK_META_REFUSAL`                | meta-probe reply                                                                                                        |
+| `BOT_META_PATTERNS`               | regex set                                                                                                               |
+| `BOT_SECRET_PATTERNS`             | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens                                      |
 | `SENSITIVE_PATH_PATTERNS`         | shared sensitive-path policy for ask reads, verification search, and triage reads, search, writes, staging, and commits |
 | `TRIAGE_CONTROL_PATH_PATTERNS`    | control-plane paths blocked by triage workspace reads, search, writes, staging, and commits, and by verification search |
 
