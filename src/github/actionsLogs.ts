@@ -1,3 +1,8 @@
+import { boundRawLogIntake } from "../review/ci/rawLogIntake.js";
+import {
+  REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
+  REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
+} from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
@@ -58,8 +63,9 @@ export async function listFailingActionsJobsForHead(
     });
 
     const jobs: ActionsJobSnapshot[] = [];
-    for (const run of runs) {
-      if (run.head_sha !== headSha) continue;
+    const matchingRuns = runs.filter((run) => run.head_sha === headSha);
+    for (const run of matchingRuns) {
+      if (jobs.length >= REVIEW_CI_SUMMARY_LOG_MAX_JOBS) break;
       const runJobs = await paginateOctokitPages({
         perPage: JOBS_PAGE_SIZE,
         maxPages: JOBS_MAX_PAGES,
@@ -82,6 +88,7 @@ export async function listFailingActionsJobsForHead(
           conclusion: job.conclusion,
           htmlUrl: job.html_url ?? null,
         });
+        if (jobs.length >= REVIEW_CI_SUMMARY_LOG_MAX_JOBS) break;
       }
     }
     return { ok: true, jobs };
@@ -117,7 +124,7 @@ export async function downloadActionsJobLogs(
     if (text == null || text.trim().length === 0) {
       return { ok: false, reason: "empty" };
     }
-    return { ok: true, text };
+    return { ok: true, text: boundRawLogIntake(text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS) };
   } catch (error) {
     if (isMissingActionsPermissionError(error)) {
       return { ok: false, reason: "actions_permission" };

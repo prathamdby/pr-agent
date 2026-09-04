@@ -732,4 +732,168 @@ describe("analyzeCi", () => {
     expect(summary.failures[0]?.reason).toContain("unavailable");
     expect(summary.failures[0]?.url).toBe("https://example.com/build");
   });
+
+  it("fetches one annotation list per failing check and keeps check-output order", async () => {
+    const { surface, controls } = ciSurface();
+    controls.setCiStatus("abc", {
+      checkRuns: [
+        {
+          id: 11,
+          name: "lint",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "lint output",
+          outputText: null,
+        },
+        {
+          id: 12,
+          name: "test",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "test output",
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+    const listAnnotations = vi
+      .spyOn(surface, "listCheckRunAnnotations")
+      .mockImplementation(async (checkRunId) => [
+        {
+          path: `${checkRunId}.ts`,
+          startLine: 1,
+          endLine: 1,
+          title: null,
+          message: `ann-${checkRunId}`,
+          annotationLevel: "failure",
+        },
+      ]);
+    let captured: CiAuthorInput | undefined;
+    await buildCiSummaryForSurface(surface, {
+      headSha: "abc",
+      waitMs: 0,
+      author: async (input) => {
+        captured = input;
+        return mockAuthor(input);
+      },
+    });
+
+    expect(listAnnotations.mock.calls.map((call) => call[0])).toEqual([11, 12]);
+    const context = captured?.condensedLogs ?? "";
+    expect(context.indexOf("lint output")).toBeGreaterThanOrEqual(0);
+    expect(context.indexOf("test output")).toBeGreaterThan(context.indexOf("lint output"));
+    expect(context.indexOf("ann-11")).toBeGreaterThan(context.indexOf("lint output"));
+    expect(context.indexOf("ann-11")).toBeLessThan(context.indexOf("test output"));
+  });
+
+  it("keeps other check annotations when one annotation fetch fails", async () => {
+    const { surface, controls } = ciSurface();
+    controls.setCiStatus("abc", {
+      checkRuns: [
+        {
+          id: 11,
+          name: "lint",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "lint output",
+          outputText: null,
+        },
+        {
+          id: 12,
+          name: "test",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "test output",
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+    vi.spyOn(surface, "listCheckRunAnnotations").mockImplementation(async (checkRunId) => {
+      if (checkRunId === 11) {
+        throw Object.assign(new Error("Resource not accessible by integration"), { status: 403 });
+      }
+      return [
+        {
+          path: "test.ts",
+          startLine: 2,
+          endLine: 2,
+          title: null,
+          message: "test annotation",
+          annotationLevel: "failure",
+        },
+      ];
+    });
+    let captured: CiAuthorInput | undefined;
+    const summary = await buildCiSummaryForSurface(surface, {
+      headSha: "abc",
+      waitMs: 0,
+      author: async (input) => {
+        captured = input;
+        return mockAuthor(input);
+      },
+    });
+
+    expect(summary.status).toBe("failing");
+    expect(captured?.condensedLogs).toContain("lint output");
+    expect(captured?.condensedLogs).toContain("test annotation");
+    expect(captured?.condensedLogs).not.toContain("ann-11");
+  });
+
+  it("assembles job logs in listed order and stops applying logs after a permission miss", async () => {
+    const { surface, controls } = ciSurface();
+    controls.setCiStatus("abc", {
+      checkRuns: [
+        {
+          id: 11,
+          name: "lint",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "Format issues found",
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+    controls.setFailingJobs("abc", [
+      { id: 1, name: "lint", conclusion: "failure", htmlUrl: "https://example.com/lint" },
+      { id: 2, name: "test", conclusion: "failure", htmlUrl: "https://example.com/test" },
+      { id: 3, name: "build", conclusion: "failure", htmlUrl: "https://example.com/build" },
+    ]);
+    const download = vi
+      .spyOn(surface, "downloadActionsJobLogs")
+      .mockImplementation(async (jobId) => {
+        if (jobId === 2) return { ok: false as const, reason: "actions_permission" as const };
+        return {
+          ok: true as const,
+          text: `Error: Process completed with exit code 1.\njob-${jobId} failed`,
+        };
+      });
+    let captured: CiAuthorInput | undefined;
+    const summary = await buildCiSummaryForSurface(surface, {
+      headSha: "abc",
+      waitMs: 0,
+      author: async (input) => {
+        captured = input;
+        return mockAuthor(input);
+      },
+    });
+
+    expect(download.mock.calls.map((call) => call[0])).toEqual([1, 2, 3]);
+    expect(summary.permissionNote).toMatch(/Actions to Read/i);
+    expect(captured?.condensedLogs).toContain("Job: lint");
+    expect(captured?.condensedLogs).toContain("job-1 failed");
+    expect(captured?.condensedLogs).not.toContain("Job: test");
+    expect(captured?.condensedLogs).not.toContain("job-3");
+  });
 });
