@@ -99,6 +99,17 @@ function poolWithPriorRunActedIds(): Pool {
   } as unknown as Pool;
 }
 
+function triagePushRecords(): Array<Record<string, unknown> | undefined> {
+  return vi
+    .mocked(recordPublishStep)
+    .mock.calls.flatMap(([, params]) => (params.step === "triage_push" ? [params.detail] : []));
+}
+
+const closedLifecycles = [
+  ["closed", { state: "closed", merged: false, merged_at: null }],
+  ["merged", { state: "closed", merged: true, merged_at: "2026-01-01T00:00:00Z" }],
+] as const;
+
 describe("publishTriage", () => {
   let controls: import("../src/github/fakePrSurface.js").FakePrSurfaceControls;
 
@@ -261,6 +272,72 @@ describe("publishTriage", () => {
       }),
     );
   });
+
+  it.each(closedLifecycles)(
+    "records a push that raced a %s PR as terminal no-push without success artifacts",
+    async (_label, lifecycle) => {
+      const fake = publishTestPrSurface();
+      controls = fake.controls;
+      const committedSha = "c".repeat(40);
+      const committed = [{ sha: committedSha, subject: "fix: guard user", diff: "+ok\n" }];
+      const remotePush = vi.fn(async () => undefined);
+      const push = vi.fn(async () => {
+        const { pullRequest } = await fake.surface.getHead();
+        if (!isPullRequestOpenAndUnmerged(pullRequest)) {
+          throw new TriageClosedPullRequestError();
+        }
+        await remotePush();
+        controls.setPullRequest({
+          additions: 1,
+          deletions: 0,
+          changed_files: 1,
+          ...lifecycle,
+          head: { sha: "a".repeat(40) },
+        });
+      });
+      const raceCheckout: WritablePrCheckout = {
+        dir: "/tmp/checkout",
+        headRef: "main",
+        baseSha: "a".repeat(40),
+        commit: vi.fn(),
+        push,
+        listCommittedShas: () => committed.map((entry) => entry.sha),
+        listCommittedDetails: () => [...committed],
+      };
+
+      const result = await publishTriage({
+        pool: pool(),
+        workItemId: "wi",
+        leaseEpoch: 1,
+        resourceKey: "o/r#1",
+        installationId: 42,
+        prSurface: fake.surface,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "a".repeat(40),
+        checkout: raceCheckout,
+        inventory: [thread],
+        resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+        payload: { verdicts: [fixedVerdict] },
+        previouslyResolvedCount: 0,
+      });
+
+      expect(remotePush).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ pushOutcome: "closed", missingThreadAction: false });
+      expect(controls.replies).toHaveLength(0);
+      expect(resolveThreadIds(controls)).toHaveLength(0);
+      const body = upsertProgressBody(controls);
+      expect(body).toContain(TRIAGE_CLOSED_PR_NOTICE);
+      expect(body).not.toContain("Pushed commits:");
+      const pushRecords = triagePushRecords();
+      expect(pushRecords).toHaveLength(1);
+      expect(pushRecords[0]).toEqual(
+        expect.objectContaining({ pushOutcome: "closed", attemptedShas: [committedSha] }),
+      );
+      expect(pushRecords[0]).not.toHaveProperty("pushedShas");
+    },
+  );
 
   it("replies and resolves a fixed thread after a successful push", async () => {
     const fake = publishTestPrSurface();
@@ -906,6 +983,10 @@ describe("parseStoredTriagePushDetail", () => {
 });
 
 describe("publishTriage push outcomes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   const cases: Array<{
     readonly outcome: TriagePushOutcome;
     readonly verdict:
@@ -1179,5 +1260,62 @@ describe("publishTriage push outcomes", () => {
     ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
     expect(push).not.toHaveBeenCalled();
     expect(upsertProgressBody(fake.controls)).toBe("");
+  });
+
+  it("re-checks PR state after recover reconciles a landed push without calling checkout.push", async () => {
+    await memoryOperationIntentStore.persist(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      mutationKind: "github.triage_push",
+    });
+    await memoryOperationIntentStore.reconcile(pool(), {
+      workItemId: "wi",
+      operationKey: triagePushOperationKey("o/r#1"),
+      status: "outcome_unknown",
+    });
+    const push = vi.fn(async () => undefined);
+    const fake = publishTestPrSurface();
+    fake.controls.setPushedCommits([{ sha: "abcdef123456", subject: "fix: guard user" }]);
+    fake.controls.setPullRequest({
+      additions: 1,
+      deletions: 0,
+      changed_files: 1,
+      state: "closed",
+      merged: true,
+      merged_at: "2026-01-01T00:00:00Z",
+      head: { sha: "a".repeat(40) },
+    });
+
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      leaseEpoch: 1,
+      resourceKey: "o/r#1",
+      installationId: 42,
+      prSurface: fake.surface,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(push),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: { verdicts: [fixedVerdict] },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(push).not.toHaveBeenCalled();
+    expect(memoryOperationIntentStore.get("wi", triagePushOperationKey("o/r#1"))?.status).toBe(
+      "reconciled",
+    );
+    expect(result).toEqual({ pushOutcome: "closed", missingThreadAction: false });
+    expect(fake.controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(fake.controls)).toHaveLength(0);
+    const body = upsertProgressBody(fake.controls);
+    expect(body).toContain(TRIAGE_CLOSED_PR_NOTICE);
+    expect(body).not.toContain("Pushed commits:");
+    expect(triagePushRecords()).toEqual([
+      expect.objectContaining({ pushOutcome: "closed", attemptedShas: ["abcdef123456"] }),
+    ]);
   });
 });

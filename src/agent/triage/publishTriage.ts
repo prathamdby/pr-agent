@@ -19,7 +19,7 @@ import {
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
 } from "../../settings/index.js";
-import { TriageClosedPullRequestError } from "./triageErrors.js";
+import { assertTriagePullRequestWritable, TriageClosedPullRequestError } from "./triageErrors.js";
 import { recordPublishStep } from "../../agentWork/repository.js";
 import {
   operationIntentMarker,
@@ -362,6 +362,10 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
           await params.checkout.push();
         },
       });
+      // After intent, not inside mutate(): recover can reconcile a landed
+      // push without calling push(), and a throw inside mutate() after git
+      // succeeded would let that recovery publish pushed.
+      await assertTriagePullRequestWritable(params.prSurface);
       pushOutcome = "pushed";
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
