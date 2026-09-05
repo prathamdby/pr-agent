@@ -552,339 +552,350 @@ export async function runDurableWorkItem<T extends WorkType>(
     });
   }
 
-  const claimed = await claimWorkForExecution(spec.pool, core.id);
-  if (!claimed) {
-    await releaseLeaseQuietly();
-    return;
-  }
-  workClaim = claimed;
-  enterExecutingPhase(phaseState);
-
-  const rawPayload = await getWorkItemPayload(spec.pool, core.id);
-  if (rawPayload === undefined) {
-    await releaseLeaseQuietly();
-    return;
-  }
   try {
-    workItem = attachWorkItemPayload(core, rawPayload);
-  } catch (error) {
-    await markWorkFailed(spec.pool, core.id, error, leaseEpoch);
-    await releaseLeaseQuietly();
-    throw error;
-  }
+    const claimed = await claimWorkForExecution(spec.pool, core.id);
+    if (!claimed) {
+      return;
+    }
+    workClaim = claimed;
+    enterExecutingPhase(phaseState);
 
-  const item = workItem;
+    const rawPayload = await getWorkItemPayload(spec.pool, core.id);
+    if (rawPayload === undefined) {
+      return;
+    }
+    try {
+      workItem = attachWorkItemPayload(core, rawPayload);
+    } catch (error) {
+      try {
+        await markWorkFailed(spec.pool, core.id, error, leaseEpoch);
+      } catch (markError) {
+        logWarn("agent_work_failed_mark_failed", {
+          type: spec.type,
+          workItemId: core.id,
+          leaseEpoch,
+          message: markError instanceof Error ? markError.message : String(markError),
+        });
+      }
+      throw error;
+    }
 
-  /** Unleased types have no fencing token; leased types own the row only while their epoch holds. */
-  const executionStillOwns = async (): Promise<boolean> =>
-    leaseEpoch == null || (await isPrActorLeaseHeld(spec.pool, item.id, leaseEpoch));
+    const item = workItem;
 
-  const cancelIfSkippable = async (reason: string, notifyHook = true) => {
-    if (isSkipCheckSuppressed(phaseState)) return false;
-    // A newer execution owns the lease — exit without terminalising its work item.
-    if (!(await executionStillOwns())) {
-      logInfo("agent_work_stale_execution_skipped", {
-        type: spec.type,
-        workItemId: item.id,
-        leaseEpoch,
-        reason,
-      });
+    /** Unleased types have no fencing token; leased types own the row only while their epoch holds. */
+    const executionStillOwns = async (): Promise<boolean> =>
+      leaseEpoch == null || (await isPrActorLeaseHeld(spec.pool, item.id, leaseEpoch));
+
+    const cancelIfSkippable = async (reason: string, notifyHook = true) => {
+      if (isSkipCheckSuppressed(phaseState)) return false;
+      // A newer execution owns the lease — exit without terminalising its work item.
+      if (!(await executionStillOwns())) {
+        logInfo("agent_work_stale_execution_skipped", {
+          type: spec.type,
+          workItemId: item.id,
+          leaseEpoch,
+          reason,
+        });
+        return true;
+      }
+      if (!(await shouldSkipWork(spec.pool, item))) return false;
+      if (notifyHook) {
+        await markCancelledAndInvokeHook(item, reason, leaseEpoch, seededInstallation);
+      } else {
+        await markWorkCancelled(spec.pool, item.id, leaseEpoch);
+        await clearResumeSnapshotsBestEffort(spec.pool, item.id);
+      }
       return true;
-    }
-    if (!(await shouldSkipWork(spec.pool, item))) return false;
-    if (notifyHook) {
-      await markCancelledAndInvokeHook(item, reason, leaseEpoch, seededInstallation);
-    } else {
-      await markWorkCancelled(spec.pool, item.id, leaseEpoch);
-      await clearResumeSnapshotsBestEffort(spec.pool, item.id);
-    }
-    return true;
-  };
+    };
 
-  const recheckSkippableAndCancel = async (reason: string, notifyHook = true) => {
-    phaseState.phase = "completing";
-    return cancelIfSkippable(reason, notifyHook);
-  };
+    const recheckSkippableAndCancel = async (reason: string, notifyHook = true) => {
+      phaseState.phase = "completing";
+      return cancelIfSkippable(reason, notifyHook);
+    };
 
-  async function prepareDurableExecution(
-    installationToken: InstallationToken,
-  ): Promise<DurableExecutionContext | undefined> {
-    if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
-      await markCancelledAndInvokeHook(item, "bot_commenter", leaseEpoch, installationToken);
+    async function prepareDurableExecution(
+      installationToken: InstallationToken,
+    ): Promise<DurableExecutionContext | undefined> {
+      if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
+        await markCancelledAndInvokeHook(item, "bot_commenter", leaseEpoch, installationToken);
+        return undefined;
+      }
+
+      const mutationBoundary =
+        leaseEpoch == null || leaseAbortController == null
+          ? undefined
+          : createLeaseMutationBoundary({
+              pool: spec.pool,
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+              leaseEpoch,
+              signal: executionSignal,
+            });
+      const prSurface = createPrSurfaceForItem(spec.cfg, item, installationToken, mutationBoundary);
+      const resolvedHead = await spec.resolveHeadSha(prSurface, item);
+      const headSha = resolvedHead.headSha;
+      if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, leaseEpoch)) {
+        boundHeadSha = headSha;
+        executionPrSurface = prSurface;
+        return {
+          prSurface,
+          headSha,
+          pullRequest: resolvedHead.pullRequest,
+          leaseEpoch,
+          signal: executionSignal,
+          claim: workClaim,
+        };
+      }
+
+      await recheckSkippableAndCancel("head_update_rejected");
       return undefined;
     }
 
-    const mutationBoundary =
-      leaseEpoch == null || leaseAbortController == null
-        ? undefined
-        : createLeaseMutationBoundary({
-            pool: spec.pool,
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
-            leaseEpoch,
-            signal: executionSignal,
-          });
-    const prSurface = createPrSurfaceForItem(spec.cfg, item, installationToken, mutationBoundary);
-    const resolvedHead = await spec.resolveHeadSha(prSurface, item);
-    const headSha = resolvedHead.headSha;
-    if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, leaseEpoch)) {
-      boundHeadSha = headSha;
-      executionPrSurface = prSurface;
-      return {
-        prSurface,
-        headSha,
-        pullRequest: resolvedHead.pullRequest,
+    async function completeRescheduledResult(
+      result: Extract<DurableExecutionResult, { kind: "rescheduled" }>,
+    ): Promise<void> {
+      if (leaseEpoch == null) {
+        throw new AppError({
+          code: "agent_work.pr_actor_lease_lost",
+          message: "PR actor lease is no longer held by this execution",
+          context: { workItemId: item.id },
+        });
+      }
+      pendingRescheduleAbort = result.onRescheduleAbort;
+      await result.afterComplete(spec.boss);
+      // Enqueue finished (or was already done); do not cancel the replacement if parent complete fails.
+      pendingRescheduleAbort = undefined;
+      await finishRescheduledParentWorkItem(
+        spec.pool,
+        item.id,
+        spec.type,
+        result.replacementWorkItemId,
         leaseEpoch,
-        signal: executionSignal,
-        claim: workClaim,
-      };
+      );
     }
 
-    await recheckSkippableAndCancel("head_update_rejected");
-    return undefined;
-  }
-
-  async function completeRescheduledResult(
-    result: Extract<DurableExecutionResult, { kind: "rescheduled" }>,
-  ): Promise<void> {
-    if (leaseEpoch == null) {
-      throw new AppError({
-        code: "agent_work.pr_actor_lease_lost",
-        message: "PR actor lease is no longer held by this execution",
-        context: { workItemId: item.id },
-      });
-    }
-    pendingRescheduleAbort = result.onRescheduleAbort;
-    await result.afterComplete(spec.boss);
-    // Enqueue finished (or was already done); do not cancel the replacement if parent complete fails.
-    pendingRescheduleAbort = undefined;
-    await finishRescheduledParentWorkItem(
-      spec.pool,
-      item.id,
-      spec.type,
-      result.replacementWorkItemId,
-      leaseEpoch,
-    );
-  }
-
-  async function invokeRescheduleAbort(error: unknown): Promise<void> {
-    try {
-      if (pendingRescheduleAbort) {
-        await pendingRescheduleAbort(spec.boss, error);
-        return;
-      }
-      // Earlier attempt may have persisted a replacement without registering an abort hook.
-      if (isWorkItemType(item, "review")) {
-        await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-          spec.pool,
-          spec.boss,
-          item,
-          error,
-        );
-      }
-    } catch (abortError) {
-      logWarn("agent_work_replacement_cancel_failed", {
-        type: spec.type,
-        workItemId: item.id,
-        message: sanitizeLogMessage(
-          abortError instanceof Error ? abortError.message : String(abortError),
-        ),
-      });
-    }
-  }
-
-  async function publishOutcomeReaction(content: GithubReactionContent): Promise<void> {
-    try {
-      const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
-      await prSurface.setAcknowledgementReaction(reactionTargetsForWorkItem(item), content);
-    } catch (error) {
-      logWarn("agent_work_outcome_reaction_failed", {
-        type: spec.type,
-        workItemId: item.id,
-        reaction: content,
-        message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
-      });
-    }
-  }
-
-  async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    switch (result.kind) {
-      case "rescheduled":
-        // Replacement enqueue before skip: execute may already have transferred progress ownership.
-        await completeRescheduledResult(result);
-        return;
-      case "completed":
-        if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
-        if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id, leaseEpoch);
-        if (!(await markWorkCompleted(spec.pool, item.id, leaseEpoch))) {
-          await recheckSkippableAndCancel("completion_race", false);
+    async function invokeRescheduleAbort(error: unknown): Promise<void> {
+      try {
+        if (pendingRescheduleAbort) {
+          await pendingRescheduleAbort(spec.boss, error);
           return;
         }
-        await clearResumeSnapshotsBestEffort(spec.pool, item.id);
-        logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
-        await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
-        return;
-      default: {
-        const exhaustive: never = result;
-        return exhaustive;
+        // Earlier attempt may have persisted a replacement without registering an abort hook.
+        if (isWorkItemType(item, "review")) {
+          await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+            spec.pool,
+            spec.boss,
+            item,
+            error,
+          );
+        }
+      } catch (abortError) {
+        logWarn("agent_work_replacement_cancel_failed", {
+          type: spec.type,
+          workItemId: item.id,
+          message: sanitizeLogMessage(
+            abortError instanceof Error ? abortError.message : String(abortError),
+          ),
+        });
       }
     }
-  }
 
-  async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
-    if (await markWorkRetrying(spec.pool, item.id, error, leaseEpoch)) {
+    async function publishOutcomeReaction(content: GithubReactionContent): Promise<void> {
+      try {
+        const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
+        await prSurface.setAcknowledgementReaction(reactionTargetsForWorkItem(item), content);
+      } catch (error) {
+        logWarn("agent_work_outcome_reaction_failed", {
+          type: spec.type,
+          workItemId: item.id,
+          reaction: content,
+          message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+        });
+      }
+    }
+
+    async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
+      switch (result.kind) {
+        case "rescheduled":
+          // Replacement enqueue before skip: execute may already have transferred progress ownership.
+          await completeRescheduledResult(result);
+          return;
+        case "completed":
+          if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
+          if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id, leaseEpoch);
+          if (!(await markWorkCompleted(spec.pool, item.id, leaseEpoch))) {
+            await recheckSkippableAndCancel("completion_race", false);
+            return;
+          }
+          await clearResumeSnapshotsBestEffort(spec.pool, item.id);
+          logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
+          await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
+          return;
+        default: {
+          const exhaustive: never = result;
+          return exhaustive;
+        }
+      }
+    }
+
+    async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
+      if (await markWorkRetrying(spec.pool, item.id, error, leaseEpoch)) {
+        const failure = classifyFailure(error);
+        logWarn("agent_work_retrying", {
+          type: spec.type,
+          workItemId: item.id,
+          message,
+          providerErrorKind: classifyProviderError(error),
+          pgBossRetryCount: spec.job.retryCount,
+          pgBossRetryLimit: spec.job.retryLimit,
+          dbAttemptCount: item.attemptCount,
+          ...classifiedFailureLogFields(failure),
+        });
+        throw error;
+      }
+      await recheckSkippableAndCancel("retry_claim_rejected");
+    }
+
+    function itemForHooks(): TypedItem {
+      if (boundHeadSha == null || boundHeadSha === item.headSha) return item;
+      return { ...item, headSha: boundHeadSha };
+    }
+
+    async function invokeTerminalFailureHook(error: unknown): Promise<void> {
+      if (!spec.onTerminalFailure) return;
+      if (spec.prActorLease && leaseEpoch == null) {
+        logInfo("agent_work_terminal_failure_hook_skipped_without_lease", {
+          type: spec.type,
+          workItemId: item.id,
+        });
+        return;
+      }
+      try {
+        const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
+        await spec.onTerminalFailure(itemForHooks(), prSurface, error, leaseEpoch);
+      } catch (publishError) {
+        logWarn("agent_work_terminal_failure_hook_failed", {
+          type: spec.type,
+          workItemId: item.id,
+          message: publishError instanceof Error ? publishError.message : String(publishError),
+        });
+      }
+    }
+
+    async function handleDurableExecutionError(error: unknown): Promise<void> {
+      if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
+        logInfo("agent_work_stale_execution_skipped", {
+          type: spec.type,
+          workItemId: item.id,
+          leaseEpoch,
+        });
+        return;
+      }
+      if (jobSignal.aborted) {
+        await recheckSkippableAndCancel("job_aborted");
+        return;
+      }
+      if (await recheckSkippableAndCancel("skipped_after_error")) return;
+      const message = error instanceof Error ? error.message : String(error);
+      // Permanent product failures skip the pg-boss retry budget and fail on first throw.
+      if (!isNonRetryableDurableFailure(error) && !(spec.job.retryCount >= spec.job.retryLimit)) {
+        await markRetryingOrCancel(error, message);
+        return;
+      }
+
+      if (!(await markWorkFailed(spec.pool, item.id, error, leaseEpoch))) {
+        await recheckSkippableAndCancel("failure_race");
+        return;
+      }
+      await clearResumeSnapshotsBestEffort(spec.pool, item.id);
+      await invokeRescheduleAbort(error);
+      await invokeTerminalFailureHook(error);
+      await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);
       const failure = classifyFailure(error);
-      logWarn("agent_work_retrying", {
-        type: spec.type,
-        workItemId: item.id,
-        message,
-        providerErrorKind: classifyProviderError(error),
-        pgBossRetryCount: spec.job.retryCount,
-        pgBossRetryLimit: spec.job.retryLimit,
-        dbAttemptCount: item.attemptCount,
-        ...classifiedFailureLogFields(failure),
+      const providerErrorKind = classifyProviderError(error);
+      logError(
+        "agent_work_failed",
+        {
+          type: spec.type,
+          workItemId: item.id,
+          installationId: item.installationId,
+          owner: item.owner,
+          repo: item.repo,
+          pr_number: item.prNumber,
+          message: sanitizeLogMessage(message),
+          providerErrorKind,
+          pgBossRetryCount: spec.job.retryCount,
+          pgBossRetryLimit: spec.job.retryLimit,
+          dbAttemptCount: item.attemptCount,
+          ...errorLogFields(error),
+          ...classifiedFailureLogFields(failure),
+        },
+        error,
+      );
+      captureEvent({
+        distinctId: `installation:${item.installationId}`,
+        event: "work item failed",
+        properties: {
+          type: spec.type,
+          owner: item.owner,
+          repo: item.repo,
+          pr_number: item.prNumber,
+          attempt_count: item.attemptCount,
+          ...classifiedFailurePostHogProperties(failure),
+          ...(failure.failureDomain === "provider"
+            ? { provider_error_kind: providerErrorKind }
+            : {}),
+        },
       });
-      throw error;
     }
-    await recheckSkippableAndCancel("retry_claim_rejected");
-  }
 
-  function itemForHooks(): TypedItem {
-    if (boundHeadSha == null || boundHeadSha === item.headSha) return item;
-    return { ...item, headSha: boundHeadSha };
-  }
-
-  async function invokeTerminalFailureHook(error: unknown): Promise<void> {
-    if (!spec.onTerminalFailure) return;
-    if (spec.prActorLease && leaseEpoch == null) {
-      logInfo("agent_work_terminal_failure_hook_skipped_without_lease", {
-        type: spec.type,
-        workItemId: item.id,
-      });
-      return;
-    }
     try {
-      const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
-      await spec.onTerminalFailure(itemForHooks(), prSurface, error, leaseEpoch);
-    } catch (publishError) {
-      logWarn("agent_work_terminal_failure_hook_failed", {
-        type: spec.type,
-        workItemId: item.id,
-        message: publishError instanceof Error ? publishError.message : String(publishError),
-      });
-    }
-  }
+      if (jobSignal.aborted) {
+        await markCancelledAndInvokeHook(item, "job_aborted", leaseEpoch, seededInstallation);
+        return;
+      }
+      if (!(await executionStillOwns())) {
+        // A newer execution owns the lease — do not terminalise its work item.
+        logInfo("agent_work_stale_execution_skipped", {
+          type: spec.type,
+          workItemId: item.id,
+          leaseEpoch,
+        });
+        return;
+      }
+      seededInstallation = await mintInstallationToken(spec.cfg, item.installationId);
+      const execution = await prepareDurableExecution(seededInstallation);
+      if (!execution) return;
 
-  async function handleDurableExecutionError(error: unknown): Promise<void> {
-    if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
-      logInfo("agent_work_stale_execution_skipped", {
+      logInfo("agent_work_started", {
         type: spec.type,
         workItemId: item.id,
+        resourceKey: item.resourceKey,
         leaseEpoch,
       });
-      return;
+      await reconcilePendingIntents(spec.pool, item.id, leaseEpoch);
+      if (!(await executionStillOwns())) {
+        logInfo("agent_work_stale_execution_skipped", {
+          type: spec.type,
+          workItemId: item.id,
+          leaseEpoch,
+        });
+        return;
+      }
+      if (jobSignal.aborted) {
+        await recheckSkippableAndCancel("job_aborted");
+        return;
+      }
+      const result = await spec.execute(item, execution);
+      await completeDurableExecution(result);
+    } catch (error) {
+      await handleDurableExecutionError(error);
     }
-    if (jobSignal.aborted) {
-      await recheckSkippableAndCancel("job_aborted");
-      return;
-    }
-    if (await recheckSkippableAndCancel("skipped_after_error")) return;
-    const message = error instanceof Error ? error.message : String(error);
-    // Permanent product failures skip the pg-boss retry budget and fail on first throw.
-    if (!isNonRetryableDurableFailure(error) && !(spec.job.retryCount >= spec.job.retryLimit)) {
-      await markRetryingOrCancel(error, message);
-      return;
-    }
-
-    if (!(await markWorkFailed(spec.pool, item.id, error, leaseEpoch))) {
-      await recheckSkippableAndCancel("failure_race");
-      return;
-    }
-    await clearResumeSnapshotsBestEffort(spec.pool, item.id);
-    await invokeRescheduleAbort(error);
-    await invokeTerminalFailureHook(error);
-    await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);
-    const failure = classifyFailure(error);
-    const providerErrorKind = classifyProviderError(error);
-    logError(
-      "agent_work_failed",
-      {
-        type: spec.type,
-        workItemId: item.id,
-        installationId: item.installationId,
-        owner: item.owner,
-        repo: item.repo,
-        pr_number: item.prNumber,
-        message: sanitizeLogMessage(message),
-        providerErrorKind,
-        pgBossRetryCount: spec.job.retryCount,
-        pgBossRetryLimit: spec.job.retryLimit,
-        dbAttemptCount: item.attemptCount,
-        ...errorLogFields(error),
-        ...classifiedFailureLogFields(failure),
-      },
-      error,
-    );
-    captureEvent({
-      distinctId: `installation:${item.installationId}`,
-      event: "work item failed",
-      properties: {
-        type: spec.type,
-        owner: item.owner,
-        repo: item.repo,
-        pr_number: item.prNumber,
-        attempt_count: item.attemptCount,
-        ...classifiedFailurePostHogProperties(failure),
-        ...(failure.failureDomain === "provider" ? { provider_error_kind: providerErrorKind } : {}),
-      },
-    });
-  }
-
-  try {
-    if (jobSignal.aborted) {
-      await markCancelledAndInvokeHook(item, "job_aborted", leaseEpoch, seededInstallation);
-      return;
-    }
-    if (!(await executionStillOwns())) {
-      // A newer execution owns the lease — do not terminalise its work item.
-      logInfo("agent_work_stale_execution_skipped", {
-        type: spec.type,
-        workItemId: item.id,
-        leaseEpoch,
-      });
-      return;
-    }
-    seededInstallation = await mintInstallationToken(spec.cfg, item.installationId);
-    const execution = await prepareDurableExecution(seededInstallation);
-    if (!execution) return;
-
-    logInfo("agent_work_started", {
-      type: spec.type,
-      workItemId: item.id,
-      resourceKey: item.resourceKey,
-      leaseEpoch,
-    });
-    await reconcilePendingIntents(spec.pool, item.id, leaseEpoch);
-    if (!(await executionStillOwns())) {
-      logInfo("agent_work_stale_execution_skipped", {
-        type: spec.type,
-        workItemId: item.id,
-        leaseEpoch,
-      });
-      return;
-    }
-    if (jobSignal.aborted) {
-      await recheckSkippableAndCancel("job_aborted");
-      return;
-    }
-    const result = await spec.execute(item, execution);
-    await completeDurableExecution(result);
-  } catch (error) {
-    await handleDurableExecutionError(error);
   } finally {
     // Terminal marks and hooks above ran under the lease; release happens after them so
     // no durable write from this epoch can be fenced out by an early clear. On retry
     // (markRetryingOrCancel rethrows) the next delivery re-acquires with a fresh epoch.
+    // A failed SQL release leaves expiry as recovery.
     await releaseLeaseQuietly();
   }
 }
