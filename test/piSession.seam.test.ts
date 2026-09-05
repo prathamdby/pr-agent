@@ -109,6 +109,76 @@ describe("createPiSession seam", () => {
     expect(mockSession.dispose).toHaveBeenCalled();
   });
 
+  it("rejects a resolved SDK prompt that ends on an assistant error", async () => {
+    const events: Array<{ kind: string }> = [];
+    const mockSession = {
+      subscribe: vi.fn(
+        (
+          listener: (event: {
+            type: string;
+            toolResults?: unknown[];
+            message?: {
+              role: string;
+              content: unknown[];
+              stopReason?: string;
+              errorMessage?: string;
+            };
+          }) => void,
+        ) => {
+          (mockSession as { _listener?: typeof listener })._listener = listener;
+          return () => undefined;
+        },
+      ),
+      prompt: vi.fn(async () => {
+        const listener = (mockSession as { _listener?: (event: unknown) => void })._listener;
+        listener?.({
+          type: "turn_end",
+          toolResults: [],
+          message: {
+            role: "assistant",
+            content: [],
+            stopReason: "error",
+            errorMessage: "429 Too Many Requests: rate limit exceeded",
+          },
+        });
+      }),
+      abort: vi.fn(),
+      setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
+      dispose: vi.fn(),
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session: mockSession } as never);
+
+    const session = await createPiSession({
+      role: "orchestrator",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("orchestrator"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "orchestrator",
+      eventSink: (event) => events.push({ kind: event.kind }),
+      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      tools: [],
+      executors: {},
+    });
+
+    await expect(
+      session.send("run", {
+        phase: "recon",
+        checkpointId: "cp-recon",
+        maxToolRounds: 2,
+      }),
+    ).rejects.toMatchObject({
+      code: "provider.request_failed",
+    });
+    expect(events.map((event) => event.kind)).toContain("failure");
+    expect(events.map((event) => event.kind)).not.toContain("completion");
+
+    await session.dispose();
+  });
+
   it("does not import createAgentSession from feature harness paths (grep gate)", async () => {
     // Only src/agent/runtime may construct Pi sessions (createPiSession seam).
     // Feature packages and agent/providers must go through that seam.

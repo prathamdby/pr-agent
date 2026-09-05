@@ -11,6 +11,13 @@ describe("classifyFallbackEligibility", () => {
       "model_unavailable",
       new AppError({ code: "provider.model_not_found", message: "Model not found: x/y" }),
     ],
+    [
+      "rate_limit",
+      new AppError({
+        code: "provider.request_failed",
+        message: "429 Too Many Requests: rate limit exceeded",
+      }),
+    ],
   ];
 
   const ineligible: Array<[string, unknown]> = [
@@ -37,6 +44,17 @@ describe("classifyFallbackEligibility", () => {
     [
       "deadline",
       new AppError({ code: "pi.prompt_idle_timeout", message: "Provider prompt timeout" }),
+    ],
+    [
+      "auth",
+      new AppError({
+        code: "provider.request_failed",
+        message: "401 Unauthorized invalid api key",
+      }),
+    ],
+    [
+      "cancellation",
+      new AppError({ code: "agent.session_aborted", message: "Agent runner session aborted" }),
     ],
   ];
 
