@@ -27,6 +27,8 @@ Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.p
 
 `gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
+`createPiSession.send` fails after a settled unrecovered Pi provider error. Recovered SDK retries stay successful. Public cancellation, idle timeout, and tool-budget stops stay distinct from provider outages.
+
 ## Landing site
 
 The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot.

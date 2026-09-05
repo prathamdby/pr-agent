@@ -7,6 +7,8 @@ type MockTurnEndEvent = {
   toolResults: unknown[];
   message: {
     role: "assistant";
+    stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted";
+    errorMessage?: string;
     usage?: {
       input: number;
       output: number;
@@ -34,8 +36,26 @@ type MockTurnEndEvent = {
   };
 };
 
-function makeAssistantMessage(text: string): MockTurnEndEvent["message"] {
-  return { role: "assistant", content: [{ type: "text", text }] };
+function makeAssistantMessage(
+  text: string,
+  extras: Partial<Pick<MockTurnEndEvent["message"], "stopReason" | "errorMessage" | "usage">> = {},
+): MockTurnEndEvent["message"] {
+  return { role: "assistant", content: [{ type: "text", text }], ...extras };
+}
+
+function makeProviderErrorTurn(
+  errorMessage: string,
+  extras: Partial<Pick<MockTurnEndEvent["message"], "usage">> = {},
+): MockTurnEndEvent {
+  return {
+    type: "turn_end",
+    toolResults: [],
+    message: makeAssistantMessage("", {
+      stopReason: "error",
+      errorMessage,
+      ...extras,
+    }),
+  };
 }
 
 function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => void) {
@@ -54,6 +74,46 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
     setActiveToolsByName: vi.fn(),
     setThinkingLevel: vi.fn(),
     dispose: vi.fn(),
+  };
+}
+
+function buildControllableSession() {
+  const listeners = new Set<(event: unknown) => void>();
+  const unsubscribe = vi.fn();
+  let resolvePrompt: (() => void) | undefined;
+  let rejectPrompt: ((error: unknown) => void) | undefined;
+  const session = {
+    subscribe(listener: (event: unknown) => void) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+        unsubscribe();
+      };
+    },
+    prompt: vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          resolvePrompt = resolve;
+          rejectPrompt = reject;
+        }),
+    ),
+    abort: vi.fn(),
+    setActiveToolsByName: vi.fn(),
+    setThinkingLevel: vi.fn(),
+    dispose: vi.fn(),
+  };
+  return {
+    session,
+    unsubscribe,
+    emit(event: unknown) {
+      for (const listener of listeners) listener(event);
+    },
+    resolvePrompt() {
+      resolvePrompt?.();
+    },
+    rejectPrompt(error: unknown) {
+      rejectPrompt?.(error);
+    },
   };
 }
 
@@ -103,6 +163,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
+import { classifyFallbackEligibility } from "../src/agent/runtime/fallbackClassification.js";
 import {
   compactionPolicyForRole,
   createPiSession,
@@ -113,6 +174,7 @@ import {
   sessionCacheIdFromIdentity,
 } from "../src/agent/runtime/piSession.js";
 import type { Config } from "../src/config.js";
+import { AppError } from "../src/errors/appError.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const cfg = makeTestConfig({
@@ -129,6 +191,7 @@ async function createPiRunnerSession(params: {
   systemPrompt: string;
   tools: readonly PiTool[];
   executors: Record<string, AgentRunnerToolExecutor>;
+  eventSink?: (event: { kind: string; failureCode?: string }) => void;
 }) {
   return createPiSession({
     role: "ask",
@@ -140,7 +203,7 @@ async function createPiRunnerSession(params: {
     structuredState: EMPTY_STRUCTURED_STATE,
     systemPrompt: params.systemPrompt,
     cwd: params.cwd,
-    eventSink: () => undefined,
+    eventSink: params.eventSink ?? (() => undefined),
     cfg: params.cfg,
     tools: params.tools,
     executors: params.executors,
@@ -564,6 +627,269 @@ describe("createPiSession.send", () => {
     expect(typeof agentDir).toBe("string");
     if (typeof agentDir !== "string") throw new Error("expected agentDir");
     await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("createPiSession terminal provider outcomes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(ModelRuntime.create).mockImplementation(
+      async () => createDefaultModelRuntimeMock() as never,
+    );
+  });
+
+  it("rejects a resolved prompt that ends on an assistant error", async () => {
+    const events: Array<{ kind: string; failureCode?: string }> = [];
+    const session = buildMockSession((emit) => {
+      emit(makeProviderErrorTurn("429 Too Many Requests: rate limit exceeded"));
+    });
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+      eventSink: (event) => events.push(event),
+    });
+
+    await expect(runnerSession.send("question", ASK_SEND_OPTS)).rejects.toMatchObject({
+      code: "provider.request_failed",
+      message: "429 Too Many Requests: rate limit exceeded",
+    });
+    expect(events.map((event) => event.kind)).toContain("failure");
+    expect(events.map((event) => event.kind)).not.toContain("completion");
+    expect(events.find((event) => event.kind === "failure")?.failureCode).toBe(
+      "provider.request_failed",
+    );
+    expect(JSON.stringify(events)).not.toContain("429");
+  });
+
+  it("returns text after an error turn and a successful SDK retry", async () => {
+    const session = buildMockSession((emit) => {
+      emit(makeProviderErrorTurn("502 Bad Gateway"));
+      emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistantMessage("recovered answer", { stopReason: "stop" }),
+      });
+    });
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    await expect(runnerSession.send("question", ASK_SEND_OPTS)).resolves.toMatchObject({
+      text: "recovered answer",
+    });
+  });
+
+  it("rejects after exhausted retry error turns", async () => {
+    const session = buildMockSession((emit) => {
+      emit(makeProviderErrorTurn("502 Bad Gateway"));
+      emit(makeProviderErrorTurn("502 Bad Gateway"));
+    });
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    await expect(runnerSession.send("question", ASK_SEND_OPTS)).rejects.toMatchObject({
+      code: "provider.request_failed",
+      message: "502 Bad Gateway",
+    });
+  });
+
+  it("wraps a directly rejected prompt promise", async () => {
+    const controlled = buildControllableSession();
+    vi.mocked(createAgentSession).mockResolvedValue({ session: controlled.session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
+    controlled.rejectPrompt(new Error("401 Unauthorized invalid api key"));
+
+    await expect(sendPromise).rejects.toMatchObject({
+      code: "provider.request_failed",
+      message: "401 Unauthorized invalid api key",
+    });
+  });
+
+  it("prefers public cancellation over a retained error turn", async () => {
+    const controlled = buildControllableSession();
+    vi.mocked(createAgentSession).mockResolvedValue({ session: controlled.session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
+    controlled.emit(makeProviderErrorTurn("502 Bad Gateway"));
+    await runnerSession.abort();
+    controlled.resolvePrompt();
+
+    const error = await sendPromise.catch((value: unknown) => value);
+    expect(error).toMatchObject({ code: "agent.session_aborted" });
+    expect(classifyFallbackEligibility(error)).toEqual({
+      eligible: false,
+      reason: "cancellation",
+    });
+  });
+
+  it("keeps tool-budget termination as a successful empty turn", async () => {
+    const session = buildMockSession((emit) => {
+      emit({
+        type: "turn_end",
+        toolResults: [{}],
+        message: makeAssistantMessage("I'll examine the PR.", { stopReason: "toolUse" }),
+      });
+      emit({
+        type: "turn_end",
+        toolResults: [{}],
+        message: makeAssistantMessage("Let me check more files.", { stopReason: "toolUse" }),
+      });
+    });
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    await expect(
+      runnerSession.send("question", { ...ASK_SEND_OPTS, maxToolRounds: 2 }),
+    ).resolves.toMatchObject({ text: "" });
+    expect(session.abort).toHaveBeenCalled();
+  });
+
+  it("resets provider error state between successive sends", async () => {
+    let sendCount = 0;
+    const session = {
+      subscribe: (listener: (event: MockTurnEndEvent) => void) => {
+        (session as { _listener?: typeof listener })._listener = listener;
+        return () => undefined;
+      },
+      prompt: vi.fn(async () => {
+        sendCount += 1;
+        const listener = (session as { _listener?: (event: MockTurnEndEvent) => void })._listener;
+        if (sendCount === 1) {
+          listener?.(makeProviderErrorTurn("502 Bad Gateway"));
+          return;
+        }
+        listener?.({
+          type: "turn_end",
+          toolResults: [],
+          message: makeAssistantMessage("second send ok", { stopReason: "stop" }),
+        });
+      }),
+      abort: vi.fn(),
+      setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
+      dispose: vi.fn(),
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    await expect(runnerSession.send("first", ASK_SEND_OPTS)).rejects.toMatchObject({
+      code: "provider.request_failed",
+    });
+    await expect(runnerSession.send("second", ASK_SEND_OPTS)).resolves.toMatchObject({
+      text: "second send ok",
+    });
+  });
+
+  it("keeps usage from error turns when the send later fails", async () => {
+    const events: Array<{ kind: string }> = [];
+    const session = buildMockSession((emit) => {
+      emit(
+        makeProviderErrorTurn("502 Bad Gateway", {
+          usage: {
+            input: 11,
+            output: 3,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 14,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+        }),
+      );
+    });
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+      eventSink: (event) => events.push({ kind: event.kind }),
+    });
+
+    const error = await runnerSession
+      .send("question", ASK_SEND_OPTS)
+      .catch((value: unknown) => value);
+    expect(error).toMatchObject({ code: "provider.request_failed" });
+    expect(events.map((event) => event.kind)).toContain("usage");
+  });
+
+  it("unsubscribes after a terminal provider error", async () => {
+    const controlled = buildControllableSession();
+    vi.mocked(createAgentSession).mockResolvedValue({ session: controlled.session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
+    controlled.emit(makeProviderErrorTurn("502 Bad Gateway"));
+    controlled.resolvePrompt();
+    await expect(sendPromise).rejects.toMatchObject({ code: "provider.request_failed" });
+    expect(controlled.unsubscribe).toHaveBeenCalled();
+  });
+
+  it("classifies wrapped availability and auth errors through fallback policy", () => {
+    expect(
+      classifyFallbackEligibility(
+        new AppError({
+          code: "provider.request_failed",
+          message: "429 Too Many Requests: rate limit exceeded",
+        }),
+      ),
+    ).toEqual({ eligible: true, reason: "rate_limit" });
+    expect(
+      classifyFallbackEligibility(
+        new AppError({
+          code: "provider.request_failed",
+          message: "401 Unauthorized invalid api key",
+        }),
+      ),
+    ).toEqual({ eligible: false, reason: "auth" });
   });
 });
 
