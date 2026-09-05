@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import type { VerificationPayload } from "../../review/triageSchema.js";
@@ -17,7 +18,7 @@ export async function runVerification(params: {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  readonly rootDir: string;
+  readonly workspace: LocalPrWorkspace;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly compareFilesTruncated?: boolean;

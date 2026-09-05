@@ -145,14 +145,14 @@ export async function executeVerificationJob(
         ),
         async (view) => {
           // Load policy while the checkout still exists; publish runs after the view closes.
-          const policyResult = await loadRepoPolicy(view.agentCwd, MAX_REPO_POLICY_BYTES);
+          const policyResult = await loadRepoPolicy(view.workspace.agentCwd, MAX_REPO_POLICY_BYTES);
           const runResult = await runVerification({
             cfg,
             owner: item.owner,
             repo: item.repo,
             prNumber: item.prNumber,
             headSha,
-            rootDir: view.agentCwd,
+            workspace: view.workspace,
             inventory: unresolvedThreads,
             pushedCommits,
             compareFilesTruncated: changedMembershipTruncated,

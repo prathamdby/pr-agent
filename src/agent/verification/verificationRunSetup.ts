@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { verificationSystemPrompt } from "./verificationPrompt.js";
 import { buildVerificationUserContent } from "./verificationUserMessage.js";
@@ -30,7 +31,7 @@ export function buildVerificationRunSetup(params: {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  readonly rootDir: string;
+  readonly workspace: LocalPrWorkspace;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly compareFilesTruncated?: boolean;
@@ -38,7 +39,7 @@ export function buildVerificationRunSetup(params: {
   const submitState = createSubmitVerificationState();
   const workspaceTools = buildVerificationWorkspaceTools({
     cfg: params.cfg,
-    rootDir: params.rootDir,
+    workspace: params.workspace,
   });
   const submitTool = buildSubmitVerificationTool({
     owner: params.owner,
