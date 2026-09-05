@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import {
   admitAsk,
+  createAskExecutionId,
   defaultAskQuotaConfig,
   recordAskProviderUsage,
   releaseAskQuotaReservation,
   type AskQuotaConfig,
 } from "../src/agentWork/askQuota.js";
+import { AppError } from "../src/errors/appError.js";
 
 type Bucket = {
   scope: string;
@@ -26,7 +28,16 @@ type Reservation = {
   installation_scope_key: string;
   reserved_provider_tokens: number;
   provider_usage_known: boolean;
+  provider_tokens_used: number;
+  unknown_usage_charged: number;
+  unknown_usage_window_started_at: Date | null;
   released_at: Date | null;
+};
+
+type Receipt = {
+  work_item_id: string;
+  execution_id: string;
+  provider_tokens_used: number;
 };
 
 function keyPart(value: unknown): string {
@@ -36,6 +47,7 @@ function keyPart(value: unknown): string {
 class FakeQuotaClient {
   readonly buckets = new Map<string, Bucket>();
   readonly reservations = new Map<string, Reservation>();
+  readonly receipts = new Map<string, Receipt>();
 
   async query(sql: string, values: unknown[] = []): Promise<{ rows: unknown[]; rowCount: number }> {
     const text = sql.replaceAll(/\s+/g, " ");
@@ -61,19 +73,23 @@ class FakeQuotaClient {
     }
 
     if (text.includes("FROM ask_quota_buckets") && text.includes("FOR UPDATE")) {
+      if (text.includes("scope = 'installation'")) {
+        const bucket = this.buckets.get(`installation:${keyPart(values[0])}`);
+        return { rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 };
+      }
       const bucket = this.buckets.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
       return { rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 };
     }
 
     if (text.includes("UPDATE ask_quota_buckets")) {
-      if (text.includes("provider_tokens_used = provider_tokens_used + $3")) {
+      if (text.includes("provider_tokens_used = GREATEST(0, provider_tokens_used + $3)")) {
         const bucket = this.buckets.get(`installation:${keyPart(values[0])}`);
         if (!bucket) return { rows: [], rowCount: 0 };
         bucket.provider_tokens_reserved = Math.max(
           0,
           bucket.provider_tokens_reserved - Number(values[1]),
         );
-        bucket.provider_tokens_used += Number(values[2]);
+        bucket.provider_tokens_used = Math.max(0, bucket.provider_tokens_used + Number(values[2]));
         return { rows: [{ scope_key: bucket.scope_key }], rowCount: 1 };
       }
 
@@ -123,7 +139,25 @@ class FakeQuotaClient {
         installation_scope_key: String(installation),
         reserved_provider_tokens: Number(reserved),
         provider_usage_known: false,
+        provider_tokens_used: 0,
+        unknown_usage_charged: 0,
+        unknown_usage_window_started_at: null,
         released_at: null,
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (text.includes("FROM ask_quota_execution_receipts") && text.includes("FOR UPDATE")) {
+      const receipt = this.receipts.get(`${keyPart(values[0])}:${keyPart(values[1])}`);
+      return { rows: receipt ? [receipt] : [], rowCount: receipt ? 1 : 0 };
+    }
+
+    if (text.includes("INSERT INTO ask_quota_execution_receipts")) {
+      const [workItemId, executionId, tokens] = values;
+      this.receipts.set(`${String(workItemId)}:${String(executionId)}`, {
+        work_item_id: String(workItemId),
+        execution_id: String(executionId),
+        provider_tokens_used: Number(tokens),
       });
       return { rows: [], rowCount: 1 };
     }
@@ -141,6 +175,8 @@ class FakeQuotaClient {
                 reserved_provider_tokens: reservation.reserved_provider_tokens,
                 provider_usage_known: reservation.provider_usage_known,
                 released_at: reservation.released_at,
+                unknown_usage_charged: reservation.unknown_usage_charged,
+                unknown_usage_window_started_at: reservation.unknown_usage_window_started_at,
               },
             ]
           : [],
@@ -151,9 +187,14 @@ class FakeQuotaClient {
     if (text.includes("UPDATE ask_quota_reservations")) {
       const reservation = this.reservations.get(String(values[0]));
       if (!reservation) return { rows: [], rowCount: 0 };
-      if (text.includes("provider_usage_known = true")) {
+      if (text.includes("unknown_usage_charged = 0")) {
         reservation.provider_usage_known = true;
+        reservation.provider_tokens_used += Number(values[1]);
         reservation.reserved_provider_tokens = 0;
+        reservation.unknown_usage_charged = 0;
+      } else if (text.includes("provider_usage_known = true")) {
+        reservation.provider_usage_known = true;
+        reservation.provider_tokens_used += Number(values[1]);
       } else {
         reservation.released_at = new Date();
       }
@@ -382,6 +423,9 @@ describe("ask admission quotas", () => {
         installation_scope_key: "installation:9",
         reserved_provider_tokens: 4,
         provider_usage_known: false,
+        provider_tokens_used: 0,
+        unknown_usage_charged: 0,
+        unknown_usage_window_started_at: null,
         released_at: null,
       });
 
@@ -404,6 +448,7 @@ describe("ask admission quotas", () => {
 
       await recordAskProviderUsage(client.pool(), {
         workItemId: straddlerId,
+        executionId: createAskExecutionId(),
         usage: { estimated: false, totalTokens: 3 },
       });
       expect(client.buckets.get("installation:installation:9")).toMatchObject({
@@ -491,6 +536,7 @@ describe("ask admission quotas", () => {
 
     await recordAskProviderUsage(client.pool(), {
       workItemId: "ask-provider-1",
+      executionId: createAskExecutionId(),
       usage: { estimated: false, totalTokens: 4 },
     });
     expect(client.buckets.get("installation:installation:9")).toMatchObject({
@@ -513,13 +559,14 @@ describe("ask admission quotas", () => {
     ).resolves.toEqual({ kind: "admitted", providerReservationTokens: 6 });
   });
 
-  it("floors exact provider usage and ignores repeated or unknown usage", async () => {
+  it("floors exact provider usage and ignores unknown usage", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
       askProviderBudgetTokens: 10,
       askProviderReservationTokens: 6,
     });
     const exactId = "ask-provider-floor";
+    const executionId = createAskExecutionId();
 
     await expect(
       admitAsk(
@@ -537,6 +584,7 @@ describe("ask admission quotas", () => {
 
     await recordAskProviderUsage(client.pool(), {
       workItemId: exactId,
+      executionId,
       usage: { estimated: false, totalTokens: 4.7 },
     });
     expect(client.buckets.get("installation:installation:9")).toMatchObject({
@@ -550,8 +598,18 @@ describe("ask admission quotas", () => {
 
     await recordAskProviderUsage(client.pool(), {
       workItemId: exactId,
-      usage: { estimated: false, totalTokens: 9 },
+      executionId,
+      usage: { estimated: false, totalTokens: 4 },
     });
+    expect(client.buckets.get("installation:installation:9")?.provider_tokens_used).toBe(4);
+
+    await expect(
+      recordAskProviderUsage(client.pool(), {
+        workItemId: exactId,
+        executionId,
+        usage: { estimated: false, totalTokens: 9 },
+      }),
+    ).rejects.toBeInstanceOf(AppError);
     expect(client.buckets.get("installation:installation:9")?.provider_tokens_used).toBe(4);
 
     const unknownId = "ask-provider-unknown";
@@ -568,9 +626,13 @@ describe("ask admission quotas", () => {
         budget,
       ),
     ).resolves.toMatchObject({ kind: "admitted" });
-    await recordAskProviderUsage(client.pool(), { workItemId: unknownId });
     await recordAskProviderUsage(client.pool(), {
       workItemId: unknownId,
+      executionId: createAskExecutionId(),
+    });
+    await recordAskProviderUsage(client.pool(), {
+      workItemId: unknownId,
+      executionId: createAskExecutionId(),
       usage: { estimated: false, totalTokens: -1 },
     });
     expect(client.reservations.get(unknownId)).toMatchObject({
@@ -578,5 +640,207 @@ describe("ask admission quotas", () => {
       reserved_provider_tokens: 6,
     });
     expect(client.buckets.get("installation:installation:9")?.provider_tokens_reserved).toBe(6);
+  });
+
+  it("adds distinct execution usage and rejects a later reservation", async () => {
+    const client = new FakeQuotaClient();
+    const budget = config({
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    });
+    const workItemId = "ask-provider-two-executions";
+
+    await expect(
+      admitAsk(
+        client as never,
+        {
+          workItemId,
+          installationId: 9,
+          owner: "Acme",
+          repo: "app",
+          commenterId: 7,
+        },
+        budget,
+      ),
+    ).resolves.toMatchObject({ kind: "admitted" });
+
+    const firstExecution = createAskExecutionId();
+    const secondExecution = createAskExecutionId();
+    expect(firstExecution).not.toBe(secondExecution);
+
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: firstExecution,
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: secondExecution,
+      usage: { estimated: false, totalTokens: 9 },
+    });
+    expect(client.buckets.get("installation:installation:9")).toMatchObject({
+      provider_tokens_used: 13,
+      provider_tokens_reserved: 0,
+    });
+    expect(client.reservations.get(workItemId)).toMatchObject({
+      provider_usage_known: true,
+      reserved_provider_tokens: 0,
+      provider_tokens_used: 13,
+    });
+
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: firstExecution,
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: secondExecution,
+      usage: { estimated: false, totalTokens: 9 },
+    });
+    expect(client.buckets.get("installation:installation:9")?.provider_tokens_used).toBe(13);
+
+    await expect(
+      admitAsk(
+        client as never,
+        {
+          workItemId: "ask-provider-after-two",
+          installationId: 9,
+          owner: "Acme",
+          repo: "app",
+          commenterId: 8,
+        },
+        budget,
+      ),
+    ).resolves.toEqual({ kind: "throttled", reason: "provider_budget" });
+  });
+
+  it("reconciles a delayed receipt after conservative terminal release", async () => {
+    const client = new FakeQuotaClient();
+    const budget = config({
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    });
+    const workItemId = "ask-provider-delayed";
+    await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+
+    const reservation = client.reservations.get(workItemId);
+    const windowStartedAt = client.buckets.get(
+      "installation:installation:9",
+    )?.provider_window_started_at;
+    expect(reservation).toBeDefined();
+    if (reservation) {
+      reservation.released_at = new Date();
+      reservation.unknown_usage_charged = 6;
+      reservation.unknown_usage_window_started_at = windowStartedAt ?? new Date();
+      reservation.reserved_provider_tokens = 0;
+    }
+    const bucket = client.buckets.get("installation:installation:9");
+    if (bucket) {
+      bucket.outstanding_count = 0;
+      bucket.provider_tokens_reserved = 0;
+      bucket.provider_tokens_used = 6;
+    }
+
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 9 },
+    });
+    expect(client.buckets.get("installation:installation:9")).toMatchObject({
+      outstanding_count: 0,
+      provider_tokens_used: 13,
+      provider_tokens_reserved: 0,
+    });
+    expect(client.reservations.get(workItemId)).toMatchObject({
+      released_at: expect.any(Date),
+      provider_usage_known: true,
+      reserved_provider_tokens: 0,
+    });
+  });
+
+  it("leaves expired-window conservative charges off later delayed receipts", async () => {
+    const client = new FakeQuotaClient();
+    const budget = config({
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    });
+    const workItemId = "ask-provider-expired-window";
+    await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+    const reservation = client.reservations.get(workItemId);
+    const oldWindow = new Date("2026-08-24T00:00:00.000Z");
+    if (reservation) {
+      reservation.released_at = new Date();
+      reservation.unknown_usage_charged = 6;
+      reservation.unknown_usage_window_started_at = oldWindow;
+      reservation.reserved_provider_tokens = 0;
+    }
+    const bucket = client.buckets.get("installation:installation:9");
+    if (bucket) {
+      bucket.outstanding_count = 0;
+      bucket.provider_tokens_reserved = 0;
+      bucket.provider_tokens_used = 0;
+      bucket.provider_window_started_at = new Date("2026-08-25T00:00:00.000Z");
+    }
+
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 9 },
+    });
+    expect(client.buckets.get("installation:installation:9")).toMatchObject({
+      outstanding_count: 0,
+      provider_tokens_used: 0,
+      provider_tokens_reserved: 0,
+    });
+    expect(client.receipts.size).toBe(2);
+  });
+
+  it("adds a later execution after a legacy known charge without a receipt", async () => {
+    const client = new FakeQuotaClient();
+    const budget = config({
+      askProviderBudgetTokens: 20,
+      askProviderReservationTokens: 6,
+    });
+    const workItemId = "ask-provider-legacy";
+    await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+    const reservation = client.reservations.get(workItemId);
+    if (reservation) {
+      reservation.provider_usage_known = true;
+      reservation.provider_tokens_used = 4;
+      reservation.reserved_provider_tokens = 0;
+    }
+    const bucket = client.buckets.get("installation:installation:9");
+    if (bucket) {
+      bucket.provider_tokens_used = 4;
+      bucket.provider_tokens_reserved = 0;
+    }
+
+    await recordAskProviderUsage(client.pool(), {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 9 },
+    });
+    expect(client.buckets.get("installation:installation:9")).toMatchObject({
+      provider_tokens_used: 13,
+      provider_tokens_reserved: 0,
+    });
+    expect(client.receipts.size).toBe(1);
   });
 });

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { Config } from "../config.js";
 import { inTransaction } from "../db/postgres.js";
@@ -397,64 +398,192 @@ export async function releaseAskQuotaReservation(
   await decrementOutstanding(client, "actor", reservation.actor_scope_key);
 }
 
+/** Server-owned id for one model-backed ask computation. Not the claim counter. */
+export function createAskExecutionId(): string {
+  return randomUUID();
+}
+
+type AskQuotaReservationLock = {
+  readonly installation_scope_key: string;
+  readonly reserved_provider_tokens: string | number;
+  readonly provider_usage_known: boolean;
+  readonly released_at: Date | null;
+  readonly unknown_usage_charged: string | number;
+  readonly unknown_usage_window_started_at: Date | string | null;
+};
+
+type AskQuotaBucketApplication =
+  | { readonly kind: "adjust"; readonly reservedRelease: number; readonly usedDelta: number }
+  | { readonly kind: "receipt_only" };
+
+function sameProviderWindow(
+  left: Date | string | null | undefined,
+  right: Date | string | null | undefined,
+): boolean {
+  if (left == null || right == null) return true;
+  return new Date(left).getTime() === new Date(right).getTime();
+}
+
+function bucketApplicationForReceipt(input: {
+  readonly reserved: number;
+  readonly unknownCharged: number;
+  readonly alreadyKnown: boolean;
+  readonly released: boolean;
+  readonly sameUnknownWindow: boolean;
+  readonly actualTokens: number;
+}): AskQuotaBucketApplication {
+  if (input.released && input.unknownCharged > 0 && !input.sameUnknownWindow) {
+    return { kind: "receipt_only" };
+  }
+  if (input.alreadyKnown) {
+    return { kind: "adjust", reservedRelease: 0, usedDelta: input.actualTokens };
+  }
+  if (!input.released) {
+    return {
+      kind: "adjust",
+      reservedRelease: input.reserved,
+      usedDelta: input.actualTokens,
+    };
+  }
+  return {
+    kind: "adjust",
+    reservedRelease: 0,
+    usedDelta: input.actualTokens - input.unknownCharged,
+  };
+}
+
 /**
- * Record exact provider usage when Pi exposes it. Unknown usage stays reserved
- * and is charged at the reservation maximum by the terminal-state trigger.
+ * Record known provider usage for one ask computation. Replaying the same
+ * execution id and total is a no-op. A new execution id adds usage. Unknown
+ * usage stays reserved and is charged at the reservation maximum by the
+ * terminal-state trigger.
  */
 export async function recordAskProviderUsage(
   pool: Pool,
   params: {
     readonly workItemId: string;
+    readonly executionId: string;
     readonly usage?: AgentRunnerUsageMetadata;
   },
 ): Promise<void> {
   const totalTokens = params.usage?.totalTokens;
   if (totalTokens == null || !Number.isFinite(totalTokens) || totalTokens < 0) return;
+  if (params.executionId.length === 0) {
+    throw new AppError({
+      code: "agent_work.ask_quota_execution_id_missing",
+      message: "Ask quota usage recording requires an execution id",
+      context: { workItemId: params.workItemId },
+    });
+  }
   const actualTokens = Math.floor(totalTokens);
 
   await inTransaction(pool, async (client) => {
-    const result = await client.query<{
-      installation_scope_key: string;
-      reserved_provider_tokens: string | number;
-      provider_usage_known: boolean;
-      released_at: Date | null;
-    }>(
+    const result = await client.query<AskQuotaReservationLock>(
       `SELECT installation_scope_key, reserved_provider_tokens,
-              provider_usage_known, released_at
+              provider_usage_known, released_at, unknown_usage_charged,
+              unknown_usage_window_started_at
          FROM ask_quota_reservations
         WHERE work_item_id = $1
         FOR UPDATE`,
       [params.workItemId],
     );
     const reservation = result.rows[0];
-    if (!reservation || reservation.released_at != null || reservation.provider_usage_known) {
+    if (!reservation) return;
+
+    const existing = await client.query<{ provider_tokens_used: string | number }>(
+      `SELECT provider_tokens_used
+         FROM ask_quota_execution_receipts
+        WHERE work_item_id = $1 AND execution_id = $2
+        FOR UPDATE`,
+      [params.workItemId, params.executionId],
+    );
+    const prior = existing.rows[0];
+    if (prior) {
+      if (numberValue(prior.provider_tokens_used) !== actualTokens) {
+        throw new AppError({
+          code: "agent_work.ask_quota_execution_conflict",
+          message: "Ask quota execution received a conflicting final usage report",
+          context: { workItemId: params.workItemId },
+        });
+      }
       return;
     }
 
-    const reserved = numberValue(reservation.reserved_provider_tokens);
-    await client.query(
-      `UPDATE ask_quota_reservations
-          SET provider_usage_known = true,
-              provider_tokens_used = $2,
-              reserved_provider_tokens = 0,
-              updated_at = clock_timestamp()
-        WHERE work_item_id = $1`,
-      [params.workItemId, actualTokens],
-    );
-    const bucket = await client.query(
-      `UPDATE ask_quota_buckets
-          SET provider_tokens_reserved = GREATEST(0, provider_tokens_reserved - $2),
-              provider_tokens_used = provider_tokens_used + $3,
-              updated_at = clock_timestamp()
+    const bucket = await client.query<{
+      provider_window_started_at: Date | string;
+    }>(
+      `SELECT provider_window_started_at
+         FROM ask_quota_buckets
         WHERE scope = 'installation' AND scope_key = $1
-        RETURNING scope_key`,
-      [reservation.installation_scope_key, reserved, actualTokens],
+        FOR UPDATE`,
+      [reservation.installation_scope_key],
     );
-    if ((bucket.rowCount ?? 0) === 0) {
+    if (!bucket.rows[0]) {
       throw new AppError({
         code: "agent_work.ask_quota_provider_bucket_missing",
         message: "Ask provider quota bucket was missing while recording usage",
       });
+    }
+
+    await client.query(
+      `INSERT INTO ask_quota_execution_receipts (
+         work_item_id, execution_id, provider_tokens_used
+       ) VALUES ($1, $2, $3)`,
+      [params.workItemId, params.executionId, actualTokens],
+    );
+
+    const application = bucketApplicationForReceipt({
+      reserved: numberValue(reservation.reserved_provider_tokens),
+      unknownCharged: numberValue(reservation.unknown_usage_charged),
+      alreadyKnown: reservation.provider_usage_known,
+      released: reservation.released_at != null,
+      sameUnknownWindow: sameProviderWindow(
+        reservation.unknown_usage_window_started_at,
+        bucket.rows[0].provider_window_started_at,
+      ),
+      actualTokens,
+    });
+
+    switch (application.kind) {
+      case "receipt_only":
+        await client.query(
+          `UPDATE ask_quota_reservations
+              SET provider_usage_known = true,
+                  provider_tokens_used = provider_tokens_used + $2,
+                  updated_at = clock_timestamp()
+            WHERE work_item_id = $1`,
+          [params.workItemId, actualTokens],
+        );
+        return;
+      case "adjust": {
+        await client.query(
+          `UPDATE ask_quota_reservations
+              SET provider_usage_known = true,
+                  provider_tokens_used = provider_tokens_used + $2,
+                  reserved_provider_tokens = 0,
+                  unknown_usage_charged = 0,
+                  updated_at = clock_timestamp()
+            WHERE work_item_id = $1`,
+          [params.workItemId, actualTokens],
+        );
+        await client.query(
+          `UPDATE ask_quota_buckets
+              SET provider_tokens_reserved = GREATEST(0, provider_tokens_reserved - $2),
+                  provider_tokens_used = GREATEST(0, provider_tokens_used + $3),
+                  updated_at = clock_timestamp()
+            WHERE scope = 'installation' AND scope_key = $1`,
+          [reservation.installation_scope_key, application.reservedRelease, application.usedDelta],
+        );
+        return;
+      }
+      default: {
+        const _exhaustive: never = application;
+        throw new AppError({
+          code: "agent_work.ask_quota_receipt_application_unknown",
+          message: "Ask quota receipt application was not recognized",
+          context: { workItemId: params.workItemId, kind: _exhaustive },
+        });
+      }
     }
   });
 }
