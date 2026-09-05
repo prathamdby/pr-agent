@@ -27,6 +27,8 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
   findExistingAskReplyComment: vi.fn(),
   waitForReadySnapshot: vi.fn(),
+  recordAskProviderUsage: vi.fn(),
+  createAskExecutionId: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -68,6 +70,11 @@ vi.mock("../src/evlog.js", () => ({
 
 vi.mock("../src/codeIndex/repository.js", () => ({
   waitForReadySnapshot: mocks.waitForReadySnapshot,
+}));
+
+vi.mock("../src/agentWork/askQuota.js", () => ({
+  recordAskProviderUsage: mocks.recordAskProviderUsage,
+  createAskExecutionId: mocks.createAskExecutionId,
 }));
 
 import { executeAskJob } from "../src/agentWork/executors/askExecutor.js";
@@ -145,6 +152,8 @@ describe("executeAskJob", () => {
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.recordAskPublishStep.mockResolvedValue(undefined);
     mocks.runAskRun.mockResolvedValue({ answer: "answer" });
+    mocks.recordAskProviderUsage.mockResolvedValue(undefined);
+    mocks.createAskExecutionId.mockReturnValue("11111111-1111-4111-8111-111111111111");
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1, login: "pr-agent[bot]" });
     mocks.findExistingAskReplyComment.mockResolvedValue(null);
     mocks.waitForReadySnapshot.mockResolvedValue(null);
@@ -181,6 +190,44 @@ describe("executeAskJob", () => {
         codeIndexSnapshotId: undefined,
       }),
     );
+    expect(mocks.recordAskProviderUsage).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      executionId: "11111111-1111-4111-8111-111111111111",
+      usage: undefined,
+    });
+  });
+
+  it("records known usage under a new execution id for each model run", async () => {
+    mocks.createAskExecutionId
+      .mockReturnValueOnce("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+      .mockReturnValueOnce("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+    mocks.runAskRun
+      .mockResolvedValueOnce({
+        answer: "first",
+        usage: { estimated: false, totalTokens: 4 },
+      })
+      .mockResolvedValueOnce({
+        answer: "second",
+        usage: { estimated: false, totalTokens: 9 },
+      });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+    memoryOperationIntentStore.reset();
+    resetDurablePrSurface();
+    mocks.hasCompletedPublishStep.mockResolvedValue(false);
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.runAskRun).toHaveBeenCalledTimes(2);
+    expect(mocks.recordAskProviderUsage).toHaveBeenNthCalledWith(1, pool, {
+      workItemId: "wi-1",
+      executionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    expect(mocks.recordAskProviderUsage).toHaveBeenNthCalledWith(2, pool, {
+      workItemId: "wi-1",
+      executionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      usage: { estimated: false, totalTokens: 9 },
+    });
   });
 
   it("passes a ready code-index snapshot to runAskRun when CODE_INDEX_MODE=fts", async () => {
@@ -216,6 +263,8 @@ describe("executeAskJob", () => {
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
+    expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
+    expect(mocks.createAskExecutionId).not.toHaveBeenCalled();
   });
 
   it("returns degraded when the publish record fails after answer delivery", async () => {
@@ -534,6 +583,7 @@ describe("executeAskJob", () => {
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
+    expect(mocks.recordAskProviderUsage).toHaveBeenCalledTimes(1);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
     expect(memoryOperationIntentStore.get("wi-1", operationKey)?.status).toBe("reconciled");
   });
@@ -552,6 +602,7 @@ describe("executeAskJob", () => {
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).toHaveBeenCalledTimes(1);
+    expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
@@ -583,6 +634,7 @@ describe("executeAskJob", () => {
 
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
+    expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
