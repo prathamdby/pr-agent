@@ -12,8 +12,8 @@ export function Alternatives() {
       </h2>
       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-mute">
         CodeRabbit, Greptile, Cursor Bugbot, and Macroscope sell hosted review. PR Agent is for
-        teams that want to run the reviewer, hold the AI keys, and choose the provider that
-        receives review context.
+        teams that want to run the reviewer, hold the AI keys, and choose the provider that receives
+        review context.
       </p>
 
       <div className="mt-12 overflow-x-auto">
