@@ -38,8 +38,8 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "Feedback shows up on the pull request",
     detail:
-      "Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, or mention the bot. Replies stay in the same thread.",
-    cue: "/review · /describe · /ask · /triage",
+      "Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, /verify, or mention the bot. Replies stay in the same thread.",
+    cue: "/review · /describe · /ask · /triage · /verify",
     summary: "Reviews and replies posted in the pull request",
   },
   {
@@ -78,6 +78,11 @@ export const CAPABILITIES: CapabilityItem[] = [
     trigger: "Comment /triage, or /triage preview then /triage all, on the pull request",
     detail:
       "Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.",
+  },
+  {
+    title: "Recheck open findings after a new push",
+    trigger: "Runs when the pull request gets new commits, or when you comment /verify",
+    detail: "Fixed findings close quietly. A failed recheck leaves one note on the review.",
   },
   {
     title: "Skip AI review when the PR is only docs",
@@ -244,12 +249,14 @@ export const APP_FIELDS = [
   },
   {
     label: "Subscribe to",
-    value: "Pull requests · Issue comments · Pull request review comments",
+    value:
+      "Pull requests · Issue comments · Pull request review comments · Workflow runs · Check suites",
     mono: false,
   },
   {
     label: "Permissions",
-    value: "Issues and Pull requests: read/write · Contents: read/write · Metadata: read",
+    value:
+      "Issues and Pull requests: read/write · Contents: read/write · Metadata: read · Checks: read/write · Actions: read",
     mono: false,
   },
 ] as const;
@@ -261,6 +268,8 @@ export const SLASH_COMMANDS = [
   { cmd: "/triage", tip: "Preview with /triage preview, apply with /triage all" },
   { cmd: "/triage preview", tip: "Show the would-be unified diff. Nothing is pushed." },
   { cmd: "/triage all", tip: "Apply the previewed set. Optional exclude <thread ids>." },
+  { cmd: "/verify", tip: "Recheck open findings against the current head" },
+  { cmd: "/cancel", tip: "Stop a queued or running review" },
 ] as const;
 
 export const COMPOSE_SNIPPET = `cp .env.example .env

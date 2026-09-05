@@ -142,6 +142,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "describe",
       "ask",
       "triage",
+      "verify",
       "cancel",
       "help",
       "comment",
