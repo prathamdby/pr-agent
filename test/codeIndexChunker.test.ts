@@ -74,12 +74,14 @@ describe("codeIndex chunker", () => {
       ["beta"],
       ["gamma"],
     ]);
-    expect(chunks.map((chunk) => ({ startLine: chunk.startLine, endLine: chunk.endLine }))).toEqual([
-      { startLine: 1, endLine: 1 },
-      { startLine: 2, endLine: 5 },
-      { startLine: 6, endLine: 9 },
-      { startLine: 10, endLine: 13 },
-    ]);
+    expect(chunks.map((chunk) => ({ startLine: chunk.startLine, endLine: chunk.endLine }))).toEqual(
+      [
+        { startLine: 1, endLine: 1 },
+        { startLine: 2, endLine: 5 },
+        { startLine: 6, endLine: 9 },
+        { startLine: 10, endLine: 13 },
+      ],
+    );
     expect(chunks[1]?.content).toContain("return 1");
     expect(chunks[2]?.content).toContain("return 2");
   });
