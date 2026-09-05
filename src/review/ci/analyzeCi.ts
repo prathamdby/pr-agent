@@ -360,7 +360,7 @@ export function summarizeCiSnapshot(params: {
       const headline = `❌ CI failing — ${nameList}${more}`;
       return {
         status: "failing",
-        headline: incomplete ? `${headline} (partial CI view)` : headline,
+        headline: incomplete ? withPartialCiView(headline) : headline,
         failures,
         ...(permissionNote != null ? { permissionNote } : {}),
       };
@@ -386,6 +386,14 @@ function incompleteUnavailableSummary(): CiSummary {
     headline: REVIEW_CI_SUMMARY_INCOMPLETE,
     failures: [],
   };
+}
+
+function withPartialCiView(headline: string): string {
+  return headline.includes("(partial CI view)") ? headline : `${headline} (partial CI view)`;
+}
+
+function isAllPassingHeadline(headline: string): boolean {
+  return /all ci is passing/i.test(headline);
 }
 
 function withPermissionNote(summary: CiSummary, note: string | undefined): CiSummary {
@@ -475,6 +483,9 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
           : withPermissionNote(mergeCiSummaryWithFacts(authorInput, llm), actionsNote);
     }
     if (snapshot.checkRunsComplete !== false) return authored;
+    if (!isAllPassingHeadline(authored.headline)) {
+      return { ...authored, headline: withPartialCiView(authored.headline) };
+    }
     return summarizeCiSnapshot({
       ...snapshot,
       failures: authored.failures,

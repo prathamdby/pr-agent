@@ -1044,6 +1044,49 @@ describe("analyzeCi", () => {
     expect(summary.failures[0]?.name).toBe("lint");
   });
 
+  it("keeps a valid authored failing headline on a partial view", async () => {
+    const summary = await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async () => ({
+          headline: "❌ oxfmt failed on src/foo.ts",
+          failures: [
+            {
+              name: "lint",
+              reason: "Format issues found.",
+              fixHint: "Run oxfmt.",
+            },
+          ],
+        }),
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: "https://example.com/lint",
+              outputTitle: null,
+              outputSummary: "Format issues found",
+              outputText: null,
+            },
+          ],
+          checkRunsComplete: false,
+          legacyStatuses: [],
+        });
+      },
+    );
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("oxfmt failed on src/foo.ts");
+    expect(summary.headline).toContain("partial CI view");
+    expect(summary.headline).not.toMatch(/^❌ CI failing — lint/u);
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.reason).toContain("Format issues");
+  });
+
   it("keeps missing Checks permission distinct from incomplete retrieval", async () => {
     const summary = await buildCiSummary({ headSha: "abc", waitMs: 0 }, (controls) => {
       controls.setCiStatusError(
