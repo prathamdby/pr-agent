@@ -372,7 +372,20 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
   if (intent.status === "reconciled") {
     const recovered = await recoverByExactEvidence(params, intent, null);
     if (recovered.found) return recovered.value;
-    return undefined as T;
+    // Void-only. A recover hook that cannot rebuild T stays outcome_unknown.
+    if (params.recover == null) {
+      return undefined as T;
+    }
+    throw new AppError({
+      code: "operation_intent.mutation_outcome_unknown",
+      message:
+        "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden",
+      context: {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+        mutationKind: params.mutationKind,
+      },
+    });
   }
 
   // Crash between mutate() and __result: never auto-remutate. Resolve by evidence.

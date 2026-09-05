@@ -635,7 +635,7 @@ describe("withOperationIntent", () => {
     );
   });
 
-  it("returns undefined when recover finds no evidence on a reconciled intent without __result", async () => {
+  it("throws outcome_unknown when typed recover finds no evidence on a reconciled intent without __result", async () => {
     const mutate = vi.fn(async () => ({ id: 99 }));
     const recover = vi.fn(async () => ({ kind: "absent" as const }));
     vi.mocked(persistOperationIntent).mockResolvedValue({
@@ -648,7 +648,9 @@ describe("withOperationIntent", () => {
       detail: { recoveredAfterMutating: true },
     });
 
-    await expect(withOperationIntent({ ...baseParams, recover, mutate })).resolves.toBeUndefined();
+    await expect(withOperationIntent({ ...baseParams, recover, mutate })).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
     expect(recover).toHaveBeenCalledOnce();
     expect(mutate).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
