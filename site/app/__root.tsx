@@ -1,5 +1,6 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { NotFound } from "@/components/not-found";
+import { PostHogPageview } from "@/components/posthog-pageview";
 import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE, resourceUrl } from "@/lib/agentResources";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
@@ -139,6 +140,7 @@ function RootLayout() {
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>
+        <PostHogPageview />
         <Outlet />
         <Scripts />
       </body>

@@ -25,7 +25,7 @@ Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.p
 
 ## Landing site
 
-The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot.
+The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot. When `VITE_POSTHOG_PROJECT_TOKEN` is set at build time, the root layout loads posthog-js and captures `$pageview` on navigation.
 
 Agent-facing copy lives in [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts). The human page stays a short overview. Agents read `/llms.txt`, `GET /llms?query=`, and `GET /llms/json?query=`.
 
