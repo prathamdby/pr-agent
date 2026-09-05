@@ -63,7 +63,7 @@ import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { installationGroupId, isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
-import { withOperationIntent } from "./withOperationIntent.js";
+import { withOperationIntent, type WithOperationIntentParams } from "./withOperationIntent.js";
 import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
 
 export type DurableExecutionContext = {
@@ -127,7 +127,7 @@ function startLeaseRenewal(
 }
 
 function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
-  // Native on every supported runtime (engines node >=22.19.0, image
+  // Native on every supported runtime (engines node >=22.22.0, image
   // node:22.22.0): no fallback branch to maintain.
   return AbortSignal.any(signals);
 }
@@ -142,7 +142,7 @@ function createLeaseMutationBoundary(params: {
   return {
     signal: params.signal,
     run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
-      withOperationIntent({
+      withOperationIntent<T>({
         client: params.pool,
         workItemId: params.workItemId,
         operationKey: mutation.operationKey,
@@ -155,6 +155,7 @@ function createLeaseMutationBoundary(params: {
           leaseEpoch: params.leaseEpoch,
           surfaceMutation: true,
         },
+        recover: mutation.recover as WithOperationIntentParams<T>["recover"],
         mutate,
       }),
   };

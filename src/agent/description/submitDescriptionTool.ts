@@ -191,7 +191,7 @@ export function buildSubmitDescriptionTool(params: {
               return body?.includes(operationMarker ?? "\u0000")
                 ? {
                     kind: "reconciled" as const,
-                    value: { prNumber: params.prNumber, titleUpdated: false, bodyUpdated: true },
+                    value: { prNumber: params.prNumber, bodyUpdated: true },
                   }
                 : { kind: "absent" as const };
             },

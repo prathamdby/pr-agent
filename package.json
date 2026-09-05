@@ -45,7 +45,7 @@
     "evlog": "2.22.3",
     "pg": "^8.22.0",
     "pg-boss": "^12.26.3",
-    "posthog-node": "^5.46.1",
+    "posthog-node": "5.51.6",
     "valibot": "^1.4.2",
     "yaml": "^2.9.0"
   },
@@ -75,7 +75,7 @@
     }
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.22.0"
   },
   "packageManager": "nub@0.7.2"
 }

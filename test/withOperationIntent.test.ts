@@ -314,7 +314,11 @@ describe("withOperationIntent", () => {
         ...baseParams,
         mutate,
       }),
-    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+    ).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+      message:
+        "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden",
+    });
 
     expect(mutate).not.toHaveBeenCalled();
     expect(firstMutateCalls + mutate.mock.calls.length).toBe(1);
@@ -350,10 +354,49 @@ describe("withOperationIntent", () => {
         ...baseParams,
         mutate,
       }),
-    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+    ).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+      message:
+        "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden",
+    });
 
     expect(mutate).not.toHaveBeenCalled();
     expect(findCompletedPublishRecordId).toHaveBeenCalled();
+  });
+
+  it("returns recovered value without remutating when __mutating and recover reconciles", async () => {
+    const mutate = vi.fn(async () => ({ commentId: 99 }));
+    const recover = vi.fn(async () => ({
+      kind: "reconciled" as const,
+      value: { commentId: 42 },
+    }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true, step: "ask_reply" },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue(null);
+
+    const result = await withOperationIntent({
+      ...baseParams,
+      recover,
+      mutate,
+    });
+
+    expect(result).toEqual({ commentId: 42 });
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        status: "reconciled",
+        detail: { __result: { commentId: 42 } },
+      }),
+    );
   });
 
   it("reconciles exact remote evidence for a void mutation without remutating", async () => {
@@ -433,7 +476,7 @@ describe("withOperationIntent", () => {
         ...baseParams,
         mutate,
       }),
-    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+    ).resolves.toBeUndefined();
 
     expect(mutate).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).toHaveBeenCalledWith(
@@ -445,6 +488,42 @@ describe("withOperationIntent", () => {
           recoveredAfterMutating: true,
           reconciledFromPublishRecord: true,
         }),
+      }),
+    );
+  });
+
+  it("returns recover value when publish_records and recover both prove the mutation", async () => {
+    const mutate = vi.fn(async () => ({ commentId: 99 }));
+    const recover = vi.fn(async () => ({
+      kind: "reconciled" as const,
+      value: { commentId: 7 },
+    }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true, step: "ask_reply" },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue("pub-recovered");
+
+    const result = await withOperationIntent({
+      ...baseParams,
+      recover,
+      mutate,
+    });
+
+    expect(result).toEqual({ commentId: 7 });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        status: "reconciled",
+        publishRecordId: "pub-recovered",
+        detail: { __result: { commentId: 7 } },
       }),
     );
   });
@@ -746,6 +825,87 @@ describe("withOperationIntent", () => {
     ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
 
     expect(mutate).toHaveBeenCalledOnce();
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
+  it("keeps publish-record proof when recover throws and stays outcome_unknown for typed T", async () => {
+    const mutate = vi.fn(async () => ({ commentId: 9 }));
+    const recover = vi.fn(async () => {
+      throw new Error("github timeout");
+    });
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue("pub-recovered");
+
+    await expect(withOperationIntent({ ...baseParams, recover, mutate })).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ status: "outcome_unknown" }),
+    );
+  });
+
+  it("stays outcome_unknown when recover is absent and publish_records cannot rebuild T", async () => {
+    const mutate = vi.fn(async () => ({ commentId: 9 }));
+    const recover = vi.fn(async () => ({ kind: "absent" as const }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue("pub-recovered");
+
+    await expect(withOperationIntent({ ...baseParams, recover, mutate })).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ status: "outcome_unknown" }),
+    );
+  });
+
+  it("rechecks cancellation after recover finds evidence and before reconcile", async () => {
+    const controller = new AbortController();
+    const recover = vi.fn(async () => {
+      controller.abort("cancelled");
+      return { kind: "reconciled" as const, value: { commentId: 4 } };
+    });
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    const mutate = vi.fn(async () => ({ commentId: 9 }));
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        signal: controller.signal,
+        recover,
+        mutate,
+      }),
+    ).rejects.toMatchObject({ code: "agent_work.execution_aborted" });
+
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mutate).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
   });
 

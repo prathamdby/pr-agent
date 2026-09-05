@@ -24,7 +24,7 @@
       "oxfmt@0.60.0",
       "@oxfmt/*",
       "pg-boss@12.26.3",
-      "posthog-node@5.46.1",
+      "posthog-node@5.51.6",
       "@posthog/*",
       "brace-expansion@5.0.8",
     ],

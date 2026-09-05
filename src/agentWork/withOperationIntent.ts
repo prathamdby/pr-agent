@@ -215,11 +215,12 @@ async function recoverByExactEvidence<T>(
   intent: OperationIntentRow,
   publishRecordId: string | null,
 ): Promise<RecoveryAttempt<T>> {
-  if (params.recover == null || publishRecordId != null) return { found: false };
+  if (params.recover == null) return { found: false };
   let recovery: OperationIntentRecovery<T>;
   try {
     recovery = await params.recover(intent, publishRecordId);
   } catch (error) {
+    await assertMutationReady(params);
     throw new AppError({
       code: "operation_intent.recovery_failed",
       message: "Failed to reconcile an outcome-unknown GitHub mutation",
@@ -231,6 +232,7 @@ async function recoverByExactEvidence<T>(
       },
     });
   }
+  await assertMutationReady(params);
   if (recovery.kind !== "reconciled") return { found: false };
 
   const resultDetail = {
@@ -243,7 +245,7 @@ async function recoverByExactEvidence<T>(
     workItemId: params.workItemId,
     operationKey: params.operationKey,
     status: "reconciled",
-    publishRecordId: recovery.publishRecordId,
+    publishRecordId: recovery.publishRecordId ?? publishRecordId,
     ...leaseEpochDetail(params),
     detail: resultDetail,
   });
@@ -269,7 +271,18 @@ async function recoverAfterMutatingWithoutResult<T>(
       },
     });
   }
-  if (publishRecordId != null) {
+  let recovered: RecoveryAttempt<T> = { found: false };
+  try {
+    recovered = await recoverByExactEvidence(params, intent, publishRecordId);
+  } catch (error) {
+    if (publishRecordId == null) throw error;
+    if (!isAppError(error) || error.code !== "operation_intent.recovery_failed") throw error;
+  }
+  if (recovered.found) return recovered.value;
+
+  // Publish-record success is void-only. A recover hook that cannot rebuild T
+  // stays outcome_unknown so callers do not receive undefined as a typed result.
+  if (publishRecordId != null && params.recover == null) {
     await assertMutationReady(params);
     await reconcileOperationIntent(params.client, {
       workItemId: params.workItemId,
@@ -283,21 +296,8 @@ async function recoverAfterMutatingWithoutResult<T>(
         recoveredAfterMutating: true,
       },
     });
-    throw new AppError({
-      code: "operation_intent.mutation_outcome_unknown",
-      message:
-        "Mutation side effect already present in publish_records; refusing remutate after __mutating without stashed __result",
-      context: {
-        workItemId: params.workItemId,
-        operationKey: params.operationKey,
-        mutationKind: params.mutationKind,
-        publishRecordId,
-      },
-    });
+    return undefined as T;
   }
-
-  const recovered = await recoverByExactEvidence(params, intent, null);
-  if (recovered.found) return recovered.value;
   await assertMutationReady(params);
   await reconcileOperationIntent(params.client, {
     workItemId: params.workItemId,
