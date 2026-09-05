@@ -13,7 +13,9 @@ import {
 } from "../src/review/ci/analyzeCi.js";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../src/github/prSurface.js";
 import type { CiAuthorInput, CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
+import type { CiCheckRunSnapshot } from "../src/review/ci/ciSummaryTypes.js";
 import {
+  REVIEW_CI_SUMMARY_INCOMPLETE,
   REVIEW_CI_SUMMARY_LOG_MAX_BYTES,
   REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
 } from "../src/settings/index.js";
@@ -34,6 +36,19 @@ async function buildCiSummary(
 function expectSingleContext(input: CiAuthorInput): void {
   expect(input).not.toHaveProperty("checkOutputFallback");
   expect(typeof input.condensedLogs).toBe("string");
+}
+
+function completedCheck(id: number, name: string, conclusion: string): CiCheckRunSnapshot {
+  return {
+    id,
+    name,
+    status: "completed",
+    conclusion,
+    htmlUrl: null,
+    outputTitle: null,
+    outputSummary: null,
+    outputText: null,
+  };
 }
 
 const mockAuthor: CiSummaryAuthor = async (input) => {
@@ -895,5 +910,239 @@ describe("analyzeCi", () => {
     expect(captured?.condensedLogs).toContain("job-1 failed");
     expect(captured?.condensedLogs).not.toContain("Job: test");
     expect(captured?.condensedLogs).not.toContain("job-3");
+  });
+
+  it("does not treat an incomplete all-success snapshot as passing", () => {
+    const checks = Array.from({ length: 500 }, (_, index) =>
+      completedCheck(index + 1, `check-${index + 1}`, "success"),
+    );
+    const summary = summarizeCiSnapshot({
+      checks,
+      statuses: [],
+      checkRunsComplete: false,
+    });
+    expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+    expect(summary.headline).not.toMatch(/All CI is passing/i);
+    expect(summary.headline).not.toMatch(/Checks to Read/i);
+  });
+
+  it("does not treat an incomplete empty snapshot as no CI", () => {
+    const summary = summarizeCiSnapshot({
+      checks: [],
+      statuses: [],
+      checkRunsComplete: false,
+    });
+    expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+    expect(summary.status).not.toBe("none");
+  });
+
+  it("keeps known failures visible on an incomplete snapshot", () => {
+    const summary = summarizeCiSnapshot({
+      checks: [completedCheck(1, "lint", "failure")],
+      statuses: [],
+      checkRunsComplete: false,
+    });
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("lint");
+    expect(summary.headline).toContain("partial CI view");
+  });
+
+  it("treats omitted completeness as a complete view", () => {
+    const summary = summarizeCiSnapshot({
+      checks: [completedCheck(1, "lint", "success")],
+      statuses: [],
+    });
+    expect(summary.status).toBe("passing");
+    expect(summary.headline).toContain("All CI is passing");
+  });
+
+  it("does not claim all CI is passing when the surface view is incomplete", async () => {
+    const checks = Array.from({ length: 500 }, (_, index) =>
+      completedCheck(index + 1, `check-${index + 1}`, "success"),
+    );
+    const summary = await buildCiSummary({ headSha: "abc", waitMs: 0 }, (controls) => {
+      controls.setCiStatus("abc", {
+        checkRuns: checks,
+        checkRunsComplete: false,
+        legacyStatuses: [],
+      });
+    });
+    expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+    expect(summary.headline).not.toMatch(/All CI is passing/i);
+  });
+
+  it("does not claim no external CI after filtering own checks from an incomplete view", async () => {
+    const summary = await buildCiSummary({ headSha: "abc", waitMs: 0 }, (controls) => {
+      controls.setCiStatus("abc", {
+        checkRuns: [completedCheck(1, "PR Agent Review", "success")],
+        checkRunsComplete: false,
+        legacyStatuses: [],
+      });
+    });
+    expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+    expect(summary.status).not.toBe("none");
+  });
+
+  it("qualifies lightweight failing summaries when coverage is incomplete", async () => {
+    const { surface, controls } = ciSurface();
+    controls.setCiStatus("abc", {
+      checkRuns: [completedCheck(11, "unit", "failure")],
+      checkRunsComplete: false,
+      legacyStatuses: [],
+    });
+    const summary = await buildCiSummaryForSurface(surface, {
+      headSha: "abc",
+      lightweight: true,
+      waitMs: 0,
+      author: mockAuthor,
+    });
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("unit");
+    expect(summary.headline).toContain("partial CI view");
+    expect(summary.failures).toHaveLength(0);
+    expect(controls.events.filter((e) => e.kind === "listFailingActionsJobs")).toHaveLength(0);
+  });
+
+  it("keeps server failing facts when the model claims all CI is passing on a partial view", async () => {
+    const summary = await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async () => ({
+          headline: "✅ All CI is passing",
+          failures: [],
+        }),
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: "https://example.com/lint",
+              outputTitle: null,
+              outputSummary: "Format issues found",
+              outputText: null,
+            },
+          ],
+          checkRunsComplete: false,
+          legacyStatuses: [],
+        });
+      },
+    );
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("lint");
+    expect(summary.headline).toContain("partial CI view");
+    expect(summary.headline).not.toMatch(/All CI is passing/i);
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.name).toBe("lint");
+  });
+
+  it("keeps a valid authored failing headline on a partial view", async () => {
+    const summary = await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+        author: async () => ({
+          headline: "❌ oxfmt failed on src/foo.ts",
+          failures: [
+            {
+              name: "lint",
+              reason: "Format issues found.",
+              fixHint: "Run oxfmt.",
+            },
+          ],
+        }),
+      },
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: "https://example.com/lint",
+              outputTitle: null,
+              outputSummary: "Format issues found",
+              outputText: null,
+            },
+          ],
+          checkRunsComplete: false,
+          legacyStatuses: [],
+        });
+      },
+    );
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("oxfmt failed on src/foo.ts");
+    expect(summary.headline).toContain("partial CI view");
+    expect(summary.headline).not.toMatch(/^❌ CI failing — lint/u);
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.reason).toContain("Format issues");
+  });
+
+  it("keeps missing Checks permission distinct from incomplete retrieval", async () => {
+    const summary = await buildCiSummary({ headSha: "abc", waitMs: 0 }, (controls) => {
+      controls.setCiStatusError(
+        Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+      );
+    });
+    expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toMatch(/Checks to Read/i);
+    expect(summary.headline).not.toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+  });
+
+  it("replaces an incomplete snapshot after a later complete poll", async () => {
+    const { surface, controls } = ciSurface();
+    let poll = 0;
+    const passingRun = completedCheck(1, "ci", "success");
+    const originalGetCiStatus = surface.getCiStatus.bind(surface);
+    vi.spyOn(surface, "getCiStatus").mockImplementation(async (headSha) => {
+      poll += 1;
+      controls.setCiStatus(headSha, {
+        checkRuns: [passingRun],
+        checkRunsComplete: poll > 1,
+        legacyStatuses: [],
+      });
+      return originalGetCiStatus(headSha);
+    });
+    const summary = await buildCiSummaryForSurface(surface, {
+      headSha: "abc",
+      waitMs: 500,
+      waitPollMs: 50,
+    });
+    expect(summary.status).toBe("passing");
+    expect(summary.headline).toContain("All CI is passing");
+    expect(poll).toBeGreaterThanOrEqual(2);
+  });
+
+  it("stays unavailable when polling ends on an incomplete success view", async () => {
+    const { surface, controls } = ciSurface();
+    let poll = 0;
+    const originalGetCiStatus = surface.getCiStatus.bind(surface);
+    vi.spyOn(surface, "getCiStatus").mockImplementation(async (headSha) => {
+      poll += 1;
+      controls.setCiStatus(headSha, {
+        checkRuns: [completedCheck(1, "ci", "success")],
+        checkRunsComplete: false,
+        legacyStatuses: [],
+      });
+      return originalGetCiStatus(headSha);
+    });
+    const summary = await buildCiSummaryForSurface(surface, {
+      headSha: "abc",
+      waitMs: 180,
+      waitPollMs: 50,
+    });
+    expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+    expect(poll).toBeGreaterThanOrEqual(2);
+    expect(poll).toBeLessThan(10);
   });
 });

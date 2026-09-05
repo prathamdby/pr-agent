@@ -1,7 +1,8 @@
 /**
  * CI gate for the review summary / progress stub (not part of ReviewPayload).
- * Status/names are server facts; headline/reason/fixHint are LLM-authored when failing
- * (ADR 0018). Passing/pending/none use server templates.
+ * Status, names, and check-run completeness are server facts; headline/reason/fixHint
+ * are LLM-authored when failing (ADR 0018). Passing/pending/none use server templates.
+ * An incomplete check-run view never becomes passing or none.
  */
 
 export type CiSummaryStatus = "passing" | "failing" | "pending" | "none" | "unavailable";

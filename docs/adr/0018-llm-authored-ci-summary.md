@@ -18,7 +18,7 @@ Constraints that still hold:
 
 ## Decision
 
-1. **Split ownership.** Server fetches external checks/statuses, waits/polls, downloads failing Actions job logs when permitted, then selects **one** condensed, redacted, size-bounded context (Actions logs, else check output) before the LLM turn. It validates schema and renders the CI cell. The LLM interprets that single `<ci_context>` and fills `headline` / `failures[]` (reason + fixHint). Server overwrites `status` and check `name`s from GitHub facts when the model drifts. Raw check output is never a second author/prompt field.
+1. **Split ownership.** Server fetches external checks/statuses, waits/polls, downloads failing Actions job logs when permitted, then selects **one** condensed, redacted, size-bounded context (Actions logs, else check output) before the LLM turn. It validates schema and renders the CI cell. The LLM interprets that single `<ci_context>` and fills `headline` / `failures[]` (reason + fixHint). Server overwrites `status` and check `name`s from GitHub facts when the model drifts. It also owns check-run completeness: an incomplete retrieved view never becomes passing or none, and a model headline cannot restore an all-passing claim. Known failures stay failing with a partial-coverage headline. Raw check output is never a second author/prompt field.
 
 2. **Option B — separate cheap CI-summary call.** Finding investigation stays CI-free. At publish (and on CI-complete refresh), run a small tool-free LLM turn: condensed `<ci_context>` in → structured CI fields out. Ack stays facts-only (no LLM): `⏳ CI still running` / green / red headline without failure digests.
 
