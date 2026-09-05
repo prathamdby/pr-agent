@@ -3,8 +3,6 @@ import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt
 import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import {
-  VALIDATION_REPAIR_REMINDER,
-  VALIDATION_REPAIR_ROUND0_SUFFIX,
   securityTripwiresGuidance,
   proseContractGuidance,
   agentInstructionFilesGuidance,
@@ -278,13 +276,5 @@ describe("specialist-specific obligations", () => {
     for (const [name, prompt] of SPECIALIST_PROMPTS) {
       expect(prompt, `${name} must not mention violatedRule`).not.toContain("violatedRule");
     }
-  });
-});
-
-describe("validation repair prompt suffixes", () => {
-  it("keeps round-0 repair wording distinct from later reminders", () => {
-    expect(VALIDATION_REPAIR_ROUND0_SUFFIX).toContain("complete ReviewPayload");
-    expect(VALIDATION_REPAIR_REMINDER).toContain("tool schema");
-    expect(VALIDATION_REPAIR_REMINDER).not.toContain("Minimal valid example");
   });
 });

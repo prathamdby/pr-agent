@@ -5,11 +5,7 @@ import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../../agent/tools/localWorkspaceTools.js";
-import {
-  createCachedPrDiffIndex,
-  type CachedPrDiffIndex,
-  wrapListPullRequestFilesDiffIngestion,
-} from "../placement/reviewDiffIndex.js";
+import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
@@ -95,9 +91,6 @@ export function buildReviewRunSetup(params: {
     evidenceLedger,
     headSha,
   });
-  const executors = { ...bundle.executors };
-  wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
-
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
@@ -112,7 +105,7 @@ export function buildReviewRunSetup(params: {
         })
       : buildUnavailableCodeIndexTools();
   const rateLimitedExecutors = wrapExecutorsWithRateLimitCircuit({
-    ...executors,
+    ...bundle.executors,
     ...ctx7.executors,
     ...codeIndex.executors,
   });

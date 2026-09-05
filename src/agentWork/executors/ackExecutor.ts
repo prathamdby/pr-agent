@@ -30,9 +30,7 @@ import {
 } from "../../review/run/progressComment.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
-import { prResourceKey, type AckJobData, type WorkStatus } from "../types.js";
-
-const ACK_PROGRESS_ACTIVE_STATUSES = new Set<WorkStatus>(["queued", "running"]);
+import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.js";
 
 /** True when this ack may still write the shared progress comment for its work item. */
 export async function canAckPublishProgress(
@@ -44,7 +42,7 @@ export async function canAckPublishProgress(
   },
 ): Promise<boolean> {
   const workItem = await getWorkItemCore(pool, params.workItemId);
-  if (workItem == null || !ACK_PROGRESS_ACTIVE_STATUSES.has(workItem.status)) {
+  if (workItem == null || !(ACTIVE_WORK_STATUSES as readonly string[]).includes(workItem.status)) {
     return false;
   }
   const owner = await getProgressCommentOwner(pool, params.resourceKey, params.reviewLens);

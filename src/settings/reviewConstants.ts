@@ -137,7 +137,6 @@ export const MAX_REVIEW_FOLLOW_UPS = 5;
 
 /** Review size scale (t-shirt sizes), ordered smallest to largest. */
 export const REVIEW_SIZES = ["XS", "S", "M", "L", "XL", "XXL"] as const;
-export type ReviewSize = (typeof REVIEW_SIZES)[number];
 
 /** ReviewPayload public field size limits (unlimited finding count; bounded text). */
 export const REVIEW_FINDING_TITLE_MAX_CHARS = 80;
@@ -220,13 +219,6 @@ export const REVIEW_SEVERITY_RANK = {
 export const VALIDATION_REPAIR_ROUNDS = 3;
 export const PUBLISH_RECOVERY_ROUNDS = 4;
 
-export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
-  "Review publish budget exhausted for this run. Do not call submitReview again.";
-
-/** Review harness: step enforcement when diff cache is empty at submitReview. */
-export const REVIEW_DIFF_CACHE_REQUIRED_MESSAGE =
-  "Call listChangedFiles and getWorkspaceDiff first; diff index is empty so inline anchors cannot be validated.";
-
 /** Review harness: anchor menu block header (untrusted user content). */
 export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";
 
@@ -252,8 +244,6 @@ export type ReviewPhase =
 /** Review agent caps. */
 export const MAX_TOOL_ROUNDS = 24;
 export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
-export const MAX_REVIEW_PUBLISH_CALLS = 2;
-export const REVIEW_MIN_CONFIDENCE = 1;
 /** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */
 export const MAX_PR_FILES_LISTED = 300;
 export const MAX_PR_FILES_PATCH_BYTES = 500_000;

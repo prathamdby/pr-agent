@@ -1,12 +1,7 @@
-import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { AppError } from "../../errors/appError.js";
 import { BOT_META_PATTERNS, SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
 
-export { redactOutboundSecrets };
-
 export type AskQuestionIntent = "code" | "bot_meta";
-
-export { MAX_ASK_QUESTION_CHARS } from "../../settings/index.js";
 
 export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
   for (const pattern of BOT_META_PATTERNS) {
@@ -68,8 +63,7 @@ function redactEmailsInJson(value: unknown): unknown {
 }
 
 export function sanitizeToolResultForAsk(toolName: string, result: unknown): unknown {
-  if (toolName === "getBlame" || toolName === "getWorkspaceBlame")
-    return redactEmailsInJson(result);
+  if (toolName === "getWorkspaceBlame") return redactEmailsInJson(result);
   return result;
 }
 

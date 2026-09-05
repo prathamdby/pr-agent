@@ -266,26 +266,6 @@ export function safeUpsertFindingHistoryOpen(
   });
 }
 
-/** Fire-and-forget outcome write that never throws into verification/triage hot paths. */
-export function safeRecordFindingHistoryOutcome(
-  client: Pool | PoolClient,
-  cfg: Pick<Config, "findingHistoryEnabled">,
-  scope: FindingHistoryWriteScope,
-  fingerprint: string,
-  outcome: Exclude<FindingHistoryOutcome, "open">,
-): void {
-  if (!cfg.findingHistoryEnabled) return;
-  void recordFindingHistoryOutcome(client, scope, fingerprint, outcome).catch((error) => {
-    logWarn("finding_history_outcome_failed", {
-      owner: scope.owner,
-      repo: scope.repo,
-      fingerprint,
-      outcome,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  });
-}
-
 /** Fire-and-forget thread outcome write resolved from publish-record placements. */
 export function safeRecordThreadFindingHistoryOutcome(
   client: Pool | PoolClient,

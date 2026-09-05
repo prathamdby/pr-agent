@@ -107,11 +107,3 @@ export const reviewPayloadPerFindingContracts = [
 ]
   .map((line) => `- ${line}`)
   .join("\n");
-
-/** Round-0 validation repair: include the full minimal example. */
-export const VALIDATION_REPAIR_ROUND0_SUFFIX =
-  "Fix the payload and call submitReview again with a complete ReviewPayload.";
-
-/** Later validation repair rounds: schema reminder only. */
-export const VALIDATION_REPAIR_REMINDER =
-  "Fix the ReviewPayload validation errors above and call submitReview again, matching the tool schema.";

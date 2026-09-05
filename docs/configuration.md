@@ -292,8 +292,6 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | ---------------------------------------- | --------------------------------------------------------------- |
 | `MAX_TOOL_ROUNDS`                        | 24 for orchestrator reconnaissance and specialist investigation |
 | `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 per specialist judgment turn                                  |
-| `MAX_REVIEW_PUBLISH_CALLS`               | 2 valid calls for the retained structured review tool contract  |
-| `REVIEW_MIN_CONFIDENCE`                  | 1, drop scored findings below this                              |
 | `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                  |
 | `MAX_PR_FILES_PATCH_BYTES`               | 500000                                                          |
 | `REVIEW_ANCHOR_MENU_MAX_FILES`           | 40                                                              |
@@ -306,8 +304,6 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `SESSION_CACHE_ID_MAX_LENGTH`            | 64 — OpenAI-style `prompt_cache_key` clamp for Pi session ids   |
 | `VALIDATION_REPAIR_ROUNDS`               | 3                                                               |
 | `PUBLISH_RECOVERY_ROUNDS`                | 4 summary recovery sends                                        |
-| `PUBLISH_BUDGET_EXHAUSTED_MESSAGE`       | Structured review tool guard                                    |
-| `REVIEW_DIFF_CACHE_REQUIRED_MESSAGE`     | Structured review diff-cache guard                              |
 | `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                               |
 | `ReviewValidationFailureKind`            | Validation failure metric categories                            |
 | `ReviewPhase`                            | Review metric categories                                        |

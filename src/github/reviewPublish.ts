@@ -205,33 +205,6 @@ function parsePublishedReviewComments(
   return parsed.toSorted((a, b) => a.id - b.id);
 }
 
-export async function listPullRequestReviewCommentsForReview(
-  token: string,
-  owner: string,
-  repo: string,
-  pullNumber: number,
-  reviewId: number,
-  expiresAtTs?: number,
-): Promise<PublishedReviewComment[]> {
-  const octokit = installationOctokit(token, expiresAtTs);
-  const comments = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listCommentsForReview({
-        owner,
-        repo,
-        pull_number: pullNumber,
-        review_id: reviewId,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
-  return parsePublishedReviewComments(comments);
-}
-
 /**
  * Single PR-wide review-comment listing (bounded pages). Prefer this over
  * per-inline-review pagination when enriching summary placements.
@@ -446,25 +419,6 @@ export async function listPullRequestLabels(
     },
   });
   return labels.map((l) => l.name);
-}
-
-export async function getPullRequestReviewComment(
-  token: string,
-  owner: string,
-  repo: string,
-  commentId: number,
-  expiresAtTs?: number,
-): Promise<{ pullRequestReviewId: number | null; userId: number }> {
-  const octokit = installationOctokit(token, expiresAtTs);
-  const { data } = await octokit.rest.pulls.getReviewComment({
-    owner,
-    repo,
-    comment_id: commentId,
-  });
-  return {
-    pullRequestReviewId: data.pull_request_review_id ?? null,
-    userId: data.user.id,
-  };
 }
 
 export async function setPullRequestLabels(

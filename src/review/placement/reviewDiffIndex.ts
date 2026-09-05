@@ -136,22 +136,6 @@ export function ingestListPullRequestFilesResult(
   }
 }
 
-export function wrapListPullRequestFilesDiffIngestion(
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
-  cachedDiffIndex: CachedPrDiffIndex,
-): void {
-  const original = executors.listPullRequestFiles;
-  if (!original) return;
-  executors.listPullRequestFiles = async (args) => {
-    const out = await original(args);
-    cachedDiffIndex.listPullRequestFilesIngested = true;
-    if (out && typeof out === "object") {
-      ingestListPullRequestFilesResult(cachedDiffIndex, out);
-    }
-    return out;
-  };
-}
-
 /** Pick first commentable RIGHT line inside the finding range, or null for summary-only. */
 export function resolveInlineAnchorLine(
   index: CachedPrDiffIndex | undefined,

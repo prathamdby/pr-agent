@@ -1,4 +1,3 @@
-import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 
 export type AgentAuditRecord = {
@@ -86,17 +85,4 @@ export function agentAuditRecordFromLifecycleEvent(
       return _exhaustive;
     }
   }
-}
-
-/** Attach classified failure taxonomy fields onto a failure lifecycle event. */
-export function failureEventFromClassified(
-  base: Omit<Extract<AgentLifecycleEvent, { kind: "failure" }>, "failureDomain" | "errorKind">,
-  classified: ClassifiedFailure,
-): Extract<AgentLifecycleEvent, { kind: "failure" }> {
-  return {
-    ...base,
-    failureDomain: classified.failureDomain,
-    errorKind: classified.errorKind,
-    failureCode: classified.errorCode ?? base.failureCode,
-  };
 }
