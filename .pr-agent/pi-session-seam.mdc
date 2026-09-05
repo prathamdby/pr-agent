@@ -7,4 +7,4 @@ globs:
   - "test/createPiSession.test.ts"
 ---
 
-Feature harnesses must call `createFeaturePiSession` → `createPiSession` (`src/agent/runtime/createFeatureSession.ts`, `piSession.ts`). Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep built-in shell/write/edit/filesystem tools disabled (`ToolPolicy.allowBuiltin: false` in `src/agent/runtime/types.ts`). Web import graph must stay free of Pi/models (`test/webImportGraph.test.ts`, ADR 0023).
+Feature harnesses must call `createFeaturePiSession` → `createPiSession` (`src/agent/runtime/createFeatureSession.ts`, `piSession.ts`). Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep built-in shell/write/edit/filesystem tools disabled (`ToolPolicy.allowBuiltin: false` in `src/agent/runtime/types.ts`). Web import graph must stay free of Pi/models (`test/webImportGraph.test.ts`, ADR 0023). A settled unrecovered Pi provider error fails `send`; recovered SDK retries, public cancellation, idle timeout, and tool-budget stops stay distinct.

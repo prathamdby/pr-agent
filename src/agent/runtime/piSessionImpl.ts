@@ -13,7 +13,7 @@ import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
-import { AppError } from "../../errors/appError.js";
+import { AppError, toAppError } from "../../errors/appError.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import {
   exactUsageFromProviderUsage,
@@ -54,6 +54,16 @@ function assistantMessageText(message: TurnEndEvent["message"]): string {
     .map((part) => part.text)
     .join("\n")
     .trim();
+}
+
+function assistantProviderErrorMessage(message: TurnEndEvent["message"]): string | undefined {
+  if (message.role !== "assistant") return undefined;
+  if (!("stopReason" in message) || message.stopReason !== "error") return undefined;
+  const errorMessage = "errorMessage" in message ? message.errorMessage : undefined;
+  if (typeof errorMessage === "string" && errorMessage.trim().length > 0) {
+    return errorMessage;
+  }
+  return "Provider request failed";
 }
 
 function toCodingAgentTool(
@@ -232,6 +242,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
 
         let sessionToolTurnCount = 0;
         let finalText = "";
+        let terminalProviderError: string | undefined;
+        let toolBudgetStopped = false;
         let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
         const idleTimeoutMs = opts.deadlineMs ?? params.cfg.providerPromptTimeoutMs;
         const idleTimeoutEnabled = typeof idleTimeoutMs === "number" && idleTimeoutMs > 0;
@@ -286,22 +298,26 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           }
           if (event.type !== "turn_end") return;
           sessionToolTurnCount += 1;
-          if (event.message.role === "assistant" && event.message.usage) {
-            aggregatedUsage = mergeExactUsage(
-              aggregatedUsage,
-              exactUsageFromProviderUsage(event.message.usage),
-            );
-            emit({
-              kind: "usage",
-              role: params.role,
-              phase: opts.phase,
-              provider: params.primary.provider,
-              model: params.primary.model,
-            });
+          if (event.message.role === "assistant") {
+            terminalProviderError = assistantProviderErrorMessage(event.message);
+            if (event.message.usage) {
+              aggregatedUsage = mergeExactUsage(
+                aggregatedUsage,
+                exactUsageFromProviderUsage(event.message.usage),
+              );
+              emit({
+                kind: "usage",
+                role: params.role,
+                phase: opts.phase,
+                provider: params.primary.provider,
+                model: params.primary.model,
+              });
+            }
           }
           if (event.toolResults.length === 0) {
             finalText = assistantMessageText(event.message);
           } else if (opts.maxToolRounds != null && sessionToolTurnCount >= opts.maxToolRounds) {
+            toolBudgetStopped = true;
             void session.abort();
           }
         });
@@ -310,15 +326,38 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         try {
           sendStartedAt = Date.now();
           const run = session.prompt(prompt);
-          if (idleTimeoutEnabled) {
-            const idle = new Promise<never>((_, reject) => {
-              rejectOnIdle = reject;
-              markActivity();
-              startIdleTimer();
+          let promptError: unknown;
+          try {
+            if (idleTimeoutEnabled) {
+              const idle = new Promise<never>((_, reject) => {
+                rejectOnIdle = reject;
+                markActivity();
+                startIdleTimer();
+              });
+              await Promise.race([run, idle]);
+            } else {
+              await run;
+            }
+          } catch (error) {
+            promptError = error;
+          }
+          if (abortPromise) {
+            throw new AppError({
+              code: "agent.session_aborted",
+              message: "Agent runner session aborted",
             });
-            await Promise.race([run, idle]);
-          } else {
-            await run;
+          }
+          if (idleRejected) {
+            throw toAppError(promptError, { code: "pi.prompt_idle_timeout" });
+          }
+          if (terminalProviderError !== undefined && !toolBudgetStopped) {
+            throw new AppError({
+              code: "provider.request_failed",
+              message: terminalProviderError,
+            });
+          }
+          if (promptError !== undefined && !toolBudgetStopped) {
+            throw toAppError(promptError, { code: "provider.request_failed" });
           }
           const promptMeta = promptMetadataFromText(prompt);
           emit({
