@@ -601,6 +601,7 @@ export async function publishReviewSummaryOnly(params: {
           operationKey: reviewCommitStatusOperationKey(summaryCoordination.resourceKey, headSha),
           mutationKind: "github.review_commit_status",
           leaseEpoch: summaryCoordination.leaseEpoch,
+          allowsUndefinedResult: true,
           detail: {
             step: "commit_status",
             resourceKey: summaryCoordination.resourceKey,
@@ -686,6 +687,7 @@ export async function publishReviewSummaryOnly(params: {
             operationKey: reviewLabelsOperationKey(summaryCoordination.resourceKey),
             mutationKind: "github.review_labels",
             leaseEpoch: summaryCoordination.leaseEpoch,
+            allowsUndefinedResult: true,
             detail: {
               step: "labels",
               resourceKey: summaryCoordination.resourceKey,

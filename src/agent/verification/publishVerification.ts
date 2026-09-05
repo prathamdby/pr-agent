@@ -218,6 +218,7 @@ async function withVerificationThreadOperation(
     leaseEpoch: params.leaseEpoch,
     operationKey,
     mutationKind: "github.verification_thread",
+    allowsUndefinedResult: true,
     detail: verificationIntentDetail(
       params,
       verdict.threadRootCommentId,

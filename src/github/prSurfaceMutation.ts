@@ -89,6 +89,29 @@ function inputHash(input: unknown): string {
   return crypto.createHash("sha256").update(encoded).digest("hex");
 }
 
+function voidPrSurfaceMutationMethod(method: keyof PrSurfaceMutationMethods): boolean {
+  switch (method) {
+    case "setAcknowledgementReaction":
+    case "editComment":
+    case "setReviewCommitStatus":
+    case "resolveInlineReviewThread":
+    case "setLabels":
+    case "finishReviewCheck":
+      return true;
+    case "replyAt":
+    case "upsertProgressComment":
+    case "publishThreadBatch":
+    case "startReviewCheck":
+    case "editReviewComment":
+    case "publishDescription":
+      return false;
+    default: {
+      const _exhaustive: never = method;
+      return _exhaustive;
+    }
+  }
+}
+
 function mutation(
   method: keyof PrSurfaceMutationMethods,
   input: unknown,
@@ -108,6 +131,7 @@ function mutation(
       ...extractPrSurfaceRecoverDetail(method, args),
     },
     recover: (intent) => recoverPrSurfaceMutation(surface, intent),
+    ...(voidPrSurfaceMutationMethod(method) ? { allowsUndefinedResult: true } : {}),
   };
 }
 

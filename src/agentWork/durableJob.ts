@@ -156,6 +156,7 @@ function createLeaseMutationBoundary(params: {
           surfaceMutation: true,
         },
         recover: mutation.recover as WithOperationIntentParams<T>["recover"],
+        allowsUndefinedResult: mutation.allowsUndefinedResult,
         mutate,
       }),
   };

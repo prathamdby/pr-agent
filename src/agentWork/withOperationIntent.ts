@@ -39,6 +39,11 @@ export type WithOperationIntentParams<T> = {
     intent: OperationIntentRow,
     publishRecordId: string | null,
   ) => Promise<OperationIntentRecovery<T>>;
+  /**
+   * True when `undefined` is a valid success (void mutate, or `T | undefined`).
+   * Typed recoveries stay outcome_unknown when they cannot rebuild T.
+   */
+  readonly allowsUndefinedResult?: boolean;
   /** True only when the provider contract proves no mutation was accepted. */
   readonly isKnownNoAcceptanceError?: (error: unknown) => boolean;
   readonly leaseEpoch?: number | null;
@@ -187,6 +192,10 @@ function leaseEpochDetail<T>(
   return params.leaseEpoch == null ? {} : { leaseEpoch: params.leaseEpoch };
 }
 
+function allowsUndefinedSuccess<T>(params: WithOperationIntentParams<T>): boolean {
+  return params.allowsUndefinedResult === true || params.recover == null;
+}
+
 async function finishWithStashedResult<T>(
   params: WithOperationIntentParams<T>,
   intent: OperationIntentRow,
@@ -282,7 +291,7 @@ async function recoverAfterMutatingWithoutResult<T>(
 
   // Publish-record success is void-only. A recover hook that cannot rebuild T
   // stays outcome_unknown so callers do not receive undefined as a typed result.
-  if (publishRecordId != null && params.recover == null) {
+  if (publishRecordId != null && allowsUndefinedSuccess(params)) {
     await assertMutationReady(params);
     await reconcileOperationIntent(params.client, {
       workItemId: params.workItemId,
@@ -372,8 +381,8 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
   if (intent.status === "reconciled") {
     const recovered = await recoverByExactEvidence(params, intent, null);
     if (recovered.found) return recovered.value;
-    // Void-only. A recover hook that cannot rebuild T stays outcome_unknown.
-    if (params.recover == null) {
+    // Void-only. A typed recover that cannot rebuild T stays outcome_unknown.
+    if (allowsUndefinedSuccess(params)) {
       return undefined as T;
     }
     throw new AppError({

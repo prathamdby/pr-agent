@@ -656,6 +656,32 @@ describe("withOperationIntent", () => {
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
   });
 
+  it("returns undefined when a void reconciled intent has recover but no rebuilt value", async () => {
+    const mutate = vi.fn(async () => undefined);
+    const recover = vi.fn(async () => ({ kind: "absent" as const }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "reconciled",
+      publishRecordId: "pub-1",
+      detail: { recoveredAfterMutating: true },
+    });
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        allowsUndefinedResult: true,
+        recover,
+        mutate,
+      }),
+    ).resolves.toBeUndefined();
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
   it("wraps a recover-hook failure on a reconciled intent without __result", async () => {
     const mutate = vi.fn(async () => ({ id: 99 }));
     const recover = vi.fn(async () => {
