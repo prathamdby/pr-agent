@@ -199,17 +199,6 @@ export async function recoverMarkedProgressComment(
   };
 }
 
-async function recoverProgressComment(
-  surface: PrSurface,
-  detail: Record<string, unknown>,
-): Promise<OperationIntentRecovery<ProgressCommentUpsert>> {
-  return recoverMarkedProgressComment(surface, {
-    operationMarker: detailString(detail, "operationMarker"),
-    sentinel: detailString(detail, "sentinel"),
-    knownExistingId: detailNumber(detail, "knownExistingId"),
-  });
-}
-
 async function recoverMarkedComment(
   surface: PrSurface,
   detail: Record<string, unknown>,
@@ -252,7 +241,11 @@ export async function recoverPrSurfaceMutation<T>(
       recovery = await recoverReplyAt(surface, intent.detail);
       break;
     case "upsertProgressComment":
-      recovery = await recoverProgressComment(surface, intent.detail);
+      recovery = await recoverMarkedProgressComment(surface, {
+        operationMarker: detailString(intent.detail, "operationMarker"),
+        sentinel: detailString(intent.detail, "sentinel"),
+        knownExistingId: detailNumber(intent.detail, "knownExistingId"),
+      });
       break;
     case "editComment":
       recovery = await recoverMarkedComment(surface, intent.detail, "conversation");

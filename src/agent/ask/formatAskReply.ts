@@ -1,5 +1,5 @@
 import type { ReplyTarget } from "../../commands/replyTarget.js";
-import { redactOutboundSecrets } from "./askSafety.js";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 
 /** Prevent model output lines from being parsed as slash commands by GitHub. */
 export function sanitizeAskAnswerText(text: string): string {

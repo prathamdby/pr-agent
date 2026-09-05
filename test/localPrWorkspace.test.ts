@@ -45,9 +45,11 @@ import {
   buildCheckoutCoverage,
   cleanupStaleLocalPrWorkspaces,
   prepareLocalPrWorkspace,
+} from "../src/prWorkspace/localPrWorkspace.js";
+import {
   registerLiveLocalPrWorkspace,
   unregisterLiveLocalPrWorkspace,
-} from "../src/prWorkspace/localPrWorkspace.js";
+} from "../src/prWorkspace/workspaceResource.js";
 import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.js";
 
 const GIT_WORKSPACE_TEST_TIMEOUT_MS = 15_000;

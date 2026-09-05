@@ -1,6 +1,6 @@
 import { loadConfig, type Config } from "./config.js";
 import { initAnalytics } from "./analytics/index.js";
-import { initEvlog, logDebug, logInfo } from "./evlog.js";
+import { initEvlog, logInfo } from "./evlog.js";
 import { sanitizeErrorForTelemetry } from "./errors/appError.js";
 import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
@@ -26,7 +26,6 @@ async function main() {
     model: cfg.piModel,
     context7_enabled: cfg.context7ApiKey.length > 0,
   });
-  logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
     const { startAgentWorker } = await import("./worker.js");
     startAgentWorker(cfg);

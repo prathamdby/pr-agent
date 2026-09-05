@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-  REPEAT_NO_BUGS_PREFIX,
-  REVIEW_POINTER_BODY,
-  REVIEW_POINTER_NOTE_LEAD,
   renderAgentFixPrompt,
   renderInlineThreadBody,
   renderLightweightReviewCompletion,
@@ -15,9 +11,13 @@ import {
   fitReviewSummaryBody,
 } from "../src/review/run/reviewRender.js";
 import {
+  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+  REPEAT_NO_BUGS_PREFIX,
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
+  REVIEW_POINTER_BODY,
+  REVIEW_POINTER_NOTE_LEAD,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,

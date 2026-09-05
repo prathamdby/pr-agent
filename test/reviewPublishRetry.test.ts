@@ -1,11 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
-import { withTransientReviewRetry } from "../src/github/reviewPublishRetry.js";
+import { describe, expect, it } from "vitest";
 import {
   isLineResolutionPublishError,
   isTransientGitHubReviewError,
 } from "../src/github/reviewErrors.js";
 
-describe("reviewPublishRetry", () => {
+describe("isTransientGitHubReviewError", () => {
   it("does not retry an ambiguous non-line-resolution 422", () => {
     expect(
       isTransientGitHubReviewError({
@@ -56,19 +55,5 @@ describe("reviewPublishRetry", () => {
         message: "Review has already been submitted on this pull request",
       }),
     ).toBe(false);
-  });
-
-  it("retries transient failures then succeeds", async () => {
-    vi.useFakeTimers();
-    const fn = vi
-      .fn()
-      .mockRejectedValueOnce({ status: 422, accepted: false, message: "Please retry" })
-      .mockResolvedValueOnce("ok");
-
-    const promise = withTransientReviewRetry(fn, [100]);
-    await vi.runAllTimersAsync();
-    await expect(promise).resolves.toBe("ok");
-    expect(fn).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
   });
 });

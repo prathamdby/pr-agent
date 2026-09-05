@@ -588,19 +588,6 @@ export async function recordAskProviderUsage(
   });
 }
 
-export function askQuotaScopeKeys(params: {
-  readonly installationId: number;
-  readonly owner: string;
-  readonly repo: string;
-  readonly commenterId: number;
-}): readonly string[] {
-  return [
-    actorScopeKey(params.installationId, params.commenterId),
-    repositoryScopeKey(params.installationId, params.owner, params.repo),
-    installationScopeKey(params.installationId),
-  ];
-}
-
 /** Delete inactive bucket rows so long-lived installations do not grow without bound. */
 export async function deleteExpiredAskQuotaState(
   pool: Pool,

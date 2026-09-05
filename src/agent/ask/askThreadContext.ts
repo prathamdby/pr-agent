@@ -2,7 +2,7 @@ import { logWarn } from "../../evlog.js";
 import { MAX_ASK_THREAD_TRANSCRIPT_CHARS } from "../../settings/index.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { redactOutboundSecrets } from "./askSafety.js";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 
 export type ThreadComment = {
   readonly id: number;

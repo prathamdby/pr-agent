@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import { AppError } from "../src/errors/appError.js";
-import {
-  WebhookParseError,
-  parseGithubPayload,
-  parseInstallationId,
-} from "../src/webhook/parseGithubPayload.js";
+import { WebhookParseError, parseGithubPayload } from "../src/webhook/parseGithubPayload.js";
 
 describe("WebhookParseError", () => {
   it("preserves eventName and valibotError through AppError", () => {
@@ -906,15 +902,5 @@ describe("parseGithubPayload", () => {
       installation: { id: 1 },
     });
     expect(parsed.name).toBe("ignored");
-  });
-});
-
-describe("parseInstallationId", () => {
-  it("extracts installation id when present", () => {
-    expect(parseInstallationId({ installation: { id: 7 } })).toBe(7);
-  });
-
-  it("returns undefined when missing", () => {
-    expect(parseInstallationId({})).toBeUndefined();
   });
 });

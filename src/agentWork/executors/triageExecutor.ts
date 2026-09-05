@@ -81,11 +81,6 @@ type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
 
 type TriageExecuteResult = Extract<DurableExecutionResult, { kind: "completed" }>;
 
-type PullRequestBranchInfo = {
-  readonly headRef: string;
-  readonly sameRepo: boolean;
-};
-
 type EmptyInventoryOutcome = "all_resolved" | "thread_not_eligible" | "no_eligible_findings";
 
 const EMPTY_INVENTORY_MESSAGES: Record<EmptyInventoryOutcome, string> = {
@@ -108,10 +103,6 @@ type InventoryAndScope = {
   readonly scopedThreadRootId: number | undefined;
   readonly reportContext: TriageReportContext;
 };
-
-async function loadPullRequestBranchInfo(prSurface: PrSurface): Promise<PullRequestBranchInfo> {
-  return prSurface.getPullRequestBranchInfo();
-}
 
 function triageAnalyticsRef(
   item: Pick<AgentWorkItem, "installationId" | "owner" | "repo" | "prNumber" | "id">,
@@ -902,7 +893,7 @@ export async function executeTriageJob(
       const { prSurface } = env;
       const headSha = env.headSha;
       await ensureTriageNotCancelled(pool, item);
-      const branch = await loadPullRequestBranchInfo(prSurface);
+      const branch = await prSurface.getPullRequestBranchInfo();
       await ensureTriageNotCancelled(pool, item);
       if (!branch.sameRepo && mode !== "preview") {
         return handleForkPrReport({

@@ -1,5 +1,4 @@
 import * as v from "valibot";
-import { installationIdPickSchema } from "./payloads/common.js";
 import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.js";
 import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.js";
 import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
@@ -13,7 +12,7 @@ import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.js";
 import { AppError } from "../errors/appError.js";
 import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
 
-export type WebhookSchemaError = v.ValiError<v.GenericSchema | v.GenericSchemaAsync>;
+type WebhookSchemaError = v.ValiError<v.GenericSchema | v.GenericSchemaAsync>;
 
 export class WebhookParseError extends AppError {
   readonly eventName: string;
@@ -112,10 +111,4 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
     default:
       return { name: "ignored", data: payload };
   }
-}
-
-/** Installation id for any App webhook JSON (extra top-level keys allowed). */
-export function parseInstallationId(payload: unknown): number | undefined {
-  const r = v.safeParse(installationIdPickSchema, payload);
-  return r.success ? r.output.installation.id : undefined;
 }

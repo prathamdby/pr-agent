@@ -3,7 +3,7 @@ import type { PrSurface } from "../../github/prSurface.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { operationIntentMarker } from "../../agentWork/withOperationIntent.js";
 import { isRecord } from "../../util/typeGuards.js";
-import { redactOutboundSecrets } from "./askSafety.js";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 
 export type RecoveredAskReply = {
   readonly commentId: number;

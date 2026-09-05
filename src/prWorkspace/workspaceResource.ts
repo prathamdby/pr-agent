@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppError } from "../errors/appError.js";
@@ -11,6 +11,76 @@ import {
   makeDirectoriesWritable,
   type GitCredentialFiles,
 } from "./gitCredentials.js";
+
+const INSUFFICIENT_FREE_SPACE_CODE = "pr_workspace.insufficient_free_space";
+
+export function assertGitSha(value: string, field: string): void {
+  if (!/^[0-9a-f]{40}$/i.test(value)) {
+    throw new AppError({
+      code: "pr_workspace.invalid_sha",
+      message: `${field} must be a 40-character SHA`,
+      context: { field },
+    });
+  }
+}
+
+export function assertGitRepoPart(value: string, field: string): void {
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
+    throw new AppError({
+      code: "pr_workspace.unsafe_repo_part",
+      message: `${field} is not git-safe`,
+      context: { field },
+    });
+  }
+}
+
+export async function ensureWorkspaceFreeSpace(
+  dir: string,
+  minBytes: number,
+  message: string,
+): Promise<void> {
+  const fs = await statfs(dir);
+  const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
+  if (freeBytes < BigInt(minBytes)) {
+    throw new AppError({
+      code: INSUFFICIENT_FREE_SPACE_CODE,
+      message,
+      context: { minBytes },
+    });
+  }
+}
+
+export async function ensureWorkspaceFreeSpaceAfterSweep(
+  dir: string,
+  minBytes: number,
+  message: string,
+  sweep: () => Promise<void>,
+): Promise<void> {
+  try {
+    await ensureWorkspaceFreeSpace(dir, minBytes, message);
+  } catch (error) {
+    if (!(error instanceof AppError && error.code === INSUFFICIENT_FREE_SPACE_CODE)) {
+      throw error;
+    }
+    await sweep();
+    await ensureWorkspaceFreeSpace(dir, minBytes, message);
+  }
+}
+
+export function gitCountObjectsStoreBytes(countObjectsOutput: string): number {
+  let sizeKiB = 0;
+  let sizePackKiB = 0;
+  for (const line of countObjectsOutput.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon <= 0) continue;
+    const key = line.slice(0, colon).trim();
+    const value = Number(line.slice(colon + 1).trim());
+    if (Number.isNaN(value)) continue;
+    if (key === "size") sizeKiB = value;
+    if (key === "size-pack") sizePackKiB = value;
+  }
+  return (sizeKiB + sizePackKiB) * 1024;
+}
 
 /** Read-only investigation checkout temp-root prefix. */
 export const READONLY_WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
@@ -149,7 +219,7 @@ async function removeCredentialFiles(rootDir: string): Promise<void> {
   await rm(join(rootDir, GIT_TOKEN_FILE_NAME), { force: true }).catch(() => undefined);
 }
 
-async function statIfPresent(path: string) {
+export async function statIfPresent(path: string) {
   return stat(path).catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;

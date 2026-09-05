@@ -71,19 +71,9 @@ export async function hasCompletedPublishStep(
   reviewLens: PublishLens,
   step: PublishStep,
 ): Promise<boolean> {
-  const row = await queryOne<{ exists: number }>(
-    pool,
-    `SELECT 1 AS exists
-		   FROM publish_records
-		  WHERE work_item_id = $1
-		    AND resource_key = $2
-		    AND review_lens = $3
-		    AND step = $4
-		    AND status = 'completed'
-		  LIMIT 1`,
-    [workItemId, resourceKey, reviewLens, step],
+  return (
+    (await getCompletedPublishStepDetail(pool, workItemId, resourceKey, reviewLens, step)) != null
   );
-  return row != null;
 }
 
 export async function getCompletedPublishStepDetail(

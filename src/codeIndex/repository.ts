@@ -4,7 +4,7 @@ import { logWarn } from "../evlog.js";
 import { CODE_INDEX_CHUNKER_VERSION } from "../settings/index.js";
 import type { CodeIndexChunk } from "./chunker.js";
 
-export type CodeIndexSnapshotStatus = "building" | "ready" | "failed" | "superseded";
+type CodeIndexSnapshotStatus = "building" | "ready" | "failed" | "superseded";
 
 export type CodeIndexRepoScope = {
   readonly installationId: number;
@@ -13,7 +13,7 @@ export type CodeIndexRepoScope = {
   readonly headSha: string;
 };
 
-export type CodeIndexSnapshot = {
+type CodeIndexSnapshot = {
   readonly id: string;
   readonly status: CodeIndexSnapshotStatus;
   readonly chunkerVersion: string;
@@ -31,7 +31,7 @@ function mapSnapshot(row: {
   };
 }
 
-export async function getReadySnapshot(
+async function getReadySnapshot(
   pool: Pool | PoolClient,
   scope: CodeIndexRepoScope,
 ): Promise<CodeIndexSnapshot | null> {

@@ -6,11 +6,11 @@ export const VERIFICATION_FEATURE_MODES = ["off", "manual", "auto"] as const;
 export const COMMAND_FEATURE_MODES = ["off", "manual"] as const;
 export const REVIEW_LABELS_MODES = ["off", "size", "size+security"] as const;
 
-export type ReviewFeatureMode = (typeof REVIEW_FEATURE_MODES)[number];
-export type DescribeFeatureMode = (typeof DESCRIBE_FEATURE_MODES)[number];
-export type VerificationFeatureMode = (typeof VERIFICATION_FEATURE_MODES)[number];
-export type CommandFeatureMode = (typeof COMMAND_FEATURE_MODES)[number];
-export type ReviewLabelsMode = (typeof REVIEW_LABELS_MODES)[number];
+type ReviewFeatureMode = (typeof REVIEW_FEATURE_MODES)[number];
+type DescribeFeatureMode = (typeof DESCRIBE_FEATURE_MODES)[number];
+type VerificationFeatureMode = (typeof VERIFICATION_FEATURE_MODES)[number];
+type CommandFeatureMode = (typeof COMMAND_FEATURE_MODES)[number];
+type ReviewLabelsMode = (typeof REVIEW_LABELS_MODES)[number];
 
 export type Features = {
   readonly review: ReviewFeatureMode;

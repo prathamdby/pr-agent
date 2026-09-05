@@ -1,8 +1,8 @@
+import { ste100WritingGuidance } from "../prompts/ste100Guidance.js";
 import {
   descriptionBodyScaleGuidance,
   descriptionMermaidGuidance,
   descriptionReviewMapGuidance,
-  descriptionSte100Guidance,
 } from "./descriptionPromptBlocks.js";
 
 export const descriptionSystemPrompt = [
@@ -21,7 +21,7 @@ export const descriptionSystemPrompt = [
   "- changesDiagram (optional): fenced ```mermaid flowchart LR```; omit if not useful",
   "- prFiles (optional, mode-dependent): read-first review map entries only — filename + changesTitle (why open first); max 5; omit entirely when map mode is omit",
   "",
-  descriptionSte100Guidance,
+  ste100WritingGuidance,
   "",
   descriptionBodyScaleGuidance,
   "",

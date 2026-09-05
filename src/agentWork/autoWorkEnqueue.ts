@@ -13,6 +13,17 @@ function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
   return JSON.stringify(["auto_work_intake", target.kind, target.resourceKey]);
 }
 
+function linkSupersededWorkItems(
+  client: PoolClient,
+  workItemId: string,
+  supersededIds: readonly string[],
+): Promise<unknown> {
+  return client.query(`UPDATE agent_work_items SET superseded_by = $1 WHERE id = ANY($2::uuid[])`, [
+    workItemId,
+    supersededIds,
+  ]);
+}
+
 function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
   sql: string;
   params: unknown[];
@@ -99,10 +110,7 @@ export async function replaceAutoWorkItem(params: {
   const supersededIds = await supersedeActiveAutoWork(params.client, params.target);
   const workItemId = await params.createWorkItem();
   if (supersededIds.length > 0) {
-    await params.client.query(
-      `UPDATE agent_work_items SET superseded_by = $1 WHERE id = ANY($2::uuid[])`,
-      [workItemId, supersededIds],
-    );
+    await linkSupersededWorkItems(params.client, workItemId, supersededIds);
   }
   return { workItemId, supersededIds };
 }
@@ -125,9 +133,6 @@ export async function replaceActiveAutoWorkItem(params: {
     return { workItemId: null, supersededIds };
   }
   const workItemId = await params.createWorkItem();
-  await params.client.query(
-    `UPDATE agent_work_items SET superseded_by = $1 WHERE id = ANY($2::uuid[])`,
-    [workItemId, supersededIds],
-  );
+  await linkSupersededWorkItems(params.client, workItemId, supersededIds);
   return { workItemId, supersededIds };
 }

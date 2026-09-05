@@ -19,7 +19,7 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   return createReviewCheckRunMock();
 });
 
-import { attachSummaryCommentCoordination } from "../src/review/publish/publishSummaryOnly.js";
+import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
 
 const payload = publishReviewTestPayload;

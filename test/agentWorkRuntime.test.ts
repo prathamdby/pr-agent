@@ -70,7 +70,7 @@ describe("agent work runtime teardown", () => {
     const cfg = makeTestConfig({ role: "worker" });
 
     const Worker = Context.GenericTag<"Worker", void>("Worker");
-    // Same provide order as workerRuntime: Boss then Pool → pool.end last.
+    // Same provide order as worker.ts: Boss then Pool → pool.end last.
     const workerLive = Layer.scoped(
       Worker,
       Effect.acquireRelease(

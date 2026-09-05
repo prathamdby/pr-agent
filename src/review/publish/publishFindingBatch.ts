@@ -20,7 +20,7 @@ import {
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
-import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
+import type { RecordPublishStepWithCoordination } from "./summaryCommentUpsert.js";
 import {
   deterministicInlineBatchId,
   operationIntentMarker,

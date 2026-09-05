@@ -20,9 +20,9 @@ import {
   findPullRequestReviewByMarker,
   findIssueCommentBySentinel,
   findReviewCheckRunByName,
-  getIssueCommentIfSentinel,
   listPullRequestLabels,
   listPullRequestReviewComments,
+  resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
   setReviewCommitStatus,
   updateIssueComment,
@@ -210,6 +210,87 @@ type ListedReaction = {
   readonly user: { readonly id: number } | null;
 };
 
+function reactionEndpoints(
+  octokit: ReturnType<typeof installationOctokit>,
+  owner: string,
+  repo: string,
+  target: AcknowledgementTarget,
+) {
+  if (target.kind === "pr") {
+    return {
+      create: (content: GithubReactionContent) =>
+        octokit.rest.reactions.createForIssue({
+          owner,
+          repo,
+          issue_number: target.prNumber,
+          content,
+        }),
+      list: () =>
+        octokit.paginate(octokit.rest.reactions.listForIssue, {
+          owner,
+          repo,
+          issue_number: target.prNumber,
+          per_page: 100,
+        }),
+      delete: (reactionId: number) =>
+        octokit.rest.reactions.deleteForIssue({
+          owner,
+          repo,
+          issue_number: target.prNumber,
+          reaction_id: reactionId,
+        }),
+    };
+  }
+  if (target.kind === "issueComment") {
+    return {
+      create: (content: GithubReactionContent) =>
+        octokit.rest.reactions.createForIssueComment({
+          owner,
+          repo,
+          comment_id: target.commentId,
+          content,
+        }),
+      list: () =>
+        octokit.paginate(octokit.rest.reactions.listForIssueComment, {
+          owner,
+          repo,
+          comment_id: target.commentId,
+          per_page: 100,
+        }),
+      delete: (reactionId: number) =>
+        octokit.rest.reactions.deleteForIssueComment({
+          owner,
+          repo,
+          comment_id: target.commentId,
+          reaction_id: reactionId,
+        }),
+    };
+  }
+  return {
+    create: (content: GithubReactionContent) =>
+      octokit.rest.reactions.createForPullRequestReviewComment({
+        owner,
+        repo,
+        comment_id: target.commentId,
+        content,
+      }),
+    list: () =>
+      octokit.paginate(octokit.rest.reactions.listForPullRequestReviewComment, {
+        owner,
+        repo,
+        comment_id: target.commentId,
+        per_page: 100,
+      }),
+    delete: (reactionId: number) =>
+      octokit.rest.reactions.deleteForPullRequestComment({
+        owner,
+        repo,
+        comment_id: target.commentId,
+        reaction_id: reactionId,
+      }),
+  };
+}
+
 async function safeReaction(
   token: string,
   owner: string,
@@ -220,28 +301,7 @@ async function safeReaction(
 ): Promise<void> {
   const octokit = installationOctokit(token, expiresAtTs);
   try {
-    if (target.kind === "pr") {
-      await octokit.rest.reactions.createForIssue({
-        owner,
-        repo,
-        issue_number: target.prNumber,
-        content,
-      });
-    } else if (target.kind === "issueComment") {
-      await octokit.rest.reactions.createForIssueComment({
-        owner,
-        repo,
-        comment_id: target.commentId,
-        content,
-      });
-    } else {
-      await octokit.rest.reactions.createForPullRequestReviewComment({
-        owner,
-        repo,
-        comment_id: target.commentId,
-        content,
-      });
-    }
+    await reactionEndpoints(octokit, owner, repo, target).create(content);
   } catch (e: unknown) {
     const status = httpStatus(e);
     if (status === 403) {
@@ -267,28 +327,7 @@ async function listLifecycleReactions(
   expiresAtTs?: number,
 ): Promise<readonly ListedReaction[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  if (target.kind === "pr") {
-    return octokit.paginate(octokit.rest.reactions.listForIssue, {
-      owner,
-      repo,
-      issue_number: target.prNumber,
-      per_page: 100,
-    });
-  }
-  if (target.kind === "issueComment") {
-    return octokit.paginate(octokit.rest.reactions.listForIssueComment, {
-      owner,
-      repo,
-      comment_id: target.commentId,
-      per_page: 100,
-    });
-  }
-  return octokit.paginate(octokit.rest.reactions.listForPullRequestReviewComment, {
-    owner,
-    repo,
-    comment_id: target.commentId,
-    per_page: 100,
-  });
+  return reactionEndpoints(octokit, owner, repo, target).list();
 }
 
 async function deleteReaction(
@@ -300,30 +339,7 @@ async function deleteReaction(
   expiresAtTs?: number,
 ): Promise<void> {
   const octokit = installationOctokit(token, expiresAtTs);
-  if (target.kind === "pr") {
-    await octokit.rest.reactions.deleteForIssue({
-      owner,
-      repo,
-      issue_number: target.prNumber,
-      reaction_id: reactionId,
-    });
-    return;
-  }
-  if (target.kind === "issueComment") {
-    await octokit.rest.reactions.deleteForIssueComment({
-      owner,
-      repo,
-      comment_id: target.commentId,
-      reaction_id: reactionId,
-    });
-    return;
-  }
-  await octokit.rest.reactions.deleteForPullRequestComment({
-    owner,
-    repo,
-    comment_id: target.commentId,
-    reaction_id: reactionId,
-  });
+  await reactionEndpoints(octokit, owner, repo, target).delete(reactionId);
 }
 
 async function setLifecycleReaction(
@@ -541,18 +557,18 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
     async resolveProgressComment(sentinel, hintCommentId) {
       const { token, expiresAtTs } = await ensureAuth();
-      if (hintCommentId != null) {
-        const verified = await getIssueCommentIfSentinel(
-          token,
-          owner,
-          repo,
-          hintCommentId,
-          sentinel,
-          expiresAtTs,
-        );
-        if (verified) return verified;
-      }
-      return this.findProgressComment(sentinel);
+      const resolved = await resolveVerifiedSummaryCommentRef(
+        token,
+        owner,
+        repo,
+        prNumber,
+        sentinel,
+        hintCommentId,
+        expiresAtTs,
+      );
+      if (!resolved) return null;
+      const { source: _source, ...ref } = resolved;
+      return ref;
     },
 
     async upsertProgressComment(body, sentinel, knownExisting) {

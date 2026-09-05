@@ -511,16 +511,3 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
     });
   }
 }
-
-export function requireOperationIntentContext(
-  context: OperationIntentContext | undefined,
-  feature: string,
-): OperationIntentContext {
-  if (context == null) {
-    throw new AppError({
-      code: "operation_intent.context_required",
-      message: `Operation intent context is required for ${feature}`,
-    });
-  }
-  return context;
-}

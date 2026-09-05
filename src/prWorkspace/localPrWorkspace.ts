@@ -8,7 +8,6 @@ import {
   realpath,
   rm,
   stat,
-  statfs,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,11 +42,15 @@ import {
   allocateWorkspaceResource,
   READONLY_WORKSPACE_ROOT_PREFIX,
   sweepStaleOwnedWorkspaces,
+  assertGitSha,
+  assertGitRepoPart,
+  ensureWorkspaceFreeSpaceAfterSweep,
+  gitCountObjectsStoreBytes,
+  statIfPresent,
   type WorkspaceResource,
 } from "./workspaceResource.js";
 import {
   buildSymbolIndex,
-  formatSymbolIndexStatusLine,
   isIndexableSourcePath,
   querySymbolIndex,
   symbolIndexStatus,
@@ -60,7 +63,6 @@ const exec = promisify(execFile);
 const BINARY_SAMPLE_BYTES = 8192;
 
 export type { SymbolIndexEntry, SymbolIndexStatus };
-export { formatSymbolIndexStatusLine };
 
 const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";
@@ -163,26 +165,6 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly repositorySizeKb?: number;
   readonly remoteUrlOverride?: string;
 };
-
-function assertSha(value: string, field: string): void {
-  if (!/^[0-9a-f]{40}$/i.test(value)) {
-    throw new AppError({
-      code: "pr_workspace.invalid_sha",
-      message: `${field} must be a 40-character SHA`,
-      context: { field },
-    });
-  }
-}
-
-function assertRepoPart(value: string, field: string): void {
-  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
-    throw new AppError({
-      code: "pr_workspace.unsafe_repo_part",
-      message: `${field} is not git-safe`,
-      context: { field },
-    });
-  }
-}
 
 export function assertWorkspacePath(root: string, requestedPath: string): string {
   const normalized = requestedPath.replace(/\\/g, "/");
@@ -433,52 +415,13 @@ export async function gitGrepWorkspace(
   return { matches, truncated };
 }
 
-async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
-  const fs = await statfs(dir);
-  const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
-  if (freeBytes < BigInt(minBytes)) {
-    throw new AppError({
-      code: "pr_workspace.insufficient_free_space",
-      message: "Insufficient free space for local PR workspace",
-      context: { minBytes },
-    });
-  }
-}
-
-async function ensureWorkspaceMinFreeSpace(dir: string, minBytes: number): Promise<void> {
-  try {
-    await ensureFreeSpace(dir, minBytes);
-  } catch (error) {
-    if (!(error instanceof AppError && error.code === "pr_workspace.insufficient_free_space")) {
-      throw error;
-    }
-    await cleanupStaleLocalPrWorkspaces();
-    await ensureFreeSpace(dir, minBytes);
-  }
-}
-
-function gitObjectStoreBytes(countObjectsOutput: string): number {
-  let sizeKiB = 0;
-  let sizePackKiB = 0;
-  for (const line of countObjectsOutput.split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) continue;
-    const key = line.slice(0, colon).trim();
-    const value = Number(line.slice(colon + 1).trim());
-    if (Number.isNaN(value)) continue;
-    if (key === "size") sizeKiB = value;
-    if (key === "size-pack") sizePackKiB = value;
-  }
-  return (sizeKiB + sizePackKiB) * 1024;
-}
-
 async function enforceMaxFetchBytes(
   git: (args: readonly string[], timeoutMs?: number) => Promise<{ stdout: string }>,
   maxFetchBytes: number,
   timeoutMs: number,
 ): Promise<void> {
   const { stdout: countObjectsOut } = await git(["count-objects", "-v"], timeoutMs);
-  const objectStoreBytes = gitObjectStoreBytes(countObjectsOut);
+  const objectStoreBytes = gitCountObjectsStoreBytes(countObjectsOut);
   if (objectStoreBytes > maxFetchBytes) {
     throw new AppError({
       code: "pr_workspace.fetch_too_large",
@@ -530,11 +473,6 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): st
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
-export {
-  registerLiveLocalPrWorkspace,
-  unregisterLiveLocalPrWorkspace,
-} from "./workspaceResource.js";
-
 async function cleanupStalePiAgentDirs(): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
@@ -549,13 +487,6 @@ async function cleanupStalePiAgentDirs(): Promise<void> {
   }
 }
 
-async function statIfPresent(path: string) {
-  return stat(path).catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
-    throw error;
-  });
-}
-
 export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
   await cleanupStalePiAgentDirs();
   await sweepStaleOwnedWorkspaces();
@@ -565,10 +496,15 @@ export async function prepareLocalPrWorkspace(
   params: PrepareLocalPrWorkspaceParams,
 ): Promise<LocalPrWorkspace> {
   const { owner, repo, headSha, installationToken } = params;
-  assertRepoPart(owner, "owner");
-  assertRepoPart(repo, "repo");
-  assertSha(headSha, "headSha");
-  await ensureWorkspaceMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
+  assertGitRepoPart(owner, "owner");
+  assertGitRepoPart(repo, "repo");
+  assertGitSha(headSha, "headSha");
+  await ensureWorkspaceFreeSpaceAfterSweep(
+    tmpdir(),
+    LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
+    "Insufficient free space for local PR workspace",
+    cleanupStaleLocalPrWorkspaces,
+  );
 
   const resource = await allocateWorkspaceResource({
     prefix: READONLY_WORKSPACE_ROOT_PREFIX,

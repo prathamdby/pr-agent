@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
+import { AgentWorkBoss, AgentWorkBossLive, AgentWorkPool, AgentWorkPoolLive } from "./runtime.js";
 import type { Config } from "../config.js";
 import { errorLogFields } from "../errors/appError.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
@@ -18,15 +19,13 @@ import {
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
-import {
-  executeAckJob,
-  executeAskJob,
-  executeCiRefreshJob,
-  executeDescriptionJob,
-  executeReviewJob,
-  executeTriageJob,
-  executeVerificationJob,
-} from "./executors/index.js";
+import { executeAckJob } from "./executors/ackExecutor.js";
+import { executeAskJob } from "./executors/askExecutor.js";
+import { executeCiRefreshJob } from "./executors/ciRefreshExecutor.js";
+import { executeDescriptionJob } from "./executors/descriptionExecutor.js";
+import { executeReviewJob } from "./executors/reviewExecutor.js";
+import { executeTriageJob } from "./executors/triageExecutor.js";
+import { executeVerificationJob } from "./executors/verificationExecutor.js";
 import { executeCodeIndexBuildJob, type CodeIndexBuildJobData } from "../codeIndex/buildJob.js";
 import {
   type AckJobData,
@@ -306,3 +305,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
         }).pipe(Effect.orDie),
     ).pipe(Effect.zipRight(Effect.never)),
   );
+
+/**
+ * Worker role: full queue consumers for agent work items.
+ * Provide Boss before Pool so finalizers run worker → boss drain → pool.end;
+ * a draining handler can still record its outcome while the Pool is alive.
+ */
+export const agentWorkWorkerLive = (cfg: Config) =>
+  Layer.scopedDiscard(
+    Effect.gen(function* () {
+      const pool = yield* AgentWorkPool;
+      const boss = yield* AgentWorkBoss;
+      yield* Layer.launch(AgentWorkerLive(cfg, pool, boss));
+    }),
+  ).pipe(Layer.provide(AgentWorkBossLive(cfg)), Layer.provide(AgentWorkPoolLive(cfg)));

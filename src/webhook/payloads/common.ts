@@ -23,13 +23,9 @@ export const githubSafeIdSchema = v.pipe(
   v.maxValue(GITHUB_SAFE_ID_MAX),
 );
 
-export const githubLoginSchema = v.pipe(
-  v.string(),
-  v.minLength(1),
-  v.maxLength(GITHUB_LOGIN_MAX_CHARS),
-);
+const githubLoginSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(GITHUB_LOGIN_MAX_CHARS));
 
-export const githubRepoNameSchema = v.pipe(
+const githubRepoNameSchema = v.pipe(
   v.string(),
   v.minLength(1),
   v.maxLength(GITHUB_REPO_NAME_MAX_CHARS),
@@ -54,9 +50,4 @@ export const repositorySchema = v.object({
   owner: v.object({ login: githubLoginSchema }),
   name: githubRepoNameSchema,
   size: v.optional(v.number()),
-});
-
-/** GitHub App webhooks include `installation`; use loose top-level object so extra fields are allowed. */
-export const installationIdPickSchema = v.object({
-  installation: installationSchema,
 });

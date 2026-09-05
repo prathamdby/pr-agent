@@ -18,8 +18,8 @@ import {
   prepareContext7OutboundText,
   redactContext7Response,
 } from "../../security/context7OutboundPolicy.js";
-import { parseToolInput } from "./parseToolInput.js";
 import { capTextOutput } from "./toolOutputBudget.js";
+import { toExecutor } from "./defineWorkspaceTool.js";
 
 const resolveLibraryIdSchema = v.object({
   libraryName: v.pipe(
@@ -85,28 +85,6 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
     parameters: toJsonSchema(t.schema, {
       errorMode: "ignore",
     }),
-  };
-}
-
-function toExecutor(
-  name: string,
-  t: ReviewTool,
-  apiKey: string,
-  maxResponseBytes: number,
-): (args: Record<string, unknown>) => Promise<Context7ToolResponse> {
-  return async (args) => {
-    const parsed = parseToolInput(t.schema, args, {
-      toolName: name,
-      errorTitle: `${name} validation failed:`,
-    });
-    if (!parsed.ok) {
-      throw new AppError({
-        code: "tool.input_validation_failed",
-        message: parsed.error,
-        context: { toolName: name },
-      });
-    }
-    return t.run(parsed.value, apiKey, maxResponseBytes);
   };
 }
 
@@ -237,10 +215,17 @@ export function buildContext7Tools({
   return {
     piTools: [...CONTEXT7_PI_TOOLS],
     executors: Object.fromEntries(
-      CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => [
-        name,
-        toExecutor(name, tool, apiKey, maxResponseBytes),
-      ]),
+      CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => {
+        const execute = toExecutor(name, {
+          description: tool.description,
+          schema: tool.schema,
+          run: (parsed) => tool.run(parsed, apiKey, maxResponseBytes),
+        });
+        return [
+          name,
+          async (args: Record<string, unknown>) => (await execute(args)) as Context7ToolResponse,
+        ];
+      }),
     ),
   };
 }

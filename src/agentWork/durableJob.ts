@@ -274,6 +274,21 @@ async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolea
   return bot.userId === commenterId;
 }
 
+async function recordRescheduledParentCompleted(
+  pool: Pool,
+  itemId: string,
+  type: WorkType,
+  replacementWorkItemId: string,
+): Promise<void> {
+  await clearResumeSnapshotsBestEffort(pool, itemId);
+  logInfo("agent_work_completed", {
+    type,
+    workItemId: itemId,
+    rescheduled: true,
+    replacementWorkItemId,
+  });
+}
+
 async function finishRescheduledParentWorkItem(
   pool: Pool,
   itemId: string,
@@ -282,34 +297,16 @@ async function finishRescheduledParentWorkItem(
   leaseEpoch: number,
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId, leaseEpoch)) {
-    await clearResumeSnapshotsBestEffort(pool, itemId);
-    logInfo("agent_work_completed", {
-      type,
-      workItemId: itemId,
-      rescheduled: true,
-      replacementWorkItemId,
-    });
+    await recordRescheduledParentCompleted(pool, itemId, type, replacementWorkItemId);
     return;
   }
   const refreshed = await getWorkItem(pool, itemId);
   if (refreshed?.status === "completed") {
-    await clearResumeSnapshotsBestEffort(pool, itemId);
-    logInfo("agent_work_completed", {
-      type,
-      workItemId: itemId,
-      rescheduled: true,
-      replacementWorkItemId,
-    });
+    await recordRescheduledParentCompleted(pool, itemId, type, replacementWorkItemId);
     return;
   }
   if (await forceMarkRescheduledParentCompleted(pool, itemId, leaseEpoch)) {
-    await clearResumeSnapshotsBestEffort(pool, itemId);
-    logInfo("agent_work_completed", {
-      type,
-      workItemId: itemId,
-      rescheduled: true,
-      replacementWorkItemId,
-    });
+    await recordRescheduledParentCompleted(pool, itemId, type, replacementWorkItemId);
     return;
   }
   throw new AppError({
