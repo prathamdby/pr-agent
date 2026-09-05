@@ -13,7 +13,6 @@
     "@tanstack/react-router": "1.170.18",
     "@tanstack/react-start": "1.168.31",
     "nitro": "3.0.260610-beta",
-    "posthog-js": "^1.427.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vite": "^8.1.5"
