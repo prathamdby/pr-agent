@@ -50,6 +50,9 @@ describe("review prompt shared contract blocks", () => {
       "Split a compound candidate into atomic findings and keep every one that meets this contract",
     );
     expect(causalPublicationContract).toContain("Do not report an ambiguous bundle");
+    expect(causalPublicationContract).toContain("Tool-less inaction is not completion");
+    expect(causalPublicationContract).not.toContain("successful result");
+    expect(causalPublicationContract).not.toContain("Silence is a successful result");
     expect(causalPublicationContract.replaceAll("Causal-publication contract", "")).not.toMatch(
       /\bpublish/i,
     );
@@ -60,7 +63,12 @@ describe("review prompt shared contract blocks", () => {
       expect(prompt, `${name} should require one findings report`).toContain(
         "submit_findings_report` exactly once",
       );
+      expect(prompt, `${name} must not treat silence as success`).not.toContain(
+        "Silence is a successful result",
+      );
     }
+    expect(specialistFindingsReportContract).toContain("Tool-less silence is not success");
+    expect(specialistFindingsReportContract).toContain('status: "no_findings"');
   });
   it("steers findings toward changed-path anchors for coverage gaps", () => {
     expect(pathAndSizeGuidance).toContain("changed files");
@@ -138,6 +146,10 @@ describe("specialist-specific obligations", () => {
       expect(at).toBeGreaterThan(cursor);
       cursor = at;
     }
+
+    expect(prompt).toContain(
+      "8. Submit one complete specialist report with every qualifying finding, or an explicit successful no-findings report, by calling submit_findings_report.",
+    );
   });
 
   it("pins the reachable-trigger and catalogue-match gates", () => {
