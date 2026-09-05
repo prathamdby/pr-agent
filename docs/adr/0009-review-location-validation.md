@@ -1,6 +1,6 @@
 # ADR 0009 — Cached diff validation and best-effort inline publish
 
-> **Changelog:** §6 revised 2026-05-25 — narrowed **Public-output sanitizer** after false-positive whole-field redaction on normal review prose (see PR #38).
+> **Changelog:** §6 revised 2026-05-25, narrowed **Public-output sanitizer** after false-positive whole-field redaction on normal review prose (see PR #38). 2026-09-05, §1 names the workspace ingest path and §5 names `MAX_THREAD_PUBLISH_CALLS` after unused `MAX_REVIEW_PUBLISH_CALLS` was removed.
 
 ## Status
 
@@ -12,7 +12,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 ## Decision
 
-1. **Cached diff index** — Capture `listPullRequestFiles` output during the review run and derive `commentableRightLineRanges` per file. Do not fetch a fresh diff at publish time.
+1. **Cached diff index** — Load GitHub pull-request file listing into the cached diff index during workspace setup (`ingestListPullRequestFilesResult` in `src/review/placement/reviewDiffIndex.ts`, fed by `src/github/listPullRequestFiles.ts`). Derive `commentableRightLineRanges` per file. Do not fetch a fresh diff at publish time.
 
 2. **Server-side placement** — Validate each finding against cached ranges before calling GitHub. Unresolvable findings become **summary-only findings**; the model does not choose placement.
 
@@ -20,7 +20,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 4. **Deterministic failure notice** — When publish is exhausted, upsert a neutral review failure notice without model-authored fallback prose, attempt counts, or internal API details.
 
-5. **Publish execution budget** — Cap valid `submitReview` publish executions with `MAX_REVIEW_PUBLISH_CALLS` (default 2), separate from model recovery phases.
+5. **Publish execution budget** — Cap incremental inline GitHub review batches with `MAX_THREAD_PUBLISH_CALLS` (default 8), separate from model recovery phases. The older `MAX_REVIEW_PUBLISH_CALLS` cap on `submitReview` was unused after orchestrated publish landed and is gone.
 
 6. **Public-output sanitizer** — At the pre-publish boundary (`prepareReviewPayloadForPublish`), replace credential- and assignment-shaped substrings in PR-visible review text with `[redacted]` (shared `BOT_SECRET_PATTERNS` via `redactOutboundSecrets`). Do not whole-field redact code-review vocabulary (`submitReview`, `GitHub API`, etc.). Internal failure phrasing on overview fields (`prCharacter`, `securityConcerns`, `followUps`) is rejected by **Review payload** validation (repair loop), not silently redacted. Finding fields are not checked for internal phrasing.
 
