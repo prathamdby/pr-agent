@@ -4,6 +4,10 @@
 
 Accepted.
 
+Amended: the live summary tool is `publish_summary` in
+[`publishSummaryTool.ts`](../../src/review/orchestrator/publishSummaryTool.ts).
+`submitReview` and `submitReviewTool.ts` are gone.
+
 ## Context
 
 Models emit structurally invalid tool arguments in a handful of predictable ways: a JSON array serialized as a string, a single object where the schema wants an array, a bare string where an array of strings is wanted, or `null` for an optional field. Before this change every parse site handled failures on its own: workspace tools threw a raw `ValiError` dump at the model, structured-output tools each formatted their own issue list, and `submitReview` ran its domain coercions unconditionally before every parse — mutating payloads that were already valid and logging `review_payload_coerced` for submissions the coercion never touched.
@@ -23,7 +27,7 @@ The four failure shapes above are mechanical and deterministic. Fixing them per 
 - Helper: [`src/agent/tools/parseToolInput.ts`](../../src/agent/tools/parseToolInput.ts)
 - Executor seams: [`defineWorkspaceTool.ts`](../../src/agent/tools/defineWorkspaceTool.ts), [`context7Tools.ts`](../../src/agent/tools/context7Tools.ts)
 - Metrics variant: [`reviewRunMetrics.ts`](../../src/review/run/reviewRunMetrics.ts) (`tool_input_repaired`)
-- Validate-then-repair reorder: [`submitReviewTool.ts`](../../src/review/publish/submitReviewTool.ts); deleted domain rule in [`reviewSchema.ts`](../../src/review/reviewSchema.ts)
+- Summary publish parse: [`publishSummaryTool.ts`](../../src/review/orchestrator/publishSummaryTool.ts). `coerceReviewPayloadInput` remains in [`reviewSchema.ts`](../../src/review/reviewSchema.ts) but has no production caller on the `publish_summary` path.
 
 ## Consequences
 

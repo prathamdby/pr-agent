@@ -75,11 +75,11 @@ docker compose up -d
 
 That starts three services from [docker-compose.yml](docker-compose.yml):
 
-| Service           | Role          | What it does                                                                                   |
-| ----------------- | ------------- | ---------------------------------------------------------------------------------------------- |
-| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs                                               |
-| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                   |
-| `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-refresh, and retention queues |
+| Service           | Role          | What it does                                                                                                     |
+| ----------------- | ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs                                                                 |
+| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                                     |
+| `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-refresh, retention, and code-index-build queues |
 
 Migrations run automatically when each process opens its Postgres pool. You do not run them by hand.
 

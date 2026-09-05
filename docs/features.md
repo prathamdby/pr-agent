@@ -34,6 +34,5 @@ Notes:
   `DESCRIPTION_GENERATE_TITLE`, and the old tuning knobs) are ignored; use
   `FEATURE_*` only. There are no aliases.
 
-Defaults reproduce the pre-revision out-of-the-box behavior exactly.
 CI enforces that every `FEATURE_*` key is documented here
 ([`test/settingsInventory.test.ts`](../test/settingsInventory.test.ts)).
