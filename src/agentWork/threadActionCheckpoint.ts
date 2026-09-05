@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { TRIAGE_PUBLISH_LENS, VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
+import { getCompletedPublishStepDetail } from "./publishRecordRepository.js";
 import { recordPublishStep } from "./repository.js";
 
 export type ThreadActionPublishLens = typeof TRIAGE_PUBLISH_LENS | typeof VERIFICATION_PUBLISH_LENS;
@@ -22,18 +23,14 @@ export async function loadActedThreadIds(
     readonly step: ThreadActionPublishStep;
   },
 ): Promise<number[]> {
-  const row = await pool.query<{ detail: unknown }>(
-    `SELECT detail
-       FROM publish_records
-      WHERE work_item_id = $1
-        AND resource_key = $2
-        AND review_lens = $3
-        AND step = $4
-        AND status = 'completed'
-      LIMIT 1`,
-    [params.workItemId, params.resourceKey, params.reviewLens, params.step],
+  const detail = await getCompletedPublishStepDetail(
+    pool,
+    params.workItemId,
+    params.resourceKey,
+    params.reviewLens,
+    params.step,
   );
-  return actedThreadIdsFromDetail(row.rows[0]?.detail);
+  return actedThreadIdsFromDetail(detail);
 }
 
 export async function recordActedThreadIds(

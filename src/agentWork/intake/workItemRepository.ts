@@ -125,6 +125,48 @@ function insertParams(params: AgentWorkInsert): unknown[] {
 }
 
 /** Insert with optional uniqueness conflict; winner SELECT is a separate query for READ COMMITTED races. */
+async function insertOnSlashActiveConflict(
+  client: PoolClient,
+  params: AgentWorkInsert,
+  values: unknown[],
+  conflictTarget: string,
+  indexPredicate: string,
+): Promise<ConflictAwareInsertResult> {
+  const inserted = await client.query<{ id: string }>(
+    `INSERT INTO agent_work_items (
+		   ${AGENT_WORK_INSERT_COLUMNS}
+		 )
+		 VALUES (${AGENT_WORK_INSERT_VALUES})
+		 ON CONFLICT ${conflictTarget}
+		 DO NOTHING
+		 RETURNING id`,
+    values,
+  );
+  const createdId = inserted.rows[0]?.id;
+  if (createdId) {
+    return { created: true, id: createdId };
+  }
+  const existing = await client.query<{ id: string }>(
+    `SELECT id
+			   FROM agent_work_items
+			  WHERE resource_key = $1
+			    AND type = $2
+			    AND review_lens IS NOT DISTINCT FROM $3
+			    AND ${indexPredicate}
+			  LIMIT 1`,
+    [params.resourceKey, params.type, params.reviewLens],
+  );
+  const existingId = existing.rows[0]?.id;
+  if (!existingId) {
+    throw new AppError({
+      code: "agent_work.slash_active_conflict_no_winner",
+      message: `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
+      context: { resourceKey: params.resourceKey, type: params.type },
+    });
+  }
+  return { created: false, id: existingId };
+}
+
 async function insertAgentWorkItem(
   client: PoolClient,
   params: AgentWorkInsert,
@@ -141,76 +183,22 @@ async function insertAgentWorkItem(
       );
       return { created: true, id: params.id };
     }
-    case "slash_active": {
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO agent_work_items (
-		   ${AGENT_WORK_INSERT_COLUMNS}
-		 )
-		 VALUES (${AGENT_WORK_INSERT_VALUES})
-		 ON CONFLICT ${SLASH_ACTIVE_CONFLICT_TARGET}
-		 DO NOTHING
-		 RETURNING id`,
+    case "slash_active":
+      return insertOnSlashActiveConflict(
+        client,
+        params,
         values,
+        SLASH_ACTIVE_CONFLICT_TARGET,
+        SLASH_ACTIVE_INDEX_PREDICATE,
       );
-      const createdId = inserted.rows[0]?.id;
-      if (createdId) {
-        return { created: true, id: createdId };
-      }
-      const existing = await client.query<{ id: string }>(
-        `SELECT id
-			   FROM agent_work_items
-			  WHERE resource_key = $1
-			    AND type = $2
-			    AND review_lens IS NOT DISTINCT FROM $3
-			    AND ${SLASH_ACTIVE_INDEX_PREDICATE}
-			  LIMIT 1`,
-        [params.resourceKey, params.type, params.reviewLens],
-      );
-      const existingId = existing.rows[0]?.id;
-      if (!existingId) {
-        throw new AppError({
-          code: "agent_work.slash_active_conflict_no_winner",
-          message: `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
-          context: { resourceKey: params.resourceKey, type: params.type },
-        });
-      }
-      return { created: false, id: existingId };
-    }
-    case "slash_active_verification": {
-      const inserted = await client.query<{ id: string }>(
-        `INSERT INTO agent_work_items (
-		   ${AGENT_WORK_INSERT_COLUMNS}
-		 )
-		 VALUES (${AGENT_WORK_INSERT_VALUES})
-		 ON CONFLICT ${VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET}
-		 DO NOTHING
-		 RETURNING id`,
+    case "slash_active_verification":
+      return insertOnSlashActiveConflict(
+        client,
+        params,
         values,
+        VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET,
+        VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE,
       );
-      const createdId = inserted.rows[0]?.id;
-      if (createdId) {
-        return { created: true, id: createdId };
-      }
-      const existing = await client.query<{ id: string }>(
-        `SELECT id
-			   FROM agent_work_items
-			  WHERE resource_key = $1
-			    AND type = $2
-			    AND review_lens IS NOT DISTINCT FROM $3
-			    AND ${VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE}
-			  LIMIT 1`,
-        [params.resourceKey, params.type, params.reviewLens],
-      );
-      const existingId = existing.rows[0]?.id;
-      if (!existingId) {
-        throw new AppError({
-          code: "agent_work.slash_active_conflict_no_winner",
-          message: `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
-          context: { resourceKey: params.resourceKey, type: params.type },
-        });
-      }
-      return { created: false, id: existingId };
-    }
     case "ask_webhook": {
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO agent_work_items (

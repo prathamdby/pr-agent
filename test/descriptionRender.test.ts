@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   prBodyHasDescriptionReviewMap,
   renderDescriptionAgentBlock,
-  sanitizeMermaidDiagram,
 } from "../src/agent/description/descriptionRender.js";
+import { sanitizeMermaidDiagram } from "../src/agent/description/mermaidDiagram.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../src/settings/index.js";
 
 const RENDER_CTX = { owner: "acme", repo: "widgets", prNumber: 42 };

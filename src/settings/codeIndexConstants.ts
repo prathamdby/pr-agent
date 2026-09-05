@@ -1,6 +1,6 @@
 /** Optional Postgres FTS code index (navigation hints only). */
 export const CODE_INDEX_MODES = ["off", "fts"] as const;
-export type CodeIndexMode = (typeof CODE_INDEX_MODES)[number];
+type CodeIndexMode = (typeof CODE_INDEX_MODES)[number];
 
 export const DEFAULT_CODE_INDEX_MODE: CodeIndexMode = "off";
 export const DEFAULT_CODE_INDEX_WAIT_MS = 3_000;

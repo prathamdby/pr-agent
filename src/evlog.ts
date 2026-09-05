@@ -34,7 +34,7 @@ const { storage, useLogger: useLoggerFromStorage } = createLoggerStorage(
   "evlog: call initEvlog() at boot and run handlers inside runWithOperationLogger()",
 );
 
-export function isLevelEnabled(level: WideEventLevel): boolean {
+function isLevelEnabled(level: WideEventLevel): boolean {
   return LEVEL_RANK[level] >= LEVEL_RANK[globalMinLevel];
 }
 

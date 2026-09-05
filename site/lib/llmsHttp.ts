@@ -3,7 +3,6 @@ import {
   parseAgentQuery,
   renderAnswerJson,
   renderAnswerText,
-  renderLlmsTxt,
 } from "./llmsKnowledge.js";
 
 const TEXT_HEADERS = {
@@ -17,10 +16,6 @@ const JSON_HEADERS = {
   "Cache-Control": "public, max-age=300",
   "X-Content-Type-Options": "nosniff",
 } as const;
-
-export function llmsTxtResponse(): Response {
-  return new Response(renderLlmsTxt(), { headers: TEXT_HEADERS });
-}
 
 export function llmsQueryResponse(request: Request, format: "text" | "json"): Response {
   const url = new URL(request.url);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { llmsQueryResponse, llmsTxtResponse } from "../site/lib/llmsHttp.js";
+import { llmsQueryResponse } from "../site/lib/llmsHttp.js";
+import { renderLlmsTxt } from "../site/lib/llmsKnowledge.js";
 
 function header(response: Response, name: string): string | null {
   return response.headers.get(name);
@@ -45,13 +46,9 @@ describe("llmsQueryResponse", () => {
   });
 });
 
-describe("llmsTxtResponse", () => {
-  it("serves the full profile as nosniff plain text", async () => {
-    const response = llmsTxtResponse();
-    expect(response.status).toBe(200);
-    expect(header(response, "content-type")).toBe("text/plain; charset=utf-8");
-    expect(header(response, "x-content-type-options")).toBe("nosniff");
-    const body = await response.text();
+describe("renderLlmsTxt", () => {
+  it("renders the full profile", () => {
+    const body = renderLlmsTxt();
     expect(body.startsWith("# PR Agent")).toBe(true);
     expect(body).toContain("FEATURE_REVIEW");
   });

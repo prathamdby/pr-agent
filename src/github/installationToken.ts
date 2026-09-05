@@ -1,9 +1,7 @@
 import type { Config } from "../config.js";
 import { mintInstallationAuth, type InstallationToken } from "./appAuth.js";
-import {
-  INSTALLATION_TOKEN_FALLBACK_TTL_MS,
-  TOKEN_FRESHNESS_BUFFER_MS,
-} from "../settings/index.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.js";
+import { isInstallationTokenNearExpiry } from "./installationTokenExpiry.js";
 
 export type { InstallationToken };
 
@@ -22,7 +20,7 @@ export async function mintInstallationToken(
   const cached = installationTokenCache.get(installationId);
   if (cached) {
     const token = await cached;
-    if (token.expiresAtTs - Date.now() > TOKEN_FRESHNESS_BUFFER_MS) return token;
+    if (!isInstallationTokenNearExpiry(token.expiresAtTs)) return token;
   }
 
   const pending = (async () => {

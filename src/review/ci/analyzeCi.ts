@@ -324,7 +324,7 @@ export function summarizeCiSnapshot(params: {
   const permissionNote = params.permissionNote;
   const incomplete = params.checkRunsComplete === false;
   if (incomplete && (state === "none" || state === "passing")) {
-    return incompleteUnavailableSummary();
+    return unavailableSummary(REVIEW_CI_SUMMARY_INCOMPLETE);
   }
   switch (state) {
     case "none":
@@ -372,18 +372,10 @@ export function summarizeCiSnapshot(params: {
   }
 }
 
-function unavailableSummary(): CiSummary {
+function unavailableSummary(headline: string): CiSummary {
   return {
     status: "unavailable",
-    headline: REVIEW_CI_SUMMARY_UNAVAILABLE,
-    failures: [],
-  };
-}
-
-function incompleteUnavailableSummary(): CiSummary {
-  return {
-    status: "unavailable",
-    headline: REVIEW_CI_SUMMARY_INCOMPLETE,
+    headline,
     failures: [],
   };
 }
@@ -442,12 +434,8 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
     const loaded = await waitForTerminalCi(options);
     if (!loaded.ok) {
       return loaded.reason === "checks_permission"
-        ? {
-            status: "unavailable",
-            headline: REVIEW_CI_SUMMARY_GRANT_CHECKS,
-            failures: [],
-          }
-        : unavailableSummary();
+        ? unavailableSummary(REVIEW_CI_SUMMARY_GRANT_CHECKS)
+        : unavailableSummary(REVIEW_CI_SUMMARY_UNAVAILABLE);
     }
 
     const snapshot = {
@@ -497,6 +485,6 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
       repo: options.prSurface.repo,
       message: error instanceof Error ? error.message : String(error),
     });
-    return unavailableSummary();
+    return unavailableSummary(REVIEW_CI_SUMMARY_UNAVAILABLE);
   }
 }

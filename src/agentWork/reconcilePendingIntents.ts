@@ -1,7 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { logInfo } from "../evlog.js";
 import { queryOne } from "../db/postgres.js";
-import { isRecord } from "../util/typeGuards.js";
 import {
   listPendingOperationIntents,
   reconcileOperationIntent,
@@ -135,18 +134,4 @@ export async function reconcilePendingIntents(
   }
 
   return { reconciled, stillPending };
-}
-
-export function intentDetailMatchesPublishRecord(
-  intentDetail: Record<string, unknown>,
-  publishDetail: unknown,
-): boolean {
-  if (!isRecord(publishDetail)) return false;
-  const batchId = intentDetail.batchId;
-  if (typeof batchId === "string") {
-    const batches = publishDetail.batches;
-    if (!Array.isArray(batches)) return false;
-    return batches.some((batch) => isRecord(batch) && batch.batchId === batchId);
-  }
-  return true;
 }

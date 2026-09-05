@@ -8,10 +8,9 @@ import type { RequestLogger } from "../evlog.js";
 import {
   applyAutomatedPullRequestIntake,
   applyCiRefreshIntake,
-  applySlashCommandIntake,
   recordIgnoredWebhook,
-  type SlashCommandInput,
 } from "./intake/applier.js";
+import { applySlashCommandIntake, type SlashCommandInput } from "./intake/slashIntake.js";
 import { flushDeferredEvents } from "./intake/deferredEvents.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 import { resolveAskQuotaConfig, type AskQuotaConfig } from "./askQuota.js";

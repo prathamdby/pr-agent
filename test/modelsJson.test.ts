@@ -2,11 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  assertBuiltinPiProvider,
-  assertPiModelSelection,
-  resolveModelsJsonPath,
-} from "../src/settings/modelsJson.js";
+import { assertPiModelSelection, resolveModelsJsonPath } from "../src/settings/modelsJson.js";
 import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 const BASE_ENV = {
@@ -63,8 +59,14 @@ describe("modelsJson helpers", () => {
     ).toThrow(/MODELS_JSON_PATH/);
   });
 
-  it("assertBuiltinPiProvider rejects unknown slugs", () => {
-    expect(() => assertBuiltinPiProvider("not-a-real-provider")).toThrow(/unknown/);
+  it("assertPiModelSelection rejects unknown slugs without a catalog", async () => {
+    await expect(
+      assertPiModelSelection({
+        modelsJsonPath: null,
+        piProvider: "not-a-real-provider",
+        piModel: "whatever",
+      }),
+    ).rejects.toThrow(/unknown/);
   });
 
   it("assertPiModelSelection accepts a custom provider from models.json", async () => {

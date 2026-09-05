@@ -68,7 +68,7 @@ async function readIndexableWorkspaceFile(
   return buf.toString("utf8");
 }
 
-export async function buildCodeIndexFromWorkspace(
+async function buildCodeIndexFromWorkspace(
   pool: Pool,
   scope: CodeIndexRepoScope,
   workspace: LocalPrWorkspace,
@@ -119,10 +119,7 @@ export async function buildCodeIndexFromWorkspace(
   }
 }
 
-export async function enqueueCodeIndexBuildJob(
-  boss: PgBoss,
-  data: CodeIndexBuildJobData,
-): Promise<void> {
+async function enqueueCodeIndexBuildJob(boss: PgBoss, data: CodeIndexBuildJobData): Promise<void> {
   const scope: CodeIndexRepoScope = {
     installationId: data.installationId,
     owner: data.owner,

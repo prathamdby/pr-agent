@@ -38,7 +38,6 @@ vi.mock("../../src/agentWork/operationIntentRepository.js", () => ({
 // suite unmocks this module and supplies DB/publish fixtures.
 vi.mock("../../src/agentWork/reconcilePendingIntents.js", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  intentDetailMatchesPublishRecord: vi.fn(() => true),
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
 

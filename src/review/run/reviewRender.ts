@@ -49,13 +49,6 @@ import {
   shouldRenderCiSummaryRow,
 } from "../ci/renderCiSummary.js";
 
-export {
-  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-  REPEAT_NO_BUGS_PREFIX,
-  REVIEW_POINTER_BODY,
-  REVIEW_POINTER_NOTE_LEAD,
-} from "../../settings/index.js";
-
 export type RenderContext = ReviewPublishContext;
 
 const CODE_FENCE_RE = /```/g;

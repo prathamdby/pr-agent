@@ -31,8 +31,7 @@ describe("web import graph", () => {
     expect(graph.size).toBeLessThan(120);
     expect(graph.has("src/agentWork/runtime.ts")).toBe(true);
     expect(graph.has("src/agentWork/worker.ts")).toBe(false);
-    expect(graph.has("src/agentWork/workerRuntime.ts")).toBe(false);
-    expect(graph.has("src/agentWork/executors/index.ts")).toBe(false);
+    expect(graph.has("src/agentWork/executors/reviewExecutor.ts")).toBe(false);
     expect(graph.has("src/review/orchestrator/orchestratorRun.ts")).toBe(false);
     expect(graph.has("src/agent/runtime/piSession.ts")).toBe(false);
     expect(graph.has("src/settings/modelsJson.ts")).toBe(false);

@@ -9,7 +9,7 @@ vi.mock("../src/db/postgres.js", () => ({
 vi.unmock("../src/agentWork/reconcilePendingIntents.js");
 
 const { queryOne } = await import("../src/db/postgres.js");
-const { reconcilePendingIntents, intentDetailMatchesPublishRecord, findCompletedPublishRecordId } =
+const { reconcilePendingIntents, findCompletedPublishRecordId } =
   await import("../src/agentWork/reconcilePendingIntents.js");
 
 const pool = {} as Pool;
@@ -208,31 +208,5 @@ describe("reconcilePendingIntents", () => {
       status: "reconciled",
       publishRecordId: "pub-new",
     });
-  });
-});
-
-describe("intentDetailMatchesPublishRecord", () => {
-  it("returns false for non-object publish detail", () => {
-    expect(intentDetailMatchesPublishRecord({ batchId: "b1" }, null)).toBe(false);
-    expect(intentDetailMatchesPublishRecord({ batchId: "b1" }, "x")).toBe(false);
-  });
-
-  it("requires a matching batchId entry when intent carries batchId", () => {
-    expect(
-      intentDetailMatchesPublishRecord(
-        { batchId: "b1" },
-        { batches: [{ batchId: "other" }, { batchId: "b1" }] },
-      ),
-    ).toBe(true);
-    expect(
-      intentDetailMatchesPublishRecord({ batchId: "b1" }, { batches: [{ batchId: "other" }] }),
-    ).toBe(false);
-    expect(intentDetailMatchesPublishRecord({ batchId: "b1" }, { batches: "not-array" })).toBe(
-      false,
-    );
-  });
-
-  it("returns true when intent has no batchId constraint", () => {
-    expect(intentDetailMatchesPublishRecord({ step: "review_summary" }, {})).toBe(true);
   });
 });

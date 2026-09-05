@@ -17,10 +17,8 @@ import type { ReviewPayload, ReviewPublishContext } from "../../src/review/revie
 import type { RepoPolicyResult } from "../../src/review/repoPolicy.js";
 import type { BoundPolicyJudge } from "../../src/review/publish/boundPolicyJudge.js";
 import { publishFindingBatch } from "../../src/review/publish/publishFindingBatch.js";
-import {
-  publishReviewSummaryOnly,
-  type RecordPublishStepWithCoordination,
-} from "../../src/review/publish/publishSummaryOnly.js";
+import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
+import type { RecordPublishStepWithCoordination } from "../../src/review/publish/summaryCommentUpsert.js";
 import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
 import type { EvidenceLedger } from "../../src/review/findings/evidenceLedger.js";
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";

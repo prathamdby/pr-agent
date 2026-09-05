@@ -6,7 +6,6 @@ import { vi } from "vitest";
  */
 vi.mock("../../src/agentWork/reconcilePendingIntents.js", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
-  intentDetailMatchesPublishRecord: vi.fn(() => true),
 }));
 
 vi.mock("../../src/agentWork/withOperationIntent.js", async (importOriginal) => {

@@ -1,6 +1,6 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { formatHumanReplies } from "../prompts/promptBlocks.js";
+import { formatFindingThreadInventoryLines } from "../prompts/promptBlocks.js";
 
 export function buildTriageUserContent(params: {
   readonly owner: string;
@@ -23,16 +23,7 @@ export function buildTriageUserContent(params: {
   ];
 
   params.threads.forEach((thread, index) => {
-    lines.push(
-      "",
-      `${index + 1}. threadRootCommentId=${thread.rootCommentId}`,
-      `  Lens: ${thread.lens}`,
-      `  Severity: ${thread.severity ?? "unknown"}`,
-      `  Location: ${thread.path}:L${thread.line}`,
-      `  Finding: ${thread.titleSnippet}`,
-      `  Thread: ${thread.threadUrl}`,
-      ...formatHumanReplies(thread),
-    );
+    lines.push(...formatFindingThreadInventoryLines(thread, index));
   });
 
   lines.push("", "Use the writable workspace tools, then call submitTriage once.");

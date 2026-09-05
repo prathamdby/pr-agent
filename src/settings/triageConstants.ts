@@ -15,10 +15,8 @@ export const TRIAGE_BULK_PARTIAL_NOTICE =
   "Partial triage: some findings applied and others did not.";
 export const TRIAGE_CLOSED_PR_NOTICE =
   "Triage was cancelled because the pull request is closed or merged; no fixes were pushed.";
-export const TRIAGE_CANCELLED_MERGED_NOTICE =
-  "**Triage cancelled**: PR merged. No fixes were pushed.";
-export const TRIAGE_CANCELLED_CLOSED_NOTICE =
-  "**Triage cancelled**: PR closed. No fixes were pushed.";
+const TRIAGE_CANCELLED_MERGED_NOTICE = "**Triage cancelled**: PR merged. No fixes were pushed.";
+const TRIAGE_CANCELLED_CLOSED_NOTICE = "**Triage cancelled**: PR closed. No fixes were pushed.";
 
 export function triageCancelledNotice(attribution: ReviewCancelAttribution): string {
   switch (attribution.kind) {

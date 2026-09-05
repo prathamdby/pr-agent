@@ -6,7 +6,7 @@ import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
-import type { RecordPublishStepWithCoordination } from "../publish/publishSummaryOnly.js";
+import type { RecordPublishStepWithCoordination } from "../publish/summaryCommentUpsert.js";
 import type { FeatureSessionDurability } from "../../agent/runtime/sessionDurability.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 

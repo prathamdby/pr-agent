@@ -18,11 +18,6 @@ const disabledState: AnalyticsState = {
 
 let state: AnalyticsState = disabledState;
 
-async function constructPostHogSink(projectToken: string, host: string): Promise<AnalyticsSink> {
-  const { createPostHogSink } = await import("./posthogSink.js");
-  return createPostHogSink({ projectToken, host });
-}
-
 export async function initAnalytics(opts: {
   readonly projectToken: string;
   readonly host: string;
@@ -34,7 +29,8 @@ export async function initAnalytics(opts: {
   }
 
   try {
-    const nextSink = await constructPostHogSink(projectToken, opts.host.trim());
+    const { createPostHogSink } = await import("./posthogSink.js");
+    const nextSink = createPostHogSink({ projectToken, host: opts.host.trim() });
     state = { sink: nextSink, enabled: true };
   } catch (error) {
     // Failed reinitialization restores no-op + enabled false (audit policy).
