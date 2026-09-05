@@ -727,8 +727,9 @@ describe("ask admission quotas", () => {
     });
 
     const reservation = client.reservations.get(workItemId);
-    const windowStartedAt = client.buckets.get("installation:installation:9")
-      ?.provider_window_started_at;
+    const windowStartedAt = client.buckets.get(
+      "installation:installation:9",
+    )?.provider_window_started_at;
     expect(reservation).toBeDefined();
     if (reservation) {
       reservation.released_at = new Date();

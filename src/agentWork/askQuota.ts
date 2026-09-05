@@ -572,11 +572,7 @@ export async function recordAskProviderUsage(
                   provider_tokens_used = GREATEST(0, provider_tokens_used + $3),
                   updated_at = clock_timestamp()
             WHERE scope = 'installation' AND scope_key = $1`,
-          [
-            reservation.installation_scope_key,
-            application.reservedRelease,
-            application.usedDelta,
-          ],
+          [reservation.installation_scope_key, application.reservedRelease, application.usedDelta],
         );
         return;
       }
