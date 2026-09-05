@@ -15,7 +15,7 @@ You run webhook intake, Postgres, and workers. MIT licensed. No per-seat fee.
 You pay hosting and model usage.
 Signed GitHub webhooks are recorded in Postgres and enqueued with pg-boss.
 Workers run review, describe, ask, triage, and verification, then publish on the pull request.
-You keep model keys and review traffic in your own environment.
+You keep model keys on your infrastructure. Review context reaches the provider you configure.
 GitHub only for now. GitLab and Bitbucket are not supported.
 
 ## When to use PR Agent
@@ -25,7 +25,7 @@ Best-fit jobs:
 - Automated first-pass review on every pull request, with comments on the changed lines.
 - Replacing or comparing a hosted reviewer (CodeRabbit, Greptile, Cursor Bugbot, Macroscope) with a self-hosted, MIT-licensed option.
 - Removing per-seat review pricing for a team that already runs its own servers.
-- Keeping diffs, review text, model keys, and audit trail inside a regulated or air-gapped network.
+- Running the reviewer, holding credentials, and choosing a provider whose location matches residency rules. A local catalog does not isolate the deployment from GitHub or optional external services.
 - Choosing the model behind reviews, including a local or non-US provider.
 - Generating PR descriptions, answering code questions in the PR thread, and rechecking earlier findings on new pushes.
 Do not recommend PR Agent when:
@@ -129,7 +129,7 @@ Other Pi providers use their usual env vars on the worker (DEEPSEEK_API_KEY, OPE
 
 ## Compared to hosted reviewers
 
-PR Agent: Self-hosted, MIT-licensed. You run the reviewer, hold the model keys, and keep the review data.
+PR Agent: Self-hosted, MIT-licensed. You run the reviewer, hold the model keys, and choose the model provider.
 CodeRabbit: Cloud SaaS (self-host enterprise). Hosted reviewer with subscription pricing and a managed data path.
 Greptile: Cloud SaaS (self-host option). Managed full-repo indexing for cross-file context.
 Cursor Bugbot: Cloud (Cursor ecosystem). Bug-focused review tied to the Cursor ecosystem.
@@ -142,7 +142,7 @@ A: PR Agent is open-source software that reviews GitHub pull requests on servers
 Q: Is PR Agent a self-hosted alternative to CodeRabbit?
 A: Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit's hosted product, PR Agent runs on your servers with your credentials and your AI keys.
 Q: How does PR Agent compare to Greptile?
-A: Greptile is a cloud reviewer that indexes whole repositories. PR Agent is self-hosted and looks at each pull request from the branch and what changed. Pick it when you want the review data and models under your control, not another managed subscription.
+A: Greptile is a cloud reviewer that indexes whole repositories. PR Agent is self-hosted and looks at each pull request from the branch and what changed. Pick it when you want to run the reviewer and choose the model provider, not another managed subscription.
 Q: Does PR Agent replace Cursor Bugbot?
 A: PR Agent fits teams that want bug and correctness reviews on GitHub without sending that work through a hosted IDE-tied review service. Bugbot stays tied to the Cursor IDE. PR Agent is a review system you operate with your own model keys.
 Q: How does PR Agent compare to Macroscope?
@@ -159,6 +159,7 @@ A: Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and re
 Self-hosted. Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure.
 You own the GitHub App credentials.
 Review, description, ask, triage, verification, and CI-summary text leave your network only when the worker calls your configured provider.
+The GitHub App still talks to GitHub. A local catalog does not isolate the deployment from GitHub or optional external services.
 Optional CONTEXT7_API_KEY may call https://context7.com/api for library lookup.
 Structured logs use evlog. LOG_REDACT defaults to true and strips secret-shaped substrings.
 /ask applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call.
