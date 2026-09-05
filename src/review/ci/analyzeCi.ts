@@ -5,6 +5,7 @@ import {
   REVIEW_CI_SUMMARY_FETCH_CONCURRENCY,
   REVIEW_CI_SUMMARY_GRANT_ACTIONS,
   REVIEW_CI_SUMMARY_GRANT_CHECKS,
+  REVIEW_CI_SUMMARY_INCOMPLETE,
   REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
   REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
   REVIEW_CI_SUMMARY_MAX_FAILURES,
@@ -222,6 +223,7 @@ type ExternalCiLoad =
       readonly ok: true;
       readonly checks: CiCheckRunSnapshot[];
       readonly statuses: CiLegacyStatus[];
+      readonly checkRunsComplete?: boolean;
     }
   | { readonly ok: false; readonly reason: "checks_permission" | "fetch_error" };
 
@@ -241,11 +243,14 @@ function isLegacyFailing(status: CiLegacyStatus): boolean {
 
 async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   try {
-    const { checkRuns, legacyStatuses } = await options.prSurface.getCiStatus(options.headSha);
+    const { checkRuns, checkRunsComplete, legacyStatuses } = await options.prSurface.getCiStatus(
+      options.headSha,
+    );
     return {
       ok: true,
       checks: checkRuns.filter((run) => !isOwnCiCheckName(run.name)),
       statuses: legacyStatuses.filter((status) => status.context !== OWN_COMMIT_STATUS_CONTEXT),
+      checkRunsComplete,
     };
   } catch (error) {
     if (isMissingChecksPermissionError(error)) {
@@ -291,8 +296,7 @@ async function waitForTerminalCi(options: BuildCiSummaryOptions): Promise<Extern
   if (!loaded.ok || waitMs <= 0) return loaded;
 
   while (Date.now() < deadline) {
-    const state = classifySnapshot(loaded.checks, loaded.statuses);
-    if (state !== "pending") return loaded;
+    if (isTerminalCiLoad(loaded)) return loaded;
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     await new Promise<void>((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
@@ -302,14 +306,26 @@ async function waitForTerminalCi(options: BuildCiSummaryOptions): Promise<Extern
   return loaded;
 }
 
+function isTerminalCiLoad(loaded: Extract<ExternalCiLoad, { readonly ok: true }>): boolean {
+  const state = classifySnapshot(loaded.checks, loaded.statuses);
+  if (state === "pending") return false;
+  if (state === "failing") return true;
+  return loaded.checkRunsComplete !== false;
+}
+
 export function summarizeCiSnapshot(params: {
   readonly checks: readonly CiCheckRunSnapshot[];
   readonly statuses: readonly CiLegacyStatus[];
   readonly failures?: readonly CiFailureDetail[];
   readonly permissionNote?: string;
+  readonly checkRunsComplete?: boolean;
 }): CiSummary {
   const state = classifySnapshot(params.checks, params.statuses);
   const permissionNote = params.permissionNote;
+  const incomplete = params.checkRunsComplete === false;
+  if (incomplete && (state === "none" || state === "passing")) {
+    return incompleteUnavailableSummary();
+  }
   switch (state) {
     case "none":
       return {
@@ -341,9 +357,10 @@ export function summarizeCiSnapshot(params: {
       const uniqueNames = [...new Set(failingNames)];
       const nameList = uniqueNames.slice(0, 3).join(", ");
       const more = uniqueNames.length > 3 ? ` (+${uniqueNames.length - 3} more)` : "";
+      const headline = `❌ CI failing — ${nameList}${more}`;
       return {
         status: "failing",
-        headline: `❌ CI failing — ${nameList}${more}`,
+        headline: incomplete ? withPartialCiView(headline) : headline,
         failures,
         ...(permissionNote != null ? { permissionNote } : {}),
       };
@@ -361,6 +378,22 @@ function unavailableSummary(): CiSummary {
     headline: REVIEW_CI_SUMMARY_UNAVAILABLE,
     failures: [],
   };
+}
+
+function incompleteUnavailableSummary(): CiSummary {
+  return {
+    status: "unavailable",
+    headline: REVIEW_CI_SUMMARY_INCOMPLETE,
+    failures: [],
+  };
+}
+
+function withPartialCiView(headline: string): string {
+  return headline.includes("(partial CI view)") ? headline : `${headline} (partial CI view)`;
+}
+
+function isAllPassingHeadline(headline: string): boolean {
+  return /all ci is passing/i.test(headline);
 }
 
 function withPermissionNote(summary: CiSummary, note: string | undefined): CiSummary {
@@ -417,7 +450,11 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
         : unavailableSummary();
     }
 
-    const snapshot = { checks: loaded.checks, statuses: loaded.statuses };
+    const snapshot = {
+      checks: loaded.checks,
+      statuses: loaded.statuses,
+      checkRunsComplete: loaded.checkRunsComplete,
+    };
     const state = classifySnapshot(snapshot.checks, snapshot.statuses);
     if (state !== "failing" || options.lightweight) {
       return summarizeCiSnapshot(snapshot);
@@ -435,15 +472,25 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
     const authorInput = buildAuthorInput(snapshot, condensedLogs);
     const actionsNote = actionsPermissionMissing ? REVIEW_CI_SUMMARY_GRANT_ACTIONS : undefined;
 
+    let authored: CiSummary;
     if (options.author == null) {
-      return withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote);
+      authored = withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote);
+    } else {
+      const llm = await options.author(authorInput);
+      authored =
+        llm == null
+          ? withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote)
+          : withPermissionNote(mergeCiSummaryWithFacts(authorInput, llm), actionsNote);
     }
-
-    const llm = await options.author(authorInput);
-    if (llm == null) {
-      return withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote);
+    if (snapshot.checkRunsComplete !== false) return authored;
+    if (!isAllPassingHeadline(authored.headline)) {
+      return { ...authored, headline: withPartialCiView(authored.headline) };
     }
-    return withPermissionNote(mergeCiSummaryWithFacts(authorInput, llm), actionsNote);
+    return summarizeCiSnapshot({
+      ...snapshot,
+      failures: authored.failures,
+      permissionNote: authored.permissionNote,
+    });
   } catch (error) {
     logWarn("review_ci_summary_build_failed", {
       owner: options.prSurface.owner,
