@@ -261,6 +261,27 @@ async function recoverByExactEvidence<T>(
   return { found: true, value: recovery.value };
 }
 
+async function finishVoidSuccess<T>(
+  params: WithOperationIntentParams<T>,
+  extraDetail: Record<string, unknown>,
+  publishRecordId?: string | null,
+): Promise<T> {
+  await assertMutationReady(params);
+  await reconcileOperationIntent(params.client, {
+    workItemId: params.workItemId,
+    operationKey: params.operationKey,
+    status: "reconciled",
+    publishRecordId: publishRecordId ?? params.publishRecordId,
+    ...leaseEpochDetail(params),
+    detail: {
+      ...resolveReconcileDetail(params, undefined as T, false),
+      ...extraDetail,
+      [OPERATION_INTENT_RESULT_KEY]: null,
+    },
+  });
+  return undefined as T;
+}
+
 async function recoverAfterMutatingWithoutResult<T>(
   params: WithOperationIntentParams<T>,
   intent: OperationIntentRow,
@@ -292,20 +313,14 @@ async function recoverAfterMutatingWithoutResult<T>(
   // Publish-record success is void-only. A recover hook that cannot rebuild T
   // stays outcome_unknown so callers do not receive undefined as a typed result.
   if (publishRecordId != null && allowsUndefinedSuccess(params)) {
-    await assertMutationReady(params);
-    await reconcileOperationIntent(params.client, {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
-      status: "reconciled",
-      publishRecordId,
-      ...leaseEpochDetail(params),
-      detail: {
-        ...resolveReconcileDetail(params, undefined as T, false),
+    return finishVoidSuccess(
+      params,
+      {
         reconciledFromPublishRecord: true,
         recoveredAfterMutating: true,
       },
-    });
-    return undefined as T;
+      publishRecordId,
+    );
   }
   await assertMutationReady(params);
   await reconcileOperationIntent(params.client, {
@@ -383,7 +398,7 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
     if (recovered.found) return recovered.value;
     // Void-only. A typed recover that cannot rebuild T stays outcome_unknown.
     if (allowsUndefinedSuccess(params)) {
-      return undefined as T;
+      return finishVoidSuccess(params, {}, intent.publishRecordId);
     }
     throw new AppError({
       code: "operation_intent.mutation_outcome_unknown",
