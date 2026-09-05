@@ -848,7 +848,9 @@ describe("createPiSession terminal provider outcomes", () => {
       eventSink: (event) => events.push({ kind: event.kind }),
     });
 
-    const error = await runnerSession.send("question", ASK_SEND_OPTS).catch((value: unknown) => value);
+    const error = await runnerSession
+      .send("question", ASK_SEND_OPTS)
+      .catch((value: unknown) => value);
     expect(error).toMatchObject({ code: "provider.request_failed" });
     expect(events.map((event) => event.kind)).toContain("usage");
   });
