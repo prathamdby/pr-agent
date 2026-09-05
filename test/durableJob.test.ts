@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
@@ -205,7 +205,7 @@ function defaultMocks() {
 
 async function expectNoFurtherLeaseRenewal(): Promise<void> {
   const renewals = vi.mocked(prActorLease.renewPrActorLease).mock.calls.length;
-  await vi.advanceTimersByTimeAsync(5_000);
+  await new Promise((resolve) => setTimeout(resolve, 20));
   expect(prActorLease.renewPrActorLease).toHaveBeenCalledTimes(renewals);
 }
 
@@ -213,10 +213,6 @@ describe("runDurableWorkItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     defaultMocks();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {
@@ -626,7 +622,6 @@ describe("runDurableWorkItem", () => {
   });
 
   it("releases the owned epoch and stops renewal when claim rejects", async () => {
-    vi.useFakeTimers();
     const item = makeItem();
     mockFetchedItem(item);
     const claimError = new Error("claim unavailable");
@@ -635,7 +630,7 @@ describe("runDurableWorkItem", () => {
 
     await expect(
       runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 1 },
+        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
         execute,
       }),
     ).rejects.toBe(claimError);
@@ -652,7 +647,6 @@ describe("runDurableWorkItem", () => {
   });
 
   it("releases the owned epoch and stops renewal when payload read rejects", async () => {
-    vi.useFakeTimers();
     const item = makeItem();
     mockFetchedItem(item);
     const payloadError = new Error("payload unavailable");
@@ -661,7 +655,7 @@ describe("runDurableWorkItem", () => {
 
     await expect(
       runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 1 },
+        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
         execute,
       }),
     ).rejects.toBe(payloadError);
@@ -678,7 +672,6 @@ describe("runDurableWorkItem", () => {
   });
 
   it("cleans up after a malformed payload when the terminal write and release reject", async () => {
-    vi.useFakeTimers();
     const item = makeItem();
     vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
     vi.mocked(repo.getWorkItemPayload).mockResolvedValue({ question: "not-a-review-payload" });
@@ -690,7 +683,7 @@ describe("runDurableWorkItem", () => {
 
     await expect(
       runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 1 },
+        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
         execute,
       }),
     ).rejects.toThrow(/Invalid review work item payload/);
