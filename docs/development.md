@@ -25,6 +25,8 @@ Review, ask, description, and verification take the prepared Local PR workspace 
 
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
+`gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
+
 ## Landing site
 
 The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot.

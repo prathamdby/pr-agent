@@ -15,7 +15,7 @@ That layout made it easy to miss surrounding callers, shared types, and config w
 1. **Full head checkout** — After durable head-SHA resolution, prepare a shallow (`--depth=1`), no-tags, no-submodules checkout of `refs/pull/<n>/head` into the agent-visible tree via a private git directory (`GIT_WORK_TREE`). Full mode uses eager blobs. Sparse mode, used only above the configured repo-size cap, adds `--filter=blob:none` and materializes the sparse changed-file checkout before credentials are removed.
 2. **GitHub PR files for diff metadata** — Changed paths, unified diff patches (subject to existing caps), and commentable RIGHT-side anchor ranges come from `pulls.listFiles` via shared [`src/github/listPullRequestFiles.ts`](../../src/github/listPullRequestFiles.ts), not local `git diff base...head`.
 3. **PR-scoped findings** — The full tree is context for investigation; review findings remain tied to issues introduced or exposed by the PR. Publish-time inline anchors still use the server diff index.
-4. **Search budgets** — `searchWorkspace` uses `git grep` over ask-gated path chunks. `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` caps git-grep stdout before returning a truncated result; `LOCAL_WORKSPACE_SEARCH_MAX_FILES` is retained as a legacy JS-scan knob. Single-file reads remain capped by `LOCAL_WORKSPACE_MAX_FILE_BYTES`.
+4. **Search budgets** — `searchWorkspace` uses literal `git grep -nF -I -z` over ask-gated path chunks. It does not pass `--max-count` (Git 2.40+). `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` caps git-grep stdout before returning a truncated result; the tool's `maxResults` caps returned matches after parse. `LOCAL_WORKSPACE_SEARCH_MAX_FILES` is retained as a legacy JS-scan knob. Single-file reads remain capped by `LOCAL_WORKSPACE_MAX_FILE_BYTES`.
 5. **Security** — Committed sensitive-looking files remain in the checkout (no redaction). `.git`, token files, askpass, hooks, and symlinks stay out of or are removed from the agent tree. Ask sensitive-path gates still apply to local tool reads.
 
 ## Consequences
@@ -25,6 +25,10 @@ That layout made it easy to miss surrounding callers, shared types, and config w
 - One additional GitHub API call per workspace prepare (`listFiles`); investigation no longer depends on merge-base history in the private git dir.
 - `LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES` and `LOCAL_WORKSPACE_MAX_TOTAL_BYTES` are removed; deployments must adopt the new search env names.
 - Tests must assert full-tree presence and PR-metadata-driven diff index separately from git checkout.
+
+## Amendment (2026-09-05): Git 2.39 search
+
+Shared workspace search must run on the application image Git (Debian bookworm 2.39.x). Result and stdout caps stay in the workspace after grep returns. This does not change checkout coverage or GitHub PR diff authority.
 
 ## Amendment (2026-07-26): checkout coverage honesty
 

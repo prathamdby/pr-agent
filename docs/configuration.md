@@ -432,6 +432,8 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS`      | 5          |
 | `LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY` | 0.6        |
 
+Shared workspace search applies `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-grep stdout and the tool `maxResults` after parse. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
+
 ### Code index (optional FTS hints)
 
 | Symbol                           | Value / role |
