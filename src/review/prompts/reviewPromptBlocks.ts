@@ -32,7 +32,7 @@ export const causalPublicationContract = [
   "If a claim depends on unread code, open it or drop it. When checkout coverage is sparse or a search is truncated, do not claim absence of callers or references.",
   "One root cause with multiple symptoms stays one finding. Separately fixable root causes stay separate findings. Split a compound candidate into atomic findings and keep every one that meets this contract. Do not report an ambiguous bundle.",
   'Do not substitute hedging ("might", "could", "consider checking") for a demonstrated trigger. Do not restate the diff. Lead title and detail with the causal defect.',
-  "Silence is a successful result when no candidate meets this contract. Do not replace a rejected candidate with praise, a summary of the diff, or a vague warning.",
+  "Rejected candidates are not findings. Do not replace a rejected candidate with praise, a summary of the diff, or a vague warning. Tool-less inaction is not completion.",
   "This shared floor does not replace specialist-specific gates for correctness, security mitigations, present-harm quality, or precise test gaps.",
 ].join("\n");
 
@@ -96,6 +96,7 @@ export const specialistFindingsReportContract = [
   "Set each finding's `file` and line range to a commentable location on a changed path when possible so the server can open an inline review thread. Coverage and missing-test findings should name the changed test (or intended new test path in the diff), not only production code absent from the PR.",
   'When at least one evidenced finding meets this review\'s reporting gate, use `status: "findings"` and include every qualifying finding in `findings`.',
   'When none meet the gate, use `status: "no_findings"` with `findings: []`. This explicit empty report is a successful result.',
+  "Tool-less silence is not success. Only this explicit no_findings submit is.",
   "`notes` is optional. Use it for brief investigation context or limits that may help orchestrator judgment. Do not place findings only in notes.",
 ].join("\n");
 

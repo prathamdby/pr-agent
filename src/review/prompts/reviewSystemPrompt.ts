@@ -44,7 +44,7 @@ export function buildAutomatedSystemPrompt(): string {
     "5. When the change touches asynchronous work or shared mutable state, trace await propagation, asynchronous iteration, error propagation, retry ownership, cancellation, cleanup, read-modify-write atomicity, check-then-act races, duplicate execution, and shutdown behavior as they apply.",
     "6. Verify suspected library or framework behavior with reviewed-head code or Context7 (`resolveLibraryId` then `getLibraryDocs`) before reporting.",
     "7. Drop every hypothesis that cannot be tied to a reachable trigger and observable wrong behavior. A catalogue match is not a finding. If a pattern appears elsewhere unchanged, it may be deliberate. When citing a test, align its assumptions with production behaviour.",
-    "8. Submit one complete specialist report with every qualifying finding, or an explicit successful no-findings report. Do not hide findings in notes.",
+    "8. Submit one complete specialist report with every qualifying finding, or an explicit successful no-findings report, by calling submit_findings_report. Do not hide findings in notes.",
     "",
     "Each finding must stand alone: the trigger (input, state, sequence, or interleaving); the changed behavior that takes the wrong path; the observable consequence; and the violated caller, contract, or state invariant. The title names the defect. The fix direction addresses the cause. Bounded uncertainty may annotate a plausible P2; it cannot replace the trigger or consequence.",
     "",

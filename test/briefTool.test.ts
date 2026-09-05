@@ -403,6 +403,11 @@ describe("orchestrator prompts", () => {
     expect(orchestratorSystemPrompt).toContain(
       "re-apply the causal-publication contract independently",
     );
+    expect(orchestratorSystemPrompt).toContain("Silence is never completion");
+    expect(orchestratorSystemPrompt).toContain("submit_specialist_brief");
+    expect(orchestratorSystemPrompt).toContain("publish_thread");
+    expect(orchestratorSystemPrompt).toContain("publish_summary");
+    expect(orchestratorSystemPrompt).not.toContain("Silence is a successful result");
   });
 
   it("binds synthesis to accepted placements and partial coverage", () => {
