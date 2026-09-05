@@ -275,7 +275,9 @@ describe("buildVerificationWorkspaceTools", { timeout: WORKSPACE_TEST_TIMEOUT_MS
         { patches: { "src/app.ts": APP_PATCH } },
       );
 
-      await expect(stat(join(workspace.agentCwd, ".git"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(stat(join(workspace.agentCwd, ".git"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
       expect((await stat(workspace.privateGitDir)).isDirectory()).toBe(true);
       expect(workspace.privateGitDir.startsWith(`${workspace.agentCwd}/`)).toBe(false);
 
