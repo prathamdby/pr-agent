@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { chunkFileContent, chunkFiles } from "../src/codeIndex/chunker.js";
+import { chunkFileContent, chunkFiles, recognizeTsMethod } from "../src/codeIndex/chunker.js";
 
 describe("codeIndex chunker", () => {
   it("splits TypeScript files on function boundaries", () => {
@@ -146,30 +146,20 @@ describe("codeIndex chunker", () => {
     expect(chunks[0]?.contentHash).toEqual(first?.contentHash);
   });
 
-  it("keeps method-boundary cost from doubling into a fourfold jump twice", () => {
-    const measure = (spaces: number): number => {
+  it("classifies long whitespace nonmatches with linear work", () => {
+    expect(recognizeTsMethod("  public foo() {").symbolName).toBe("foo");
+    const works: number[] = [];
+    for (const spaces of [2031, 4031, 8031]) {
       const content = `${" ".repeat(spaces)}// comment without a method\n`;
-      const repeats = 8;
-      for (let i = 0; i < 3; i++) {
-        for (let r = 0; r < repeats; r++) chunkFileContent("src/slow.ts", content);
-      }
-      const samples: number[] = [];
-      for (let i = 0; i < 11; i++) {
-        const start = performance.now();
-        for (let r = 0; r < repeats; r++) chunkFileContent("src/slow.ts", content);
-        samples.push((performance.now() - start) / repeats);
-      }
-      samples.sort((a, b) => a - b);
-      return samples[5] ?? 0;
-    };
-
-    const twoKb = measure(2031);
-    const fourKb = measure(4031);
-    const eightKb = measure(8031);
-    const first = fourKb / Math.max(twoKb, Number.EPSILON);
-    const second = eightKb / Math.max(fourKb, Number.EPSILON);
-
-    expect(first >= 3.2 && second >= 3.2).toBe(false);
-    expect(eightKb / Math.max(twoKb, Number.EPSILON)).toBeLessThan(10);
+      const line = content.split("\n")[0] ?? "";
+      const { symbolName, steps } = recognizeTsMethod(line);
+      expect(symbolName).toBeNull();
+      expect(steps).toBeLessThanOrEqual(line.length * 4);
+      works.push(steps);
+      const chunks = chunkFileContent("src/slow.ts", content);
+      expect(chunks).toHaveLength(1);
+      expect(chunks[0]?.symbolNames).toEqual([]);
+    }
+    expect(works[2]! / Math.max(works[0]!, 1)).toBeLessThan(6);
   });
 });

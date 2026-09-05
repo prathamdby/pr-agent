@@ -17,10 +17,79 @@ export type ChunkFileContent = {
 
 const TS_BOUNDARY =
   /^\s*(?:export\s+)?(?:(?:async\s+)?function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)\b/;
-// A `\s` alternative here overlaps `^\s*` and backtracks quadratically.
-const TS_METHOD =
-  /^\s*(?:(?:public|private|protected|static|async)\s+)*(?:function\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::|{)/;
 const PY_BOUNDARY = /^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_][\w]*)\b/;
+const TS_METHOD_MODIFIERS = new Set(["public", "private", "protected", "static", "async"]);
+
+function isLineWs(ch: string | undefined): boolean {
+  return ch === " " || ch === "\t";
+}
+
+function isIdentStart(ch: string | undefined): boolean {
+  if (ch === undefined) return false;
+  return (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z") || ch === "_" || ch === "$";
+}
+
+function isIdentPart(ch: string | undefined): boolean {
+  return isIdentStart(ch) || (ch !== undefined && ch >= "0" && ch <= "9");
+}
+
+export function recognizeTsMethod(line: string): {
+  readonly symbolName: string | null;
+  readonly steps: number;
+} {
+  let i = 0;
+  let steps = 0;
+  const n = line.length;
+
+  const advance = (): void => {
+    i += 1;
+    steps += 1;
+  };
+
+  while (i < n && isLineWs(line[i])) advance();
+
+  const readIdent = (): string | null => {
+    if (!isIdentStart(line[i])) return null;
+    const start = i;
+    advance();
+    while (i < n && isIdentPart(line[i])) advance();
+    return line.slice(start, i);
+  };
+
+  while (true) {
+    const save = i;
+    const word = readIdent();
+    if (word === null || !TS_METHOD_MODIFIERS.has(word)) {
+      i = save;
+      break;
+    }
+    if (!isLineWs(line[i])) {
+      i = save;
+      break;
+    }
+    while (i < n && isLineWs(line[i])) advance();
+  }
+
+  const save = i;
+  if (readIdent() === "function" && isLineWs(line[i])) {
+    while (i < n && isLineWs(line[i])) advance();
+  } else {
+    i = save;
+  }
+
+  const symbolName = readIdent();
+  if (symbolName === null) return { symbolName: null, steps };
+
+  while (i < n && isLineWs(line[i])) advance();
+  if (line[i] !== "(") return { symbolName: null, steps };
+  advance();
+  while (i < n && line[i] !== ")") advance();
+  if (line[i] !== ")") return { symbolName: null, steps };
+  advance();
+  while (i < n && isLineWs(line[i])) advance();
+  if (line[i] !== ":" && line[i] !== "{") return { symbolName: null, steps };
+  return { symbolName, steps };
+}
 
 function hashContent(content: string): Buffer {
   return createHash("sha256").update(content).digest();
@@ -33,21 +102,17 @@ function extensionOf(path: string): string {
   return path.slice(dot).toLowerCase();
 }
 
-function boundaryMatchers(path: string): Array<RegExp> {
-  if (extensionOf(path) === ".py") return [PY_BOUNDARY];
-  return [TS_BOUNDARY, TS_METHOD];
-}
-
-function detectSymbolName(line: string, matchers: readonly RegExp[]): string | null {
-  for (const pattern of matchers) {
-    const match = pattern.exec(line);
-    if (match?.[1]) return match[1];
+function detectSymbolName(line: string, path: string): string | null {
+  if (extensionOf(path) === ".py") {
+    const match = PY_BOUNDARY.exec(line);
+    return match?.[1] ?? null;
   }
-  return null;
+  const match = TS_BOUNDARY.exec(line);
+  if (match?.[1]) return match[1];
+  return recognizeTsMethod(line).symbolName;
 }
 
 export function chunkFileContent(path: string, content: string): CodeIndexChunk[] {
-  const matchers = boundaryMatchers(path);
   const lines = content.split("\n");
   const chunks: CodeIndexChunk[] = [];
   let chunkStart = 1;
@@ -72,7 +137,7 @@ export function chunkFileContent(path: string, content: string): CodeIndexChunk[
   for (let i = 0; i < lines.length; i++) {
     const lineNumber = i + 1;
     const line = lines[i] ?? "";
-    const symbol = detectSymbolName(line, matchers);
+    const symbol = detectSymbolName(line, path);
     if (symbol && chunkLines.length > 0) {
       flush(lineNumber - 1);
       chunkStart = lineNumber;
