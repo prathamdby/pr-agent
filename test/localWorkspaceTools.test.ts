@@ -483,6 +483,28 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("searchWorkspace keeps paths with spaces intact", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/my file.ts": "const needle = 1;\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/my file.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
+        matches: Array<{ path: string; line: number; text: string }>;
+      };
+
+      expect(out.matches).toEqual([
+        { path: "src/my file.ts", line: 1, text: "const needle = 1;" },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("searchWorkspace treats dash-prefixed queries as literals", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

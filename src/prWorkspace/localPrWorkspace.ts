@@ -373,13 +373,13 @@ async function gitGrepWorkspaceChunk(
   pathspecs: readonly string[],
 ): Promise<GitGrepChunkResult> {
   try {
+    // Omit `--max-count`; some supported Git builds reject it. Result and byte caps stay after parse.
     const { stdout } = await execGit(
       [
         "grep",
         "-nF",
         "-I",
         "-z",
-        `--max-count=${params.maxResults + 1}`,
         "-e",
         params.query,
         "--",

@@ -52,7 +52,7 @@ Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 ### Docker and Docker Compose
 
 - **Stack:** [docker-compose.yml](../docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
-- **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)).
+- **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)). The runtime stage installs Debian `git` from `node:22.22.0-bookworm-slim` (2.39.x). Shared workspace search uses `git grep -nF -I -z` and applies `maxResults` plus `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` after the process returns. It does not pass `--max-count` (Git 2.40+).
 - **Health (web):** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable (orchestrator readiness gating).
 - **Health (worker):** the worker listens on `PORT` for the same paths. `GET /health` is process liveness. `GET /ready` requires registered queue consumers plus Postgres/pg-boss access (idle empty queues still ready). Compose wires the worker healthcheck to `/ready`. Continuous queue/DLQ diagnostics emit every 60s; see [agent-work-ops.md](agent-work-ops.md).
 - **Webhook URL** (default Compose ports): `http://<host>:7224/webhooks`.
