@@ -552,26 +552,33 @@ export async function runDurableWorkItem<T extends WorkType>(
     });
   }
 
-  const claimed = await claimWorkForExecution(spec.pool, core.id);
-  if (!claimed) {
-    await releaseLeaseQuietly();
-    return;
-  }
-  workClaim = claimed;
-  enterExecutingPhase(phaseState);
-
-  const rawPayload = await getWorkItemPayload(spec.pool, core.id);
-  if (rawPayload === undefined) {
-    await releaseLeaseQuietly();
-    return;
-  }
   try {
-    workItem = attachWorkItemPayload(core, rawPayload);
-  } catch (error) {
-    await markWorkFailed(spec.pool, core.id, error, leaseEpoch);
-    await releaseLeaseQuietly();
-    throw error;
-  }
+    const claimed = await claimWorkForExecution(spec.pool, core.id);
+    if (!claimed) {
+      return;
+    }
+    workClaim = claimed;
+    enterExecutingPhase(phaseState);
+
+    const rawPayload = await getWorkItemPayload(spec.pool, core.id);
+    if (rawPayload === undefined) {
+      return;
+    }
+    try {
+      workItem = attachWorkItemPayload(core, rawPayload);
+    } catch (error) {
+      try {
+        await markWorkFailed(spec.pool, core.id, error, leaseEpoch);
+      } catch (markError) {
+        logWarn("agent_work_failed_mark_failed", {
+          type: spec.type,
+          workItemId: core.id,
+          leaseEpoch,
+          message: markError instanceof Error ? markError.message : String(markError),
+        });
+      }
+      throw error;
+    }
 
   const item = workItem;
 
@@ -881,10 +888,12 @@ export async function runDurableWorkItem<T extends WorkType>(
     await completeDurableExecution(result);
   } catch (error) {
     await handleDurableExecutionError(error);
+  }
   } finally {
     // Terminal marks and hooks above ran under the lease; release happens after them so
     // no durable write from this epoch can be fenced out by an early clear. On retry
     // (markRetryingOrCancel rethrows) the next delivery re-acquires with a fresh epoch.
+    // A failed SQL release leaves expiry as recovery.
     await releaseLeaseQuietly();
   }
 }
