@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -500,6 +500,48 @@ describe("local workspace tools", () => {
       expect(out.matches).toEqual([{ path: "src/my file.ts", line: 1, text: "const needle = 1;" }]);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("searchWorkspace succeeds when git rejects --max-count", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    const bin = await mkdtemp(join(tmpdir(), "workspace-git-compat-"));
+    const previousPath = process.env.PATH ?? "";
+    try {
+      await writeFile(
+        join(bin, "git"),
+        [
+          "#!/bin/sh",
+          "for arg; do",
+          '  case "$arg" in',
+          "    --max-count|--max-count=*)",
+          '      echo "error: unknown option $arg" >&2',
+          "      exit 129",
+          "      ;;",
+          "  esac",
+          "done",
+          'exec /usr/bin/git "$@"',
+          "",
+        ].join("\n"),
+      );
+      await chmod(join(bin, "git"), 0o755);
+      process.env.PATH = `${bin}:${previousPath}`;
+
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/compat.ts": "const needle = 1;\n",
+      });
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/compat.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
+        matches: Array<{ path: string; line: number; text: string }>;
+      };
+
+      expect(out.matches).toEqual([{ path: "src/compat.ts", line: 1, text: "const needle = 1;" }]);
+    } finally {
+      process.env.PATH = previousPath;
+      await rm(root, { recursive: true, force: true });
+      await rm(bin, { recursive: true, force: true });
     }
   });
 
