@@ -1,5 +1,7 @@
 import type { Config } from "../config.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
+import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
+import type { OperationIntentRecovery } from "../agentWork/withOperationIntent.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import type { InstallationToken } from "./appAuth.js";
 import type {
@@ -130,6 +132,10 @@ export type PrSurfaceMutation = {
   readonly operationKey: string;
   readonly mutationKind: string;
   readonly detail?: Record<string, unknown>;
+  readonly recover?: (
+    intent: OperationIntentRow,
+    publishRecordId: string | null,
+  ) => Promise<OperationIntentRecovery<unknown>>;
 };
 
 /**

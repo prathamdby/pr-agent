@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
-import { runInOperationIntentFrame } from "../src/agentWork/withOperationIntent.js";
+import {
+  operationIntentMarker,
+  runInOperationIntentFrame,
+} from "../src/agentWork/withOperationIntent.js";
+import type { OperationIntentRow } from "../src/agentWork/operationIntentRepository.js";
 import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../src/github/prSurface.js";
 import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../src/github/prSurface.js";
+import { recoverPrSurfaceMutation } from "../src/github/recoverPrSurfaceMutation.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const surfaceParams = { owner: "o", repo: "r", prNumber: 1 };
@@ -219,5 +224,115 @@ describe("PrSurface lease mutation boundary", () => {
     const first = withPrSurfaceMutationBoundary(raw, boundary);
     expect(withPrSurfaceMutationBoundary(raw, boundary)).toBe(first);
     expect(withPrSurfaceMutationBoundary(first, boundary)).toBe(first);
+  });
+
+  it("recovers a marked replyAt without remutating and fails closed for labels", async () => {
+    const mutations: PrSurfaceMutation[] = [];
+    const { surface } = createFakePrSurface(surfaceParams, {
+      mutationBoundary: {
+        signal: new AbortController().signal,
+        run: async (mutation, mutate) => {
+          mutations.push(mutation);
+          return mutate();
+        },
+      },
+    });
+    const marker = operationIntentMarker("verification:thread:9", "wi-1");
+
+    const posted = await surface.replyAt(
+      { kind: "prConversation", prNumber: 1 },
+      `${marker}\nverification note`,
+    );
+    const replyMutation = mutations[0];
+    expect(replyMutation?.detail).toMatchObject({
+      surfaceMethod: "replyAt",
+      operationMarker: marker,
+      replyTargetKind: "prConversation",
+    });
+    expect(replyMutation?.recover).toEqual(expect.any(Function));
+
+    const recovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: replyMutation?.operationKey ?? "pr-surface:replyAt",
+      mutationKind: "github.pr_surface.replyAt",
+      status: "pending",
+      publishRecordId: null,
+      detail: { ...replyMutation?.detail, __mutating: true },
+    } satisfies OperationIntentRow);
+    expect(recovered).toEqual({ kind: "reconciled", value: { commentId: posted.commentId } });
+
+    await surface.setLabels(["pr-agent-size-small"]);
+    const labelMutation = mutations[1];
+    const labelsRecovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-2",
+      workItemId: "wi-1",
+      operationKey: labelMutation?.operationKey ?? "pr-surface:setLabels",
+      mutationKind: "github.pr_surface.setLabels",
+      status: "pending",
+      publishRecordId: null,
+      detail: { ...labelMutation?.detail, __mutating: true },
+    } satisfies OperationIntentRow);
+    expect(labelsRecovered).toEqual({ kind: "absent" });
+  });
+
+  it("recovers marked review-comment edits, thread resolution, and check runs", async () => {
+    const mutations: PrSurfaceMutation[] = [];
+    const { surface, controls } = createFakePrSurface(surfaceParams, {
+      mutationBoundary: {
+        signal: new AbortController().signal,
+        run: async (mutation, mutate) => {
+          mutations.push(mutation);
+          return mutate();
+        },
+      },
+    });
+    const marker = operationIntentMarker("verification:thread:3", "wi-1");
+    controls.setReviewCommentBody(8, "prior");
+    controls.setInlineReviewComments([
+      {
+        id: 8,
+        inReplyToId: 3,
+        authorLogin: "pr-agent[bot]",
+        body: `${marker}\n**Verification**: Still open`,
+      },
+    ]);
+    controls.setThreads(new Map([[3, { threadNodeId: "thread-node", isResolved: true }]]));
+
+    await surface.editReviewComment(8, `${marker}\n**Verification**: Still open`);
+    const editRecovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "verification:thread:3:surface:editReviewComment",
+      mutationKind: "github.pr_surface.editReviewComment",
+      status: "pending",
+      publishRecordId: null,
+      detail: { ...mutations[0]?.detail, __mutating: true },
+    } satisfies OperationIntentRow);
+    expect(editRecovered).toEqual({ kind: "reconciled", value: true });
+
+    await surface.resolveInlineReviewThread("thread-node");
+    const resolveRecovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-2",
+      workItemId: "wi-1",
+      operationKey: "verification:thread:3:surface:resolveInlineReviewThread",
+      mutationKind: "github.pr_surface.resolveInlineReviewThread",
+      status: "pending",
+      publishRecordId: null,
+      detail: { ...mutations[1]?.detail, __mutating: true },
+    } satisfies OperationIntentRow);
+    expect(resolveRecovered).toEqual({ kind: "reconciled", value: undefined });
+
+    const check = await surface.startReviewCheck("abc123", "wi-1");
+    const checkRecovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-3",
+      workItemId: "wi-1",
+      operationKey: "review:check_run:wi-1:surface:startReviewCheck",
+      mutationKind: "github.pr_surface.startReviewCheck",
+      status: "pending",
+      publishRecordId: null,
+      detail: { ...mutations[2]?.detail, __mutating: true },
+    } satisfies OperationIntentRow);
+    expect(checkRecovered).toEqual({ kind: "reconciled", value: check });
   });
 });

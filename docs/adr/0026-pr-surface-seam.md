@@ -24,9 +24,12 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
    `PrSurfaceMutationBoundary` into the factory. Every mutating `PrSurface`
    method crosses that boundary; it persists an operation intent with the
    current lease epoch, checks the cancellation signal and epoch immediately
-   before the external call, then reconciles the outcome. Read-only methods do
-   not cross the boundary so a replacement worker can recover evidence after a
-   stale execution is fenced. Unleased ask work keeps the ordinary surface.
+   before the external call, then reconciles the outcome. A crash between
+   GitHub acceptance and `__result` is recovered from the operation-intent
+   marker or provider id already on the PR; methods that cannot prove
+   presence or absence stay fail-closed. Read-only methods do not cross the
+   boundary so a replacement worker can recover evidence after a stale
+   execution is fenced. Unleased ask work keeps the ordinary surface.
 
 ## Consequences
 

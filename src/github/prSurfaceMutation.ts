@@ -1,27 +1,17 @@
 import crypto from "node:crypto";
 import { currentOperationIntentKey } from "../agentWork/withOperationIntent.js";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
+import {
+  extractPrSurfaceRecoverDetail,
+  isPrSurfaceMutationMethod,
+  recoverPrSurfaceMutation,
+} from "./recoverPrSurfaceMutation.js";
 import type {
   PrSurface,
   PrSurfaceMutationMethods,
   PrSurfaceMutation,
   PrSurfaceMutationBoundary,
 } from "./prSurfaceTypes.js";
-
-const PR_SURFACE_MUTATION_METHODS = {
-  setAcknowledgementReaction: true,
-  replyAt: true,
-  upsertProgressComment: true,
-  editComment: true,
-  setReviewCommitStatus: true,
-  publishThreadBatch: true,
-  resolveInlineReviewThread: true,
-  setLabels: true,
-  startReviewCheck: true,
-  finishReviewCheck: true,
-  editReviewComment: true,
-  publishDescription: true,
-} satisfies Record<keyof PrSurfaceMutationMethods, true>;
 
 type WrappedSurface = {
   readonly boundary: PrSurfaceMutationBoundary;
@@ -99,9 +89,14 @@ function inputHash(input: unknown): string {
   return crypto.createHash("sha256").update(encoded).digest("hex");
 }
 
-function mutation(method: string, input: unknown): PrSurfaceMutation {
+function mutation(
+  method: keyof PrSurfaceMutationMethods,
+  input: unknown,
+  surface: PrSurface,
+): PrSurfaceMutation {
   const hash = inputHash(input);
   const parentKey = currentOperationIntentKey();
+  const args = Array.isArray(input) ? input : [];
   return {
     operationKey:
       parentKey != null ? `${parentKey}:surface:${method}` : `pr-surface:${method}:${hash}`,
@@ -110,7 +105,9 @@ function mutation(method: string, input: unknown): PrSurfaceMutation {
       surfaceMethod: method,
       inputHash: hash,
       ...(parentKey != null ? { parentOperationKey: parentKey } : {}),
+      ...extractPrSurfaceRecoverDetail(method, args),
     },
+    recover: (intent) => recoverPrSurfaceMutation(surface, intent),
   };
 }
 
@@ -125,10 +122,6 @@ function throwIfAborted(signal: AbortSignal): void {
     code: "agent_work.execution_aborted",
     message: "PR-surface mutation aborted",
   });
-}
-
-function isMutationMethod(property: PropertyKey): property is keyof PrSurfaceMutationMethods {
-  return typeof property === "string" && property in PR_SURFACE_MUTATION_METHODS;
 }
 
 /**
@@ -148,7 +141,7 @@ export function withPrSurfaceMutationBoundary(
     mutate: () => Promise<T>,
   ): Promise<T> => {
     throwIfAborted(boundary.signal);
-    return boundary.run(mutation(method, input), async () => {
+    return boundary.run(mutation(method, input, surface), async () => {
       throwIfAborted(boundary.signal);
       return mutate();
     });
@@ -157,7 +150,7 @@ export function withPrSurfaceMutationBoundary(
   const wrapped = new Proxy(surface, {
     get(target, property, receiver) {
       const value = Reflect.get(target, property, receiver);
-      if (!isMutationMethod(property) || typeof value !== "function") return value;
+      if (!isPrSurfaceMutationMethod(property) || typeof value !== "function") return value;
       return async (...args: unknown[]) =>
         run(property, args, () => Promise.resolve(Reflect.apply(value, target, args)));
     },
