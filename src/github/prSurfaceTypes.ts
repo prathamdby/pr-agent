@@ -136,6 +136,7 @@ export type PrSurfaceMutation = {
     intent: OperationIntentRow,
     publishRecordId: string | null,
   ) => Promise<OperationIntentRecovery<unknown>>;
+  readonly allowsUndefinedResult?: boolean;
 };
 
 /**

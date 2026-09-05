@@ -462,6 +462,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         signal: params.signal,
         operationKey,
         mutationKind: "github.triage_push",
+        allowsUndefinedResult: true,
         detail: {
           step: "triage_push",
           resourceKey: params.resourceKey,
@@ -584,6 +585,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
           leaseEpoch: params.leaseEpoch,
           operationKey,
           mutationKind: "github.triage_thread_reply",
+          allowsUndefinedResult: true,
           detail: {
             step: "triage_thread_actions",
             resourceKey: params.resourceKey,
@@ -634,6 +636,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
         leaseEpoch: params.leaseEpoch,
         operationKey,
         mutationKind: "github.triage_thread_resolve",
+        allowsUndefinedResult: true,
         detail: {
           step: "triage_thread_actions",
           resourceKey: params.resourceKey,
