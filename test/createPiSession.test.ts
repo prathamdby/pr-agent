@@ -212,6 +212,107 @@ describe("createPiSession models.json", () => {
     );
   });
 
+  it("pins custom tools on the Pi allowlist and invokes submit_findings_report", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    const submit = vi.fn(async () => ({ accepted: true }));
+
+    await createPiRunnerSession({
+      cfg,
+      systemPrompt: "specialist",
+      tools: [
+        {
+          name: "submit_findings_report",
+          description: "Submit the specialist's final findings report exactly once.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      executors: { submit_findings_report: submit },
+    });
+
+    expect(createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        noTools: "builtin",
+        tools: ["submit_findings_report"],
+        customTools: [expect.objectContaining({ name: "submit_findings_report" })],
+      }),
+    );
+
+    const tool = vi.mocked(defineTool).mock.calls.at(-1)?.[0];
+    expect(tool).toBeDefined();
+    if (!tool) throw new Error("expected submit_findings_report tool");
+    await expect(
+      tool.execute(
+        "tool-call-id",
+        { status: "no_findings", findings: [] },
+        undefined,
+        undefined,
+        {} as ExtensionContext,
+      ),
+    ).resolves.toMatchObject({
+      details: { accepted: true },
+    });
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds opencode-zen muse-spark to the OpenCode Responses tool path", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    const getModel = vi.fn(() => ({
+      id: "muse-spark-1.3-contributor-free",
+      provider: "opencode-zen",
+      api: "openai-completions",
+      baseUrl: "https://opencode.ai/zen/v1",
+      reasoning: false,
+    }));
+    const setRuntimeApiKey = vi.fn(async () => undefined);
+    vi.mocked(ModelRuntime.create).mockResolvedValue({
+      ...createDefaultModelRuntimeMock(),
+      setRuntimeApiKey,
+      getError: () => undefined,
+      getModel,
+    } as never);
+
+    await createPiRunnerSession({
+      cfg: makeTestConfig({
+        modelsJsonPath: "/app/models.json",
+        piProvider: "opencode-zen",
+        piModel: "muse-spark-1.3-contributor-free",
+        piApi: "openai-completions",
+        modelProviderKeys: {
+          openai: "test-key",
+          opencode: "zen-key",
+          "opencode-zen": "zen-key",
+        },
+      }),
+      systemPrompt: "specialist",
+      tools: [
+        {
+          name: "submit_findings_report",
+          description: "Submit the specialist's final findings report exactly once.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+      executors: { submit_findings_report: async () => ({ accepted: true }) },
+    });
+
+    expect(getModel).toHaveBeenCalledWith("opencode-zen", "muse-spark-1.3-contributor-free");
+    expect(setRuntimeApiKey).toHaveBeenCalledWith("opencode", "zen-key");
+    expect(setRuntimeApiKey).toHaveBeenCalledWith("opencode-zen", "zen-key");
+    expect(createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: ["submit_findings_report"],
+        model: expect.objectContaining({
+          id: "muse-spark-1.3-contributor-free",
+          provider: "opencode",
+          api: "openai-responses",
+          baseUrl: "https://opencode.ai/zen/v1",
+          reasoning: true,
+        }),
+      }),
+    );
+  });
+
   it("throws when models.json runtime reports a load error", async () => {
     vi.mocked(ModelRuntime.create).mockResolvedValue({
       setRuntimeApiKey: vi.fn(async () => undefined),

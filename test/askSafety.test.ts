@@ -127,6 +127,7 @@ describe("redactOutboundSecrets", () => {
     "AIza01234567890123456789012345678901234",
     "ANTHROPIC_API_KEY=sk-ant-0123456789abcdef",
     "GOOGLE_GENERATIVE_AI_API_KEY=AIzaABCDEFG",
+    "OPENCODE_API_KEY=oc-zen-0123456789abcdef",
   ])("redacts secret-shaped token %s", (secret) => {
     const out = redactOutboundSecrets(`leak ${secret} end`);
     expect(out).not.toContain(secret);

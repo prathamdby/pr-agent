@@ -20,6 +20,23 @@
         }
       ]
     },
+    "opencode-zen": {
+      "baseUrl": "https://opencode.ai/zen/v1",
+      "api": "openai-responses",
+      "apiKey": "$OPENCODE_API_KEY",
+      "models": [
+        {
+          "id": "muse-spark-1.3-contributor-free",
+          "name": "Muse Spark 1.3 Contributor Free",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 128000,
+          "maxTokens": 32000,
+          "thinkingLevelMap": { "off": "minimal" },
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    },
     "my-proxy": {
       "baseUrl": "https://llm.example.com/v1",
       "api": "openai-completions",

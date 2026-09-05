@@ -124,7 +124,7 @@ LLM calls run on the worker only, through the Pi coding-agent runtime.
 PI_PROVIDER and PI_MODEL are the general primary (default openai / gpt-4o-mini).
 Optional PI_ORCHESTRATOR_PROVIDER and PI_ORCHESTRATOR_MODEL override the review orchestrator session.
 Optional PI_FALLBACK_PROVIDER and PI_FALLBACK_MODEL cover availability failures. Both must be set to enable fallback.
-pr-agent loads OPENAI_API_KEY, ANTHROPIC_API_KEY, and GOOGLE_GENERATIVE_AI_API_KEY in config.
+pr-agent loads OPENAI_API_KEY, ANTHROPIC_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, and OPENCODE_API_KEY in config.
 Other Pi providers use their usual env vars on the worker (DEEPSEEK_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY).
 
 ## Compared to hosted reviewers

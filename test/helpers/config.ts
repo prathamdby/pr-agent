@@ -44,6 +44,8 @@ const baseTestConfig: Config = {
     openai: "",
     anthropic: "",
     google: "",
+    opencode: "",
+    "opencode-zen": "",
   },
   providerPromptTimeoutMs: 300_000,
   reviewSpecialistTimeoutMs: 900_000,

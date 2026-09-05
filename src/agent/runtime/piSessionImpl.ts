@@ -14,6 +14,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
 import { AppError } from "../../errors/appError.js";
+import {
+  bindOpenCodeZenModel,
+  isOpenCodeZenMuseSparkModel,
+  mapOpenCodeZenThinkingLevel,
+} from "../../settings/openCodeZenBinding.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import {
   exactUsageFromProviderUsage,
@@ -24,7 +29,29 @@ import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
 import { bindPromptCacheRetention } from "./modelRuntimeCache.js";
 import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
-import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
+import type {
+  AgentSessionPhase,
+  AuthoritativeStructuredState,
+  PiSession,
+  PiSessionCreateParams,
+  ThinkingLevel,
+  ThinkingPolicy,
+} from "./types.js";
+
+function resolveBoundThinkingLevel(params: {
+  readonly policy: ThinkingPolicy;
+  readonly phase: AgentSessionPhase;
+  readonly modelId: string;
+}): ThinkingLevel {
+  const desired = resolveThinkingLevel({
+    policy: params.policy,
+    phase: params.phase,
+  });
+  if (!isOpenCodeZenMuseSparkModel(params.modelId)) {
+    return desired;
+  }
+  return mapOpenCodeZenThinkingLevel(desired);
+}
 
 function toolResultToText(result: unknown): string {
   if (result === undefined) return "";
@@ -140,8 +167,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         });
       }
     }
-    const model = modelRuntime.getModel(params.primary.provider, params.primary.model);
-    if (!model) {
+    const catalogModel = modelRuntime.getModel(params.primary.provider, params.primary.model);
+    if (!catalogModel) {
       throw new AppError({
         code: "provider.model_not_found",
         message: params.cfg.modelsJsonPath
@@ -154,6 +181,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         },
       });
     }
+    const model = bindOpenCodeZenModel(catalogModel);
     bindPromptCacheRetention(modelRuntime, params.promptCachePolicy.retention);
 
     const settingsManager = SettingsManager.inMemory({
@@ -176,10 +204,12 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       }),
     });
     await resourceLoader.reload();
-    const initialThinking = resolveThinkingLevel({
+    const initialThinking = resolveBoundThinkingLevel({
       policy: params.thinkingPolicy,
       phase: "synthesis",
+      modelId: model.id,
     });
+    const toolNames = params.tools.map((tool) => tool.name);
     const sessionCacheId = sessionCacheIdFromIdentity(
       cacheIdentityFromAssignment(params.role, params.primary, params.specialistId),
     );
@@ -194,6 +224,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       settingsManager,
       sessionManager: SessionManager.inMemory(cwd, { id: sessionCacheId }),
       noTools: "builtin",
+      tools: toolNames,
       customTools: params.tools.map((tool) =>
         toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool),
       ),
@@ -224,9 +255,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             message: "Agent runner session aborted",
           });
         }
-        const thinking = resolveThinkingLevel({
+        const thinking = resolveBoundThinkingLevel({
           policy: params.thinkingPolicy,
           phase: opts.phase,
+          modelId: model.id,
         });
         session.setThinkingLevel(thinking);
 

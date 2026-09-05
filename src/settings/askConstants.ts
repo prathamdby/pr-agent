@@ -49,7 +49,7 @@ export const BOT_SECRET_PATTERNS: readonly RegExp[] = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bDATABASE_URL\s*=\s*\S+/gi,
-  /\b(?:OPENAI|ANTHROPIC|GOOGLE_GENERATIVE_AI|CURSOR|CONTEXT7)_API_KEY\s*=\s*\S+/gi,
+  /\b(?:OPENAI|ANTHROPIC|GOOGLE_GENERATIVE_AI|CURSOR|CONTEXT7|OPENCODE)_API_KEY\s*=\s*\S+/gi,
   /\bAWS_SECRET_ACCESS_KEY\s*[=:]\s*\S+/gi,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g,
   /\bsk_(?:live|test)_[A-Za-z0-9]{10,}\b/g,

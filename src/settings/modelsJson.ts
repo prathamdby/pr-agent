@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { AppError } from "../errors/appError.js";
+import { bindOpenCodeZenModel } from "./openCodeZenBinding.js";
 import { defaultModelsJsonCandidatePath, MODELS_JSON_FILENAME } from "./modelsJsonPath.js";
 
 export {
@@ -15,9 +16,9 @@ export {
 
 function builtinPiApi(piProvider: string, piModel: string): string {
   const model = getModel(piProvider as never, piModel as never);
-  if (model?.api) return model.api;
+  if (model?.api) return bindOpenCodeZenModel(model).api;
   const fallback = getModels(piProvider as never)[0];
-  if (fallback?.api) return fallback.api;
+  if (fallback?.api) return bindOpenCodeZenModel(fallback).api;
   throw new AppError({
     code: "settings.models_json_unresolvable_api",
     message: `PI_PROVIDER "${piProvider}" has no resolvable API type`,
@@ -89,7 +90,7 @@ export async function assertPiModelSelection(options: {
         context: { piProvider, piModel },
       });
     }
-    return model.api;
+    return bindOpenCodeZenModel(model).api;
   } finally {
     rmSync(authDir, { recursive: true, force: true });
   }

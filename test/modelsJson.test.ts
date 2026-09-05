@@ -206,6 +206,33 @@ describe("modelsJson helpers", () => {
       }),
     ).resolves.toBe("anthropic-messages");
   });
+
+  it("assertPiModelSelection maps opencode-zen muse-spark onto openai-responses", async () => {
+    const dir = tempDir();
+    const path = join(dir, "models.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        providers: {
+          "opencode-zen": {
+            baseUrl: "https://opencode.ai/zen/v1",
+            api: "openai-completions",
+            apiKey: "$OPENCODE_API_KEY",
+            models: [
+              { id: "muse-spark-1.3-contributor-free", name: "Muse Spark 1.3 Contributor Free" },
+            ],
+          },
+        },
+      }),
+    );
+    await expect(
+      assertPiModelSelection({
+        modelsJsonPath: path,
+        piProvider: "opencode-zen",
+        piModel: "muse-spark-1.3-contributor-free",
+      }),
+    ).resolves.toBe("openai-responses");
+  });
 });
 
 describe("loadConfig models.json", () => {

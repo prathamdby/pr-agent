@@ -128,6 +128,7 @@ caps, CI-summary waits, workspace limits) are now code constants in
 - Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). On **worker**, a non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
 - Present but invalid, or selection not found → **worker** `loadConfig()` throws; **web** accepts the env strings without catalog validation.
 - Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side. Model `cost` fields are USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`). Use `0` only for free local models; billed proxies need real rates so cache accounting is not silently free.
+- **OpenCode Zen Muse Spark.** `muse-spark-*` models use the Responses API (`openai-responses` at `https://opencode.ai/zen/v1`). A catalog copied from the completions example is rebound at session start onto native provider `opencode` so Pi's Responses tool-call path runs. Set `OPENCODE_API_KEY`. Muse Spark rejects reasoning `none`; the bind maps thinking `off` to `minimal`.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
   - **Runtime mount:** Compose `./models.json:/app/models.json:ro` (create the host file first — a missing path becomes a directory).
@@ -137,11 +138,12 @@ caps, CI-summary waits, workspace limits) are now code constants in
 
 Loaded by `loadConfig()` into a redaction-safe map and never logged. Set the secret(s) for your `PI_PROVIDER`.
 
-| Env var                        | Purpose            |
-| ------------------------------ | ------------------ |
-| `OPENAI_API_KEY`               | OpenAI provider    |
-| `ANTHROPIC_API_KEY`            | Anthropic provider |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google provider    |
+| Env var                        | Purpose                                                    |
+| ------------------------------ | ---------------------------------------------------------- |
+| `OPENAI_API_KEY`               | OpenAI provider                                            |
+| `ANTHROPIC_API_KEY`            | Anthropic provider                                         |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google provider                                            |
+| `OPENCODE_API_KEY`             | OpenCode Zen (`opencode` and catalog alias `opencode-zen`) |
 
 ---
 

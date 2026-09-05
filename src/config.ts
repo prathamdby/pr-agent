@@ -365,10 +365,13 @@ export async function loadConfig() {
 
   const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
   const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
+  const openCodeApiKey = optionalEnv(EXTERNAL_ENV.OPENCODE_API_KEY, "");
   const modelProviderKeys = {
     openai: optionalEnv(EXTERNAL_ENV.OPENAI_API_KEY, ""),
     anthropic: optionalEnv(EXTERNAL_ENV.ANTHROPIC_API_KEY, ""),
     google: optionalEnv(EXTERNAL_ENV.GOOGLE_GENERATIVE_AI_API_KEY, ""),
+    opencode: openCodeApiKey,
+    "opencode-zen": openCodeApiKey,
   };
 
   const providerPromptTimeoutMs = readPositiveNumber(
