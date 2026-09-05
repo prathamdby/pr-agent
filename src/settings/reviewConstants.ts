@@ -197,6 +197,10 @@ export const REVIEW_CI_SUMMARY_GRANT_ACTIONS =
 
 /** Generic CI row when status fetch fails for a non-permission reason. */
 export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
+
+/** CI row when the retrieved check-run list is truncated and no failure is known. */
+export const REVIEW_CI_SUMMARY_INCOMPLETE =
+  "CI results are incomplete; additional checks were not retrieved.";
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max findings accepted from one specialist report. */

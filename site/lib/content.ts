@@ -9,7 +9,7 @@ type FeatureItem = {
 export const HERO_HEADING = "PR Agent: AI PR reviews on your own servers";
 
 export const HERO_SUPPORT =
-  "Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model keys, your code never leaves.";
+  "Same first pass every PR gets, without a per-seat bill. You run the service and Postgres, and you own the GitHub App credentials and model keys. Model-backed work sends the review context to the provider you configure.";
 
 export const HERO_CTA_NOTE = "MIT licensed. Hosting and AI usage on you.";
 
@@ -144,7 +144,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "How does PR Agent compare to Greptile?",
     answer:
-      "Greptile is a cloud reviewer that indexes whole repositories. PR Agent is self-hosted and looks at each pull request from the branch and what changed. Pick it when you want the review data and models under your control, not another managed subscription.",
+      "Greptile is a cloud reviewer that indexes whole repositories. PR Agent is self-hosted and looks at each pull request from the branch and what changed. Pick it when you want to run the reviewer and choose the model provider, not another managed subscription.",
   },
   {
     question: "Does PR Agent replace Cursor Bugbot?",
@@ -183,7 +183,7 @@ export const ALTERNATIVE_ROWS: AlternativeRow[] = [
   {
     name: "PR Agent",
     deployment: "Self-hosted, MIT-licensed",
-    differentiator: "You run the reviewer, hold the model keys, and keep the review data.",
+    differentiator: "You run the reviewer, hold the model keys, and choose the model provider.",
   },
   {
     name: "CodeRabbit",

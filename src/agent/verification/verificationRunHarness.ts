@@ -1,4 +1,5 @@
 import type { Config } from "../../config.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import {
   runStructuredAgentLoop,
@@ -28,7 +29,7 @@ export async function runVerificationHarness(params: {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  readonly rootDir: string;
+  readonly workspace: LocalPrWorkspace;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly compareFilesTruncated?: boolean;
@@ -40,7 +41,7 @@ export async function runVerificationHarness(params: {
   const session = await createFeaturePiSession({
     role: "verification",
     cfg,
-    cwd: params.rootDir,
+    cwd: params.workspace.agentCwd,
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,

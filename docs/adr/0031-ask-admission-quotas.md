@@ -31,7 +31,20 @@ workers, repositories, or installations.
    installation window resets on elapsed wall-clock time regardless of
    outstanding reservations. A reservation that straddles the reset stays
    reserved against the new window and is never charged to two windows.
-5. A rejected ask creates no work item or ask queue job. Intake sends a static
+5. Known provider usage is keyed by a server-owned execution id for one
+   model-backed ask computation, not by work-item id or claim attempt count.
+   Replaying the same receipt is a no-op. A new computation after retry writes a
+   new receipt and adds its tokens. Conflicting finals for one execution are an
+   accounting error and leave the prior charge unchanged. Reservation conversion
+   happens once; later receipts add usage only. A delayed valid receipt after
+   terminal release does not reopen outstanding work. If the terminal trigger
+   already charged unknown usage in the current window, the first receipt
+   replaces that stand-in. Receipts that arrive after the window resets do not
+   move that settled charge into the new window. Existing `provider_tokens_used`
+   values remain the upgrade baseline. The migration does not invent historical
+   execution rows. Receipts store only work-item id, execution id, and tokens.
+   They cascade when the work item is deleted.
+6. A rejected ask creates no work item or ask queue job. Intake sends a static
    reply through the high-priority acknowledgement queue. Quota bucket state is
    retained in Postgres and inactive rows are removed by the normal retention
    sweep.

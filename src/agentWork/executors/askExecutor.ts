@@ -34,7 +34,7 @@ import {
   askReplyOperationKey,
   withOperationIntent,
 } from "../withOperationIntent.js";
-import { recordAskProviderUsage } from "../askQuota.js";
+import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
@@ -418,6 +418,7 @@ export async function executeAskJob(
                   0,
                 )
               : null;
+          const executionId = createAskExecutionId();
           const result = await runAskRun({
             cfg,
             prSurface,
@@ -442,6 +443,7 @@ export async function executeAskJob(
           });
           await recordAskProviderUsage(pool, {
             workItemId: item.id,
+            executionId,
             usage: result.usage,
           });
           if (!(await askReplyPublished())) {

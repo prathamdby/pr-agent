@@ -3,10 +3,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import {
   admitAsk,
+  createAskExecutionId,
   defaultAskQuotaConfig,
   recordAskProviderUsage,
   type AskQuotaConfig,
 } from "../../src/agentWork/askQuota.js";
+import { AppError } from "../../src/errors/appError.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
@@ -287,6 +289,7 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
 
     await recordAskProviderUsage(pool, {
       workItemId: firstId,
+      executionId: createAskExecutionId(),
       usage: { estimated: false, totalTokens: 4 },
     });
     const afterExactUsage = await admitAndInsert(randomUUID(), 8, config);
@@ -376,5 +379,326 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
       reserved_provider_tokens: 4,
       released_at: null,
     });
+  });
+
+  it("accounts distinct executions once and refuses a later reservation", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    };
+    const workItemId = randomUUID();
+    await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+
+    const firstExecution = createAskExecutionId();
+    const secondExecution = createAskExecutionId();
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: firstExecution,
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: secondExecution,
+      usage: { estimated: false, totalTokens: 9 },
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: firstExecution,
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: secondExecution,
+      usage: { estimated: false, totalTokens: 9 },
+    });
+
+    const bucket = await pool.query<{
+      provider_tokens_used: number;
+      provider_tokens_reserved: number;
+    }>(
+      `SELECT provider_tokens_used::int AS provider_tokens_used,
+              provider_tokens_reserved::int AS provider_tokens_reserved
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+    expect(bucket.rows[0]).toEqual({
+      provider_tokens_used: 13,
+      provider_tokens_reserved: 0,
+    });
+
+    await expect(admitAndInsert(randomUUID(), 8, config)).resolves.toEqual({
+      kind: "throttled",
+      reason: "provider_budget",
+    });
+  });
+
+  it("serializes duplicate receipts and counts distinct concurrent executions", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 20,
+      askProviderReservationTokens: 6,
+    };
+    const duplicateId = randomUUID();
+    const distinctId = randomUUID();
+    await expect(admitAndInsert(duplicateId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+    await expect(admitAndInsert(distinctId, 8, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+
+    const duplicateExecution = createAskExecutionId();
+    await Promise.all([
+      recordAskProviderUsage(pool, {
+        workItemId: duplicateId,
+        executionId: duplicateExecution,
+        usage: { estimated: false, totalTokens: 4 },
+      }),
+      recordAskProviderUsage(pool, {
+        workItemId: duplicateId,
+        executionId: duplicateExecution,
+        usage: { estimated: false, totalTokens: 4 },
+      }),
+    ]);
+
+    const firstExecution = createAskExecutionId();
+    const secondExecution = createAskExecutionId();
+    await Promise.all([
+      recordAskProviderUsage(pool, {
+        workItemId: distinctId,
+        executionId: firstExecution,
+        usage: { estimated: false, totalTokens: 4 },
+      }),
+      recordAskProviderUsage(pool, {
+        workItemId: distinctId,
+        executionId: secondExecution,
+        usage: { estimated: false, totalTokens: 9 },
+      }),
+    ]);
+
+    const used = await pool.query<{
+      work_item_id: string;
+      provider_tokens_used: number;
+    }>(
+      `SELECT work_item_id, provider_tokens_used::int AS provider_tokens_used
+         FROM ask_quota_reservations
+        WHERE work_item_id IN ($1, $2)
+        ORDER BY provider_tokens_used`,
+      [duplicateId, distinctId],
+    );
+    expect(used.rows).toEqual([
+      { work_item_id: duplicateId, provider_tokens_used: 4 },
+      { work_item_id: distinctId, provider_tokens_used: 13 },
+    ]);
+  });
+
+  it("rejects a conflicting final report without changing the prior charge", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    };
+    const workItemId = randomUUID();
+    const executionId = createAskExecutionId();
+    await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId,
+      usage: { estimated: false, totalTokens: 4 },
+    });
+
+    await expect(
+      recordAskProviderUsage(pool, {
+        workItemId,
+        executionId,
+        usage: { estimated: false, totalTokens: 9 },
+      }),
+    ).rejects.toBeInstanceOf(AppError);
+
+    const bucket = await pool.query<{ provider_tokens_used: number }>(
+      `SELECT provider_tokens_used::int AS provider_tokens_used
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+    expect(bucket.rows[0]?.provider_tokens_used).toBe(4);
+  });
+
+  it("reconciles a delayed receipt without reopening outstanding work", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    };
+    const workItemId = randomUUID();
+    await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'completed', completed_at = now(), updated_at = now()
+        WHERE id = $1`,
+      [workItemId],
+    );
+
+    const before = await pool.query<{
+      outstanding_count: number;
+      provider_tokens_used: number;
+    }>(
+      `SELECT outstanding_count, provider_tokens_used::int AS provider_tokens_used
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+    expect(before.rows[0]).toMatchObject({
+      outstanding_count: 0,
+      provider_tokens_used: 6,
+    });
+
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 9 },
+    });
+
+    const after = await pool.query<{
+      outstanding_count: number;
+      provider_tokens_used: number;
+      provider_tokens_reserved: number;
+    }>(
+      `SELECT outstanding_count,
+              provider_tokens_used::int AS provider_tokens_used,
+              provider_tokens_reserved::int AS provider_tokens_reserved
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+    expect(after.rows[0]).toEqual({
+      outstanding_count: 0,
+      provider_tokens_used: 13,
+      provider_tokens_reserved: 0,
+    });
+  });
+
+  it("keeps a conservative charge in an expired window off the new window", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    };
+    const workItemId = randomUUID();
+    await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'completed', completed_at = now(), updated_at = now()
+        WHERE id = $1`,
+      [workItemId],
+    );
+    await pool.query(
+      `UPDATE ask_quota_buckets
+          SET provider_tokens_used = 0,
+              provider_window_started_at = now()
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 9 },
+    });
+
+    const bucket = await pool.query<{
+      provider_tokens_used: number;
+      outstanding_count: number;
+    }>(
+      `SELECT provider_tokens_used::int AS provider_tokens_used,
+              outstanding_count
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+    expect(bucket.rows[0]).toEqual({
+      provider_tokens_used: 0,
+      outstanding_count: 0,
+    });
+  });
+
+  it("adds a new execution on top of a legacy known charge", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 20,
+      askProviderReservationTokens: 6,
+    };
+    const workItemId = randomUUID();
+    await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 4 },
+    });
+    await pool.query(`DELETE FROM ask_quota_execution_receipts WHERE work_item_id = $1`, [
+      workItemId,
+    ]);
+
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 9 },
+    });
+
+    const bucket = await pool.query<{ provider_tokens_used: number }>(
+      `SELECT provider_tokens_used::int AS provider_tokens_used
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      [`installation:${INSTALLATION_ID}`],
+    );
+    expect(bucket.rows[0]?.provider_tokens_used).toBe(13);
+  });
+
+  it("does not apply usage to another installation", async () => {
+    const config: AskQuotaConfig = {
+      ...BASE_QUOTA,
+      askProviderBudgetTokens: 10,
+      askProviderReservationTokens: 6,
+    };
+    const workItemId = randomUUID();
+    await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
+      kind: "admitted",
+    });
+    await recordAskProviderUsage(pool, {
+      workItemId,
+      executionId: createAskExecutionId(),
+      usage: { estimated: false, totalTokens: 4 },
+    });
+
+    const other = await pool.query<{ provider_tokens_used: number }>(
+      `SELECT provider_tokens_used::int AS provider_tokens_used
+         FROM ask_quota_buckets
+        WHERE scope = 'installation' AND scope_key = $1`,
+      ["installation:1"],
+    );
+    expect(other.rows).toEqual([]);
   });
 });

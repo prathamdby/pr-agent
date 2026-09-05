@@ -122,6 +122,7 @@ export type FakePrSurfaceControls = {
     headSha: string,
     status: {
       readonly checkRuns: readonly CiCheckRunSnapshot[];
+      readonly checkRunsComplete?: boolean;
       readonly legacyStatuses: readonly CiLegacyStatus[];
     },
   ) => void;
@@ -337,7 +338,7 @@ export function createFakePrSurface(
     setCiStatus(head, status) {
       ciStatusByHead.set(head, {
         checkRuns: [...status.checkRuns],
-        checkRunsComplete: true,
+        checkRunsComplete: status.checkRunsComplete ?? true,
         legacyStatuses: [...status.legacyStatuses],
       });
       ciStatusError = undefined;

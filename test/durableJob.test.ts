@@ -203,6 +203,12 @@ function defaultMocks() {
   } as Awaited<ReturnType<typeof appAuth.getAppBotIdentity>>);
 }
 
+async function expectNoFurtherLeaseRenewal(): Promise<void> {
+  const renewals = vi.mocked(prActorLease.renewPrActorLease).mock.calls.length;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(prActorLease.renewPrActorLease).toHaveBeenCalledTimes(renewals);
+}
+
 describe("runDurableWorkItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -259,6 +265,11 @@ describe("runDurableWorkItem", () => {
       workType: "review",
       leaseEpoch: 1,
     });
+    const completeOrder = vi.mocked(repo.markWorkCompleted).mock.invocationCallOrder[0];
+    const releaseOrder = vi.mocked(prActorLease.releasePrActorLease).mock.invocationCallOrder[0];
+    expect(completeOrder).toBeDefined();
+    expect(releaseOrder).toBeDefined();
+    expect(completeOrder).toBeLessThan(releaseOrder ?? 0);
   });
 
   it("defers a redelivery without claiming when another work item holds the lease", async () => {
@@ -412,6 +423,11 @@ describe("runDurableWorkItem", () => {
       workType: "review",
       leaseEpoch: 1,
     });
+    const retryOrder = vi.mocked(repo.markWorkRetrying).mock.invocationCallOrder[0];
+    const releaseOrder = vi.mocked(prActorLease.releasePrActorLease).mock.invocationCallOrder[0];
+    expect(retryOrder).toBeDefined();
+    expect(releaseOrder).toBeDefined();
+    expect(retryOrder).toBeLessThan(releaseOrder ?? 0);
   });
 
   it("stops at the next checkpoint without terminalising when the lease is lost mid-run", async () => {
@@ -467,6 +483,16 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
       1,
     );
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 1,
+    });
+    const failOrder = vi.mocked(repo.markWorkFailed).mock.invocationCallOrder[0];
+    const releaseOrder = vi.mocked(prActorLease.releasePrActorLease).mock.invocationCallOrder[0];
+    expect(failOrder).toBeDefined();
+    expect(releaseOrder).toBeDefined();
+    expect(failOrder).toBeLessThan(releaseOrder ?? 0);
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -502,6 +528,11 @@ describe("runDurableWorkItem", () => {
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 1,
+    });
   });
 
   it("terminalizes running work when payload is JSON null after claim", async () => {
@@ -588,6 +619,121 @@ describe("runDurableWorkItem", () => {
       workType: "review",
       leaseEpoch: 1,
     });
+  });
+
+  it("releases the owned epoch and stops renewal when claim rejects", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    const claimError = new Error("claim unavailable");
+    vi.mocked(repo.claimWorkForExecution).mockRejectedValue(claimError);
+    const execute = vi.fn();
+
+    await expect(
+      runReviewWorkItem({
+        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+        execute,
+      }),
+    ).rejects.toBe(claimError);
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 1,
+    });
+    await expectNoFurtherLeaseRenewal();
+  });
+
+  it("releases the owned epoch and stops renewal when payload read rejects", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    const payloadError = new Error("payload unavailable");
+    vi.mocked(repo.getWorkItemPayload).mockRejectedValue(payloadError);
+    const execute = vi.fn();
+
+    await expect(
+      runReviewWorkItem({
+        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+        execute,
+      }),
+    ).rejects.toBe(payloadError);
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 1,
+    });
+    await expectNoFurtherLeaseRenewal();
+  });
+
+  it("cleans up after a malformed payload when the terminal write and release reject", async () => {
+    const item = makeItem();
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue({ question: "not-a-review-payload" });
+    const markError = new Error("mark failed");
+    const releaseError = new Error("release failed");
+    vi.mocked(repo.markWorkFailed).mockRejectedValue(markError);
+    vi.mocked(prActorLease.releasePrActorLease).mockRejectedValue(releaseError);
+    const execute = vi.fn();
+
+    await expect(
+      runReviewWorkItem({
+        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+        execute,
+      }),
+    ).rejects.toThrow(/Invalid review work item payload/);
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
+      1,
+    );
+    expect(evlog.logWarn).toHaveBeenCalledWith(
+      "agent_work_failed_mark_failed",
+      expect.objectContaining({
+        workItemId: "wi-1",
+        message: expect.stringMatching(/mark failed/),
+      }),
+    );
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
+    expect(evlog.logWarn).toHaveBeenCalledWith(
+      "pr_actor_lease_release_failed",
+      expect.objectContaining({
+        workItemId: "wi-1",
+        leaseEpoch: 1,
+        message: expect.stringMatching(/release failed/),
+      }),
+    );
+    await expectNoFurtherLeaseRenewal();
+  });
+
+  it("does not acquire or release a PR actor lease for ask work", async () => {
+    const item = makeAskWorkItem({ status: "queued" });
+    mockFetchedItem(item);
+    const execute = vi.fn().mockResolvedValue(completedResult());
+
+    await runDurableWorkItem({
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "ask",
+      resolveHeadSha: async () => ({ headSha: "x" }),
+      execute,
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(execute.mock.calls[0]?.[1].leaseEpoch).toBeNull();
+    expect(prActorLease.acquirePrActorLease).not.toHaveBeenCalled();
+    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
+    expect(prActorLease.renewPrActorLease).not.toHaveBeenCalled();
   });
 
   it("cancels when payload.commenterId matches bot identity", async () => {
@@ -862,6 +1008,14 @@ describe("runDurableWorkItem", () => {
     expect(itemArg.id).toBe("wi-1");
     expect(surfaceArg).toMatchObject({ owner: "o", repo: "r" });
     expect(errArg).toBe(boom);
+    const failOrder = vi.mocked(repo.markWorkFailed).mock.invocationCallOrder[0];
+    const hookOrder = onTerminalFailure.mock.invocationCallOrder[0];
+    const releaseOrder = vi.mocked(prActorLease.releasePrActorLease).mock.invocationCallOrder[0];
+    expect(failOrder).toBeDefined();
+    expect(hookOrder).toBeDefined();
+    expect(releaseOrder).toBeDefined();
+    expect(failOrder).toBeLessThan(hookOrder ?? 0);
+    expect(hookOrder).toBeLessThan(releaseOrder ?? 0);
   });
 
   it("onTerminalFailure errors are caught (no rethrow)", async () => {

@@ -1,5 +1,5 @@
 import { execFile as execFileCb } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -19,11 +19,13 @@ vi.mock("../src/settings/index.js", async (importOriginal) => {
 });
 
 const credentialHooks = { failAfterWrite: false };
+const allocatedWorkspaceRoots: string[] = [];
 vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.js")>();
   return {
     ...actual,
     async createGitCredentialFiles(rootDir: string, token: string) {
+      allocatedWorkspaceRoots.push(rootDir);
       const created = await actual.createGitCredentialFiles(rootDir, token);
       if (credentialHooks.failAfterWrite) {
         throw new Error("injected credential setup failure");
@@ -36,6 +38,7 @@ vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
 afterEach(() => {
   delete settingsOverrides.maxFetchBytes;
   credentialHooks.failAfterWrite = false;
+  allocatedWorkspaceRoots.length = 0;
 });
 import {
   assertWorkspacePath,
@@ -54,6 +57,15 @@ const execFile = promisify(execFileCb);
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFile("git", args, { cwd });
   return stdout.trim();
+}
+
+async function expectAllocatedWorkspaceRootsRemoved(): Promise<void> {
+  expect(allocatedWorkspaceRoots).not.toEqual([]);
+  await Promise.all(
+    allocatedWorkspaceRoots.map((rootDir) =>
+      expect(stat(rootDir)).rejects.toMatchObject({ code: "ENOENT" }),
+    ),
+  );
 }
 
 async function buildPrFilesFromRepo(
@@ -335,9 +347,6 @@ describe("local PR workspace", () => {
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
         settingsOverrides.maxFetchBytes = 1;
-        const workspaceDirsBefore = new Set(
-          (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
-        );
 
         await expect(
           prepareLocalPrWorkspace({
@@ -351,13 +360,7 @@ describe("local PR workspace", () => {
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
-        const workspaceDirsAfter = (await readdir(tmpdir())).filter((name) =>
-          name.startsWith("pr-agent-workspace-"),
-        );
-        const newlyCreatedDirs = workspaceDirsAfter.filter(
-          (name) => !workspaceDirsBefore.has(name),
-        );
-        expect(newlyCreatedDirs).toEqual([]);
+        await expectAllocatedWorkspaceRootsRemoved();
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -391,9 +394,6 @@ describe("local PR workspace", () => {
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
         settingsOverrides.maxFetchBytes = 1;
-        const workspaceDirsBefore = new Set(
-          (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
-        );
 
         await expect(
           prepareLocalPrWorkspace({
@@ -408,13 +408,7 @@ describe("local PR workspace", () => {
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
-        const workspaceDirsAfter = (await readdir(tmpdir())).filter((name) =>
-          name.startsWith("pr-agent-workspace-"),
-        );
-        const newlyCreatedDirs = workspaceDirsAfter.filter(
-          (name) => !workspaceDirsBefore.has(name),
-        );
-        expect(newlyCreatedDirs).toEqual([]);
+        await expectAllocatedWorkspaceRootsRemoved();
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -493,9 +487,6 @@ describe("local PR workspace", () => {
 
   it("releases root and credential files after injected credential-setup failure", async () => {
     credentialHooks.failAfterWrite = true;
-    const dirsBefore = new Set(
-      (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
-    );
     await expect(
       prepareLocalPrWorkspace({
         owner: "owner",
@@ -506,11 +497,7 @@ describe("local PR workspace", () => {
         prFiles: { files: [], truncated: false, omittedCountLowerBound: 0, totalChanges: 0 },
       }),
     ).rejects.toThrow(/injected credential setup failure/);
-    const dirsAfter = (await readdir(tmpdir())).filter((name) =>
-      name.startsWith("pr-agent-workspace-"),
-    );
-    const newlyCreatedDirs = dirsAfter.filter((name) => !dirsBefore.has(name));
-    expect(newlyCreatedDirs).toEqual([]);
+    await expectAllocatedWorkspaceRootsRemoved();
   });
 });
 

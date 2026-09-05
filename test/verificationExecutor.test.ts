@@ -75,6 +75,7 @@ import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
 const cfg = makeTestConfig();
 const pool = {} as Pool;
 const boss = {} as PgBoss;
+const verificationWorkspace = { agentCwd: "/tmp/view" };
 
 function item(overrides: Parameters<typeof makeVerificationWorkItem>[0] = {}) {
   return makeVerificationWorkItem({
@@ -173,7 +174,11 @@ describe("executeVerificationJob", () => {
     durablePrSurfaceControls().setBotFindingThreads([]);
     mocks.withPrRepositoryView.mockImplementation(
       async (_params: unknown, run: (view: unknown) => Promise<unknown>) =>
-        run({ agentCwd: "/tmp/view", workspace: {}, preflight: {} }),
+        run({
+          agentCwd: verificationWorkspace.agentCwd,
+          workspace: verificationWorkspace,
+          preflight: {},
+        }),
     );
     mocks.runVerification.mockResolvedValue({
       submitted: true,
@@ -235,10 +240,12 @@ describe("executeVerificationJob", () => {
     expect(mocks.withPrRepositoryView).toHaveBeenCalled();
     expect(mocks.runVerification).toHaveBeenCalledWith(
       expect.objectContaining({
+        workspace: verificationWorkspace,
         inventory: [expect.objectContaining({ rootCommentId: 1 })],
         pushedCommits: expect.arrayContaining([expect.objectContaining({ sha: "b".repeat(40) })]),
       }),
     );
+    expect(mocks.runVerification.mock.calls[0]?.[0]).not.toHaveProperty("rootDir");
     expect(mocks.loadRepoPolicy).toHaveBeenCalledWith("/tmp/view", expect.any(Number));
     expect(mocks.publishVerification).toHaveBeenCalledWith(
       expect.objectContaining({
