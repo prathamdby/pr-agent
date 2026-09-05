@@ -497,9 +497,7 @@ describe("local workspace tools", () => {
         matches: Array<{ path: string; line: number; text: string }>;
       };
 
-      expect(out.matches).toEqual([
-        { path: "src/my file.ts", line: 1, text: "const needle = 1;" },
-      ]);
+      expect(out.matches).toEqual([{ path: "src/my file.ts", line: 1, text: "const needle = 1;" }]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

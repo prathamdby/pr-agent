@@ -375,16 +375,7 @@ async function gitGrepWorkspaceChunk(
   try {
     // Omit `--max-count`; some supported Git builds reject it. Result and byte caps stay after parse.
     const { stdout } = await execGit(
-      [
-        "grep",
-        "-nF",
-        "-I",
-        "-z",
-        "-e",
-        params.query,
-        "--",
-        ...pathspecs,
-      ],
+      ["grep", "-nF", "-I", "-z", "-e", params.query, "--", ...pathspecs],
       {
         cwd: workspace.privateGitDir,
         timeoutMs: params.timeoutMs,
