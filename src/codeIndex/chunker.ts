@@ -10,7 +10,7 @@ export type CodeIndexChunk = {
   readonly contentHash: Buffer;
 };
 
-export type ChunkFileContent = {
+type ChunkFileContent = {
   readonly path: string;
   readonly content: string;
 };

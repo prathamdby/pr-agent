@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { VerificationFailureSurface } from "../agent/verification/verificationFailureSignal.js";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
+import { getLatestCompletedPublishStepDetail } from "./publishRecordRepository.js";
 import { recordPublishStep } from "./repository.js";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
@@ -118,17 +119,13 @@ export async function loadVerificationThreadLedger(
     readonly resourceKey: string;
   },
 ): Promise<VerificationThreadLedger> {
-  const row = await pool.query<{ detail: unknown }>(
-    `SELECT detail
-       FROM publish_records
-      WHERE resource_key = $1
-        AND review_lens = $2
-        AND step = $3
-        AND status = 'completed'
-      LIMIT 1`,
-    [params.resourceKey, VERIFICATION_PUBLISH_LENS, VERIFICATION_THREAD_ACTIONS_STEP],
+  const detail = await getLatestCompletedPublishStepDetail(
+    pool,
+    params.resourceKey,
+    VERIFICATION_PUBLISH_LENS,
+    VERIFICATION_THREAD_ACTIONS_STEP,
   );
-  return parseVerificationThreadLedger(row.rows[0]?.detail);
+  return parseVerificationThreadLedger(detail);
 }
 
 export async function saveVerificationThreadLedger(

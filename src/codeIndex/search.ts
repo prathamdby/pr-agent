@@ -1,7 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { CODE_INDEX_MAX_RESULTS, CODE_INDEX_PREVIEW_MAX_CHARS } from "../settings/index.js";
 
-export type CodeIndexSearchHint = {
+type CodeIndexSearchHint = {
   readonly path: string;
   readonly startLine: number;
   readonly endLine: number;

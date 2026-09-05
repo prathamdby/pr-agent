@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { mkdir, statfs } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import type { BotIdentity } from "../github/appAuth.js";
 import { AppError } from "../errors/appError.js";
@@ -23,7 +23,14 @@ import {
   cleanupStaleLocalPrWorkspaces,
   stripWorkspaceSymlinks,
 } from "./localPrWorkspace.js";
-import { allocateWorkspaceResource, WRITABLE_WORKSPACE_ROOT_PREFIX } from "./workspaceResource.js";
+import {
+  allocateWorkspaceResource,
+  WRITABLE_WORKSPACE_ROOT_PREFIX,
+  assertGitSha,
+  assertGitRepoPart,
+  ensureWorkspaceFreeSpaceAfterSweep,
+  gitCountObjectsStoreBytes,
+} from "./workspaceResource.js";
 
 const exec = promisify(execFile);
 
@@ -182,26 +189,6 @@ function validateGitPerson(person: GitPerson, field: string): void {
   }
 }
 
-function assertSha(value: string, field: string): void {
-  if (!/^[0-9a-f]{40}$/i.test(value)) {
-    throw new AppError({
-      code: "pr_workspace.invalid_sha",
-      message: `${field} must be a 40-character SHA`,
-      context: { field },
-    });
-  }
-}
-
-function assertRepoPart(value: string, field: string): void {
-  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
-    throw new AppError({
-      code: "pr_workspace.unsafe_repo_part",
-      message: `${field} is not git-safe`,
-      context: { field },
-    });
-  }
-}
-
 function assertHeadRef(value: string): void {
   if (
     value.startsWith("/") ||
@@ -331,14 +318,7 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
     });
   }
   for (const file of normalized) {
-    const resolved = assertWorkspacePath(root, file);
-    if (!resolved.startsWith(root + sep) && resolved !== root) {
-      throw new AppError({
-        code: "pr_workspace.path_traversal",
-        message: `Path traversal attempt detected: ${file}`,
-        context: { path: file },
-      });
-    }
+    assertWorkspacePath(root, file);
     if (
       SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(file)) ||
       isTriageControlPath(file)
@@ -360,45 +340,6 @@ function changedLineCount(diff: string): number {
     .length;
 }
 
-async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
-  const fs = await statfs(dir);
-  const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
-  if (freeBytes < BigInt(minBytes)) {
-    throw new AppError({
-      code: "pr_workspace.insufficient_free_space",
-      message: "Insufficient free space for writable checkout",
-      context: { minBytes },
-    });
-  }
-}
-
-async function ensureWritableCheckoutMinFreeSpace(dir: string, minBytes: number): Promise<void> {
-  try {
-    await ensureFreeSpace(dir, minBytes);
-  } catch (error) {
-    if (!(error instanceof AppError && error.code === "pr_workspace.insufficient_free_space")) {
-      throw error;
-    }
-    await cleanupStaleLocalPrWorkspaces();
-    await ensureFreeSpace(dir, minBytes);
-  }
-}
-
-function gitObjectStoreBytes(countObjectsOutput: string): number {
-  let sizeKiB = 0;
-  let sizePackKiB = 0;
-  for (const line of countObjectsOutput.split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) continue;
-    const key = line.slice(0, colon).trim();
-    const value = Number(line.slice(colon + 1).trim());
-    if (Number.isNaN(value)) continue;
-    if (key === "size") sizeKiB = value;
-    if (key === "size-pack") sizePackKiB = value;
-  }
-  return (sizeKiB + sizePackKiB) * 1024;
-}
-
 function classifyPushError(error: unknown): never {
   const text =
     error instanceof Error
@@ -415,11 +356,16 @@ export async function withWritablePrCheckout<T>(
   fn: (checkout: WritablePrCheckout) => Promise<T>,
 ): Promise<T> {
   const { owner, repo, headRef, headSha, installationToken, botIdentity } = params;
-  assertRepoPart(owner, "owner");
-  assertRepoPart(repo, "repo");
+  assertGitRepoPart(owner, "owner");
+  assertGitRepoPart(repo, "repo");
   assertHeadRef(headRef);
-  assertSha(headSha, "headSha");
-  await ensureWritableCheckoutMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
+  assertGitSha(headSha, "headSha");
+  await ensureWorkspaceFreeSpaceAfterSweep(
+    tmpdir(),
+    LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
+    "Insufficient free space for writable checkout",
+    cleanupStaleLocalPrWorkspaces,
+  );
 
   const resource = await allocateWorkspaceResource({
     prefix: WRITABLE_WORKSPACE_ROOT_PREFIX,
@@ -474,7 +420,7 @@ export async function withWritablePrCheckout<T>(
       ["count-objects", "-v"],
       LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
-    if (gitObjectStoreBytes(objectStats) > LOCAL_WORKSPACE_MAX_FETCH_BYTES) {
+    if (gitCountObjectsStoreBytes(objectStats) > LOCAL_WORKSPACE_MAX_FETCH_BYTES) {
       throw new AppError({
         code: "pr_workspace.fetch_too_large",
         message: `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${LOCAL_WORKSPACE_MAX_FETCH_BYTES})`,

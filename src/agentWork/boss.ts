@@ -25,6 +25,17 @@ import type { QueueConfig } from "./types.js";
 
 type BossConfig = Pick<Config, "databaseUrl" | "role">;
 
+/** Dead-letter queues created at boot. Diagnostics import this list. */
+export const AGENT_DEAD_LETTER_QUEUES = [
+  ACK_DEAD_LETTER_QUEUE,
+  REVIEW_DEAD_LETTER_QUEUE,
+  ASK_DEAD_LETTER_QUEUE,
+  DESCRIPTION_DEAD_LETTER_QUEUE,
+  TRIAGE_DEAD_LETTER_QUEUE,
+  VERIFICATION_DEAD_LETTER_QUEUE,
+  CI_REFRESH_DEAD_LETTER_QUEUE,
+] as const;
+
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {
     retryLimit: cfg.queueRetryLimit,
@@ -67,16 +78,7 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     retentionSeconds: cfg.queueRetentionSeconds,
   };
   // DLQ rows are archival only; no workers subscribe to these queue names.
-  const deadLetterQueues = [
-    ACK_DEAD_LETTER_QUEUE,
-    REVIEW_DEAD_LETTER_QUEUE,
-    ASK_DEAD_LETTER_QUEUE,
-    DESCRIPTION_DEAD_LETTER_QUEUE,
-    TRIAGE_DEAD_LETTER_QUEUE,
-    VERIFICATION_DEAD_LETTER_QUEUE,
-    CI_REFRESH_DEAD_LETTER_QUEUE,
-  ] as const;
-  await Promise.all(deadLetterQueues.map((name) => boss.createQueue(name, dlq)));
+  await Promise.all(AGENT_DEAD_LETTER_QUEUES.map((name) => boss.createQueue(name, dlq)));
 
   // All work queues use the standard policy: per-PR mutual exclusion is owned by the
   // pr_actor_leases table, not by pg-boss queue policies.

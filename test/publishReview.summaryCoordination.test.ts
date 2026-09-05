@@ -27,7 +27,7 @@ vi.mock("../src/evlog.js", async (importOriginal) => {
 import {
   attachSummaryCommentCoordination,
   upsertSummaryCommentWithCreationClaim,
-} from "../src/review/publish/publishSummaryOnly.js";
+} from "../src/review/publish/summaryCommentUpsert.js";
 import {
   claimSummaryCommentCreation,
   getProgressCommentOwner,

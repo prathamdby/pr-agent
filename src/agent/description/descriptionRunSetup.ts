@@ -70,12 +70,7 @@ export function buildDescriptionRunSetup(params: {
 
   let submitBundle = buildSubmit();
   const executors = { ...localTools.executors };
-  executors.submitDescription = async (args) => {
-    if (submitState.published) {
-      return { ok: true, duplicate: true };
-    }
-    return submitBundle.executor(args);
-  };
+  executors.submitDescription = async (args) => submitBundle.executor(args);
 
   const refreshBeforeTool = async (toolName: string) => {
     if (toolName === "submitDescription") {

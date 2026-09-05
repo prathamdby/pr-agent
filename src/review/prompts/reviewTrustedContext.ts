@@ -17,55 +17,6 @@ import type { PrSurface } from "../../github/prSurface.js";
 import { formatPriorInlineFeedbackBlock } from "../run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
-function buildTrustedReviewContextBlock(
-  metadata: ReviewPreflightMetadata,
-  extras?: {
-    priorInlineFeedback?: string;
-    findingHistoryTrustedBlock?: string;
-    repoPolicyBlock?: string;
-    agentInstructionFilesBlock?: string;
-    checkoutCoverage?: CheckoutCoverage;
-    symbolIndexStatus?: SymbolIndexStatus;
-    codeIndexStatus?: CodeIndexPrepareResult;
-  },
-): string {
-  const filenames = metadata.files.map((file) => file.filename);
-  const pathProfile = buildReviewPathProfile(filenames);
-  const sizeBudget = buildReviewSizeBudget({
-    fileCount: metadata.fileCount,
-    totalChanges: metadata.totalChanges,
-    truncated: metadata.truncated,
-  });
-
-  const blocks = [
-    formatReviewPathProfileBlock(pathProfile),
-    "",
-    formatReviewSizeBudgetBlock(sizeBudget),
-  ];
-  if (extras?.checkoutCoverage) {
-    blocks.push("", formatCheckoutCoverageBlock(extras.checkoutCoverage));
-  }
-  if (extras?.symbolIndexStatus) {
-    blocks.push("", formatSymbolIndexStatusLine(extras.symbolIndexStatus));
-  }
-  if (extras?.codeIndexStatus) {
-    blocks.push("", formatCodeIndexStatusLine(extras.codeIndexStatus));
-  }
-  if (extras?.priorInlineFeedback) {
-    blocks.push("", extras.priorInlineFeedback);
-  }
-  if (extras?.findingHistoryTrustedBlock) {
-    blocks.push("", extras.findingHistoryTrustedBlock);
-  }
-  if (extras?.repoPolicyBlock) {
-    blocks.push("", extras.repoPolicyBlock);
-  }
-  if (extras?.agentInstructionFilesBlock) {
-    blocks.push("", extras.agentInstructionFilesBlock);
-  }
-  return blocks.join("\n");
-}
-
 export function buildTrustedReviewContextForReview(params: {
   preflight: ReviewPreflightMetadata;
   priorInlineFeedback?: string;
@@ -76,15 +27,41 @@ export function buildTrustedReviewContextForReview(params: {
   symbolIndexStatus?: SymbolIndexStatus;
   codeIndexStatus?: CodeIndexPrepareResult;
 }): string {
-  return buildTrustedReviewContextBlock(params.preflight, {
-    priorInlineFeedback: params.priorInlineFeedback,
-    findingHistoryTrustedBlock: params.findingHistoryTrustedBlock,
-    repoPolicyBlock: params.repoPolicyBlock,
-    agentInstructionFilesBlock: params.agentInstructionFilesBlock,
-    checkoutCoverage: params.checkoutCoverage,
-    symbolIndexStatus: params.symbolIndexStatus,
-    codeIndexStatus: params.codeIndexStatus,
+  const filenames = params.preflight.files.map((file) => file.filename);
+  const pathProfile = buildReviewPathProfile(filenames);
+  const sizeBudget = buildReviewSizeBudget({
+    fileCount: params.preflight.fileCount,
+    totalChanges: params.preflight.totalChanges,
+    truncated: params.preflight.truncated,
   });
+
+  const blocks = [
+    formatReviewPathProfileBlock(pathProfile),
+    "",
+    formatReviewSizeBudgetBlock(sizeBudget),
+  ];
+  if (params.checkoutCoverage) {
+    blocks.push("", formatCheckoutCoverageBlock(params.checkoutCoverage));
+  }
+  if (params.symbolIndexStatus) {
+    blocks.push("", formatSymbolIndexStatusLine(params.symbolIndexStatus));
+  }
+  if (params.codeIndexStatus) {
+    blocks.push("", formatCodeIndexStatusLine(params.codeIndexStatus));
+  }
+  if (params.priorInlineFeedback) {
+    blocks.push("", params.priorInlineFeedback);
+  }
+  if (params.findingHistoryTrustedBlock) {
+    blocks.push("", params.findingHistoryTrustedBlock);
+  }
+  if (params.repoPolicyBlock) {
+    blocks.push("", params.repoPolicyBlock);
+  }
+  if (params.agentInstructionFilesBlock) {
+    blocks.push("", params.agentInstructionFilesBlock);
+  }
+  return blocks.join("\n");
 }
 
 export async function fetchPriorInlineFeedbackBlockForReview(params: {

@@ -8,7 +8,7 @@
 
 const WILDCARD = "*/*";
 
-export type AcceptEntry = {
+type AcceptEntry = {
   /** Lowercased media range: `text/markdown`, `text/*`, or the catch-all. */
   readonly type: string;
   /** Quality factor, clamped to [0, 1]. Absent or unparseable means 1. */

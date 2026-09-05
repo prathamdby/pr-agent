@@ -25,7 +25,6 @@ import {
   getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
-export type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 
 export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   const { cfg, question, replyTarget } = params;

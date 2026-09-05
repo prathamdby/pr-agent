@@ -8,8 +8,6 @@ import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../
 import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
 
-export { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
-
 export type DescriptionRenderContext = GitHubPullRequestFileContext;
 
 function renderReviewMap(

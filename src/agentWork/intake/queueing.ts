@@ -72,6 +72,19 @@ async function requireBossJobSend(
   }
 }
 
+async function enqueueLeasedWork(
+  boss: PgBoss,
+  client: PoolClient,
+  ref: PrRef,
+  queue: string,
+  data: object,
+): Promise<void> {
+  await requireBossJobSend(boss, queue, data, {
+    db: pgBossDb(client),
+    group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
 /**
  * Send a job with a deterministic id.
  * `null` from pg-boss means the job already exists — treat as success.
@@ -123,10 +136,7 @@ export async function enqueueReview(
   correlation: JobCorrelation,
 ): Promise<void> {
   const data: ReviewJobData = { kind: "review", workItemId, ...correlation };
-  await requireBossJobSend(boss, REVIEW_QUEUE, data, {
-    db: pgBossDb(client),
-    group: { id: installationGroupId(ref.installationId) },
-  });
+  await enqueueLeasedWork(boss, client, ref, REVIEW_QUEUE, data);
 }
 
 export async function enqueueAsk(
@@ -157,10 +167,7 @@ export async function enqueueDescription(
     workItemId,
     ...correlation,
   };
-  await requireBossJobSend(boss, DESCRIPTION_QUEUE, data, {
-    db: pgBossDb(client),
-    group: { id: installationGroupId(ref.installationId) },
-  });
+  await enqueueLeasedWork(boss, client, ref, DESCRIPTION_QUEUE, data);
 }
 
 export async function enqueueTriage(
@@ -175,10 +182,7 @@ export async function enqueueTriage(
     workItemId,
     ...correlation,
   };
-  await requireBossJobSend(boss, TRIAGE_QUEUE, data, {
-    db: pgBossDb(client),
-    group: { id: installationGroupId(ref.installationId) },
-  });
+  await enqueueLeasedWork(boss, client, ref, TRIAGE_QUEUE, data);
 }
 
 export async function enqueueVerification(
@@ -193,10 +197,7 @@ export async function enqueueVerification(
     workItemId,
     ...correlation,
   };
-  await requireBossJobSend(boss, VERIFICATION_QUEUE, data, {
-    db: pgBossDb(client),
-    group: { id: installationGroupId(ref.installationId) },
-  });
+  await enqueueLeasedWork(boss, client, ref, VERIFICATION_QUEUE, data);
 }
 
 function ciRefreshSendOptions(

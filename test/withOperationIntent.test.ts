@@ -13,7 +13,6 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
 vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
   findCompletedPublishRecordId: vi.fn(),
   reconcilePendingIntents: vi.fn(),
-  intentDetailMatchesPublishRecord: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/prActorLease.js", () => ({

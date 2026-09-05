@@ -25,17 +25,6 @@ function builtinPiApi(piProvider: string, piModel: string): string {
   });
 }
 
-export function assertBuiltinPiProvider(piProvider: string): void {
-  const providers = getProviders() as readonly string[];
-  if (!providers.includes(piProvider)) {
-    throw new AppError({
-      code: "settings.models_json_unknown_provider",
-      message: `PI_PROVIDER "${piProvider}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
-      context: { piProvider, providers: providers.slice(0, 12) },
-    });
-  }
-}
-
 /**
  * Validate PI_PROVIDER / PI_MODEL against built-ins, or built-ins ∪ models.json when present.
  * Returns the resolved Pi `api` type for AssistantMessage stubs.

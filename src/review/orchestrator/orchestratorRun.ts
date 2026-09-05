@@ -234,6 +234,14 @@ export async function runOrchestratedPrReview(
     pool: params.durability?.pool,
     codeIndexSnapshotId: params.codeIndexSnapshotId,
   });
+  const publishCtx = {
+    owner: params.owner,
+    repo: params.repo,
+    prNumber: params.prNumber,
+    headSha: params.headSha,
+    hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
+  };
+  const sessionCwd = params.cwd ?? params.workspace.agentCwd;
   const phaseRef = createOrchestratorPhaseRef("recon");
   const briefTool = buildSpecialistBriefTool(phaseRef);
   const state = initialState();
@@ -265,13 +273,7 @@ export async function runOrchestratedPrReview(
   };
   const publishThread = buildPublishThreadTool({
     phaseRef,
-    ctx: {
-      owner: params.owner,
-      repo: params.repo,
-      prNumber: params.prNumber,
-      headSha: params.headSha,
-      hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
-    },
+    ctx: publishCtx,
     workItemId: params.workItemId,
     resolveProgressCommentUrl,
     prSurface: setup.prSurface,
@@ -317,13 +319,7 @@ export async function runOrchestratedPrReview(
   const publishSummary = buildPublishSummaryTool({
     phaseRef,
     cfg: params.cfg,
-    ctx: {
-      owner: params.owner,
-      repo: params.repo,
-      prNumber: params.prNumber,
-      headSha: params.headSha,
-      hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
-    },
+    ctx: publishCtx,
     prSurface: setup.prSurface,
 
     remainingFinalizationMs: params.timing.remainingTotalMs,
@@ -357,7 +353,7 @@ export async function runOrchestratedPrReview(
     sessionCreation = createFeaturePiSession({
       role: "orchestrator",
       cfg: params.cfg,
-      cwd: params.cwd ?? params.workspace.agentCwd,
+      cwd: sessionCwd,
       systemPrompt: orchestratorSystemPrompt,
       tools: allTools,
       executors: allExecutors,
@@ -519,16 +515,7 @@ export async function runOrchestratedPrReview(
         };
       }
       if (gate.kind === "stop") {
-        state.lifecycle =
-          gate.reason === "cancelled"
-            ? {
-                kind: "stopped",
-                reason: "cancelled",
-                attribution: gate.attribution,
-              }
-            : { kind: "stopped", reason: gate.reason };
-        abortSpecialists();
-        await retireSession();
+        await stopFromGateResult(gate);
         return {
           kind: "failed",
           error: new AppError({
@@ -847,13 +834,7 @@ export async function runOrchestratedPrReview(
     publishAttempts += 1;
     const result = await publishReviewSummaryOnly({
       cfg: params.cfg,
-      ctx: {
-        owner: params.owner,
-        repo: params.repo,
-        prNumber: params.prNumber,
-        headSha: params.headSha,
-        hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
-      },
+      ctx: publishCtx,
       prSurface: setup.prSurface,
 
       remainingFinalizationMs: params.timing.remainingTotalMs,
@@ -948,7 +929,7 @@ export async function runOrchestratedPrReview(
         specialist,
         runSpecialist({
           cfg: params.cfg,
-          cwd: params.cwd ?? params.workspace.agentCwd,
+          cwd: sessionCwd,
           specialist,
           briefMessage: renderBriefMessage(
             brief,

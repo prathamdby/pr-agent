@@ -4,26 +4,20 @@ import type { PgBoss } from "pg-boss";
 import { captureEvent } from "../analytics/index.js";
 import { logDebug, logWarn } from "../evlog.js";
 import {
-  ACK_DEAD_LETTER_QUEUE,
   ACK_QUEUE,
-  ASK_DEAD_LETTER_QUEUE,
   ASK_QUEUE,
-  CI_REFRESH_DEAD_LETTER_QUEUE,
   CI_REFRESH_QUEUE,
   CODE_INDEX_BUILD_QUEUE,
-  DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
   HEALTH_DB_PING_TIMEOUT_MS,
   RETENTION_QUEUE,
-  REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
   STALE_QUEUED_WORK_BATCH_SIZE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
-  TRIAGE_DEAD_LETTER_QUEUE,
   TRIAGE_QUEUE,
-  VERIFICATION_DEAD_LETTER_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
+import { AGENT_DEAD_LETTER_QUEUES } from "./boss.js";
 
 /** Queues that must have registered consumers for worker readiness. */
 export const WORKER_CONSUMER_QUEUES = [
@@ -38,7 +32,7 @@ export const WORKER_CONSUMER_QUEUES = [
   CODE_INDEX_BUILD_QUEUE,
 ] as const;
 
-/** Active work queues included in continuous diagnostics. */
+/** Same membership as WORKER_CONSUMER_QUEUES; order is the diagnostic log order. */
 export const WORKER_DIAGNOSTIC_QUEUES = [
   ACK_QUEUE,
   REVIEW_QUEUE,
@@ -51,15 +45,7 @@ export const WORKER_DIAGNOSTIC_QUEUES = [
   CODE_INDEX_BUILD_QUEUE,
 ] as const;
 
-export const WORKER_DLQ_QUEUES = [
-  ACK_DEAD_LETTER_QUEUE,
-  REVIEW_DEAD_LETTER_QUEUE,
-  ASK_DEAD_LETTER_QUEUE,
-  DESCRIPTION_DEAD_LETTER_QUEUE,
-  TRIAGE_DEAD_LETTER_QUEUE,
-  VERIFICATION_DEAD_LETTER_QUEUE,
-  CI_REFRESH_DEAD_LETTER_QUEUE,
-] as const;
+export const WORKER_DLQ_QUEUES = AGENT_DEAD_LETTER_QUEUES;
 
 /** Default interval for continuous queue/DLQ diagnostics. */
 export const QUEUE_DIAGNOSTICS_INTERVAL_MS = 60_000;

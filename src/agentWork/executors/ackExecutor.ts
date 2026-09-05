@@ -2,7 +2,7 @@ import type { Config } from "../../config.js";
 import type { Pool } from "pg";
 import { logWarn } from "../../evlog.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
-import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishSummaryOnly.js";
+import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/summaryCommentUpsert.js";
 import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,

@@ -10,3 +10,4 @@ site/.next/
 site/.output/
 site/.vercel/
 .tmp-bench/
+.audit/

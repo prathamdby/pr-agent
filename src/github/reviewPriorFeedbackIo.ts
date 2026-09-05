@@ -105,6 +105,44 @@ async function listBotReviewLenses(
   return reviewIds;
 }
 
+async function assembleBotThreadsForPullRequest(params: {
+  readonly token: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly pullNumber: number;
+  readonly botUserId: number;
+  readonly allowedLenses: ReturnType<typeof priorFeedbackLensesForSelection>;
+  readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
+  readonly expiresAtTs?: number;
+  readonly maintainerDecisionAssociations: ReadonlySet<string>;
+}) {
+  const [reviewLenses, comments] = await Promise.all([
+    listBotReviewLenses(
+      params.token,
+      params.owner,
+      params.repo,
+      params.pullNumber,
+      params.botUserId,
+      params.publishRecordLenses,
+      params.expiresAtTs,
+    ),
+    listPullRequestReviewComments(
+      params.token,
+      params.owner,
+      params.repo,
+      params.pullNumber,
+      params.expiresAtTs,
+    ),
+  ]);
+  if (reviewLenses.size === 0) return [];
+  return assembleBotReviewThreads(comments, {
+    botUserId: params.botUserId,
+    reviewLenses,
+    allowedLenses: params.allowedLenses,
+    maintainerDecisionAssociations: params.maintainerDecisionAssociations,
+  });
+}
+
 export async function fetchPriorInlineReviewFeedback(
   token: string,
   owner: string,
@@ -115,17 +153,15 @@ export async function fetchPriorInlineReviewFeedback(
   expiresAtTs?: number,
   maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
 ): Promise<PriorInlineFeedbackThread[]> {
-  const [reviewLenses, comments] = await Promise.all([
-    listBotReviewLenses(token, owner, repo, pullNumber, botUserId, undefined, expiresAtTs),
-    listPullRequestReviewComments(token, owner, repo, pullNumber, expiresAtTs),
-  ]);
-  if (reviewLenses.size === 0) return [];
-
   return mapAssembledThreadsToPriorInlineFeedback(
-    assembleBotReviewThreads(comments, {
+    await assembleBotThreadsForPullRequest({
+      token,
+      owner,
+      repo,
+      pullNumber,
       botUserId,
-      reviewLenses,
       allowedLenses: priorFeedbackLensesForSelection(currentLens),
+      expiresAtTs,
       maintainerDecisionAssociations,
     }),
   );
@@ -141,25 +177,16 @@ export async function fetchBotFindingThreads(
   expiresAtTs?: number,
   maintainerDecisionAssociations: ReadonlySet<string> = DEFAULT_MAINTAINER_DECISION_ASSOCIATION_SET,
 ): Promise<BotFindingThread[]> {
-  const [comments, reviewLenses] = await Promise.all([
-    listPullRequestReviewComments(token, owner, repo, pullNumber, expiresAtTs),
-    listBotReviewLenses(
+  return mapAssembledThreadsToBotFindings(
+    await assembleBotThreadsForPullRequest({
       token,
       owner,
       repo,
       pullNumber,
       botUserId,
+      allowedLenses: priorFeedbackLensesForSelection("review"),
       publishRecordLenses,
       expiresAtTs,
-    ),
-  ]);
-  if (reviewLenses.size === 0) return [];
-
-  return mapAssembledThreadsToBotFindings(
-    assembleBotReviewThreads(comments, {
-      botUserId,
-      reviewLenses,
-      allowedLenses: priorFeedbackLensesForSelection("review"),
       maintainerDecisionAssociations,
     }),
     botUserId,

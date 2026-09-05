@@ -74,7 +74,7 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 });
 
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
-import { attachSummaryCommentCoordination } from "../src/review/publish/publishSummaryOnly.js";
+import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
 import type { Pool, PoolClient } from "pg";
 
 function finding(line: number): ReviewFinding {

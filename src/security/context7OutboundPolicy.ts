@@ -12,7 +12,7 @@ export const CONTEXT7_LIBRARY_NAME_PATTERN =
 export const CONTEXT7_LIBRARY_ID_PATTERN =
   /^\/[A-Za-z0-9][A-Za-z0-9._-]{0,63}(?:\/[A-Za-z0-9][A-Za-z0-9._-]{0,127})+$/;
 
-export type Context7OutboundTextField = "query" | "topic";
+type Context7OutboundTextField = "query" | "topic";
 
 type Context7PolicyReason =
   | "invalid_identifier"

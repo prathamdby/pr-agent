@@ -256,9 +256,7 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
   return key;
 }
 
-export async function loadConfig() {
-  const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
-
+function readRequiredGithubDbAndRole() {
   const githubAppId = requireEnv(ENV.GITHUB_APP_ID);
   const githubAppPrivateKey = normalizeGithubAppPrivateKey(requireEnv(ENV.GITHUB_APP_PRIVATE_KEY));
   const webhookSecret = requireEnv(ENV.WEBHOOK_SECRET);
@@ -266,6 +264,10 @@ export async function loadConfig() {
 
   const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
 
+  return { githubAppId, githubAppPrivateKey, webhookSecret, databaseUrl, role };
+}
+
+async function readPiModelSelection(role: "web" | "worker") {
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
   const piOrchestratorProvider = optionalEnv(
@@ -363,23 +365,30 @@ export async function loadConfig() {
     }
   }
 
-  const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
-  const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
-  const modelProviderKeys = {
-    openai: optionalEnv(EXTERNAL_ENV.OPENAI_API_KEY, ""),
-    anthropic: optionalEnv(EXTERNAL_ENV.ANTHROPIC_API_KEY, ""),
-    google: optionalEnv(EXTERNAL_ENV.GOOGLE_GENERATIVE_AI_API_KEY, ""),
+  return {
+    piProvider,
+    piModel,
+    piOrchestratorProvider,
+    piOrchestratorModel,
+    piFallbackProvider,
+    piFallbackModel,
+    piThinkingCeiling,
+    agentResumeSnapshotKey,
+    agentResumeSnapshotMarginSeconds,
+    agentEventsEnabled,
+    agentEventsRetentionSeconds,
+    findingHistoryEnabled,
+    findingHistoryDismissSuppressAfter,
+    findingHistoryLookbackDays,
+    codeIndexMode,
+    codeIndexWaitMs,
+    codeIndexRetentionSeconds,
+    modelsJsonPath,
+    piApi,
   };
+}
 
-  const providerPromptTimeoutMs = readPositiveNumber(
-    ENV.PROVIDER_PROMPT_TIMEOUT_MS,
-    DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
-  );
-  const reviewSpecialistTimeoutMs = readPositiveNumber(
-    ENV.REVIEW_SPECIALIST_TIMEOUT_MS,
-    DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
-  );
-  const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
+function readAskAdmissionSettings() {
   const askConcurrency = readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY);
   const askActorMaxOutstanding = readPositiveInteger(
     ENV.ASK_ACTOR_MAX_OUTSTANDING,
@@ -437,27 +446,25 @@ export async function loadConfig() {
       },
     });
   }
-  const ackConcurrency = readPositiveNumber(ENV.ACK_CONCURRENCY, DEFAULT_ACK_CONCURRENCY);
-  const descriptionConcurrency = readPositiveNumber(
-    ENV.DESCRIPTION_CONCURRENCY,
-    DEFAULT_DESCRIPTION_CONCURRENCY,
-  );
-  const triageConcurrency = readPositiveNumber(ENV.TRIAGE_CONCURRENCY, DEFAULT_TRIAGE_CONCURRENCY);
-  const verificationConcurrency = readPositiveNumber(
-    ENV.VERIFICATION_CONCURRENCY,
-    DEFAULT_VERIFICATION_CONCURRENCY,
-  );
-  const slashAllowedAssociations = readAssociationAllowlist(
-    ENV.SLASH_ALLOWED_ASSOCIATIONS,
-    DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
-    true,
-  );
-  const maintainerDecisionAssociations = readAssociationAllowlist(
-    ENV.MAINTAINER_DECISION_ASSOCIATIONS,
-    DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
-    false,
-  );
 
+  return {
+    askConcurrency,
+    askActorMaxOutstanding,
+    askRepositoryMaxOutstanding,
+    askInstallationMaxOutstanding,
+    askActorBurst,
+    askRepositoryBurst,
+    askInstallationBurst,
+    askActorRefillSeconds,
+    askRepositoryRefillSeconds,
+    askInstallationRefillSeconds,
+    askProviderBudgetTokens,
+    askProviderBudgetWindowSeconds,
+    askProviderReservationTokens,
+  };
+}
+
+function readQueueSettings() {
   const queueRetryLimit = readNonNegativeNumber(ENV.QUEUE_RETRY_LIMIT, DEFAULT_QUEUE_RETRY_LIMIT);
   const queueRetryDelaySeconds = readNonNegativeNumber(
     ENV.QUEUE_RETRY_DELAY_SECONDS,
@@ -523,6 +530,135 @@ export async function loadConfig() {
     DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   );
 
+  return {
+    queueRetryLimit,
+    queueRetryDelaySeconds,
+    queueRetryDelayMaxSeconds,
+    queueExpireInSeconds,
+    prActorLeaseTtlSeconds,
+    prActorLeaseRenewalIntervalSeconds,
+    queueHeartbeatSeconds,
+    queuePollingIntervalSeconds,
+    queueRetentionSeconds,
+    queueDeleteAfterSeconds,
+  };
+}
+
+function readFeatureFlags() {
+  return {
+    review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
+    describe: readEnum(ENV.FEATURE_DESCRIBE, DESCRIBE_FEATURE_MODES, DEFAULT_FEATURE_DESCRIBE),
+    verification: readEnum(
+      ENV.FEATURE_VERIFICATION,
+      VERIFICATION_FEATURE_MODES,
+      DEFAULT_FEATURE_VERIFICATION,
+    ),
+    ask: readEnum(ENV.FEATURE_ASK, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_ASK),
+    triage: readEnum(ENV.FEATURE_TRIAGE, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_TRIAGE),
+    reviewLabels: readEnum(
+      ENV.FEATURE_REVIEW_LABELS,
+      REVIEW_LABELS_MODES,
+      DEFAULT_FEATURE_REVIEW_LABELS,
+    ),
+    commitStatus: readStrictBoolean(ENV.FEATURE_COMMIT_STATUS, DEFAULT_FEATURE_COMMIT_STATUS),
+    titleRewrite: readStrictBoolean(ENV.FEATURE_TITLE_REWRITE, DEFAULT_FEATURE_TITLE_REWRITE),
+  } satisfies Features;
+}
+
+export async function loadConfig() {
+  const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
+
+  const { githubAppId, githubAppPrivateKey, webhookSecret, databaseUrl, role } =
+    readRequiredGithubDbAndRole();
+
+  const {
+    piProvider,
+    piModel,
+    piOrchestratorProvider,
+    piOrchestratorModel,
+    piFallbackProvider,
+    piFallbackModel,
+    piThinkingCeiling,
+    agentResumeSnapshotKey,
+    agentResumeSnapshotMarginSeconds,
+    agentEventsEnabled,
+    agentEventsRetentionSeconds,
+    findingHistoryEnabled,
+    findingHistoryDismissSuppressAfter,
+    findingHistoryLookbackDays,
+    codeIndexMode,
+    codeIndexWaitMs,
+    codeIndexRetentionSeconds,
+    piApi,
+    modelsJsonPath,
+  } = await readPiModelSelection(role);
+
+  const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
+  const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
+  const modelProviderKeys = {
+    openai: optionalEnv(EXTERNAL_ENV.OPENAI_API_KEY, ""),
+    anthropic: optionalEnv(EXTERNAL_ENV.ANTHROPIC_API_KEY, ""),
+    google: optionalEnv(EXTERNAL_ENV.GOOGLE_GENERATIVE_AI_API_KEY, ""),
+  };
+
+  const providerPromptTimeoutMs = readPositiveNumber(
+    ENV.PROVIDER_PROMPT_TIMEOUT_MS,
+    DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
+  );
+  const reviewSpecialistTimeoutMs = readPositiveNumber(
+    ENV.REVIEW_SPECIALIST_TIMEOUT_MS,
+    DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
+  );
+  const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
+  const {
+    askConcurrency,
+    askActorMaxOutstanding,
+    askRepositoryMaxOutstanding,
+    askInstallationMaxOutstanding,
+    askActorBurst,
+    askRepositoryBurst,
+    askInstallationBurst,
+    askActorRefillSeconds,
+    askRepositoryRefillSeconds,
+    askInstallationRefillSeconds,
+    askProviderBudgetTokens,
+    askProviderBudgetWindowSeconds,
+    askProviderReservationTokens,
+  } = readAskAdmissionSettings();
+  const ackConcurrency = readPositiveNumber(ENV.ACK_CONCURRENCY, DEFAULT_ACK_CONCURRENCY);
+  const descriptionConcurrency = readPositiveNumber(
+    ENV.DESCRIPTION_CONCURRENCY,
+    DEFAULT_DESCRIPTION_CONCURRENCY,
+  );
+  const triageConcurrency = readPositiveNumber(ENV.TRIAGE_CONCURRENCY, DEFAULT_TRIAGE_CONCURRENCY);
+  const verificationConcurrency = readPositiveNumber(
+    ENV.VERIFICATION_CONCURRENCY,
+    DEFAULT_VERIFICATION_CONCURRENCY,
+  );
+  const slashAllowedAssociations = readAssociationAllowlist(
+    ENV.SLASH_ALLOWED_ASSOCIATIONS,
+    DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
+    true,
+  );
+  const maintainerDecisionAssociations = readAssociationAllowlist(
+    ENV.MAINTAINER_DECISION_ASSOCIATIONS,
+    DEFAULT_MAINTAINER_DECISION_ASSOCIATIONS,
+    false,
+  );
+
+  const {
+    queueRetryLimit,
+    queueRetryDelaySeconds,
+    queueRetryDelayMaxSeconds,
+    queueExpireInSeconds,
+    prActorLeaseTtlSeconds,
+    prActorLeaseRenewalIntervalSeconds,
+    queueHeartbeatSeconds,
+    queuePollingIntervalSeconds,
+    queueRetentionSeconds,
+    queueDeleteAfterSeconds,
+  } = readQueueSettings();
+
   const shutdownDrainTimeoutSeconds = readPositiveNumber(
     ENV.SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
     DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
@@ -556,24 +692,7 @@ export async function loadConfig() {
   const logPretty = readStrictBoolean(ENV.LOG_PRETTY, logPrettyDefault);
   const logRedact = readStrictBoolean(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
 
-  const features = {
-    review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
-    describe: readEnum(ENV.FEATURE_DESCRIBE, DESCRIBE_FEATURE_MODES, DEFAULT_FEATURE_DESCRIBE),
-    verification: readEnum(
-      ENV.FEATURE_VERIFICATION,
-      VERIFICATION_FEATURE_MODES,
-      DEFAULT_FEATURE_VERIFICATION,
-    ),
-    ask: readEnum(ENV.FEATURE_ASK, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_ASK),
-    triage: readEnum(ENV.FEATURE_TRIAGE, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_TRIAGE),
-    reviewLabels: readEnum(
-      ENV.FEATURE_REVIEW_LABELS,
-      REVIEW_LABELS_MODES,
-      DEFAULT_FEATURE_REVIEW_LABELS,
-    ),
-    commitStatus: readStrictBoolean(ENV.FEATURE_COMMIT_STATUS, DEFAULT_FEATURE_COMMIT_STATUS),
-    titleRewrite: readStrictBoolean(ENV.FEATURE_TITLE_REWRITE, DEFAULT_FEATURE_TITLE_REWRITE),
-  } satisfies Features;
+  const features = readFeatureFlags();
 
   return {
     port,

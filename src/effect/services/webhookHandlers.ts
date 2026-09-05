@@ -17,18 +17,31 @@ import {
   type CiRefreshHeadSource,
 } from "../../webhook/payloads/ciRefreshHead.js";
 
-const resolveBotIdentityEffect = (cfg: Config) =>
-  Effect.tryPromise({
-    try: async () => getAppBotIdentity(cfg),
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  });
-
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
 type PullRequestReviewCommentData = Extract<
   ParsedGithubEvent,
   { name: "pull_request_review_comment" }
 >["data"];
+
+/**
+ * Per-event fields for the shared slash/mention machine.
+ * `replyTarget` and triage thread ids are separate: inline replies use
+ * `in_reply_to_id ?? comment.id`, while thread triage uses `in_reply_to_id` only.
+ */
+type CommentCommandFields = {
+  readonly prNumber: number;
+  readonly replyTarget: ReplyTarget;
+  readonly codeAnchor?: CodeAnchor;
+  readonly commenterLogin?: string;
+  readonly triage:
+    | { readonly scope: "all" }
+    | {
+        readonly scope: "thread" | undefined;
+        readonly threadAnchorCommentId?: number;
+        readonly needsThreadRootResolution: boolean;
+      };
+};
 
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
   WebhookHandlers,
@@ -76,7 +89,10 @@ export const WebhookHandlersCore = Layer.effect(
       intakeLog: RequestLogger,
     ): Effect.Effect<BotIdentity | null, Error> =>
       Effect.gen(function* () {
-        const bot = yield* resolveBotIdentityEffect(cfg);
+        const bot = yield* Effect.tryPromise({
+          try: async () => getAppBotIdentity(cfg),
+          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        });
         if (commenterId === bot.userId) {
           yield* scheduler.recordIgnored(headers, IGNORED_BOT_SLASH_COMMAND, intakeLog);
           return null;
@@ -90,7 +106,6 @@ export const WebhookHandlersCore = Layer.effect(
 
     /**
      * No-slash path: `@bot` mention → ask intake (same allowlist as slash).
-     * Returns true when the comment was handled (ignored or ask submitted).
      */
     const handleMentionAskIfNeeded = (
       cfg: Config,
@@ -109,7 +124,7 @@ export const WebhookHandlersCore = Layer.effect(
         readonly codeAnchor?: CodeAnchor;
       },
       intakeLog: RequestLogger,
-    ) =>
+    ): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
         const bot = yield* gateSlashCommand(
           cfg,
@@ -118,10 +133,10 @@ export const WebhookHandlersCore = Layer.effect(
           input.association,
           intakeLog,
         );
-        if (!bot) return true;
+        if (!bot) return;
         if (!commentMentionsBot(input.body, bot.login)) {
           yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
-          return true;
+          return;
         }
         yield* scheduler.submitSlashCommand(
           {
@@ -141,7 +156,76 @@ export const WebhookHandlersCore = Layer.effect(
           },
           intakeLog,
         );
-        return true;
+      });
+
+    const handleSlashOrMentionComment = (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: IssueCommentData | PullRequestReviewCommentData,
+      fields: CommentCommandFields,
+      intakeLog: RequestLogger,
+    ): Effect.Effect<void, Error> =>
+      Effect.gen(function* () {
+        const body = data.comment.body ?? "";
+        const command = parseSlashCommand(body);
+        if (!command) {
+          yield* handleMentionAskIfNeeded(
+            cfg,
+            headers,
+            {
+              commenterId: data.comment.user.id,
+              association: data.comment.author_association,
+              body,
+              installationId: data.installation.id,
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              repositorySizeKb: data.repository.size,
+              prNumber: fields.prNumber,
+              commentId: data.comment.id,
+              replyTarget: fields.replyTarget,
+              codeAnchor: fields.codeAnchor,
+            },
+            intakeLog,
+          );
+          return;
+        }
+        const bot = yield* gateSlashCommand(
+          cfg,
+          headers,
+          data.comment.user.id,
+          data.comment.author_association,
+          intakeLog,
+        );
+        if (!bot) return;
+
+        yield* scheduler.submitSlashCommand(
+          {
+            headers,
+            installationId: data.installation.id,
+            owner: data.repository.owner.login,
+            repo: data.repository.name,
+            repositorySizeKb: data.repository.size,
+            prNumber: fields.prNumber,
+            commenterId: data.comment.user.id,
+            commenterLogin: fields.commenterLogin,
+            commentId: data.comment.id,
+            body,
+            command,
+            replyTarget: fields.replyTarget,
+            codeAnchor: fields.codeAnchor,
+            ...(command === "triage"
+              ? fields.triage.scope === "all"
+                ? { triageScope: "all" as const }
+                : {
+                    triageScope: fields.triage.scope,
+                    threadAnchorCommentId: fields.triage.threadAnchorCommentId,
+                    needsThreadRootResolution: fields.triage.needsThreadRootResolution,
+                  }
+              : {}),
+            ...(command === "ask" ? { botLogin: bot.login } : {}),
+          },
+          intakeLog,
+        );
       });
 
     return WebhookHandlers.of({
@@ -167,135 +251,46 @@ export const WebhookHandlersCore = Layer.effect(
         }),
 
       issueComment: (cfg, headers, data, intakeLog) =>
-        Effect.gen(function* () {
-          const body = data.comment.body ?? "";
-          const command = parseSlashCommand(body);
-          if (!command) {
-            yield* handleMentionAskIfNeeded(
-              cfg,
-              headers,
-              {
-                commenterId: data.comment.user.id,
-                association: data.comment.author_association,
-                body,
-                installationId: data.installation.id,
-                owner: data.repository.owner.login,
-                repo: data.repository.name,
-                repositorySizeKb: data.repository.size,
-                prNumber: data.issue.number,
-                commentId: data.comment.id,
-                replyTarget: {
-                  kind: "prConversation",
-                  prNumber: data.issue.number,
-                },
-              },
-              intakeLog,
-            );
-            return;
-          }
-          const bot = yield* gateSlashCommand(
-            cfg,
-            headers,
-            data.comment.user.id,
-            data.comment.author_association,
-            intakeLog,
-          );
-          if (!bot) return;
-
-          yield* scheduler.submitSlashCommand(
-            {
-              headers,
-              installationId: data.installation.id,
-              owner: data.repository.owner.login,
-              repo: data.repository.name,
-              repositorySizeKb: data.repository.size,
+        handleSlashOrMentionComment(
+          cfg,
+          headers,
+          data,
+          {
+            prNumber: data.issue.number,
+            replyTarget: {
+              kind: "prConversation",
               prNumber: data.issue.number,
-              commenterId: data.comment.user.id,
-              commenterLogin: data.comment.user.login ?? undefined,
-              commentId: data.comment.id,
-              body,
-              command,
-              replyTarget: {
-                kind: "prConversation",
-                prNumber: data.issue.number,
-              },
-              ...(command === "triage" ? { triageScope: "all" as const } : {}),
-              ...(command === "ask" ? { botLogin: bot.login } : {}),
             },
-            intakeLog,
-          );
-        }),
+            commenterLogin: data.comment.user.login ?? undefined,
+            triage: { scope: "all" },
+          },
+          intakeLog,
+        ),
 
-      pullRequestReviewComment: (cfg, headers, data, intakeLog) =>
-        Effect.gen(function* () {
-          const body = data.comment.body ?? "";
-          const command = parseSlashCommand(body);
-          const inlineReplyImmediateParentId = data.comment.in_reply_to_id ?? data.comment.id;
-          const replyTarget = {
-            kind: "inlineReviewThread" as const,
+      pullRequestReviewComment: (cfg, headers, data, intakeLog) => {
+        const inlineReplyImmediateParentId = data.comment.in_reply_to_id ?? data.comment.id;
+        return handleSlashOrMentionComment(
+          cfg,
+          headers,
+          data,
+          {
             prNumber: data.pull_request.number,
-            inReplyToCommentId: inlineReplyImmediateParentId,
-          };
-          const codeAnchor = codeAnchorFromReviewComment(data.comment);
-
-          if (!command) {
-            yield* handleMentionAskIfNeeded(
-              cfg,
-              headers,
-              {
-                commenterId: data.comment.user.id,
-                association: data.comment.author_association,
-                body,
-                installationId: data.installation.id,
-                owner: data.repository.owner.login,
-                repo: data.repository.name,
-                repositorySizeKb: data.repository.size,
-                prNumber: data.pull_request.number,
-                commentId: data.comment.id,
-                replyTarget,
-                codeAnchor,
-              },
-              intakeLog,
-            );
-            return;
-          }
-          const bot = yield* gateSlashCommand(
-            cfg,
-            headers,
-            data.comment.user.id,
-            data.comment.author_association,
-            intakeLog,
-          );
-          if (!bot) return;
-
-          yield* scheduler.submitSlashCommand(
-            {
-              headers,
-              installationId: data.installation.id,
-              owner: data.repository.owner.login,
-              repo: data.repository.name,
-              repositorySizeKb: data.repository.size,
+            replyTarget: {
+              kind: "inlineReviewThread",
               prNumber: data.pull_request.number,
-              commenterId: data.comment.user.id,
-              commenterLogin: data.comment.user.login ?? undefined,
-              commentId: data.comment.id,
-              body,
-              command,
-              replyTarget,
-              codeAnchor,
-              ...(command === "triage"
-                ? {
-                    triageScope:
-                      data.comment.in_reply_to_id != null ? ("thread" as const) : undefined,
-                    threadAnchorCommentId: data.comment.in_reply_to_id ?? undefined,
-                    needsThreadRootResolution: data.comment.in_reply_to_id != null,
-                  }
-                : {}),
-              ...(command === "ask" ? { botLogin: bot.login } : {}),
+              inReplyToCommentId: inlineReplyImmediateParentId,
             },
-            intakeLog,
-          );
-        }),
+            codeAnchor: codeAnchorFromReviewComment(data.comment),
+            commenterLogin: data.comment.user.login ?? undefined,
+            triage: {
+              scope: data.comment.in_reply_to_id != null ? ("thread" as const) : undefined,
+              threadAnchorCommentId: data.comment.in_reply_to_id ?? undefined,
+              needsThreadRootResolution: data.comment.in_reply_to_id != null,
+            },
+          },
+          intakeLog,
+        );
+      },
 
       ciRefresh: (headers, data, intakeLog) =>
         scheduler.submitCiRefresh(

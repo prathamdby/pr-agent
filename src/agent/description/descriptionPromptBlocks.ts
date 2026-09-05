@@ -1,10 +1,5 @@
 /** Prompt blocks for PR description generation (writing style, Mermaid, review map). */
 
-import { ste100WritingGuidance } from "../prompts/ste100Guidance.js";
-
-/** STE100 for description title, body bullets, and review-map reasons. */
-export const descriptionSte100Guidance = ste100WritingGuidance;
-
 export const descriptionBodyScaleGuidance = [
   "## Description body scale",
   "",

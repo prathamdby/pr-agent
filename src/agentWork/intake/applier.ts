@@ -33,7 +33,6 @@ import {
   jobCorrelation,
 } from "./queueing.js";
 import type { CiRefreshJobData } from "../types.js";
-import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
   cancelActiveTriage,
@@ -42,9 +41,6 @@ import {
   createReviewWorkItem,
   createVerificationWorkItem,
 } from "./workItemRepository.js";
-
-export type { SlashCommandInput };
-export { applySlashCommandIntake };
 
 type AutomatedKindDispatchDescriptor = {
   readonly target: AutoWorkSupersedeTarget;
