@@ -8,7 +8,7 @@ Operator setup for Cursor Cloud VMs. Not loaded into ADR 0019 trusted review con
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Postgres 16          | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                                                                                            |
 | Web (webhook intake) | `ROLE=web nub src/index.ts`                                                                                                                              | Listens on `PORT` (default `3000`; `7224` in `.env.example` and Compose); `GET /health` returns `ok`; `GET /ready` pings Postgres |
-| Worker (agent work)  | `ROLE=worker nub src/index.ts`                                                                                                                           | Processes reviews, descriptions, asks, triage, verification, CI refresh, and retention                                            |
+| Worker (agent work)  | `ROLE=worker nub src/index.ts`                                                                                                                           | Processes reviews, descriptions, asks, triage, verification, CI refresh, retention, and code-index-build                          |
 
 ## Gotchas
 

@@ -31,7 +31,7 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "It reads what actually changed",
     detail:
-      "PR Agent looks at the branch and the changes, then hunts for bugs and correctness issues. When risky APIs show up, it also checks for security problems.",
+      "PR Agent looks at the branch and the changes. Every review runs four specialists for correctness, security, quality, and tests.",
     cue: "Review runs on your servers",
     summary: "Reviews run on your servers",
   },
@@ -74,7 +74,7 @@ export const CAPABILITIES: CapabilityItem[] = [
     detail: "Get an answer in the same thread, right where the code lives.",
   },
   {
-    title: "Revisit earlier findings on the pull request",
+    title: "Apply fixes for open bot findings",
     trigger: "Comment /triage, or /triage preview then /triage all, on the pull request",
     detail:
       "Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.",
@@ -85,9 +85,10 @@ export const CAPABILITIES: CapabilityItem[] = [
     detail: "Fixed findings close quietly. A failed recheck leaves one note on the review.",
   },
   {
-    title: "Skip AI review when the PR is only docs",
-    trigger: "Runs automatically on small documentation-only changes",
-    detail: "Docs-only pull requests take a lighter path instead of a full review.",
+    title: "Take a lighter auto path on docs-only PRs",
+    trigger: "Runs automatically when every changed path matches the docs allowlist",
+    detail:
+      "Auto review posts a lightweight summary instead of the full orchestrated run. A truncated file list never qualifies. Comment /review still runs the full review.",
   },
 ];
 
@@ -113,7 +114,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     title: "You own the full stack",
     price: "Your security rules apply",
     detail:
-      "Run it inside your network, choose your AI provider, and keep review traffic under your policies.",
+      "Run it inside your network, hold the model keys, and choose the provider that receives review context.",
   },
 ];
 
@@ -265,7 +266,7 @@ export const SLASH_COMMANDS = [
   { cmd: "/review", tip: "Run a full review on the changes" },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
-  { cmd: "/triage", tip: "Preview with /triage preview, apply with /triage all" },
+  { cmd: "/triage", tip: "Apply-mode fix for open bot findings. No preview required." },
   { cmd: "/triage preview", tip: "Show the would-be unified diff. Nothing is pushed." },
   { cmd: "/triage all", tip: "Apply the previewed set. Optional exclude <thread ids>." },
   { cmd: "/verify", tip: "Recheck open findings against the current head" },

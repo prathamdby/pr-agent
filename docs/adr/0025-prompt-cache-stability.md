@@ -50,7 +50,7 @@ prompt-caching framework and no deferred-tool subsystem for this change.
 - Orchestrator and specialist tool JSON must stay byte-stable across phases and
   personas (persona differences live in system prompts only). Shared code-index
   description/schema and specialist tools are registered once at session create.
-- Wrong-phase `brief` / `publish_thread` / `publish_summary` calls return
+- Wrong-phase `submit_specialist_brief` / `publish_thread` / `publish_summary` calls return
   structured executor errors; the registered tool list does not change mid-session.
   Mid-session `setActiveTools` / `transitionTools` APIs are gone.
 - Auto-compaction stays off for orchestrator, specialist, and CI summary; ask,

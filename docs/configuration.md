@@ -149,7 +149,9 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ---
 
-## Code constants (`src/settings/*Constants.ts`, re-exported via `constants.ts`)
+## Code constants
+
+Most symbols live in `src/settings/*Constants.ts` and are re-exported from `constants.ts`. Rows that name another file live there.
 
 ### Agent work (queues)
 
@@ -186,7 +188,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `VERIFICATION_FAILURE_TEXT`                | `Verification did not complete. Run \`/verify\` to try again.`                                                                                              |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                       |
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                             |
-| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery; the armed redelivery re-checks until the lease frees or lapses                         |
+| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery; the armed redelivery re-checks until the lease frees or lapses. Defined in `src/agentWork/prActorLease.ts`. |
 | `STALE_QUEUED_WORK_GRACE_SECONDS`          | 300, age after which a queued leased-type work item with no live lease and no live pg-boss job is logged as `agent_work_queued_stale` (delivery chain dead) |
 
 ### Review output
@@ -198,9 +200,9 @@ Operators using branch protection must replace required checks named `PR Agent S
 | Symbol                                                                                                                                             | Role                                                                                                              |
 | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `REVIEW_SUMMARY_SENTINEL`                                                                                                                          | PR conversation summary marker                                                                                    |
-| `LEGACY_REVIEW_SUMMARY_SENTINELS`                                                                                                                  | Historical review summary markers retained for recognition                                                        |
+| `LEGACY_REVIEW_SUMMARY_SENTINELS`                                                                                                                  | Historical review summary markers retained for recognition. Defined in `src/settings/legacyReviewLenses.ts` (not re-exported from `constants.ts`). |
 | `REVIEW_POINTER_BODY`                                                                                                                              | Legacy Files-tab stub copy retained for recognition / repeat-no-bugs fallback                                     |
-| `LEGACY_REVIEW_POINTER_BODIES`                                                                                                                     | Historical files-tab pointer text retained for recognition                                                        |
+| `LEGACY_REVIEW_POINTER_BODIES`                                                                                                                     | Historical files-tab pointer text retained for recognition. Defined in `src/settings/legacyReviewLenses.ts` (not re-exported from `constants.ts`). |
 | `REVIEW_POINTER_NOTE_LEAD`                                                                                                                         | Legacy first-publish pointer NOTE body retained for recognition                                                   |
 | `REVIEW_SIZES`                                                                                                                                     | Review size scale (`XS`–`XXL`) for the Size row and `size:` label                                                 |
 | `REVIEW_OVERVIEW_ALERT` / `REVIEW_FAILURE_ALERT`                                                                                                   | GitHub alert types (`NOTE`, `CAUTION`)                                                                            |
@@ -374,7 +376,7 @@ Writing policy is computed once per description run from workspace size stats (`
 | `BOT_META_PATTERNS`               | regex set                                                                                                               |
 | `BOT_SECRET_PATTERNS`             | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens                                      |
 | `SENSITIVE_PATH_PATTERNS`         | shared sensitive-path policy for ask reads, verification search, and triage reads, search, writes, staging, and commits |
-| `TRIAGE_CONTROL_PATH_PATTERNS`    | control-plane paths blocked by triage workspace reads, search, writes, staging, and commits, and by verification search |
+| `TRIAGE_CONTROL_PATH_PATTERNS`    | control-plane paths blocked by triage workspace reads, search, writes, staging, and commits, and by verification search. Defined in `src/agent/triage/triageWritePolicy.ts`. |
 
 ### GitHub API
 

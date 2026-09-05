@@ -68,13 +68,13 @@ Landing-page capability copy:
 - Catch basics before a human opens the change. Runs when a pull request opens, or when you comment /review. Comments land next to the lines that need attention.
 - Turn a blank PR body into a readable summary. Runs when a pull request opens, or when you comment /describe. Summary bullets and an optional diagram go into the PR body.
 - Ask code questions without leaving GitHub. Comment /ask … or mention the bot with your question. Get an answer in the same thread, right where the code lives.
-- Revisit earlier findings on the pull request. Comment /triage, or /triage preview then /triage all, on the pull request. Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.
+- Apply fixes for open bot findings. Comment /triage, or /triage preview then /triage all, on the pull request. Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.
 - Recheck open findings after a new push. Runs when the pull request gets new commits, or when you comment /verify. Fixed findings close quietly. A failed recheck leaves one note on the review.
-- Skip AI review when the PR is only docs. Runs automatically on small documentation-only changes. Docs-only pull requests take a lighter path instead of a full review.
+- Take a lighter auto path on docs-only PRs. Runs automatically when every changed path matches the docs allowlist. Auto review posts a lightweight summary instead of the full orchestrated run. A truncated file list never qualifies. Comment /review still runs the full review.
 Landing-page review flow copy:
 - Deploy once on servers you control: Install PR Agent beside the rest of your stack. Your GitHub credentials and AI keys stay in your account, not a vendor dashboard.
 - Someone opens a pull request: PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.
-- It reads what actually changed: PR Agent looks at the branch and the changes, then hunts for bugs and correctness issues. When risky APIs show up, it also checks for security problems.
+- It reads what actually changed: PR Agent looks at the branch and the changes. Every review runs four specialists for correctness, security, quality, and tests.
 - Feedback shows up on the pull request: Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, /verify, or mention the bot. Replies stay in the same thread.
 - Honest limits when the change is huge: Docs-only pull requests can take a lighter path. Very large changes may get a partial review, and PR Agent says what it could not cover instead of faking completeness.
 
@@ -102,7 +102,7 @@ Two processes must run together.
 ROLE=web accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns 200 once that write succeeds.
 ROLE=worker runs the queues: reactions, progress comments, model sessions, and everything posted back to the PR.
 Flow: GitHub webhooks → web /webhooks → Postgres webhook_events dedupe → agent_work_items → pg-boss enqueue.
-Queues: ack, ci-refresh, review, ask, description, triage, verification, retention.
+Queues: ack, ci-refresh, review, ask, description, triage, verification, retention, code-index-build.
 Ack worker posts the eyes reaction and the review progress stub.
 Review runs four specialists (correctness, security, quality, tests) under one orchestrator.
 A finding is published only when it meets the causal-publication contract: one atomic problem, a concrete trigger, PR-introduced or PR-exposed harm or a precise unprotected regression, an observable consequence, ledger-authorized reviewed-head evidence, and a bounded fix.
@@ -116,7 +116,7 @@ Web does not create installation tokens or post to the PR. Workers do that.
 
 Software is free. $0 from PR Agent. No credit card. No per-seat fee. Open source under MIT.
 You pay your own vendors. Hosting and AI usage only. Cover your server, database, and model bills. Add more developers without raising your PR Agent bill.
-You own the full stack. Your security rules apply. Run it inside your network, choose your AI provider, and keep review traffic under your policies.
+You own the full stack. Your security rules apply. Run it inside your network, hold the model keys, and choose the provider that receives review context.
 
 ## Model providers
 

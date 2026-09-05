@@ -12,7 +12,7 @@ The review summary once included a model-authored **Merge verdict** row (score /
 
 1. **Remove the field.** Drop `mergeVerdict` from `ReviewPayload`, prompt contracts, public-output redaction, and payload validation clamps.
 2. **Remove the row.** The summary renderer no longer emits a Merge verdict table row or mechanical fallbacks.
-3. **Keep other gates.** Effort, findings, relevant tests, security, CI, and follow-ups remain the overview surface.
+3. **Keep other gates.** Review size (`size` / `size:<TOKEN>`), findings, relevant tests, security, CI, and follow-ups remain the overview surface.
 
 ## Consequences
 

@@ -216,7 +216,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "ROLE=web accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns 200 once that write succeeds.",
       "ROLE=worker runs the queues: reactions, progress comments, model sessions, and everything posted back to the PR.",
       "Flow: GitHub webhooks → web /webhooks → Postgres webhook_events dedupe → agent_work_items → pg-boss enqueue.",
-      "Queues: ack, ci-refresh, review, ask, description, triage, verification, retention.",
+      "Queues: ack, ci-refresh, review, ask, description, triage, verification, retention, code-index-build.",
       "Ack worker posts the eyes reaction and the review progress stub.",
       "Review runs four specialists (correctness, security, quality, tests) under one orchestrator.",
       "A finding is published only when it meets the causal-publication contract: one atomic problem, a concrete trigger, PR-introduced or PR-exposed harm or a precise unprotected regression, an observable consequence, ledger-authorized reviewed-head evidence, and a bounded fix.",
