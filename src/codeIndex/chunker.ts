@@ -17,8 +17,9 @@ export type ChunkFileContent = {
 
 const TS_BOUNDARY =
   /^\s*(?:export\s+)?(?:(?:async\s+)?function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)\b/;
+// A `\s` alternative here overlaps `^\s*` and backtracks quadratically.
 const TS_METHOD =
-  /^\s*(?:public|private|protected|static|async|\s)*(?:function\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::|{)/;
+  /^\s*(?:(?:public|private|protected|static|async)\s+)*(?:function\s+)?([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*(?::|{)/;
 const PY_BOUNDARY = /^\s*(?:async\s+)?(?:def|class)\s+([A-Za-z_][\w]*)\b/;
 
 function hashContent(content: string): Buffer {

@@ -442,6 +442,8 @@ Writing policy is computed once per description run from workspace size stats (`
 | `CODE_INDEX_PREVIEW_MAX_CHARS`   | 500          |
 | `CODE_INDEX_BUILD_CONCURRENCY`   | 1            |
 
+Source-boundary recognition is linear in each line. File eligibility, content hashes, line ranges, symbol names, and `CODE_INDEX_MAX_CHUNKS_PER_REPO` stay as listed.
+
 ### Postgres pool
 
 | Symbol                                    | Default | Role                                   |
