@@ -2,7 +2,12 @@ import type { OperationIntentRow } from "../agentWork/operationIntentRepository.
 import type { OperationIntentRecovery } from "../agentWork/withOperationIntent.js";
 import { isRecord } from "../util/typeGuards.js";
 import { findCommentIdByMarker } from "./prSurfaceHelpers.js";
-import type { PrSurface, PrSurfaceMutationMethods } from "./prSurfaceTypes.js";
+import type {
+  PrSurface,
+  PrSurfaceMutationMethods,
+  ProgressCommentUpsert,
+  PublishDescriptionSurfaceResult,
+} from "./prSurfaceTypes.js";
 
 export const PR_SURFACE_MUTATION_METHODS = {
   setAcknowledgementReaction: true,
@@ -78,9 +83,12 @@ export function extractPrSurfaceRecoverDetail(
       const body = typeof args[0] === "string" ? args[0] : "";
       const sentinel = typeof args[1] === "string" ? args[1] : undefined;
       const marker = firstOperationIntentMarker(body);
+      const knownExistingId =
+        isRecord(args[2]) && typeof args[2].id === "number" ? args[2].id : undefined;
       return {
         ...(sentinel != null ? { sentinel } : {}),
         ...(marker != null ? { operationMarker: marker } : {}),
+        ...(knownExistingId != null ? { knownExistingId } : {}),
       };
     }
     case "editComment":
@@ -159,17 +167,47 @@ async function recoverReplyAt(
   return commentId == null ? { kind: "absent" } : { kind: "reconciled", value: { commentId } };
 }
 
+/**
+ * Reconcile an upserted progress comment from the operation-intent marker.
+ * Sentinel-alone matches stay absent. `updated` is true only when this attempt
+ * already knew the comment id.
+ */
+export async function recoverMarkedProgressComment(
+  surface: PrSurface,
+  params: {
+    readonly operationMarker: string | undefined;
+    readonly sentinel?: string;
+    readonly knownExistingId?: number;
+  },
+): Promise<OperationIntentRecovery<ProgressCommentUpsert>> {
+  const marker = params.operationMarker;
+  if (marker == null) return { kind: "absent" };
+  const botLogin = await surface.getBotLogin?.();
+  if (botLogin == null) return { kind: "absent" };
+  const comments = await surface.listConversationComments();
+  const commentId = findCommentIdByMarker(comments, marker, (comment) => {
+    if (comment.authorLogin !== botLogin) return false;
+    return params.sentinel == null || comment.body.includes(params.sentinel);
+  });
+  if (commentId == null) return { kind: "absent" };
+  return {
+    kind: "reconciled",
+    value: {
+      id: commentId,
+      updated: params.knownExistingId != null && params.knownExistingId === commentId,
+    },
+  };
+}
+
 async function recoverProgressComment(
   surface: PrSurface,
   detail: Record<string, unknown>,
-): Promise<OperationIntentRecovery<{ readonly id: number; readonly updated: boolean }>> {
-  const sentinel = detailString(detail, "sentinel");
-  if (sentinel == null) return { kind: "absent" };
-  const found = await surface.findProgressComment(sentinel);
-  if (found == null) return { kind: "absent" };
-  const marker = detailString(detail, "operationMarker");
-  if (marker != null && found.body?.includes(marker) !== true) return { kind: "absent" };
-  return { kind: "reconciled", value: { id: found.id, updated: true } };
+): Promise<OperationIntentRecovery<ProgressCommentUpsert>> {
+  return recoverMarkedProgressComment(surface, {
+    operationMarker: detailString(detail, "operationMarker"),
+    sentinel: detailString(detail, "sentinel"),
+    knownExistingId: detailNumber(detail, "knownExistingId"),
+  });
 }
 
 async function recoverMarkedComment(
@@ -248,9 +286,8 @@ export async function recoverPrSurfaceMutation<T>(
               kind: "reconciled",
               value: {
                 prNumber: surface.prNumber,
-                titleUpdated: false,
                 bodyUpdated: true,
-              },
+              } satisfies PublishDescriptionSurfaceResult,
             }
           : { kind: "absent" };
       break;

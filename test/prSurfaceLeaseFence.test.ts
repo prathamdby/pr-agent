@@ -335,4 +335,101 @@ describe("PrSurface lease mutation boundary", () => {
     } satisfies OperationIntentRow);
     expect(checkRecovered).toEqual({ kind: "reconciled", value: check });
   });
+
+  it("derives progress updated from knownExistingId and fails closed without a marker", async () => {
+    const mutations: PrSurfaceMutation[] = [];
+    const { surface, controls } = createFakePrSurface(surfaceParams, {
+      mutationBoundary: {
+        signal: new AbortController().signal,
+        run: async (mutation, mutate) => {
+          mutations.push(mutation);
+          return mutate();
+        },
+      },
+    });
+    const marker = operationIntentMarker("review:summary:review:o/r#1", "wi-1");
+    const created = await surface.upsertProgressComment(
+      `${marker}\n## PR Agent Review`,
+      "## PR Agent Review",
+    );
+    expect(created.updated).toBe(false);
+    expect(mutations[0]?.detail).toMatchObject({
+      surfaceMethod: "upsertProgressComment",
+      operationMarker: marker,
+      sentinel: "## PR Agent Review",
+    });
+
+    const createdRecovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: mutations[0]?.operationKey ?? "pr-surface:upsertProgressComment",
+      mutationKind: "github.pr_surface.upsertProgressComment",
+      status: "pending",
+      publishRecordId: null,
+      detail: { ...mutations[0]?.detail, __mutating: true },
+    } satisfies OperationIntentRow);
+    expect(createdRecovered).toEqual({
+      kind: "reconciled",
+      value: { id: created.id, updated: false },
+    });
+
+    const updated = await surface.upsertProgressComment(
+      `${marker}\n## PR Agent Review\ndone`,
+      "## PR Agent Review",
+      { id: created.id, url: "https://example.test/1" },
+    );
+    expect(updated.updated).toBe(true);
+    const updateRecovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-2",
+      workItemId: "wi-1",
+      operationKey: mutations[1]?.operationKey ?? "pr-surface:upsertProgressComment",
+      mutationKind: "github.pr_surface.upsertProgressComment",
+      status: "pending",
+      publishRecordId: null,
+      detail: { ...mutations[1]?.detail, __mutating: true },
+    } satisfies OperationIntentRow);
+    expect(mutations[1]?.detail).toMatchObject({ knownExistingId: created.id });
+    expect(updateRecovered).toEqual({
+      kind: "reconciled",
+      value: { id: created.id, updated: true },
+    });
+
+    controls.setConversationComments([
+      {
+        id: 99,
+        inReplyToId: null,
+        authorLogin: "attacker",
+        body: "## PR Agent Review\nspoofed",
+      },
+    ]);
+    const sentinelOnly = await recoverPrSurfaceMutation(surface, {
+      id: "intent-3",
+      workItemId: "wi-1",
+      operationKey: "pr-surface:upsertProgressComment",
+      mutationKind: "github.pr_surface.upsertProgressComment",
+      status: "pending",
+      publishRecordId: null,
+      detail: { surfaceMethod: "upsertProgressComment", sentinel: "## PR Agent Review" },
+    } satisfies OperationIntentRow);
+    expect(sentinelOnly).toEqual({ kind: "absent" });
+  });
+
+  it("recovers a marked description body without synthesizing titleUpdated", async () => {
+    const marker = operationIntentMarker("description:pr_body:o/r#1", "wi-1");
+    const { surface, controls } = createFakePrSurface(surfaceParams);
+    controls.setPullRequestBody(`agent block\n${marker}`);
+    const recovered = await recoverPrSurfaceMutation(surface, {
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "description:pr_body:o/r#1:surface:publishDescription",
+      mutationKind: "github.pr_surface.publishDescription",
+      status: "pending",
+      publishRecordId: null,
+      detail: { surfaceMethod: "publishDescription", operationMarker: marker },
+    } satisfies OperationIntentRow);
+    expect(recovered).toEqual({
+      kind: "reconciled",
+      value: { prNumber: 1, bodyUpdated: true },
+    });
+  });
 });

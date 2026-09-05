@@ -220,6 +220,7 @@ async function recoverByExactEvidence<T>(
   try {
     recovery = await params.recover(intent, publishRecordId);
   } catch (error) {
+    await assertMutationReady(params);
     throw new AppError({
       code: "operation_intent.recovery_failed",
       message: "Failed to reconcile an outcome-unknown GitHub mutation",
@@ -231,6 +232,7 @@ async function recoverByExactEvidence<T>(
       },
     });
   }
+  await assertMutationReady(params);
   if (recovery.kind !== "reconciled") return { found: false };
 
   const resultDetail = {
@@ -269,10 +271,18 @@ async function recoverAfterMutatingWithoutResult<T>(
       },
     });
   }
-  const recovered = await recoverByExactEvidence(params, intent, publishRecordId);
+  let recovered: RecoveryAttempt<T> = { found: false };
+  try {
+    recovered = await recoverByExactEvidence(params, intent, publishRecordId);
+  } catch (error) {
+    if (publishRecordId == null) throw error;
+    if (!isAppError(error) || error.code !== "operation_intent.recovery_failed") throw error;
+  }
   if (recovered.found) return recovered.value;
 
-  if (publishRecordId != null) {
+  // Publish-record success is void-only. A recover hook that cannot rebuild T
+  // stays outcome_unknown so callers do not receive undefined as a typed result.
+  if (publishRecordId != null && params.recover == null) {
     await assertMutationReady(params);
     await reconcileOperationIntent(params.client, {
       workItemId: params.workItemId,

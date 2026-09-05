@@ -23,8 +23,8 @@ import {
 } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { IssueCommentRef, PrSurface } from "../../github/prSurface.js";
-import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
+import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
 import {
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_WAIT_MS,
@@ -85,17 +85,6 @@ async function resolveKnownSummaryCommentRef(
 ): Promise<{ id: number; url: string } | null> {
   const resolved = await prSurface.resolveProgressComment(sentinel, hintCommentId);
   return resolved ? { id: resolved.id, url: resolved.url } : null;
-}
-
-async function findSummaryCommentByOperationMarker(
-  prSurface: PrSurface,
-  marker: string,
-): Promise<{ readonly id: number } | null> {
-  const botLogin = await prSurface.getBotLogin?.();
-  if (botLogin == null) return null;
-  const comments = await prSurface.listConversationComments();
-  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
-  return id == null ? null : { id };
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -535,17 +524,12 @@ export async function publishReviewSummaryOnly(params: {
             reviewLens: mode,
             ...(summaryOperationMarker != null ? { operationMarker: summaryOperationMarker } : {}),
           },
-          recover: async () => {
-            const existing =
-              summaryOperationMarker == null
-                ? null
-                : await findSummaryCommentByOperationMarker(
-                    params.prSurface,
-                    summaryOperationMarker,
-                  );
-            if (existing == null) return { kind: "absent" as const };
-            return { kind: "reconciled" as const, value: { id: existing.id, updated: false } };
-          },
+          recover: () =>
+            recoverMarkedProgressComment(params.prSurface, {
+              operationMarker: summaryOperationMarker ?? undefined,
+              sentinel: summarySentinel,
+              knownExistingId: knownSummaryCommentRef?.id,
+            }),
           isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
           mutate: runSummaryUpsert,
         });

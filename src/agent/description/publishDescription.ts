@@ -4,8 +4,8 @@ import type { DescriptionPayload } from "./descriptionSchema.js";
 
 export type PublishDescriptionResult = {
   readonly prNumber: number;
-  readonly titleUpdated: boolean;
   readonly bodyUpdated: boolean;
+  readonly titleUpdated?: boolean;
 };
 
 export async function publishDescriptionToPullRequest(params: {

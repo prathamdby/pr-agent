@@ -115,8 +115,8 @@ export type GithubUserProfile = {
 
 export type PublishDescriptionSurfaceResult = {
   readonly prNumber: number;
-  readonly titleUpdated: boolean;
   readonly bodyUpdated: boolean;
+  readonly titleUpdated?: boolean;
 };
 
 export type ReviewCommentParentNode = {

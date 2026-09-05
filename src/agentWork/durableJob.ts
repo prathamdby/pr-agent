@@ -127,7 +127,7 @@ function startLeaseRenewal(
 }
 
 function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
-  // Native on every supported runtime (engines node >=22.19.0, image
+  // Native on every supported runtime (engines node >=22.22.0, image
   // node:22.22.0): no fallback branch to maintain.
   return AbortSignal.any(signals);
 }

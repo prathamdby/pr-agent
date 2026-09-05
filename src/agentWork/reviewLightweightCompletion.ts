@@ -6,8 +6,8 @@ import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema.js";
 import type { PrSurface } from "../github/prSurface.js";
-import { findCommentIdByMarker } from "../github/prSurfaceHelpers.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
+import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
 import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 import {
@@ -28,17 +28,6 @@ export type LightweightAutoReviewResult =
       readonly published: true;
       readonly summaryId: number | string;
     };
-
-async function findSummaryCommentByOperationMarker(
-  prSurface: PrSurface,
-  marker: string,
-): Promise<{ readonly id: number } | null> {
-  const botLogin = await prSurface.getBotLogin?.();
-  if (botLogin == null) return null;
-  const comments = await prSurface.listConversationComments();
-  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
-  return id == null ? null : { id };
-}
 
 /** Auto-review docs-only path: publish lightweight summary or skip when work is cancelled. */
 export async function tryLightweightAutoReviewCompletion(
@@ -98,15 +87,12 @@ export async function tryLightweightAutoReviewCompletion(
       reviewLens: params.reviewLens,
       operationMarker,
     },
-    recover: async () => {
-      const existing = await findSummaryCommentByOperationMarker(params.prSurface, operationMarker);
-      return existing == null
-        ? { kind: "absent" as const }
-        : {
-            kind: "reconciled" as const,
-            value: { id: existing.id, updated: false },
-          };
-    },
+    recover: () =>
+      recoverMarkedProgressComment(params.prSurface, {
+        operationMarker,
+        sentinel,
+        knownExistingId: knownExisting?.id,
+      }),
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
     mutate: () => params.prSurface.upsertProgressComment(bodyWithMarker, sentinel, knownExisting),
   });

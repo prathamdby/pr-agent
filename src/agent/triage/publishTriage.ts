@@ -4,6 +4,7 @@ import * as v from "valibot";
 import type { PrSurface } from "../../github/prSurface.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
+import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
@@ -289,17 +290,6 @@ async function findMarkedComment(
   return id == null ? null : { id };
 }
 
-async function findMarkedConversationComment(
-  prSurface: PrSurface,
-  marker: string,
-): Promise<{ readonly id: number } | null> {
-  const botLogin = await prSurface.getBotLogin?.();
-  if (botLogin == null) return null;
-  const comments = await prSurface.listConversationComments();
-  const id = findCommentIdByMarker(comments, marker, (comment) => comment.authorLogin === botLogin);
-  return id == null ? null : { id };
-}
-
 async function replyToThread(
   params: Pick<PublishTriageParams, "prSurface" | "prNumber"> & {
     readonly thread: BotFindingThread;
@@ -339,12 +329,11 @@ async function upsertTriageReport(
       reviewLens: TRIAGE_PUBLISH_LENS,
       operationMarker,
     },
-    recover: async () => {
-      const existing = await findMarkedConversationComment(params.prSurface, operationMarker);
-      return existing == null
-        ? { kind: "absent" as const }
-        : { kind: "reconciled" as const, value: { id: existing.id, updated: false } };
-    },
+    recover: () =>
+      recoverMarkedProgressComment(params.prSurface, {
+        operationMarker,
+        sentinel: TRIAGE_SUMMARY_SENTINEL,
+      }),
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
     mutate: () =>
       params.prSurface.upsertProgressComment(
@@ -418,12 +407,11 @@ export async function publishTriagePreview(params: PublishTriagePreviewParams): 
         reviewLens: TRIAGE_PUBLISH_LENS,
         operationMarker,
       },
-      recover: async () => {
-        const existing = await findMarkedConversationComment(params.prSurface, operationMarker);
-        return existing == null
-          ? { kind: "absent" as const }
-          : { kind: "reconciled" as const, value: { id: existing.id, updated: false } };
-      },
+      recover: () =>
+        recoverMarkedProgressComment(params.prSurface, {
+          operationMarker,
+          sentinel: TRIAGE_PREVIEW_SENTINEL,
+        }),
       isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
       mutate: () =>
         params.prSurface.upsertProgressComment(

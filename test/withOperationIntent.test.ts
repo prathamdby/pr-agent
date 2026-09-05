@@ -828,6 +828,87 @@ describe("withOperationIntent", () => {
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
   });
 
+  it("keeps publish-record proof when recover throws and stays outcome_unknown for typed T", async () => {
+    const mutate = vi.fn(async () => ({ commentId: 9 }));
+    const recover = vi.fn(async () => {
+      throw new Error("github timeout");
+    });
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue("pub-recovered");
+
+    await expect(withOperationIntent({ ...baseParams, recover, mutate })).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ status: "outcome_unknown" }),
+    );
+  });
+
+  it("stays outcome_unknown when recover is absent and publish_records cannot rebuild T", async () => {
+    const mutate = vi.fn(async () => ({ commentId: 9 }));
+    const recover = vi.fn(async () => ({ kind: "absent" as const }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue("pub-recovered");
+
+    await expect(withOperationIntent({ ...baseParams, recover, mutate })).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ status: "outcome_unknown" }),
+    );
+  });
+
+  it("rechecks cancellation after recover finds evidence and before reconcile", async () => {
+    const controller = new AbortController();
+    const recover = vi.fn(async () => {
+      controller.abort("cancelled");
+      return { kind: "reconciled" as const, value: { commentId: 4 } };
+    });
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    const mutate = vi.fn(async () => ({ commentId: 9 }));
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        signal: controller.signal,
+        recover,
+        mutate,
+      }),
+    ).rejects.toMatchObject({ code: "agent_work.execution_aborted" });
+
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
   it("reasserts the lease epoch immediately before and after the mutation", async () => {
     await withOperationIntent({
       ...baseParams,
