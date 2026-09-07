@@ -3,9 +3,11 @@ import { AGENT_RESOURCES, DOC_LINKS, resourceUrl } from "../site/lib/agentResour
 import {
   ALTERNATIVE_ROWS,
   CAPABILITIES,
+  COMPOSE_SNIPPET,
   ENV_SNIPPET,
   FAQ_ITEMS,
   FEATURES,
+  FETCH_MARKDOWN_LANGUAGES,
   HERO_HEADING,
   PRICING_PLANS,
   QUICKSTART_STEPS,
@@ -156,8 +158,36 @@ describe("renderHomeMarkdown", () => {
         SLASH_COMMANDS.map((command) => command.cmd),
       ),
     ).toEqual([]);
-    expect(markdown).toContain(ENV_SNIPPET);
+    expect(markdown).toContain(`\`\`\`bash\n${COMPOSE_SNIPPET}\n\`\`\``);
+    expect(markdown).toContain(`\`\`\`dotenv\n${ENV_SNIPPET}\n\`\`\``);
     expect(markdown).toContain("https://<host>/webhooks");
+  });
+
+  it("renders the fetch example in typescript by default", () => {
+    expect(markdown).toContain("## Fetch this page as markdown");
+    expect(markdown).toContain("```typescript\n");
+    expect(markdown).toContain('"Accept-Language": "en-US, typescript"');
+    expect(markdown).not.toContain("```python\n");
+    expect(markdown).toContain(FETCH_MARKDOWN_LANGUAGES.join(", "));
+  });
+
+  it("switches only the fetch example when a language is negotiated", () => {
+    const python = renderHomeMarkdown("python");
+    expect(python).toContain("```python\n");
+    expect(python).toContain('"Accept-Language": "en-US, python"');
+    expect(python).not.toContain("```typescript\n");
+    expect(python).toContain(`\`\`\`bash\n${COMPOSE_SNIPPET}\n\`\`\``);
+    expect(python).toContain(`\`\`\`dotenv\n${ENV_SNIPPET}\n\`\`\``);
+    expect(python.replace(/```python\n[\s\S]*?```/, "")).toBe(
+      markdown.replace(/```typescript\n[\s\S]*?```/, ""),
+    );
+  });
+
+  it("serves every language it advertises", () => {
+    expect(FETCH_MARKDOWN_LANGUAGES[0]).toBe("typescript");
+    for (const language of FETCH_MARKDOWN_LANGUAGES) {
+      expect(renderHomeMarkdown(language)).toContain(`\`\`\`${language}\n`);
+    }
   });
 
   it("links every machine-readable file and the repository docs", () => {
@@ -224,6 +254,8 @@ describe("renderAgentInstructionsMarkdown", () => {
     expect(markdown).toContain("/llms.txt");
     expect(markdown).toContain("/llms?query=");
     expect(markdown).toContain("Accept: text/markdown");
+    expect(markdown).toContain("Accept-Language: en-US, python");
+    expect(markdown).toContain(FETCH_MARKDOWN_LANGUAGES.join(", "));
   });
 
   it("keeps the facts an agent is most likely to get wrong", () => {
@@ -261,8 +293,20 @@ describe("renderOpenApiDocument", () => {
     const home = paths["/"] as {
       get: { responses: Record<string, unknown>; parameters: { name: string }[] };
     };
-    expect(home.get.parameters.map((parameter) => parameter.name)).toContain("Accept");
+    expect(home.get.parameters.map((parameter) => parameter.name)).toEqual([
+      "Accept",
+      "Accept-Language",
+    ]);
     expect(Object.keys(home.get.responses)).toEqual(["200", "406"]);
+  });
+
+  it("documents Accept-Language on both markdown URLs", () => {
+    const indexMd = paths["/index.md"] as {
+      get: { description: string; parameters: { name: string; description: string }[] };
+    };
+    expect(indexMd.get.parameters.map((parameter) => parameter.name)).toEqual(["Accept-Language"]);
+    expect(indexMd.get.description).toContain("Vary: Accept-Language");
+    expect(indexMd.get.parameters[0]?.description).toContain(FETCH_MARKDOWN_LANGUAGES.join(", "));
   });
 
   it("mirrors the resource registry in x-agent-resources", () => {

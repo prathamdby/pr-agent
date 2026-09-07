@@ -1,3 +1,4 @@
+import { DEFAULT_PROGRAMMING_LANGUAGE, type ProgrammingLanguage } from "./acceptLanguage.js";
 import { renderDocLinks, renderResourceLinks } from "./agentResources.js";
 import {
   ALTERNATIVE_ROWS,
@@ -7,6 +8,8 @@ import {
   ENV_SNIPPET,
   FAQ_ITEMS,
   FEATURES,
+  FETCH_MARKDOWN_LANGUAGES,
+  FETCH_MARKDOWN_SNIPPET,
   HERO_CTA_NOTE,
   HERO_HEADING,
   HERO_SUPPORT,
@@ -16,6 +19,7 @@ import {
   QUICKSTART_INTRO,
   QUICKSTART_STEPS,
   SLASH_COMMANDS,
+  pickSnippet,
 } from "./content.js";
 import { sanitizeQueryRaw } from "./llmsKnowledge.js";
 import { DOCS_URL, REPO_URL, SITE_ORIGIN } from "./site.js";
@@ -63,17 +67,32 @@ function quickstartSteps(): string {
   );
 }
 
+const SERVED_LANGUAGES = FETCH_MARKDOWN_LANGUAGES.join(", ");
+
+function fetchExample(language: ProgrammingLanguage): string {
+  const picked = pickSnippet(FETCH_MARKDOWN_SNIPPET, language);
+  return block(
+    "## Fetch this page as markdown",
+    `Send \`Accept: text/markdown\` to get this representation. Name a programming language after your locale in \`Accept-Language\`, such as \`Accept-Language: en-US, python\`, and the example below switches to it. Served languages are ${SERVED_LANGUAGES}. The default is ${DEFAULT_PROGRAMMING_LANGUAGE}. Two-letter codes such as \`ts\` and \`py\` are read as locale tags, not languages.`,
+    fence(picked.language, picked.body),
+  );
+}
+
 /**
  * The landing page as markdown.
  *
- * Rendered from the same constants the React page renders from, so the two representations of `/`
- * cannot drift.
+ * Every HTML section renders from the same constants as this document, so the shared copy cannot
+ * drift. The markdown representation also carries the agent fetch example, whose fence follows the
+ * negotiated programming language.
  */
-export function renderHomeMarkdown(): string {
+export function renderHomeMarkdown(
+  language: ProgrammingLanguage = DEFAULT_PROGRAMMING_LANGUAGE,
+): string {
   return `${block(
     `# ${HERO_HEADING}`,
     `> ${HERO_SUPPORT}`,
     `${HERO_CTA_NOTE} This is the markdown representation of ${SITE_ORIGIN}/, served from that same URL to any client that sends \`Accept: text/markdown\`.`,
+    fetchExample(language),
     "## What PR Agent does",
     bullets(CAPABILITIES.map((item) => `- **${item.title}.** ${item.trigger}. ${item.detail}`)),
     "## How a PR Agent review runs",
@@ -148,6 +167,7 @@ export function renderAgentInstructionsMarkdown(): string {
       "- Fetch `/llms?query=your_question` for the matching sections only, when context is tight.",
       "- Fetch `/llms/json?query=your_question` when you want structured matches.",
       "- Fetch `/index.md`, or send `Accept: text/markdown` to `/`, for the landing page without markup.",
+      `- Name a programming language after your locale in \`Accept-Language\` on either markdown request, such as \`Accept-Language: en-US, python\`, and the fetch example on that page switches to it. Served languages are ${SERVED_LANGUAGES}. Two-letter codes are locale tags, not languages.`,
       "- Broad queries (`all`, `everything`, `full`, `profile`) return the whole profile.",
       "- Deployment, environment variables, and operational detail live in the repository docs linked below, not on this site.",
     ]),

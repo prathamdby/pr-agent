@@ -1,3 +1,11 @@
+import {
+  DEFAULT_PROGRAMMING_LANGUAGE,
+  PROGRAMMING_LANGUAGES,
+  type ProgrammingLanguage,
+  type ServableLanguages,
+} from "./acceptLanguage.js";
+import { SITE_ORIGIN } from "./site.js";
+
 type FeatureItem = {
   title: string;
   detail: string;
@@ -275,3 +283,94 @@ WEBHOOK_SECRET=...
 PI_PROVIDER=openai
 PI_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-...`;
+
+type Variants = Readonly<Partial<Record<ProgrammingLanguage, string>>> &
+  Readonly<Record<typeof DEFAULT_PROGRAMMING_LANGUAGE, string>>;
+
+/**
+ * A code example with one body per language it can be served in.
+ *
+ * The default language's body is required, so a request for a language the example lacks still
+ * has something to render without a runtime check.
+ */
+export type VariantSnippet = {
+  readonly variants: Variants;
+};
+
+/** Languages the snippet has a body for, default first, then allowlist order. */
+export function servableLanguages(snippet: VariantSnippet): ServableLanguages {
+  const rest = PROGRAMMING_LANGUAGES.filter(
+    (language) =>
+      language !== DEFAULT_PROGRAMMING_LANGUAGE && snippet.variants[language] !== undefined,
+  );
+  return [DEFAULT_PROGRAMMING_LANGUAGE, ...rest];
+}
+
+/** The body to render for a negotiated language, falling back to the default body. */
+export function pickSnippet(
+  snippet: VariantSnippet,
+  preferred: ProgrammingLanguage,
+): { language: ProgrammingLanguage; body: string } {
+  const body = snippet.variants[preferred];
+  if (body === undefined) {
+    return {
+      language: DEFAULT_PROGRAMMING_LANGUAGE,
+      body: snippet.variants[DEFAULT_PROGRAMMING_LANGUAGE],
+    };
+  }
+  return { language: preferred, body };
+}
+
+const MARKDOWN_URL = `${SITE_ORIGIN}/`;
+
+export const FETCH_MARKDOWN_SNIPPET: VariantSnippet = {
+  variants: {
+    typescript: `const response = await fetch("${MARKDOWN_URL}", {
+  headers: { Accept: "text/markdown", "Accept-Language": "en-US, typescript" },
+});
+const markdown: string = await response.text();`,
+    javascript: `const response = await fetch("${MARKDOWN_URL}", {
+  headers: { Accept: "text/markdown", "Accept-Language": "en-US, javascript" },
+});
+const markdown = await response.text();`,
+    python: `from urllib.request import Request, urlopen
+
+request = Request(
+    "${MARKDOWN_URL}",
+    headers={"Accept": "text/markdown", "Accept-Language": "en-US, python"},
+)
+with urlopen(request) as response:
+    markdown = response.read().decode("utf-8")`,
+    go: `req, _ := http.NewRequest(http.MethodGet, "${MARKDOWN_URL}", nil)
+req.Header.Set("Accept", "text/markdown")
+req.Header.Set("Accept-Language", "en-US, go")
+resp, err := http.DefaultClient.Do(req)
+if err != nil {
+	log.Fatal(err)
+}
+defer resp.Body.Close()
+markdown, err := io.ReadAll(resp.Body)
+if err != nil {
+	log.Fatal(err)
+}`,
+    java: `HttpClient client = HttpClient.newHttpClient();
+HttpRequest request = HttpRequest.newBuilder(URI.create("${MARKDOWN_URL}"))
+    .header("Accept", "text/markdown")
+    .header("Accept-Language", "en-US, java")
+    .build();
+String markdown = client.send(request, HttpResponse.BodyHandlers.ofString()).body();`,
+    ruby: `require "net/http"
+
+uri = URI("${MARKDOWN_URL}")
+http = Net::HTTP.new(uri.host, uri.port)
+http.use_ssl = uri.scheme == "https"
+request = Net::HTTP::Get.new(uri)
+request["Accept"] = "text/markdown"
+request["Accept-Language"] = "en-US, ruby"
+markdown = http.request(request).body`,
+    bash: `curl -sS -H 'Accept: text/markdown' -H 'Accept-Language: en-US, bash' ${MARKDOWN_URL}`,
+  },
+};
+
+/** Server preference for the landing page's code example. `/` and `/index.md` negotiate against this set. */
+export const FETCH_MARKDOWN_LANGUAGES = servableLanguages(FETCH_MARKDOWN_SNIPPET);

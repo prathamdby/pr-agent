@@ -21,7 +21,7 @@ const contentNegotiation = createMiddleware({ type: "request" }).server(
     const isHome = pathname === "/";
 
     if (isHome) {
-      const negotiated = negotiateHomeRequest(accept);
+      const negotiated = negotiateHomeRequest(accept, request.headers.get("Accept-Language"));
       if (negotiated !== null) {
         return negotiated;
       }

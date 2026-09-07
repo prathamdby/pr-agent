@@ -10,6 +10,7 @@ import {
   notAcceptableResponse,
   notFoundResponse,
   restateAcceptAsHtml,
+  varyOn,
   varyOnAccept,
 } from "../site/lib/siteHttp.js";
 
@@ -51,29 +52,59 @@ describe("varyOnAccept", () => {
   });
 });
 
+describe("varyOn", () => {
+  it("lists each field once, in the order it was declared", () => {
+    const headers = new Headers();
+    varyOn(headers, "Accept");
+    varyOn(headers, "Accept-Language");
+    varyOn(headers, "accept-language");
+    expect(headers.get("Vary")).toBe("Accept, Accept-Language");
+  });
+});
+
 describe("negotiateHomeRequest", () => {
   it("hands markdown to a client that asks for it", async () => {
-    const response = negotiateHomeRequest("text/markdown");
+    const response = negotiateHomeRequest("text/markdown", null);
     expect(response).not.toBeNull();
     expect(response?.status).toBe(200);
     expect(response?.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
-    expect(response?.headers.get("Vary")).toBe("Accept");
+    expect(response?.headers.get("Vary")).toBe("Accept, Accept-Language");
     expect(response?.headers.get("X-Content-Type-Options")).toBe("nosniff");
-    expect(await response?.text()).toContain("# PR Agent");
+    const body = await response?.text();
+    expect(body).toContain("# PR Agent");
+    expect(body).toContain("```typescript\n");
   });
 
+  it("renders the fetch example in the language named after the locale", async () => {
+    const response = negotiateHomeRequest("text/markdown", "en-us, python");
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("Vary")).toBe("Accept, Accept-Language");
+    const body = await response?.text();
+    expect(body).toContain("```python\n");
+    expect(body).not.toContain("```typescript\n");
+  });
+
+  it.each(["en", "en-US", "ts", "sh", "rust"])(
+    "keeps the typescript example for Accept-Language %s",
+    async (acceptLanguage) => {
+      const body = await negotiateHomeRequest("text/markdown", acceptLanguage)?.text();
+      expect(body).toContain("```typescript\n");
+    },
+  );
+
   it("defers to the React page for a browser, a bare catch-all, or no Accept at all", () => {
-    expect(negotiateHomeRequest("text/html,*/*;q=0.8")).toBeNull();
-    expect(negotiateHomeRequest("*/*")).toBeNull();
-    expect(negotiateHomeRequest(null)).toBeNull();
+    expect(negotiateHomeRequest("text/html,*/*;q=0.8", null)).toBeNull();
+    expect(negotiateHomeRequest("text/html,*/*;q=0.8", "python")).toBeNull();
+    expect(negotiateHomeRequest("*/*", null)).toBeNull();
+    expect(negotiateHomeRequest(null, null)).toBeNull();
   });
 
   it("refuses markdown when the client marked it q=0", () => {
-    expect(negotiateHomeRequest("text/markdown;q=0, text/html")).toBeNull();
+    expect(negotiateHomeRequest("text/markdown;q=0, text/html", null)).toBeNull();
   });
 
   it("returns 406 with the available types when nothing matches", async () => {
-    const response = negotiateHomeRequest("application/pdf");
+    const response = negotiateHomeRequest("application/pdf", "python");
     expect(response?.status).toBe(406);
     expect(response?.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
     expect(response?.headers.get("Vary")).toBe("Accept");
@@ -82,7 +113,7 @@ describe("negotiateHomeRequest", () => {
   });
 
   it("caches both variants at the edge while browsers keep revalidating", () => {
-    const markdown = homeMarkdownResponse();
+    const markdown = homeMarkdownResponse(null);
     expect(markdown.headers.get("Cache-Control")).toBe(
       "public, max-age=0, s-maxage=600, stale-while-revalidate=86400",
     );
@@ -189,13 +220,19 @@ describe("notFoundResponse", () => {
 });
 
 describe("fixed-format markdown documents", () => {
-  it("serves /index.md as markdown without claiming to negotiate", async () => {
-    const response = homeMarkdownDocumentResponse();
+  it("serves /index.md as markdown, varying on the example language only", async () => {
+    const response = homeMarkdownDocumentResponse(null);
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
-    expect(response.headers.get("Vary")).toBeNull();
+    expect(response.headers.get("Vary")).toBe("Accept-Language");
     expect(response.headers.get("Link")).toBe(MARKDOWN_LINK);
-    expect(await response.text()).toBe(await homeMarkdownResponse().text());
+    expect(await response.text()).toBe(await homeMarkdownResponse(null).text());
+  });
+
+  it("honours Accept-Language on /index.md", async () => {
+    const body = await homeMarkdownDocumentResponse("go").text();
+    expect(body).toContain("```go\n");
+    expect(body).toBe(await homeMarkdownResponse("go").text());
   });
 
   it("serves /agents.md as a cacheable document without claiming to negotiate", async () => {

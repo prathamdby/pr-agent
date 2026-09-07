@@ -24,7 +24,7 @@ const LANDING_PAGE: AgentResource = {
   title: "PR Agent landing page",
   mediaType: "text/html",
   description:
-    "The product page. Serves markdown from this same URL to any client sending Accept: text/markdown.",
+    "The product page. Serves markdown from this same URL to any client sending Accept: text/markdown, with its fetch example in the programming language named in Accept-Language.",
   inSitemap: true,
 };
 
@@ -32,7 +32,8 @@ export const LANDING_PAGE_MARKDOWN: AgentResource = {
   path: "/index.md",
   title: "PR Agent landing page in markdown",
   mediaType: "text/markdown",
-  description: "The landing page as markdown, for clients that cannot set an Accept header.",
+  description:
+    "The landing page as markdown at a fixed URL, for clients that cannot set an Accept header. Accept-Language still picks the fetch example's language.",
   inSitemap: true,
 };
 

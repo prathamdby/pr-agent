@@ -4,7 +4,7 @@ import { homeMarkdownDocumentResponse } from "@/lib/siteHttp";
 export const Route = createFileRoute("/index.md")({
   server: {
     handlers: {
-      GET: () => homeMarkdownDocumentResponse(),
+      GET: ({ request }) => homeMarkdownDocumentResponse(request.headers.get("Accept-Language")),
     },
   },
 });
