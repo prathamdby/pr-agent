@@ -87,17 +87,15 @@ describe("Code Mode", () => {
     if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
   });
 
-  it("keeps Promise.then and new Promise on the host halt path", async () => {
-    for (const code of [
-      "Promise.resolve().then(() => { while (true) {} })",
-      "new Promise((resolve) => { while (true) {} })",
-    ]) {
-      const started = Date.now();
-      const result = await runCodeModeScript({ code, capabilities: {} });
-      expect(result.ok, code).toBe(false);
-      if (!result.ok) expect(result.error.code, code).toBe("EXECUTION_BUDGET_EXCEEDED");
-      expect(Date.now() - started, code).toBeLessThan(100);
-    }
+  it.each([
+    "Promise.resolve().then(() => { while (true) {} })",
+    "new Promise((resolve) => { while (true) {} })",
+  ])("keeps %s on the host halt path", async (code) => {
+    const started = Date.now();
+    const result = await runCodeModeScript({ code, capabilities: {} });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
+    expect(Date.now() - started).toBeLessThan(100);
   });
 
   it("halts Array.from allocations beyond the cap", async () => {
@@ -112,22 +110,18 @@ describe("Code Mode", () => {
     expect(after - before).toBeLessThan(8 * 1024 * 1024);
   });
 
-  it("rejects ReDoS-prone patterns on string methods", async () => {
-    const input = '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX"';
-    const scripts = [
-      `${input}.replace(new RegExp("(a+)+$"), "x")`,
-      `${input}.replaceAll(new RegExp("(a+)+$", "g"), "x")`,
-      `${input}.search(new RegExp("(a+)+$"))`,
-      `${input}.split(new RegExp("(a+)+$"))`,
-      `${input}.matchAll(new RegExp("(a+)+$", "g"))`,
-    ];
-    for (const code of scripts) {
-      const started = Date.now();
-      const result = await runCodeModeScript({ code, capabilities: {} });
-      expect(Date.now() - started, code).toBeLessThan(100);
-      expect(result.ok, code).toBe(false);
-      if (!result.ok) expect(result.error.code, code).toBe("LIMIT_EXCEEDED");
-    }
+  it.each([
+    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".replace(new RegExp("(a+)+$"), "x")',
+    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".replaceAll(new RegExp("(a+)+$", "g"), "x")',
+    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".search(new RegExp("(a+)+$"))',
+    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".split(new RegExp("(a+)+$"))',
+    '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX".matchAll(new RegExp("(a+)+$", "g"))',
+  ])("rejects ReDoS-prone patterns for %s", async (code) => {
+    const started = Date.now();
+    const result = await runCodeModeScript({ code, capabilities: {} });
+    expect(Date.now() - started).toBeLessThan(100);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
   });
 
   it("halts doubling concatenation before a huge allocation", async () => {

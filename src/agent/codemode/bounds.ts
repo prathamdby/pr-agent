@@ -30,10 +30,10 @@ export function boundArrayFrom(source: unknown): unknown[] {
     return Array.from(source);
   }
   if (typeof source === "object" && "length" in source) {
-    const length = Number((source as { length: unknown }).length);
+    const length = Number(source.length);
     boundArrayLength(length);
     const out: unknown[] = [];
-    const record = source as Record<number, unknown>;
+    const record: Record<number, unknown> = source;
     for (let i = 0; i < length; i += 1) out.push(record[i]);
     return out;
   }

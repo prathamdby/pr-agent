@@ -167,14 +167,17 @@ async function runConfinedPromise(executor: unknown): Promise<unknown> {
   if (typeof executor !== "function") {
     throw new CodeModeHostHalt("EXECUTION_ERROR", "Promise executor must be a function");
   }
-  let settled: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: unknown } | undefined;
-  const resolve = (value: unknown) => {
+  let settled:
+    | { readonly ok: true; readonly value: unknown }
+    | { readonly ok: false; readonly error: unknown }
+    | undefined;
+  const settleOk = (value: unknown) => {
     if (!settled) settled = { ok: true, value };
   };
-  const reject = (error: unknown) => {
+  const settleErr = (error: unknown) => {
     if (!settled) settled = { ok: false, error };
   };
-  await executor(resolve, reject);
+  await executor(settleOk, settleErr);
   if (!settled) {
     throw new CodeModeHostHalt("EXECUTION_ERROR", "Promise executor did not settle");
   }
