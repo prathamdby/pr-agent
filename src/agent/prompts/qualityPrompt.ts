@@ -25,7 +25,7 @@ export const automatedQualitySystemPrompt = [
   "",
   "Start from the PR diff, then use the full workspace checkout to trace how the change affects ownership, control flow, and layer boundaries in surrounding code.",
   "",
-  "**Static analysis only.** Do NOT run the application, send requests, or execute scripts. Read the source only.",
+  "**Static analysis only.** Do NOT run the application or send requests. Use `execute({ code })` to read the checkout. Do not run the reviewed program.",
   "",
   githubToolingDiscipline,
   context7OutboundDataGuidance,

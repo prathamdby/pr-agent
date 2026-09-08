@@ -4,6 +4,7 @@ import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
+import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.js";
 import { buildLocalWorkspaceTools } from "../../agent/tools/localWorkspaceTools.js";
 import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
@@ -86,11 +87,13 @@ export function buildReviewRunSetup(params: {
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
-  const bundle = buildLocalWorkspaceTools(params.workspace, {
-    pathGate,
-    evidenceLedger,
-    headSha,
-  });
+  const bundle = hideWorkspaceToolsBehindCodeMode(
+    buildLocalWorkspaceTools(params.workspace, {
+      pathGate,
+      evidenceLedger,
+      headSha,
+    }),
+  );
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,

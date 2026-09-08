@@ -2,6 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
 import { verificationSystemPrompt } from "./verificationPrompt.js";
 import { buildVerificationUserContent } from "./verificationUserMessage.js";
 import { buildVerificationWorkspaceTools } from "./verificationWorkspaceTools.js";
@@ -37,10 +38,12 @@ export function buildVerificationRunSetup(params: {
   readonly compareFilesTruncated?: boolean;
 }): VerificationRunSetup {
   const submitState = createSubmitVerificationState();
-  const workspaceTools = buildVerificationWorkspaceTools({
-    cfg: params.cfg,
-    workspace: params.workspace,
-  });
+  const workspaceTools = hideWorkspaceToolsBehindCodeMode(
+    buildVerificationWorkspaceTools({
+      cfg: params.cfg,
+      workspace: params.workspace,
+    }),
+  );
   const submitTool = buildSubmitVerificationTool({
     owner: params.owner,
     repo: params.repo,
