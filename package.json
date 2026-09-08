@@ -41,6 +41,7 @@
     "@octokit/rest": "^22.0.1",
     "@octokit/types": "^16.0.0",
     "@valibot/to-json-schema": "^1.7.1",
+    "acorn": "^8.15.0",
     "effect": "3.22.0",
     "evlog": "2.22.3",
     "pg": "^8.22.0",

@@ -5,6 +5,8 @@ import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.js";
 import { thinkingPolicyFromCeiling } from "./thinkingPolicy.js";
 import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.js";
+import { runWithCodeModeContext } from "../codemode/context.js";
+import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.js";
 import { createPiSession } from "./piSession.js";
 import {
   commitPhaseCheckpoint,
@@ -41,6 +43,20 @@ async function resolveInitialStructuredState(params: {
     structuredState: params.structuredState,
     durability: params.durability,
   });
+}
+
+function attachCodeModeAbort(session: PiSession, codeModeAbort: AbortController): PiSession {
+  const originalAbort = session.abort.bind(session);
+  const originalRestart = session.restartWithFallback.bind(session);
+  return {
+    ...session,
+    abort: async () => {
+      codeModeAbort.abort();
+      await originalAbort();
+    },
+    restartWithFallback: async (params) =>
+      attachCodeModeAbort(await originalRestart(params), codeModeAbort),
+  };
 }
 
 function wrapSessionWithDurability(
@@ -120,6 +136,22 @@ export async function createFeaturePiSession(params: {
           durableEventSink(event);
         }
       : (durableEventSink ?? params.eventSink ?? (() => undefined));
+  const executors = { ...params.executors };
+  const execute = executors[CODE_MODE_EXECUTE_NAME];
+  const codeModeAbort = new AbortController();
+  if (execute) {
+    executors[CODE_MODE_EXECUTE_NAME] = (args) =>
+      runWithCodeModeContext(
+        {
+          signal: codeModeAbort.signal,
+          emit: eventSink,
+          role: params.role,
+          provider: primary.provider,
+          model: primary.model,
+        },
+        () => execute(args),
+      );
+  }
   const session = await createPiSession({
     role: params.role,
     ...(params.specialistId ? { specialistId: params.specialistId } : {}),
@@ -135,9 +167,11 @@ export async function createFeaturePiSession(params: {
     eventSink,
     cfg: params.cfg,
     tools: params.tools,
-    executors: params.executors,
+    executors,
     refreshBeforeTool: params.refreshBeforeTool,
   });
-  if (!params.durability) return session;
-  return wrapSessionWithDurability(session, params.cfg, params.durability);
+  const durable = params.durability
+    ? wrapSessionWithDurability(session, params.cfg, params.durability)
+    : session;
+  return attachCodeModeAbort(durable, codeModeAbort);
 }

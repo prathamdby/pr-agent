@@ -430,6 +430,22 @@ Writing policy is computed once per description run from workspace size stats (`
 
 Shared workspace search applies `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-grep stdout and the tool `maxResults` after parse. Those limits do not use Git 2.40 `--max-count`. Debian bookworm Git 2.39.x in the application image is enough.
 
+### Code Mode
+
+| Symbol                                 | Default |
+| -------------------------------------- | ------- |
+| `CODE_MODE_AST_FUEL`                   | 50000   |
+| `CODE_MODE_MAX_TOOL_CALLS`             | 25      |
+| `CODE_MODE_TIMEOUT_MS`                 | 15000   |
+| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8       |
+| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100     |
+| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768   |
+| `CODE_MODE_MAX_STRING_REPEAT`          | 65536   |
+| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536   |
+| `CODE_MODE_MAX_REGEX_INPUT_CHARS`      | 65536   |
+
+Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. The interpreter is in-process Acorn with AST fuel; it does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
+
 ### Code index (optional FTS hints)
 
 | Symbol                           | Value / role |

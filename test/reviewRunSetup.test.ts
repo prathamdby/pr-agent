@@ -52,6 +52,11 @@ describe("buildReviewRunSetup", () => {
     });
 
     expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain("submitReview");
+    expect(setup.workspaceTools.piTools.map((tool) => tool.name)).toContain("execute");
+    expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain("listChangedFiles");
+    expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain(
+      "readWorkspaceFile",
+    );
     expect(setup.orchestratorUserContent).not.toContain("submitReview");
     expect(setup.prSurface).toBe(prSurface);
   });

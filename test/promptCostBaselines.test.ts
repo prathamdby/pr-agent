@@ -48,7 +48,7 @@ describe("prompt cost baselines", () => {
     expect(prompt).toContain("submit_findings_report");
     expect(prompt).toContain("no_findings");
     expect(prompt).toContain("Report only issues introduced or exposed by this PR");
-    expect(prompt).toContain("Follow each local workspace tool's description");
+    expect(prompt).toContain("Follow each tools.* contract");
     for (const severity of SEVERITIES) {
       expect(prompt).toContain(severity);
     }
