@@ -16,7 +16,7 @@ The workspace capabilities themselves are sound ([ADR 0011](0011-agent-runner-lo
 
 2. **In-process Acorn interpreter.** No `eval`, `new Function`, V8 isolate, OpenCode daemon, SQLite, PTY, or native add-ons. The environment has math/data primitives and `tools.*` only.
 
-3. **Layered bounds.** AST fuel (50,000), 25 workspace calls, 15s abort, clamped `String.repeat` / `Array(n)` / ReDoS-prone regex, blocked `__proto__` / `constructor`, and a defensive serializer (depth 8, array 100, string 32 KiB).
+3. **Layered bounds.** AST fuel (50,000), 25 workspace calls, 15s abort, clamped `String.repeat` / `+` concat / `Array(n)` / `Array.from` / ReDoS-prone regex (including string `replace`/`search`/`split`/`matchAll`), blocked `__proto__` / `constructor`, and a defensive serializer (depth 8, array 100, string 32 KiB).
 
 4. **Structured `CodeModeResult`.** Success returns compact output plus inner `toolCalls`. Failure uses `SYNTAX_ERROR`, `EXECUTION_BUDGET_EXCEEDED`, `TIMEOUT`, `LIMIT_EXCEEDED`, `TOOL_FAILURE`, or `EXECUTION_ERROR`. Inner path fencing surfaces as `ACCESS_DENIED`. Host halt (fuel, timeout, session abort) is not catchable in user JavaScript.
 

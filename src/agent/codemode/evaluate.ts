@@ -35,7 +35,9 @@ import {
   assertSafePropertyKey,
   assertSafeRegexInput,
   assertSafeRegexPattern,
+  boundArrayFrom,
   boundArrayLength,
+  boundStringConcat,
   boundStringRepeat,
 } from "./bounds.js";
 import { CodeModeHostHalt } from "./hostHalt.js";
@@ -57,6 +59,11 @@ export type EvaluateOptions = {
   readonly signal?: AbortSignal;
 };
 
+const REGEX_STRING_COMPILE_METHODS = new Set(["match", "matchAll", "search"]);
+const REGEX_STRING_OPTIONAL_METHODS = new Set(["replace", "replaceAll", "split"]);
+const REGEX_REGEXP_METHODS = new Set(["test", "exec"]);
+const PROMISE_THEN_METHODS = new Set(["then", "catch", "finally"]);
+
 const ARRAY_CALLBACK_METHODS = new Set([
   "map",
   "filter",
@@ -76,6 +83,103 @@ type Flow = { readonly kind: typeof RETURN; readonly value: unknown };
 
 function isFlow(value: unknown): value is Flow {
   return typeof value === "object" && value !== null && "kind" in value && value.kind === RETURN;
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
+async function awaitHostValue(value: unknown): Promise<unknown> {
+  return isThenable(value) ? await value : value;
+}
+
+function isArrayConstructor(value: unknown): boolean {
+  return value === Array || (typeof value === "function" && value.name === "BoundedArray");
+}
+
+function isPromiseConstructor(value: unknown): boolean {
+  return value === Promise || (typeof value === "function" && value.name === "Promise");
+}
+
+function guardRegexInvocation(thisArg: unknown, key: string, args: unknown[]): void {
+  if (thisArg instanceof RegExp && REGEX_REGEXP_METHODS.has(key)) {
+    assertSafeRegexPattern(thisArg.source);
+    assertSafeRegexInput(primitiveText(args[0]));
+    return;
+  }
+  if (typeof thisArg !== "string") return;
+  const patternArg = args[0];
+  if (patternArg instanceof RegExp) {
+    if (REGEX_STRING_COMPILE_METHODS.has(key) || REGEX_STRING_OPTIONAL_METHODS.has(key)) {
+      assertSafeRegexPattern(patternArg.source);
+      assertSafeRegexInput(thisArg);
+    }
+    return;
+  }
+  if (REGEX_STRING_COMPILE_METHODS.has(key)) {
+    assertSafeRegexPattern(primitiveText(patternArg));
+    assertSafeRegexInput(thisArg);
+  }
+}
+
+async function applyPromiseThen(
+  thisArg: PromiseLike<unknown>,
+  key: string,
+  args: unknown[],
+): Promise<unknown> {
+  if (key === "finally") {
+    const onFinally = args[0];
+    try {
+      const value = await thisArg;
+      if (typeof onFinally === "function") await onFinally();
+      return value;
+    } catch (error) {
+      if (typeof onFinally === "function") await onFinally();
+      throw error;
+    }
+  }
+  if (key === "catch") {
+    try {
+      return await thisArg;
+    } catch (error) {
+      const onRejected = args[0];
+      if (typeof onRejected === "function") return await onRejected(error);
+      throw error;
+    }
+  }
+  try {
+    const value = await thisArg;
+    const onFulfilled = args[0];
+    if (typeof onFulfilled === "function") return await onFulfilled(value);
+    return value;
+  } catch (error) {
+    const onRejected = args[1];
+    if (typeof onRejected === "function") return await onRejected(error);
+    throw error;
+  }
+}
+
+async function runConfinedPromise(executor: unknown): Promise<unknown> {
+  if (typeof executor !== "function") {
+    throw new CodeModeHostHalt("EXECUTION_ERROR", "Promise executor must be a function");
+  }
+  let settled: { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: unknown } | undefined;
+  const resolve = (value: unknown) => {
+    if (!settled) settled = { ok: true, value };
+  };
+  const reject = (error: unknown) => {
+    if (!settled) settled = { ok: false, error };
+  };
+  await executor(resolve, reject);
+  if (!settled) {
+    throw new CodeModeHostHalt("EXECUTION_ERROR", "Promise executor did not settle");
+  }
+  if (!settled.ok) throw settled.error;
+  return awaitHostValue(settled.value);
 }
 
 async function applyArrayCallbackMethod(
@@ -256,10 +360,16 @@ export async function evaluateProgram(
       if (args.length === 1 && typeof args[0] === "number") {
         return allocateArray(args[0]);
       }
+      boundArrayLength(args.length);
       return Array.from(args);
     } as unknown as ArrayConstructor;
     Object.setPrototypeOf(BoundedArray, Array);
     Object.defineProperty(BoundedArray, "prototype", { value: Array.prototype });
+    BoundedArray.from = ((source: unknown, mapFn?: (...fnArgs: unknown[]) => unknown) => {
+      const items = boundArrayFrom(source);
+      if (typeof mapFn !== "function") return items;
+      return applyArrayCallbackMethod("map", items, mapFn, []);
+    }) as typeof Array.from;
     return BoundedArray;
   }
 
@@ -336,10 +446,10 @@ export async function evaluateProgram(
         const tpl = node as TemplateLiteral;
         let out = "";
         for (let i = 0; i < tpl.quasis.length; i += 1) {
-          out += tpl.quasis[i]?.value.cooked ?? "";
+          out = boundStringConcat(out, tpl.quasis[i]?.value.cooked ?? "");
           if (i < tpl.expressions.length) {
             const part = await evalNode(tpl.expressions[i]!, scope);
-            out += primitiveText(part);
+            out = boundStringConcat(out, primitiveText(part));
           }
         }
         return out;
@@ -430,7 +540,10 @@ export async function evaluateProgram(
         const right = await evalNode(binary.right, scope);
         switch (binary.operator) {
           case "+":
-            return (left as never) + (right as never);
+            if (typeof left === "string" || typeof right === "string") {
+              return boundStringConcat(String(left), String(right));
+            }
+            return Number(left) + Number(right);
           case "-":
             return Number(left) - Number(right);
           case "*":
@@ -639,6 +752,7 @@ export async function evaluateProgram(
     const calleeNode = node.callee;
     let thisArg: unknown;
     let callee: unknown;
+    let args: unknown[] | undefined;
     if (calleeNode.type === "MemberExpression") {
       const member = calleeNode;
       thisArg = await evalNode(member.object, scope);
@@ -647,37 +761,73 @@ export async function evaluateProgram(
         : (member.property as Identifier).name;
       assertSafePropertyKey(key);
       callee = thisArg == null ? undefined : (thisArg as Record<string, unknown>)[String(key)];
-      if (String(key) === "repeat" && typeof thisArg === "string") {
-        const args = await evalArgs(node.arguments as Expression[], scope);
+      args = await evalArgs(node.arguments as Expression[], scope);
+      const method = String(key);
+      if (method === "repeat" && typeof thisArg === "string") {
         return boundStringRepeat(thisArg, Number(args[0] ?? 0));
       }
+      if (method === "from" && isArrayConstructor(thisArg)) {
+        const items = boundArrayFrom(args[0]);
+        const mapFn = args[1];
+        if (typeof mapFn === "function") {
+          return applyArrayCallbackMethod(
+            "map",
+            items,
+            mapFn as (...fnArgs: unknown[]) => unknown,
+            [],
+          );
+        }
+        return items;
+      }
+      if (PROMISE_THEN_METHODS.has(method)) {
+        const thenable = isThenable(thisArg) ? thisArg : Promise.resolve(thisArg);
+        return applyPromiseThen(thenable, method, args);
+      }
+      if (isPromiseConstructor(thisArg) && method === "all") {
+        const items = Array.isArray(args[0]) ? args[0] : [];
+        const out: unknown[] = [];
+        for (const item of items) out.push(await item);
+        return out;
+      }
+      if (isPromiseConstructor(thisArg) && method === "allSettled") {
+        const items = Array.isArray(args[0]) ? args[0] : [];
+        const out: unknown[] = [];
+        for (const item of items) {
+          try {
+            out.push({ status: "fulfilled", value: await item });
+          } catch (error) {
+            out.push({ status: "rejected", reason: error });
+          }
+        }
+        return out;
+      }
+      if (isPromiseConstructor(thisArg) && method === "race") {
+        const items = Array.isArray(args[0]) ? args[0] : [];
+        return Promise.race(items.map((item) => Promise.resolve(item)));
+      }
+      if (isPromiseConstructor(thisArg) && (method === "resolve" || method === "reject")) {
+        if (method === "reject") throw args[0];
+        return args[0];
+      }
       // Native Array.prototype callbacks are sync; interpreter functions are async.
-      if (Array.isArray(thisArg) && ARRAY_CALLBACK_METHODS.has(String(key))) {
-        const args = await evalArgs(node.arguments as Expression[], scope);
+      if (Array.isArray(thisArg) && ARRAY_CALLBACK_METHODS.has(method)) {
         const callback = args[0];
         if (typeof callback !== "function") {
           throw new CodeModeHostHalt(
             "EXECUTION_ERROR",
-            `${String(key)} requires a function`,
+            `${method} requires a function`,
             lineOf(node),
           );
         }
         return applyArrayCallbackMethod(
-          String(key),
+          method,
           thisArg,
           callback as (...fnArgs: unknown[]) => unknown,
           args.slice(1),
         );
       }
-      if (
-        (String(key) === "test" || String(key) === "exec" || String(key) === "match") &&
-        (thisArg instanceof RegExp || typeof thisArg === "string")
-      ) {
-        const args = await evalArgs(node.arguments as Expression[], scope);
-        const input = thisArg instanceof RegExp ? primitiveText(args[0]) : thisArg;
-        const pattern = thisArg instanceof RegExp ? thisArg.source : primitiveText(args[0]);
-        assertSafeRegexPattern(pattern);
-        assertSafeRegexInput(input);
+      if (thisArg instanceof RegExp || typeof thisArg === "string") {
+        guardRegexInvocation(thisArg, method, args);
       }
     } else {
       callee = await evalNode(calleeNode, scope);
@@ -689,8 +839,21 @@ export async function evaluateProgram(
         lineOf(node),
       );
     }
-    const args = await evalArgs(node.arguments as Expression[], scope);
-    return (callee as (...fnArgs: unknown[]) => unknown).apply(thisArg, args);
+    args ??= await evalArgs(node.arguments as Expression[], scope);
+    if (callee === Array.from) {
+      const items = boundArrayFrom(args[0]);
+      const mapFn = args[1];
+      if (typeof mapFn === "function") {
+        return applyArrayCallbackMethod(
+          "map",
+          items,
+          mapFn as (...fnArgs: unknown[]) => unknown,
+          [],
+        );
+      }
+      return items;
+    }
+    return awaitHostValue((callee as (...fnArgs: unknown[]) => unknown).apply(thisArg, args));
   }
 
   async function evalNew(node: NewExpression, scope: Scope): Promise<unknown> {
@@ -699,14 +862,18 @@ export async function evaluateProgram(
       throw new CodeModeHostHalt("EXECUTION_ERROR", "new requires a constructor", lineOf(node));
     }
     const args = await evalArgs(node.arguments as Expression[], scope);
-    if (ctor === Array || ctor?.name === "BoundedArray") {
+    if (isArrayConstructor(ctor)) {
       if (args.length === 1 && typeof args[0] === "number") {
         return allocateArray(args[0]);
       }
+      boundArrayLength(args.length);
+    }
+    if (isPromiseConstructor(ctor)) {
+      return runConfinedPromise(args[0]);
     }
     if (ctor === RegExp || ctor?.name === "BoundedRegExp") {
       assertSafeRegexPattern(primitiveText(args[0]));
     }
-    return new (ctor as new (...fnArgs: unknown[]) => unknown)(...args);
+    return awaitHostValue(new (ctor as new (...fnArgs: unknown[]) => unknown)(...args));
   }
 }

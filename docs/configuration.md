@@ -444,7 +444,7 @@ Shared workspace search applies `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-
 | `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536   |
 | `CODE_MODE_MAX_REGEX_INPUT_CHARS`      | 65536   |
 
-Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. The interpreter is in-process Acorn with AST fuel; it does not use `eval`, V8 isolates, or native add-ons.
+Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. The interpreter is in-process Acorn with AST fuel; it does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
 
 ### Code index (optional FTS hints)
 

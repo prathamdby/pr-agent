@@ -16,10 +16,10 @@ export const CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH = 100;
 /** Max UTF-8 bytes retained for one serialized string. */
 export const CODE_MODE_SERIALIZE_MAX_STRING_BYTES = 32 * 1024;
 
-/** Max characters a host-native `String.prototype.repeat` may allocate. */
+/** Max characters a host-native `String.prototype.repeat` or `+` concat may allocate. */
 export const CODE_MODE_MAX_STRING_REPEAT = 64 * 1024;
 
-/** Max length a host-native `Array(n)` may allocate. */
+/** Max length a host-native `Array(n)` or `Array.from` may allocate. */
 export const CODE_MODE_MAX_ARRAY_ALLOCATION = 64 * 1024;
 
 /** Max input length admitted to a regular expression execution. */

@@ -1,10 +1,32 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
-const { appendAgentEvents, getAgentPhaseCheckpoint } = vi.hoisted(() => ({
-  appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
-  getAgentPhaseCheckpoint: vi.fn(async () => null),
-}));
+const { appendAgentEvents, getAgentPhaseCheckpoint, fakePiSession } = vi.hoisted(() => {
+  function fakePiSession(): {
+    role: "orchestrator";
+    primary: { provider: "openai"; model: "gpt-4o-mini" };
+    send: ReturnType<typeof vi.fn>;
+    abort: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof vi.fn>;
+    restartWithFallback: ReturnType<typeof vi.fn>;
+    getStructuredState: () => { version: number; payload: Record<string, never> };
+  } {
+    return {
+      role: "orchestrator",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      send: vi.fn(),
+      abort: vi.fn(async () => undefined),
+      dispose: vi.fn(async () => undefined),
+      restartWithFallback: vi.fn(async () => fakePiSession()),
+      getStructuredState: () => ({ version: 1, payload: {} }),
+    };
+  }
+  return {
+    appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
+    getAgentPhaseCheckpoint: vi.fn(async () => null),
+    fakePiSession,
+  };
+});
 
 vi.mock("../src/agentWork/phaseCheckpointRepository.js", () => ({
   upsertAgentPhaseCheckpoint: vi.fn(),
@@ -44,21 +66,15 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
       provider: "openai",
       model: "gpt-4o-mini",
     });
-    return {
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      send: vi.fn(),
-      abort: vi.fn(),
-      dispose: vi.fn(),
-      restartWithFallback: vi.fn(),
-      getStructuredState: () => ({ version: 1, payload: {} }),
-    };
+    return fakePiSession();
   }),
   DEFAULT_TOOL_POLICY: {},
   EMPTY_STRUCTURED_STATE: { version: 1, payload: {} },
 }));
 
+import { getCodeModeContext } from "../src/agent/codemode/context.js";
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
+import { createPiSession } from "../src/agent/runtime/piSession.js";
 import { safeAppendAgentEvents } from "../src/agentWork/agentEventsRepository.js";
 
 describe("createFeaturePiSession agent events", () => {
@@ -123,6 +139,34 @@ describe("createFeaturePiSession agent events", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps execute abort wired after a durable fallback restart", async () => {
+    const cfg = makeTestConfig({ agentEventsEnabled: false });
+    let seenSignal: AbortSignal | undefined;
+    const session = await createFeaturePiSession({
+      role: "orchestrator",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {
+        execute: async () => {
+          seenSignal = getCodeModeContext().signal;
+          return { ok: true };
+        },
+      },
+      durability,
+    });
+    const wrappedExecute = vi.mocked(createPiSession).mock.calls.at(-1)?.[0]?.executors?.execute;
+    expect(typeof wrappedExecute).toBe("function");
+
+    const fallback = await session.restartWithFallback({
+      checkpointId: "orchestrator:recon",
+      structuredState: { version: 1, payload: {} },
+    });
+    await fallback.abort();
+    await wrappedExecute!({});
+    expect(seenSignal?.aborted).toBe(true);
   });
 });
 

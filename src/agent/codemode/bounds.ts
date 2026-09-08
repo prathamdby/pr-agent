@@ -13,6 +13,46 @@ export function assertSafePropertyKey(key: unknown): void {
   }
 }
 
+export function boundStringConcat(left: string, right: string): string {
+  if (left.length + right.length > CODE_MODE_MAX_STRING_REPEAT) {
+    throw new CodeModeHostHalt(
+      "LIMIT_EXCEEDED",
+      `String concatenation exceeds ${CODE_MODE_MAX_STRING_REPEAT} characters`,
+    );
+  }
+  return left + right;
+}
+
+export function boundArrayFrom(source: unknown): unknown[] {
+  if (source == null) return [];
+  if (typeof source === "string") {
+    boundArrayLength(source.length);
+    return Array.from(source);
+  }
+  if (typeof source === "object" && "length" in source) {
+    const length = Number((source as { length: unknown }).length);
+    boundArrayLength(length);
+    const out: unknown[] = [];
+    const record = source as Record<number, unknown>;
+    for (let i = 0; i < length; i += 1) out.push(record[i]);
+    return out;
+  }
+  if (typeof (source as Iterable<unknown>)[Symbol.iterator] === "function") {
+    const out: unknown[] = [];
+    for (const item of source as Iterable<unknown>) {
+      if (out.length >= CODE_MODE_MAX_ARRAY_ALLOCATION) {
+        throw new CodeModeHostHalt(
+          "LIMIT_EXCEEDED",
+          `Array allocation exceeds ${CODE_MODE_MAX_ARRAY_ALLOCATION} elements`,
+        );
+      }
+      out.push(item);
+    }
+    return out;
+  }
+  return [];
+}
+
 export function boundStringRepeat(value: string, count: number): string {
   if (!Number.isFinite(count) || count < 0) {
     throw new CodeModeHostHalt(

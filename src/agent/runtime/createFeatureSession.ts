@@ -45,6 +45,20 @@ async function resolveInitialStructuredState(params: {
   });
 }
 
+function attachCodeModeAbort(session: PiSession, codeModeAbort: AbortController): PiSession {
+  const originalAbort = session.abort.bind(session);
+  const originalRestart = session.restartWithFallback.bind(session);
+  return {
+    ...session,
+    abort: async () => {
+      codeModeAbort.abort();
+      await originalAbort();
+    },
+    restartWithFallback: async (params) =>
+      attachCodeModeAbort(await originalRestart(params), codeModeAbort),
+  };
+}
+
 function wrapSessionWithDurability(
   session: PiSession,
   cfg: Config,
@@ -156,14 +170,8 @@ export async function createFeaturePiSession(params: {
     executors,
     refreshBeforeTool: params.refreshBeforeTool,
   });
-  const originalAbort = session.abort.bind(session);
-  const withCodeModeAbort: PiSession = {
-    ...session,
-    abort: async () => {
-      codeModeAbort.abort();
-      await originalAbort();
-    },
-  };
-  if (!params.durability) return withCodeModeAbort;
-  return wrapSessionWithDurability(withCodeModeAbort, params.cfg, params.durability);
+  const durable = params.durability
+    ? wrapSessionWithDurability(session, params.cfg, params.durability)
+    : session;
+  return attachCodeModeAbort(durable, codeModeAbort);
 }

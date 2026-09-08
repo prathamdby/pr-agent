@@ -87,6 +87,68 @@ describe("Code Mode", () => {
     if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
   });
 
+  it("keeps Promise.then and new Promise on the host halt path", async () => {
+    for (const code of [
+      "Promise.resolve().then(() => { while (true) {} })",
+      "new Promise((resolve) => { while (true) {} })",
+    ]) {
+      const started = Date.now();
+      const result = await runCodeModeScript({ code, capabilities: {} });
+      expect(result.ok, code).toBe(false);
+      if (!result.ok) expect(result.error.code, code).toBe("EXECUTION_BUDGET_EXCEEDED");
+      expect(Date.now() - started, code).toBeLessThan(100);
+    }
+  });
+
+  it("halts Array.from allocations beyond the cap", async () => {
+    const before = process.memoryUsage().heapUsed;
+    const result = await runCodeModeScript({
+      code: "Array.from({ length: 100000 })",
+      capabilities: {},
+    });
+    const after = process.memoryUsage().heapUsed;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
+    expect(after - before).toBeLessThan(8 * 1024 * 1024);
+  });
+
+  it("rejects ReDoS-prone patterns on string methods", async () => {
+    const input = '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaX"';
+    const scripts = [
+      `${input}.replace(new RegExp("(a+)+$"), "x")`,
+      `${input}.replaceAll(new RegExp("(a+)+$", "g"), "x")`,
+      `${input}.search(new RegExp("(a+)+$"))`,
+      `${input}.split(new RegExp("(a+)+$"))`,
+      `${input}.matchAll(new RegExp("(a+)+$", "g"))`,
+    ];
+    for (const code of scripts) {
+      const started = Date.now();
+      const result = await runCodeModeScript({ code, capabilities: {} });
+      expect(Date.now() - started, code).toBeLessThan(100);
+      expect(result.ok, code).toBe(false);
+      if (!result.ok) expect(result.error.code, code).toBe("LIMIT_EXCEEDED");
+    }
+  });
+
+  it("halts doubling concatenation before a huge allocation", async () => {
+    const before = process.memoryUsage().heapUsed;
+    const started = Date.now();
+    const result = await runCodeModeScript({
+      code: `
+        let s = "x";
+        while (true) {
+          s = s + s;
+        }
+      `,
+      capabilities: {},
+    });
+    const after = process.memoryUsage().heapUsed;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
+    expect(Date.now() - started).toBeLessThan(100);
+    expect(after - before).toBeLessThan(8 * 1024 * 1024);
+  });
+
   it("returns structured diagnostics for syntax errors", async () => {
     const result = await runCodeModeScript({
       code: "const x = {",
