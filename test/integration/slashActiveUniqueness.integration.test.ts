@@ -12,7 +12,11 @@ import {
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
 } from "../../src/agentWork/reviewReschedule.js";
-import { getWorkItem } from "../../src/agentWork/repository.js";
+import {
+  claimWorkForExecution,
+  getReviewQueuePosition,
+  getWorkItem,
+} from "../../src/agentWork/repository.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -417,6 +421,100 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(ackData.cancelProgress?.workItemId).toBe(oldWorkItemId);
     expect(ackData.cancelProgress?.cancelledWorkItemIds).toEqual([oldWorkItemId]);
     expect(ackData.reply?.body).toContain("latest commit");
+  });
+
+  it("/review force releases the cancelled holder's lease so the sole replacement can be claimed", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 44);
+    const webhookEventId = randomUUID();
+    const oldWorkItemId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, 'sha', 'accepted')`,
+      [webhookEventId, `force-lease-${webhookEventId}`, EVENT],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       ) VALUES (
+         $1, $2, 'review', 'slash', 'running', $3, $4, 44, 4242, 'sha-old', 'review', $5, 0,
+         '{}'::jsonb
+       )`,
+      [oldWorkItemId, webhookEventId, OWNER, repo, resourceKey],
+    );
+    const heldEpoch = await acquireReviewLease(oldWorkItemId, resourceKey);
+    expect(heldEpoch).toBeGreaterThan(0);
+    await expect(
+      acquirePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        workItemId: randomUUID(),
+        holderId: "blocked-before-force",
+        ttlSeconds: 900,
+      }),
+    ).resolves.toEqual({
+      acquired: false,
+      heldByWorkItemId: oldWorkItemId,
+      leaseEpoch: heldEpoch,
+    });
+
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(
+        boss,
+        client,
+        {
+          headers: {
+            event: EVENT,
+            delivery: `force-lease-${randomUUID().slice(0, 8)}`,
+            rawBody: Buffer.from("{}"),
+          },
+          installationId: 4242,
+          owner: OWNER,
+          repo,
+          prNumber: 44,
+          commentId: 4401,
+          commenterId: 11,
+          commenterLogin: "alice",
+          body: "/review force",
+          command: "review",
+          replyTarget: { kind: "prConversation" as const, prNumber: 44 },
+        },
+        testFeatures,
+      ),
+    );
+
+    const { rows } = await pool.query<{ id: string; status: string }>(
+      `SELECT id, status FROM agent_work_items
+        WHERE resource_key = $1 AND type = 'review' AND source = 'slash'`,
+      [resourceKey],
+    );
+    const newRow = rows.find((row) => row.id !== oldWorkItemId);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: oldWorkItemId, status: "cancelled" },
+        { id: newRow?.id, status: "queued" },
+      ]),
+    );
+    expect(newRow).toBeDefined();
+    await expect(getReviewQueuePosition(pool, newRow!.id)).resolves.toEqual({
+      position: 1,
+      total: 1,
+    });
+
+    const admission = await acquirePrActorLease(pool, {
+      resourceKey,
+      workType: "review",
+      workItemId: newRow!.id,
+      holderId: "replacement-after-force",
+      ttlSeconds: 900,
+    });
+    expect(admission).toEqual({ acquired: true, leaseEpoch: heldEpoch + 1 });
+    await expect(claimWorkForExecution(pool, newRow!.id)).resolves.toEqual(
+      expect.objectContaining({ attemptCount: 1 }),
+    );
+    await expect(getReviewQueuePosition(pool, newRow!.id)).resolves.toBeNull();
   });
 
   it("/review force leaves a sibling PR's active review untouched", async () => {
