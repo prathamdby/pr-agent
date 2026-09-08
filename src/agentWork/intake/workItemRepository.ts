@@ -19,6 +19,7 @@ import {
   type ReviewCancelAttribution,
 } from "../../settings/reviewConstants.js";
 import { prResourceKey, type PrRef } from "../types.js";
+import { releasePrActorLeaseHeldByWorkItems } from "../prActorLease.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
 /**
@@ -616,6 +617,8 @@ function mapCancelledTriageRows(
  * slot frees without depending on pg-boss redelivery (cancelled jobs never redeliver).
  * Also sets `cancel_requested_at` on former running rows for in-process skip checks.
  * Writes `cancelAttribution` on the payload for the cancelled progress notice.
+ * Clears any PR actor lease still held by those rows so a replacement can acquire
+ * without waiting for cooperative worker exit or lease TTL.
  * Returns running rows first (newest), then queued — ack primary owns the stub.
  */
 export async function cancelActiveReviews(
@@ -663,7 +666,16 @@ export async function cancelActiveReviews(
 		  RETURNING id, source, head_sha, created_at`,
     [resourceKey, lastError, payloadPatch],
   );
-  return [...mapCancelledReviewRows(running.rows), ...mapCancelledReviewRows(queued.rows)];
+  const cancelled = [
+    ...mapCancelledReviewRows(running.rows),
+    ...mapCancelledReviewRows(queued.rows),
+  ];
+  await releasePrActorLeaseHeldByWorkItems(client, {
+    resourceKey,
+    workType: "review",
+    workItemIds: cancelled.map((row) => row.id),
+  });
+  return cancelled;
 }
 
 function triageAckTargets(

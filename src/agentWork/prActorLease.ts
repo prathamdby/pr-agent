@@ -84,6 +84,27 @@ export async function renewPrActorLease(
 }
 
 /**
+ * Intake cancel knows the work item ids, not the epoch. Clear those holders in
+ * place so a replacement can acquire without waiting for cooperative release or TTL.
+ */
+export async function releasePrActorLeaseHeldByWorkItems(
+  db: Pool | PoolClient,
+  params: PrActorLeaseKey & { readonly workItemIds: readonly string[] },
+): Promise<void> {
+  if (params.workItemIds.length === 0) return;
+  await db.query(
+    `UPDATE pr_actor_leases
+        SET work_item_id = NULL,
+            holder_id = NULL,
+            expires_at = now()
+      WHERE resource_key = $1
+        AND work_type = $2
+        AND work_item_id = ANY($3::uuid[])`,
+    [params.resourceKey, params.workType, params.workItemIds],
+  );
+}
+
+/**
  * Clear the holder in place for the caller's epoch. The row is never deleted so the
  * epoch stays monotonic; a stale holder cannot clear a live lease.
  */

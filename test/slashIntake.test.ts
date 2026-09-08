@@ -54,6 +54,7 @@ function makeClient() {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-1" }] };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
     }),
   } as unknown as PoolClient;
@@ -202,6 +203,7 @@ describe("applySlashCommandIntake", () => {
           workItemInserts.push(params ?? []);
           return { rows: [{ id: "work-triage" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -248,6 +250,7 @@ describe("applySlashCommandIntake", () => {
           workItemInserts.push(params ?? []);
           return { rows: [{ id: "work-triage" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -293,6 +296,7 @@ describe("applySlashCommandIntake", () => {
           workItemInserts.push(params ?? []);
           return { rows: [{ id: "work-triage" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -338,6 +342,7 @@ describe("applySlashCommandIntake", () => {
           payloads.push(JSON.parse(String(params?.at(-1))));
           return { rows: [{ id: "work-triage" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -376,6 +381,7 @@ describe("applySlashCommandIntake", () => {
           payloads.push(JSON.parse(String(params?.at(-1))));
           return { rows: [{ id: "work-triage" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -431,6 +437,7 @@ describe("applySlashCommandIntake", () => {
           };
         }
         if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -482,6 +489,7 @@ describe("applySlashCommandIntake", () => {
           };
         }
         if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -537,6 +545,7 @@ describe("applySlashCommandIntake", () => {
           workItemInserts.push(params ?? []);
           return { rows: [{ id: "work-triage-scope" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -585,6 +594,7 @@ describe("applySlashCommandIntake", () => {
           workItemInserts.push(params ?? []);
           return { rows: [{ id: "work-triage-bulk" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -635,6 +645,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "work-review" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -682,6 +693,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("SELECT id") && sql.includes("review_lens")) {
           return { rows: [] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -730,6 +742,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("source = 'slash'")) {
           return { rows: [{ id: "winner-describe" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -772,6 +785,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
         if (sql.includes("SET cancel_requested_at")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -832,6 +846,7 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -911,6 +926,7 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -971,6 +987,7 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1033,6 +1050,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1097,6 +1115,7 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("staleHeadRescheduled")) return { rows: [{ id: "winner-review" }] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1171,6 +1190,7 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1245,6 +1265,7 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("staleHeadRescheduled")) return { rows: [{ id: "winner-review" }] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1300,6 +1321,7 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1366,6 +1388,7 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1431,6 +1454,7 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1478,6 +1502,7 @@ describe("applySlashCommandIntake", () => {
         ) {
           return { rows: [] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -1525,6 +1550,7 @@ describe("applySlashCommandIntake", () => {
         ) {
           return { rows: [{ id: "active-verify" }] };
         }
+        if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
