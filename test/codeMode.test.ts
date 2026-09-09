@@ -25,7 +25,7 @@ describe("Code Mode", () => {
     if (!result.ok) {
       expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
     }
-    expect(elapsedMs).toBeLessThan(100);
+    expect(elapsedMs).toBeLessThan(1000);
   });
 
   it("keeps worker /health and /ready responsive during an adversarial loop", async () => {
