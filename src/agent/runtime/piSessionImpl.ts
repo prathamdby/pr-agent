@@ -103,19 +103,23 @@ function absorbProducedMessages(
   target: AgentMessage[],
   produced: readonly AgentMessage[],
   userMessage: AgentMessage,
+  newContentStart: number,
 ): void {
   for (const message of produced) {
     if (!target.includes(message)) {
       target.push(message);
     }
   }
-  if (target.includes(userMessage)) return;
-  const firstAssistant = target.findIndex((message) => message.role === "assistant");
-  if (firstAssistant <= 0) {
-    target.unshift(userMessage);
+  const insertAt = Math.min(Math.max(newContentStart, 0), target.length);
+  const userIndex = target.indexOf(userMessage);
+  if (userIndex === -1) {
+    target.splice(insertAt, 0, userMessage);
     return;
   }
-  target.splice(firstAssistant, 0, userMessage);
+  if (userIndex > insertAt) {
+    target.splice(userIndex, 1);
+    target.splice(Math.min(insertAt, target.length), 0, userMessage);
+  }
 }
 
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
@@ -370,6 +374,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       let turnRetries = 0;
       try {
         sendStartedAt = Date.now();
+        const transcriptLengthAtSend = sessionMessages.length;
         const userMessage: AgentMessage = {
           role: "user",
           content: prompt,
@@ -389,6 +394,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         };
 
         const continueLoop = async () => {
+          const newContentStart = sessionMessages.length;
           const produced = await runAgentLoopContinue(
             context,
             config,
@@ -396,7 +402,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             loopSignal,
             streamFn,
           );
-          absorbProducedMessages(sessionMessages, produced, userMessage);
+          absorbProducedMessages(sessionMessages, produced, userMessage, newContentStart);
         };
 
         let loopError: unknown;
@@ -410,7 +416,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
               loopSignal,
               streamFn,
             );
-            absorbProducedMessages(sessionMessages, produced, userMessage);
+            absorbProducedMessages(sessionMessages, produced, userMessage, transcriptLengthAtSend);
           })();
           void work.catch(() => undefined);
           await runIdle(work);

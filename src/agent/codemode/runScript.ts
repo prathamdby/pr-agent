@@ -9,7 +9,7 @@ import { combineAbortSignals } from "../providers/abortSignals.js";
 import { createCodeModeCapabilityBridge } from "./capabilities.js";
 import { isCodeModeHostHalt } from "./hostHalt.js";
 import type { CodeModeResult } from "./result.js";
-import { boundJsonValue } from "../execution/marshal.js";
+import { boundJsonValue, toGuestCapabilityResult } from "../execution/marshal.js";
 import { utf8ByteLength } from "../execution/json.js";
 import {
   acquireExecutor,
@@ -93,11 +93,20 @@ function emitExecutionResult(
   });
 }
 
-function boundExecuteOutput(output: unknown): unknown {
+function boundExecuteOutput(output: unknown): {
+  readonly output: unknown;
+  readonly warnings?: ReadonlyArray<string>;
+} {
   const bounded = boundJsonValue(output, {
     maxTransferBytes: CODE_MODE_MAX_OUTPUT_BYTES,
   });
-  return bounded.value;
+  if (bounded.truncation == null) {
+    return { output: bounded.value };
+  }
+  return {
+    output: toGuestCapabilityResult(bounded.value, bounded.truncation),
+    warnings: [`output truncated (${bounded.truncation.reason})`],
+  };
 }
 
 export async function runCodeModeScript(params: {
@@ -198,16 +207,25 @@ export async function runCodeModeScript(params: {
       }
       const committed = session.commit(generation, revision, cell.stagedState);
       if (!committed) {
+        if (hostAborted()) {
+          return finish({
+            ok: false,
+            error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+            toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+          });
+        }
         return finish({
           ok: false,
-          error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+          error: { code: "EXECUTION_ERROR", message: "Code Mode session state conflict" },
           toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
         });
       }
+      const boundedOutput = boundExecuteOutput(cell.output);
       return finish({
         ok: true,
-        output: boundExecuteOutput(cell.output),
+        output: boundedOutput.output,
         toolCalls,
+        ...(boundedOutput.warnings ? { warnings: boundedOutput.warnings } : {}),
       });
     } finally {
       lease.release();

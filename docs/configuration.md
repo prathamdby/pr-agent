@@ -440,30 +440,31 @@ Shared workspace search applies `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-
 
 ### Code Mode
 
-| Symbol                                 | Default |
-| -------------------------------------- | ------- |
-| `CODE_MODE_INTERRUPT_CHECKS`           | 50000   |
-| `CODE_MODE_CPU_BUDGET_MS`              | 80      |
-| `CODE_MODE_MAX_TOOL_CALLS`             | 25      |
-| `CODE_MODE_HOST_IN_FLIGHT`             | 4       |
-| `CODE_MODE_TIMEOUT_MS`                 | 15000   |
-| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8       |
-| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100     |
-| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768   |
-| `CODE_MODE_MAX_STRING_REPEAT`          | 65536   |
-| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536   |
-| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536   |
-| `CODE_MODE_STATE_MAX_BYTES`            | 65536   |
-| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144  |
-| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144  |
-| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608 |
-| `CODE_MODE_GUEST_STACK_BYTES`          | 524288  |
-| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64      |
-| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2       |
-| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8       |
-| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000   |
+| Symbol                                 | Default  |
+| -------------------------------------- | -------- |
+| `CODE_MODE_INTERRUPT_CHECKS`           | 50000    |
+| `CODE_MODE_CPU_BUDGET_MS`              | 80       |
+| `CODE_MODE_MAX_TOOL_CALLS`             | 25       |
+| `CODE_MODE_HOST_IN_FLIGHT`             | 4        |
+| `CODE_MODE_TIMEOUT_MS`                 | 15000    |
+| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8        |
+| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100      |
+| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768    |
+| `CODE_MODE_MAX_STRING_REPEAT`          | 65536    |
+| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536    |
+| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536    |
+| `CODE_MODE_STATE_MAX_BYTES`            | 65536    |
+| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144   |
+| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144   |
+| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608  |
+| `CODE_MODE_GUEST_STACK_BYTES`          | 524288   |
+| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64       |
+| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2        |
+| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8        |
+| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000    |
+| `CODE_MODE_EXECUTOR_KIND`              | resolved |
 
-Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. Compiled workers use `worker_threads`; vitest runs the same cell in-process. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
+Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. `resolveCodeModeExecutorKind()` is `worker_threads` for compiled production and `in_process` for Vitest and TypeScript sources. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
 
 ### Code index (optional FTS hints)
 

@@ -41,6 +41,10 @@ parentPort.on("message", (message: HostMessage) => {
   }
   if (message.type === "abort") {
     abortByExecution.get(message.executionId)?.abort();
+    for (const waiter of pending.values()) {
+      waiter.reject(new Error("aborted"));
+    }
+    pending.clear();
     return;
   }
   if (message.type === "run") {
@@ -68,9 +72,27 @@ parentPort.on("message", (message: HostMessage) => {
             args,
           });
         }),
-    }).then((result: QuickJsCellResult) => {
-      abortByExecution.delete(message.executionId);
-      parentPort?.postMessage({ type: "done", result });
-    });
+    })
+      .then((result: QuickJsCellResult) => {
+        abortByExecution.delete(message.executionId);
+        parentPort?.postMessage({ type: "done", result });
+      })
+      .catch((error: unknown) => {
+        abortByExecution.delete(message.executionId);
+        for (const waiter of pending.values()) {
+          waiter.reject(error instanceof Error ? error : new Error(String(error)));
+        }
+        pending.clear();
+        parentPort?.postMessage({
+          type: "done",
+          result: {
+            ok: false,
+            error: {
+              code: "EXECUTION_ERROR",
+              message: error instanceof Error ? error.message : String(error),
+            },
+          },
+        });
+      });
   }
 });

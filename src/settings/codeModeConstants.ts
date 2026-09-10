@@ -49,6 +49,20 @@ export const CODE_MODE_GUEST_STACK_BYTES = 512 * 1024;
 /** `executePendingJobs` budget per pump. */
 export const CODE_MODE_PENDING_JOBS_PER_PUMP = 64;
 
+export const CODE_MODE_EXECUTOR_KINDS = ["in_process", "worker_threads"] as const;
+
+export type CodeModeExecutorKind = (typeof CODE_MODE_EXECUTOR_KINDS)[number];
+
+/**
+ * Compiled production uses worker threads. Vitest and TypeScript sources stay
+ * in-process so the interrupt remains observable and the worker file does not
+ * need to exist beside `.ts` sources.
+ */
+export function resolveCodeModeExecutorKind(): CodeModeExecutorKind {
+  if (process.env.VITEST) return "in_process";
+  return import.meta.url.endsWith(".js") ? "worker_threads" : "in_process";
+}
+
 /** Reused worker-thread executors. */
 export const CODE_MODE_EXECUTOR_POOL_SIZE = 2;
 

@@ -9,13 +9,17 @@ import { createExecutionSessionStore } from "../src/agent/execution/sessionStore
 import { AppError } from "../src/errors/appError.js";
 import { startWorkerHealthServer } from "../src/agentWork/workerHealth.js";
 import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.js";
-import { CODE_MODE_MAX_TOOL_CALLS } from "../src/settings/index.js";
+import { CODE_MODE_MAX_TOOL_CALLS, resolveCodeModeExecutorKind } from "../src/settings/index.js";
 
 function asResult(value: unknown): CodeModeResult {
   return value as CodeModeResult;
 }
 
 describe("Code Mode", () => {
+  it("keeps Vitest execute cells in-process", () => {
+    expect(resolveCodeModeExecutorKind()).toBe("in_process");
+  });
+
   it("terminates while(true){} within the AST budget", async () => {
     const started = Date.now();
     const result = await runCodeModeScript({
@@ -206,12 +210,55 @@ describe("Code Mode", () => {
       const output = result.output as {
         items: { truncated: true; omittedCount: number };
         text: string;
+        truncation?: { truncated: true; reason: string };
       };
       expect(output.items.truncated).toBe(true);
       expect(output.items.omittedCount).toBeGreaterThan(0);
       expect(typeof output.text).toBe("string");
       expect(output.text.length).toBeLessThan(40000);
+      expect(output.truncation?.truncated).toBe(true);
+      expect(result.warnings?.[0]).toMatch(/truncated/);
     }
+  });
+
+  it("keeps transfer-limit truncation beside execute output", async () => {
+    const result = await runCodeModeScript({
+      code: `const out = {};
+        for (let i = 0; i < 20; i = i + 1) {
+          out["k" + i] = "x".repeat(20000);
+        }
+        out`,
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const output = result.output as {
+        truncated?: boolean;
+        reason?: string;
+        truncation?: { truncated: true; reason: string };
+      };
+      expect(output.truncation?.truncated).toBe(true);
+      expect(output.truncation?.reason).toBe("transfer_byte_limit");
+      expect(result.warnings?.[0]).toContain("transfer_byte_limit");
+    }
+  });
+
+  it("returns the last ASI expression as the cell value", async () => {
+    const result = await runCodeModeScript({
+      code: "const a = 1\na + 1",
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toBe(2);
+  });
+
+  it("keeps a continued expression as one returned value", async () => {
+    const result = await runCodeModeScript({
+      code: "1 +\n  2",
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toBe(3);
   });
 
   it("propagates ACCESS_DENIED from path fencing", async () => {
@@ -430,6 +477,37 @@ describe("Code Mode", () => {
     });
     expect(afterAbort.ok).toBe(true);
     if (afterAbort.ok) expect(afterAbort.output).toBe(false);
+  });
+
+  it("reports a session state conflict when a later cell commits first", async () => {
+    const session = createExecutionSessionStore();
+    let releaseHost: (() => void) | undefined;
+    const first = runCodeModeScript({
+      code: 'state.fromFirst = true; await tools.readWorkspaceFile({ path: "a.ts" }); state.fromFirst',
+      session,
+      capabilities: {
+        readWorkspaceFile: async () =>
+          new Promise((resolve) => {
+            releaseHost = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
+          }),
+      },
+    });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    const second = await runCodeModeScript({
+      code: "state.fromSecond = true; state.fromSecond",
+      session,
+      capabilities: {},
+    });
+    expect(second.ok).toBe(true);
+    releaseHost?.();
+    const firstResult = await first;
+    expect(firstResult.ok).toBe(false);
+    if (!firstResult.ok) {
+      expect(firstResult.error.code).toBe("EXECUTION_ERROR");
+      expect(firstResult.error.message).toBe("Code Mode session state conflict");
+    }
   });
 
   it("keeps a truncated file read as a string and records only delivered lines", async () => {

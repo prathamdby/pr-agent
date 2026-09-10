@@ -646,6 +646,32 @@ describe("createPiSession terminal provider outcomes", () => {
     ).resolves.toMatchObject({ text: "" });
   });
 
+  it("inserts each send prompt after prior assistant turns", async () => {
+    const rolesAtLoopStart: string[][] = [];
+    runAgentLoop.mockImplementation(async (_prompts, context, _config, emit: LoopEmit) => {
+      const messages = (context as { messages: Array<{ role: string }> }).messages;
+      rolesAtLoopStart.push(messages.map((message) => message.role));
+      const n = runAgentLoop.mock.calls.length;
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistant(`a${n}`, { stopReason: "stop" }),
+      });
+      return [];
+    });
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    await runnerSession.send("first", ASK_SEND_OPTS);
+    await runnerSession.send("second", ASK_SEND_OPTS);
+    await runnerSession.send("third", ASK_SEND_OPTS);
+    expect(rolesAtLoopStart[1]).toEqual(["user", "assistant"]);
+    expect(rolesAtLoopStart[2]).toEqual(["user", "assistant", "user", "assistant"]);
+  });
+
   it("resets provider error state between successive sends", async () => {
     let sendCount = 0;
     runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
