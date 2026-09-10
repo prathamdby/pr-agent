@@ -11,6 +11,7 @@ import {
   type AskPathGate,
 } from "../ask/askSafety.js";
 import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import {
   MISSING_FROM_CHECKOUT_REASON,
   readBudgetedWorkspaceTextFile,
@@ -256,7 +257,7 @@ export function buildLocalWorkspaceTools(
   },
 ): {
   piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  executors: Record<string, AgentRunnerToolExecutor>;
 } {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();

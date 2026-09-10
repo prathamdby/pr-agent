@@ -1,5 +1,6 @@
 import { CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
 import { AppError, isAppError } from "../../errors/appError.js";
+import { idleAbortSignal } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
 import type { AgentSessionRole } from "../runtime/types.js";
 import { CodeModeHostHalt } from "./hostHalt.js";
@@ -10,7 +11,20 @@ import type { CodeModeCapabilityExecutors, CodeModeWorkspaceToolName } from "./t
 export type CodeModeCapabilityBridge = {
   readonly tools: Record<string, (args?: Record<string, unknown>) => Promise<unknown>>;
   readonly toolCalls: CodeModeToolCall[];
+  readonly admittedHostCalls: number;
+  readonly completedHostCalls: number;
+  readonly transferredBytes: number;
 };
+
+function utf8ByteLength(value: unknown): number {
+  if (value == null) return 0;
+  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
+  try {
+    return Buffer.byteLength(JSON.stringify(value) ?? "null", "utf8");
+  } catch {
+    return 0;
+  }
+}
 
 const ACCESS_DENIED_CODES = new Set([
   "pr_workspace.path_traversal",
@@ -68,6 +82,8 @@ export function createCodeModeCapabilityBridge(params: {
 }): CodeModeCapabilityBridge {
   const toolCalls: CodeModeToolCall[] = [];
   let admittedCalls = 0;
+  let completedCalls = 0;
+  let transferredBytes = 0;
   const tools: Record<string, (args?: Record<string, unknown>) => Promise<unknown>> = {};
 
   const names = Object.keys(params.capabilities) as CodeModeWorkspaceToolName[];
@@ -86,8 +102,16 @@ export function createCodeModeCapabilityBridge(params: {
       }
       admittedCalls += 1;
       try {
-        const output = await executor(args);
+        const output = await executor(args, {
+          signal: params.signal ?? idleAbortSignal(),
+          toolCallId: `codemode:${name}:${admittedCalls}`,
+          emit: params.emit,
+          role: params.role,
+          provider: params.provider,
+          model: params.model,
+        });
         toolCalls.push({ tool: name, status: "completed", input: args });
+        completedCalls += 1;
         emitInnerTool(params.emit, {
           tool: name,
           ok: true,
@@ -101,12 +125,16 @@ export function createCodeModeCapabilityBridge(params: {
           "truncated" in output &&
           (output as { truncated?: boolean }).truncated === true
         ) {
-          return {
+          const wrapped = {
             ...(output as Record<string, unknown>),
             failureKind: "SEARCH_TRUNCATED",
           };
+          transferredBytes += utf8ByteLength(wrapped);
+          return wrapped;
         }
-        return serializeCodeModeValue(output);
+        const serialized = serializeCodeModeValue(output);
+        transferredBytes += utf8ByteLength(serialized);
+        return serialized;
       } catch (error) {
         if (error instanceof CodeModeHostHalt) throw error;
         const classified = classifyCapabilityFailure(error);
@@ -131,5 +159,17 @@ export function createCodeModeCapabilityBridge(params: {
     };
   }
 
-  return { tools, toolCalls };
+  return {
+    tools,
+    toolCalls,
+    get admittedHostCalls() {
+      return admittedCalls;
+    },
+    get completedHostCalls() {
+      return completedCalls;
+    },
+    get transferredBytes() {
+      return transferredBytes;
+    },
+  };
 }

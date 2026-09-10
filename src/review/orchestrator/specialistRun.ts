@@ -231,6 +231,7 @@ async function createSessionWithinDeadline(
     tools: sessionTools.piTools,
     executors: sessionTools.executors,
     attemptModel: params.escalation?.model,
+    hostSignal: params.signal,
     // Parallel specialists share session_role "specialist"; skip durability so
     // concurrent checkpoint/snapshot writes cannot overwrite each other.
   });

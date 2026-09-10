@@ -1068,3 +1068,75 @@ describe("createPiSession prompt cache identity", () => {
     });
   });
 });
+
+describe("createPiSession tool contract", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(ModelRuntime.create).mockImplementation(
+      async () => createDefaultModelRuntimeMock() as never,
+    );
+  });
+
+  it("marks execute and native mutation tools sequential and leaves reads unset", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [
+        { name: "execute", description: "run", parameters: { type: "object" } },
+        { name: "listChangedFiles", description: "list", parameters: { type: "object" } },
+        { name: "publish_summary", description: "publish", parameters: { type: "object" } },
+      ],
+      executors: {
+        execute: async () => ({ ok: true }),
+        listChangedFiles: async () => ({ files: [] }),
+        publish_summary: async () => ({ accepted: true }),
+      },
+    });
+    const defined = vi
+      .mocked(defineTool)
+      .mock.calls.map((call) => call[0] as { name: string; executionMode?: string });
+    expect(defined.find((tool) => tool.name === "execute")?.executionMode).toBe("sequential");
+    expect(defined.find((tool) => tool.name === "publish_summary")?.executionMode).toBe(
+      "sequential",
+    );
+    expect(defined.find((tool) => tool.name === "listChangedFiles")?.executionMode).toBeUndefined();
+  });
+
+  it("forwards the loop abort signal into the executor context", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    let seen: AbortSignal | undefined;
+    await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [{ name: "execute", description: "run", parameters: { type: "object" } }],
+      executors: {
+        execute: async (_args, ctx) => {
+          seen = ctx?.signal;
+          return { ok: true };
+        },
+      },
+    });
+    const tool = vi.mocked(defineTool).mock.calls.at(-1)?.[0] as {
+      execute: (
+        id: string,
+        params: Record<string, unknown>,
+        signal?: AbortSignal,
+        onUpdate?: undefined,
+        ctx?: ExtensionContext,
+      ) => Promise<unknown>;
+    };
+    const controller = new AbortController();
+    controller.abort();
+    await tool.execute(
+      "tool-call-id",
+      { code: "1" },
+      controller.signal,
+      undefined,
+      {} as ExtensionContext,
+    );
+    expect(seen?.aborted).toBe(true);
+  });
+});

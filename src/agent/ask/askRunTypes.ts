@@ -32,6 +32,8 @@ export type AskRunParams = {
   durability?: FeatureSessionDurability;
   pool?: Pool;
   codeIndexSnapshotId?: string;
+  /** Durable job/lease abort for tool execution. */
+  signal?: AbortSignal;
 };
 
 export type AskRunResult = {

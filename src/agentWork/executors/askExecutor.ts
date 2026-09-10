@@ -425,6 +425,7 @@ export async function executeAskJob(
             },
             pool,
             codeIndexSnapshotId: ready?.id,
+            signal: env.signal,
           });
           await recordAskProviderUsage(pool, {
             workItemId: item.id,

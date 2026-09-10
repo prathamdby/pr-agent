@@ -791,6 +791,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       repo: item.repo,
       prNumber: item.prNumber,
     },
+    signal,
     escalation,
   });
 

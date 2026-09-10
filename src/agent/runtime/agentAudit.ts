@@ -15,6 +15,12 @@ export type AgentAuditRecord = {
   readonly errorKind?: string;
   readonly reason?: string;
   readonly attempt?: number;
+  readonly outcome?: string;
+  readonly durationMs?: number;
+  readonly admittedHostCalls?: number;
+  readonly completedHostCalls?: number;
+  readonly transferredBytes?: number;
+  readonly outputBytes?: number;
   readonly recordedAt: string;
 };
 
@@ -79,6 +85,19 @@ export function agentAuditRecordFromLifecycleEvent(
         failureCode: event.failureCode,
         ...(event.failureDomain ? { failureDomain: event.failureDomain } : {}),
         ...(event.errorKind ? { errorKind: event.errorKind } : {}),
+      };
+    case "execution":
+      return {
+        ...base,
+        ok: event.outcome === "success",
+        failureCode: event.errorCode,
+        reason: event.terminationReason,
+        outcome: event.outcome,
+        durationMs: event.durationMs,
+        admittedHostCalls: event.admittedHostCalls,
+        completedHostCalls: event.completedHostCalls,
+        transferredBytes: event.transferredBytes,
+        outputBytes: event.outputBytes,
       };
     default: {
       const _exhaustive: never = event;

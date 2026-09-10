@@ -182,6 +182,49 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
           : {}),
       };
     }
+    case "execution": {
+      const outcome = asString(raw.outcome);
+      if (
+        outcome !== "success" &&
+        outcome !== "execution_failure" &&
+        outcome !== "cancelled" &&
+        outcome !== "budget"
+      ) {
+        return null;
+      }
+      const durationMs = asFiniteNumber(raw.durationMs);
+      const admittedHostCalls = asFiniteNumber(raw.admittedHostCalls);
+      const completedHostCalls = asFiniteNumber(raw.completedHostCalls);
+      const transferredBytes = asFiniteNumber(raw.transferredBytes);
+      const outputBytes = asFiniteNumber(raw.outputBytes);
+      const terminationReason = sanitizeReason(raw.terminationReason);
+      if (
+        durationMs == null ||
+        admittedHostCalls == null ||
+        completedHostCalls == null ||
+        transferredBytes == null ||
+        outputBytes == null ||
+        !terminationReason
+      ) {
+        return null;
+      }
+      return {
+        kind,
+        role: typedRole,
+        provider,
+        model,
+        outcome,
+        ...(sanitizeStableCode(raw.errorCode)
+          ? { errorCode: sanitizeStableCode(raw.errorCode) }
+          : {}),
+        durationMs,
+        admittedHostCalls,
+        completedHostCalls,
+        transferredBytes,
+        outputBytes,
+        terminationReason,
+      };
+    }
     default: {
       const _exhaustive: never = kind;
       logWarn("agent_lifecycle_unexpected_kind", { kind: String(_exhaustive) });

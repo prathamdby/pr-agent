@@ -42,6 +42,7 @@ export async function runFullPrDescription(params: {
   operationIntent?: OperationIntentContext;
   durability?: FeatureSessionDurability;
   escalation?: EscalationPlan;
+  signal?: AbortSignal;
 }): Promise<DescriptionRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.piProvider;
@@ -56,6 +57,7 @@ export async function runFullPrDescription(params: {
     refreshBeforeTool: setup.refreshBeforeTool,
     durability: params.durability,
     attemptModel: params.escalation?.model,
+    hostSignal: params.signal,
   });
   let lastText = "";
 

@@ -44,6 +44,8 @@ export type ReviewRunParams = {
   readonly codeIndexSnapshotId?: string;
   readonly sameRepo?: boolean;
   readonly repoPolicy?: RepoPolicyResult;
+  /** Durable job/lease abort for tool execution. */
+  readonly signal?: AbortSignal;
 };
 
 export type ReviewRunResult = {

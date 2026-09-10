@@ -1,4 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { Pool } from "pg";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
@@ -11,7 +13,6 @@ import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
-import type { Pool } from "pg";
 import {
   buildCodeIndexTools,
   buildUnavailableCodeIndexTools,
@@ -21,7 +22,7 @@ export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
   readonly workspaceTools: {
     readonly piTools: PiTool[];
-    readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
   };
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly evidenceLedger: EvidenceLedger;
@@ -38,13 +39,13 @@ function serializeToolOutput(result: unknown): string {
 }
 
 function wrapReviewToolExecutors(
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
-): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
+  executors: Record<string, AgentRunnerToolExecutor>,
+): Record<string, AgentRunnerToolExecutor> {
   return Object.fromEntries(
     Object.entries(executors).map(([name, executor]) => [
       name,
-      async (args: Record<string, unknown>) =>
-        wrapUntrustedEvidence("tool." + name, serializeToolOutput(await executor(args))),
+      async (args, ctx?) =>
+        wrapUntrustedEvidence("tool." + name, serializeToolOutput(await executor(args, ctx))),
     ]),
   );
 }

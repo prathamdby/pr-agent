@@ -14,7 +14,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { recordReviewMetric } from "../../review/run/reviewRunMetrics.js";
 import { AppError, toAppError } from "../../errors/appError.js";
-import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+import {
+  combineAbortSignals,
+  type AgentRunnerToolExecutor,
+  type AgentToolCallContext,
+} from "../providers/interface.js";
 import {
   exactUsageFromProviderUsage,
   mergeExactUsage,
@@ -24,6 +28,7 @@ import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
 import { bindPromptCacheRetention } from "./modelRuntimeCache.js";
 import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
+import { toolExecutionMode } from "./toolExecutionMode.js";
 import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
 
 function toolResultToText(result: unknown): string {
@@ -69,14 +74,21 @@ function assistantProviderErrorMessage(message: TurnEndEvent["message"]): string
 function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
+  hostSignal: AbortSignal | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
 ): ReturnType<typeof defineTool> {
+  const executionMode = toolExecutionMode(tool.name);
   return defineTool({
     name: tool.name,
     label: tool.name,
     description: tool.description,
     parameters: tool.parameters as never,
-    execute: async (_toolCallId: string, params: Record<string, unknown>) => {
+    ...(executionMode ? { executionMode } : {}),
+    execute: async (
+      toolCallId: string,
+      params: Record<string, unknown>,
+      loopSignal: AbortSignal | undefined,
+    ) => {
       const startedAt = Date.now();
       if (!executor) {
         safeRecordReviewMetric({
@@ -96,7 +108,11 @@ function toCodingAgentTool(
         if (refreshBeforeTool) {
           await refreshBeforeTool(tool.name);
         }
-        const result = await executor(params);
+        const ctx: AgentToolCallContext = {
+          signal: combineAbortSignals([loopSignal, hostSignal]),
+          toolCallId,
+        };
+        const result = await executor(params, ctx);
         const size = toolResultSize(result);
         safeRecordReviewMetric({
           kind: "tool_call",
@@ -214,7 +230,12 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       sessionManager: SessionManager.inMemory(cwd, { id: sessionCacheId }),
       noTools: "builtin",
       customTools: params.tools.map((tool) =>
-        toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool),
+        toCodingAgentTool(
+          tool,
+          params.executors[tool.name],
+          params.hostSignal,
+          params.refreshBeforeTool,
+        ),
       ),
     });
 

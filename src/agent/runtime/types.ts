@@ -82,6 +82,8 @@ export type PiSessionCreateParams = {
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  /** Durable job/lease abort; combined with the session abort and the loop signal. */
+  readonly hostSignal?: AbortSignal;
 };
 
 export type PiSession = {

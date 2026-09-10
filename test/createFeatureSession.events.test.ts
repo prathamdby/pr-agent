@@ -72,7 +72,6 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
   EMPTY_STRUCTURED_STATE: { version: 1, payload: {} },
 }));
 
-import { getCodeModeContext } from "../src/agent/codemode/context.js";
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
 import { createPiSession } from "../src/agent/runtime/piSession.js";
 import { safeAppendAgentEvents } from "../src/agentWork/agentEventsRepository.js";
@@ -150,8 +149,8 @@ describe("createFeaturePiSession agent events", () => {
       systemPrompt: "system",
       tools: [],
       executors: {
-        execute: async () => {
-          seenSignal = getCodeModeContext().signal;
+        execute: async (_args, ctx) => {
+          seenSignal = ctx?.signal;
           return { ok: true };
         },
       },

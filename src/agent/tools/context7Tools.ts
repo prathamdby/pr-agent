@@ -20,6 +20,7 @@ import {
 } from "../../security/context7OutboundPolicy.js";
 import { capTextOutput } from "./toolOutputBudget.js";
 import { toExecutor } from "./defineWorkspaceTool.js";
+import type { AgentToolCallContext } from "../providers/interface.js";
 
 const resolveLibraryIdSchema = v.object({
   libraryName: v.pipe(
@@ -210,7 +211,10 @@ export function buildContext7Tools({
   maxResponseBytes: number;
 }): {
   piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<Context7ToolResponse>>;
+  executors: Record<
+    string,
+    (args: Record<string, unknown>, ctx?: AgentToolCallContext) => Promise<Context7ToolResponse>
+  >;
 } {
   return {
     piTools: [...CONTEXT7_PI_TOOLS],
@@ -221,10 +225,7 @@ export function buildContext7Tools({
           schema: tool.schema,
           run: (parsed) => tool.run(parsed, apiKey, maxResponseBytes),
         });
-        return [
-          name,
-          async (args: Record<string, unknown>) => (await execute(args)) as Context7ToolResponse,
-        ];
+        return [name, async (args, ctx?) => (await execute(args, ctx)) as Context7ToolResponse];
       }),
     ),
   };

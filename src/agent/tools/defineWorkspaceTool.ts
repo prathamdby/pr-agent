@@ -2,18 +2,19 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError } from "../../errors/appError.js";
+import { type AgentRunnerToolExecutor, type AgentToolCallContext } from "../providers/interface.js";
 import { parseToolInput } from "./parseToolInput.js";
 
 export type LocalTool<TSchema extends v.GenericSchema = v.GenericSchema> = {
   readonly description: string;
   readonly schema: TSchema;
-  readonly run: (parsed: any) => Promise<unknown>;
+  readonly run: (parsed: any, ctx?: AgentToolCallContext) => Promise<unknown>;
 };
 
 export function defineLocalTool<TSchema extends v.GenericSchema>(tool: {
   readonly description: string;
   readonly schema: TSchema;
-  readonly run: (parsed: v.InferOutput<TSchema>) => Promise<unknown>;
+  readonly run: (parsed: v.InferOutput<TSchema>, ctx?: AgentToolCallContext) => Promise<unknown>;
 }): LocalTool<TSchema> {
   return tool;
 }
@@ -28,11 +29,8 @@ export function toPiTool(name: string, t: LocalTool): PiTool {
   };
 }
 
-export function toExecutor(
-  name: string,
-  t: LocalTool,
-): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => {
+export function toExecutor(name: string, t: LocalTool): AgentRunnerToolExecutor {
+  return async (args, ctx) => {
     const parsed = parseToolInput(t.schema, args, {
       toolName: name,
       errorTitle: `${name} validation failed:`,
@@ -44,6 +42,6 @@ export function toExecutor(
         context: { toolName: name },
       });
     }
-    return t.run(parsed.value);
+    return ctx != null ? t.run(parsed.value, ctx) : t.run(parsed.value);
   };
 }

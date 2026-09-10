@@ -9,7 +9,6 @@ export {
   type CodeModeToolCallStatus,
 } from "./result.js";
 export { serializeCodeModeValue } from "./serialize.js";
-export { runWithCodeModeContext, type CodeModeRunContext } from "./context.js";
 export { hideWorkspaceToolsBehindCodeMode } from "./assembleExplorationTools.js";
 export { buildCodeModeExecuteTool } from "./executeTool.js";
 export {

@@ -102,6 +102,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       tools,
       executors,
       durability: params.durability,
+      hostSignal: params.signal,
     });
 
     try {

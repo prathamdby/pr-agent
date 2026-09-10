@@ -1,4 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { AgentToolCallContext, AgentRunnerToolExecutor } from "../providers/interface.js";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
@@ -18,7 +19,7 @@ export type DescriptionRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
   readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly submitState: SubmitDescriptionState;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
 };
@@ -70,7 +71,8 @@ export function buildDescriptionRunSetup(params: {
 
   let submitBundle = buildSubmit();
   const executors = { ...localTools.executors };
-  executors.submitDescription = async (args) => submitBundle.executor(args);
+  executors.submitDescription = async (args, ctx?: AgentToolCallContext) =>
+    submitBundle.executor(args, ctx);
 
   const refreshBeforeTool = async (toolName: string) => {
     if (toolName === "submitDescription") {

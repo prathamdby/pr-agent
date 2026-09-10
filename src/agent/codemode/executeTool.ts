@@ -2,7 +2,6 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import { type LocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
-import { getCodeModeContext } from "./context.js";
 import { runCodeModeScript } from "./runScript.js";
 import type { CodeModeResult } from "./result.js";
 import { CODE_MODE_EXECUTE_NAME, type CodeModeCapabilityExecutors } from "./types.js";
@@ -35,18 +34,16 @@ export function buildCodeModeExecuteTool(params: {
     schema: v.object({
       code: v.pipe(v.string(), v.minLength(1)),
     }),
-    run: async ({ code }): Promise<CodeModeResult> => {
-      const context = getCodeModeContext();
-      return runCodeModeScript({
+    run: async ({ code }, ctx): Promise<CodeModeResult> =>
+      runCodeModeScript({
         code,
         capabilities: params.capabilities,
-        signal: context.signal,
-        emit: context.emit,
-        role: context.role,
-        provider: context.provider,
-        model: context.model,
-      });
-    },
+        signal: ctx?.signal,
+        emit: ctx?.emit,
+        role: ctx?.role,
+        provider: ctx?.provider,
+        model: ctx?.model,
+      }),
   };
   return {
     piTool: toPiTool(CODE_MODE_EXECUTE_NAME, tool),
