@@ -3,7 +3,6 @@ import type { AgentRunnerTurn } from "../providers/interface.js";
 import { promptMetadataFromText } from "../providers/usageMetadata.js";
 import type {
   AgentLifecycleEvent,
-  ModelAssignment,
   PiSession,
   PiSessionCreateParams,
   PiSessionSendOptions,
@@ -35,7 +34,6 @@ export function createFakePiSession(
   let structuredState = params.structuredState;
   let aborted = false;
   let disposed = false;
-  let activeModel: ModelAssignment = params.primary;
 
   const emit = (event: AgentLifecycleEvent) => {
     events.push(event);
@@ -52,9 +50,7 @@ export function createFakePiSession(
 
   const session: PiSession = {
     role: params.role,
-    get primary() {
-      return activeModel;
-    },
+    primary: params.primary,
     async send(prompt, opts) {
       if (disposed) {
         throw new AppError({
@@ -74,8 +70,8 @@ export function createFakePiSession(
         role: params.role,
         phase: opts.phase,
         checkpointId: opts.checkpointId,
-        provider: activeModel.provider,
-        model: activeModel.model,
+        provider: params.primary.provider,
+        model: params.primary.model,
       });
       const text = await script({ prompt, opts, emit });
       const turn: AgentRunnerTurn = {
@@ -87,8 +83,8 @@ export function createFakePiSession(
         role: params.role,
         phase: opts.phase,
         checkpointId: opts.checkpointId,
-        provider: activeModel.provider,
-        model: activeModel.model,
+        provider: params.primary.provider,
+        model: params.primary.model,
         ok: true,
       });
       return turn;
@@ -98,45 +94,13 @@ export function createFakePiSession(
       emit({
         kind: "cancellation",
         role: params.role,
-        provider: activeModel.provider,
-        model: activeModel.model,
+        provider: params.primary.provider,
+        model: params.primary.model,
         reason: "abort",
       });
     },
     async dispose() {
       disposed = true;
-    },
-    async restartWithFallback(restartParams) {
-      if (!params.fallback) {
-        throw new AppError({
-          code: "runtime.fallback_unavailable",
-          message: "No fallback model assignment configured for this session",
-          context: { role: params.role },
-        });
-      }
-      await session.dispose();
-      structuredState = restartParams.structuredState;
-      activeModel = params.fallback;
-      aborted = false;
-      disposed = false;
-      emit({
-        kind: "retry",
-        role: params.role,
-        checkpointId: restartParams.checkpointId,
-        provider: activeModel.provider,
-        model: activeModel.model,
-        reason: "fallback",
-      });
-      const next = createFakePiSession(
-        {
-          ...params,
-          primary: params.fallback,
-          structuredState,
-        },
-        script,
-      );
-      events.push(...next.controls.events);
-      return next.session;
     },
     getStructuredState: () => structuredState,
     setStructuredState(state) {

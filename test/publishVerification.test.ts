@@ -167,7 +167,7 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(result).toEqual({ degraded: false });
+    expect(result).toEqual({ degradation: [] });
     expect(controls.replies).toHaveLength(0);
     expect(controls.events.filter((e) => e.kind === "editReviewComment")).toHaveLength(0);
     expect(resolveThreadIds(controls)).toHaveLength(2);
@@ -328,7 +328,7 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(result).toEqual({ degraded: true });
+    expect(result).toEqual({ degradation: ["compare_files_truncated"] });
     expect(controls.replies).toHaveLength(2);
     expect(
       controls.replies.some(
@@ -486,7 +486,7 @@ describe("publishVerification", () => {
     );
   });
 
-  it("marks degraded when inventory mapping is missing", async () => {
+  it("reports verdict_mapping_incomplete when inventory mapping is missing", async () => {
     const result = await publishVerification(
       baseParams({
         inventory: [thread],
@@ -502,11 +502,11 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(result).toEqual({ degraded: true });
+    expect(result).toEqual({ degradation: ["verdict_mapping_incomplete"] });
     expect(controls.replies).toHaveLength(0);
   });
 
-  it("marks degraded when fixed thread has no resolution mapping", async () => {
+  it("reports verdict_mapping_incomplete when fixed thread has no resolution mapping", async () => {
     const result = await publishVerification(
       baseParams({
         inventory: [thread],
@@ -524,9 +524,29 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(result).toEqual({ degraded: true });
+    expect(result).toEqual({ degradation: ["verdict_mapping_incomplete"] });
     expect(resolveThreadIds(controls)).toHaveLength(0);
     expect(controls.replies).toHaveLength(0);
+  });
+
+  it("deduplicates one reason for the whole publish-mapping family", async () => {
+    const result = await publishVerification(
+      baseParams({
+        changedFilePathsTruncated: true,
+        inventory: [thread],
+        resolutionByRootCommentId: resolutionMap([]),
+        payload: {
+          verdicts: [
+            { verdict: "fixed", threadRootCommentId: 1, commitSha: "abcdef1", evidence: "fixed" },
+            { verdict: "skipped", threadRootCommentId: 99, reason: "orphan" },
+          ],
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      degradation: ["compare_files_truncated", "verdict_mapping_incomplete"],
+    });
   });
 
   it("mixes silent resolve with still-open stub creates in one payload", async () => {

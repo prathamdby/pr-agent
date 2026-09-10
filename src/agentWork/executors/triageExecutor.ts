@@ -68,8 +68,10 @@ import {
 import {
   resolveWorkItemHead,
   runDurableWorkItem,
+  type DegradationReason,
   type DurableExecutionResult,
 } from "../durableJob.js";
+import type { EscalationPlan } from "../retryPolicy.js";
 import {
   triageMode,
   type TriageJobData,
@@ -220,12 +222,12 @@ function storedPushMatchesInventory(
 }
 
 function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult {
-  return publish.pushOutcome === "stale" ||
-    publish.pushOutcome === "closed" ||
-    publish.missingThreadAction ||
-    publish.partialBulk === true
-    ? { kind: "completed", degraded: true }
-    : { kind: "completed" };
+  const reasons: DegradationReason[] = [];
+  if (publish.pushOutcome === "stale") reasons.push("push_stale");
+  if (publish.pushOutcome === "closed") reasons.push("push_closed");
+  if (publish.missingThreadAction) reasons.push("thread_action_missing");
+  if (publish.partialBulk === true) reasons.push("bulk_partial");
+  return reasons.length === 0 ? { kind: "completed" } : { kind: "completed", degradation: reasons };
 }
 
 async function ensureTriageNotCancelled(
@@ -496,7 +498,7 @@ async function tryResumeStoredPush(params: {
     ...params.reportContext,
   });
   const result = completedFromPublish(publish);
-  if (result.degraded) {
+  if (result.degradation != null) {
     captureTriageEvent(params.analytics, "triage degraded", {
       step: "publish_resume",
       push_outcome: publish.pushOutcome,
@@ -561,6 +563,7 @@ async function runFreshTriageAgent(params: {
   readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
   readonly mode: "apply" | "preview";
+  readonly escalation?: EscalationPlan;
 }): Promise<TriageExecuteResult> {
   const triggerer = await resolveTriggererGitPerson({
     prSurface: params.prSurface,
@@ -626,6 +629,7 @@ async function runFreshTriageAgent(params: {
           cwd: checkout.dir,
           scope: params.scope,
           refreshBeforeTool: async () => ensureTriageNotCancelled(params.pool, params.item),
+          escalation: params.escalation,
           durability: {
             pool: params.pool,
             workItemId: params.item.id,
@@ -657,7 +661,7 @@ async function runFreshTriageAgent(params: {
             threadRootCommentId: params.reportContext.threadRootCommentId,
           }),
         });
-        return { kind: "completed", degraded: true };
+        return { kind: "completed", degradation: ["push_closed"] };
       }
       await ensureTriageNotCancelled(params.pool, params.item);
       const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
@@ -733,7 +737,7 @@ async function runFreshTriageAgent(params: {
         ...params.reportContext,
       });
       const completed = completedFromPublish(publish);
-      if (completed.degraded) {
+      if (completed.degradation != null) {
         captureTriageEvent(params.analytics, "triage degraded", {
           step: "publish",
           push_outcome: publish.pushOutcome,
@@ -849,10 +853,15 @@ async function runBulkFromPreview(params: {
         ...params.reportContext,
       });
       const completed = completedFromPublish(publish);
-      if (replayed.commitErrors.length > 0 || publish.partialBulk === true) {
-        return { kind: "completed", degraded: true };
+      const replayDegradation: readonly DegradationReason[] =
+        replayed.commitErrors.length > 0 ? ["replay_commit_errors"] : [];
+      if (replayDegradation.length > 0 || publish.partialBulk === true) {
+        return {
+          kind: "completed",
+          degradation: [...(completed.degradation ?? []), ...replayDegradation],
+        };
       }
-      if (completed.degraded) {
+      if (completed.degradation != null) {
         captureTriageEvent(params.analytics, "triage degraded", {
           step: "publish",
           push_outcome: publish.pushOutcome,
@@ -1093,6 +1102,7 @@ export async function executeTriageJob(
             botIdentity: discovered.botIdentity,
             scope,
             mode,
+            escalation: env.escalation,
           });
         default: {
           const exhaustive: never = mode;

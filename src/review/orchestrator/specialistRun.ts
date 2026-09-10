@@ -12,6 +12,7 @@ import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession
 import type { PiSession } from "../../agent/runtime/types.js";
 import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
 import { specialistSystemPrompt } from "./prompts/specialistPersonas.js";
@@ -46,6 +47,8 @@ export type RunSpecialistParams = {
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
   readonly agentEvents?: AgentEventsContext;
+  /** Retried-attempt plan from the durable claim; undefined leaves the attempt unchanged. */
+  readonly escalation?: EscalationPlan;
 };
 
 type SubmissionState = {
@@ -227,6 +230,7 @@ async function createSessionWithinDeadline(
     systemPrompt: specialistSystemPrompt(params.specialist),
     tools: sessionTools.piTools,
     executors: sessionTools.executors,
+    attemptModel: params.escalation?.model,
     // Parallel specialists share session_role "specialist"; skip durability so
     // concurrent checkpoint/snapshot writes cannot overwrite each other.
   });
@@ -291,7 +295,9 @@ async function runAttempt(
 
   try {
     assertCanContinue(params, deadlineMs);
-    await send(session, params.briefMessage, { maxToolRounds: MAX_TOOL_ROUNDS });
+    await send(session, params.briefMessage, {
+      maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, params.escalation),
+    });
 
     if (!state.report) {
       state.validationError ??= MISSING_REPORT_ERROR;

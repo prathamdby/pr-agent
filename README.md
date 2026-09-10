@@ -146,7 +146,7 @@ LLM calls run on the **worker** only, through the Pi coding-agent runtime ([ADR 
 | ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
 | General primary         | `PI_PROVIDER`, `PI_MODEL`                           | Specialists, ask, describe, triage, verification, CI-summary authoring |
 | Orchestrator (optional) | `PI_ORCHESTRATOR_PROVIDER`, `PI_ORCHESTRATOR_MODEL` | Review orchestrator session; empty means inherit general primary       |
-| Fallback (optional)     | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL`         | Availability failures only; both must be set to enable                 |
+| Fallback (optional)     | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL`         | Second attempt onward via retry escalation; both must be set to enable |
 
 Minimal OpenAI example:
 

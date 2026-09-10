@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
+import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
 import type { DescriptionJobData } from "../src/agentWork/types.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -127,15 +128,19 @@ function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<Descrip
   };
 }
 
-function mockDurableExecution(item = descriptionItem()): void {
+function mockDurableExecution(
+  item = descriptionItem(),
+  executionEnv: { escalation?: EscalationPlan } = {},
+): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
     const result = await spec.execute(item, {
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
       leaseEpoch: 1,
       signal: new AbortController().signal,
+      ...executionEnv,
     });
-    if (result.kind === "completed" && result.degraded) {
+    if (result.kind === "completed" && result.degradation != null) {
       await repo.markWorkPublishDegraded(pool, item.id, 1);
     }
   });
@@ -203,8 +208,12 @@ describe("executeDescriptionJob", () => {
   });
 
   it("does not mark publish degraded when description publishes successfully", async () => {
+    const escalation = { attempt: 2, kinds: ["tool_rounds"] } as const;
+    mockDurableExecution(descriptionItem(), { escalation });
+
     await executeDescriptionJob(cfg, pool, boss, descriptionJob());
 
+    expect(mocks.runDescriptionRun).toHaveBeenCalledWith(expect.objectContaining({ escalation }));
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
@@ -237,7 +246,7 @@ describe("executeDescriptionJob", () => {
       execute: async (_item, _env) => {
         const result = await mocks.runDescriptionRun({});
         if (!result.published && !result.publishSuperseded) {
-          return { kind: "completed", degraded: true };
+          return { kind: "completed", degradation: ["publish_not_completed"] };
         }
         return { kind: "completed" };
       },

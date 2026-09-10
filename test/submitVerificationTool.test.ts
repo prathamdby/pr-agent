@@ -88,4 +88,18 @@ describe("submitVerification tool", () => {
 
     await expect(executor({ verdicts: [dismissedVerdict] })).resolves.toEqual({ ok: true });
   });
+
+  it("validates against only the bound inventory and reports dropped threads", async () => {
+    const { executor, submitState } = buildTool({ ...inventoryThread(), rootCommentId: 2 });
+
+    await expect(executor({ verdicts: [skippedVerdict] })).rejects.toMatchObject({
+      code: "verification.validation_failed",
+    });
+    expect(submitState.lastValidationError).toContain("1 is not in the verification inventory");
+    expect(submitState.lastValidationError).toContain("2 is missing a verdict");
+
+    await expect(
+      executor({ verdicts: [{ verdict: "skipped", threadRootCommentId: 2, reason: "later" }] }),
+    ).resolves.toEqual({ ok: true });
+  });
 });

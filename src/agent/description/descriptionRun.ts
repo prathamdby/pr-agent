@@ -9,6 +9,7 @@ import {
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo } from "../../evlog.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
 import {
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
@@ -40,6 +41,7 @@ export async function runFullPrDescription(params: {
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   operationIntent?: OperationIntentContext;
   durability?: FeatureSessionDurability;
+  escalation?: EscalationPlan;
 }): Promise<DescriptionRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.piProvider;
@@ -53,6 +55,7 @@ export async function runFullPrDescription(params: {
     executors: setup.executors,
     refreshBeforeTool: setup.refreshBeforeTool,
     durability: params.durability,
+    attemptModel: params.escalation?.model,
   });
   let lastText = "";
 
@@ -88,7 +91,7 @@ export async function runFullPrDescription(params: {
           run: async () => {
             lastText = (
               await session.send(setup.userContent, {
-                maxToolRounds: MAX_TOOL_ROUNDS_DESCRIBE,
+                maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_DESCRIBE, params.escalation),
                 phase: "description",
                 checkpointId: "description:description",
               })

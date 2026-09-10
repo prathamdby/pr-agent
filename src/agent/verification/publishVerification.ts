@@ -28,6 +28,7 @@ import {
   type FindingHistoryOutcome,
 } from "../../agentWork/findingHistoryRepository.js";
 import type { Config } from "../../config.js";
+import type { DegradationReason } from "../../agentWork/durableJob.js";
 
 type PublishVerificationParams = {
   readonly pool: Pool;
@@ -264,8 +265,9 @@ function recordVerificationHistoryOutcome(
 
 export async function publishVerification(
   params: PublishVerificationParams,
-): Promise<{ degraded: boolean }> {
-  let degraded = params.changedFilePathsTruncated === true;
+): Promise<{ degradation: readonly DegradationReason[] }> {
+  const degradation = new Set<DegradationReason>();
+  if (params.changedFilePathsTruncated === true) degradation.add("compare_files_truncated");
   let ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,
   });
@@ -276,7 +278,7 @@ export async function publishVerification(
   for (const verdict of params.payload.verdicts) {
     const thread = threadById.get(verdict.threadRootCommentId);
     if (!thread) {
-      degraded = true;
+      degradation.add("verdict_mapping_incomplete");
       continue;
     }
 
@@ -287,7 +289,7 @@ export async function publishVerification(
       case "already-resolved": {
         const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
         if (!resolution) {
-          degraded = true;
+          degradation.add("verdict_mapping_incomplete");
           break;
         }
         const stubCommentId = await withVerificationThreadOperation(
@@ -361,7 +363,7 @@ export async function publishVerification(
       case "dismissed": {
         const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
         if (!resolution) {
-          degraded = true;
+          degradation.add("verdict_mapping_incomplete");
           break;
         }
         const stubCommentId = await withVerificationThreadOperation(
@@ -397,11 +399,11 @@ export async function publishVerification(
       default: {
         const _exhaustive: never = verdict;
         void _exhaustive;
-        degraded = true;
+        degradation.add("verdict_mapping_incomplete");
         break;
       }
     }
   }
 
-  return { degraded };
+  return { degradation: [...degradation] };
 }

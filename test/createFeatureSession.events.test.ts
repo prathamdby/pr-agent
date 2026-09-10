@@ -8,8 +8,8 @@ const { appendAgentEvents, getAgentPhaseCheckpoint, fakePiSession } = vi.hoisted
     send: ReturnType<typeof vi.fn>;
     abort: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
-    restartWithFallback: ReturnType<typeof vi.fn>;
     getStructuredState: () => { version: number; payload: Record<string, never> };
+    setStructuredState: () => undefined;
   } {
     return {
       role: "orchestrator",
@@ -17,8 +17,8 @@ const { appendAgentEvents, getAgentPhaseCheckpoint, fakePiSession } = vi.hoisted
       send: vi.fn(),
       abort: vi.fn(async () => undefined),
       dispose: vi.fn(async () => undefined),
-      restartWithFallback: vi.fn(async () => fakePiSession()),
       getStructuredState: () => ({ version: 1, payload: {} }),
+      setStructuredState: () => undefined,
     };
   }
   return {
@@ -141,7 +141,7 @@ describe("createFeaturePiSession agent events", () => {
     expect(appendAgentEvents).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps execute abort wired after a durable fallback restart", async () => {
+  it("wires execute abort through session.abort", async () => {
     const cfg = makeTestConfig({ agentEventsEnabled: false });
     let seenSignal: AbortSignal | undefined;
     const session = await createFeaturePiSession({
@@ -160,11 +160,7 @@ describe("createFeaturePiSession agent events", () => {
     const wrappedExecute = vi.mocked(createPiSession).mock.calls.at(-1)?.[0]?.executors?.execute;
     expect(typeof wrappedExecute).toBe("function");
 
-    const fallback = await session.restartWithFallback({
-      checkpointId: "orchestrator:recon",
-      structuredState: { version: 1, payload: {} },
-    });
-    await fallback.abort();
+    await session.abort();
     await wrappedExecute!({});
     expect(seenSignal?.aborted).toBe(true);
   });

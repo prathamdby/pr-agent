@@ -44,6 +44,8 @@ import {
   DEFAULT_PI_ORCHESTRATOR_PROVIDER,
   DEFAULT_PI_PROVIDER,
   DEFAULT_PI_THINKING_CEILING,
+  DEFAULT_PI_PROVIDER_RETRY_MAX,
+  DEFAULT_PI_PROVIDER_MAX_RETRY_DELAY_MS,
   DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
   DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
   DEFAULT_AGENT_EVENTS_ENABLED,
@@ -544,6 +546,22 @@ function readQueueSettings() {
   };
 }
 
+function readProviderRetrySettings() {
+  const piProviderRetryMax = readNonNegativeInteger(
+    ENV.PI_PROVIDER_RETRY_MAX,
+    DEFAULT_PI_PROVIDER_RETRY_MAX,
+  );
+  const piProviderMaxRetryDelayMs = readPositiveNumber(
+    ENV.PI_PROVIDER_MAX_RETRY_DELAY_MS,
+    DEFAULT_PI_PROVIDER_MAX_RETRY_DELAY_MS,
+  );
+
+  return {
+    piProviderRetryMax,
+    piProviderMaxRetryDelayMs,
+  };
+}
+
 function readFeatureFlags() {
   return {
     review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
@@ -664,6 +682,19 @@ export async function loadConfig() {
     DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   );
 
+  const { piProviderRetryMax, piProviderMaxRetryDelayMs } = readProviderRetrySettings();
+  if (piProviderMaxRetryDelayMs >= providerPromptTimeoutMs) {
+    throw new AppError({
+      code: "config.invalid_number",
+      message: `${ENV.PI_PROVIDER_MAX_RETRY_DELAY_MS} must be less than ${ENV.PROVIDER_PROMPT_TIMEOUT_MS}`,
+      context: {
+        name: ENV.PI_PROVIDER_MAX_RETRY_DELAY_MS,
+        piProviderMaxRetryDelayMs,
+        providerPromptTimeoutMs,
+      },
+    });
+  }
+
   const webhookEventsRetentionSeconds = readPositiveNumber(
     ENV.WEBHOOK_EVENTS_RETENTION_SECONDS,
     DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
@@ -709,6 +740,8 @@ export async function loadConfig() {
     piFallbackProvider,
     piFallbackModel,
     piThinkingCeiling,
+    piProviderRetryMax,
+    piProviderMaxRetryDelayMs,
     agentResumeSnapshotKey,
     agentResumeSnapshotMarginSeconds,
     agentEventsEnabled,

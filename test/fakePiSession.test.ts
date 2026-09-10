@@ -13,7 +13,6 @@ function baseParams() {
   return {
     role: "specialist" as const,
     primary: { provider: "openai", model: "gpt-4o-mini" },
-    fallback: { provider: "openai", model: "gpt-4o" },
     thinkingPolicy: DEFAULT_THINKING_POLICY,
     compactionPolicy: compactionPolicyForRole("specialist"),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
@@ -52,18 +51,11 @@ describe("createFakePiSession", () => {
     ).rejects.toThrow(/disposed|aborted/);
   });
 
-  it("restarts with fallback from structured state without mid-session model switch", async () => {
+  it("keeps the primary model assignment fixed across sends", async () => {
     const { session } = createFakePiSession(baseParams(), async () => "primary");
     expect(session.primary.model).toBe("gpt-4o-mini");
-    const restarted = await session.restartWithFallback({
-      checkpointId: "cp-2",
-      structuredState: {
-        version: 2,
-        payload: { reports: ["security"], checkpoint: "cp-2" },
-      },
-    });
-    expect(restarted.primary.model).toBe("gpt-4o");
-    expect(restarted.getStructuredState().payload.checkpoint).toBe("cp-2");
+    await session.send("hello", { phase: "specialist", checkpointId: "cp-1" });
+    expect(session.primary.model).toBe("gpt-4o-mini");
   });
 
   it("preserves empty structured state helper", () => {

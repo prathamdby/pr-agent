@@ -48,9 +48,11 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | General LLM model                 | `PI_MODEL`                               | `gpt-4o-mini`            | Primary model id for general sessions                                                                                                                                                                                                       |
 | Orchestrator provider             | `PI_ORCHESTRATOR_PROVIDER`               | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                                                                                                                            |
 | Orchestrator model                | `PI_ORCHESTRATOR_MODEL`                  | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_MODEL`                                                                                                                                                               |
-| Fallback provider                 | `PI_FALLBACK_PROVIDER`                   | empty                    | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Used only after availability-class retry exhaustion                                                                                                                |
-| Fallback model                    | `PI_FALLBACK_MODEL`                      | empty                    | Optional shared fallback model; empty disables fallback                                                                                                                                                                                     |
+| Fallback provider                 | `PI_FALLBACK_PROVIDER`                   | empty                    | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Retry escalation runs attempt 2 and later on the fallback model                                                                                                    |
+| Fallback model                    | `PI_FALLBACK_MODEL`                      | empty                    | Optional shared fallback model; empty disables fallback. When configured, retry escalation uses it from the second attempt onward                                                                                                           |
 | Thinking ceiling                  | `PI_THINKING_CEILING`                    | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`)                                                                                                                                           |
+| Provider transport retries        | `PI_PROVIDER_RETRY_MAX`                  | `2`                      | Extra transport attempts per provider request on retryable 429/5xx/network failures; `0` disables provider transport retry, not the SDK turn-level retry loop                                                                               |
+| Provider retry delay cap          | `PI_PROVIDER_MAX_RETRY_DELAY_MS`         | `60000`                  | Bounds a provider-requested retry delay (e.g. `Retry-After`); must be strictly less than `PROVIDER_PROMPT_TIMEOUT_MS` (fail-fast at startup)                                                                                                |
 | Resume snapshot key               | `AGENT_RESUME_SNAPSHOT_KEY`              | empty                    | Base64 32-byte key for encrypted Agent resume snapshots; empty disables snapshot persistence                                                                                                                                                |
 | Resume snapshot margin            | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS`   | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                                                                                                                   |
 | Agent events enabled              | `AGENT_EVENTS_ENABLED`                   | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                      |
@@ -145,7 +147,7 @@ Loaded by `loadConfig()` into a redaction-safe map and never logged. Set the sec
 
 ---
 
-Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled).
+Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). A retry disposition decides whether a failed attempt may return to that budget; escalation owns what a retry does. See [ADR 0034](adr/0034-escalated-retries.md).
 
 ---
 
@@ -188,6 +190,8 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                             |
 | `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery; the armed redelivery re-checks until the lease frees or lapses                         |
 | `STALE_QUEUED_WORK_GRACE_SECONDS`          | 300, age after which a queued leased-type work item with no live lease and no live pg-boss job is logged as `agent_work_queued_stale` (delivery chain dead) |
+| `ESCALATED_TOOL_ROUNDS_MULTIPLIER`         | 2, factor applied to a base structured-loop tool-round budget on an escalated attempt (attempt 2 and later)                                                 |
+| `ESCALATED_TOOL_ROUNDS_CAP`                | 64, ceiling on any escalated tool-round budget                                                                                                              |
 
 ### Review output
 
@@ -288,25 +292,26 @@ Treat missing session checks as P1 minimum. Flag any new outbound HTTP without t
 
 An orchestrated review computes its hard return deadline from the pg-boss job start time as `expireInSeconds * 0.8`. Model work stops `REVIEW_FINALIZATION_WINDOW_MS` before that deadline. Each specialist attempt uses the smaller of `REVIEW_SPECIALIST_TIMEOUT_MS` and the remaining model window.
 
-| Symbol                                   | Default / role                                                  |
-| ---------------------------------------- | --------------------------------------------------------------- |
-| `MAX_TOOL_ROUNDS`                        | 24 for orchestrator reconnaissance and specialist investigation |
-| `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 per specialist judgment turn                                  |
-| `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                  |
-| `MAX_PR_FILES_PATCH_BYTES`               | 500000                                                          |
-| `REVIEW_ANCHOR_MENU_MAX_FILES`           | 40                                                              |
-| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | 20                                                              |
-| `MAX_TOOL_ROUNDS_TRIAGE`                 | 32                                                              |
-| `MAX_TOOL_ROUNDS_VERIFICATION`           | 32                                                              |
-| `MAX_TRIAGE_FIXES_PER_RUN`               | 10                                                              |
-| `MAX_ASK_TOOL_ROUNDS`                    | 12                                                              |
-| `MAX_ASK_FINALIZE_ROUNDS`                | 2                                                               |
-| `SESSION_CACHE_ID_MAX_LENGTH`            | 64 — OpenAI-style `prompt_cache_key` clamp for Pi session ids   |
-| `VALIDATION_REPAIR_ROUNDS`               | 3                                                               |
-| `PUBLISH_RECOVERY_ROUNDS`                | 4 summary recovery sends                                        |
-| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                               |
-| `ReviewValidationFailureKind`            | Validation failure metric categories                            |
-| `ReviewPhase`                            | Review metric categories                                        |
+| Symbol                                   | Default / role                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `MAX_TOOL_ROUNDS`                        | 24 for orchestrator reconnaissance and specialist investigation                                         |
+| `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 per specialist judgment turn                                                                          |
+| `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                                                          |
+| `MAX_PR_FILES_PATCH_BYTES`               | 500000                                                                                                  |
+| `REVIEW_ANCHOR_MENU_MAX_FILES`           | 40                                                                                                      |
+| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | 20                                                                                                      |
+| `MAX_TOOL_ROUNDS_TRIAGE`                 | 32                                                                                                      |
+| `MAX_TOOL_ROUNDS_VERIFICATION`           | 32                                                                                                      |
+| `MAX_ESCALATED_VERIFICATION_INVENTORY`   | 10 oldest open findings re-checked by an escalated verification attempt; the rest waits for a later run |
+| `MAX_TRIAGE_FIXES_PER_RUN`               | 10                                                                                                      |
+| `MAX_ASK_TOOL_ROUNDS`                    | 12                                                                                                      |
+| `MAX_ASK_FINALIZE_ROUNDS`                | 2                                                                                                       |
+| `SESSION_CACHE_ID_MAX_LENGTH`            | 64 — OpenAI-style `prompt_cache_key` clamp for Pi session ids                                           |
+| `VALIDATION_REPAIR_ROUNDS`               | 3                                                                                                       |
+| `PUBLISH_RECOVERY_ROUNDS`                | 4 summary recovery sends                                                                                |
+| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                                                                       |
+| `ReviewValidationFailureKind`            | Validation failure metric categories                                                                    |
+| `ReviewPhase`                            | Review metric categories                                                                                |
 
 ### Description
 

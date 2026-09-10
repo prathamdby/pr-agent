@@ -79,16 +79,20 @@ describe("createFeaturePiSession compaction by role", () => {
     await createForRole("orchestrator");
     await createForRole("specialist");
     const settings = vi.mocked(SettingsManager.inMemory).mock.calls.map((call) => call[0]);
-    expect(settings).toEqual([
+    expect(settings).toMatchObject([
       { compaction: { enabled: false } },
       { compaction: { enabled: false } },
     ]);
+    expect(settings[0]?.retry).toEqual({
+      enabled: true,
+      provider: { maxRetries: 2, maxRetryDelayMs: 60_000 },
+    });
   });
 
   it("passes SettingsManager compaction.enabled=true for ask", async () => {
     await createForRole("ask");
-    expect(SettingsManager.inMemory).toHaveBeenCalledWith({
-      compaction: { enabled: true },
-    });
+    expect(SettingsManager.inMemory).toHaveBeenCalledWith(
+      expect.objectContaining({ compaction: { enabled: true } }),
+    );
   });
 });

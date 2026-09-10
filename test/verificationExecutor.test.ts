@@ -23,6 +23,12 @@ const mocks = vi.hoisted(() => ({
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
   recordPublishStep: vi.fn(),
+  captureEvent: vi.fn(),
+}));
+
+vi.mock("../src/analytics/index.js", () => ({
+  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
+  captureException: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
@@ -158,8 +164,8 @@ describe("verificationHeadFreshness", () => {
     });
   });
 
-  it("uses completed+degraded as the stale terminal", () => {
-    expect(STALE_VERIFICATION_RESULT).toEqual({ kind: "completed", degraded: true });
+  it("uses completed with stale_head as the stale terminal", () => {
+    expect(STALE_VERIFICATION_RESULT).toEqual({ kind: "completed", degradation: ["stale_head"] });
   });
 });
 
@@ -184,7 +190,7 @@ describe("executeVerificationJob", () => {
       submitted: true,
       payload: { verdicts: [] },
     });
-    mocks.publishVerification.mockResolvedValue({ degraded: false });
+    mocks.publishVerification.mockResolvedValue({ degradation: [] });
     mocks.publishVerificationFailure.mockResolvedValue({
       headSha: "a".repeat(40),
       commentId: 1,
@@ -489,7 +495,7 @@ describe("executeVerificationJob", () => {
     expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
 
-  it("propagates degraded when publishVerification reports degraded", async () => {
+  it("returns publish degradation reasons and emits no failure event", async () => {
     durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
@@ -504,7 +510,10 @@ describe("executeVerificationJob", () => {
         ],
       },
     });
-    mocks.publishVerification.mockResolvedValue({ degraded: true });
+    mocks.publishVerification.mockResolvedValue({
+      degradation: ["verdict_mapping_incomplete"],
+    });
+    const warnSpy = vi.spyOn(evlog, "logWarn");
 
     let executeResult: unknown;
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
@@ -518,7 +527,96 @@ describe("executeVerificationJob", () => {
 
     await executeVerificationJob(cfg, pool, boss, job());
 
-    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(executeResult).toEqual({
+      kind: "completed",
+      degradation: ["verdict_mapping_incomplete"],
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "verification_publish_degraded",
+      expect.objectContaining({
+        resolutionStatus: "ok",
+        degradation: ["verdict_mapping_incomplete"],
+      }),
+    );
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("orders the inventory oldest-first and binds one value to prompt and publish", async () => {
+    durablePrSurfaceControls().setBotFindingThreads([
+      findingThread(3),
+      findingThread(1),
+      findingThread(2),
+    ]);
+    configureVerificationThreads([
+      [3, { threadNodeId: "node-3", isResolved: false }],
+      [1, { threadNodeId: "node-1", isResolved: false }],
+      [2, { threadNodeId: "node-2", isResolved: false }],
+    ]);
+    mocks.runVerification.mockResolvedValue({ submitted: true, payload: { verdicts: [] } });
+
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+      executeResult = await spec.execute(item(), {
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        signal: new AbortController().signal,
+      });
+    });
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    const runParams = mocks.runVerification.mock.calls[0]?.[0] as {
+      inventory: readonly BotFindingThread[];
+      escalation?: unknown;
+    };
+    const publishParams = mocks.publishVerification.mock.calls[0]?.[0] as {
+      inventory: readonly BotFindingThread[];
+    };
+    expect(runParams.inventory.map((thread) => thread.rootCommentId)).toEqual([1, 2, 3]);
+    expect(publishParams.inventory).toBe(runParams.inventory);
+    expect(runParams.escalation).toBeUndefined();
+    expect(executeResult).toEqual({ kind: "completed" });
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
+  });
+
+  it("narrows the escalated attempt inventory once and reports inventory_narrowed", async () => {
+    const ids = [12, 3, 8, 1, 10, 5, 2, 11, 7, 4, 9, 6];
+    durablePrSurfaceControls().setBotFindingThreads(ids.map((id) => findingThread(id)));
+    configureVerificationThreads(
+      ids.map((id) => [id, { threadNodeId: `node-${id}`, isResolved: false }] as const),
+    );
+    mocks.runVerification.mockResolvedValue({ submitted: true, payload: { verdicts: [] } });
+    const escalation = { attempt: 2, kinds: ["tool_rounds"] as const };
+
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+      executeResult = await spec.execute(item(), {
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        signal: new AbortController().signal,
+        escalation,
+      });
+    });
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    const runParams = mocks.runVerification.mock.calls[0]?.[0] as {
+      inventory: readonly BotFindingThread[];
+      escalation?: unknown;
+    };
+    const publishParams = mocks.publishVerification.mock.calls[0]?.[0] as {
+      inventory: readonly BotFindingThread[];
+    };
+    expect(runParams.inventory.map((thread) => thread.rootCommentId)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    ]);
+    expect(publishParams.inventory).toBe(runParams.inventory);
+    expect(runParams.escalation).toBe(escalation);
+    expect(executeResult).toEqual({ kind: "completed", degradation: ["inventory_narrowed"] });
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {
@@ -554,7 +652,11 @@ describe("executeVerificationJob", () => {
 
     expect(mocks.runVerification).toHaveBeenCalled();
     expect(mocks.publishVerification).toHaveBeenCalled();
-    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(executeResult).toEqual({
+      kind: "completed",
+      degradation: ["thread_resolution_degraded"],
+    });
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -635,9 +737,12 @@ describe("executeVerificationJob", () => {
           : { changedFilePaths: files }),
       }),
     );
-    if (truncated) {
-      expect(executeResult).toEqual({ kind: "completed", degraded: true });
-    }
+    expect(executeResult).toEqual(
+      truncated
+        ? { kind: "completed", degradation: ["compare_files_truncated"] }
+        : { kind: "completed" },
+    );
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
   });
 
   it("does not publish a failure signal on a successful run", async () => {

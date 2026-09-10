@@ -4,6 +4,9 @@
 
 Accepted. Supersedes the former Cursor dual-runtime / `AGENT_PROVIDER` path.
 Read-only local investigation remains in [ADR 0011](0011-agent-runner-local-pr-workspace.md).
+Decision 5's in-run fallback-restart clause is superseded by
+[ADR 0034](0034-escalated-retries.md): the fallback model is reached through
+retry escalation, not an in-run session restart.
 
 ## Context
 
@@ -55,6 +58,13 @@ policy, durable checkpoints, and strict redaction.
   consumers.
 - Future alternate runners require demonstrated demand and a new ADR; do not
   reintroduce a generic capability-negotiation framework preemptively.
+
+## Superseded by ADR 0034
+
+- Decision 5's in-run fallback restart is deleted. The three logical model
+  assignments and the shared fallback remain, but the fallback model is reached
+  through retry escalation on a later durable attempt, not by restarting a
+  session from a phase checkpoint inside a run.
 
 ## Alternatives considered
 

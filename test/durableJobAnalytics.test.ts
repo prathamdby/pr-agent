@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
-import type { Config } from "../src/config.js";
 import {
   clearDurableAuthCachesForTest,
   runDurableWorkItem,
@@ -10,6 +9,7 @@ import {
 import { initAnalytics, shutdownAnalytics } from "../src/analytics/index.js";
 import { AppError } from "../src/errors/appError.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 
 type PostHogOptions = {
@@ -71,9 +71,26 @@ vi.mock("../src/github/appAuth.js", () => ({
 import * as repo from "../src/agentWork/repository.js";
 import * as appAuth from "../src/github/appAuth.js";
 
-const cfg = {} as Config;
+const cfg = makeTestConfig({
+  piFallbackProvider: "anthropic",
+  piFallbackModel: "claude-sonnet-4",
+});
 const pool = {} as Pool;
 const boss = {} as PgBoss;
+
+function reviewJob(
+  workItemId: string,
+  retryCount: number,
+  retryLimit: number,
+): JobWithMetadata<{ workItemId: string }> {
+  return {
+    id: `job-${workItemId}`,
+    data: { workItemId },
+    retryCount,
+    retryLimit,
+    signal: new AbortController().signal,
+  } as unknown as JobWithMetadata<{ workItemId: string }>;
+}
 
 describe("durableJob analytics forwarding", () => {
   beforeEach(async () => {
@@ -90,6 +107,8 @@ describe("durableJob analytics forwarding", () => {
     });
     vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
     vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
+    vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
     vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
       type: "token",
@@ -155,11 +174,15 @@ describe("durableJob analytics forwarding", () => {
         owner: "acme",
         repo: "widgets",
         pr_number: 12,
+        retry_disposition: "transient",
         failure_domain: expect.any(String),
         error_kind: expect.any(String),
         error_message: expect.any(String),
       }),
     });
+    expect(client?.capture).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "work item retried" }),
+    );
     expect(client?.captureException).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Error", message: "enqueue failed" }),
       "installation:99",
@@ -275,5 +298,188 @@ describe("durableJob analytics forwarding", () => {
     expect(json).not.toContain(token);
     expect(json).not.toContain("postgres://");
     expect(json).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+  });
+
+  it("emits work item retried with the disposition and the next attempt's escalation kinds", async () => {
+    const item = makeReviewWorkItem({
+      status: "running",
+      id: "wi-retry",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    const transient = new Error("transient");
+    await expect(
+      runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 0, 3),
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockRejectedValue(transient),
+      }),
+    ).rejects.toBe(transient);
+
+    const deterministic = new AppError({
+      code: "verification.missing_submit",
+      message: "Verification run ended without submitVerification",
+    });
+    await expect(
+      runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 1, 3),
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockRejectedValue(deterministic),
+      }),
+    ).rejects.toBe(deterministic);
+
+    const client = mockPostHog.instances[0];
+    expect(client?.capture).toHaveBeenCalledWith({
+      distinctId: "installation:99",
+      event: "work item retried",
+      properties: expect.objectContaining({
+        type: "review",
+        owner: "acme",
+        repo: "widgets",
+        pr_number: 12,
+        attempt_count: 1,
+        next_attempt: 2,
+        retry_disposition: "transient",
+        escalation_kinds: ["tool_rounds", "fallback_model"],
+        failure_domain: expect.any(String),
+        error_kind: expect.any(String),
+        error_message: expect.any(String),
+      }),
+    });
+    expect(client?.capture).toHaveBeenCalledWith({
+      distinctId: "installation:99",
+      event: "work item retried",
+      properties: expect.objectContaining({
+        retry_disposition: "deterministic",
+        escalation_kinds: ["tool_rounds", "fallback_model"],
+      }),
+    });
+    expect(client?.capture).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "work item failed" }),
+    );
+  });
+
+  it("emits work item degraded with the reported reasons after completion", async () => {
+    const item = makeReviewWorkItem({
+      status: "running",
+      id: "wi-degraded",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    await expect(
+      runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 0, 3),
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockResolvedValue({
+          kind: "completed",
+          degradation: ["stale_head", "thread_resolution_degraded"],
+        }),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, item.id, null);
+    const client = mockPostHog.instances[0];
+    expect(client?.capture).toHaveBeenCalledWith({
+      distinctId: "installation:99",
+      event: "work item degraded",
+      properties: expect.objectContaining({
+        type: "review",
+        owner: "acme",
+        repo: "widgets",
+        pr_number: 12,
+        attempt_count: 1,
+        degradation_reasons: ["stale_head", "thread_resolution_degraded"],
+      }),
+    });
+  });
+
+  it("does not emit work item degraded for a clean completion", async () => {
+    const item = makeReviewWorkItem({
+      status: "running",
+      id: "wi-clean",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    await expect(
+      runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 0, 3),
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockResolvedValue({ kind: "completed" }),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
+    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "work item degraded" }),
+    );
+  });
+
+  it("does not emit work item degraded when completion loses the race", async () => {
+    const item = makeReviewWorkItem({
+      status: "running",
+      id: "wi-raced",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+
+    await expect(
+      runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 0, 3),
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockResolvedValue({
+          kind: "completed",
+          degradation: ["stale_head"],
+        }),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, item.id, null);
+    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "work item degraded" }),
+    );
   });
 });

@@ -163,7 +163,6 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
-import { classifyFallbackEligibility } from "../src/agent/runtime/fallbackClassification.js";
 import {
   compactionPolicyForRole,
   createPiSession,
@@ -174,8 +173,7 @@ import {
   sessionCacheIdFromIdentity,
 } from "../src/agent/runtime/piSession.js";
 import type { Config } from "../src/config.js";
-import { AppError } from "../src/errors/appError.js";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
@@ -560,6 +558,60 @@ describe("createPiSession.send", () => {
     }
   });
 
+  it("terminates a send aborted while the provider sleeps between transport retries", async () => {
+    // The SDK sleeps abortably between provider retries (abortableSleep); this
+    // mock mirrors that shape: the prompt stays pending on a retry-backoff timer
+    // that session.abort() both rejects and cancels.
+    const controller = new AbortController();
+    const retrySleepFired = vi.fn();
+    const session = {
+      subscribe: () => () => {},
+      prompt: vi.fn(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            const rejectOnAbort = () =>
+              reject(Object.assign(new Error("Request aborted"), { name: "AbortError" }));
+            controller.signal.addEventListener("abort", rejectOnAbort, { once: true });
+            const retryTimer = setTimeout(() => {
+              retrySleepFired();
+              resolve();
+            }, 2000);
+            controller.signal.addEventListener("abort", () => clearTimeout(retryTimer), {
+              once: true,
+            });
+          }),
+      ),
+      abort: vi.fn(async () => controller.abort()),
+      setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
+      dispose: vi.fn(),
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    vi.useFakeTimers();
+    try {
+      const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(retrySleepFired).not.toHaveBeenCalled();
+
+      await runnerSession.abort();
+
+      await expect(sendPromise).rejects.toMatchObject({ code: "agent.session_aborted" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(retrySleepFired).not.toHaveBeenCalled();
+      expect(controller.signal.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("calls SDK session.dispose before removing the agent directory", async () => {
     const dispose = vi.fn();
     const session = buildMockSession(() => undefined);
@@ -746,10 +798,6 @@ describe("createPiSession terminal provider outcomes", () => {
 
     const error = await sendPromise.catch((value: unknown) => value);
     expect(error).toMatchObject({ code: "agent.session_aborted" });
-    expect(classifyFallbackEligibility(error)).toEqual({
-      eligible: false,
-      reason: "cancellation",
-    });
   });
 
   it("keeps tool-budget termination as a successful empty turn", async () => {
@@ -872,25 +920,6 @@ describe("createPiSession terminal provider outcomes", () => {
     await expect(sendPromise).rejects.toMatchObject({ code: "provider.request_failed" });
     expect(controlled.unsubscribe).toHaveBeenCalled();
   });
-
-  it("classifies wrapped availability and auth errors through fallback policy", () => {
-    expect(
-      classifyFallbackEligibility(
-        new AppError({
-          code: "provider.request_failed",
-          message: "429 Too Many Requests: rate limit exceeded",
-        }),
-      ),
-    ).toEqual({ eligible: true, reason: "rate_limit" });
-    expect(
-      classifyFallbackEligibility(
-        new AppError({
-          code: "provider.request_failed",
-          message: "401 Unauthorized invalid api key",
-        }),
-      ),
-    ).toEqual({ eligible: false, reason: "auth" });
-  });
 });
 
 describe("createPiSession prompt cache identity", () => {
@@ -986,58 +1015,56 @@ describe("createPiSession prompt cache identity", () => {
     );
   });
 
-  it("binds short retention and fallback cache id on restartWithFallback", async () => {
-    const primaryRuntime = createDefaultModelRuntimeMock();
-    const fallbackRuntime = createDefaultModelRuntimeMock();
-    const primaryStreamSimple = primaryRuntime.streamSimple;
-    const fallbackStreamSimple = fallbackRuntime.streamSimple;
-    vi.mocked(ModelRuntime.create)
-      .mockResolvedValueOnce(primaryRuntime as never)
-      .mockResolvedValueOnce(fallbackRuntime as never);
+  it("configures provider transport retry from validated config", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const primarySession = buildMockSession(() => undefined);
-    const fallbackSession = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession)
-      .mockResolvedValueOnce({ session: primarySession } as never)
-      .mockResolvedValueOnce({ session: fallbackSession } as never);
-
-    const session = await createPiSession({
-      role: "ask",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      fallback: { provider: "openai", model: "gpt-4o" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("ask"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
+    await createPiRunnerSession({
+      cfg: {
+        ...cfg,
+        piProviderRetryMax: 4,
+        piProviderMaxRetryDelayMs: 45_000,
+      },
       systemPrompt: "test",
-      cwd: "/tmp/pr-agent-fallback-cache",
-      eventSink: () => undefined,
-      cfg,
       tools: [],
       executors: {},
     });
 
-    await session.restartWithFallback({
-      checkpointId: "ask:ask",
-      structuredState: EMPTY_STRUCTURED_STATE,
+    expect(SettingsManager.inMemory).toHaveBeenCalledWith({
+      compaction: { enabled: true },
+      retry: {
+        enabled: true,
+        provider: {
+          maxRetries: 4,
+          maxRetryDelayMs: 45_000,
+        },
+      },
+    });
+  });
+
+  it("disables provider transport retry when the retry count is zero", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await createPiRunnerSession({
+      cfg: { ...cfg, piProviderRetryMax: 0 },
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
     });
 
-    const fallbackId = sessionCacheIdFromIdentity({
-      role: "ask",
-      provider: "openai",
-      model: "gpt-4o",
+    // A zero count turns off transport retries only; the SDK turn-level retry
+    // switch stays pinned on (its pre-existing default) rather than being
+    // driven by the count knob.
+    expect(SettingsManager.inMemory).toHaveBeenCalledWith({
+      compaction: { enabled: true },
+      retry: {
+        enabled: true,
+        provider: {
+          maxRetries: 0,
+          maxRetryDelayMs: 60_000,
+        },
+      },
     });
-    expect(SessionManager.inMemory).toHaveBeenLastCalledWith("/tmp/pr-agent-fallback-cache", {
-      id: fallbackId,
-    });
-
-    fallbackRuntime.streamSimple({ id: "m" }, { messages: [] }, { maxTokens: 2 });
-    expect(fallbackStreamSimple).toHaveBeenCalledWith(
-      { id: "m" },
-      { messages: [] },
-      expect.objectContaining({ cacheRetention: "short", maxTokens: 2 }),
-    );
-    expect(primaryStreamSimple).not.toHaveBeenCalled();
   });
 });

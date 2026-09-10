@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AuthoritativeStructuredState, PiSession } from "../src/agent/runtime/types.js";
+import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
+import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
@@ -9,6 +10,7 @@ import type {
   SpecialistId,
   SpecialistOutcome,
 } from "../src/review/orchestrator/orchestratorTypes.js";
+import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
 import type { Pool } from "pg";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
@@ -71,6 +73,8 @@ const testState = vi.hoisted(() => ({
   judgmentPrompts: [] as string[],
   synthesisPublishesSummary: true,
   progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
+  sentSendOptions: [] as PiSessionSendOptions[],
+  specialistEscalations: [] as Array<EscalationPlan | undefined>,
 }));
 
 const publishRecordMocks = vi.hoisted(() => ({
@@ -105,10 +109,12 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
       readonly specialist: SpecialistId;
       readonly briefMessage: string;
       readonly signal?: AbortSignal;
+      readonly escalation?: EscalationPlan;
     }) => {
       const outcome = testState.outcomes.get(params.specialist);
       if (!outcome) throw new Error(`Missing ${params.specialist} outcome`);
       testState.briefMessages.push(params.briefMessage);
+      testState.specialistEscalations.push(params.escalation);
       if (params.signal) testState.signals.set(params.specialist, params.signal);
       return new Promise<SpecialistOutcome>((resolve) => {
         outcome.promise.then(resolve);
@@ -397,6 +403,8 @@ describe("runOrchestratedPrReview", () => {
     testState.reconSubmitsBrief = true;
     testState.submittedBrief = null;
     testState.sentPrompts.length = 0;
+    testState.sentSendOptions.length = 0;
+    testState.specialistEscalations.length = 0;
     testState.deterministicSummaries.length = 0;
     testState.deterministicCiAuthors.length = 0;
     testState.summaryToolCiAuthors.length = 0;
@@ -427,8 +435,9 @@ describe("runOrchestratedPrReview", () => {
       const session: PiSession = {
         role: "orchestrator",
         primary: { provider: "openai", model: "gpt-4o-mini" },
-        send: vi.fn(async (prompt) => {
+        send: vi.fn(async (prompt, opts) => {
           testState.sentPrompts.push(prompt);
+          testState.sentSendOptions.push(opts);
           const phase = prompt.includes("Inspect this pull request")
             ? "recon"
             : prompt.startsWith("Judge the ")
@@ -479,13 +488,6 @@ describe("runOrchestratedPrReview", () => {
         dispose: vi.fn(async () => {
           testState.sessionDisposals += 1;
         }),
-        restartWithFallback: vi.fn(async () => {
-          throw new AppError({
-            code: "runtime.fallback_unavailable",
-            message: "No fallback model assignment configured for this session",
-            context: { role: "orchestrator" },
-          });
-        }),
         getStructuredState: () => ({ version: 1, payload: {} }),
         setStructuredState: () => undefined,
       };
@@ -502,6 +504,110 @@ describe("runOrchestratedPrReview", () => {
     expect(ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS).toBe(4);
   });
 
+  it("escalates recon and judgment budgets, the attempt model, and the specialist plan", async () => {
+    runner.createSession.mockClear();
+    const cfg = makeTestConfig({
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    });
+    const escalation = escalationForAttempt(2, cfg);
+    const run = runOrchestratedPrReview({ ...params(), cfg, escalation });
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+
+    expect(runner.createSession.mock.calls[0]?.[0]?.attemptModel).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    });
+    const reconIndex = testState.sentPrompts.findIndex((prompt) =>
+      prompt.includes(ORCHESTRATOR_RECON_INSTRUCTION),
+    );
+    const judgmentIndex = testState.sentPrompts.findIndex((prompt) =>
+      prompt.startsWith("Judge the "),
+    );
+    expect(reconIndex).toBeGreaterThanOrEqual(0);
+    expect(judgmentIndex).toBeGreaterThanOrEqual(0);
+    expect(testState.sentSendOptions[reconIndex]?.maxToolRounds).toBe(48);
+    expect(testState.sentSendOptions[judgmentIndex]?.maxToolRounds).toBe(8);
+    expect(testState.specialistEscalations).toEqual([
+      escalation,
+      escalation,
+      escalation,
+      escalation,
+    ]);
+  });
+
+  it("grants an escalated attempt the same tools, prompt, cwd, and no model restart", async () => {
+    runner.createSession.mockClear();
+    const cfg = makeTestConfig({
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    });
+
+    const baseline = runOrchestratedPrReview(params());
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await baseline;
+
+    const escalated = runOrchestratedPrReview({
+      ...params(),
+      cfg,
+      escalation: escalationForAttempt(2, cfg),
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await escalated;
+
+    const baselineCreate = runner.createSession.mock.calls[0]?.[0];
+    const escalatedCreate = runner.createSession.mock.calls[1]?.[0];
+    expect(escalatedCreate?.tools).toEqual(baselineCreate?.tools);
+    expect(Object.keys(escalatedCreate?.executors ?? {})).toEqual(
+      Object.keys(baselineCreate?.executors ?? {}),
+    );
+    expect(escalatedCreate?.systemPrompt).toBe(baselineCreate?.systemPrompt);
+    expect(escalatedCreate?.cwd).toBe(baselineCreate?.cwd);
+    expect(escalatedCreate?.attemptModel).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    });
+    expect(baselineCreate?.attemptModel).toBeUndefined();
+  });
+
+  it("retires an escalated attempt for durable recovery instead of restarting in-run", async () => {
+    runner.createSession.mockClear();
+    testState.judgmentFailuresRemaining = 2;
+    const cfg = makeTestConfig({
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    });
+    const run = runOrchestratedPrReview({
+      ...params(),
+      cfg,
+      escalation: escalationForAttempt(2, cfg),
+    });
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
+    testState.outcomes.get("security")?.resolve(report("security"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness", "security"]));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
+    expect(testState.sessionAborts).toBe(1);
+    expect(runner.createSession).toHaveBeenCalledTimes(1);
+    expect(runner.createSession.mock.calls[0]?.[0]?.attemptModel).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    });
+  });
+
   it("uses fallback recon and deterministic publication when session creation fails", async () => {
     testState.createError = new Error("provider unavailable");
     const run = runOrchestratedPrReview(params());
@@ -515,129 +621,6 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
     expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
     expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
-  });
-
-  it("persists later sends on the session returned by restartWithFallback", async () => {
-    const persisted: Array<{
-      model: string;
-      phase: string;
-      checkpointId: string;
-    }> = [];
-    const primaryState = { version: 1, payload: { reconNotes: "kept across fallback" } };
-    let reconFailuresRemaining = 2;
-    const restartWithFallback = vi.fn<PiSession["restartWithFallback"]>(async () => {
-      throw new AppError({
-        code: "runtime.fallback_unavailable",
-        message: "No fallback model assignment configured for this session",
-        context: { role: "orchestrator" },
-      });
-    });
-
-    runner.createSession.mockImplementation(async (sessionParams) => {
-      testState.lastSessionToolNames = sessionParams.tools.map(
-        (tool: { name: string }) => tool.name,
-      );
-      const runSuccessfulTurn = async (prompt: string) => {
-        if (prompt.includes("Inspect this pull request")) {
-          if (testState.reconSubmitsBrief) {
-            await sessionParams.executors.submit_specialist_brief?.(
-              testState.submittedBrief ?? defaultSubmittedBrief(),
-            );
-          }
-        } else if (prompt.startsWith("Judge the ")) {
-          await sessionParams.refreshBeforeTool?.("publish_thread");
-          await sessionParams.executors.publish_thread?.({ findings: [] });
-        } else if (
-          prompt.includes("Synthesize the final") ||
-          prompt.includes("Call publish_summary now") ||
-          prompt.includes("Fix the summary and call publish_summary")
-        ) {
-          if (testState.synthesisPublishesSummary) {
-            await sessionParams.refreshBeforeTool?.("publish_summary");
-            await sessionParams.executors.publish_summary?.({});
-          }
-        }
-        return { text: "ok" };
-      };
-      const makeSession = (
-        model: string,
-        structuredState: AuthoritativeStructuredState,
-        send: PiSession["send"],
-        restart: PiSession["restartWithFallback"],
-      ): PiSession => {
-        const session: PiSession = {
-          role: "orchestrator",
-          primary: { provider: "openai", model },
-          send: async (prompt, opts) => {
-            const result = await send(prompt, opts);
-            persisted.push({
-              model: session.primary.model,
-              phase: opts.phase,
-              checkpointId: opts.checkpointId,
-            });
-            return result;
-          },
-          abort: vi.fn(async () => {
-            testState.sessionAborts += 1;
-          }),
-          dispose: vi.fn(async () => {
-            testState.sessionDisposals += 1;
-          }),
-          restartWithFallback: (params) => restart(params),
-          getStructuredState: () => structuredState,
-          setStructuredState: () => undefined,
-        };
-        return session;
-      };
-
-      const primary = makeSession(
-        "gpt-4o-mini",
-        primaryState,
-        async (prompt) => {
-          if (prompt.includes("Inspect this pull request") && reconFailuresRemaining > 0) {
-            reconFailuresRemaining -= 1;
-            throw new Error("503 service unavailable");
-          }
-          return runSuccessfulTurn(prompt);
-        },
-        (params) => restartWithFallback(params),
-      );
-      restartWithFallback.mockImplementation(async (restartParams) => {
-        expect(restartParams.structuredState).toEqual(primaryState);
-        await primary.dispose();
-        return makeSession(
-          "gpt-4o",
-          restartParams.structuredState,
-          async (prompt) => runSuccessfulTurn(prompt),
-          async () => {
-            throw new AppError({
-              code: "runtime.fallback_unavailable",
-              message: "No fallback model assignment configured for this session",
-              context: { role: "orchestrator" },
-            });
-          },
-        );
-      });
-      return primary;
-    });
-
-    const run = runOrchestratedPrReview(params());
-    testState.outcomes.get("correctness")?.resolve(report("correctness"));
-    testState.outcomes.get("security")?.resolve(empty("security"));
-    testState.outcomes.get("quality")?.resolve(empty("quality"));
-    testState.outcomes.get("tests")?.resolve(empty("tests"));
-
-    await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
-    expect(restartWithFallback).toHaveBeenCalledWith({
-      checkpointId: "orchestrator:recon",
-      structuredState: primaryState,
-    });
-    expect(persisted).toEqual([
-      { model: "gpt-4o", phase: "recon", checkpointId: "orchestrator:recon" },
-      { model: "gpt-4o", phase: "judgment", checkpointId: "orchestrator:judgment" },
-      { model: "gpt-4o", phase: "synthesis", checkpointId: "orchestrator:synthesis" },
-    ]);
-    expect(testState.publishOrder).toEqual(["correctness", "summary"]);
   });
 
   it("returns before returnByMs when session creation crosses modelStopAtMs", async () => {

@@ -12,6 +12,10 @@ export const DEFAULT_PI_ORCHESTRATOR_MODEL = "";
 export const DEFAULT_PI_FALLBACK_PROVIDER = "";
 export const DEFAULT_PI_FALLBACK_MODEL = "";
 export const DEFAULT_PI_THINKING_CEILING = "high" as const;
+/** Extra transport attempts per provider request on retryable 429/5xx/network failures; 0 disables transport retry. */
+export const DEFAULT_PI_PROVIDER_RETRY_MAX = 2;
+/** Cap (ms) on a provider-requested retry delay (e.g. `Retry-After`); must be < `PROVIDER_PROMPT_TIMEOUT_MS`. */
+export const DEFAULT_PI_PROVIDER_MAX_RETRY_DELAY_MS = 60_000;
 /** Empty disables encrypted resume snapshot persistence. */
 export const DEFAULT_AGENT_RESUME_SNAPSHOT_KEY = "";
 export const DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS = 600;

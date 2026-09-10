@@ -1,4 +1,11 @@
 import { describe, expect, it } from "vitest";
+import {
+  escalatedToolRounds,
+  escalatedVerificationInventory,
+  escalationForAttempt,
+  retryDispositionFor,
+} from "../src/agentWork/retryPolicy.js";
+import { STALE_HEAD_REPLACEMENT_EXHAUSTED } from "../src/agentWork/reviewReschedule.js";
 import { AppError } from "../src/errors/appError.js";
 import {
   classifyFailure,
@@ -6,6 +13,7 @@ import {
   classifiedFailurePostHogProperties,
   type ClassifiedFailure,
 } from "../src/errors/classifiedFailure.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 describe("classifyFailure", () => {
   it("classifies provider credit errors as provider/quota with sanitized message", () => {
@@ -219,5 +227,128 @@ describe("classified-failure projections", () => {
       error_message: "plain boom",
       phase: "",
     });
+  });
+});
+
+describe("retryDispositionFor", () => {
+  it("keeps stale-head replacement exhaustion terminal", () => {
+    const error = new AppError({
+      code: STALE_HEAD_REPLACEMENT_EXHAUSTED,
+      message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
+    });
+    expect(retryDispositionFor(error)).toBe("terminal");
+  });
+
+  it.each([
+    ["verification.missing_submit", "Verification run ended without submitVerification"],
+    ["triage.missing_submit", "Triage run ended without submitTriage"],
+    ["review.specialist_invalid_report", "Specialist did not submit a valid report"],
+  ])("classifies repair-exhausted %s as deterministic", (code, message) => {
+    expect(retryDispositionFor(new AppError({ code, message }))).toBe("deterministic");
+  });
+
+  it.each([
+    ["provider timeout", new Error("Request timed out")],
+    ["provider rate limit", new Error("429 Too Many Requests")],
+    ["provider 5xx", new Error("503 Service Unavailable")],
+    ["provider transport reset", new Error("fetch failed: ECONNRESET")],
+    ["provider quota", new Error("Insufficient credits")],
+    [
+      "github forbidden",
+      Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+    ],
+    ["github rate limit", Object.assign(new Error("API rate limit exceeded"), { status: 429 })],
+    ["unknown error", new Error("plain boom")],
+    ["non-error value", "plain boom"],
+  ])("keeps %s transient", (_label, error) => {
+    expect(retryDispositionFor(error)).toBe("transient");
+  });
+
+  it("does not terminalise an unrelated AppError code", () => {
+    expect(
+      retryDispositionFor(
+        new AppError({ code: "review.orchestrator_send_failed", message: "send failed" }),
+      ),
+    ).toBe("transient");
+  });
+});
+
+describe("escalationForAttempt", () => {
+  const fallbackCfg = makeTestConfig({
+    piProvider: "openai",
+    piModel: "gpt-4o-mini",
+    piFallbackProvider: "anthropic",
+    piFallbackModel: "claude-sonnet-4",
+  });
+
+  it("leaves the first attempt unchanged", () => {
+    expect(escalationForAttempt(0, fallbackCfg)).toBeUndefined();
+    expect(escalationForAttempt(1, fallbackCfg)).toBeUndefined();
+  });
+
+  it("escalates with the configured fallback model from attempt 2", () => {
+    expect(escalationForAttempt(2, fallbackCfg)).toEqual({
+      attempt: 2,
+      kinds: ["tool_rounds", "fallback_model"],
+      model: { provider: "anthropic", model: "claude-sonnet-4" },
+    });
+  });
+
+  it("escalates tool rounds only when no fallback model is configured", () => {
+    const plan = escalationForAttempt(2, makeTestConfig());
+    expect(plan).toEqual({ attempt: 2, kinds: ["tool_rounds"] });
+    expect(plan?.model).toBeUndefined();
+  });
+
+  it("is a pure function of the attempt count and config", () => {
+    expect(escalationForAttempt(3, fallbackCfg)).toEqual(escalationForAttempt(3, fallbackCfg));
+    expect(escalationForAttempt(3, fallbackCfg)?.attempt).toBe(3);
+
+    const twinCfg = makeTestConfig({
+      piProvider: "openai",
+      piModel: "gpt-4o-mini",
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    });
+    expect(escalationForAttempt(3, fallbackCfg)).toEqual(escalationForAttempt(3, twinCfg));
+    expect(escalationForAttempt(2, makeTestConfig())).toEqual(
+      escalationForAttempt(2, makeTestConfig()),
+    );
+  });
+});
+
+describe("escalatedToolRounds", () => {
+  const plan = escalationForAttempt(2, makeTestConfig());
+
+  it("returns the base budget without an escalation plan", () => {
+    expect(escalatedToolRounds(24, undefined)).toBe(24);
+    expect(escalatedToolRounds(0, undefined)).toBe(0);
+  });
+
+  it("doubles the base budget for an escalated attempt", () => {
+    expect(escalatedToolRounds(24, plan)).toBe(48);
+    expect(escalatedToolRounds(32, plan)).toBe(64);
+  });
+
+  it("caps the raised budget", () => {
+    expect(escalatedToolRounds(50, plan)).toBe(64);
+  });
+});
+
+describe("escalatedVerificationInventory", () => {
+  const inventory = Array.from({ length: 14 }, (_, index) => `thread-${index}`);
+  const plan = escalationForAttempt(2, makeTestConfig());
+
+  it("returns the full inventory without an escalation plan", () => {
+    expect(escalatedVerificationInventory(inventory, undefined)).toBe(inventory);
+  });
+
+  it("narrows an escalated attempt to the oldest bounded slice", () => {
+    expect(escalatedVerificationInventory(inventory, plan)).toEqual(inventory.slice(0, 10));
+  });
+
+  it("returns a short inventory unchanged for an escalated attempt", () => {
+    const short = ["thread-0", "thread-1"];
+    expect(escalatedVerificationInventory(short, plan)).toEqual(short);
   });
 });
