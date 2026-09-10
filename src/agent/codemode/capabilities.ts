@@ -1,30 +1,26 @@
-import { CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
+import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
 import { AppError, isAppError } from "../../errors/appError.js";
 import { idleAbortSignal } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
 import type { AgentSessionRole } from "../runtime/types.js";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { CodeModeHostHalt } from "./hostHalt.js";
 import type { CodeModeInnerFailureKind, CodeModeToolCall } from "./result.js";
-import { serializeCodeModeValue } from "./serialize.js";
 import type { CodeModeCapabilityExecutors, CodeModeWorkspaceToolName } from "./types.js";
+import {
+  recordMarshalledEvidence,
+  toGuestCapabilityResult,
+  boundJsonValue,
+} from "../execution/marshal.js";
+import { utf8ByteLength } from "../execution/json.js";
 
 export type CodeModeCapabilityBridge = {
-  readonly tools: Record<string, (args?: Record<string, unknown>) => Promise<unknown>>;
+  readonly invoke: (name: string, args?: Record<string, unknown>) => Promise<unknown>;
   readonly toolCalls: CodeModeToolCall[];
   readonly admittedHostCalls: number;
   readonly completedHostCalls: number;
   readonly transferredBytes: number;
 };
-
-function utf8ByteLength(value: unknown): number {
-  if (value == null) return 0;
-  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
-  try {
-    return Buffer.byteLength(JSON.stringify(value) ?? "null", "utf8");
-  } catch {
-    return 0;
-  }
-}
 
 const ACCESS_DENIED_CODES = new Set([
   "pr_workspace.path_traversal",
@@ -79,88 +75,126 @@ export function createCodeModeCapabilityBridge(params: {
   readonly role?: AgentSessionRole;
   readonly provider?: string;
   readonly model?: string;
+  readonly evidenceLedger?: EvidenceLedger;
+  readonly headSha?: string;
 }): CodeModeCapabilityBridge {
   const toolCalls: CodeModeToolCall[] = [];
   let admittedCalls = 0;
   let completedCalls = 0;
   let transferredBytes = 0;
-  const tools: Record<string, (args?: Record<string, unknown>) => Promise<unknown>> = {};
+  let inFlight = 0;
+  const waiters: Array<() => void> = [];
 
-  const names = Object.keys(params.capabilities) as CodeModeWorkspaceToolName[];
-  for (const name of names) {
-    const executor = params.capabilities[name];
-    if (!executor) continue;
-    tools[name] = async (args: Record<string, unknown> = {}) => {
-      if (params.signal?.aborted) {
+  async function acquireInFlight(signal: AbortSignal): Promise<void> {
+    while (inFlight >= CODE_MODE_HOST_IN_FLIGHT) {
+      if (signal.aborted) {
         throw new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal");
       }
-      if (admittedCalls >= CODE_MODE_MAX_TOOL_CALLS) {
-        throw new CodeModeHostHalt(
-          "LIMIT_EXCEEDED",
-          `Workspace capability call budget exceeded (${CODE_MODE_MAX_TOOL_CALLS})`,
-        );
-      }
-      admittedCalls += 1;
-      try {
-        const output = await executor(args, {
-          signal: params.signal ?? idleAbortSignal(),
-          toolCallId: `codemode:${name}:${admittedCalls}`,
-          emit: params.emit,
-          role: params.role,
-          provider: params.provider,
-          model: params.model,
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          reject(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        waiters.push(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
         });
-        toolCalls.push({ tool: name, status: "completed", input: args });
-        completedCalls += 1;
-        emitInnerTool(params.emit, {
-          tool: name,
-          ok: true,
-          role: params.role,
-          provider: params.provider,
-          model: params.model,
-        });
-        if (
-          output &&
-          typeof output === "object" &&
-          "truncated" in output &&
-          (output as { truncated?: boolean }).truncated === true
-        ) {
-          const wrapped = {
-            ...(output as Record<string, unknown>),
-            failureKind: "SEARCH_TRUNCATED",
-          };
-          transferredBytes += utf8ByteLength(wrapped);
-          return wrapped;
-        }
-        const serialized = serializeCodeModeValue(output);
-        transferredBytes += utf8ByteLength(serialized);
-        return serialized;
-      } catch (error) {
-        if (error instanceof CodeModeHostHalt) throw error;
-        const classified = classifyCapabilityFailure(error);
-        toolCalls.push({ tool: name, status: "error", input: args });
-        emitInnerTool(params.emit, {
-          tool: name,
-          ok: false,
-          role: params.role,
-          provider: params.provider,
-          model: params.model,
-        });
-        throw new AppError({
-          code:
-            classified.kind === "UNKNOWN"
-              ? "codemode.tool_failure"
-              : `codemode.${classified.kind.toLowerCase()}`,
-          message: `${classified.kind}: ${classified.message}`,
-          context: { tool: name, kind: classified.kind },
-          cause: error,
-        });
-      }
-    };
+      });
+    }
+    inFlight += 1;
+  }
+
+  function releaseInFlight(): void {
+    inFlight = Math.max(0, inFlight - 1);
+    waiters.shift()?.();
+  }
+
+  async function invoke(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    const signal = params.signal ?? idleAbortSignal();
+    if (signal.aborted) {
+      throw new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal");
+    }
+    const executor = params.capabilities[name as CodeModeWorkspaceToolName];
+    if (!executor) {
+      throw new AppError({
+        code: "codemode.tool_failure",
+        message: `UNKNOWN: capability ${name} is not available`,
+        context: { tool: name, kind: "UNKNOWN" },
+      });
+    }
+    if (admittedCalls >= CODE_MODE_MAX_TOOL_CALLS) {
+      throw new CodeModeHostHalt(
+        "LIMIT_EXCEEDED",
+        `Workspace capability call budget exceeded (${CODE_MODE_MAX_TOOL_CALLS})`,
+      );
+    }
+    admittedCalls += 1;
+    await acquireInFlight(signal);
+    try {
+      const output = await executor(args, {
+        signal,
+        toolCallId: `codemode:${name}:${admittedCalls}`,
+        emit: params.emit,
+        role: params.role,
+        provider: params.provider,
+        model: params.model,
+      });
+      toolCalls.push({ tool: name, status: "completed", input: args });
+      completedCalls += 1;
+      emitInnerTool(params.emit, {
+        tool: name,
+        ok: true,
+        role: params.role,
+        provider: params.provider,
+        model: params.model,
+      });
+      const raw =
+        output &&
+        typeof output === "object" &&
+        "truncated" in output &&
+        (output as { truncated?: boolean }).truncated === true
+          ? { ...(output as Record<string, unknown>), failureKind: "SEARCH_TRUNCATED" }
+          : output;
+      const coverage =
+        raw && typeof raw === "object" && "coverage" in raw
+          ? (raw as { coverage?: unknown }).coverage
+          : undefined;
+      const bounded = boundJsonValue(raw);
+      const guest = toGuestCapabilityResult(bounded.value, bounded.truncation, coverage);
+      recordMarshalledEvidence(guest, {
+        tool: name,
+        ledger: params.evidenceLedger,
+        headSha: params.headSha,
+      });
+      transferredBytes += utf8ByteLength(guest);
+      return guest;
+    } catch (error) {
+      if (error instanceof CodeModeHostHalt) throw error;
+      const classified = classifyCapabilityFailure(error);
+      toolCalls.push({ tool: name, status: "error", input: args });
+      emitInnerTool(params.emit, {
+        tool: name,
+        ok: false,
+        role: params.role,
+        provider: params.provider,
+        model: params.model,
+      });
+      throw new AppError({
+        code:
+          classified.kind === "UNKNOWN"
+            ? "codemode.tool_failure"
+            : `codemode.${classified.kind.toLowerCase()}`,
+        message: `${classified.kind}: ${classified.message}`,
+        context: { tool: name, kind: classified.kind },
+        cause: error,
+      });
+    } finally {
+      releaseInFlight();
+    }
   }
 
   return {
-    tools,
+    invoke,
     toolCalls,
     get admittedHostCalls() {
       return admittedCalls;

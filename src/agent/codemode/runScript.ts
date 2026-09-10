@@ -1,28 +1,25 @@
-import * as acorn from "acorn";
-import { CODE_MODE_TIMEOUT_MS } from "../../settings/index.js";
+import { CODE_MODE_MAX_OUTPUT_BYTES, CODE_MODE_TIMEOUT_MS } from "../../settings/index.js";
 import type {
   AgentLifecycleEvent,
   AgentLifecycleExecutionEvent,
 } from "../runtime/lifecycleEvents.js";
 import type { AgentSessionRole } from "../runtime/types.js";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
+import { combineAbortSignals } from "../providers/abortSignals.js";
 import { createCodeModeCapabilityBridge } from "./capabilities.js";
 import { isCodeModeHostHalt } from "./hostHalt.js";
-import { evaluateProgram } from "./evaluate.js";
 import type { CodeModeResult } from "./result.js";
-import { serializeCodeModeValue } from "./serialize.js";
+import { boundJsonValue } from "../execution/marshal.js";
+import { utf8ByteLength } from "../execution/json.js";
+import {
+  acquireExecutor,
+  createExecutionSessionStore,
+  type ExecutionSessionStore,
+} from "../execution/index.js";
 import type { CodeModeCapabilityExecutors } from "./types.js";
+import { randomUUID } from "node:crypto";
 
 export type ExecutionOutcome = AgentLifecycleExecutionEvent["outcome"];
-
-function utf8ByteLength(value: unknown): number {
-  if (value == null) return 0;
-  if (typeof value === "string") return Buffer.byteLength(value, "utf8");
-  try {
-    return Buffer.byteLength(JSON.stringify(value) ?? "null", "utf8");
-  } catch {
-    return 0;
-  }
-}
 
 export function executionOutcomeFromResult(
   result: CodeModeResult,
@@ -96,6 +93,13 @@ function emitExecutionResult(
   });
 }
 
+function boundExecuteOutput(output: unknown): unknown {
+  const bounded = boundJsonValue(output, {
+    maxTransferBytes: CODE_MODE_MAX_OUTPUT_BYTES,
+  });
+  return bounded.value;
+}
+
 export async function runCodeModeScript(params: {
   readonly code: string;
   readonly capabilities: CodeModeCapabilityExecutors;
@@ -104,17 +108,13 @@ export async function runCodeModeScript(params: {
   readonly role?: AgentSessionRole;
   readonly provider?: string;
   readonly model?: string;
+  readonly session?: ExecutionSessionStore;
+  readonly evidenceLedger?: EvidenceLedger;
+  readonly headSha?: string;
 }): Promise<CodeModeResult> {
   const startedAt = Date.now();
-  const bridge = createCodeModeCapabilityBridge({
-    capabilities: params.capabilities,
-    signal: params.signal,
-    emit: params.emit,
-    role: params.role,
-    provider: params.provider,
-    model: params.model,
-  });
-
+  const session = params.session ?? createExecutionSessionStore();
+  const hostAborted = () => params.signal?.aborted === true;
   const finish = (result: CodeModeResult): CodeModeResult => {
     emitExecutionResult(
       params,
@@ -125,48 +125,93 @@ export async function runCodeModeScript(params: {
         completedHostCalls: bridge.completedHostCalls,
         transferredBytes: bridge.transferredBytes,
       },
-      params.signal?.aborted === true,
+      hostAborted(),
     );
     return result;
   };
 
-  let parsed: acorn.Program;
-  try {
-    parsed = acorn.parse(params.code, {
-      ecmaVersion: "latest",
-      sourceType: "script",
-      locations: true,
-      allowAwaitOutsideFunction: true,
-    }) as acorn.Program;
-  } catch (error) {
-    const loc =
-      error instanceof SyntaxError && "loc" in error
-        ? (error as SyntaxError & { loc?: { line?: number } }).loc
-        : undefined;
+  const bridge = createCodeModeCapabilityBridge({
+    capabilities: params.capabilities,
+    signal: params.signal,
+    emit: params.emit,
+    role: params.role,
+    provider: params.provider,
+    model: params.model,
+    evidenceLedger: params.evidenceLedger,
+    headSha: params.headSha,
+  });
+
+  if (hostAborted()) {
+    session.closeAdmission();
+    session.invalidate();
     return finish({
       ok: false,
-      error: {
-        code: "SYNTAX_ERROR",
-        message: error instanceof Error ? error.message : String(error),
-        ...(loc?.line != null ? { line: loc.line } : {}),
-      },
-      toolCalls: bridge.toolCalls.map(({ tool, status }) => ({ tool, status })),
+      error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+      toolCalls: [],
     });
   }
 
+  session.reopenAdmission();
+  const generation = session.generation;
+  const revision = session.revision;
   const timeout = AbortSignal.timeout(CODE_MODE_TIMEOUT_MS);
-  const signal = params.signal != null ? AbortSignal.any([params.signal, timeout]) : timeout;
+  const signal = params.signal != null ? combineAbortSignals([params.signal, timeout]) : timeout;
+  const onAbort = () => {
+    session.closeAdmission();
+    session.invalidate();
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
 
+  const capabilityNames = Object.keys(params.capabilities);
+  const executionId = randomUUID();
   try {
-    const output = await evaluateProgram(parsed, {
-      tools: bridge.tools,
-      signal,
-    });
-    return finish({
-      ok: true,
-      output: serializeCodeModeValue(output),
-      toolCalls: bridge.toolCalls,
-    });
+    const lease = await acquireExecutor(signal);
+    try {
+      const cell = await lease.run({
+        code: params.code,
+        state: session.data,
+        capabilityNames,
+        executionId,
+        signal,
+        isCurrent: () => session.generation === generation && session.admissionOpen,
+        hostCall: async (name, args) => {
+          if (!session.admissionOpen || session.generation !== generation) {
+            throw new Error("Code Mode cancelled by host signal");
+          }
+          return bridge.invoke(name, args);
+        },
+      });
+      const toolCalls = bridge.toolCalls;
+      if (!cell.ok) {
+        if (hostAborted()) {
+          return finish({
+            ok: false,
+            error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+            toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+          });
+        }
+        return finish({
+          ok: false,
+          error: cell.error,
+          toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+        });
+      }
+      const committed = session.commit(generation, revision, cell.stagedState);
+      if (!committed) {
+        return finish({
+          ok: false,
+          error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+          toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
+        });
+      }
+      return finish({
+        ok: true,
+        output: boundExecuteOutput(cell.output),
+        toolCalls,
+      });
+    } finally {
+      lease.release();
+    }
   } catch (error) {
     const toolCalls = bridge.toolCalls.map(({ tool, status }) => ({ tool, status }));
     if (isCodeModeHostHalt(error)) {
@@ -181,12 +226,11 @@ export async function runCodeModeScript(params: {
       });
     }
     if (signal.aborted) {
-      const cancelledByHost = params.signal?.aborted === true;
       return finish({
         ok: false,
         error: {
           code: "TIMEOUT",
-          message: cancelledByHost
+          message: hostAborted()
             ? "Code Mode cancelled by host signal"
             : `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`,
         },
@@ -204,5 +248,7 @@ export async function runCodeModeScript(params: {
       },
       toolCalls,
     });
+  } finally {
+    signal.removeEventListener("abort", onAbort);
   }
 }

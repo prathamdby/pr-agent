@@ -18,6 +18,54 @@ export function hashNormalizedLineText(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
+export function segmentsExcluding(
+  startLine: number,
+  endLine: number,
+  excluded?: readonly number[],
+): [number, number][] {
+  if (!excluded || excluded.length === 0) return [[startLine, endLine]];
+  const sorted = [...new Set(excluded)]
+    .filter((line) => line >= startLine && line <= endLine)
+    .sort((a, b) => a - b);
+  const segments: [number, number][] = [];
+  let cur = startLine;
+  for (const line of sorted) {
+    if (line > cur) segments.push([cur, line - 1]);
+    cur = line + 1;
+  }
+  if (cur <= endLine) segments.push([cur, endLine]);
+  return segments;
+}
+
+export function recordDeliveredFileRead(
+  ledger: EvidenceLedger,
+  params: {
+    readonly path: string;
+    readonly headSha: string;
+    readonly tool: string;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly content: string;
+    readonly clampedLines?: readonly number[];
+  },
+): void {
+  if (params.content.length === 0 || params.startLine <= 0 || params.endLine <= 0) return;
+  for (const [startLine, endLine] of segmentsExcluding(
+    params.startLine,
+    params.endLine,
+    params.clampedLines,
+  )) {
+    ledger.record({
+      path: params.path,
+      startLine,
+      endLine,
+      contentHash: hashNormalizedLineText(params.content),
+      headSha: params.headSha,
+      tool: params.tool,
+    });
+  }
+}
+
 function lineRangeCovers(
   evidenceStart: number,
   evidenceEnd: number,

@@ -32,6 +32,7 @@ import {
 import {
   hashNormalizedLineText,
   normalizeEvidencePath,
+  recordDeliveredFileRead,
   type EvidenceLedger,
 } from "../../review/findings/evidenceLedger.js";
 import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.js";
@@ -82,59 +83,6 @@ function coverageWarning(coverage: CheckoutCoverage): string | undefined {
 
 function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
   return workspace.changedFileByPath.get(normalizeEvidencePath(path));
-}
-
-function recordFileReadEvidence(
-  ledger: EvidenceLedger,
-  params: {
-    readonly path: string;
-    readonly headSha: string;
-    readonly tool: string;
-    readonly startLine: number;
-    readonly endLine: number;
-    readonly content: string;
-    readonly clampedLines?: readonly number[];
-  },
-): void {
-  // A clamped line's contents were elided, so it can never back a finding.
-  // Record the clamp-free segments only; range coverage is the sole check
-  // assertFindingsHaveEvidence makes, and a marker must not satisfy it.
-  for (const [startLine, endLine] of segmentsExcluding(
-    params.startLine,
-    params.endLine,
-    params.clampedLines,
-  )) {
-    ledger.record({
-      path: params.path,
-      startLine,
-      endLine,
-      contentHash: hashNormalizedLineText(params.content),
-      headSha: params.headSha,
-      tool: params.tool,
-    });
-  }
-}
-
-/** Split [start, end] into the maximal ranges that skip every excluded line. */
-function segmentsExcluding(
-  startLine: number,
-  endLine: number,
-  excluded?: readonly number[],
-): [number, number][] {
-  if (!excluded || excluded.length === 0) return [[startLine, endLine]];
-  // Interval walk over the sorted in-range clamp set: O(k log k) instead of
-  // a per-line scan of the whole [start, end] range.
-  const sorted = [...new Set(excluded)]
-    .filter((line) => line >= startLine && line <= endLine)
-    .sort((a, b) => a - b);
-  const segments: [number, number][] = [];
-  let cur = startLine;
-  for (const line of sorted) {
-    if (line > cur) segments.push([cur, line - 1]);
-    cur = line + 1;
-  }
-  if (cur <= endLine) segments.push([cur, endLine]);
-  return segments;
 }
 
 function recordDiffEvidence(
@@ -318,7 +266,7 @@ export function buildLocalWorkspaceTools(
           result.startLine > 0 &&
           result.endLine > 0
         ) {
-          recordFileReadEvidence(evidenceLedger, {
+          recordDeliveredFileRead(evidenceLedger, {
             path: readPath,
             headSha,
             tool: "readWorkspaceFile",

@@ -91,9 +91,9 @@ export function buildReviewRunSetup(params: {
   const bundle = hideWorkspaceToolsBehindCodeMode(
     buildLocalWorkspaceTools(params.workspace, {
       pathGate,
-      evidenceLedger,
       headSha,
     }),
+    { evidenceLedger, headSha },
   );
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,

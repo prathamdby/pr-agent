@@ -1,7 +1,12 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { type LocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import {
+  createExecutionSessionStore,
+  type ExecutionSessionStore,
+} from "../execution/sessionStore.js";
 import { runCodeModeScript } from "./runScript.js";
 import type { CodeModeResult } from "./result.js";
 import { CODE_MODE_EXECUTE_NAME, type CodeModeCapabilityExecutors } from "./types.js";
@@ -17,6 +22,8 @@ const EXECUTE_DESCRIPTION = [
   "Run a focused JavaScript program against the local PR workspace in one turn.",
   "Author JavaScript only. The last expression is the return value.",
   "Call workspace operations as `await tools.listChangedFiles()`, `await tools.readWorkspaceFile({ path })`, `await tools.searchWorkspace({ query })`, `await tools.getWorkspaceDiff({ path })`, `await tools.getWorkspaceBlame({ path })`, and `await tools.resolveSymbol({ name })`.",
+  "Each call returns declared fields plus `coverage` and `truncation`. Strings stay strings when truncated; omitted bytes are in `truncation`, not a replacement object.",
+  "`state` is JSON-compatible investigation data that persists across execute calls in this session. Functions and open resources do not persist.",
   "Use `await Promise.all(...)` for concurrent inspections.",
   "`fetch`, `require`, `import`, `process`, `fs`, and timers are unavailable.",
   "Return compact summaries. Do not dump raw search or file contents back unless a finding needs a specific excerpt.",
@@ -25,10 +32,14 @@ const EXECUTE_DESCRIPTION = [
 
 export function buildCodeModeExecuteTool(params: {
   readonly capabilities: CodeModeCapabilityExecutors;
+  readonly session?: ExecutionSessionStore;
+  readonly evidenceLedger?: EvidenceLedger;
+  readonly headSha?: string;
 }): {
   readonly piTool: PiTool;
   readonly executor: AgentRunnerToolExecutor;
 } {
+  const session = params.session ?? createExecutionSessionStore();
   const tool: LocalTool = {
     description: EXECUTE_DESCRIPTION,
     schema: v.object({
@@ -38,6 +49,9 @@ export function buildCodeModeExecuteTool(params: {
       runCodeModeScript({
         code,
         capabilities: params.capabilities,
+        session,
+        evidenceLedger: params.evidenceLedger,
+        headSha: params.headSha,
         signal: ctx?.signal,
         emit: ctx?.emit,
         role: ctx?.role,
