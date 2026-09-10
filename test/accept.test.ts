@@ -156,6 +156,15 @@ describe("negotiateProgrammingLanguage", () => {
     );
   });
 
+  it("lets a duplicate token speak at its highest q and keeps the earliest index", () => {
+    expect(
+      negotiateProgrammingLanguage("python;q=0.2, go;q=0.5, python;q=0.9", PROGRAMMING_LANGUAGES),
+    ).toBe("python");
+    expect(
+      negotiateProgrammingLanguage("python;q=0.9, go;q=0.9, python;q=0.9", PROGRAMMING_LANGUAGES),
+    ).toBe("python");
+  });
+
   it("skips a refused default and serves the next servable language", () => {
     expect(negotiateProgrammingLanguage("typescript;q=0", PROGRAMMING_LANGUAGES)).toBe(
       "javascript",
