@@ -51,7 +51,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Fallback provider                 | `PI_FALLBACK_PROVIDER`                   | empty                    | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Retry escalation runs attempt 2 and later on the fallback model                                                                                                    |
 | Fallback model                    | `PI_FALLBACK_MODEL`                      | empty                    | Optional shared fallback model; empty disables fallback. When configured, retry escalation uses it from the second attempt onward                                                                                                           |
 | Thinking ceiling                  | `PI_THINKING_CEILING`                    | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`)                                                                                                                                           |
-| Provider transport retries        | `PI_PROVIDER_RETRY_MAX`                  | `2`                      | Extra transport attempts per provider request on retryable 429/5xx/network failures; `0` disables provider transport retry, not the SDK turn-level retry loop                                                                               |
+| Provider transport retries        | `PI_PROVIDER_RETRY_MAX`                  | `2`                      | Extra transport attempts per provider request on retryable 429/5xx/network failures; `0` disables provider transport retry, not Core turn retry after a retryable assistant error (`SESSION_TURN_RETRY_MAX`)                                |
 | Provider retry delay cap          | `PI_PROVIDER_MAX_RETRY_DELAY_MS`         | `60000`                  | Bounds a provider-requested retry delay (e.g. `Retry-After`); must be strictly less than `PROVIDER_PROMPT_TIMEOUT_MS` (fail-fast at startup)                                                                                                |
 | Resume snapshot key               | `AGENT_RESUME_SNAPSHOT_KEY`              | empty                    | Base64 32-byte key for encrypted Agent resume snapshots; empty disables snapshot persistence                                                                                                                                                |
 | Resume snapshot margin            | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS`   | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                                                                                                                   |
@@ -120,7 +120,7 @@ caps, CI-summary waits, workspace limits) are now code constants in
 
 ### Project `models.json` (optional Pi catalog)
 
-`loadConfig()` resolves an optional Pi `models.json` catalog path (same shape as `~/.pi/agent/models.json`). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs — it does not load Pi / `ModelRuntime` (web never creates sessions). Selection stays in env; the file is only the catalog.
+`loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs. It does not construct Core sessions or overlay the catalog into a live `Models` collection. Selection stays in env; the file is only the catalog.
 
 **Resolution order**
 
@@ -129,7 +129,7 @@ caps, CI-summary waits, workspace limits) are now code constants in
 
 - Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). On **worker**, a non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
 - Present but invalid, or selection not found → **worker** `loadConfig()` throws; **web** accepts the env strings without catalog validation.
-- Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side. Model `cost` fields are USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`). Use `0` only for free local models; billed proxies need real rates so cache accounting is not silently free.
+- Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values. Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side. Model `cost` fields are USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`). Use `0` only for free local models; billed proxies need real rates so cache accounting is not silently free.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
   - **Runtime mount:** Compose `./models.json:/app/models.json:ro` (create the host file first — a missing path becomes a directory).
@@ -307,6 +307,9 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `MAX_ASK_TOOL_ROUNDS`                    | 12                                                                                                      |
 | `MAX_ASK_FINALIZE_ROUNDS`                | 2                                                                                                       |
 | `SESSION_CACHE_ID_MAX_LENGTH`            | 64 — OpenAI-style `prompt_cache_key` clamp for Pi session ids                                           |
+| `SESSION_TURN_RETRY_MAX`                 | 1 — Core `runAgentLoopContinue` after a retryable assistant error with no admitted tool from that turn  |
+| `SESSION_TURN_RETRY_BASE_DELAY_MS`       | 250 — base delay before the first turn retry; doubles on each later retry                               |
+| `SESSION_OVERFLOW_COMPACT_MAX`           | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal        |
 | `VALIDATION_REPAIR_ROUNDS`               | 3                                                                                                       |
 | `PUBLISH_RECOVERY_ROUNDS`                | 4 summary recovery sends                                                                                |
 | `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                                                                       |
@@ -439,17 +442,28 @@ Shared workspace search applies `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-
 
 | Symbol                                 | Default |
 | -------------------------------------- | ------- |
-| `CODE_MODE_AST_FUEL`                   | 50000   |
+| `CODE_MODE_INTERRUPT_CHECKS`           | 50000   |
+| `CODE_MODE_CPU_BUDGET_MS`              | 80      |
 | `CODE_MODE_MAX_TOOL_CALLS`             | 25      |
+| `CODE_MODE_HOST_IN_FLIGHT`             | 4       |
 | `CODE_MODE_TIMEOUT_MS`                 | 15000   |
 | `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8       |
 | `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100     |
 | `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768   |
 | `CODE_MODE_MAX_STRING_REPEAT`          | 65536   |
 | `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536   |
-| `CODE_MODE_MAX_REGEX_INPUT_CHARS`      | 65536   |
+| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536   |
+| `CODE_MODE_STATE_MAX_BYTES`            | 65536   |
+| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144  |
+| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144  |
+| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608 |
+| `CODE_MODE_GUEST_STACK_BYTES`          | 524288  |
+| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64      |
+| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2       |
+| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8       |
+| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000   |
 
-Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. The interpreter is in-process Acorn with AST fuel; it does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
+Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. Compiled workers use `worker_threads`; vitest runs the same cell in-process. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
 
 ### Code index (optional FTS hints)
 

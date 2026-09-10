@@ -253,7 +253,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
     ],
     body: lines([
       ...PROVIDERS.map((item) => `${item.name}. ${item.detail}`),
-      "LLM calls run on the worker only, through the Pi coding-agent runtime.",
+      "LLM calls run on the worker only, through the Pi Core session runtime.",
       "PI_PROVIDER and PI_MODEL are the general primary (default openai / gpt-4o-mini).",
       "Optional PI_ORCHESTRATOR_PROVIDER and PI_ORCHESTRATOR_MODEL override the review orchestrator session.",
       "Optional PI_FALLBACK_PROVIDER and PI_FALLBACK_MODEL are used by retry escalation from the second attempt onward. Both must be set to enable fallback.",

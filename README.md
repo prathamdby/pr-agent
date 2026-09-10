@@ -140,7 +140,7 @@ Webhook handler path is always `/webhooks` (see [`src/effect/server.ts`](src/eff
 
 ## Choose an LLM provider
 
-LLM calls run on the **worker** only, through the Pi coding-agent runtime ([ADR 0023](docs/adr/0023-pi-native-agent-runtime.md)).
+LLM calls run on the **worker** only, through the Pi Core session runtime ([ADR 0023](docs/adr/0023-pi-native-agent-runtime.md)).
 
 | What                    | Env vars                                            | Used for                                                               |
 | ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -157,7 +157,7 @@ OPENAI_API_KEY=sk-...
 ```
 
 - Startup checks `PI_PROVIDER` / `PI_MODEL` against the installed pi-ai list, or against a project `models.json` when that file is present.
-- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/config.ts`](src/config.ts). Other Pi providers use their usual env vars on the worker (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Full key table: [Pi providers](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md).
+- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/config.ts`](src/config.ts). Other Pi providers use their usual env vars on the worker (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Provider catalog: [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
 - Optional custom catalog: copy [`models.json.example`](models.json.example), place `models.json` at the repo root before `docker build` (copied to `/app/models.json` when present), mount it at runtime on **both** web and worker, or set `MODELS_JSON_PATH`. Details: [docs/operations.md](docs/operations.md).
 
 Restart the worker after provider changes:
