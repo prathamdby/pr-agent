@@ -816,8 +816,10 @@ describe("createPiSession prompt cache identity", () => {
   it("merges short cacheRetention onto streamSimple options", async () => {
     const streamSimple = vi.fn((_model, _context, options) => ({
       options,
-      async *[Symbol.asyncIterator]() {
-        return undefined;
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => ({ done: true as const, value: undefined }),
+        };
       },
       result: async () => undefined,
     }));
