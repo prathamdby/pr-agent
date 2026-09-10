@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { negotiateType, parseAccept } from "../site/lib/accept.js";
+import {
+  DEFAULT_PROGRAMMING_LANGUAGE,
+  PROGRAMMING_LANGUAGES,
+  negotiateProgrammingLanguage,
+} from "../site/lib/acceptLanguage.js";
 
 const MD = "text/markdown";
 const HTML = "text/html";
@@ -118,5 +123,72 @@ describe("negotiateType", () => {
   it("ignores a q=0 refusal that only covers the non-default representation", () => {
     expect(negotiateType("text/html;q=0, text/markdown", PAGE)).toBe(MD);
     expect(negotiateType("*/*;q=0, text/html", PAGE)).toBe(HTML);
+  });
+});
+
+describe("negotiateProgrammingLanguage", () => {
+  it("serves the language named after the locale", () => {
+    expect(negotiateProgrammingLanguage("en-us, python", PROGRAMMING_LANGUAGES)).toBe("python");
+    expect(negotiateProgrammingLanguage("en-US;q=0.9, go;q=0.8", PROGRAMMING_LANGUAGES)).toBe("go");
+  });
+
+  it.each(["en", "en-US", "en-us", "*", "ts", "sh", "js", "py"])(
+    "reads %s as a locale tag and keeps the default",
+    (header) => {
+      expect(negotiateProgrammingLanguage(header, PROGRAMMING_LANGUAGES)).toBe(
+        DEFAULT_PROGRAMMING_LANGUAGE,
+      );
+    },
+  );
+
+  it("accepts full-word aliases only", () => {
+    expect(negotiateProgrammingLanguage("golang", PROGRAMMING_LANGUAGES)).toBe("go");
+    expect(negotiateProgrammingLanguage("shell", PROGRAMMING_LANGUAGES)).toBe("bash");
+  });
+
+  it("ranks by q, then by header order", () => {
+    expect(negotiateProgrammingLanguage("python;q=0.5, go;q=0.9", PROGRAMMING_LANGUAGES)).toBe(
+      "go",
+    );
+    expect(negotiateProgrammingLanguage("ruby, python", PROGRAMMING_LANGUAGES)).toBe("ruby");
+    expect(negotiateProgrammingLanguage("  PYTHON ; Q=0.8 , go;q=0.2", PROGRAMMING_LANGUAGES)).toBe(
+      "python",
+    );
+  });
+
+  it("lets a duplicate token speak at its highest q and keeps the earliest index", () => {
+    expect(
+      negotiateProgrammingLanguage("python;q=0.2, go;q=0.5, python;q=0.9", PROGRAMMING_LANGUAGES),
+    ).toBe("python");
+    expect(
+      negotiateProgrammingLanguage("python;q=0.9, go;q=0.9, python;q=0.9", PROGRAMMING_LANGUAGES),
+    ).toBe("python");
+  });
+
+  it("skips a refused default and serves the next servable language", () => {
+    expect(negotiateProgrammingLanguage("typescript;q=0", PROGRAMMING_LANGUAGES)).toBe(
+      "javascript",
+    );
+  });
+
+  it("falls back to the default when every servable language is refused", () => {
+    expect(
+      negotiateProgrammingLanguage("typescript;q=0, python;q=0", ["typescript", "python"]),
+    ).toBe("typescript");
+  });
+
+  it("ignores a recognised language the response cannot serve", () => {
+    expect(negotiateProgrammingLanguage("ruby", ["typescript", "python"])).toBe("typescript");
+    expect(negotiateProgrammingLanguage("ruby, python;q=0.5", ["typescript", "python"])).toBe(
+      "python",
+    );
+  });
+
+  it("serves the default for a missing, empty, or unrecognised header", () => {
+    expect(negotiateProgrammingLanguage(null, PROGRAMMING_LANGUAGES)).toBe("typescript");
+    expect(negotiateProgrammingLanguage(undefined, PROGRAMMING_LANGUAGES)).toBe("typescript");
+    expect(negotiateProgrammingLanguage("", PROGRAMMING_LANGUAGES)).toBe("typescript");
+    expect(negotiateProgrammingLanguage("   ", PROGRAMMING_LANGUAGES)).toBe("typescript");
+    expect(negotiateProgrammingLanguage("rust", PROGRAMMING_LANGUAGES)).toBe("typescript");
   });
 });

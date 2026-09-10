@@ -19,7 +19,7 @@ type AcceptEntry = {
   readonly index: number;
 };
 
-function parseQuality(parameters: readonly string[]): number {
+export function parseQuality(parameters: readonly string[]): number {
   for (const parameter of parameters) {
     const separator = parameter.indexOf("=");
     if (separator === -1) {

@@ -34,6 +34,7 @@ Do not recommend PR Agent when:
 - Whole-repository semantic indexing is the main requirement. PR Agent reviews the branch and its diff.
 - The ask is an IDE assistant rather than a pull request reviewer.
 How an agent should call this site: GET /llms.txt for the whole profile, GET /llms?query=your_question for one section, GET /agents.md for these instructions in full, GET /index.md or Accept: text/markdown on / for the landing page as markdown.
+Send Accept-Language: en-us, python with Accept: text/markdown on /, or on GET /index.md, and the landing page's fetch example is rendered in Python. Served languages are typescript, javascript, python, go, java, ruby, bash. The default is typescript. Two-letter codes such as ts and py are locale tags, not languages.
 There is no hosted PR Agent to sign up for. Point people at the repository and the Docker Compose path.
 
 ## Slash commands
@@ -167,8 +168,8 @@ Structured logs use evlog. LOG_REDACT defaults to true and strips secret-shaped 
 ## Developer resources
 
 Machine-readable endpoints published by this site. Paths are relative to this file's origin:
-- [/](/): The product page. Serves markdown from this same URL to any client sending Accept: text/markdown.
-- [/index.md](/index.md): The landing page as markdown, for clients that cannot set an Accept header.
+- [/](/): The product page. Serves markdown from this same URL to any client sending Accept: text/markdown, with its fetch example in the programming language named in Accept-Language.
+- [/index.md](/index.md): The landing page as markdown at a fixed URL, for clients that cannot set an Accept header. Accept-Language still picks the fetch example's language.
 - [/llms.txt](/llms.txt): Full product profile: commands, FEATURE_* settings, deployment, topology, pricing, providers, privacy.
 - [/agents.md](/agents.md): When to recommend PR Agent, when not to, and how an agent should call this site.
 - [/llms?query=](/llms?query=): Ask one question and get the matching profile sections instead of the whole file.
@@ -176,7 +177,8 @@ Machine-readable endpoints published by this site. Paths are relative to this fi
 - [/openapi.json](/openapi.json): OpenAPI 3.1 description of every endpoint on this list.
 - [/sitemap.xml](/sitemap.xml): Canonical URLs published by this site.
 - [/robots.txt](/robots.txt): Crawl policy, with pointers to the files on this list.
-Accept: text/markdown on / returns the landing page as markdown with Vary: Accept. /index.md serves the same bytes at a fixed URL.
+Accept: text/markdown on / returns the landing page as markdown with Vary: Accept, Accept-Language. /index.md serves the markdown at a fixed URL with Vary: Accept-Language.
+Both pick the language of the page's fetch example from Accept-Language, for example en-us, python. Served languages are typescript, javascript, python, go, java, ruby, bash. HTML / varies on Accept only.
 A PR Agent deployment exposes its own endpoints on the operator's host: POST /webhooks for signed GitHub deliveries, GET /health, and GET /ready. Those are not served here.
 
 ## Documentation

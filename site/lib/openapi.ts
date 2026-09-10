@@ -1,4 +1,5 @@
 import { AGENT_RESOURCES } from "./agentResources.js";
+import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
 import { MAX_QUERY_CHARS } from "./llmsKnowledge.js";
 import { REPO_URL, SITE_ORIGIN } from "./site.js";
 
@@ -32,6 +33,14 @@ export function renderOpenApiDocument(): Record<string, unknown> {
     schema: { type: "string", maxLength: MAX_QUERY_CHARS },
   };
 
+  const acceptLanguageParameter = {
+    name: "Accept-Language",
+    in: "header",
+    required: false,
+    description: `Locale tags plus an optional programming language, such as en-US, python. Picks the language of the fetch example in the markdown representation. Served languages are ${FETCH_MARKDOWN_LANGUAGES.join(", ")}, with typescript as the default. Two-letter codes are read as locale tags.`,
+    schema: { type: "string" },
+  };
+
   return {
     openapi: "3.1.0",
     info: {
@@ -58,7 +67,7 @@ export function renderOpenApiDocument(): Record<string, unknown> {
           operationId: "getLandingPage",
           summary: "PR Agent landing page",
           description:
-            "Serves HTML to browsers and markdown to any client sending Accept: text/markdown. Responses carry Vary: Accept; an Accept header that excludes both types gets 406.",
+            "Serves HTML to browsers and markdown to any client sending Accept: text/markdown. An Accept header that excludes both types gets 406. HTML carries Vary: Accept. Markdown also honours a programming language in Accept-Language for its fetch example and carries Vary: Accept, Accept-Language.",
           parameters: [
             {
               name: "Accept",
@@ -67,6 +76,7 @@ export function renderOpenApiDocument(): Record<string, unknown> {
               description: "text/markdown for the markdown representation, text/html for the page.",
               schema: { type: "string" },
             },
+            acceptLanguageParameter,
           ],
           responses: {
             "200": {
@@ -85,7 +95,8 @@ export function renderOpenApiDocument(): Record<string, unknown> {
           operationId: "getLandingPageMarkdown",
           summary: "PR Agent landing page in markdown",
           description:
-            "The markdown representation at a fixed URL, for clients that cannot negotiate.",
+            "The markdown representation at a fixed URL, for clients that cannot set Accept. Accept-Language still picks the fetch example's language, and the response carries Vary: Accept-Language.",
+          parameters: [acceptLanguageParameter],
           responses: { "200": markdownResponse("Landing page as markdown.") },
         },
       },

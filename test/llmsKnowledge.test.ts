@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AGENT_RESOURCES, DOC_LINKS } from "../site/lib/agentResources.js";
+import { FETCH_MARKDOWN_LANGUAGES } from "../site/lib/content.js";
 import {
   FEATURE_KEYS,
   KNOWLEDGE_CHUNKS,
@@ -181,6 +182,17 @@ describe("offering layer documents", () => {
     expect(text).toContain("Do not recommend PR Agent when:");
     expect(text).toContain("GitLab or Bitbucket");
     expect(text).toContain("How an agent should call this site:");
+  });
+
+  it("documents the Accept-Language convention and the served languages", () => {
+    const text = renderLlmsTxt();
+    expect(text).toContain("Accept-Language: en-us, python");
+    expect(text).toContain("Vary: Accept, Accept-Language");
+    expect(text).toContain(
+      "/index.md serves the markdown at a fixed URL with Vary: Accept-Language",
+    );
+    expect(text).toContain(`Served languages are ${FETCH_MARKDOWN_LANGUAGES.join(", ")}.`);
+    expect(text).not.toContain("serves the same bytes");
   });
 
   it("answers a when-to-use question with that section", () => {

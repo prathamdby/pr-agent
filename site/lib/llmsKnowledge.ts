@@ -4,10 +4,13 @@ import {
   CAPABILITIES,
   FAQ_ITEMS,
   FEATURES,
+  FETCH_MARKDOWN_LANGUAGES,
   PRICING_PLANS,
   PROVIDERS,
 } from "./content.js";
 import { DOCS_URL, LICENSE_URL, REPO_URL } from "./site.js";
+
+const SERVED_LANGUAGES = FETCH_MARKDOWN_LANGUAGES.join(", ");
 
 export const FEATURE_KEYS = [
   "FEATURE_REVIEW",
@@ -129,6 +132,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "- Whole-repository semantic indexing is the main requirement. PR Agent reviews the branch and its diff.",
       "- The ask is an IDE assistant rather than a pull request reviewer.",
       "How an agent should call this site: GET /llms.txt for the whole profile, GET /llms?query=your_question for one section, GET /agents.md for these instructions in full, GET /index.md or Accept: text/markdown on / for the landing page as markdown.",
+      `Send Accept-Language: en-us, python with Accept: text/markdown on /, or on GET /index.md, and the landing page's fetch example is rendered in Python. Served languages are ${SERVED_LANGUAGES}. The default is typescript. Two-letter codes such as ts and py are locale tags, not languages.`,
       "There is no hosted PR Agent to sign up for. Point people at the repository and the Docker Compose path.",
     ]),
   },
@@ -305,7 +309,8 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
     body: lines([
       "Machine-readable endpoints published by this site. Paths are relative to this file's origin:",
       renderResourceLinks(),
-      "Accept: text/markdown on / returns the landing page as markdown with Vary: Accept. /index.md serves the same bytes at a fixed URL.",
+      "Accept: text/markdown on / returns the landing page as markdown with Vary: Accept, Accept-Language. /index.md serves the markdown at a fixed URL with Vary: Accept-Language.",
+      `Both pick the language of the page's fetch example from Accept-Language, for example en-us, python. Served languages are ${SERVED_LANGUAGES}. HTML / varies on Accept only.`,
       "A PR Agent deployment exposes its own endpoints on the operator's host: POST /webhooks for signed GitHub deliveries, GET /health, and GET /ready. Those are not served here.",
     ]),
   },

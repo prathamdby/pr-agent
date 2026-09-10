@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import type { IncomingMessage } from "node:http";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -21,6 +22,7 @@ function emitLlmsTxt(): Plugin {
     resolve(siteDir, "lib/llmsKnowledge.ts"),
     resolve(siteDir, "lib/agentResources.ts"),
     resolve(siteDir, "lib/content.ts"),
+    resolve(siteDir, "lib/acceptLanguage.ts"),
     resolve(siteDir, "lib/site.ts"),
   ];
   return {
@@ -46,8 +48,15 @@ function emitLlmsTxt(): Plugin {
  * paths itself; this only closes the gap locally, using the same responses.
  */
 function serveMarkdownRoutesInDev(): Plugin {
-  const routes = new Map([
-    [LANDING_PAGE_MARKDOWN.path, homeMarkdownDocumentResponse],
+  const routes = new Map<string, (request: IncomingMessage) => Response>([
+    [
+      LANDING_PAGE_MARKDOWN.path,
+      (request) => {
+        const raw = request.headers["accept-language"];
+        const header = Array.isArray(raw) ? raw.join(", ") : (raw ?? null);
+        return homeMarkdownDocumentResponse(header);
+      },
+    ],
     [AGENT_INSTRUCTIONS.path, agentInstructionsResponse],
   ]);
   return {
@@ -60,7 +69,7 @@ function serveMarkdownRoutesInDev(): Plugin {
           next();
           return;
         }
-        const built = build();
+        const built = build(request);
         built
           .text()
           .then((body) => {

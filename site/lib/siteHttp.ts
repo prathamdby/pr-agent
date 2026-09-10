@@ -1,5 +1,7 @@
 import { negotiateType } from "./accept.js";
+import { negotiateProgrammingLanguage } from "./acceptLanguage.js";
 import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE } from "./agentResources.js";
+import { FETCH_MARKDOWN_LANGUAGES } from "./content.js";
 import {
   renderAgentInstructionsMarkdown,
   renderHomeMarkdown,
@@ -41,18 +43,22 @@ const MARKDOWN_CONTENT_TYPE = `${MARKDOWN_TYPE}; charset=utf-8`;
 const HTML_LINK = `<${LANDING_PAGE_MARKDOWN.path}>; rel="alternate"; type="${LANDING_PAGE_MARKDOWN.mediaType}", <${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
 const MARKDOWN_LINK = `<${LLMS_TXT_PROFILE.path}>; rel="describedby"`;
 
-/** Add Accept to Vary without dropping whatever the framework already varies on. */
-export function varyOnAccept(headers: Headers): void {
+/** Add a request header to Vary without dropping whatever the framework already varies on. */
+export function varyOn(headers: Headers, field: string): void {
   const existing = headers.get("Vary");
   if (existing === null || existing.trim() === "") {
-    headers.set("Vary", "Accept");
+    headers.set("Vary", field);
     return;
   }
   const listed = existing.split(",").map((token) => token.trim().toLowerCase());
-  if (listed.includes("accept") || listed.includes("*")) {
+  if (listed.includes(field.toLowerCase()) || listed.includes("*")) {
     return;
   }
-  headers.set("Vary", `${existing}, Accept`);
+  headers.set("Vary", `${existing}, ${field}`);
+}
+
+export function varyOnAccept(headers: Headers): void {
+  varyOn(headers, "Accept");
 }
 
 function markdownResponse(body: string, init: { status: number; cacheControl: string }): Response {
@@ -84,26 +90,32 @@ export function notAcceptableResponse(produces: readonly string[]): Response {
   });
 }
 
-export function homeMarkdownResponse(): Response {
-  const response = markdownResponse(renderHomeMarkdown(), {
+function homeMarkdown(acceptLanguage: string | null, vary: readonly string[]): Response {
+  const language = negotiateProgrammingLanguage(acceptLanguage, FETCH_MARKDOWN_LANGUAGES);
+  const response = markdownResponse(renderHomeMarkdown(language), {
     status: 200,
     cacheControl: PAGE_CACHE_CONTROL,
   });
-  varyOnAccept(response.headers);
+  for (const field of vary) {
+    varyOn(response.headers, field);
+  }
   return response;
+}
+
+/** `/` negotiated to markdown. HTML shares the URL, so both axes are declared. */
+export function homeMarkdownResponse(acceptLanguage: string | null): Response {
+  return homeMarkdown(acceptLanguage, ["Accept", "Accept-Language"]);
 }
 
 /**
  * `/index.md`, the markdown sibling advertised by `rel="alternate"` and llms.txt.
  *
  * It serves markdown whatever the client asks for: crawlers that follow such links often send no
- * Accept header at all. Nothing is negotiated here, so nothing declares Vary.
+ * Accept header at all. Only the example language is negotiated, so only Accept-Language is
+ * declared.
  */
-export function homeMarkdownDocumentResponse(): Response {
-  return markdownResponse(renderHomeMarkdown(), {
-    status: 200,
-    cacheControl: PAGE_CACHE_CONTROL,
-  });
+export function homeMarkdownDocumentResponse(acceptLanguage: string | null): Response {
+  return homeMarkdown(acceptLanguage, ["Accept-Language"]);
 }
 
 /** `/agents.md`: when to reach for PR Agent, and how an agent should query this site. */
@@ -117,15 +129,20 @@ export function agentInstructionsResponse(): Response {
 /**
  * Answer a landing-page request before the router renders.
  *
- * Returns null when HTML won, which leaves the React page to render exactly as it always has.
+ * Media type is settled first. Only the markdown branch reads Accept-Language, because the HTML
+ * page has no language-variant content and must not fragment its cache by locale. Returns null
+ * when HTML won, which leaves the React page to render exactly as it always has.
  */
-export function negotiateHomeRequest(accept: string | null): Response | null {
+export function negotiateHomeRequest(
+  accept: string | null,
+  acceptLanguage: string | null,
+): Response | null {
   const chosen = negotiateType(accept, PAGE_TYPES);
   if (chosen === null) {
     return notAcceptableResponse(PAGE_TYPES);
   }
   if (chosen === MARKDOWN_TYPE) {
-    return homeMarkdownResponse();
+    return homeMarkdownResponse(acceptLanguage);
   }
   return null;
 }
