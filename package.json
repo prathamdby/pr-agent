@@ -30,8 +30,8 @@
     "site:generate-og": "nub --node run --filter pr-agent-landing generate:og"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.85.1",
-    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@earendil-works/pi-agent-core": "0.85.1",
+    "@earendil-works/pi-ai": "0.85.1",
     "@effect/platform": "0.97.0",
     "@effect/platform-node": "0.108.0",
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",

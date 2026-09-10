@@ -1,9 +1,36 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { AppError } from "../errors/appError.js";
+import {
+  createProvider,
+  envApiKeyAuth,
+  InMemoryCredentialStore,
+  type Api,
+  type KnownApi,
+  type Model,
+  type MutableModels,
+  type ProviderStreams,
+} from "@earendil-works/pi-ai";
+import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
+import { azureOpenAIResponsesApi } from "@earendil-works/pi-ai/api/azure-openai-responses.lazy";
+import { bedrockConverseStreamApi } from "@earendil-works/pi-ai/api/bedrock-converse-stream.lazy";
+import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
+import { googleVertexApi } from "@earendil-works/pi-ai/api/google-vertex.lazy";
+import { mistralConversationsApi } from "@earendil-works/pi-ai/api/mistral-conversations.lazy";
+import { openAICodexResponsesApi } from "@earendil-works/pi-ai/api/openai-codex-responses.lazy";
+import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
+import { piMessagesApi } from "@earendil-works/pi-ai/api/pi-messages.lazy";
+import {
+  builtinModels,
+  getBuiltinModel,
+  getBuiltinModels,
+  getBuiltinProviders,
+} from "@earendil-works/pi-ai/providers/all";
+import { AppError, isAppError } from "../errors/appError.js";
+import {
+  loadModelsJsonCatalog,
+  type ModelsJsonCompat,
+  type ModelsJsonModel,
+  type ModelsJsonProvider,
+} from "./modelsJsonCatalog.js";
 import { defaultModelsJsonCandidatePath, MODELS_JSON_FILENAME } from "./modelsJsonPath.js";
 
 export {
@@ -13,10 +40,134 @@ export {
   type ResolveModelsJsonPathOptions,
 } from "./modelsJsonPath.js";
 
+const KNOWN_API_STREAMS: Record<KnownApi, () => ProviderStreams> = {
+  "openai-responses": openAIResponsesApi,
+  "openai-completions": openAICompletionsApi,
+  "openai-codex-responses": openAICodexResponsesApi,
+  "azure-openai-responses": azureOpenAIResponsesApi,
+  "anthropic-messages": anthropicMessagesApi,
+  "google-generative-ai": googleGenerativeAIApi,
+  "google-vertex": googleVertexApi,
+  "mistral-conversations": mistralConversationsApi,
+  "bedrock-converse-stream": bedrockConverseStreamApi,
+  "pi-messages": piMessagesApi,
+};
+
+function isKnownApi(api: string): api is KnownApi {
+  return Object.hasOwn(KNOWN_API_STREAMS, api);
+}
+
+function streamsForApi(api: string): ProviderStreams {
+  if (!isKnownApi(api)) {
+    throw new AppError({
+      code: "settings.models_json_load_error",
+      message: `Invalid models.json schema: unknown provider api: ${api}`,
+    });
+  }
+  return KNOWN_API_STREAMS[api]();
+}
+
+function toPiModel(
+  providerId: string,
+  baseUrl: string,
+  api: string,
+  entry: ModelsJsonModel,
+  compat: ModelsJsonCompat | undefined,
+): Model<Api> {
+  return {
+    id: entry.id,
+    name: entry.name,
+    api,
+    provider: providerId,
+    baseUrl,
+    reasoning: entry.reasoning,
+    input: [...entry.input],
+    cost: { ...entry.cost },
+    contextWindow: entry.contextWindow,
+    maxTokens: entry.maxTokens,
+    ...(compat ? { compat } : {}),
+  };
+}
+
+function catalogApiKeyAuth(
+  providerId: string,
+  catalogKey: string,
+  authHeader: boolean | undefined,
+  headers: Readonly<Record<string, string>> | undefined,
+) {
+  const fallback = envApiKeyAuth(`${providerId} API key`, [
+    `${providerId.toUpperCase().replaceAll("-", "_")}_API_KEY`,
+  ]);
+  return {
+    name: `${providerId} API key`,
+    resolve: async (input: Parameters<typeof fallback.resolve>[0]) => {
+      const stored = await fallback.resolve(input);
+      const key = stored?.auth.apiKey || catalogKey || undefined;
+      if (!key) return undefined;
+      const merged = { ...headers };
+      if (authHeader) merged.Authorization = `Bearer ${key}`;
+      return {
+        auth: {
+          apiKey: key,
+          ...(Object.keys(merged).length > 0 ? { headers: merged } : {}),
+        },
+        source: stored?.source ?? "models.json",
+      };
+    },
+  };
+}
+
+function overlayProvider(
+  models: MutableModels,
+  providerId: string,
+  provider: ModelsJsonProvider,
+): void {
+  models.setProvider(
+    createProvider({
+      id: providerId,
+      name: provider.name ?? providerId,
+      baseUrl: provider.baseUrl,
+      headers: provider.headers ? { ...provider.headers } : undefined,
+      auth: {
+        apiKey: catalogApiKeyAuth(
+          providerId,
+          provider.apiKey,
+          provider.authHeader,
+          provider.headers,
+        ),
+      },
+      models: provider.models.map((entry) =>
+        toPiModel(providerId, provider.baseUrl, provider.api, entry, provider.compat),
+      ),
+      api: streamsForApi(provider.api),
+    }),
+  );
+}
+
+export async function overlayCatalog(
+  catalogPath: string | null,
+  credentials: InMemoryCredentialStore,
+): Promise<MutableModels> {
+  const models = builtinModels({ credentials });
+  if (!catalogPath) return models;
+  const catalog = await loadModelsJsonCatalog(catalogPath);
+  for (const [id, provider] of Object.entries(catalog.providers)) {
+    if (provider.apiKey.length > 0) {
+      await credentials.modify(id, async () => ({ type: "api_key", key: provider.apiKey }));
+    }
+    overlayProvider(models, id, provider);
+  }
+  return models;
+}
+
 function builtinPiApi(piProvider: string, piModel: string): string {
-  const model = getModel(piProvider as never, piModel as never);
-  if (model?.api) return model.api;
-  const fallback = getModels(piProvider as never)[0];
+  try {
+    const model = getBuiltinModel(piProvider as never, piModel as never);
+    if (model?.api) return model.api;
+  } catch {
+    // Provider or model is not in the generated catalog.
+  }
+  const fallback = getBuiltinModels(piProvider as never)[0];
   if (fallback?.api) return fallback.api;
   throw new AppError({
     code: "settings.models_json_unresolvable_api",
@@ -39,7 +190,7 @@ export async function assertPiModelSelection(options: {
   const { modelsJsonPath, piProvider, piModel } = options;
 
   if (!modelsJsonPath) {
-    const providers = getProviders() as readonly string[];
+    const providers = getBuiltinProviders() as readonly string[];
     if (!providers.includes(piProvider)) {
       const lookedFor = options.catalogCandidatePath ?? defaultModelsJsonCandidatePath();
       throw new AppError({
@@ -55,22 +206,10 @@ export async function assertPiModelSelection(options: {
     return builtinPiApi(piProvider, piModel);
   }
 
-  const authDir = mkdtempSync(join(tmpdir(), "pr-agent-models-json-"));
   try {
-    const modelRuntime = await ModelRuntime.create({
-      authPath: join(authDir, "auth.json"),
-      modelsPath: modelsJsonPath,
-      allowModelNetwork: false,
-    });
-    const loadError = modelRuntime.getError();
-    if (loadError) {
-      throw new AppError({
-        code: "settings.models_json_load_error",
-        message: loadError,
-        context: { modelsJsonPath },
-      });
-    }
-    const model = modelRuntime.getModel(piProvider, piModel);
+    const credentials = new InMemoryCredentialStore();
+    const models = await overlayCatalog(modelsJsonPath, credentials);
+    const model = models.getModel(piProvider, piModel);
     if (!model) {
       throw new AppError({
         code: "settings.models_json_model_not_found",
@@ -79,7 +218,13 @@ export async function assertPiModelSelection(options: {
       });
     }
     return model.api;
-  } finally {
-    rmSync(authDir, { recursive: true, force: true });
+  } catch (error) {
+    if (isAppError(error)) throw error;
+    throw new AppError({
+      code: "settings.models_json_load_error",
+      message: "Invalid models.json schema",
+      context: { modelsJsonPath },
+      cause: error,
+    });
   }
 }

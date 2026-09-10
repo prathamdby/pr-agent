@@ -1,11 +1,14 @@
-import { access, constants } from "node:fs/promises";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
-type MockTurnEndEvent = {
-  type: "turn_end";
-  toolResults: unknown[];
-  message: {
+type LoopEmit = (event: {
+  type: string;
+  toolName?: string;
+  toolResults?: unknown[];
+  message?: {
     role: "assistant";
     stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted";
     errorMessage?: string;
@@ -15,42 +18,53 @@ type MockTurnEndEvent = {
       cacheRead: number;
       cacheWrite: number;
       totalTokens: number;
-      cost: {
-        input: number;
-        output: number;
-        cacheRead: number;
-        cacheWrite: number;
-        total: number;
-      };
+      cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
     };
     content: Array<
       | { type: "text"; text: string }
       | { type: "thinking"; thinking: string }
-      | {
-          type: "toolCall";
-          id: string;
-          name: string;
-          arguments: Record<string, unknown>;
-        }
+      | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
     >;
   };
-};
+}) => void | Promise<void>;
 
-function makeAssistantMessage(
+function makeAssistant(
   text: string,
-  extras: Partial<Pick<MockTurnEndEvent["message"], "stopReason" | "errorMessage" | "usage">> = {},
-): MockTurnEndEvent["message"] {
-  return { role: "assistant", content: [{ type: "text", text }], ...extras };
+  extras: {
+    stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted";
+    errorMessage?: string;
+    usage?: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+      totalTokens: number;
+      cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
+    };
+    content?: Array<
+      | { type: "text"; text: string }
+      | { type: "thinking"; thinking: string }
+      | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
+    >;
+  } = {},
+) {
+  return {
+    role: "assistant" as const,
+    content: extras.content ?? [{ type: "text" as const, text }],
+    stopReason: extras.stopReason,
+    errorMessage: extras.errorMessage,
+    usage: extras.usage,
+  };
 }
 
 function makeProviderErrorTurn(
   errorMessage: string,
-  extras: Partial<Pick<MockTurnEndEvent["message"], "usage">> = {},
-): MockTurnEndEvent {
+  extras: { usage?: NonNullable<ReturnType<typeof makeAssistant>["usage"]> } = {},
+) {
   return {
-    type: "turn_end",
-    toolResults: [],
-    message: makeAssistantMessage("", {
+    type: "turn_end" as const,
+    toolResults: [] as unknown[],
+    message: makeAssistant("", {
       stopReason: "error",
       errorMessage,
       ...extras,
@@ -58,110 +72,19 @@ function makeProviderErrorTurn(
   };
 }
 
-function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => void) {
-  const listeners = new Set<(event: MockTurnEndEvent) => void>();
-  return {
-    subscribe(listener: (event: MockTurnEndEvent) => void) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    async prompt() {
-      script((event) => {
-        for (const listener of listeners) listener(event);
-      });
-    },
-    abort: vi.fn(),
-    setActiveToolsByName: vi.fn(),
-    setThinkingLevel: vi.fn(),
-    dispose: vi.fn(),
-  };
-}
+const runAgentLoop = vi.hoisted(() => vi.fn());
+const runAgentLoopContinue = vi.hoisted(() => vi.fn());
 
-function buildControllableSession() {
-  const listeners = new Set<(event: unknown) => void>();
-  const unsubscribe = vi.fn();
-  let resolvePrompt: (() => void) | undefined;
-  let rejectPrompt: ((error: unknown) => void) | undefined;
-  const session = {
-    subscribe(listener: (event: unknown) => void) {
-      listeners.add(listener);
-      return () => {
-        listeners.delete(listener);
-        unsubscribe();
-      };
-    },
-    prompt: vi.fn(
-      () =>
-        new Promise<void>((resolve, reject) => {
-          resolvePrompt = resolve;
-          rejectPrompt = reject;
-        }),
-    ),
-    abort: vi.fn(),
-    setActiveToolsByName: vi.fn(),
-    setThinkingLevel: vi.fn(),
-    dispose: vi.fn(),
-  };
+vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
   return {
-    session,
-    unsubscribe,
-    emit(event: unknown) {
-      for (const listener of listeners) listener(event);
-    },
-    resolvePrompt() {
-      resolvePrompt?.();
-    },
-    rejectPrompt(error: unknown) {
-      rejectPrompt?.(error);
-    },
-  };
-}
-
-const createDefaultModelRuntimeMock = vi.hoisted(() => {
-  return () => {
-    const streamSimple = vi.fn((_model, _context, options) => ({
-      options,
-      result: async () => undefined,
-    }));
-    const stream = vi.fn((_model, _context, options) => ({
-      options,
-      result: async () => undefined,
-    }));
-    return {
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      getError: vi.fn(() => undefined),
-      getModel: vi.fn(() => ({
-        id: "gpt-4o-mini",
-        provider: "openai",
-        api: "openai-responses",
-      })),
-      streamSimple,
-      stream,
-      completeSimple: vi.fn(async (model, context, options) =>
-        streamSimple(model, context, options).result(),
-      ),
-      complete: vi.fn(async (model, context, options) => stream(model, context, options).result()),
-    };
+    ...actual,
+    runAgentLoop,
+    runAgentLoopContinue,
   };
 });
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  ModelRuntime: {
-    create: vi.fn(async () => createDefaultModelRuntimeMock()),
-  },
-  createAgentSession: vi.fn(),
-  createExtensionRuntime: vi.fn(),
-  defineTool: vi.fn((tool: unknown) => tool),
-  DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
-    return { reload: vi.fn(async () => undefined) };
-  }),
-  SessionManager: { inMemory: vi.fn(() => ({})) },
-  SettingsManager: { inMemory: vi.fn(() => ({})) },
-}));
-
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
 import {
   compactionPolicyForRole,
@@ -172,8 +95,9 @@ import {
   EMPTY_STRUCTURED_STATE,
   sessionCacheIdFromIdentity,
 } from "../src/agent/runtime/piSession.js";
+import { toCoreTool } from "../src/agent/runtime/coreTools.js";
+import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.js";
 import type { Config } from "../src/config.js";
-import { SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 
 const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
@@ -190,12 +114,15 @@ async function createPiRunnerSession(params: {
   tools: readonly PiTool[];
   executors: Record<string, AgentRunnerToolExecutor>;
   eventSink?: (event: { kind: string; failureCode?: string }) => void;
+  role?: "ask" | "orchestrator" | "specialist";
+  specialistId?: string;
 }) {
   return createPiSession({
-    role: "ask",
+    role: params.role ?? "ask",
+    ...(params.specialistId ? { specialistId: params.specialistId } : {}),
     primary: { provider: params.cfg.piProvider, model: params.cfg.piModel },
     thinkingPolicy: DEFAULT_THINKING_POLICY,
-    compactionPolicy: compactionPolicyForRole("ask"),
+    compactionPolicy: compactionPolicyForRole(params.role ?? "ask"),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     structuredState: EMPTY_STRUCTURED_STATE,
@@ -208,31 +135,91 @@ async function createPiRunnerSession(params: {
   });
 }
 
+function lastLoopConfig() {
+  const call = runAgentLoop.mock.calls.at(-1);
+  if (!call) throw new Error("expected runAgentLoop call");
+  return call[2] as {
+    model: { id: string; provider: string; api: string };
+    sessionId?: string;
+    cacheRetention?: string;
+    timeoutMs?: number;
+    maxRetries?: number;
+    maxRetryDelayMs?: number;
+    prepareNextTurn?: unknown;
+  };
+}
+
+function lastLoopContext() {
+  const call = runAgentLoop.mock.calls.at(-1);
+  if (!call) throw new Error("expected runAgentLoop call");
+  return call[1] as {
+    tools: Array<{
+      name: string;
+      executionMode?: string;
+      execute: (
+        id: string,
+        params: Record<string, unknown>,
+        signal?: AbortSignal,
+      ) => Promise<unknown>;
+    }>;
+  };
+}
+
+function lastLoopSignal() {
+  const call = runAgentLoop.mock.calls.at(-1);
+  if (!call) throw new Error("expected runAgentLoop call");
+  return call[4] as AbortSignal | undefined;
+}
+
+function mockSuccessfulLoop(text = "ok") {
+  runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+    await emit({
+      type: "turn_end",
+      toolResults: [],
+      message: makeAssistant(text, { stopReason: "stop" }),
+    });
+    return [];
+  });
+}
+
 describe("createPiSession models.json", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  it("uses ModelRuntime with modelsJsonPath when set", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-    const getModel = vi.fn(() => ({
-      id: "llama3.1:8b",
-      provider: "ollama",
-      api: "openai-completions",
-    }));
-    vi.mocked(ModelRuntime.create).mockResolvedValue({
-      ...createDefaultModelRuntimeMock(),
-      getError: () => undefined,
-      getModel,
-    } as never);
+  function tempDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "pr-agent-session-models-"));
+    dirs.push(dir);
+    return dir;
+  }
 
-    await createPiRunnerSession({
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSuccessfulLoop();
+  });
+
+  it("resolves a custom catalog model when modelsJsonPath is set", async () => {
+    const path = join(tempDir(), "models.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        providers: {
+          ollama: {
+            baseUrl: "http://127.0.0.1:11434/v1",
+            api: "openai-completions",
+            apiKey: "ollama",
+            models: [{ id: "llama3.1:8b" }],
+          },
+        },
+      }),
+    );
+    const session = await createPiRunnerSession({
       cfg: makeTestConfig({
-        modelsJsonPath: "/app/models.json",
+        modelsJsonPath: path,
         piProvider: "ollama",
         piModel: "llama3.1:8b",
         piApi: "openai-completions",
@@ -242,48 +229,36 @@ describe("createPiSession models.json", () => {
       tools: [],
       executors: {},
     });
-
-    expect(ModelRuntime.create).toHaveBeenCalledWith(
-      expect.objectContaining({ modelsPath: "/app/models.json" }),
-    );
-    expect(getModel).toHaveBeenCalledWith("ollama", "llama3.1:8b");
-    expect(createAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: { id: "llama3.1:8b", provider: "ollama", api: "openai-completions" },
-      }),
-    );
+    await session.send("question", ASK_SEND_OPTS);
+    expect(lastLoopConfig().model).toMatchObject({
+      id: "llama3.1:8b",
+      provider: "ollama",
+      api: "openai-completions",
+    });
   });
 
-  it("uses ModelRuntime with null modelsPath when modelsJsonPath is null", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    await createPiRunnerSession({
+  it("resolves the built-in model when modelsJsonPath is null", async () => {
+    const session = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
-    expect(ModelRuntime.create).toHaveBeenCalledWith(expect.objectContaining({ modelsPath: null }));
-    expect(createAgentSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: { id: "gpt-4o-mini", provider: "openai", api: "openai-responses" },
-      }),
-    );
+    await session.send("question", ASK_SEND_OPTS);
+    expect(lastLoopConfig().model).toMatchObject({
+      id: "gpt-4o-mini",
+      provider: "openai",
+      api: "openai-responses",
+    });
   });
 
-  it("throws when models.json runtime reports a load error", async () => {
-    vi.mocked(ModelRuntime.create).mockResolvedValue({
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      getError: () => "Invalid models.json schema",
-      getModel: vi.fn(),
-    } as never);
-
+  it("throws when models.json schema is invalid", async () => {
+    const path = join(tempDir(), "models.json");
+    writeFileSync(path, JSON.stringify({ providers: "nope" }));
     await expect(
       createPiRunnerSession({
         cfg: makeTestConfig({
-          modelsJsonPath: "/app/models.json",
+          modelsJsonPath: path,
           piProvider: "ollama",
           piModel: "llama3.1:8b",
           modelProviderKeys: { openai: "test-key" },
@@ -299,33 +274,29 @@ describe("createPiSession models.json", () => {
 describe("createPiSession.send", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+    mockSuccessfulLoop();
   });
 
   it("returns terminal answer-turn text and ignores commentary from tool-using turns", async () => {
-    const session = buildMockSession((emit) => {
-      emit({
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
         type: "turn_end",
         toolResults: [{}],
-        message: makeAssistantMessage("I'll examine the PR.Now let me check files."),
+        message: makeAssistant("I'll examine the PR.Now let me check files."),
       });
-      emit({
+      await emit({
         type: "turn_end",
         toolResults: [],
-        message: makeAssistantMessage("End-user summary and testing checklist."),
+        message: makeAssistant("End-user summary and testing checklist."),
       });
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     const result = await runnerSession.send("question", ASK_SEND_OPTS);
     expect(result.text).toBe("End-user summary and testing checklist.");
     expect(result.prompt).toEqual({
@@ -336,38 +307,23 @@ describe("createPiSession.send", () => {
   });
 
   it("shares one underlying abort across concurrent callers", async () => {
-    let releaseAbort: (() => void) | undefined;
-    const session = buildMockSession(() => undefined);
-    session.abort = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          releaseAbort = resolve;
-        }),
-    );
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     const firstAbort = runnerSession.abort();
     const secondAbort = runnerSession.abort();
-    expect(session.abort).toHaveBeenCalledTimes(1);
-
-    releaseAbort?.();
     await expect(Promise.all([firstAbort, secondAbort])).resolves.toEqual([undefined, undefined]);
   });
 
   it("returns exact usage when mocked turn events include provider token data", async () => {
-    const session = buildMockSession((emit) => {
-      emit({
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
         type: "turn_end",
         toolResults: [],
-        message: {
-          ...makeAssistantMessage("Final answer."),
+        message: makeAssistant("Final answer.", {
           usage: {
             input: 20,
             output: 8,
@@ -376,18 +332,16 @@ describe("createPiSession.send", () => {
             totalTokens: 28,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
           },
-        },
+        }),
       });
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     const result = await runnerSession.send("question", ASK_SEND_OPTS);
     expect(result.usage).toEqual({
       estimated: false,
@@ -399,158 +353,115 @@ describe("createPiSession.send", () => {
     });
   });
 
-  it("returns empty text when aborted before a terminal answer turn", async () => {
-    const session = buildMockSession((emit) => {
-      emit({
+  it("returns empty text when the tool-round budget stops before a terminal answer", async () => {
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
         type: "turn_end",
         toolResults: [{}],
-        message: makeAssistantMessage("I'll examine the PR."),
+        message: makeAssistant("I'll examine the PR."),
       });
-      emit({
+      await emit({
         type: "turn_end",
         toolResults: [{}],
-        message: makeAssistantMessage("Let me check more files."),
+        message: makeAssistant("Let me check more files."),
       });
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     const result = await runnerSession.send("question", { ...ASK_SEND_OPTS, maxToolRounds: 2 });
     expect(result.text).toBe("");
-    expect(session.abort).toHaveBeenCalled();
   });
 
   it("returns only text parts from a terminal turn with mixed content", async () => {
-    const session = buildMockSession((emit) => {
-      emit({
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
         type: "turn_end",
         toolResults: [],
-        message: {
-          role: "assistant",
+        message: makeAssistant("Visible answer.", {
           content: [
             { type: "thinking", thinking: "internal reasoning" },
             { type: "text", text: "Visible answer." },
-            {
-              type: "toolCall",
-              id: "tc1",
-              name: "listPullRequestFiles",
-              arguments: {},
-            },
+            { type: "toolCall", id: "tc1", name: "listPullRequestFiles", arguments: {} },
           ],
-        },
+        }),
       });
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     const result = await runnerSession.send("question", ASK_SEND_OPTS);
     expect(result.text).toBe("Visible answer.");
   });
 
   it("serializes object tool results as compact JSON", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    await createPiRunnerSession({
-      cfg,
-      systemPrompt: "test",
-      tools: [{ name: "object", description: "object", parameters: { type: "object" } }],
-      executors: { object: async () => ({ answer: 42, nested: { ok: true } }) },
-    });
-
-    const tool = vi.mocked(defineTool).mock.calls.at(-1)?.[0];
-    expect(tool).toBeDefined();
-    if (!tool) throw new Error("expected Pi tool");
-    await expect(
-      tool.execute("tool-call-id", {}, undefined, undefined, {} as ExtensionContext),
-    ).resolves.toMatchObject({
+    const tool = toCoreTool(
+      { name: "object", description: "object", parameters: { type: "object" } },
+      async () => ({ answer: 42, nested: { ok: true } }),
+      undefined,
+    );
+    await expect(tool.execute("tool-call-id", {}, undefined)).resolves.toMatchObject({
       content: [{ type: "text", text: '{"answer":42,"nested":{"ok":true}}' }],
     });
   });
 
   it("aborts and rejects when a prompt exceeds the configured timeout", async () => {
-    const abort = vi.fn();
-    const session = {
-      subscribe: () => () => {},
-      prompt: () => new Promise<void>(() => {}),
-      abort,
-      setActiveToolsByName: vi.fn(),
-      setThinkingLevel: vi.fn(),
-    };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
+    runAgentLoop.mockImplementation(
+      (_prompts, _context, _config, _emit: LoopEmit, signal?: AbortSignal) =>
+        new Promise<never>((_, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        }),
+    );
     const runnerSession = await createPiRunnerSession({
       cfg: { ...cfg, providerPromptTimeoutMs: 20 },
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     await expect(runnerSession.send("question", ASK_SEND_OPTS)).rejects.toThrow(/timeout/i);
-    expect(abort).toHaveBeenCalled();
   });
 
   it("does not abort while the provider keeps streaming activity within the idle window", async () => {
-    const abort = vi.fn();
-    const listeners = new Set<(event: unknown) => void>();
-    let resolvePrompt: (() => void) | undefined;
-    const session = {
-      subscribe(listener: (event: unknown) => void) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      prompt: () =>
-        new Promise<void>((resolve) => {
-          resolvePrompt = resolve;
-        }),
-      abort,
-      setActiveToolsByName: vi.fn(),
-      setThinkingLevel: vi.fn(),
-    };
-    const emit = (event: unknown) => {
-      for (const listener of listeners) listener(event);
-    };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
+    let loopEmit: LoopEmit | undefined;
+    let resolveLoop: (() => void) | undefined;
+    runAgentLoop.mockImplementation((_prompts, _context, _config, emit: LoopEmit) => {
+      loopEmit = emit;
+      return new Promise<never[]>((resolve) => {
+        resolveLoop = () => resolve([]);
+      });
+    });
     const runnerSession = await createPiRunnerSession({
       cfg: { ...cfg, providerPromptTimeoutMs: 100 },
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     vi.useFakeTimers();
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     try {
       const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
-      // Three activity bursts spanning > idle window, each arriving before it elapses.
       for (let i = 0; i < 3; i++) {
         await vi.advanceTimersByTimeAsync(80);
-        emit({ type: "message_update" });
+        await loopEmit?.({ type: "message_update" });
       }
-      emit({
+      await loopEmit?.({
         type: "turn_end",
         toolResults: [],
-        message: makeAssistantMessage("Final answer."),
+        message: makeAssistant("Final answer."),
       });
-      resolvePrompt?.();
+      resolveLoop?.();
       await expect(sendPromise).resolves.toEqual({
         text: "Final answer.",
         prompt: { inputCharacters: 8, inputBytes: 8 },
       });
-      expect(abort).not.toHaveBeenCalled();
       expect(setIntervalSpy).toHaveBeenCalledTimes(1);
     } finally {
       setIntervalSpy.mockRestore();
@@ -558,145 +469,54 @@ describe("createPiSession.send", () => {
     }
   });
 
-  it("terminates a send aborted while the provider sleeps between transport retries", async () => {
-    // The SDK sleeps abortably between provider retries (abortableSleep); this
-    // mock mirrors that shape: the prompt stays pending on a retry-backoff timer
-    // that session.abort() both rejects and cancels.
-    const controller = new AbortController();
+  it("terminates a send aborted while waiting on the loop signal", async () => {
     const retrySleepFired = vi.fn();
-    const session = {
-      subscribe: () => () => {},
-      prompt: vi.fn(
-        () =>
-          new Promise<void>((resolve, reject) => {
-            const rejectOnAbort = () =>
-              reject(Object.assign(new Error("Request aborted"), { name: "AbortError" }));
-            controller.signal.addEventListener("abort", rejectOnAbort, { once: true });
-            const retryTimer = setTimeout(() => {
-              retrySleepFired();
-              resolve();
-            }, 2000);
-            controller.signal.addEventListener("abort", () => clearTimeout(retryTimer), {
-              once: true,
-            });
-          }),
-      ),
-      abort: vi.fn(async () => controller.abort()),
-      setActiveToolsByName: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      dispose: vi.fn(),
-    };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
+    runAgentLoop.mockImplementation(
+      (_prompts, _context, _config, _emit: LoopEmit, signal?: AbortSignal) =>
+        new Promise<never[]>((_, reject) => {
+          const rejectOnAbort = () =>
+            reject(Object.assign(new Error("Request aborted"), { name: "AbortError" }));
+          signal?.addEventListener("abort", rejectOnAbort, { once: true });
+          const retryTimer = setTimeout(() => {
+            retrySleepFired();
+          }, 2000);
+          signal?.addEventListener("abort", () => clearTimeout(retryTimer), { once: true });
+        }),
+    );
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     vi.useFakeTimers();
     try {
       const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
       await vi.advanceTimersByTimeAsync(1000);
       expect(retrySleepFired).not.toHaveBeenCalled();
-
       await runnerSession.abort();
-
       await expect(sendPromise).rejects.toMatchObject({ code: "agent.session_aborted" });
       await vi.advanceTimersByTimeAsync(10_000);
       expect(retrySleepFired).not.toHaveBeenCalled();
-      expect(controller.signal.aborted).toBe(true);
+      expect(lastLoopSignal()?.aborted).toBe(true);
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("calls SDK session.dispose before removing the agent directory", async () => {
-    const dispose = vi.fn();
-    const session = buildMockSession(() => undefined);
-    session.dispose = dispose;
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    const runnerSession = await createPiRunnerSession({
-      cfg,
-      systemPrompt: "test",
-      tools: [],
-      executors: {},
-    });
-    const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
-    expect(typeof agentDir).toBe("string");
-    if (typeof agentDir !== "string") throw new Error("expected agentDir");
-    await expect(access(agentDir, constants.F_OK)).resolves.toBeUndefined();
-
-    await runnerSession.dispose();
-    expect(dispose).toHaveBeenCalledTimes(1);
-    await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it("removes the agent directory even when SDK dispose throws", async () => {
-    const dispose = vi.fn(() => {
-      throw new Error("sdk dispose failed");
-    });
-    const session = {
-      subscribe: () => () => {},
-      prompt: async () => undefined,
-      abort: vi.fn(),
-      setActiveToolsByName: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      dispose,
-    };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    const runnerSession = await createPiRunnerSession({
-      cfg,
-      systemPrompt: "test",
-      tools: [],
-      executors: {},
-    });
-    const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
-    expect(typeof agentDir).toBe("string");
-    if (typeof agentDir !== "string") throw new Error("expected agentDir");
-
-    await expect(runnerSession.dispose()).rejects.toThrow("sdk dispose failed");
-    expect(dispose).toHaveBeenCalledTimes(1);
-    await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
-  });
-
-  it("removes agentDir with credentials when createSession setup fails", async () => {
-    vi.mocked(createAgentSession).mockRejectedValue(new Error("session setup failed"));
-
-    await expect(
-      createPiRunnerSession({
-        cfg,
-        systemPrompt: "test",
-        tools: [],
-        executors: {},
-      }),
-    ).rejects.toThrow("session setup failed");
-
-    const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
-    expect(typeof agentDir).toBe("string");
-    if (typeof agentDir !== "string") throw new Error("expected agentDir");
-    await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 
 describe("createPiSession terminal provider outcomes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+    mockSuccessfulLoop();
   });
 
   it("rejects a resolved prompt that ends on an assistant error", async () => {
     const events: Array<{ kind: string; failureCode?: string }> = [];
-    const session = buildMockSession((emit) => {
-      emit(makeProviderErrorTurn("429 Too Many Requests: rate limit exceeded"));
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit(makeProviderErrorTurn("429 Too Many Requests: rate limit exceeded"));
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
@@ -704,7 +524,6 @@ describe("createPiSession terminal provider outcomes", () => {
       executors: {},
       eventSink: (event) => events.push(event),
     });
-
     await expect(runnerSession.send("question", ASK_SEND_OPTS)).rejects.toMatchObject({
       code: "provider.request_failed",
       message: "429 Too Many Requests: rate limit exceeded",
@@ -717,151 +536,137 @@ describe("createPiSession terminal provider outcomes", () => {
     expect(JSON.stringify(events)).not.toContain("429");
   });
 
-  it("returns text after an error turn and a successful SDK retry", async () => {
-    const session = buildMockSession((emit) => {
-      emit(makeProviderErrorTurn("502 Bad Gateway"));
-      emit({
+  it("returns text after an error turn and a successful turn retry", async () => {
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit(makeProviderErrorTurn("502 Bad Gateway"));
+      return [];
+    });
+    runAgentLoopContinue.mockImplementation(async (_context, _config, emit: LoopEmit) => {
+      await emit({
         type: "turn_end",
         toolResults: [],
-        message: makeAssistantMessage("recovered answer", { stopReason: "stop" }),
+        message: makeAssistant("recovered answer", { stopReason: "stop" }),
       });
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     await expect(runnerSession.send("question", ASK_SEND_OPTS)).resolves.toMatchObject({
       text: "recovered answer",
     });
+    expect(runAgentLoopContinue).toHaveBeenCalledTimes(1);
   });
 
   it("rejects after exhausted retry error turns", async () => {
-    const session = buildMockSession((emit) => {
-      emit(makeProviderErrorTurn("502 Bad Gateway"));
-      emit(makeProviderErrorTurn("502 Bad Gateway"));
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit(makeProviderErrorTurn("502 Bad Gateway"));
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
+    runAgentLoopContinue.mockImplementation(async (_context, _config, emit: LoopEmit) => {
+      await emit(makeProviderErrorTurn("502 Bad Gateway"));
+      return [];
+    });
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     await expect(runnerSession.send("question", ASK_SEND_OPTS)).rejects.toMatchObject({
       code: "provider.request_failed",
       message: "502 Bad Gateway",
     });
   });
 
-  it("wraps a directly rejected prompt promise", async () => {
-    const controlled = buildControllableSession();
-    vi.mocked(createAgentSession).mockResolvedValue({ session: controlled.session } as never);
-
+  it("wraps a directly rejected loop promise", async () => {
+    runAgentLoop.mockImplementation(async () => {
+      throw new Error("401 Unauthorized invalid api key");
+    });
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
-    const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
-    controlled.rejectPrompt(new Error("401 Unauthorized invalid api key"));
-
-    await expect(sendPromise).rejects.toMatchObject({
+    await expect(runnerSession.send("question", ASK_SEND_OPTS)).rejects.toMatchObject({
       code: "provider.request_failed",
       message: "401 Unauthorized invalid api key",
     });
   });
 
   it("prefers public cancellation over a retained error turn", async () => {
-    const controlled = buildControllableSession();
-    vi.mocked(createAgentSession).mockResolvedValue({ session: controlled.session } as never);
-
+    let resolveLoop: (() => void) | undefined;
+    let loopEmit: LoopEmit | undefined;
+    runAgentLoop.mockImplementation((_prompts, _context, _config, emit: LoopEmit) => {
+      loopEmit = emit;
+      return new Promise<never[]>((resolve) => {
+        resolveLoop = () => resolve([]);
+      });
+    });
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
-    controlled.emit(makeProviderErrorTurn("502 Bad Gateway"));
+    await loopEmit?.(makeProviderErrorTurn("502 Bad Gateway"));
     await runnerSession.abort();
-    controlled.resolvePrompt();
-
+    resolveLoop?.();
     const error = await sendPromise.catch((value: unknown) => value);
     expect(error).toMatchObject({ code: "agent.session_aborted" });
   });
 
   it("keeps tool-budget termination as a successful empty turn", async () => {
-    const session = buildMockSession((emit) => {
-      emit({
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
         type: "turn_end",
         toolResults: [{}],
-        message: makeAssistantMessage("I'll examine the PR.", { stopReason: "toolUse" }),
+        message: makeAssistant("I'll examine the PR.", { stopReason: "toolUse" }),
       });
-      emit({
+      await emit({
         type: "turn_end",
         toolResults: [{}],
-        message: makeAssistantMessage("Let me check more files.", { stopReason: "toolUse" }),
+        message: makeAssistant("Let me check more files.", { stopReason: "toolUse" }),
       });
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     await expect(
       runnerSession.send("question", { ...ASK_SEND_OPTS, maxToolRounds: 2 }),
     ).resolves.toMatchObject({ text: "" });
-    expect(session.abort).toHaveBeenCalled();
   });
 
   it("resets provider error state between successive sends", async () => {
     let sendCount = 0;
-    const session = {
-      subscribe: (listener: (event: MockTurnEndEvent) => void) => {
-        (session as { _listener?: typeof listener })._listener = listener;
-        return () => undefined;
-      },
-      prompt: vi.fn(async () => {
-        sendCount += 1;
-        const listener = (session as { _listener?: (event: MockTurnEndEvent) => void })._listener;
-        if (sendCount === 1) {
-          listener?.(makeProviderErrorTurn("502 Bad Gateway"));
-          return;
-        }
-        listener?.({
-          type: "turn_end",
-          toolResults: [],
-          message: makeAssistantMessage("second send ok", { stopReason: "stop" }),
-        });
-      }),
-      abort: vi.fn(),
-      setActiveToolsByName: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      dispose: vi.fn(),
-    };
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      sendCount += 1;
+      if (sendCount === 1) {
+        await emit(makeProviderErrorTurn("502 Bad Gateway"));
+        return [];
+      }
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistant("second send ok", { stopReason: "stop" }),
+      });
+      return [];
+    });
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
     await expect(runnerSession.send("first", ASK_SEND_OPTS)).rejects.toMatchObject({
       code: "provider.request_failed",
     });
@@ -872,8 +677,8 @@ describe("createPiSession terminal provider outcomes", () => {
 
   it("keeps usage from error turns when the send later fails", async () => {
     const events: Array<{ kind: string }> = [];
-    const session = buildMockSession((emit) => {
-      emit(
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit(
         makeProviderErrorTurn("502 Bad Gateway", {
           usage: {
             input: 11,
@@ -885,9 +690,8 @@ describe("createPiSession terminal provider outcomes", () => {
           },
         }),
       );
+      return [];
     });
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
     const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
@@ -895,77 +699,48 @@ describe("createPiSession terminal provider outcomes", () => {
       executors: {},
       eventSink: (event) => events.push({ kind: event.kind }),
     });
-
     const error = await runnerSession
       .send("question", ASK_SEND_OPTS)
       .catch((value: unknown) => value);
     expect(error).toMatchObject({ code: "provider.request_failed" });
     expect(events.map((event) => event.kind)).toContain("usage");
   });
-
-  it("unsubscribes after a terminal provider error", async () => {
-    const controlled = buildControllableSession();
-    vi.mocked(createAgentSession).mockResolvedValue({ session: controlled.session } as never);
-
-    const runnerSession = await createPiRunnerSession({
-      cfg,
-      systemPrompt: "test",
-      tools: [],
-      executors: {},
-    });
-
-    const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
-    controlled.emit(makeProviderErrorTurn("502 Bad Gateway"));
-    controlled.resolvePrompt();
-    await expect(sendPromise).rejects.toMatchObject({ code: "provider.request_failed" });
-    expect(controlled.unsubscribe).toHaveBeenCalled();
-  });
 });
 
 describe("createPiSession prompt cache identity", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+    mockSuccessfulLoop();
   });
 
-  it("uses a stable SessionManager id for the same role and model", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    await createPiRunnerSession({
+  it("uses a stable session id for the same role and model", async () => {
+    const session = await createPiRunnerSession({
       cfg,
       cwd: "/tmp/pr-agent-cache-id",
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-    await createPiRunnerSession({
-      cfg,
-      cwd: "/tmp/pr-agent-cache-id",
-      systemPrompt: "test",
-      tools: [],
-      executors: {},
-    });
-
+    await session.send("question", ASK_SEND_OPTS);
     const expectedId = sessionCacheIdFromIdentity({
       role: "ask",
       provider: cfg.piProvider,
       model: cfg.piModel,
     });
-    expect(SessionManager.inMemory).toHaveBeenCalledWith("/tmp/pr-agent-cache-id", {
-      id: expectedId,
+    expect(lastLoopConfig().sessionId).toBe(expectedId);
+    const second = await createPiRunnerSession({
+      cfg,
+      cwd: "/tmp/pr-agent-cache-id",
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
     });
-    const ids = vi.mocked(SessionManager.inMemory).mock.calls.map((call) => call[1]?.id);
-    expect(ids).toEqual([expectedId, expectedId]);
+    await second.send("question", ASK_SEND_OPTS);
+    expect(lastLoopConfig().sessionId).toBe(expectedId);
   });
 
   it("includes specialistId in the session cache identity", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    await createPiSession({
+    const session = await createPiSession({
       role: "specialist",
       specialistId: "correctness",
       primary: { provider: cfg.piProvider, model: cfg.piModel },
@@ -981,45 +756,33 @@ describe("createPiSession prompt cache identity", () => {
       tools: [],
       executors: {},
     });
-
-    expect(SessionManager.inMemory).toHaveBeenCalledWith("/tmp/pr-agent-specialist-cache", {
-      id: sessionCacheIdFromIdentity({
+    await session.send("run", { phase: "specialist", checkpointId: "cp" });
+    expect(lastLoopConfig().sessionId).toBe(
+      sessionCacheIdFromIdentity({
         role: "specialist",
         specialistId: "correctness",
         provider: cfg.piProvider,
         model: cfg.piModel,
       }),
-    });
+    );
   });
 
-  it("injects short cacheRetention on ModelRuntime stream entry", async () => {
-    const runtime = createDefaultModelRuntimeMock();
-    const originalStreamSimple = runtime.streamSimple;
-    vi.mocked(ModelRuntime.create).mockResolvedValue(runtime as never);
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    await createPiRunnerSession({
+  it("injects short cacheRetention on the loop config", async () => {
+    const session = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
-
-    // After bindPromptCacheRetention, streamSimple is replaced; call the bound method.
-    runtime.streamSimple({ id: "m" }, { messages: [] }, { maxTokens: 1 });
-    expect(originalStreamSimple).toHaveBeenCalledWith(
-      { id: "m" },
-      { messages: [] },
-      expect.objectContaining({ cacheRetention: "short", maxTokens: 1 }),
-    );
+    await session.send("question", ASK_SEND_OPTS);
+    expect(lastLoopConfig()).toMatchObject({
+      cacheRetention: "short",
+      timeoutMs: cfg.providerPromptTimeoutMs,
+    });
   });
 
   it("configures provider transport retry from validated config", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    await createPiRunnerSession({
+    const session = await createPiRunnerSession({
       cfg: {
         ...cfg,
         piProviderRetryMax: 4,
@@ -1029,42 +792,54 @@ describe("createPiSession prompt cache identity", () => {
       tools: [],
       executors: {},
     });
-
-    expect(SettingsManager.inMemory).toHaveBeenCalledWith({
-      compaction: { enabled: true },
-      retry: {
-        enabled: true,
-        provider: {
-          maxRetries: 4,
-          maxRetryDelayMs: 45_000,
-        },
-      },
+    await session.send("question", ASK_SEND_OPTS);
+    expect(lastLoopConfig()).toMatchObject({
+      maxRetries: 4,
+      maxRetryDelayMs: 45_000,
     });
   });
 
   it("disables provider transport retry when the retry count is zero", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-
-    await createPiRunnerSession({
+    const session = await createPiRunnerSession({
       cfg: { ...cfg, piProviderRetryMax: 0 },
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
+    await session.send("question", ASK_SEND_OPTS);
+    expect(lastLoopConfig()).toMatchObject({
+      maxRetries: 0,
+      maxRetryDelayMs: 60_000,
+    });
+  });
 
-    // A zero count turns off transport retries only; the SDK turn-level retry
-    // switch stays pinned on (its pre-existing default) rather than being
-    // driven by the count knob.
-    expect(SettingsManager.inMemory).toHaveBeenCalledWith({
-      compaction: { enabled: true },
-      retry: {
-        enabled: true,
-        provider: {
-          maxRetries: 0,
-          maxRetryDelayMs: 60_000,
-        },
+  it("merges short cacheRetention onto streamSimple options", async () => {
+    const streamSimple = vi.fn((_model, _context, options) => ({
+      options,
+      async *[Symbol.asyncIterator]() {
+        return undefined;
       },
+      result: async () => undefined,
+    }));
+    const { streamFn, getLastOptions } = createSessionStreamFn({ streamSimple } as never, {
+      cacheRetention: "short",
+      sessionId: "sess",
+      timeoutMs: 12,
+      maxRetries: 2,
+      maxRetryDelayMs: 1000,
+    });
+    await streamFn(
+      { id: "m", provider: "openai", api: "openai-responses" } as never,
+      { messages: [] },
+      { maxTokens: 7, cacheRetention: "long" },
+    );
+    expect(getLastOptions()).toMatchObject({
+      maxTokens: 7,
+      cacheRetention: "short",
+      sessionId: "sess",
+      timeoutMs: 12,
+      maxRetries: 2,
+      maxRetryDelayMs: 1000,
     });
   });
 });
@@ -1072,15 +847,11 @@ describe("createPiSession prompt cache identity", () => {
 describe("createPiSession tool contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(ModelRuntime.create).mockImplementation(
-      async () => createDefaultModelRuntimeMock() as never,
-    );
+    mockSuccessfulLoop();
   });
 
   it("marks execute and native mutation tools sequential and leaves reads unset", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-    await createPiRunnerSession({
+    const session = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [
@@ -1094,9 +865,8 @@ describe("createPiSession tool contract", () => {
         publish_summary: async () => ({ accepted: true }),
       },
     });
-    const defined = vi
-      .mocked(defineTool)
-      .mock.calls.map((call) => call[0] as { name: string; executionMode?: string });
+    await session.send("question", ASK_SEND_OPTS);
+    const defined = lastLoopContext().tools;
     expect(defined.find((tool) => tool.name === "execute")?.executionMode).toBe("sequential");
     expect(defined.find((tool) => tool.name === "publish_summary")?.executionMode).toBe(
       "sequential",
@@ -1105,10 +875,8 @@ describe("createPiSession tool contract", () => {
   });
 
   it("forwards the loop abort signal into the executor context", async () => {
-    const session = buildMockSession(() => undefined);
-    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
     let seen: AbortSignal | undefined;
-    await createPiRunnerSession({
+    const session = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [{ name: "execute", description: "run", parameters: { type: "object" } }],
@@ -1119,24 +887,11 @@ describe("createPiSession tool contract", () => {
         },
       },
     });
-    const tool = vi.mocked(defineTool).mock.calls.at(-1)?.[0] as {
-      execute: (
-        id: string,
-        params: Record<string, unknown>,
-        signal?: AbortSignal,
-        onUpdate?: undefined,
-        ctx?: ExtensionContext,
-      ) => Promise<unknown>;
-    };
+    await session.send("question", ASK_SEND_OPTS);
+    const tool = lastLoopContext().tools.find((entry) => entry.name === "execute");
     const controller = new AbortController();
     controller.abort();
-    await tool.execute(
-      "tool-call-id",
-      { code: "1" },
-      controller.signal,
-      undefined,
-      {} as ExtensionContext,
-    );
+    await tool?.execute("tool-call-id", { code: "1" }, controller.signal);
     expect(seen?.aborted).toBe(true);
   });
 });

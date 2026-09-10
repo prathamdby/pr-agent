@@ -43,7 +43,7 @@ export type ThinkingPolicy = {
 };
 
 export type CompactionPolicy = {
-  /** When true, Pi SettingsManager enables SDK auto-compaction for the session. */
+  /** When true, the session compact-and-continues through Core `prepareNextTurn`. */
   readonly enabled: boolean;
 };
 
