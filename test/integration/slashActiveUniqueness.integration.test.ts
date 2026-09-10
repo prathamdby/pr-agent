@@ -6,7 +6,12 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { applySlashCommandIntake } from "../../src/agentWork/intake/slashIntake.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
+import {
+  acquirePrActorLease,
+  assertPrActorLeaseHeld,
+  isPrActorLeaseHeld,
+  renewPrActorLease,
+} from "../../src/agentWork/prActorLease.js";
 import {
   cancelOrphanedStaleHeadReplacementOnTerminalFailure,
   createReviewRescheduleWorkItem,
@@ -446,6 +451,16 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
     const heldEpoch = await acquireReviewLease(oldWorkItemId, resourceKey);
     expect(heldEpoch).toBeGreaterThan(0);
+    const siblingWorkItemId = randomUUID();
+    const siblingAcquisition = await acquirePrActorLease(pool, {
+      resourceKey,
+      workType: "verification",
+      workItemId: siblingWorkItemId,
+      holderId: "sibling-work-type",
+      ttlSeconds: 900,
+    });
+    if (!siblingAcquisition.acquired) throw new Error("expected a sibling work-type lease");
+    const siblingEpoch = siblingAcquisition.leaseEpoch;
     await expect(
       acquirePrActorLease(pool, {
         resourceKey,
@@ -502,6 +517,11 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       position: 1,
       total: 1,
     });
+    await expect(isPrActorLeaseHeld(pool, oldWorkItemId, heldEpoch)).resolves.toBe(false);
+    await expect(assertPrActorLeaseHeld(pool, oldWorkItemId, heldEpoch)).rejects.toMatchObject({
+      code: "agent_work.pr_actor_lease_lost",
+    });
+    await expect(isPrActorLeaseHeld(pool, siblingWorkItemId, siblingEpoch)).resolves.toBe(true);
 
     const admission = await acquirePrActorLease(pool, {
       resourceKey,
@@ -511,6 +531,23 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       ttlSeconds: 900,
     });
     expect(admission).toEqual({ acquired: true, leaseEpoch: heldEpoch + 1 });
+    await expect(isPrActorLeaseHeld(pool, newRow!.id, heldEpoch + 1)).resolves.toBe(true);
+    await expect(
+      renewPrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        leaseEpoch: heldEpoch,
+        ttlSeconds: 900,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      renewPrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        leaseEpoch: heldEpoch + 1,
+        ttlSeconds: 900,
+      }),
+    ).resolves.toBe(true);
     await expect(claimWorkForExecution(pool, newRow!.id)).resolves.toEqual(
       expect.objectContaining({ attemptCount: 1 }),
     );
