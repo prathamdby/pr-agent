@@ -1,17 +1,18 @@
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
-import type { Config } from "../src/config.js";
 import { AppError } from "../src/errors/appError.js";
 import {
   clearDurableAuthCachesForTest,
   mintInstallationToken,
   runDurableWorkItem,
+  type DegradationReason,
   type DurableExecutionResult,
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
 import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 
@@ -88,10 +89,7 @@ import * as prSurface from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
 
-const cfg = {
-  prActorLeaseTtlSeconds: 900,
-  prActorLeaseRenewalIntervalSeconds: 120,
-} as Config;
+const cfg = makeTestConfig();
 const pool = {} as Pool;
 const boss = {
   send: vi.fn().mockResolvedValue("deferred-job"),
@@ -131,8 +129,8 @@ function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: 
   } as unknown as JobWithMetadata<{ workItemId: string }>;
 }
 
-function completedResult(degraded?: boolean): DurableExecutionResult {
-  return degraded ? { kind: "completed", degraded: true } : { kind: "completed" };
+function completedResult(degradation?: readonly DegradationReason[]): DurableExecutionResult {
+  return degradation ? { kind: "completed", degradation } : { kind: "completed" };
 }
 
 function rescheduledResult(
@@ -858,7 +856,7 @@ describe("runDurableWorkItem", () => {
 
   it("marks publish degraded when execute reports completed+degraded", async () => {
     mockFetchedItem(makeItem());
-    const execute = vi.fn().mockResolvedValue(completedResult(true));
+    const execute = vi.fn().mockResolvedValue(completedResult(["stale_head"]));
 
     await runReviewWorkItem({ execute });
 
@@ -928,6 +926,110 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
+  it("retries a transient failure across the full pg-boss budget", async () => {
+    const boom = new Error("transient");
+
+    for (const retryCount of [0, 1, 2]) {
+      mockFetchedItem(makeItem());
+      const execute = vi.fn().mockRejectedValue(boom);
+      await expect(runReviewWorkItem({ job: makeJob(retryCount, 3), execute })).rejects.toBe(boom);
+    }
+
+    expect(repo.markWorkRetrying).toHaveBeenCalledTimes(3);
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("retries a deterministic failure exactly once and terminalises the second failure", async () => {
+    const boom = new AppError({
+      code: "verification.missing_submit",
+      message: "Verification run ended without submitVerification",
+    });
+    vi.mocked(repo.claimWorkForExecution)
+      .mockResolvedValueOnce({
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 1,
+      })
+      .mockResolvedValueOnce({
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 2,
+      });
+
+    mockFetchedItem(makeItem());
+    const execute = vi.fn().mockRejectedValue(boom);
+    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
+    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+
+    mockFetchedItem(makeItem());
+    await runReviewWorkItem({ job: makeJob(1, 3), execute });
+    expect(repo.markWorkRetrying).toHaveBeenCalledTimes(1);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
+  });
+
+  it("terminalises a deterministic failure when the queue has no budget for its one retry", async () => {
+    mockFetchedItem(makeItem());
+    const boom = new AppError({
+      code: "triage.missing_submit",
+      message: "Triage run ended without submitTriage",
+    });
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
+  });
+
+  it("carries escalation and a fresh lease epoch into the retry attempt", async () => {
+    const item = makeItem();
+    const escalationCfg = {
+      ...cfg,
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    };
+    vi.mocked(prActorLease.acquirePrActorLease)
+      .mockResolvedValueOnce({ acquired: true, leaseEpoch: 1 })
+      .mockResolvedValueOnce({ acquired: true, leaseEpoch: 2 });
+    vi.mocked(repo.claimWorkForExecution)
+      .mockResolvedValueOnce({
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 1,
+      })
+      .mockResolvedValueOnce({
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 2,
+      });
+    const execute = vi.fn().mockResolvedValue(completedResult());
+
+    mockFetchedItem(item);
+    await runReviewWorkItem({ cfg: escalationCfg, execute });
+    mockFetchedItem(item);
+    await runReviewWorkItem({ cfg: escalationCfg, execute });
+
+    expect(execute.mock.calls[0]?.[1].escalation).toBeUndefined();
+    expect(execute.mock.calls[1]?.[1].escalation).toEqual({
+      attempt: 2,
+      kinds: ["tool_rounds", "fallback_model"],
+      model: { provider: "anthropic", model: "claude-sonnet-4" },
+    });
+    expect(execute.mock.calls[0]?.[1].leaseEpoch).toBe(1);
+    expect(execute.mock.calls[1]?.[1].leaseEpoch).toBe(2);
+    expect(prActorLease.releasePrActorLease).toHaveBeenNthCalledWith(1, pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 1,
+    });
+    expect(prActorLease.releasePrActorLease).toHaveBeenNthCalledWith(2, pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 2,
+    });
+  });
+
   it("terminal-fails stale-head replacement exhaustion without durable retry", async () => {
     mockFetchedItem(makeItem());
     const boom = new AppError({
@@ -947,6 +1049,11 @@ describe("runDurableWorkItem", () => {
       expect.anything(),
       boom,
       1,
+    );
+    expect(evlog.logError).toHaveBeenCalledWith(
+      "agent_work_failed",
+      expect.objectContaining({ workItemId: "wi-1", retryDisposition: "terminal" }),
+      boom,
     );
   });
 
@@ -1484,7 +1591,7 @@ describe("DurableExecutionResult assignability", () => {
     expectTypeOf({ kind: "completed" as const }).toMatchTypeOf<DurableExecutionResult>();
     expectTypeOf({
       kind: "completed" as const,
-      degraded: true,
+      degradation: ["stale_head"] as const,
     }).toMatchTypeOf<DurableExecutionResult>();
     expectTypeOf({
       kind: "rescheduled" as const,
@@ -1494,9 +1601,13 @@ describe("DurableExecutionResult assignability", () => {
     }).toMatchTypeOf<DurableExecutionResult>();
   });
 
-  it("rejects incomplete reschedule and the old optional-flag shapes", () => {
+  it("rejects incomplete reschedule, unknown reasons, and the old optional-flag shapes", () => {
     expectTypeOf<{ kind: "rescheduled" }>().not.toMatchTypeOf<DurableExecutionResult>();
     expectTypeOf<{ degraded: true }>().not.toMatchTypeOf<DurableExecutionResult>();
+    expectTypeOf({
+      kind: "completed" as const,
+      degradation: ["not_a_degradation_reason"] as const,
+    }).not.toMatchTypeOf<DurableExecutionResult>();
     expectTypeOf<{
       rescheduled: true;
       replacementWorkItemId: string;
@@ -1508,7 +1619,7 @@ describe("DurableExecutionResult assignability", () => {
   it("constructs valid object literals", () => {
     const accept = (result: DurableExecutionResult): DurableExecutionResult => result;
     accept({ kind: "completed" });
-    accept({ kind: "completed", degraded: true });
+    accept({ kind: "completed", degradation: ["push_stale", "bulk_partial"] });
     accept({
       kind: "rescheduled",
       replacementWorkItemId: "replacement-wi",

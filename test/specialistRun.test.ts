@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession } from "../src/agent/runtime/types.js";
+import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { renderBriefMessage } from "../src/review/orchestrator/briefTool.js";
 import { specialistSystemPrompt } from "../src/review/orchestrator/prompts/specialistPersonas.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -175,6 +176,91 @@ describe("runSpecialist", () => {
       phase: "specialist",
       checkpointId: "specialist:specialist",
     });
+  });
+
+  it("raises the tool-round budget and attempts the fallback model on an escalated run", async () => {
+    const cfg = makeTestConfig({
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    });
+    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+
+    const outcome = await runSpecialist(
+      specialistArgs({ cfg, escalation: escalationForAttempt(2, cfg) }),
+    );
+
+    expect(outcome).toMatchObject({ kind: "report", specialist: "correctness" });
+    expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
+      maxToolRounds: 48,
+      phase: "specialist",
+      checkpointId: "specialist:specialist",
+    });
+    expect(runnerMocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attemptModel: { provider: "anthropic", model: "claude-sonnet-4" },
+      }),
+    );
+  });
+
+  it("raises only the tool-round budget when the plan has no fallback model", async () => {
+    const cfg = makeTestConfig();
+    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+
+    await runSpecialist(specialistArgs({ cfg, escalation: escalationForAttempt(2, cfg) }));
+
+    expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith(
+      "Review this pull request.",
+      expect.objectContaining({ maxToolRounds: 48 }),
+    );
+    expect(runnerMocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptModel: undefined }),
+    );
+  });
+
+  it("grants an escalated attempt the same tools, prompt, and trust inputs", async () => {
+    const cfg = makeTestConfig({
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    });
+    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+    await runSpecialist(specialistArgs({ cfg }));
+    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+    await runSpecialist(specialistArgs({ cfg, escalation: escalationForAttempt(2, cfg) }));
+
+    const baselineParams = runnerMocks.createSession.mock.calls[0]?.[0];
+    const escalatedParams = runnerMocks.createSession.mock.calls[1]?.[0];
+    expect(escalatedParams?.tools).toEqual(baselineParams?.tools);
+    expect(Object.keys(escalatedParams?.executors ?? {})).toEqual(
+      Object.keys(baselineParams?.executors ?? {}),
+    );
+    expect(escalatedParams?.systemPrompt).toBe(baselineParams?.systemPrompt);
+    expect(escalatedParams?.cwd).toBe(baselineParams?.cwd);
+    expect(escalatedParams?.specialistId).toBe(baselineParams?.specialistId);
+    expect(escalatedParams?.attemptModel).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    });
+    expect(baselineParams?.attemptModel).toBeUndefined();
+  });
+
+  it("keeps the evidence gate authoritative on an escalated attempt", async () => {
+    const cfg = makeTestConfig({
+      piFallbackProvider: "anthropic",
+      piFallbackModel: "claude-sonnet-4",
+    });
+    runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
+    const evidenceLedger = createTestEvidenceLedger();
+
+    await expect(
+      runSpecialist(
+        specialistArgs({
+          cfg,
+          escalation: escalationForAttempt(2, cfg),
+          evidenceLedger,
+          headSha: evidenceLedger.headSha,
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: "empty", specialist: "correctness" });
   });
 
   it("repairs a single-object findings report at the parse seam", async () => {

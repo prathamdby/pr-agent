@@ -28,6 +28,8 @@ const baseTestConfig: Config = {
   piFallbackProvider: "",
   piFallbackModel: "",
   piThinkingCeiling: "high",
+  piProviderRetryMax: 2,
+  piProviderMaxRetryDelayMs: 60_000,
   agentResumeSnapshotKey: "",
   agentResumeSnapshotMarginSeconds: 600,
   agentEventsEnabled: true,

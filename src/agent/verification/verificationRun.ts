@@ -11,6 +11,7 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload } from "../../review/triageSchema.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import {
   buildVerificationRunSetup,
   shouldContinueVerificationRun,
@@ -41,8 +42,10 @@ export async function runVerification(params: {
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
   readonly compareFilesTruncated?: boolean;
   readonly durability?: FeatureSessionDurability;
+  /** Escalation for attempts after the first; undefined leaves the base budget. */
+  readonly escalation?: EscalationPlan;
 }): Promise<VerificationRunResult> {
-  const { cfg, owner, repo, prNumber } = params;
+  const { cfg, owner, repo, prNumber, escalation } = params;
   const providerName = cfg.piProvider;
   const setup = buildVerificationRunSetup(params);
   const session = await createFeaturePiSession({
@@ -53,6 +56,7 @@ export async function runVerification(params: {
     tools: setup.piTools,
     executors: setup.executors,
     durability: params.durability,
+    attemptModel: escalation?.model,
   });
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
@@ -83,7 +87,7 @@ export async function runVerification(params: {
           run: async () => {
             lastText = (
               await session.send(setup.userContent, {
-                maxToolRounds: MAX_TOOL_ROUNDS_VERIFICATION,
+                maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_VERIFICATION, escalation),
                 phase: "verification",
                 checkpointId: "verification:verification",
               })

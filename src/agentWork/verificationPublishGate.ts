@@ -19,5 +19,5 @@ export function verificationHeadFreshness(
 /** Terminal for a run that never examined the live head. */
 export const STALE_VERIFICATION_RESULT = {
   kind: "completed",
-  degraded: true,
+  degradation: ["stale_head"],
 } as const satisfies DurableExecutionResult;

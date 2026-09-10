@@ -27,6 +27,15 @@ export const CI_REFRESH_RETRY_DELAY_SECONDS = 15;
  */
 export const CI_REFRESH_RETRY_ATTEMPT_LIMIT = 120;
 
+/**
+ * Escalated attempts (attempt 2+) multiply their base structured-loop tool-round
+ * budget by this factor, capped so the last attempt stays bounded. Attempt 1 is
+ * unchanged. The cap is 2× today's largest base (32 verification/triage rounds),
+ * so the factor is never truncated for existing callers.
+ */
+export const ESCALATED_TOOL_ROUNDS_MULTIPLIER = 2;
+export const ESCALATED_TOOL_ROUNDS_CAP = 64;
+
 /** Queues whose work types execute under a PR actor lease (see migration 023, ADR 0030). */
 export const LEASED_WORK_QUEUES = [
   REVIEW_QUEUE,

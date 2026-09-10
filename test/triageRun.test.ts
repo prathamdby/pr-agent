@@ -158,6 +158,41 @@ describe("triage run", () => {
     });
   });
 
+  it("escalates tool rounds and attempts on the fallback model", async () => {
+    const send = vi.fn(async (_prompt: string, _opts?: Record<string, unknown>) => ({
+      text: "I am done",
+    }));
+    providerState.createSession.mockImplementation(async () => ({
+      role: "triage",
+      send,
+      abort: vi.fn(async () => undefined),
+      dispose: vi.fn(),
+    }));
+
+    await runFullPrTriage({
+      cfg,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(),
+      inventory,
+      escalation: {
+        attempt: 2,
+        kinds: ["tool_rounds", "fallback_model"],
+        model: { provider: "test", model: "fallback" },
+      },
+    });
+
+    expect(providerState.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptModel: { provider: "test", model: "fallback" } }),
+    );
+    expect(send.mock.calls.length).toBeGreaterThan(0);
+    for (const call of send.mock.calls) {
+      expect(call[1]).toMatchObject({ maxToolRounds: 64 });
+    }
+  });
+
   it("validation-repair can commitFix then resubmit after a failed submitTriage", async () => {
     let submitAttempts = 0;
     const committed: string[] = [];

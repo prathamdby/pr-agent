@@ -3,11 +3,7 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
-import {
-  classifyFailure,
-  classifiedFailureLogFields,
-  classifiedFailurePostHogProperties,
-} from "../../errors/classifiedFailure.js";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
@@ -58,6 +54,7 @@ export async function executeDescriptionJob(
             userSupplement: payload.userSupplement,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
+            escalation: env.escalation,
             shouldAbortPublish: async () =>
               env.signal.aborted ||
               (await shouldSkipWork(pool, item)) ||
@@ -94,18 +91,7 @@ export async function executeDescriptionJob(
               pr: item.prNumber,
               ...classifiedFailureLogFields(failure),
             });
-            captureEvent({
-              distinctId: `installation:${item.installationId}`,
-              event: "description failed",
-              properties: {
-                owner: item.owner,
-                repo: item.repo,
-                pr_number: item.prNumber,
-                source: payload.source,
-                ...classifiedFailurePostHogProperties(failure),
-              },
-            });
-            return { kind: "completed", degraded: true };
+            return { kind: "completed", degradation: ["publish_not_completed"] };
           }
           if (result.published) {
             captureEvent({

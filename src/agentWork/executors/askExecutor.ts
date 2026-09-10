@@ -11,11 +11,7 @@ import {
   askReplyCommentIdFromIntentDetail,
   findExistingAskReplyComment,
 } from "../../agent/ask/recoverAskReply.js";
-import {
-  classifyFailure,
-  classifiedFailureLogFields,
-  classifiedFailurePostHogProperties,
-} from "../../errors/classifiedFailure.js";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { logWarn } from "../../evlog.js";
@@ -327,17 +323,6 @@ async function finalizeAskReplyPublish(params: {
       message: e instanceof Error ? e.message : String(e),
       ...classifiedFailureLogFields(failure),
     });
-    captureEvent({
-      distinctId: `installation:${item.installationId}`,
-      event: "ask failed",
-      properties: {
-        owner: item.owner,
-        repo: item.repo,
-        pr_number: item.prNumber,
-        reply_target_kind: item.payload.replyTarget.kind,
-        ...classifiedFailurePostHogProperties(failure),
-      },
-    });
     return "degraded";
   }
 }
@@ -380,13 +365,13 @@ export async function executeAskJob(
           leaseEpoch: env.leaseEpoch,
         });
         return status === "degraded"
-          ? { kind: "completed", degraded: true }
+          ? { kind: "completed", degradation: ["reply_recovery_degraded"] }
           : { kind: "completed" };
       }
       if (recoveredReply?.kind === "outcome_unknown") {
         // The provider may have accepted the reply, but no exact marker was
         // found. Do not rerun the model or create a fallback reply.
-        return { kind: "completed", degraded: true };
+        return { kind: "completed", degradation: ["reply_outcome_unknown"] };
       }
 
       return withPrRepositoryView(
@@ -524,39 +509,14 @@ export async function executeAskJob(
                 message: e instanceof Error ? e.message : String(e),
                 ...classifiedFailureLogFields(failure),
               });
-              captureEvent({
-                distinctId: `installation:${item.installationId}`,
-                event: "ask failed",
-                properties: {
-                  owner: item.owner,
-                  repo: item.repo,
-                  pr_number: item.prNumber,
-                  reply_target_kind: payload.replyTarget.kind,
-                  ...classifiedFailurePostHogProperties(failure),
-                },
-              });
-              return { kind: "completed", degraded: true };
+              return { kind: "completed", degradation: ["publish_record_failed"] };
             }
           }
           return { kind: "completed" };
         },
       );
     },
-    onTerminalFailure: async (item, prSurface, error) => {
-      const failure = classifyFailure(error ?? new Error("Ask failed after retries"), {
-        phase: "ask",
-      });
-      captureEvent({
-        distinctId: `installation:${item.installationId}`,
-        event: "ask failed",
-        properties: {
-          owner: item.owner,
-          repo: item.repo,
-          pr_number: item.prNumber,
-          reply_target_kind: item.payload.replyTarget.kind,
-          ...classifiedFailurePostHogProperties(failure),
-        },
-      });
+    onTerminalFailure: async (item, prSurface) => {
       if (!prSurface) return;
       if ((await decideAskFailureReply({ cfg, pool, prSurface, item })) === "skip") return;
       const payload = item.payload;

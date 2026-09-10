@@ -3,7 +3,6 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { classifyFallbackEligibility } from "../../agent/runtime/fallbackClassification.js";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
@@ -11,6 +10,7 @@ import {
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
@@ -68,6 +68,8 @@ export type OrchestratedReviewRunParams = ReviewRunParams & {
   readonly gate: ReviewRunGate;
   readonly prTitle: string;
   readonly prBody: string | null;
+  /** Retried-attempt plan from the durable claim; undefined leaves the attempt unchanged. */
+  readonly escalation?: EscalationPlan;
 };
 
 type SendResult =
@@ -357,6 +359,7 @@ export async function runOrchestratedPrReview(
       systemPrompt: orchestratorSystemPrompt,
       tools: allTools,
       executors: allExecutors,
+      attemptModel: params.escalation?.model,
       durability: params.durability,
     });
     const creation = await settleBefore(
@@ -575,53 +578,6 @@ export async function runOrchestratedPrReview(
         message: "Orchestrator send failed twice",
         context: { phase },
       });
-
-    // After primary retry budget, attempt one fallback-model restart when eligible.
-    const primarySession = session;
-    if (primarySession && !sessionRetired) {
-      const fallback = classifyFallbackEligibility(terminalError);
-      if (fallback.eligible) {
-        try {
-          const structuredState = primarySession.getStructuredState();
-          const fallbackSession = await primarySession.restartWithFallback({
-            checkpointId: `${primarySession.role}:${phase}`,
-            structuredState,
-          });
-          session = fallbackSession;
-          const sendPromise = fallbackSession.send(prompt, {
-            ...options,
-            phase,
-            checkpointId: `${fallbackSession.role}:${phase}`,
-          });
-          const send = await settleBefore(
-            sendPromise,
-            Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
-          );
-          if (send.kind === "settled") {
-            recordAgentTurnMetrics(send.value);
-            logInfo("review_orchestrator_fallback_recovered", {
-              phase,
-              reason: fallback.reason,
-            });
-            return { kind: "sent", text: send.value.text };
-          }
-          void sendPromise.catch((fallbackSendError) => {
-            logWarn("review_orchestrator_fallback_send_abandoned", {
-              phase,
-              reason: fallback.reason,
-              settleKind: send.kind,
-              ...errorLogFields(fallbackSendError),
-            });
-          });
-        } catch (fallbackError) {
-          logWarn("review_orchestrator_fallback_failed", {
-            phase,
-            reason: fallback.reason,
-            ...errorLogFields(fallbackError),
-          });
-        }
-      }
-    }
 
     await retireSession();
     const failure = classifyFailure(terminalError, { phase });
@@ -880,7 +836,7 @@ export async function runOrchestratedPrReview(
       const recon = await sendWithRetry(
         "recon",
         [setup.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
-        { maxToolRounds: MAX_TOOL_ROUNDS },
+        { maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, params.escalation) },
       );
       if (recon.kind === "sent") lastText = recon.text;
       else state.judgment = "degraded";
@@ -952,6 +908,7 @@ export async function runOrchestratedPrReview(
           checkoutCoverage: params.workspace.getCoverage(),
           isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
           agentEvents: agentEvents ?? undefined,
+          escalation: params.escalation,
         }),
       );
     }
@@ -982,7 +939,10 @@ export async function runOrchestratedPrReview(
           const ledgerBefore = publishThread.getLedger();
           publishAttempts += 1;
           const judgment = await sendWithRetry("judgment", renderJudgmentTurn(outcome), {
-            maxToolRounds: ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+            maxToolRounds: escalatedToolRounds(
+              ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+              params.escalation,
+            ),
           });
           if (judgment.kind === "failed") {
             await degradeReport(outcome, judgment.error);

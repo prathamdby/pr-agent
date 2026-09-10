@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableExecutionResult } from "../src/agentWork/durableJob.js";
+import { escalationForAttempt, type EscalationPlan } from "../src/agentWork/retryPolicy.js";
 import type { ReviewJobData } from "../src/agentWork/types.js";
 import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
@@ -174,6 +175,7 @@ function mockDurableExecution(
   executionPullRequest: PullRequestForFileList | undefined = source === "slash"
     ? pullRequest
     : undefined,
+  escalation?: EscalationPlan,
 ): CapturedDurableExecution {
   const captured: CapturedDurableExecution = {};
   durableSurfaceBundle = createFakePrSurface(
@@ -197,6 +199,7 @@ function mockDurableExecution(
         startedAt: new Date("2026-01-01T00:00:10.000Z"),
         attemptCount: 1,
       },
+      escalation,
     });
   });
   return captured;
@@ -344,6 +347,31 @@ describe("executeReviewJob", () => {
           threadCallCount: 8,
         },
       }),
+    );
+  });
+
+  it("threads the durable attempt escalation into the review run", async () => {
+    const escalation = escalationForAttempt(
+      2,
+      makeTestConfig({
+        piFallbackProvider: "anthropic",
+        piFallbackModel: "claude-sonnet-4",
+      }),
+    );
+    mockDurableExecution("slash", undefined, escalation);
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ escalation }),
+    );
+  });
+
+  it("passes no escalation plan to the review run on the first attempt", async () => {
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ escalation: undefined }),
     );
   });
 

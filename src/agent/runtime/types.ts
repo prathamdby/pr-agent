@@ -70,7 +70,6 @@ export type PiSessionCreateParams = {
   /** Optional specialist persona; included in OpenAI-style session cache identity. */
   readonly specialistId?: string;
   readonly primary: ModelAssignment;
-  readonly fallback?: ModelAssignment;
   readonly thinkingPolicy: ThinkingPolicy;
   readonly compactionPolicy: CompactionPolicy;
   readonly promptCachePolicy: PromptCachePolicy;
@@ -91,10 +90,6 @@ export type PiSession = {
   readonly send: (prompt: string, opts: PiSessionSendOptions) => Promise<AgentRunnerTurn>;
   readonly abort: () => Promise<void>;
   readonly dispose: () => Promise<void>;
-  readonly restartWithFallback: (params: {
-    readonly checkpointId: string;
-    readonly structuredState: AuthoritativeStructuredState;
-  }) => Promise<PiSession>;
   /** Test/harness access to the latest authoritative structured state. */
   readonly getStructuredState: () => AuthoritativeStructuredState;
   readonly setStructuredState: (state: AuthoritativeStructuredState) => void;

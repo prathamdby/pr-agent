@@ -1,13 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { captureEvent } from "../../analytics/index.js";
 import { AppError } from "../../errors/appError.js";
-import {
-  classifyFailure,
-  classifiedFailureLogFields,
-  classifiedFailurePostHogProperties,
-} from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
@@ -26,7 +20,8 @@ import {
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
-import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
+import { resolveWorkItemHead, runDurableWorkItem, type DegradationReason } from "../durableJob.js";
+import { escalatedVerificationInventory } from "../retryPolicy.js";
 import { type VerificationJobData } from "../types.js";
 import {
   STALE_VERIFICATION_RESULT,
@@ -78,8 +73,15 @@ export async function executeVerificationJob(
       const unresolvedThreads = threads.filter(
         (thread) => resolutionByRootCommentId.get(thread.rootCommentId)?.isResolved !== true,
       );
+      // Canonical oldest-first order, then the escalated subset. Prompt inventory,
+      // submit validation, and publish must all see this exact one value.
+      const orderedThreads = unresolvedThreads.toSorted(
+        (a, b) => a.rootCommentId - b.rootCommentId,
+      );
+      const inventory = escalatedVerificationInventory(orderedThreads, env.escalation);
+      const inventoryNarrowed = inventory.length < orderedThreads.length;
 
-      if (unresolvedThreads.length === 0) {
+      if (inventory.length === 0) {
         logInfo("verification_short_circuit_no_open_findings", {
           type: "verification",
           workItemId: item.id,
@@ -153,9 +155,10 @@ export async function executeVerificationJob(
             prNumber: item.prNumber,
             headSha,
             workspace: view.workspace,
-            inventory: unresolvedThreads,
+            inventory,
             pushedCommits,
             compareFilesTruncated: changedMembershipTruncated,
+            escalation: env.escalation,
             durability: {
               pool,
               workItemId: item.id,
@@ -211,7 +214,7 @@ export async function executeVerificationJob(
         repo: item.repo,
         prNumber: item.prNumber,
         headSha,
-        inventory: unresolvedThreads,
+        inventory,
         resolutionByRootCommentId,
         payload: result.payload,
         changedFilePaths,
@@ -229,30 +232,20 @@ export async function executeVerificationJob(
         leaseEpoch: env.leaseEpoch,
       });
 
-      const degraded = publish.degraded || resolutionDegraded || compareFilesTruncated;
-      if (degraded) {
-        const failure = classifyFailure(new Error("Verification publish degraded"), {
-          phase: "publish",
-        });
+      const degradation = new Set<DegradationReason>(publish.degradation);
+      if (resolutionDegraded) degradation.add("thread_resolution_degraded");
+      if (compareFilesTruncated) degradation.add("compare_files_truncated");
+      if (inventoryNarrowed) degradation.add("inventory_narrowed");
+      const reasons = [...degradation];
+      if (reasons.length > 0) {
         logWarn("verification_publish_degraded", {
           owner: item.owner,
           repo: item.repo,
           pr: item.prNumber,
           resolutionStatus: resolutionResult.status,
-          ...classifiedFailureLogFields(failure),
+          degradation: reasons,
         });
-        captureEvent({
-          distinctId: `installation:${item.installationId}`,
-          event: "verification failed",
-          properties: {
-            owner: item.owner,
-            repo: item.repo,
-            pr_number: item.prNumber,
-            resolution_status: resolutionResult.status,
-            ...classifiedFailurePostHogProperties(failure),
-          },
-        });
-        return { kind: "completed", degraded: true };
+        return { kind: "completed", degradation: reasons };
       }
       return { kind: "completed" };
     },

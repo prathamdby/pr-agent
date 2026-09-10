@@ -22,6 +22,7 @@ import {
   type AgentLifecycleEvent,
   type AgentSessionRole,
   type AuthoritativeStructuredState,
+  type ModelAssignment,
   type PiSession,
   type PiSessionSendOptions,
 } from "./types.js";
@@ -47,15 +48,12 @@ async function resolveInitialStructuredState(params: {
 
 function attachCodeModeAbort(session: PiSession, codeModeAbort: AbortController): PiSession {
   const originalAbort = session.abort.bind(session);
-  const originalRestart = session.restartWithFallback.bind(session);
   return {
     ...session,
     abort: async () => {
       codeModeAbort.abort();
       await originalAbort();
     },
-    restartWithFallback: async (params) =>
-      attachCodeModeAbort(await originalRestart(params), codeModeAbort),
   };
 }
 
@@ -65,7 +63,6 @@ function wrapSessionWithDurability(
   durability: FeatureSessionDurability,
 ): PiSession {
   const originalSend = session.send.bind(session);
-  const originalRestart = session.restartWithFallback.bind(session);
   return {
     ...session,
     send: async (prompt: string, opts: PiSessionSendOptions) => {
@@ -102,10 +99,6 @@ function wrapSessionWithDurability(
       }
       return result;
     },
-    restartWithFallback: async (params) => {
-      const replacement = await originalRestart(params);
-      return wrapSessionWithDurability(replacement, cfg, durability);
-    },
   };
 }
 
@@ -121,9 +114,11 @@ export async function createFeaturePiSession(params: {
   readonly eventSink?: (event: AgentLifecycleEvent) => void;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
+  /** Model this durable attempt runs on; defaults to the role policy when omitted. */
+  readonly attemptModel?: ModelAssignment;
 }): Promise<PiSession> {
   const policy = resolveModelPolicy(params.cfg);
-  const primary = modelAssignmentForRole(policy, params.role);
+  const primary = params.attemptModel ?? modelAssignmentForRole(policy, params.role);
   const structuredState = await resolveInitialStructuredState(params);
   const agentEventsContext = resolveAgentEventsContext(params.cfg, params.durability);
   const durableEventSink = agentEventsContext
@@ -156,7 +151,6 @@ export async function createFeaturePiSession(params: {
     role: params.role,
     ...(params.specialistId ? { specialistId: params.specialistId } : {}),
     primary,
-    fallback: policy.fallback,
     thinkingPolicy: thinkingPolicyFromCeiling(params.cfg.piThinkingCeiling),
     compactionPolicy: compactionPolicyForRole(params.role),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,

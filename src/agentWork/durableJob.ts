@@ -55,10 +55,13 @@ import {
   type PrSurfaceMutationBoundary,
 } from "../github/prSurface.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
+import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
 import {
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
-  isStaleHeadReplacementExhausted,
-} from "./reviewReschedule.js";
+  escalationForAttempt,
+  retryDispositionFor,
+  type EscalationPlan,
+  type RetryDisposition,
+} from "./retryPolicy.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { installationGroupId, isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
@@ -76,6 +79,8 @@ export type DurableExecutionContext = {
   signal: AbortSignal;
   /** Durable claim timestamps and attempt count from the claim write. */
   claim?: WorkClaim;
+  /** Deterministic escalation for this attempt; undefined on attempt 1. */
+  escalation?: EscalationPlan;
 };
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
@@ -181,18 +186,34 @@ function getCachedBotIdentity(cfg: Config): Promise<BotIdentity> {
   return botIdentityCache;
 }
 
-/** Failures that must terminalise on first throw (no pg-boss / durable retry budget). */
-function isNonRetryableDurableFailure(error: unknown): boolean {
-  return isStaleHeadReplacementExhausted(error);
-}
+/** Reasons an executor completed with reduced output; persisted and reported, never fatal. */
+export type DegradationReason =
+  // verification
+  | "thread_resolution_degraded"
+  | "compare_files_truncated"
+  | "verdict_mapping_incomplete"
+  | "inventory_narrowed"
+  | "stale_head"
+  // ask
+  | "reply_recovery_degraded"
+  | "reply_outcome_unknown"
+  | "publish_record_failed"
+  // description
+  | "publish_not_completed"
+  // triage
+  | "push_stale"
+  | "push_closed"
+  | "thread_action_missing"
+  | "bulk_partial"
+  | "replay_commit_errors";
 
 /**
  * Executor-visible outcome. Completion-state interpretation stays in this module:
- * `kind` is the only branch the runtime may switch on. Invalid mixes (degraded +
+ * `kind` is the only branch the runtime may switch on. Invalid mixes (degradation +
  * rescheduled, or reschedule without replacement coordination) are unrepresentable.
  */
 export type DurableExecutionResult =
-  | { readonly kind: "completed"; readonly degraded?: boolean }
+  | { readonly kind: "completed"; readonly degradation?: readonly DegradationReason[] }
   | {
       readonly kind: "rescheduled";
       readonly replacementWorkItemId: string;
@@ -612,6 +633,7 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     async function prepareDurableExecution(
       installationToken: InstallationToken,
+      claim: WorkClaim,
     ): Promise<DurableExecutionContext | undefined> {
       if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
         await markCancelledAndInvokeHook(item, "bot_commenter", leaseEpoch, installationToken);
@@ -640,7 +662,8 @@ export async function runDurableWorkItem<T extends WorkType>(
           pullRequest: resolvedHead.pullRequest,
           leaseEpoch,
           signal: executionSignal,
-          claim: workClaim,
+          claim,
+          escalation: escalationForAttempt(claim.attemptCount, spec.cfg),
         };
       }
 
@@ -717,17 +740,33 @@ export async function runDurableWorkItem<T extends WorkType>(
           // Replacement enqueue before skip: execute may already have transferred progress ownership.
           await completeRescheduledResult(result);
           return;
-        case "completed":
+        case "completed": {
           if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
-          if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id, leaseEpoch);
+          const degradation = result.degradation ?? [];
+          if (degradation.length) await markWorkPublishDegraded(spec.pool, item.id, leaseEpoch);
           if (!(await markWorkCompleted(spec.pool, item.id, leaseEpoch))) {
             await recheckSkippableAndCancel("completion_race", false);
             return;
+          }
+          if (degradation.length) {
+            captureEvent({
+              distinctId: `installation:${item.installationId}`,
+              event: "work item degraded",
+              properties: {
+                type: spec.type,
+                owner: item.owner,
+                repo: item.repo,
+                pr_number: item.prNumber,
+                attempt_count: workClaim?.attemptCount ?? item.attemptCount,
+                degradation_reasons: degradation,
+              },
+            });
           }
           await clearResumeSnapshotsBestEffort(spec.pool, item.id);
           logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
           await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
           return;
+        }
         default: {
           const exhaustive: never = result;
           return exhaustive;
@@ -735,7 +774,12 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
     }
 
-    async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
+    async function markRetryingOrCancel(
+      error: unknown,
+      message: string,
+      disposition: RetryDisposition,
+      attemptCount: number,
+    ): Promise<void> {
       if (await markWorkRetrying(spec.pool, item.id, error, leaseEpoch)) {
         const failure = classifyFailure(error);
         logWarn("agent_work_retrying", {
@@ -747,6 +791,24 @@ export async function runDurableWorkItem<T extends WorkType>(
           pgBossRetryLimit: spec.job.retryLimit,
           dbAttemptCount: item.attemptCount,
           ...classifiedFailureLogFields(failure),
+        });
+        // The next delivery re-reads the row; report the plan it will carry so escalation
+        // rate is observable without reading transcripts.
+        const nextEscalation = escalationForAttempt(attemptCount + 1, spec.cfg);
+        captureEvent({
+          distinctId: `installation:${item.installationId}`,
+          event: "work item retried",
+          properties: {
+            type: spec.type,
+            owner: item.owner,
+            repo: item.repo,
+            pr_number: item.prNumber,
+            attempt_count: attemptCount,
+            next_attempt: attemptCount + 1,
+            retry_disposition: disposition,
+            escalation_kinds: nextEscalation?.kinds ?? [],
+            ...classifiedFailurePostHogProperties(failure),
+          },
         });
         throw error;
       }
@@ -794,9 +856,17 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
       if (await recheckSkippableAndCancel("skipped_after_error")) return;
       const message = error instanceof Error ? error.message : String(error);
-      // Permanent product failures skip the pg-boss retry budget and fail on first throw.
-      if (!isNonRetryableDurableFailure(error) && !(spec.job.retryCount >= spec.job.retryLimit)) {
-        await markRetryingOrCancel(error, message);
+      const disposition = retryDispositionFor(error);
+      const attemptCount = workClaim?.attemptCount ?? item.attemptCount;
+      const pgBossBudgetRemains = spec.job.retryCount < spec.job.retryLimit;
+      // Deterministic failures get exactly one escalated replay: after that attempt the
+      // work item is terminal even when pg-boss still has budget.
+      const mayRetry =
+        disposition === "transient"
+          ? pgBossBudgetRemains
+          : disposition === "deterministic" && attemptCount === 1 && pgBossBudgetRemains;
+      if (mayRetry) {
+        await markRetryingOrCancel(error, message, disposition, attemptCount);
         return;
       }
 
@@ -821,6 +891,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           pr_number: item.prNumber,
           message: sanitizeLogMessage(message),
           providerErrorKind,
+          retryDisposition: disposition,
           pgBossRetryCount: spec.job.retryCount,
           pgBossRetryLimit: spec.job.retryLimit,
           dbAttemptCount: item.attemptCount,
@@ -838,6 +909,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           repo: item.repo,
           pr_number: item.prNumber,
           attempt_count: item.attemptCount,
+          retry_disposition: disposition,
           ...classifiedFailurePostHogProperties(failure),
           ...(failure.failureDomain === "provider"
             ? { provider_error_kind: providerErrorKind }
@@ -861,7 +933,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         return;
       }
       seededInstallation = await mintInstallationToken(spec.cfg, item.installationId);
-      const execution = await prepareDurableExecution(seededInstallation);
+      const execution = await prepareDurableExecution(seededInstallation, claimed);
       if (!execution) return;
 
       logInfo("agent_work_started", {

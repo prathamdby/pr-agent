@@ -35,6 +35,8 @@ describe("settings inventory", () => {
     expect(envValues).toContain("PI_FALLBACK_PROVIDER");
     expect(envValues).toContain("PI_FALLBACK_MODEL");
     expect(envValues).toContain("PI_THINKING_CEILING");
+    expect(envValues).toContain("PI_PROVIDER_RETRY_MAX");
+    expect(envValues).toContain("PI_PROVIDER_MAX_RETRY_DELAY_MS");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_KEY");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS");
     expect(envValues).toContain("AGENT_EVENTS_ENABLED");
@@ -45,7 +47,7 @@ describe("settings inventory", () => {
     expect(envValues).toContain("CODE_INDEX_MODE");
     expect(envValues).toContain("CODE_INDEX_WAIT_MS");
     expect(envValues).toContain("CODE_INDEX_RETENTION_SECONDS");
-    expect(envValues.length).toBe(76);
+    expect(envValues.length).toBe(78);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

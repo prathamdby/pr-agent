@@ -12,6 +12,7 @@ import type { TriagePayload } from "../../review/triageSchema.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
+import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.js";
 import {
   TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
@@ -50,6 +51,7 @@ export async function runFullPrTriage(params: {
   readonly scope?: TriageScope;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
+  readonly escalation?: EscalationPlan;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.piProvider;
@@ -63,11 +65,12 @@ export async function runFullPrTriage(params: {
     executors: setup.executors,
     refreshBeforeTool: params.refreshBeforeTool,
     durability: params.durability,
+    attemptModel: params.escalation?.model,
   });
   let lastText = "";
   const sendFinalizeRound = async (prompt: string): Promise<string> =>
     runSubmitOnlyRound(session, prompt, {
-      maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
+      maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_TRIAGE, params.escalation),
     });
 
   const runValidationRepair = async () => {
@@ -100,7 +103,7 @@ export async function runFullPrTriage(params: {
           run: async () => {
             lastText = (
               await session.send(setup.userContent, {
-                maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
+                maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_TRIAGE, params.escalation),
                 phase: "triage",
                 checkpointId: "triage:triage",
               })

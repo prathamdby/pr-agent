@@ -170,6 +170,15 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       compaction: {
         enabled: params.compactionPolicy.enabled,
       },
+      retry: {
+        // Pins the SDK's turn-level retry default; the count knob governs only
+        // provider transport retries (retry.provider.maxRetries), not this flag.
+        enabled: true,
+        provider: {
+          maxRetries: params.cfg.piProviderRetryMax,
+          maxRetryDelayMs: params.cfg.piProviderMaxRetryDelayMs,
+        },
+      },
     });
     const resourceLoader = new DefaultResourceLoader({
       cwd: params.cwd ?? process.cwd(),
@@ -402,21 +411,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         } finally {
           await rm(agentDir, { recursive: true, force: true });
         }
-      },
-      async restartWithFallback(restartParams) {
-        if (!params.fallback) {
-          throw new AppError({
-            code: "runtime.fallback_unavailable",
-            message: "No fallback model assignment configured for this session",
-            context: { role: params.role },
-          });
-        }
-        await piSession.dispose();
-        return createPiSessionImpl({
-          ...params,
-          primary: params.fallback,
-          structuredState: restartParams.structuredState,
-        });
       },
       getStructuredState: () => structuredState,
       setStructuredState(state) {

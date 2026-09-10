@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
+import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
 import type { TriageJobData } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
@@ -112,13 +113,17 @@ function job(): JobWithMetadata<TriageJobData> {
   } as JobWithMetadata<TriageJobData>;
 }
 
-function mockDurableExecution(workItem = item()): void {
+function mockDurableExecution(
+  workItem = item(),
+  executionEnv: { escalation?: EscalationPlan } = {},
+): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) =>
     spec.execute(workItem, {
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       leaseEpoch: 1,
       signal: new AbortController().signal,
+      ...executionEnv,
     }),
   );
 }
@@ -261,10 +266,13 @@ describe("executeTriageJob", () => {
   });
 
   it("runs triage and publishes", async () => {
+    const escalation = { attempt: 2, kinds: ["tool_rounds"] } as const;
+    mockDurableExecution(item(), { escalation });
+
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).toHaveBeenCalledWith(expect.objectContaining({ escalation }));
     expect(mocks.publishTriage).toHaveBeenCalled();
   });
 
@@ -335,7 +343,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, publishPool, boss, job());
 
-    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).not.toHaveBeenCalled();
     const progress = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(progress?.body).toContain("Triage was cancelled because the pull request is closed");
@@ -419,7 +427,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, publishPool, boss, job());
 
-    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(
@@ -1100,7 +1108,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_stale"] });
     expect(mocks.publishTriage).toHaveBeenCalled();
   });
 
@@ -1121,7 +1129,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(executeResult).toEqual({ kind: "completed", degraded: true });
+    expect(executeResult).toEqual({ kind: "completed", degradation: ["thread_action_missing"] });
     await expect(mocks.publishTriage.mock.results[0]?.value).resolves.toEqual({
       pushOutcome: "pushed",
       missingThreadAction: true,

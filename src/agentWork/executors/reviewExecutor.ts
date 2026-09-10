@@ -96,6 +96,7 @@ import {
   type StaleReviewRescheduleResult,
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
+import type { EscalationPlan } from "../retryPolicy.js";
 import {
   resolveWorkItemHead,
   runDurableWorkItem,
@@ -569,10 +570,10 @@ async function handleReviewPublishResult(args: {
   } else {
     args.profile.record({ outcome, publishAttempts: result.publishAttempts });
   }
-  return {
-    kind: "completed",
-    degraded: !result.published && !result.publishSuperseded,
-  };
+  if (result.published || result.publishSuperseded) {
+    return { kind: "completed" };
+  }
+  return { kind: "completed", degradation: ["publish_not_completed"] };
 }
 
 async function runFullReviewAgainstRepositoryView(args: {
@@ -596,6 +597,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
   readonly profile: ReviewProfileSession;
+  readonly escalation?: EscalationPlan;
 }): Promise<ReviewExecutionResult> {
   const {
     cfg,
@@ -617,6 +619,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     leaseEpoch,
     signal,
     profile,
+    escalation,
   } = args;
   const {
     publishState,
@@ -788,6 +791,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       repo: item.repo,
       prNumber: item.prNumber,
     },
+    escalation,
   });
 
   if (staleHeadAtPublish.value) {
@@ -971,6 +975,7 @@ async function runClaimedReview(args: {
           leaseEpoch: env.leaseEpoch,
           signal: env.signal,
           profile,
+          escalation: env.escalation,
         }),
     ),
   );

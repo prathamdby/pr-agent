@@ -32,6 +32,8 @@ describe("loadConfig validation", () => {
     expect(cfg.port).toBe(3000);
     expect(cfg.providerPromptTimeoutMs).toBe(300_000);
     expect(cfg.reviewSpecialistTimeoutMs).toBe(900_000);
+    expect(cfg.piProviderRetryMax).toBe(2);
+    expect(cfg.piProviderMaxRetryDelayMs).toBe(60_000);
     expect(cfg.queueRetryLimit).toBe(3);
     expect(cfg.queueHeartbeatSeconds).toBe(60);
     expect(cfg.shutdownDrainTimeoutSeconds).toBe(25);
@@ -51,6 +53,41 @@ describe("loadConfig validation", () => {
   it("rejects a non-numeric positive knob", async () => {
     await expect(load({ PROVIDER_PROMPT_TIMEOUT_MS: "abc" })).rejects.toThrow(
       /PROVIDER_PROMPT_TIMEOUT_MS must be a positive number/,
+    );
+  });
+
+  it("rejects a non-integer provider retry count", async () => {
+    await expect(load({ PI_PROVIDER_RETRY_MAX: "1.5" })).rejects.toThrow(
+      /PI_PROVIDER_RETRY_MAX must be zero or a non-negative integer/,
+    );
+  });
+
+  it("allows zero to disable provider transport retry", async () => {
+    const cfg = await load({ PI_PROVIDER_RETRY_MAX: "0" });
+    expect(cfg.piProviderRetryMax).toBe(0);
+  });
+
+  it("rejects a provider retry delay cap at or above the inactivity cap", async () => {
+    await expect(
+      load({
+        PI_PROVIDER_MAX_RETRY_DELAY_MS: "300000",
+        PROVIDER_PROMPT_TIMEOUT_MS: "300000",
+      }),
+    ).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("config.invalid_number");
+      expect((error as AppError).message).toContain(
+        "PI_PROVIDER_MAX_RETRY_DELAY_MS must be less than PROVIDER_PROMPT_TIMEOUT_MS",
+      );
+      return true;
+    });
+    await expect(
+      load({
+        PI_PROVIDER_MAX_RETRY_DELAY_MS: "310000",
+        PROVIDER_PROMPT_TIMEOUT_MS: "300000",
+      }),
+    ).rejects.toThrow(
+      /PI_PROVIDER_MAX_RETRY_DELAY_MS must be less than PROVIDER_PROMPT_TIMEOUT_MS/,
     );
   });
 
