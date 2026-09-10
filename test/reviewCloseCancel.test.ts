@@ -69,6 +69,7 @@ describe("cancelActiveReviews (PR close)", () => {
           ],
         };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected sql: ${sql}`);
     });
     const client = { query } as unknown as PoolClient;
@@ -76,7 +77,7 @@ describe("cancelActiveReviews (PR close)", () => {
     const cancelled = await cancelActiveReviews(client, "acme/app#7", mergedAttribution);
 
     expect(cancelled.map((row) => row.id)).toEqual(["running-1", "queued-auto", "queued-slash"]);
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenCalledTimes(3);
     const queuedSql = String(query.mock.calls[0]?.[0]);
     const runningSql = String(query.mock.calls[1]?.[0]);
     expect(queuedSql).toContain("type = 'review'");
@@ -92,6 +93,11 @@ describe("cancelActiveReviews (PR close)", () => {
       "acme/app#7",
       "Pull request merged",
       mergedPatch,
+    ]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("pr_actor_leases"), [
+      "acme/app#7",
+      "review",
+      ["running-1", "queued-auto", "queued-slash"],
     ]);
   });
 
@@ -112,6 +118,7 @@ describe("cancelActiveReviews (PR close)", () => {
       if (sql.includes("status = 'running'")) {
         return { rows: [] };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected sql: ${sql}`);
     });
     const client = { query } as unknown as PoolClient;
@@ -123,6 +130,11 @@ describe("cancelActiveReviews (PR close)", () => {
       "acme/app#7",
       "Pull request closed",
       closedPatch,
+    ]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("pr_actor_leases"), [
+      "acme/app#7",
+      "review",
+      ["queued-auto"],
     ]);
   });
 });
@@ -229,6 +241,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
           ],
         };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
     const send = vi.fn(async () => "ack-job");
@@ -297,6 +310,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("status = 'running'")) {
         return { rows: [] };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
     const send = vi.fn(async () => "ack-job");
@@ -372,6 +386,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         };
       }
       if (sql.includes("type = 'triage'")) return { rows: [] };
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
     const send = vi.fn(async () => "ack-job");
@@ -481,6 +496,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
           ],
         };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
     const send = vi.fn(async () => "ack-job");
@@ -534,6 +550,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [] };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
     const boss = { send: vi.fn() } as unknown as PgBoss;
@@ -583,6 +600,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("status = 'queued'") || sql.includes("status = 'running'")) {
         return { rows: [] };
       }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
     const boss = { send: vi.fn() } as unknown as PgBoss;
