@@ -5,6 +5,7 @@ import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import type {
+  AcceptedPlacement,
   FindingLedger,
   ReviewCoverage,
   SpecialistId,
@@ -128,9 +129,12 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
 
 vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
   buildPublishThreadTool: vi.fn(
-    (params: { resolveProgressCommentUrl: () => Promise<string | undefined> }) => {
+    (params: {
+      resolveProgressCommentUrl: () => Promise<string | undefined>;
+      initialLedger?: FindingLedger;
+    }) => {
       testState.progressUrlResolvers.push(params.resolveProgressCommentUrl);
-      testState.ledger = createFindingLedger();
+      testState.ledger = params.initialLedger ?? createFindingLedger();
       return {
         piTool: { name: "publish_thread", description: "publish", parameters: {} },
         executor: vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
@@ -291,7 +295,7 @@ function defaultSubmittedBrief() {
   };
 }
 
-function finding(specialist: SpecialistId): ReviewFinding {
+function finding(specialist: SpecialistId, extras: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
     severity: "P2",
     file: `src/${specialist}.ts`,
@@ -299,7 +303,28 @@ function finding(specialist: SpecialistId): ReviewFinding {
     endLine: 1,
     title: `${specialist} finding`,
     detail: `The ${specialist} path is incorrect.`,
+    ...extras,
   };
+}
+
+function acceptedPlacement(
+  kind: AcceptedPlacement["kind"],
+  source: AcceptedPlacement["source"],
+  item: ReviewFinding,
+): AcceptedPlacement {
+  const base = {
+    source,
+    placement: {
+      finding: item,
+      inlineLine: kind === "summary_only" ? null : item.startLine,
+      inlinePosted: kind !== "summary_only",
+    },
+    canonicalFingerprint: `${source}:${item.file}:${item.startLine}`,
+  } as const;
+  if (kind === "summary_only") {
+    return { kind, ...base, reason: "historical" };
+  }
+  return { kind, ...base, reviewId: kind === "posted" ? 11 : 22 };
 }
 
 function report(specialist: SpecialistId): SpecialistOutcome {
@@ -752,8 +777,90 @@ describe("runOrchestratedPrReview", () => {
         modelTurnCount: 6,
         threadBatches: 4,
         findingsCount: 4,
-        submitCallCount: 4,
+        submitCallCount: 12,
         severities: ["P2", "P2", "P2", "P2"],
+      });
+    });
+  });
+
+  it("counts mixed posted, resumed, and new inline findings and omits summary-only", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+
+    const posted = finding("correctness", {
+      file: "src/posted.ts",
+      startLine: 10,
+      endLine: 10,
+      severity: "P1",
+    });
+    const resumed = finding("security", {
+      file: "src/resumed.ts",
+      startLine: 20,
+      endLine: 20,
+      severity: "P0",
+    });
+    const summaryA = finding("quality", {
+      file: "src/summary-a.ts",
+      startLine: 30,
+      endLine: 30,
+    });
+    const summaryB = finding("tests", {
+      file: "src/summary-b.ts",
+      startLine: 40,
+      endLine: 40,
+      severity: "P1",
+    });
+    const published = finding("quality", {
+      file: "src/new.ts",
+      startLine: 1,
+      endLine: 1,
+      severity: "P2",
+    });
+    testState.judgmentBySource.set("quality", [published]);
+
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      const run = runOrchestratedPrReview({
+        ...params(),
+        resumedPlacements: [
+          acceptedPlacement("posted", "correctness", posted),
+          acceptedPlacement("resumed", "security", resumed),
+          acceptedPlacement("summary_only", "quality", summaryA),
+          acceptedPlacement("summary_only", "tests", summaryB),
+        ],
+      });
+      testState.outcomes.get("quality")?.resolve(report("quality"));
+      for (const specialist of ["correctness", "security", "tests"] as const) {
+        testState.outcomes.get(specialist)?.resolve(empty(specialist));
+      }
+      await run;
+
+      expect(snapshotReviewRunMetrics()).toMatchObject({
+        findingsCount: 3,
+        severities: ["P1", "P0", "P2"],
+      });
+    });
+  });
+
+  it("adds new thread publishes onto a resumed submit call count", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      const run = runOrchestratedPrReview({
+        ...params(),
+        initialPublishState: { threadCallCount: 8 },
+      });
+      for (const specialist of ["correctness", "security"] as const) {
+        testState.judgmentBySource.set(specialist, [finding(specialist)]);
+        testState.outcomes.get(specialist)?.resolve(report(specialist));
+        await vi.waitFor(() => expect(testState.publishOrder).toContain(specialist));
+      }
+      for (const specialist of ["quality", "tests"] as const) {
+        testState.outcomes.get(specialist)?.resolve(empty(specialist));
+      }
+      await run;
+
+      expect(snapshotReviewRunMetrics()).toMatchObject({
+        submitCallCount: 10,
+        threadBatches: 2,
       });
     });
   });
