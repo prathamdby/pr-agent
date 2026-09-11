@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { AppError } from "../src/errors/appError.js";
 import { classifyProviderError } from "../src/agent/providers/providerErrors.js";
+import { CodeModeHostHalt } from "../src/agent/codemode/hostHalt.js";
 
 describe("classifyProviderError", () => {
   it("classifies auth failures", () => {
@@ -34,6 +36,26 @@ describe("classifyProviderError", () => {
 
   it("classifies timeouts", () => {
     expect(classifyProviderError(new Error("request timed out"))).toBe("timeout");
+  });
+
+  it("classifies host-signal abort as cancelled, not timeout", () => {
+    expect(
+      classifyProviderError(
+        new AppError({ code: "agent.session_aborted", message: "Session aborted" }),
+      ),
+    ).toBe("cancelled");
+    expect(
+      classifyProviderError(
+        new AppError({
+          code: "review.specialist_aborted",
+          message: "Specialist run aborted by external signal",
+        }),
+      ),
+    ).toBe("cancelled");
+    expect(classifyProviderError(new CodeModeHostHalt("CANCELLED", "cancelled"))).toBe("cancelled");
+    expect(
+      classifyProviderError(new CodeModeHostHalt("TIMEOUT", "Code Mode exceeded 15000ms")),
+    ).toBe("timeout");
   });
 
   it("returns unknown for unclassified errors", () => {

@@ -5,7 +5,7 @@ import {
   CODE_MODE_EXECUTOR_QUEUE_WAIT_MS,
   resolveCodeModeExecutorKind,
 } from "../../settings/index.js";
-import { CodeModeHostHalt, encodeHostCallFailure } from "../codemode/hostHalt.js";
+import { CodeModeHostHalt, encodeHostCallFailure, hostCancelHalt } from "../codemode/hostHalt.js";
 import { runQuickJsCell, type QuickJsCellParams, type QuickJsCellResult } from "./quickjsCell.js";
 
 type Waiter = {
@@ -87,7 +87,7 @@ async function runInWorker(params: QuickJsCellParams): Promise<QuickJsCellResult
   };
   const onAbort = () => {
     postToWorker(worker, { type: "abort", executionId: params.executionId });
-    fail(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
+    fail(hostCancelHalt());
   };
   worker.on("message", (message: WorkerMessage) => {
     if (message.type === "hostCall") {
@@ -161,7 +161,7 @@ type WorkerMessage =
 
 export async function acquireExecutor(signal: AbortSignal): Promise<ExecutorLease> {
   if (signal.aborted) {
-    throw new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal");
+    throw hostCancelHalt();
   }
   if (active < CODE_MODE_EXECUTOR_POOL_SIZE) {
     active += 1;
@@ -182,7 +182,7 @@ export async function acquireExecutor(signal: AbortSignal): Promise<ExecutorLeas
       const index = waiters.indexOf(waiter);
       if (index >= 0) waiters.splice(index, 1);
       clearTimeout(timer);
-      reject(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
+      reject(hostCancelHalt());
     };
     signal.addEventListener("abort", onAbort, { once: true });
     const originalResolve = waiter.resolve;

@@ -350,7 +350,7 @@ describe("Code Mode", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe("TIMEOUT");
+      expect(result.error.code).toBe("CANCELLED");
     }
   });
 

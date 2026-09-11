@@ -7,7 +7,7 @@ import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { combineAbortSignals } from "../providers/abortSignals.js";
 import { createCodeModeCapabilityBridge } from "./capabilities.js";
-import { isCodeModeHostHalt } from "./hostHalt.js";
+import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "./hostHalt.js";
 import type { CodeModeResult } from "./result.js";
 import { boundJsonValue, toGuestCapabilityResult } from "../execution/marshal.js";
 import { utf8ByteLength } from "../execution/json.js";
@@ -33,8 +33,11 @@ export function executionOutcomeFromResult(
     return { outcome: "success", terminationReason: "success" };
   }
   const code = result.error.code;
+  if (code === "CANCELLED") {
+    return { outcome: "cancelled", errorCode: "cancelled", terminationReason: "host_cancel" };
+  }
   if (code === "TIMEOUT" && hostAborted) {
-    return { outcome: "cancelled", errorCode: "timeout", terminationReason: "host_cancel" };
+    return { outcome: "cancelled", errorCode: "cancelled", terminationReason: "host_cancel" };
   }
   if (code === "TIMEOUT") {
     return { outcome: "budget", errorCode: "timeout", terminationReason: "timeout" };
@@ -155,7 +158,7 @@ export async function runCodeModeScript(params: {
     session.invalidate();
     return finish({
       ok: false,
-      error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+      error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
       toolCalls: [],
     });
   }
@@ -185,7 +188,7 @@ export async function runCodeModeScript(params: {
         isCurrent: () => session.generation === generation && session.admissionOpen,
         hostCall: async (name, args) => {
           if (!session.admissionOpen || session.generation !== generation) {
-            throw new Error("Code Mode cancelled by host signal");
+            throw new Error(CODE_MODE_HOST_CANCEL_MESSAGE);
           }
           return bridge.invoke(name, args);
         },
@@ -195,7 +198,7 @@ export async function runCodeModeScript(params: {
         if (hostAborted()) {
           return finish({
             ok: false,
-            error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+            error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
             toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
           });
         }
@@ -210,7 +213,7 @@ export async function runCodeModeScript(params: {
         if (hostAborted()) {
           return finish({
             ok: false,
-            error: { code: "TIMEOUT", message: "Code Mode cancelled by host signal" },
+            error: { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE },
             toolCalls: toolCalls.map(({ tool, status }) => ({ tool, status })),
           });
         }
@@ -246,12 +249,12 @@ export async function runCodeModeScript(params: {
     if (signal.aborted) {
       return finish({
         ok: false,
-        error: {
-          code: "TIMEOUT",
-          message: hostAborted()
-            ? "Code Mode cancelled by host signal"
-            : `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`,
-        },
+        error: hostAborted()
+          ? { code: "CANCELLED", message: CODE_MODE_HOST_CANCEL_MESSAGE }
+          : {
+              code: "TIMEOUT",
+              message: `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`,
+            },
         toolCalls,
       });
     }

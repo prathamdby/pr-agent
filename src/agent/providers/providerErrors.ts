@@ -1,7 +1,38 @@
-export type ProviderErrorKind = "auth" | "quota" | "billing" | "rate_limit" | "timeout" | "unknown";
+import { isAppError } from "../../errors/appError.js";
+
+export type ProviderErrorKind =
+  | "auth"
+  | "quota"
+  | "billing"
+  | "rate_limit"
+  | "timeout"
+  | "cancelled"
+  | "unknown";
+
+const CANCEL_ABORT_CODES = new Set(["agent.session_aborted", "review.specialist_aborted"]);
+
+/** Host-signal or session abort. Not a provider timeout and not retryable. */
+export function isCancelAbortError(error: unknown): boolean {
+  if (isAppError(error) && CANCEL_ABORT_CODES.has(error.code)) return true;
+  return (
+    error instanceof Error &&
+    error.name === "CodeModeHostHalt" &&
+    "code" in error &&
+    (error as { code: unknown }).code === "CANCELLED"
+  );
+}
 
 /** Logs-only classification for worker/provider failures. */
 export function classifyProviderError(error: unknown): ProviderErrorKind {
+  if (isCancelAbortError(error)) return "cancelled";
+  if (
+    error instanceof Error &&
+    error.name === "CodeModeHostHalt" &&
+    "code" in error &&
+    (error as { code: unknown }).code === "TIMEOUT"
+  ) {
+    return "timeout";
+  }
   const text =
     error instanceof Error
       ? `${error.name} ${error.message}`.toLowerCase()
