@@ -453,6 +453,9 @@ export function setReviewRunMetricFields(
       | "specialistOutcomes"
       | "threadBatches"
       | "briefFallback"
+      | "findingsCount"
+      | "submitCallCount"
+      | "severities"
     >
   >,
 ): void {
@@ -466,6 +469,9 @@ export function setReviewRunMetricFields(
   }
   if (fields.threadBatches !== undefined) metrics.threadBatches = fields.threadBatches;
   if (fields.briefFallback !== undefined) metrics.briefFallback = fields.briefFallback;
+  if (fields.findingsCount !== undefined) metrics.findingsCount = fields.findingsCount;
+  if (fields.submitCallCount !== undefined) metrics.submitCallCount = fields.submitCallCount;
+  if (fields.severities !== undefined) metrics.severities = [...fields.severities];
 }
 
 export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {

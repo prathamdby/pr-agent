@@ -741,6 +741,7 @@ describe("runOrchestratedPrReview", () => {
         initialPublishState: { threadCallCount: 8 },
       });
       for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+        testState.judgmentBySource.set(specialist, [finding(specialist)]);
         testState.outcomes.get(specialist)?.resolve(report(specialist));
         await vi.waitFor(() => expect(testState.publishOrder).toContain(specialist));
       }
