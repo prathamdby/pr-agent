@@ -1,5 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import type { Config } from "../../config.js";
+import {
+  captureWorkSpan,
+  llmSpanFromSession,
+  publishSpanFromContext,
+  projectWorkSpanToAgentEventRow,
+  type WorkSpan,
+} from "../../analytics/workSpan.js";
 import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.js";
 import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.js";
 import type { AgentAuditRecord } from "./agentAudit.js";
@@ -180,7 +187,36 @@ export function createDurableLifecycleEventSink(
     const record = agentAuditRecordFromLifecycleEvent(event);
     const row = lifecycleAuditToInsertRow(context, record, event.role);
     safeAppendAgentEvents(context.pool, cfg, [row]);
+    if (event.kind !== "completion" && event.kind !== "failure") return;
+    if (event.phase == null) return;
+    if (event.durationMs == null) return;
+    emitWorkSpan(
+      context,
+      cfg,
+      llmSpanFromSession({
+        context,
+        phase: event.phase,
+        sessionRole: event.role,
+        provider: event.provider,
+        model: event.model,
+        latencyMs: event.durationMs,
+        isError: event.kind === "failure",
+        ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
+        ...(event.outputTokens != null ? { outputTokens: event.outputTokens } : {}),
+        ...(event.kind === "failure" ? { errorReason: event.failureCode } : {}),
+      }),
+    );
   };
+}
+
+export function emitWorkSpan(
+  context: AgentEventsContext | null,
+  cfg: Pick<Config, "agentEventsEnabled">,
+  span: WorkSpan,
+): void {
+  captureWorkSpan(span);
+  if (!context) return;
+  safeEmitAgentEvent(context, cfg, projectWorkSpanToAgentEventRow(context, span));
 }
 
 export function safeEmitAgentEvent(
@@ -202,9 +238,29 @@ export function safeEmitDecisionEvent(
 export function safeEmitPublishEvent(
   context: AgentEventsContext,
   cfg: Pick<Config, "agentEventsEnabled">,
-  params: Parameters<typeof publishEventRow>[1],
+  params: Parameters<typeof publishEventRow>[1] & {
+    readonly latencyMs: number;
+    readonly parentSpanId?: string | null;
+  },
 ): void {
-  safeEmitAgentEvent(context, cfg, publishEventRow(context, params));
+  const span = publishSpanFromContext({
+    context,
+    publishStep: params.batchId,
+    latencyMs: params.latencyMs,
+    isError: false,
+    ...(params.parentSpanId !== undefined ? { parentSpanId: params.parentSpanId } : {}),
+  });
+  const row = publishEventRow(context, params);
+  safeEmitAgentEvent(context, cfg, {
+    ...row,
+    detail: {
+      ...row.detail,
+      spanId: span.spanId,
+      parentSpanId: span.parentSpanId,
+      latencyMs: span.latencyMs,
+    },
+  });
+  captureWorkSpan(span);
 }
 
 export function safeEmitCoverageEvent(

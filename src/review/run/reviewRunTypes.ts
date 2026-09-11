@@ -52,6 +52,7 @@ export type ReviewRunResult = {
   readonly lastAssistant: AssistantMessage;
   readonly published: boolean;
   readonly publishAttempts: number;
+  readonly publishStepCount: number;
   readonly publishSuperseded: boolean;
   /** Last classified external/internal failure from the run (soft-fail diagnostics). */
   readonly lastFailure?: ClassifiedFailure;

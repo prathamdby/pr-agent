@@ -91,7 +91,7 @@ describe("analytics facade", () => {
     const err = new Error("fail");
     analytics.captureEvent({
       distinctId: "installation:1",
-      event: "work item failed",
+      event: "work completed",
       properties: { type: "review" },
     });
     analytics.captureException(err, "installation:1", { type: "review" });
@@ -99,7 +99,7 @@ describe("analytics facade", () => {
     const client = mockPostHog.instances[0];
     expect(client?.capture).toHaveBeenCalledWith({
       distinctId: "installation:1",
-      event: "work item failed",
+      event: "work completed",
       properties: { type: "review" },
     });
     expect(client?.captureException).toHaveBeenCalledWith(
@@ -120,7 +120,7 @@ describe("analytics facade", () => {
     const apiKey = ["sk", "-abcdefghijklmnopqrstuvwxyz"].join("");
     const distinctId = `Bearer ${token} ${databaseUrl} ${apiKey}`;
 
-    analytics.captureEvent({ distinctId, event: "work item failed" });
+    analytics.captureEvent({ distinctId, event: "work completed" });
     analytics.captureException(new Error("boom"), distinctId);
 
     const client = mockPostHog.instances[0];
@@ -387,7 +387,7 @@ describe("analytics facade", () => {
     captureEvent({ distinctId: "server", event: "webhook received" });
     captureEvent({
       distinctId: "installation:1",
-      event: "review profiled",
+      event: "work completed",
       properties: { outcome: "published", work_item_id: "wi-1" },
     });
     expect(isAnalyticsEnabled()).toBe(false);

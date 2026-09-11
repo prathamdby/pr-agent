@@ -1,6 +1,43 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { agentAuditRecordFromLifecycleEvent } from "../src/agent/runtime/agentAudit.js";
 import { sanitizeAgentLifecycleEvent } from "../src/agent/runtime/lifecycleSanitizer.js";
+
+const analyticsMocks = vi.hoisted(() => ({
+  captureEvent: vi.fn(),
+  appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("../src/analytics/index.js", () => ({
+  captureEvent: (...args: unknown[]) => analyticsMocks.captureEvent(...args),
+  captureException: vi.fn(),
+}));
+
+vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.js")>();
+  return {
+    ...actual,
+    appendAgentEvents: analyticsMocks.appendAgentEvents,
+    safeAppendAgentEvents: (
+      client: unknown,
+      cfg: { agentEventsEnabled: boolean },
+      rows: unknown[],
+    ) => {
+      if (!cfg.agentEventsEnabled || rows.length === 0) return;
+      void analyticsMocks.appendAgentEvents(client, rows);
+    },
+  };
+});
+
+import {
+  createDurableLifecycleEventSink,
+  safeEmitPublishEvent,
+  type AgentEventsContext,
+} from "../src/agent/runtime/agentEventSink.js";
+import {
+  llmSpanFromSession,
+  projectWorkSpanToPostHog,
+  publishSpanFromContext,
+} from "../src/analytics/workSpan.js";
 
 describe("sanitizeAgentLifecycleEvent", () => {
   it("allows allowlisted turn fields", () => {
@@ -115,6 +152,45 @@ describe("sanitizeAgentLifecycleEvent", () => {
       }),
     ).toBeNull();
   });
+
+  it("keeps token counts on completion and still rejects credential token keys", () => {
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "completion",
+        role: "orchestrator",
+        phase: "recon",
+        checkpointId: "orchestrator:recon",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        ok: true,
+        durationMs: 1200,
+        inputTokens: 40,
+        outputTokens: 12,
+      }),
+    ).toEqual({
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "orchestrator:recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      durationMs: 1200,
+      inputTokens: 40,
+      outputTokens: 12,
+    });
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "failure",
+        role: "ask",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        failureCode: "provider.auth",
+        token: "sk-live",
+        ok: false,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("agentAuditRecordFromLifecycleEvent", () => {
@@ -196,5 +272,123 @@ describe("agentAuditRecordFromLifecycleEvent", () => {
         arguments: { code: "secret" },
       }),
     ).toBeNull();
+  });
+});
+
+const spanContext = {
+  workItemId: "wi-span",
+  installationId: 7,
+  owner: "o",
+  repo: "r",
+  prNumber: 3,
+};
+
+describe("work span projection", () => {
+  it("parents LLM spans under the work item and omits missing tokens", () => {
+    const span = llmSpanFromSession({
+      context: spanContext,
+      phase: "recon",
+      sessionRole: "orchestrator",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      latencyMs: 1500,
+      isError: false,
+    });
+    expect(span.parentSpanId).toBe("wi-span");
+    expect(span.inputTokens).toBeUndefined();
+    const projected = projectWorkSpanToPostHog(span);
+    expect(projected.properties.$ai_parent_id).toBe("wi-span");
+    expect(projected.properties).not.toHaveProperty("$ai_input_tokens");
+    expect(projected.properties.$ai_latency).toBe(1.5);
+  });
+
+  it("omits a null parent id from PostHog properties", () => {
+    const span = publishSpanFromContext({
+      context: spanContext,
+      publishStep: "batch-1",
+      latencyMs: 40,
+      isError: false,
+      parentSpanId: null,
+    });
+    expect(projectWorkSpanToPostHog(span).properties).not.toHaveProperty("$ai_parent_id");
+  });
+});
+
+describe("durable lifecycle span sink", () => {
+  const context: AgentEventsContext = {
+    pool: {} as AgentEventsContext["pool"],
+    ...spanContext,
+  };
+  const cfg = { agentEventsEnabled: true };
+
+  beforeEach(() => {
+    analyticsMocks.captureEvent.mockClear();
+    analyticsMocks.appendAgentEvents.mockClear();
+  });
+
+  it("does not emit a generation span when duration is missing", () => {
+    const sink = createDurableLifecycleEventSink(context, cfg);
+    sink({
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+    });
+    expect(analyticsMocks.captureEvent).not.toHaveBeenCalled();
+  });
+
+  it("emits a generation span with measured latency and parent id", () => {
+    const sink = createDurableLifecycleEventSink(context, cfg);
+    sink({
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      durationMs: 800,
+      inputTokens: 12,
+      outputTokens: 4,
+    });
+    expect(analyticsMocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "$ai_generation",
+        properties: expect.objectContaining({
+          $ai_trace_id: "wi-span",
+          $ai_parent_id: "wi-span",
+          $ai_latency: 0.8,
+          $ai_input_tokens: 12,
+          $ai_output_tokens: 4,
+        }),
+      }),
+    );
+  });
+
+  it("writes the same publish span id to Postgres and PostHog", () => {
+    safeEmitPublishEvent(context, cfg, {
+      specialist: "correctness",
+      batchId: "batch-9",
+      postedCount: 2,
+      latencyMs: 250,
+    });
+    const captured = analyticsMocks.captureEvent.mock.calls[0]?.[0] as {
+      event: string;
+      properties: { $ai_span_id: string; $ai_parent_id: string; $ai_latency: number };
+    };
+    expect(captured.event).toBe("$ai_span");
+    expect(captured.properties.$ai_parent_id).toBe("wi-span");
+    expect(captured.properties.$ai_latency).toBe(0.25);
+    const rows = analyticsMocks.appendAgentEvents.mock.calls[0]?.[1] as
+      | Array<{
+          eventKind: string;
+          detail: { spanId: string; parentSpanId: string; latencyMs: number };
+        }>
+      | undefined;
+    expect(rows?.[0]?.eventKind).toBe("publish");
+    expect(rows?.[0]?.detail.spanId).toBe(captured.properties.$ai_span_id);
+    expect(rows?.[0]?.detail.parentSpanId).toBe("wi-span");
+    expect(rows?.[0]?.detail.latencyMs).toBe(250);
   });
 });

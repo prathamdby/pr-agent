@@ -26,11 +26,6 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agentWork/triageAnalytics.js", () => ({
-  captureTriageEvent: vi.fn(),
-  captureTriageFailure: vi.fn(),
-}));
-
 import { recordPublishStep } from "../src/agentWork/repository.js";
 import { triagePushOperationKey } from "../src/agentWork/withOperationIntent.js";
 import {

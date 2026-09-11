@@ -79,12 +79,18 @@ describe("classifyFailure", () => {
     expect(classifiedFailurePostHogProperties(f)).toMatchObject({
       failure_domain: "provider",
       error_kind: "quota",
-      error_message: expect.stringMatching(/credit/i),
       phase: "synthesis",
       tool_name: "publish_summary",
       provider: "pi",
       model: "m",
     });
+    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("error_message");
+  });
+
+  it("omits unsafe phase text from PostHog while keeping it on logs", () => {
+    const f = classifyFailure(new Error("boom"), { phase: "/tmp/secret.ts" });
+    expect(classifiedFailureLogFields(f).phase).toBe("/tmp/secret.ts");
+    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("phase");
   });
 });
 
@@ -115,7 +121,6 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(requiredOnly)).toEqual({
       failure_domain: "unknown",
       error_kind: "unknown",
-      error_message: "plain boom",
     });
   });
 
@@ -135,13 +140,11 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(everyOptional)).toEqual({
       failure_domain: "provider",
       error_kind: "quota",
-      error_message: "Insufficient credits for model",
       error_code: "review.orchestrator_send_failed",
       phase: "synthesis",
       tool_name: "publish_summary",
       provider: "pi",
       model: "m",
-      cause_chain: ["wallet empty", "ledger miss"],
       error_count: 3,
     });
   });
@@ -149,16 +152,15 @@ describe("classified-failure projections", () => {
   it("projects equivalent facts under log and PostHog key conventions", () => {
     const log = classifiedFailureLogFields(everyOptional);
     const posthog = classifiedFailurePostHogProperties(everyOptional);
-    expect(Object.keys(log)).toHaveLength(Object.keys(posthog).length);
+    expect(posthog).not.toHaveProperty("error_message");
+    expect(posthog).not.toHaveProperty("cause_chain");
     expect(log.failureDomain).toBe(posthog.failure_domain);
     expect(log.errorKind).toBe(posthog.error_kind);
-    expect(log.errorMessage).toBe(posthog.error_message);
     expect(log.errorCode).toBe(posthog.error_code);
     expect(log.phase).toBe(posthog.phase);
     expect(log.toolName).toBe(posthog.tool_name);
     expect(log.provider).toBe(posthog.provider);
     expect(log.model).toBe(posthog.model);
-    expect(log.causeChain).toEqual(posthog.cause_chain);
     expect(log.errorCount).toBe(posthog.error_count);
   });
 
@@ -174,7 +176,6 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(superseded)).toEqual({
       failure_domain: "internal",
       error_kind: "superseded",
-      error_message: "whatever",
     });
     expect(classifiedFailureLogFields(cancelled)).toEqual({
       failureDomain: "internal",
@@ -184,7 +185,6 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(cancelled)).toEqual({
       failure_domain: "internal",
       error_kind: "cancelled",
-      error_message: "head moved",
     });
   });
 
@@ -199,7 +199,6 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(zeroCount)).toEqual({
       failure_domain: "unknown",
       error_kind: "unknown",
-      error_message: "plain boom",
       error_count: 0,
     });
 
@@ -224,8 +223,6 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(nullish)).toEqual({
       failure_domain: "unknown",
       error_kind: "unknown",
-      error_message: "plain boom",
-      phase: "",
     });
   });
 });

@@ -32,11 +32,7 @@ import {
   type StoredTriagePreviewDetail,
   type StoredTriagePushDetail,
 } from "../../agent/triage/publishTriage.js";
-import {
-  captureTriageEvent,
-  captureTriageFailure,
-  type TriageAnalyticsRef,
-} from "../triageAnalytics.js";
+import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_BULK_PREVIEW_STALE,
@@ -106,18 +102,25 @@ type InventoryAndScope = {
   readonly reportContext: TriageReportContext;
 };
 
-function triageAnalyticsRef(
-  item: Pick<AgentWorkItem, "installationId" | "owner" | "repo" | "prNumber" | "id">,
-  scope: TriageWorkPayload["scope"],
-): TriageAnalyticsRef {
-  return {
-    installationId: item.installationId,
-    owner: item.owner,
-    repo: item.repo,
-    prNumber: item.prNumber,
-    workItemId: item.id,
-    scope,
-  };
+function emitTriageWorkCompleted(input: {
+  readonly item: TriageWorkItem;
+  readonly claim: { readonly startedAt: Date; readonly attemptCount: number } | null | undefined;
+  readonly result: TriageExecuteResult;
+}): void {
+  const firstReason = input.result.degradation?.[0];
+  const degraded = firstReason != null;
+  captureDurableWorkCompleted({
+    item: input.item,
+    workType: "triage",
+    outcome: degraded ? "degraded" : "published",
+    durationMs: durationMsFromClaim(input.claim),
+    attemptCount: input.claim?.attemptCount ?? input.item.attemptCount,
+    extras: {
+      scope: input.item.payload.scope ?? "all",
+      ...(degraded ? { durableDegradation: firstReason } : {}),
+    },
+    ...(degraded ? { degradedReason: "durable_degradation" as const } : {}),
+  });
 }
 
 function reportOnlyBody(params: {
@@ -163,7 +166,6 @@ async function resolveScopedThreadRootId(params: {
   readonly repo: string;
   readonly prNumber: number;
   readonly anchorCommentId: number;
-  readonly analytics: TriageAnalyticsRef;
 }): Promise<number> {
   try {
     const commentGraph = await params.prSurface.fetchReviewCommentParentGraph();
@@ -178,11 +180,6 @@ async function resolveScopedThreadRootId(params: {
       prNumber: params.prNumber,
       anchorCommentId: params.anchorCommentId,
       message: errorObj.message,
-    });
-    captureTriageEvent(params.analytics, "triage thread root resolution fallback", {
-      step: "thread_root_resolution",
-      fallback: "original_anchor_comment",
-      thread_anchor_comment_id: params.anchorCommentId,
     });
     return params.anchorCommentId;
   }
@@ -266,11 +263,9 @@ async function handleForkPrReport(params: {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
-  readonly analytics: TriageAnalyticsRef;
   readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
   await ensureTriageNotCancelled(params.pool, params.item);
-  captureTriageEvent(params.analytics, "triage report only", { outcome: "fork_pr" });
   await publishTriageReportOnly({
     pool: params.pool,
     workItemId: params.item.id,
@@ -301,7 +296,6 @@ async function resolveInventoryAndScope(params: {
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
-  readonly analytics: TriageAnalyticsRef;
 }): Promise<InventoryAndScope> {
   const payload = params.item.payload;
   const botIdentity = await getAppBotIdentity(params.cfg);
@@ -326,10 +320,6 @@ async function resolveInventoryAndScope(params: {
     pr: params.item.prNumber,
   });
   const resolutionByRootCommentId = resolutionResult.byRootCommentId;
-  captureTriageEvent(params.analytics, "triage inventory discovered", {
-    thread_count: threads.length,
-    eligible_review_count: eligibleReviews.size,
-  });
   const previouslyResolvedCount = threads.filter(
     (thread) => resolutionByRootCommentId.get(thread.rootCommentId)?.isResolved === true,
   ).length;
@@ -348,7 +338,6 @@ async function resolveInventoryAndScope(params: {
               repo: params.item.repo,
               prNumber: params.item.prNumber,
               anchorCommentId: payload.threadAnchorCommentId,
-              analytics: params.analytics,
             })
           : payload.threadAnchorCommentId;
       inventory =
@@ -376,7 +365,6 @@ async function publishEmptyInventoryReport(params: {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
-  readonly analytics: TriageAnalyticsRef;
   readonly threads: readonly BotFindingThread[];
   readonly inventory: readonly BotFindingThread[];
   readonly previouslyResolvedCount: number;
@@ -391,10 +379,6 @@ async function publishEmptyInventoryReport(params: {
     threads: params.threads,
   });
   const message = EMPTY_INVENTORY_MESSAGES[outcome];
-  captureTriageEvent(params.analytics, "triage report only", {
-    outcome,
-    previously_resolved_count: params.previouslyResolvedCount,
-  });
   await publishTriageReportOnly({
     pool: params.pool,
     workItemId: params.item.id,
@@ -428,7 +412,6 @@ async function tryResumeStoredPush(params: {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly headRef: string;
-  readonly analytics: TriageAnalyticsRef;
   readonly inventory: readonly BotFindingThread[];
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
@@ -460,7 +443,6 @@ async function tryResumeStoredPush(params: {
       code: "triage.invalid_stored_push",
       message: "Stored triage_push detail is invalid",
     });
-    captureTriageFailure(params.analytics, "parse_stored_push", error);
     throw error;
   }
   if (
@@ -470,11 +452,6 @@ async function tryResumeStoredPush(params: {
     return null;
   }
 
-  captureTriageEvent(params.analytics, "triage resumed", {
-    inventory_count: params.inventory.length,
-    commit_count: parsed.commits.length,
-    push_outcome: parsed.pushOutcome,
-  });
   await ensureTriageNotCancelled(params.pool, params.item);
   const publish = await publishTriage({
     pool: params.pool,
@@ -499,17 +476,7 @@ async function tryResumeStoredPush(params: {
   });
   const result = completedFromPublish(publish);
   if (result.degradation != null) {
-    captureTriageEvent(params.analytics, "triage degraded", {
-      step: "publish_resume",
-      push_outcome: publish.pushOutcome,
-      missing_thread_action: publish.missingThreadAction,
-    });
   } else {
-    captureTriageEvent(params.analytics, "triage published", {
-      inventory_count: params.inventory.length,
-      resumed: true,
-      push_outcome: publish.pushOutcome,
-    });
   }
   return result;
 }
@@ -523,7 +490,6 @@ async function resolveTriggererGitPerson(params: {
   readonly prSurface: PrSurface;
   readonly commenterId?: number;
   readonly botIdentity: BotIdentity;
-  readonly analytics: TriageAnalyticsRef;
 }): Promise<GitPerson | null> {
   if (params.commenterId == null) return null;
   if (params.commenterId === params.botIdentity.userId) return null;
@@ -536,11 +502,6 @@ async function resolveTriggererGitPerson(params: {
     logWarn("triage_commit_identity_lookup_failed", {
       commenterId: params.commenterId,
       message: errorObj.message,
-    });
-    captureTriageEvent(params.analytics, "triage commit identity fallback", {
-      step: "commit_identity",
-      fallback: "app",
-      reason: "lookup_failed",
     });
     return null;
   }
@@ -555,7 +516,6 @@ async function runFreshTriageAgent(params: {
   readonly headRef: string;
   readonly botIdentity: BotIdentity;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
-  readonly analytics: TriageAnalyticsRef;
   readonly inventory: readonly BotFindingThread[];
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
@@ -569,15 +529,10 @@ async function runFreshTriageAgent(params: {
     prSurface: params.prSurface,
     commenterId: params.item.payload.commenterId,
     botIdentity: params.botIdentity,
-    analytics: params.analytics,
   });
   const commitAttribution = buildTriageCommitAttribution({
     botIdentity: params.botIdentity,
     triggerer,
-  });
-  captureTriageEvent(params.analytics, "triage commit identity resolved", {
-    step: "commit_identity",
-    source: commitAttribution.source,
   });
   const { token } = await params.prSurface.gitCredentialAuth();
   const preview = params.mode === "preview";
@@ -613,9 +568,6 @@ async function runFreshTriageAgent(params: {
             }),
     },
     async (checkout) => {
-      captureTriageEvent(params.analytics, "triage agent started", {
-        inventory_count: params.inventory.length,
-      });
       let result: Awaited<ReturnType<typeof runFullPrTriage>>;
       try {
         result = await runFullPrTriage({
@@ -634,6 +586,9 @@ async function runFreshTriageAgent(params: {
             pool: params.pool,
             workItemId: params.item.id,
             installationId: params.item.installationId,
+            owner: params.item.owner,
+            repo: params.item.repo,
+            prNumber: params.item.prNumber,
           },
           signal: params.signal,
         });
@@ -670,9 +625,6 @@ async function runFreshTriageAgent(params: {
         const error = new AppError({
           code: "triage.missing_submit",
           message: "Triage run ended without submitTriage",
-        });
-        captureTriageFailure(params.analytics, "agent_run", error, {
-          submitted: result.submitted,
         });
         throw error;
       }
@@ -711,10 +663,6 @@ async function runFreshTriageAgent(params: {
           payload: result.payload,
           ...params.reportContext,
         });
-        captureTriageEvent(params.analytics, "triage preview published", {
-          inventory_count: params.inventory.length,
-          hunk_count: hunks.length,
-        });
         return { kind: "completed" };
       }
       const publish = await publishTriage({
@@ -739,18 +687,7 @@ async function runFreshTriageAgent(params: {
       });
       const completed = completedFromPublish(publish);
       if (completed.degradation != null) {
-        captureTriageEvent(params.analytics, "triage degraded", {
-          step: "publish",
-          push_outcome: publish.pushOutcome,
-          missing_thread_action: publish.missingThreadAction,
-        });
       } else {
-        captureTriageEvent(params.analytics, "triage published", {
-          inventory_count: params.inventory.length,
-          previously_resolved_count: params.previouslyResolvedCount,
-          commit_count: checkout.listCommittedShas().length,
-          push_outcome: publish.pushOutcome,
-        });
       }
       return completed;
     },
@@ -766,7 +703,6 @@ async function runBulkFromPreview(params: {
   readonly headRef: string;
   readonly botIdentity: BotIdentity;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
-  readonly analytics: TriageAnalyticsRef;
   readonly inventory: readonly BotFindingThread[];
   readonly approvedHunks: readonly {
     readonly threadRootCommentId: number;
@@ -787,7 +723,6 @@ async function runBulkFromPreview(params: {
     prSurface: params.prSurface,
     commenterId: params.item.payload.commenterId,
     botIdentity: params.botIdentity,
-    analytics: params.analytics,
   });
   const commitAttribution = buildTriageCommitAttribution({
     botIdentity: params.botIdentity,
@@ -862,20 +797,6 @@ async function runBulkFromPreview(params: {
           degradation: [...(completed.degradation ?? []), ...replayDegradation],
         };
       }
-      if (completed.degradation != null) {
-        captureTriageEvent(params.analytics, "triage degraded", {
-          step: "publish",
-          push_outcome: publish.pushOutcome,
-          missing_thread_action: publish.missingThreadAction,
-        });
-      } else {
-        captureTriageEvent(params.analytics, "triage published", {
-          inventory_count: params.inventory.length,
-          previously_resolved_count: params.previouslyResolvedCount,
-          commit_count: checkout.listCommittedShas().length,
-          push_outcome: publish.pushOutcome,
-        });
-      }
       return completed;
     },
   );
@@ -896,38 +817,123 @@ export async function executeTriageJob(
     prActorLease: { queue: TRIAGE_QUEUE },
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
-      const scope = item.payload.scope ?? "all";
-      const mode = triageMode(item.payload);
-      const analytics = triageAnalyticsRef(item, scope);
-      captureTriageEvent(analytics, "triage started");
-      const { prSurface } = env;
-      const headSha = env.headSha;
-      await ensureTriageNotCancelled(pool, item);
-      const branch = await prSurface.getPullRequestBranchInfo();
-      await ensureTriageNotCancelled(pool, item);
-      if (!branch.sameRepo && mode !== "preview") {
-        return handleForkPrReport({
+      let omitTerminal = false;
+      const result = await (async (): Promise<TriageExecuteResult> => {
+        const scope = item.payload.scope ?? "all";
+        const mode = triageMode(item.payload);
+        const { prSurface } = env;
+        const headSha = env.headSha;
+        await ensureTriageNotCancelled(pool, item);
+        const branch = await prSurface.getPullRequestBranchInfo();
+        await ensureTriageNotCancelled(pool, item);
+        if (!branch.sameRepo && mode !== "preview") {
+          return handleForkPrReport({
+            pool,
+            item,
+            prSurface,
+            headSha,
+            scope,
+            leaseEpoch: env.leaseEpoch,
+          });
+        }
+
+        let storedPreview: StoredTriagePreviewDetail | null = null;
+        if (mode === "bulk") {
+          storedPreview = parseStoredTriagePreviewDetail(
+            await getLatestCompletedPublishStepDetail(
+              pool,
+              item.resourceKey,
+              TRIAGE_PUBLISH_LENS,
+              "triage_preview",
+            ),
+          );
+          if (storedPreview == null) {
+            await publishTriageReportOnly({
+              pool,
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+              installationId: item.installationId,
+              prSurface,
+              owner: item.owner,
+              repo: item.repo,
+              prNumber: item.prNumber,
+              headSha,
+              inventory: [],
+              previouslyResolvedCount: 0,
+              leaseEpoch: env.leaseEpoch,
+              body: reportOnlyBody({
+                message: TRIAGE_BULK_REQUIRES_PREVIEW,
+                headSha,
+                inventoryCount: 0,
+                previouslyResolvedCount: 0,
+                scope,
+              }),
+            });
+            return { kind: "completed" };
+          }
+          if (storedPreview.headSha.toLowerCase() !== headSha.toLowerCase()) {
+            await publishTriageReportOnly({
+              pool,
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+              installationId: item.installationId,
+              prSurface,
+              owner: item.owner,
+              repo: item.repo,
+              prNumber: item.prNumber,
+              headSha,
+              inventory: [],
+              previouslyResolvedCount: 0,
+              leaseEpoch: env.leaseEpoch,
+              body: reportOnlyBody({
+                message: TRIAGE_BULK_PREVIEW_STALE,
+                headSha,
+                inventoryCount: 0,
+                previouslyResolvedCount: 0,
+                scope,
+              }),
+            });
+            return { kind: "completed" };
+          }
+        }
+
+        const discovered = await resolveInventoryAndScope({
+          cfg,
           pool,
           item,
           prSurface,
-          headSha,
           scope,
-          analytics,
-          leaseEpoch: env.leaseEpoch,
         });
-      }
+        await ensureTriageNotCancelled(pool, item);
 
-      let storedPreview: StoredTriagePreviewDetail | null = null;
-      if (mode === "bulk") {
-        storedPreview = parseStoredTriagePreviewDetail(
-          await getLatestCompletedPublishStepDetail(
+        const currentInventory = discovered.inventory;
+        const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
+        const approval =
+          mode === "bulk" && storedPreview != null
+            ? previewApprovalSets({
+                inventory: currentInventory,
+                preview: storedPreview,
+                excludeIds,
+              })
+            : null;
+
+        if (currentInventory.length === 0) {
+          return publishEmptyInventoryReport({
             pool,
-            item.resourceKey,
-            TRIAGE_PUBLISH_LENS,
-            "triage_preview",
-          ),
-        );
-        if (storedPreview == null) {
+            item,
+            prSurface,
+            headSha,
+            scope,
+            threads: discovered.threads,
+            inventory: discovered.inventory,
+            previouslyResolvedCount: discovered.previouslyResolvedCount,
+            scopedThreadRootId: discovered.scopedThreadRootId,
+            reportContext: discovered.reportContext,
+            leaseEpoch: env.leaseEpoch,
+          });
+        }
+
+        if (mode === "bulk" && approval != null && approval.approvedInventory.length === 0) {
           await publishTriageReportOnly({
             pool,
             workItemId: item.id,
@@ -938,200 +944,104 @@ export async function executeTriageJob(
             repo: item.repo,
             prNumber: item.prNumber,
             headSha,
-            inventory: [],
-            previouslyResolvedCount: 0,
+            inventory: currentInventory,
+            previouslyResolvedCount: discovered.previouslyResolvedCount,
             leaseEpoch: env.leaseEpoch,
+            ...discovered.reportContext,
             body: reportOnlyBody({
-              message: TRIAGE_BULK_REQUIRES_PREVIEW,
+              message: `No approved findings to apply. Excluded: ${
+                [...approval.excludedIds].join(", ") || "none"
+              }. Not in preview: ${[...approval.notInPreviewIds].join(", ") || "none"}.`,
               headSha,
-              inventoryCount: 0,
-              previouslyResolvedCount: 0,
+              inventoryCount: currentInventory.length,
+              previouslyResolvedCount: discovered.previouslyResolvedCount,
               scope,
             }),
           });
           return { kind: "completed" };
         }
-        if (storedPreview.headSha.toLowerCase() !== headSha.toLowerCase()) {
-          await publishTriageReportOnly({
-            pool,
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
-            installationId: item.installationId,
-            prSurface,
-            owner: item.owner,
-            repo: item.repo,
-            prNumber: item.prNumber,
-            headSha,
-            inventory: [],
-            previouslyResolvedCount: 0,
-            leaseEpoch: env.leaseEpoch,
-            body: reportOnlyBody({
-              message: TRIAGE_BULK_PREVIEW_STALE,
-              headSha,
-              inventoryCount: 0,
-              previouslyResolvedCount: 0,
-              scope,
-            }),
-          });
+
+        const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
+        if (await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", doneStep)) {
+          omitTerminal = true;
           return { kind: "completed" };
         }
-      }
 
-      const discovered = await resolveInventoryAndScope({
-        cfg,
-        pool,
-        item,
-        prSurface,
-        scope,
-        analytics,
-      });
-      await ensureTriageNotCancelled(pool, item);
+        await ensureTriageNotCancelled(pool, item);
 
-      const currentInventory = discovered.inventory;
-      const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
-      const approval =
-        mode === "bulk" && storedPreview != null
-          ? previewApprovalSets({
-              inventory: currentInventory,
-              preview: storedPreview,
-              excludeIds,
-            })
-          : null;
-
-      if (currentInventory.length === 0) {
-        return publishEmptyInventoryReport({
+        const resumeParams = {
+          cfg,
           pool,
           item,
           prSurface,
           headSha,
-          scope,
-          analytics,
-          threads: discovered.threads,
-          inventory: discovered.inventory,
+          headRef: branch.headRef,
+          inventory: approval?.approvedInventory ?? currentInventory,
+          resolutionByRootCommentId: discovered.resolutionByRootCommentId,
           previouslyResolvedCount: discovered.previouslyResolvedCount,
-          scopedThreadRootId: discovered.scopedThreadRootId,
           reportContext: discovered.reportContext,
           leaseEpoch: env.leaseEpoch,
-        });
-      }
+          signal: env.signal,
+        };
 
-      if (mode === "bulk" && approval != null && approval.approvedInventory.length === 0) {
-        await publishTriageReportOnly({
-          pool,
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          installationId: item.installationId,
-          prSurface,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha,
-          inventory: currentInventory,
-          previouslyResolvedCount: discovered.previouslyResolvedCount,
-          leaseEpoch: env.leaseEpoch,
-          ...discovered.reportContext,
-          body: reportOnlyBody({
-            message: `No approved findings to apply. Excluded: ${
-              [...approval.excludedIds].join(", ") || "none"
-            }. Not in preview: ${[...approval.notInPreviewIds].join(", ") || "none"}.`,
-            headSha,
-            inventoryCount: currentInventory.length,
-            previouslyResolvedCount: discovered.previouslyResolvedCount,
-            scope,
-          }),
-        });
-        return { kind: "completed" };
-      }
-
-      const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
-      if (await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", doneStep)) {
-        captureTriageEvent(analytics, "triage skipped", {
-          reason: mode === "preview" ? "preview_already_published" : "report_already_published",
-        });
-        return { kind: "completed" };
-      }
-
-      await ensureTriageNotCancelled(pool, item);
-
-      const resumeParams = {
-        cfg,
-        pool,
-        item,
-        prSurface,
-        headSha,
-        headRef: branch.headRef,
-        analytics,
-        inventory: approval?.approvedInventory ?? currentInventory,
-        resolutionByRootCommentId: discovered.resolutionByRootCommentId,
-        previouslyResolvedCount: discovered.previouslyResolvedCount,
-        reportContext: discovered.reportContext,
-        leaseEpoch: env.leaseEpoch,
-        signal: env.signal,
-      };
-
-      if (mode !== "preview") {
-        const resumed = await tryResumeStoredPush(resumeParams);
-        if (resumed != null) return resumed;
-      }
-
-      switch (mode) {
-        case "bulk":
-          if (storedPreview == null || approval == null) {
-            throw new AppError({
-              code: "triage.invalid_preview",
-              message: "Bulk apply reached execution without a parsed preview",
-            });
-          }
-          return runBulkFromPreview({
-            ...resumeParams,
-            cfg,
-            botIdentity: discovered.botIdentity,
-            scope,
-            inventory: currentInventory,
-            approvedHunks: approval.approvedHunks,
-            preview: storedPreview,
-            approvedIds: approval.approvedIds,
-            excludedIds: approval.excludedIds,
-            notInPreviewIds: approval.notInPreviewIds,
-          });
-        case "preview":
-        case "apply":
-          return runFreshTriageAgent({
-            ...resumeParams,
-            inventory: currentInventory,
-            cfg,
-            botIdentity: discovered.botIdentity,
-            scope,
-            mode,
-            escalation: env.escalation,
-          });
-        default: {
-          const exhaustive: never = mode;
-          return exhaustive;
+        if (mode !== "preview") {
+          const resumed = await tryResumeStoredPush(resumeParams);
+          if (resumed != null) return resumed;
         }
+
+        switch (mode) {
+          case "bulk":
+            if (storedPreview == null || approval == null) {
+              throw new AppError({
+                code: "triage.invalid_preview",
+                message: "Bulk apply reached execution without a parsed preview",
+              });
+            }
+            return runBulkFromPreview({
+              ...resumeParams,
+              cfg,
+              botIdentity: discovered.botIdentity,
+              scope,
+              inventory: currentInventory,
+              approvedHunks: approval.approvedHunks,
+              preview: storedPreview,
+              approvedIds: approval.approvedIds,
+              excludedIds: approval.excludedIds,
+              notInPreviewIds: approval.notInPreviewIds,
+            });
+          case "preview":
+          case "apply":
+            return runFreshTriageAgent({
+              ...resumeParams,
+              inventory: currentInventory,
+              cfg,
+              botIdentity: discovered.botIdentity,
+              scope,
+              mode,
+              escalation: env.escalation,
+            });
+          default: {
+            const exhaustive: never = mode;
+            return exhaustive;
+          }
+        }
+      })();
+      if (!omitTerminal && result.kind === "completed") {
+        emitTriageWorkCompleted({ item, claim: env.claim, result });
       }
+      return result;
     },
     onTerminalFailure: async (item, prSurface) => {
       if (!prSurface) return;
-      const payload = item.payload;
-      const analytics = triageAnalyticsRef(item, payload.scope ?? "all");
       if (
         await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", "triage_report")
       ) {
         return;
       }
-      captureTriageEvent(analytics, "triage terminal failure", {
-        step: "failure_comment",
-      });
-      try {
-        await prSurface.replyAt(
-          { kind: "prConversation", prNumber: item.prNumber },
-          TRIAGE_FAILURE_MESSAGE,
-        );
-      } catch (error) {
-        captureTriageFailure(analytics, "failure_comment", error);
-        throw error;
-      }
+      await prSurface.replyAt(
+        { kind: "prConversation", prNumber: item.prNumber },
+        TRIAGE_FAILURE_MESSAGE,
+      );
     },
   });
 }

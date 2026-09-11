@@ -10,87 +10,81 @@ vi.mock("../src/analytics/index.js", () => ({
   captureException: mocks.captureException,
 }));
 
-import { captureTriageEvent, captureTriageFailure } from "../src/agentWork/triageAnalytics.js";
+import { captureDurableWorkCompleted } from "../src/analytics/workCompleted.js";
 
-describe("triageAnalytics", () => {
+describe("triage work completed", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  const ref = {
+  const item = {
+    id: "wi-1",
     installationId: 42,
     owner: "o",
     repo: "r",
     prNumber: 7,
-    workItemId: "wi-1",
-    scope: "all" as const,
+    headSha: "abc123",
+    attemptCount: 1,
   };
 
-  it("captures triage events with installation distinct id", () => {
-    captureTriageEvent(ref, "triage started");
+  it("emits the shared envelope for a published triage run", () => {
+    captureDurableWorkCompleted({
+      item,
+      workType: "triage",
+      outcome: "published",
+      durationMs: 1200,
+      attemptCount: 1,
+      extras: { scope: "all" },
+    });
 
     expect(mocks.capture).toHaveBeenCalledWith({
       distinctId: "installation:42",
-      event: "triage started",
+      event: "work completed",
       properties: expect.objectContaining({
+        work_item_id: "wi-1",
+        work_type: "triage",
+        outcome: "published",
+        reason: "published",
         owner: "o",
         repo: "r",
         pr_number: 7,
-        work_item_id: "wi-1",
+        head_sha: "abc123",
+        duration_ms: 1200,
+        attempt_count: 1,
         scope: "all",
+        publish_attempts: 0,
+        publish_step_count: 0,
       }),
     });
+    expect(mocks.captureException).not.toHaveBeenCalled();
+    const properties = mocks.capture.mock.calls[0]?.[0].properties as Record<string, unknown>;
+    expect(properties).not.toHaveProperty("error_message");
+    expect(properties).not.toHaveProperty("cause_chain");
   });
 
-  it("captures triage failures and exceptions with step context", () => {
-    captureTriageFailure(ref, "publish_push", new Error("push failed"), {
-      inventory_count: 2,
+  it("emits degraded_reason without a failure exception", () => {
+    captureDurableWorkCompleted({
+      item,
+      workType: "triage",
+      outcome: "degraded",
+      durationMs: 800,
+      attemptCount: 1,
+      degradedReason: "durable_degradation",
+      extras: { scope: "thread", durableDegradation: "push_closed" },
     });
 
-    expect(mocks.capture).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "triage failed",
-        properties: expect.objectContaining({
-          step: "publish_push",
-          failure_domain: expect.any(String),
-          error_kind: expect.any(String),
-          error_message: "push failed",
-          inventory_count: 2,
-        }),
+    expect(mocks.capture).toHaveBeenCalledWith({
+      distinctId: "installation:42",
+      event: "work completed",
+      properties: expect.objectContaining({
+        work_type: "triage",
+        outcome: "degraded",
+        reason: "durable_degradation",
+        degraded_reason: "durable_degradation",
+        durable_degradation: "push_closed",
+        scope: "thread",
       }),
-    );
-    expect(mocks.captureException).toHaveBeenCalledWith(
-      expect.any(Error),
-      "installation:42",
-      expect.objectContaining({
-        type: "triage",
-        step: "publish_push",
-      }),
-    );
-  });
-
-  it("wraps non-Error failures before captureException", () => {
-    captureTriageFailure(ref, "inventory", "missing anchor");
-
-    expect(mocks.captureException).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "missing anchor" }),
-      "installation:42",
-      expect.objectContaining({ step: "inventory" }),
-    );
-  });
-
-  it("classifies provider credit failures on triage failed", () => {
-    captureTriageFailure(ref, "agent_run", new Error("Insufficient credits for model"));
-
-    expect(mocks.capture).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "triage failed",
-        properties: expect.objectContaining({
-          failure_domain: "provider",
-          error_kind: "quota",
-          error_message: expect.stringMatching(/credit/i),
-        }),
-      }),
-    );
+    });
+    expect(mocks.captureException).not.toHaveBeenCalled();
   });
 });

@@ -35,7 +35,6 @@ import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
-import { captureTriageEvent } from "../triageAnalytics.js";
 import {
   enqueueAck,
   enqueueDescription,
@@ -209,16 +208,6 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const parsed = parseTriageCommand(ctx.input.body) ?? { kind: "apply" as const };
   if (parsed.kind === "invalid") {
-    captureTriageEvent(
-      {
-        installationId: ctx.input.installationId,
-        owner: ctx.input.owner,
-        repo: ctx.input.repo,
-        prNumber: ctx.input.prNumber,
-      },
-      "triage rejected",
-      { reason: parsed.reason },
-    );
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
@@ -237,16 +226,6 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
       ? ("all" as const)
       : (ctx.input.triageScope ?? (isInlineReply ? undefined : ("all" as const)));
   if (isInlineReply && scope == null) {
-    captureTriageEvent(
-      {
-        installationId: ctx.input.installationId,
-        owner: ctx.input.owner,
-        repo: ctx.input.repo,
-        prNumber: ctx.input.prNumber,
-      },
-      "triage rejected",
-      { reason: "inline_usage_hint" },
-    );
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
@@ -265,22 +244,6 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
       triageScope === "thread" && activeScope === "all"
         ? TRIAGE_FULL_RUN_IN_PROGRESS
         : TRIAGE_ALREADY_IN_PROGRESS;
-    captureTriageEvent(
-      {
-        installationId: ctx.input.installationId,
-        owner: ctx.input.owner,
-        repo: ctx.input.repo,
-        prNumber: ctx.input.prNumber,
-        scope: triageScope,
-      },
-      "triage rejected",
-      {
-        reason:
-          triageScope === "thread" && activeScope === "all"
-            ? "full_run_in_progress"
-            : "already_in_progress",
-      },
-    );
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
@@ -316,22 +279,6 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   const workItemId = insert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueTriage(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
-  captureTriageEvent(
-    {
-      installationId: ctx.input.installationId,
-      owner: ctx.input.owner,
-      repo: ctx.input.repo,
-      prNumber: ctx.input.prNumber,
-      workItemId,
-      scope: triageScope,
-    },
-    "triage enqueued",
-    {
-      thread_anchor_comment_id: ctx.input.threadAnchorCommentId,
-      needs_thread_root_resolution: ctx.input.needsThreadRootResolution === true,
-      reply_target_kind: ctx.input.replyTarget.kind,
-    },
-  );
   ctx.events.push({
     name: "agent_work_enqueued",
     fields: {

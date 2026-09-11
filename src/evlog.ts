@@ -174,9 +174,12 @@ function forwardLogErrorToAnalytics(
 }
 
 export function logError(event: string, meta?: Record<string, unknown>, error?: unknown): void {
-  const safeMeta = sanitizeTelemetryRecord(meta);
+  const skipAnalyticsException = meta?.skipAnalyticsException === true;
+  const rest = meta == null ? undefined : { ...meta };
+  if (rest && "skipAnalyticsException" in rest) delete rest.skipAnalyticsException;
+  const safeMeta = sanitizeTelemetryRecord(rest);
   recordOrGlobal("error", (p) => globalLog.error(p), event, safeMeta);
-  forwardLogErrorToAnalytics(event, safeMeta, error);
+  if (!skipAnalyticsException) forwardLogErrorToAnalytics(event, safeMeta, error);
 }
 
 export type OperationLoggerMeta = {

@@ -3,7 +3,12 @@ import type { JobWithMetadata } from "pg-boss";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
-import { captureEvent } from "../analytics/index.js";
+import {
+  captureDurableWorkCompleted,
+  captureWorkRetried,
+  durationMsFromClaim,
+  workFailureReasonFromClassified,
+} from "../analytics/workCompleted.js";
 import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import { getAppBotIdentity, type BotIdentity, type InstallationToken } from "../github/appAuth.js";
@@ -13,11 +18,7 @@ import {
 } from "../github/installationToken.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError, isCancelAbortError } from "../agent/providers/providerErrors.js";
-import {
-  classifyFailure,
-  classifiedFailureLogFields,
-  classifiedFailurePostHogProperties,
-} from "../errors/classifiedFailure.js";
+import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
 import {
   DEFERRED_HEAD_SHA,
@@ -799,20 +800,6 @@ export async function runDurableWorkItem<T extends WorkType>(
             await recheckSkippableAndCancel("completion_race", false);
             return;
           }
-          if (degradation.length) {
-            captureEvent({
-              distinctId: `installation:${item.installationId}`,
-              event: "work item degraded",
-              properties: {
-                type: spec.type,
-                owner: item.owner,
-                repo: item.repo,
-                pr_number: item.prNumber,
-                attempt_count: workClaim?.attemptCount ?? item.attemptCount,
-                degradation_reasons: degradation,
-              },
-            });
-          }
           await clearResumeSnapshotsBestEffort(spec.pool, item.id);
           logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
           await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
@@ -846,20 +833,19 @@ export async function runDurableWorkItem<T extends WorkType>(
         // The next delivery re-reads the row; report the plan it will carry so escalation
         // rate is observable without reading transcripts.
         const nextEscalation = escalationForAttempt(attemptCount + 1, spec.cfg);
-        captureEvent({
-          distinctId: `installation:${item.installationId}`,
-          event: "work item retried",
-          properties: {
-            type: spec.type,
-            owner: item.owner,
-            repo: item.repo,
-            pr_number: item.prNumber,
-            attempt_count: attemptCount,
-            next_attempt: attemptCount + 1,
-            retry_disposition: disposition,
-            escalation_kinds: nextEscalation?.kinds ?? [],
-            ...classifiedFailurePostHogProperties(failure),
-          },
+        captureWorkRetried({
+          workItemId: item.id,
+          installationId: item.installationId,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha: item.headSha,
+          workType: spec.type,
+          attemptCount,
+          nextAttempt: attemptCount + 1,
+          retryDisposition: disposition,
+          escalationKinds: nextEscalation?.kinds ?? [],
+          failure: workFailureReasonFromClassified(failure),
         });
         throw error;
       }
@@ -955,26 +941,19 @@ export async function runDurableWorkItem<T extends WorkType>(
           pgBossRetryCount: spec.job.retryCount,
           pgBossRetryLimit: spec.job.retryLimit,
           dbAttemptCount: item.attemptCount,
+          skipAnalyticsException: true,
           ...errorLogFields(error),
           ...classifiedFailureLogFields(failure),
         },
         error,
       );
-      captureEvent({
-        distinctId: `installation:${item.installationId}`,
-        event: "work item failed",
-        properties: {
-          type: spec.type,
-          owner: item.owner,
-          repo: item.repo,
-          pr_number: item.prNumber,
-          attempt_count: item.attemptCount,
-          retry_disposition: disposition,
-          ...classifiedFailurePostHogProperties(failure),
-          ...(failure.failureDomain === "provider"
-            ? { provider_error_kind: providerErrorKind }
-            : {}),
-        },
+      captureDurableWorkCompleted({
+        item,
+        workType: spec.type,
+        outcome: "failed",
+        durationMs: durationMsFromClaim(workClaim),
+        attemptCount: workClaim?.attemptCount ?? item.attemptCount,
+        failure: workFailureReasonFromClassified(failure),
       });
     }
 

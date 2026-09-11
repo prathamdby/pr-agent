@@ -538,7 +538,16 @@ describe("executeVerificationJob", () => {
         degradation: ["verdict_mapping_incomplete"],
       }),
     );
-    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          work_type: "verification",
+          outcome: "degraded",
+          degraded_reason: "durable_degradation",
+        }),
+      }),
+    );
     warnSpy.mockRestore();
   });
 
@@ -578,7 +587,15 @@ describe("executeVerificationJob", () => {
     expect(publishParams.inventory).toBe(runParams.inventory);
     expect(runParams.escalation).toBeUndefined();
     expect(executeResult).toEqual({ kind: "completed" });
-    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          work_type: "verification",
+          outcome: "published",
+        }),
+      }),
+    );
   });
 
   it("narrows the escalated attempt inventory once and reports inventory_narrowed", async () => {
@@ -616,7 +633,16 @@ describe("executeVerificationJob", () => {
     expect(publishParams.inventory).toBe(runParams.inventory);
     expect(runParams.escalation).toBe(escalation);
     expect(executeResult).toEqual({ kind: "completed", degradation: ["inventory_narrowed"] });
-    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          work_type: "verification",
+          outcome: "degraded",
+          degraded_reason: "durable_degradation",
+        }),
+      }),
+    );
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {
@@ -656,7 +682,16 @@ describe("executeVerificationJob", () => {
       kind: "completed",
       degradation: ["thread_resolution_degraded"],
     });
-    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          work_type: "verification",
+          outcome: "degraded",
+          degraded_reason: "durable_degradation",
+        }),
+      }),
+    );
   });
 
   it.each([
@@ -742,7 +777,16 @@ describe("executeVerificationJob", () => {
         ? { kind: "completed", degradation: ["compare_files_truncated"] }
         : { kind: "completed" },
     );
-    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          work_type: "verification",
+          outcome: truncated ? "degraded" : "published",
+          ...(truncated ? { degraded_reason: "durable_degradation" } : {}),
+        }),
+      }),
+    );
   });
 
   it("does not publish a failure signal on a successful run", async () => {
