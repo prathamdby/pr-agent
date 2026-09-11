@@ -231,7 +231,7 @@ describe("runDurableWorkItem", () => {
     });
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
-    expect(repo.shouldSkipWork.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(vi.mocked(repo.shouldSkipWork).mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
