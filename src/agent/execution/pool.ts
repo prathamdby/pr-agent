@@ -5,7 +5,7 @@ import {
   CODE_MODE_EXECUTOR_QUEUE_WAIT_MS,
   resolveCodeModeExecutorKind,
 } from "../../settings/index.js";
-import { CodeModeHostHalt } from "../codemode/hostHalt.js";
+import { CodeModeHostHalt, encodeHostCallFailure } from "../codemode/hostHalt.js";
 import { runQuickJsCell, type QuickJsCellParams, type QuickJsCellResult } from "./quickjsCell.js";
 
 type Waiter = {
@@ -114,8 +114,7 @@ async function runInWorker(params: QuickJsCellParams): Promise<QuickJsCellResult
           postToWorker(worker, {
             type: "hostResult",
             callId: message.callId,
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
+            ...encodeHostCallFailure(error),
           });
         });
       return;

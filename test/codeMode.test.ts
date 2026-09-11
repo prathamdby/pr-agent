@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
 import { buildCodeModeExecuteTool } from "../src/agent/codemode/executeTool.js";
+import {
+  CodeModeHostHalt,
+  decodeHostCallFailure,
+  encodeHostCallFailure,
+  isCodeModeHostHalt,
+} from "../src/agent/codemode/hostHalt.js";
 import type { CodeModeResult } from "../src/agent/codemode/result.js";
 import { runCodeModeScript } from "../src/agent/codemode/runScript.js";
 import { serializeCodeModeValue } from "../src/agent/codemode/serialize.js";
@@ -176,6 +182,51 @@ describe("Code Mode", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.output).toBe(4);
+  });
+
+  it("restores CodeModeHostHalt from a worker hostResult payload", () => {
+    const halt = new CodeModeHostHalt("LIMIT_EXCEEDED", "too many calls", 4);
+    const posted = encodeHostCallFailure(halt);
+    expect(posted).toEqual({
+      ok: false,
+      halt: { code: "LIMIT_EXCEEDED", message: "too many calls", line: 4 },
+    });
+    const restored = decodeHostCallFailure(posted);
+    expect(isCodeModeHostHalt(restored)).toBe(true);
+    if (isCodeModeHostHalt(restored)) {
+      expect(restored.code).toBe("LIMIT_EXCEEDED");
+      expect(restored.message).toBe("too many calls");
+      expect(restored.line).toBe(4);
+    }
+  });
+
+  it("keeps ordinary host errors catchable after worker encoding", () => {
+    const posted = encodeHostCallFailure(new Error("FILE_NOT_FOUND: missing"));
+    expect(posted).toEqual({ ok: false, error: "FILE_NOT_FOUND: missing" });
+    const restored = decodeHostCallFailure(posted);
+    expect(isCodeModeHostHalt(restored)).toBe(false);
+    expect(restored).toBeInstanceOf(Error);
+    expect((restored as Error).message).toBe("FILE_NOT_FOUND: missing");
+  });
+
+  it("does not let guest try/catch swallow the capability call budget", async () => {
+    const result = await runCodeModeScript({
+      code: `
+        try {
+          for (let i = 0; i < 30; i = i + 1) {
+            await tools.listChangedFiles();
+          }
+          "escaped"
+        } catch (error) {
+          "escaped"
+        }
+      `,
+      capabilities: {
+        listChangedFiles: async () => ({ files: [] }),
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
   });
 
   it("halts after more than 25 capability calls", async () => {

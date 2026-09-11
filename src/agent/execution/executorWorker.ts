@@ -1,4 +1,9 @@
 import { parentPort } from "node:worker_threads";
+import {
+  CodeModeHostHalt,
+  decodeHostCallFailure,
+  type CodeModeHostHaltPayload,
+} from "../codemode/hostHalt.js";
 import { runQuickJsCell } from "./quickjsCell.js";
 import type { JsonObject } from "./json.js";
 import type { QuickJsCellResult } from "./quickjsCell.js";
@@ -27,6 +32,7 @@ type HostMessage =
       readonly ok: boolean;
       readonly value?: unknown;
       readonly error?: string;
+      readonly halt?: CodeModeHostHaltPayload;
     }
   | { readonly type: "abort"; readonly executionId: string };
 
@@ -36,13 +42,13 @@ parentPort.on("message", (message: HostMessage) => {
     if (!waiter) return;
     pending.delete(message.callId);
     if (message.ok) waiter.resolve(message.value);
-    else waiter.reject(new Error(message.error ?? "host call failed"));
+    else waiter.reject(decodeHostCallFailure(message));
     return;
   }
   if (message.type === "abort") {
     abortByExecution.get(message.executionId)?.abort();
     for (const waiter of pending.values()) {
-      waiter.reject(new Error("aborted"));
+      waiter.reject(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
     }
     pending.clear();
     return;
@@ -60,7 +66,7 @@ parentPort.on("message", (message: HostMessage) => {
       hostCall: (name, args, callId, signal) =>
         new Promise((resolve, reject) => {
           if (signal.aborted) {
-            reject(new Error("aborted"));
+            reject(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
             return;
           }
           pending.set(callId, { resolve, reject });

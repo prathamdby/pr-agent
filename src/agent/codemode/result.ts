@@ -9,6 +9,10 @@ export const CODE_MODE_ERROR_CODES = [
 
 export type CodeModeErrorCode = (typeof CODE_MODE_ERROR_CODES)[number];
 
+export function isCodeModeErrorCode(value: string): value is CodeModeErrorCode {
+  return (CODE_MODE_ERROR_CODES as readonly string[]).includes(value);
+}
+
 export type CodeModeToolCallStatus = "completed" | "error";
 
 export type CodeModeToolCall = {
