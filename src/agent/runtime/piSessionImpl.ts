@@ -98,19 +98,11 @@ function lastAssistant(messages: readonly AgentMessage[]): AssistantMessage | un
   return undefined;
 }
 
-/** Core copies `context.messages` on `runAgentLoop`. Merge returned turns back onto the session transcript. */
-function absorbProducedMessages(
+function placeUserMessage(
   target: AgentMessage[],
-  produced: readonly AgentMessage[],
   userMessage: AgentMessage,
-  newContentStart: number,
+  insertAt: number,
 ): void {
-  for (const message of produced) {
-    if (!target.includes(message)) {
-      target.push(message);
-    }
-  }
-  const insertAt = Math.min(Math.max(newContentStart, 0), target.length);
   const userIndex = target.indexOf(userMessage);
   if (userIndex === -1) {
     target.splice(insertAt, 0, userMessage);
@@ -120,6 +112,25 @@ function absorbProducedMessages(
     target.splice(userIndex, 1);
     target.splice(Math.min(insertAt, target.length), 0, userMessage);
   }
+}
+
+/**
+ * Core copies `context.messages` on `runAgentLoop` and returns the new turn
+ * slice in order. Replace the session suffix with that slice so tool results
+ * stay between the assistant turns that produced them. Empty `produced` keeps
+ * event-appended assistants (test mocks and a loop that returned nothing).
+ */
+function absorbProducedMessages(
+  target: AgentMessage[],
+  produced: readonly AgentMessage[],
+  userMessage: AgentMessage,
+  newContentStart: number,
+): void {
+  const insertAt = Math.min(Math.max(newContentStart, 0), target.length);
+  if (produced.length > 0) {
+    target.splice(insertAt, target.length - insertAt, ...produced);
+  }
+  placeUserMessage(target, userMessage, insertAt);
 }
 
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {

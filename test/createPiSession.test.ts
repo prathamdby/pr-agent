@@ -28,6 +28,17 @@ type LoopEmit = (event: {
   };
 }) => void | Promise<void>;
 
+function makeToolResult(toolCallId: string, toolName: string) {
+  return {
+    role: "toolResult" as const,
+    toolCallId,
+    toolName,
+    content: [{ type: "text" as const, text: "ok" }],
+    isError: false,
+    timestamp: Date.now(),
+  };
+}
+
 function makeAssistant(
   text: string,
   extras: {
@@ -644,6 +655,49 @@ describe("createPiSession terminal provider outcomes", () => {
     await expect(
       runnerSession.send("question", { ...ASK_SEND_OPTS, maxToolRounds: 2 }),
     ).resolves.toMatchObject({ text: "" });
+  });
+
+  it("keeps tool results between the assistant turns that produced them", async () => {
+    const rolesAtLoopStart: string[][] = [];
+    runAgentLoop.mockImplementation(async (prompts, context, _config, emit: LoopEmit) => {
+      const messages = (context as { messages: Array<{ role: string }> }).messages;
+      rolesAtLoopStart.push(messages.map((message) => message.role));
+      if (runAgentLoop.mock.calls.length === 1) {
+        const user = (prompts as Array<{ role: string }>)[0];
+        const first = makeAssistant("I'll look.", {
+          stopReason: "toolUse",
+          content: [{ type: "toolCall", id: "c1", name: "readFile", arguments: {} }],
+        });
+        const toolResult = makeToolResult("c1", "readFile");
+        const second = makeAssistant("done", { stopReason: "stop" });
+        await emit({
+          type: "turn_end",
+          toolResults: [{}],
+          message: first,
+        });
+        await emit({
+          type: "turn_end",
+          toolResults: [],
+          message: second,
+        });
+        return [user, first, toolResult, second];
+      }
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistant("later", { stopReason: "stop" }),
+      });
+      return [];
+    });
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    await runnerSession.send("first", ASK_SEND_OPTS);
+    await runnerSession.send("second", ASK_SEND_OPTS);
+    expect(rolesAtLoopStart[1]).toEqual(["user", "assistant", "toolResult", "assistant"]);
   });
 
   it("inserts each send prompt after prior assistant turns", async () => {
