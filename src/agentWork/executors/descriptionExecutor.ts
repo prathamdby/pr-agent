@@ -80,6 +80,7 @@ export async function executeDescriptionJob(
               workItemId: item.id,
               installationId: item.installationId,
             },
+            signal: env.signal,
           });
           if (!result.published && !result.publishSuperseded) {
             const failure = classifyFailure(new Error("Description was not published"), {

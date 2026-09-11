@@ -164,6 +164,7 @@ export async function executeVerificationJob(
               workItemId: item.id,
               installationId: item.installationId,
             },
+            signal: env.signal,
           });
           if (!runResult.submitted || !runResult.payload) {
             throw new AppError({

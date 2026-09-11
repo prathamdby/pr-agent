@@ -1,5 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
+import { createExecutionSessionStore } from "../execution/sessionStore.js";
 import { buildCodeModeExecuteTool } from "./executeTool.js";
 import { CODE_MODE_EXECUTE_NAME, CODE_MODE_WORKSPACE_TOOL_NAMES } from "./types.js";
 import type { CodeModeCapabilityExecutors } from "./types.js";
@@ -22,9 +24,18 @@ export function pickCodeModeCapabilities(
   return capabilities;
 }
 
-export function hideWorkspaceToolsBehindCodeMode(bundle: ToolBundle): ToolBundle {
+export function hideWorkspaceToolsBehindCodeMode(
+  bundle: ToolBundle,
+  options?: {
+    readonly evidenceLedger?: EvidenceLedger;
+    readonly headSha?: string;
+  },
+): ToolBundle {
   const execute = buildCodeModeExecuteTool({
     capabilities: pickCodeModeCapabilities(bundle.executors),
+    session: createExecutionSessionStore(),
+    evidenceLedger: options?.evidenceLedger,
+    headSha: options?.headSha,
   });
   return {
     piTools: [

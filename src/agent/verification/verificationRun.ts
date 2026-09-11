@@ -44,6 +44,7 @@ export async function runVerification(params: {
   readonly durability?: FeatureSessionDurability;
   /** Escalation for attempts after the first; undefined leaves the base budget. */
   readonly escalation?: EscalationPlan;
+  readonly signal?: AbortSignal;
 }): Promise<VerificationRunResult> {
   const { cfg, owner, repo, prNumber, escalation } = params;
   const providerName = cfg.piProvider;
@@ -57,6 +58,7 @@ export async function runVerification(params: {
     executors: setup.executors,
     durability: params.durability,
     attemptModel: escalation?.model,
+    hostSignal: params.signal,
   });
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>

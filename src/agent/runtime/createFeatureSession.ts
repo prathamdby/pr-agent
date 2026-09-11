@@ -1,11 +1,10 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
-import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+import { combineAbortSignals, type AgentRunnerToolExecutor } from "../providers/interface.js";
 import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.js";
 import { thinkingPolicyFromCeiling } from "./thinkingPolicy.js";
 import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.js";
-import { runWithCodeModeContext } from "../codemode/context.js";
 import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.js";
 import { createPiSession } from "./piSession.js";
 import {
@@ -46,12 +45,12 @@ async function resolveInitialStructuredState(params: {
   });
 }
 
-function attachCodeModeAbort(session: PiSession, codeModeAbort: AbortController): PiSession {
+function attachSessionAbort(session: PiSession, sessionAbort: AbortController): PiSession {
   const originalAbort = session.abort.bind(session);
   return {
     ...session,
     abort: async () => {
-      codeModeAbort.abort();
+      sessionAbort.abort();
       await originalAbort();
     },
   };
@@ -114,6 +113,8 @@ export async function createFeaturePiSession(params: {
   readonly eventSink?: (event: AgentLifecycleEvent) => void;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
+  /** Durable job/lease abort; combined with the session abort and the loop signal. */
+  readonly hostSignal?: AbortSignal;
   /** Model this durable attempt runs on; defaults to the role policy when omitted. */
   readonly attemptModel?: ModelAssignment;
 }): Promise<PiSession> {
@@ -133,19 +134,17 @@ export async function createFeaturePiSession(params: {
       : (durableEventSink ?? params.eventSink ?? (() => undefined));
   const executors = { ...params.executors };
   const execute = executors[CODE_MODE_EXECUTE_NAME];
-  const codeModeAbort = new AbortController();
+  const sessionAbort = new AbortController();
   if (execute) {
-    executors[CODE_MODE_EXECUTE_NAME] = (args) =>
-      runWithCodeModeContext(
-        {
-          signal: codeModeAbort.signal,
-          emit: eventSink,
-          role: params.role,
-          provider: primary.provider,
-          model: primary.model,
-        },
-        () => execute(args),
-      );
+    executors[CODE_MODE_EXECUTE_NAME] = async (args, ctx?) =>
+      execute(args, {
+        signal: combineAbortSignals([ctx?.signal, sessionAbort.signal, params.hostSignal]),
+        toolCallId: ctx?.toolCallId ?? CODE_MODE_EXECUTE_NAME,
+        emit: eventSink,
+        role: params.role,
+        provider: primary.provider,
+        model: primary.model,
+      });
   }
   const session = await createPiSession({
     role: params.role,
@@ -163,9 +162,10 @@ export async function createFeaturePiSession(params: {
     tools: params.tools,
     executors,
     refreshBeforeTool: params.refreshBeforeTool,
+    hostSignal: params.hostSignal,
   });
   const durable = params.durability
     ? wrapSessionWithDurability(session, params.cfg, params.durability)
     : session;
-  return attachCodeModeAbort(durable, codeModeAbort);
+  return attachSessionAbort(durable, sessionAbort);
 }

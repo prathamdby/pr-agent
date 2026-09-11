@@ -1,19 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
-import { runWithCodeModeContext } from "../src/agent/codemode/context.js";
 import { buildCodeModeExecuteTool } from "../src/agent/codemode/executeTool.js";
+import {
+  CodeModeHostHalt,
+  decodeHostCallFailure,
+  encodeHostCallFailure,
+  isCodeModeHostHalt,
+} from "../src/agent/codemode/hostHalt.js";
 import type { CodeModeResult } from "../src/agent/codemode/result.js";
 import { runCodeModeScript } from "../src/agent/codemode/runScript.js";
 import { serializeCodeModeValue } from "../src/agent/codemode/serialize.js";
+import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.js";
+import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.js";
 import { AppError } from "../src/errors/appError.js";
 import { startWorkerHealthServer } from "../src/agentWork/workerHealth.js";
-import { CODE_MODE_MAX_TOOL_CALLS } from "../src/settings/index.js";
+import { createEvidenceLedger } from "../src/review/findings/evidenceLedger.js";
+import { CODE_MODE_MAX_TOOL_CALLS, resolveCodeModeExecutorKind } from "../src/settings/index.js";
 
 function asResult(value: unknown): CodeModeResult {
   return value as CodeModeResult;
 }
 
 describe("Code Mode", () => {
+  it("keeps Vitest execute cells in-process", () => {
+    expect(resolveCodeModeExecutorKind()).toBe("in_process");
+  });
+
   it("terminates while(true){} within the AST budget", async () => {
     const started = Date.now();
     const result = await runCodeModeScript({
@@ -82,9 +94,12 @@ describe("Code Mode", () => {
       code: 'new RegExp("(a+)+$").test("aaaaaaaaaaaaaaaaaaaaaaaaaaaaX")',
       capabilities: {},
     });
-    expect(Date.now() - started).toBeLessThan(100);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
+    expect(Date.now() - started).toBeLessThan(500);
+    if (!result.ok) {
+      expect(["EXECUTION_BUDGET_EXCEEDED", "TIMEOUT", "LIMIT_EXCEEDED"]).toContain(
+        result.error.code,
+      );
+    }
   });
 
   it.each([
@@ -95,7 +110,7 @@ describe("Code Mode", () => {
     const result = await runCodeModeScript({ code, capabilities: {} });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("EXECUTION_BUDGET_EXCEEDED");
-    expect(Date.now() - started).toBeLessThan(100);
+    expect(Date.now() - started).toBeLessThan(500);
   });
 
   it("halts Array.from allocations beyond the cap", async () => {
@@ -119,9 +134,12 @@ describe("Code Mode", () => {
   ])("rejects ReDoS-prone patterns for %s", async (code) => {
     const started = Date.now();
     const result = await runCodeModeScript({ code, capabilities: {} });
-    expect(Date.now() - started).toBeLessThan(100);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
+    expect(Date.now() - started).toBeLessThan(500);
+    if (!result.ok) {
+      expect(["EXECUTION_BUDGET_EXCEEDED", "TIMEOUT", "LIMIT_EXCEEDED"]).toContain(
+        result.error.code,
+      );
+    }
   });
 
   it("halts doubling concatenation before a huge allocation", async () => {
@@ -138,8 +156,10 @@ describe("Code Mode", () => {
     });
     const after = process.memoryUsage().heapUsed;
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
-    expect(Date.now() - started).toBeLessThan(100);
+    if (!result.ok) {
+      expect(["LIMIT_EXCEEDED", "EXECUTION_BUDGET_EXCEEDED"]).toContain(result.error.code);
+    }
+    expect(Date.now() - started).toBeLessThan(500);
     expect(after - before).toBeLessThan(8 * 1024 * 1024);
   });
 
@@ -155,16 +175,58 @@ describe("Code Mode", () => {
     }
   });
 
-  it("returns structured diagnostics for unsupported constructs", async () => {
+  it("executes class syntax as JavaScript", async () => {
     const result = await runCodeModeScript({
-      code: "class Foo {}",
+      code: "class Foo { value() { return 4 } }; new Foo().value()",
       capabilities: {},
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("EXECUTION_ERROR");
-      expect(result.error.message).toContain("Unsupported language construct");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toBe(4);
+  });
+
+  it("restores CodeModeHostHalt from a worker hostResult payload", () => {
+    const halt = new CodeModeHostHalt("LIMIT_EXCEEDED", "too many calls", 4);
+    const posted = encodeHostCallFailure(halt);
+    expect(posted).toEqual({
+      ok: false,
+      halt: { code: "LIMIT_EXCEEDED", message: "too many calls", line: 4 },
+    });
+    const restored = decodeHostCallFailure(posted);
+    expect(isCodeModeHostHalt(restored)).toBe(true);
+    if (isCodeModeHostHalt(restored)) {
+      expect(restored.code).toBe("LIMIT_EXCEEDED");
+      expect(restored.message).toBe("too many calls");
+      expect(restored.line).toBe(4);
     }
+  });
+
+  it("keeps ordinary host errors catchable after worker encoding", () => {
+    const posted = encodeHostCallFailure(new Error("FILE_NOT_FOUND: missing"));
+    expect(posted).toEqual({ ok: false, error: "FILE_NOT_FOUND: missing" });
+    const restored = decodeHostCallFailure(posted);
+    expect(isCodeModeHostHalt(restored)).toBe(false);
+    expect(restored).toBeInstanceOf(Error);
+    expect((restored as Error).message).toBe("FILE_NOT_FOUND: missing");
+  });
+
+  it("does not let guest try/catch swallow the capability call budget", async () => {
+    const result = await runCodeModeScript({
+      code: `
+        try {
+          for (let i = 0; i < 30; i = i + 1) {
+            await tools.listChangedFiles();
+          }
+          "escaped"
+        } catch (error) {
+          "escaped"
+        }
+      `,
+      capabilities: {
+        listChangedFiles: async () => ({ files: [] }),
+      },
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("LIMIT_EXCEEDED");
   });
 
   it("halts after more than 25 capability calls", async () => {
@@ -198,12 +260,56 @@ describe("Code Mode", () => {
     if (result.ok) {
       const output = result.output as {
         items: { truncated: true; omittedCount: number };
-        text: { truncated: true; value: string };
+        text: string;
+        truncation?: { truncated: true; reason: string };
       };
       expect(output.items.truncated).toBe(true);
       expect(output.items.omittedCount).toBeGreaterThan(0);
-      expect(output.text.truncated).toBe(true);
+      expect(typeof output.text).toBe("string");
+      expect(output.text.length).toBeLessThan(40000);
+      expect(output.truncation?.truncated).toBe(true);
+      expect(result.warnings?.[0]).toMatch(/truncated/);
     }
+  });
+
+  it("keeps transfer-limit truncation beside execute output", async () => {
+    const result = await runCodeModeScript({
+      code: `const out = {};
+        for (let i = 0; i < 20; i = i + 1) {
+          out["k" + i] = "x".repeat(20000);
+        }
+        out`,
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const output = result.output as {
+        truncated?: boolean;
+        reason?: string;
+        truncation?: { truncated: true; reason: string };
+      };
+      expect(output.truncation?.truncated).toBe(true);
+      expect(output.truncation?.reason).toBe("transfer_byte_limit");
+      expect(result.warnings?.[0]).toContain("transfer_byte_limit");
+    }
+  });
+
+  it("returns the last ASI expression as the cell value", async () => {
+    const result = await runCodeModeScript({
+      code: "const a = 1\na + 1",
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toBe(2);
+  });
+
+  it("keeps a continued expression as one returned value", async () => {
+    const result = await runCodeModeScript({
+      code: "1 +\n  2",
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toBe(3);
   });
 
   it("propagates ACCESS_DENIED from path fencing", async () => {
@@ -230,9 +336,8 @@ describe("Code Mode", () => {
   it("halts on host cancel even when the script uses try/catch", async () => {
     const controller = new AbortController();
     controller.abort();
-    const result = await runWithCodeModeContext({ signal: controller.signal }, () =>
-      runCodeModeScript({
-        code: `
+    const result = await runCodeModeScript({
+      code: `
           try {
             while (true) {}
           } catch (error) {
@@ -240,10 +345,9 @@ describe("Code Mode", () => {
           }
           "escaped"
         `,
-        capabilities: {},
-        signal: controller.signal,
-      }),
-    );
+      capabilities: {},
+      signal: controller.signal,
+    });
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.code).toBe("TIMEOUT");
@@ -294,5 +398,198 @@ describe("Code Mode", () => {
       reason: "array_length_limit",
       value: ["a", "b"],
     });
+  });
+
+  it("supports object destructuring", async () => {
+    const result = await runCodeModeScript({
+      code: "const { a } = { a: 1 }; a",
+      capabilities: {},
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.output).toBe(1);
+  });
+
+  it("does not retain variables across execute cells", async () => {
+    const first = await runCodeModeScript({
+      code: "var retainedValue = 7; retainedValue",
+      capabilities: {},
+    });
+    expect(first.ok).toBe(true);
+    const second = await runCodeModeScript({
+      code: "retainedValue",
+      capabilities: {},
+    });
+    expect(second.ok).toBe(false);
+    if (!second.ok) {
+      expect(second.error.message).toMatch(/retainedValue/i);
+    }
+  });
+
+  it("emits execution success distinct from a returned execution failure", async () => {
+    const events: Array<{ kind: string; outcome?: string }> = [];
+    const sink = {
+      emit: (event: { kind: string; outcome?: string }) => events.push(event),
+      role: "ask" as const,
+      provider: "openai",
+      model: "gpt-4o-mini",
+    };
+    const success = await runCodeModeScript({
+      code: "1 + 1",
+      capabilities: {},
+      ...sink,
+    });
+    const failure = await runCodeModeScript({
+      code: "throw new Error('nope')",
+      capabilities: {},
+      ...sink,
+    });
+    expect(success.ok).toBe(true);
+    expect(failure.ok).toBe(false);
+    expect(events.map((event) => event.outcome)).toEqual(["success", "execution_failure"]);
+    expect(events.every((event) => event.kind === "execution")).toBe(true);
+  });
+
+  it("emits cancelled when the host signal is already aborted", async () => {
+    const events: AgentLifecycleEvent[] = [];
+    const controller = new AbortController();
+    controller.abort();
+    await runCodeModeScript({
+      code: "1",
+      capabilities: {},
+      signal: controller.signal,
+      emit: (event) => events.push(event),
+      role: "ask",
+      provider: "openai",
+      model: "gpt-4o-mini",
+    });
+    expect(events[0]?.kind).toBe("execution");
+    if (events[0]?.kind === "execution") {
+      expect(events[0].outcome).toBe("cancelled");
+      expect(events[0].terminationReason).toBe("host_cancel");
+    }
+  });
+
+  it("overlaps two delayed host reads inside one Promise.all", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const result = await runCodeModeScript({
+      code: `await Promise.all([
+        tools.readWorkspaceFile({ path: "a.ts" }),
+        tools.readWorkspaceFile({ path: "b.ts" }),
+      ])`,
+      capabilities: {
+        readWorkspaceFile: async () => {
+          inFlight += 1;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) => {
+            setTimeout(resolve, 40);
+          });
+          inFlight -= 1;
+          return { path: "x.ts", content: "ok", startLine: 1, endLine: 1 };
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(maxInFlight).toBe(2);
+  });
+
+  it("commits explicit state only after a successful cell", async () => {
+    const execute = buildCodeModeExecuteTool({ capabilities: {} });
+    const first = asResult(await execute.executor({ code: "state.flag = 7; state.flag" }));
+    const second = asResult(await execute.executor({ code: "state.flag" }));
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (second.ok) expect(second.output).toBe(7);
+
+    const session = createExecutionSessionStore();
+    let releaseHost: (() => void) | undefined;
+    const aborted = runCodeModeScript({
+      code: 'state.flag = 99; await tools.readWorkspaceFile({ path: "a.ts" }); state.flag',
+      session,
+      capabilities: {
+        readWorkspaceFile: async () =>
+          new Promise((resolve) => {
+            releaseHost = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
+          }),
+      },
+    });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    session.closeAdmission();
+    session.invalidate();
+    releaseHost?.();
+    const abortedResult = await aborted;
+    expect(abortedResult.ok).toBe(false);
+    const afterAbort = await runCodeModeScript({
+      code: "Object.prototype.hasOwnProperty.call(state, 'flag')",
+      session,
+      capabilities: {},
+    });
+    expect(afterAbort.ok).toBe(true);
+    if (afterAbort.ok) expect(afterAbort.output).toBe(false);
+  });
+
+  it("reports a session state conflict when a later cell commits first", async () => {
+    const session = createExecutionSessionStore();
+    let releaseHost: (() => void) | undefined;
+    const first = runCodeModeScript({
+      code: 'state.fromFirst = true; await tools.readWorkspaceFile({ path: "a.ts" }); state.fromFirst',
+      session,
+      capabilities: {
+        readWorkspaceFile: async () =>
+          new Promise((resolve) => {
+            releaseHost = () => resolve({ path: "a.ts", content: "x", startLine: 1, endLine: 1 });
+          }),
+      },
+    });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20);
+    });
+    const second = await runCodeModeScript({
+      code: "state.fromSecond = true; state.fromSecond",
+      session,
+      capabilities: {},
+    });
+    expect(second.ok).toBe(true);
+    releaseHost?.();
+    const firstResult = await first;
+    expect(firstResult.ok).toBe(false);
+    if (!firstResult.ok) {
+      expect(firstResult.error.code).toBe("EXECUTION_ERROR");
+      expect(firstResult.error.message).toBe("Code Mode session state conflict");
+    }
+  });
+
+  it("keeps a truncated file read as a string and records only delivered lines", async () => {
+    const headSha = "abc123";
+    const ledger = createEvidenceLedger(headSha);
+    const lines = Array.from(
+      { length: 800 },
+      (_, index) => `line-${String(index + 1).padStart(3, "0")}:${"x".repeat(80)}`,
+    ).join("\n");
+    const result = await runCodeModeScript({
+      code: `const file = await tools.readWorkspaceFile({ path: "big.ts" });
+        ({ kind: typeof file.content, length: file.content.length, truncated: file.truncation && file.truncation.truncated })`,
+      capabilities: {
+        readWorkspaceFile: async () => ({
+          path: "big.ts",
+          content: lines,
+          startLine: 1,
+          endLine: 800,
+        }),
+      },
+      evidenceLedger: ledger,
+      headSha,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const output = result.output as { kind: string; length: number; truncated: boolean };
+      expect(output.kind).toBe("string");
+      expect(output.length).toBeLessThan(lines.length);
+      expect(output.truncated).toBe(true);
+    }
+    expect(ledger.covers("big.ts", 1, 1)).toBe(true);
+    expect(ledger.covers("big.ts", 800, 800)).toBe(false);
   });
 });

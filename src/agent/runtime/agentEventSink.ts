@@ -37,6 +37,15 @@ export function lifecycleAuditToInsertRow(
   if (record.reason != null) detail.reason = record.reason;
   if (record.failureDomain != null) detail.failureDomain = record.failureDomain;
   if (record.errorKind != null) detail.errorKind = record.errorKind;
+  if (record.outcome != null) detail.outcome = record.outcome;
+  if (record.durationMs != null) detail.durationMs = record.durationMs;
+  if (record.admittedHostCalls != null) detail.admittedHostCalls = record.admittedHostCalls;
+  if (record.completedHostCalls != null) detail.completedHostCalls = record.completedHostCalls;
+  if (record.transferredBytes != null) detail.transferredBytes = record.transferredBytes;
+  if (record.outputBytes != null) detail.outputBytes = record.outputBytes;
+  if (record.failureCode != null && record.kind === "execution") {
+    detail.errorCode = record.failureCode;
+  }
 
   return {
     ...baseInsertRow(context),

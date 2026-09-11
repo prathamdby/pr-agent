@@ -150,4 +150,51 @@ describe("agentAuditRecordFromLifecycleEvent", () => {
     });
     expect(JSON.stringify(record)).not.toMatch(/prompt|reasoning|sk-|diff|toolCall/i);
   });
+
+  it("allows sanitized execution outcome events without source or arguments", () => {
+    const event = sanitizeAgentLifecycleEvent({
+      kind: "execution",
+      role: "ask",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      outcome: "execution_failure",
+      errorCode: "syntax_error",
+      durationMs: 12,
+      admittedHostCalls: 0,
+      completedHostCalls: 0,
+      transferredBytes: 0,
+      outputBytes: 8,
+      terminationReason: "syntax_error",
+    });
+    expect(event).toEqual({
+      kind: "execution",
+      role: "ask",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      outcome: "execution_failure",
+      errorCode: "syntax_error",
+      durationMs: 12,
+      admittedHostCalls: 0,
+      completedHostCalls: 0,
+      transferredBytes: 0,
+      outputBytes: 8,
+      terminationReason: "syntax_error",
+    });
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "execution",
+        role: "ask",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        outcome: "success",
+        durationMs: 1,
+        admittedHostCalls: 0,
+        completedHostCalls: 0,
+        transferredBytes: 0,
+        outputBytes: 0,
+        terminationReason: "success",
+        arguments: { code: "secret" },
+      }),
+    ).toBeNull();
+  });
 });

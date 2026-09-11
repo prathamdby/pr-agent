@@ -80,6 +80,21 @@ export type AgentLifecycleFailureEvent = {
   readonly errorKind?: string;
 };
 
+export type AgentLifecycleExecutionEvent = {
+  readonly kind: "execution";
+  readonly role: AgentSessionRole;
+  readonly provider: string;
+  readonly model: string;
+  readonly outcome: "success" | "execution_failure" | "cancelled" | "budget";
+  readonly errorCode?: string;
+  readonly durationMs: number;
+  readonly admittedHostCalls: number;
+  readonly completedHostCalls: number;
+  readonly transferredBytes: number;
+  readonly outputBytes: number;
+  readonly terminationReason: string;
+};
+
 export type AgentLifecycleEvent =
   | AgentLifecycleTurnEvent
   | AgentLifecycleToolEvent
@@ -88,7 +103,8 @@ export type AgentLifecycleEvent =
   | AgentLifecycleUsageEvent
   | AgentLifecycleCancellationEvent
   | AgentLifecycleCompletionEvent
-  | AgentLifecycleFailureEvent;
+  | AgentLifecycleFailureEvent
+  | AgentLifecycleExecutionEvent;
 
 const ALLOWED_KINDS = new Set<AgentLifecycleEvent["kind"]>([
   "turn",
@@ -99,6 +115,7 @@ const ALLOWED_KINDS = new Set<AgentLifecycleEvent["kind"]>([
   "cancellation",
   "completion",
   "failure",
+  "execution",
 ]);
 
 export function isAgentLifecycleEventKind(value: string): value is AgentLifecycleEvent["kind"] {

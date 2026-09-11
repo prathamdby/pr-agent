@@ -1,37 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  ModelRuntime: {
-    create: vi.fn(async () => {
-      const streamSimple = vi.fn();
-      const stream = vi.fn();
-      return {
-        setRuntimeApiKey: vi.fn(async () => undefined),
-        getError: vi.fn(() => undefined),
-        getModel: vi.fn(() => ({
-          id: "gpt-4o-mini",
-          provider: "openai",
-          api: "openai-responses",
-        })),
-        streamSimple,
-        stream,
-        completeSimple: vi.fn(),
-        complete: vi.fn(),
-      };
-    }),
-  },
-  createAgentSession: vi.fn(),
-  createExtensionRuntime: vi.fn(),
-  defineTool: vi.fn((tool: unknown) => tool),
-  DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
-    return { reload: vi.fn(async () => undefined) };
-  }),
-  SessionManager: { inMemory: vi.fn(() => ({})) },
-  SettingsManager: { inMemory: vi.fn(() => ({})) },
-}));
+const runAgentLoop = vi.hoisted(() => vi.fn());
 
-import { createAgentSession, SettingsManager } from "@earendil-works/pi-coding-agent";
+vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
+  return {
+    ...actual,
+    runAgentLoop,
+    runAgentLoopContinue: vi.fn(),
+  };
+});
+
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
 import { compactionPolicyForRole } from "../src/agent/runtime/compactionPolicy.js";
 import type { AgentSessionRole } from "../src/agent/runtime/types.js";
@@ -53,46 +33,49 @@ describe("compactionPolicyForRole", () => {
 describe("createFeaturePiSession compaction by role", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(createAgentSession).mockResolvedValue({
-      session: {
-        subscribe: () => () => undefined,
-        prompt: async () => undefined,
-        abort: vi.fn(),
-        setActiveToolsByName: vi.fn(),
-        setThinkingLevel: vi.fn(),
-        dispose: vi.fn(),
-      },
-    } as never);
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit) => {
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: { role: "assistant", content: [{ type: "text", text: "ok" }], stopReason: "stop" },
+      });
+      return [];
+    });
   });
 
-  async function createForRole(role: AgentSessionRole) {
-    return createFeaturePiSession({
+  async function sendForRole(role: AgentSessionRole) {
+    const session = await createFeaturePiSession({
       role,
       cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
       systemPrompt: role,
       tools: [],
       executors: {},
     });
+    await session.send("run", {
+      phase: role === "orchestrator" ? "recon" : role === "specialist" ? "specialist" : "ask",
+      checkpointId: "cp",
+    });
+    const config = runAgentLoop.mock.calls.at(-1)?.[2] as {
+      maxRetries?: number;
+      maxRetryDelayMs?: number;
+      prepareNextTurn?: unknown;
+    };
+    return config;
   }
 
-  it("passes SettingsManager compaction.enabled=false for orchestrator and specialist", async () => {
-    await createForRole("orchestrator");
-    await createForRole("specialist");
-    const settings = vi.mocked(SettingsManager.inMemory).mock.calls.map((call) => call[0]);
-    expect(settings).toMatchObject([
-      { compaction: { enabled: false } },
-      { compaction: { enabled: false } },
-    ]);
-    expect(settings[0]?.retry).toEqual({
-      enabled: true,
-      provider: { maxRetries: 2, maxRetryDelayMs: 60_000 },
+  it("omits prepareNextTurn for orchestrator and specialist", async () => {
+    const orchestrator = await sendForRole("orchestrator");
+    const specialist = await sendForRole("specialist");
+    expect(orchestrator.prepareNextTurn).toBeUndefined();
+    expect(specialist.prepareNextTurn).toBeUndefined();
+    expect(orchestrator).toMatchObject({
+      maxRetries: 2,
+      maxRetryDelayMs: 60_000,
     });
   });
 
-  it("passes SettingsManager compaction.enabled=true for ask", async () => {
-    await createForRole("ask");
-    expect(SettingsManager.inMemory).toHaveBeenCalledWith(
-      expect.objectContaining({ compaction: { enabled: true } }),
-    );
+  it("passes prepareNextTurn for ask", async () => {
+    const ask = await sendForRole("ask");
+    expect(typeof ask.prepareNextTurn).toBe("function");
   });
 });

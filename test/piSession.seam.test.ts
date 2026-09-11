@@ -1,37 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  ModelRuntime: {
-    create: vi.fn(async () => {
-      const streamSimple = vi.fn();
-      const stream = vi.fn();
-      return {
-        setRuntimeApiKey: vi.fn(async () => undefined),
-        getError: vi.fn(() => undefined),
-        getModel: vi.fn(() => ({
-          id: "gpt-4o-mini",
-          provider: "openai",
-          api: "openai-responses",
-        })),
-        streamSimple,
-        stream,
-        completeSimple: vi.fn(),
-        complete: vi.fn(),
-      };
-    }),
-  },
-  createAgentSession: vi.fn(),
-  createExtensionRuntime: vi.fn(),
-  defineTool: vi.fn((tool: unknown) => tool),
-  DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
-    return { reload: vi.fn(async () => undefined) };
-  }),
-  SessionManager: { inMemory: vi.fn(() => ({})) },
-  SettingsManager: { inMemory: vi.fn(() => ({})) },
-}));
+const runAgentLoop = vi.hoisted(() => vi.fn());
 
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-agent-core")>();
+  return {
+    ...actual,
+    runAgentLoop,
+    runAgentLoopContinue: vi.fn(),
+  };
+});
+
 import {
   compactionPolicyForRole,
   createPiSession,
@@ -44,39 +24,18 @@ import {
 describe("createPiSession seam", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit) => {
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: { role: "assistant", content: [{ type: "text", text: "seam-ok" }] },
+      });
+      return [];
+    });
   });
 
   it("creates a session with role, model assignment, and send options", async () => {
     const events: Array<{ kind: string }> = [];
-    const mockSession = {
-      subscribe: vi.fn(
-        (
-          listener: (event: {
-            type: string;
-            toolResults?: unknown[];
-            message?: { role: string; content: unknown[] };
-          }) => void,
-        ) => {
-          // emit terminal turn on prompt
-          (mockSession as { _listener?: typeof listener })._listener = listener;
-          return () => undefined;
-        },
-      ),
-      prompt: vi.fn(async () => {
-        const listener = (mockSession as { _listener?: (event: unknown) => void })._listener;
-        listener?.({
-          type: "turn_end",
-          toolResults: [],
-          message: { role: "assistant", content: [{ type: "text", text: "seam-ok" }] },
-        });
-      }),
-      abort: vi.fn(),
-      setActiveToolsByName: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      dispose: vi.fn(),
-    };
-    vi.mocked(createAgentSession).mockResolvedValue({ session: mockSession } as never);
-
     const session = await createPiSession({
       role: "orchestrator",
       primary: { provider: "openai", model: "gpt-4o-mini" },
@@ -101,53 +60,27 @@ describe("createPiSession seam", () => {
       maxToolRounds: 2,
     });
     expect(turn.text).toBe("seam-ok");
-    expect(mockSession.setThinkingLevel).toHaveBeenCalled();
     expect(events.map((event) => event.kind)).toContain("turn");
     expect(events.map((event) => event.kind)).toContain("completion");
 
     await session.dispose();
-    expect(mockSession.dispose).toHaveBeenCalled();
   });
 
-  it("rejects a resolved SDK prompt that ends on an assistant error", async () => {
+  it("rejects a resolved loop that ends on an assistant error", async () => {
     const events: Array<{ kind: string }> = [];
-    const mockSession = {
-      subscribe: vi.fn(
-        (
-          listener: (event: {
-            type: string;
-            toolResults?: unknown[];
-            message?: {
-              role: string;
-              content: unknown[];
-              stopReason?: string;
-              errorMessage?: string;
-            };
-          }) => void,
-        ) => {
-          (mockSession as { _listener?: typeof listener })._listener = listener;
-          return () => undefined;
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit) => {
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: "429 Too Many Requests: rate limit exceeded",
         },
-      ),
-      prompt: vi.fn(async () => {
-        const listener = (mockSession as { _listener?: (event: unknown) => void })._listener;
-        listener?.({
-          type: "turn_end",
-          toolResults: [],
-          message: {
-            role: "assistant",
-            content: [],
-            stopReason: "error",
-            errorMessage: "429 Too Many Requests: rate limit exceeded",
-          },
-        });
-      }),
-      abort: vi.fn(),
-      setActiveToolsByName: vi.fn(),
-      setThinkingLevel: vi.fn(),
-      dispose: vi.fn(),
-    };
-    vi.mocked(createAgentSession).mockResolvedValue({ session: mockSession } as never);
+      });
+      return [];
+    });
 
     const session = await createPiSession({
       role: "orchestrator",
@@ -179,9 +112,7 @@ describe("createPiSession seam", () => {
     await session.dispose();
   });
 
-  it("does not import createAgentSession from feature harness paths (grep gate)", async () => {
-    // Only src/agent/runtime may construct Pi sessions (createPiSession seam).
-    // Feature packages and agent/providers must go through that seam.
+  it("does not import createAgentSession or coding-agent from feature harness paths", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     async function walk(dir: string): Promise<string[]> {
@@ -206,10 +137,13 @@ describe("createPiSession seam", () => {
       ...(await walk("src/agent/verification")),
       ...(await walk("src/agent/providers")),
     ];
+    const forbidden = ["createAgentSession", "pi-coding-agent", "pi-ai/compat", "runAgentLoop"];
     for (const file of featureFiles) {
       const text = await fs.readFile(file, "utf8");
-      if (text.includes("createAgentSession")) {
-        throw new Error(`unexpected createAgentSession in ${file}`);
+      for (const token of forbidden) {
+        if (text.includes(token)) {
+          throw new Error(`unexpected ${token} in ${file}`);
+        }
       }
     }
   });

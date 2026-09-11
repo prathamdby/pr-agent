@@ -52,6 +52,7 @@ export async function runFullPrTriage(params: {
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly durability?: FeatureSessionDurability;
   readonly escalation?: EscalationPlan;
+  readonly signal?: AbortSignal;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.piProvider;
@@ -66,6 +67,7 @@ export async function runFullPrTriage(params: {
     refreshBeforeTool: params.refreshBeforeTool,
     durability: params.durability,
     attemptModel: params.escalation?.model,
+    hostSignal: params.signal,
   });
   let lastText = "";
   const sendFinalizeRound = async (prompt: string): Promise<string> =>

@@ -21,7 +21,7 @@ The service still needs durable intake, worker-owned publishing, progress commen
 
 - Worker runtime depends on `git`, disk-space admission checks, stale workspace cleanup, and per-run workspace cleanup.
 - GitHub API rate-limit pressure moves out of investigation and remains only around trusted metadata and publish/idempotency operations.
-- Pi coding-agent must use in-memory or temp per-run storage in production workers; workers must not write default `~/.pi` state.
+- Pi sessions stay in-memory for the send. Workers must not write default `~/.pi` state.
 
 ## Alternatives considered
 

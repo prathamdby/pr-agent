@@ -635,6 +635,7 @@ async function runFreshTriageAgent(params: {
             workItemId: params.item.id,
             installationId: params.item.installationId,
           },
+          signal: params.signal,
         });
       } catch (error) {
         if (!(error instanceof TriageClosedPullRequestError)) throw error;

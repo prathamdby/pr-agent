@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
+import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
@@ -71,7 +72,7 @@ export function buildSubmitDescriptionTool(params: {
   operationIntent?: OperationIntentContext;
 }): {
   piTool: PiTool;
-  executor: (args: Record<string, unknown>) => Promise<unknown>;
+  executor: AgentRunnerToolExecutor;
 } {
   const piTool: PiTool = {
     name: "submitDescription",
@@ -79,7 +80,7 @@ export function buildSubmitDescriptionTool(params: {
     parameters: SUBMIT_DESCRIPTION_PARAMETERS,
   };
 
-  const executor = async (args: Record<string, unknown>) => {
+  const executor: AgentRunnerToolExecutor = async (args) => {
     if (params.state.published) {
       logDebug("description_submit_duplicate_ignored", {
         owner: params.owner,

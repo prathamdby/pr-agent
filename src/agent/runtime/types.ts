@@ -43,7 +43,7 @@ export type ThinkingPolicy = {
 };
 
 export type CompactionPolicy = {
-  /** When true, Pi SettingsManager enables SDK auto-compaction for the session. */
+  /** When true, the session compact-and-continues through Core `prepareNextTurn`. */
   readonly enabled: boolean;
 };
 
@@ -82,6 +82,8 @@ export type PiSessionCreateParams = {
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  /** Durable job/lease abort; combined with the session abort and the loop signal. */
+  readonly hostSignal?: AbortSignal;
 };
 
 export type PiSession = {

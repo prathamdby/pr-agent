@@ -3,6 +3,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import { combineAbortSignals } from "../../agent/providers/interface.js";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
@@ -361,6 +362,7 @@ export async function runOrchestratedPrReview(
       executors: allExecutors,
       attemptModel: params.escalation?.model,
       durability: params.durability,
+      hostSignal: params.signal,
     });
     const creation = await settleBefore(
       sessionCreation,
@@ -902,7 +904,7 @@ export async function runOrchestratedPrReview(
             Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
           ),
           shouldContinue: () => state.lifecycle.kind === "running",
-          signal: controller.signal,
+          signal: combineAbortSignals([params.signal, controller.signal]),
           evidenceLedger: setup.evidenceLedger,
           headSha: params.headSha,
           checkoutCoverage: params.workspace.getCoverage(),
