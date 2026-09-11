@@ -31,8 +31,8 @@ export type LlmWorkSpan = WorkSpanBase & {
   readonly kind: "llm_generation";
   readonly provider: string;
   readonly model: string;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
   readonly phase: string;
   readonly sessionRole?: string;
 };
@@ -58,7 +58,7 @@ function sharedPostHogProperties(span: WorkSpan): Record<string, string | number
     $ai_trace_id: span.workItemId,
     $ai_span_id: span.spanId,
     $ai_span_name: span.spanName,
-    $ai_parent_id: span.parentSpanId,
+    ...(span.parentSpanId != null ? { $ai_parent_id: span.parentSpanId } : {}),
     $ai_latency: span.latencyMs / 1000,
     $ai_is_error: span.isError,
     $ai_session_id: null,
@@ -83,8 +83,8 @@ export function projectWorkSpanToPostHog(span: WorkSpan): {
           ...shared,
           $ai_model: span.model,
           $ai_provider: span.provider,
-          $ai_input_tokens: span.inputTokens,
-          $ai_output_tokens: span.outputTokens,
+          ...(span.inputTokens != null ? { $ai_input_tokens: span.inputTokens } : {}),
+          ...(span.outputTokens != null ? { $ai_output_tokens: span.outputTokens } : {}),
           phase: span.phase,
           ...(span.sessionRole != null ? { session_role: span.sessionRole } : {}),
         },
@@ -142,8 +142,8 @@ export function projectWorkSpanToAgentEventRow(
         failureCode: span.errorReason ?? null,
         detail: {
           ...detail,
-          inputTokens: span.inputTokens,
-          outputTokens: span.outputTokens,
+          ...(span.inputTokens != null ? { inputTokens: span.inputTokens } : {}),
+          ...(span.outputTokens != null ? { outputTokens: span.outputTokens } : {}),
         },
       };
     case "publish_span":
@@ -195,10 +195,11 @@ export function llmSpanFromSession(input: {
   readonly sessionRole?: string;
   readonly provider: string;
   readonly model: string;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
   readonly latencyMs: number;
   readonly isError: boolean;
+  readonly parentSpanId?: string | null;
   readonly errorReason?: string;
 }): LlmWorkSpan {
   return {
@@ -210,14 +211,14 @@ export function llmSpanFromSession(input: {
     prNumber: input.context.prNumber,
     spanId: newSpanId(),
     spanName: input.sessionRole != null ? `${input.sessionRole}:${input.phase}` : input.phase,
-    parentSpanId: null,
+    parentSpanId: input.parentSpanId === undefined ? input.context.workItemId : input.parentSpanId,
     latencyMs: input.latencyMs,
     isError: input.isError,
     ...(input.errorReason != null ? { errorReason: input.errorReason } : {}),
     provider: input.provider,
     model: input.model,
-    inputTokens: input.inputTokens,
-    outputTokens: input.outputTokens,
+    ...(input.inputTokens != null ? { inputTokens: input.inputTokens } : {}),
+    ...(input.outputTokens != null ? { outputTokens: input.outputTokens } : {}),
     phase: input.phase,
     ...(input.sessionRole != null ? { sessionRole: input.sessionRole } : {}),
   };
@@ -228,6 +229,7 @@ export function publishSpanFromContext(input: {
   readonly publishStep: string;
   readonly latencyMs: number;
   readonly isError: boolean;
+  readonly parentSpanId?: string | null;
   readonly errorReason?: string;
 }): PublishWorkSpan {
   return {
@@ -239,7 +241,7 @@ export function publishSpanFromContext(input: {
     prNumber: input.context.prNumber,
     spanId: newSpanId(),
     spanName: `publish:${input.publishStep}`,
-    parentSpanId: null,
+    parentSpanId: input.parentSpanId === undefined ? input.context.workItemId : input.parentSpanId,
     latencyMs: input.latencyMs,
     isError: input.isError,
     ...(input.errorReason != null ? { errorReason: input.errorReason } : {}),

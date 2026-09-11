@@ -189,6 +189,7 @@ export function createDurableLifecycleEventSink(
     safeAppendAgentEvents(context.pool, cfg, [row]);
     if (event.kind !== "completion" && event.kind !== "failure") return;
     if (event.phase == null) return;
+    if (event.durationMs == null) return;
     emitWorkSpan(
       context,
       cfg,
@@ -198,10 +199,10 @@ export function createDurableLifecycleEventSink(
         sessionRole: event.role,
         provider: event.provider,
         model: event.model,
-        inputTokens: event.inputTokens ?? 0,
-        outputTokens: event.outputTokens ?? 0,
-        latencyMs: event.durationMs ?? 0,
+        latencyMs: event.durationMs,
         isError: event.kind === "failure",
+        ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
+        ...(event.outputTokens != null ? { outputTokens: event.outputTokens } : {}),
         ...(event.kind === "failure" ? { errorReason: event.failureCode } : {}),
       }),
     );
@@ -237,17 +238,29 @@ export function safeEmitDecisionEvent(
 export function safeEmitPublishEvent(
   context: AgentEventsContext,
   cfg: Pick<Config, "agentEventsEnabled">,
-  params: Parameters<typeof publishEventRow>[1],
+  params: Parameters<typeof publishEventRow>[1] & {
+    readonly latencyMs: number;
+    readonly parentSpanId?: string | null;
+  },
 ): void {
-  safeEmitAgentEvent(context, cfg, publishEventRow(context, params));
-  captureWorkSpan(
-    publishSpanFromContext({
-      context,
-      publishStep: params.batchId,
-      latencyMs: 0,
-      isError: false,
-    }),
-  );
+  const span = publishSpanFromContext({
+    context,
+    publishStep: params.batchId,
+    latencyMs: params.latencyMs,
+    isError: false,
+    ...(params.parentSpanId !== undefined ? { parentSpanId: params.parentSpanId } : {}),
+  });
+  const row = publishEventRow(context, params);
+  safeEmitAgentEvent(context, cfg, {
+    ...row,
+    detail: {
+      ...row.detail,
+      spanId: span.spanId,
+      parentSpanId: span.parentSpanId,
+      latencyMs: span.latencyMs,
+    },
+  });
+  captureWorkSpan(span);
 }
 
 export function safeEmitCoverageEvent(

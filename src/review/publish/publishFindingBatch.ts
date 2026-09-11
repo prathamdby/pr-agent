@@ -327,6 +327,7 @@ export async function publishFindingBatch(
           boundByKey.get(reviewFindingPlacementKey(finding)) ?? [],
         ),
     });
+  const publishStartedAt = Date.now();
   const inlineResult = await (context.operationIntent == null
     ? publishInline()
     : withOperationIntent<
@@ -365,6 +366,7 @@ export async function publishFindingBatch(
         isKnownNoAcceptanceError: isDefinitelyNoAcceptanceReviewError,
         mutate: publishInline,
       }));
+  const publishLatencyMs = Math.max(0, Date.now() - publishStartedAt);
 
   const posted = inlineResult.postedPlacements;
   const anchorDropped = inlineResult.anchorDroppedPlacements.map((placement) =>
@@ -425,6 +427,7 @@ export async function publishFindingBatch(
       suppressedCount: targets.dropped.suppressedInlineCount,
       capDowngraded: targets.dropped.inlineCommentCapExcluded,
       anchorDropped: inlineResult.anchorDroppedPlacements.length,
+      latencyMs: publishLatencyMs,
     });
   }
 

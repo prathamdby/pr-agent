@@ -115,6 +115,15 @@ export async function executeDescriptionJob(
               attemptCount: env.claim?.attemptCount ?? item.attemptCount,
               extras: { source: payload.source },
             });
+          } else if (result.publishSuperseded) {
+            captureDurableWorkCompleted({
+              item,
+              workType: "description",
+              outcome: "superseded",
+              durationMs: durationMsFromClaim(env.claim),
+              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+              extras: { source: payload.source },
+            });
           }
           return { kind: "completed" };
         },

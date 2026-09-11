@@ -386,10 +386,8 @@ async function runLightweightCompletionOrSkip(args: {
     lightweight: true,
   });
   logReviewRunCompleted();
-  if (lightweightResult.published) {
-    args.profile.record({ outcome: "lightweight", publishAttempts: 0, publishStepCount: 0 });
-    args.profile.flush();
-  }
+  args.profile.record({ outcome: "lightweight", publishAttempts: 0, publishStepCount: 0 });
+  args.profile.flush();
   await completeReviewCheckRun(pool, {
     prSurface,
     owner: item.owner,
@@ -532,6 +530,11 @@ async function handleReviewPublishResult(args: {
         repo: item.repo,
         pr: item.prNumber,
         publishAttempts: result.publishAttempts,
+      });
+      args.profile.record({
+        outcome,
+        publishAttempts: result.publishAttempts,
+        publishStepCount: result.publishStepCount,
       });
       await completeCheckFromStoredSummary({
         pool,

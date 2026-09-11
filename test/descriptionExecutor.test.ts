@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   runDescriptionRun: vi.fn(),
   runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
+  captureEvent: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
@@ -76,6 +77,11 @@ vi.mock("../src/prWorkspace/index.js", () => ({
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
+}));
+
+vi.mock("../src/analytics/index.js", () => ({
+  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
+  captureException: vi.fn(),
 }));
 
 import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
@@ -226,6 +232,16 @@ describe("executeDescriptionJob", () => {
     await executeDescriptionJob(cfg, pool, boss, descriptionJob());
 
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          outcome: "superseded",
+          work_item_id: "wi-1",
+        }),
+      }),
+    );
   });
 
   it("marks publish degraded through real durable scaffolding", async () => {

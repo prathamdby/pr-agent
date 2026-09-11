@@ -288,8 +288,6 @@ export async function runOrchestratedPrReview(
         sessionRole: "specialist",
         provider: params.cfg.piProvider,
         model: params.cfg.piModel,
-        inputTokens: 0,
-        outputTokens: 0,
         latencyMs: outcome.durationMs,
         isError: outcome.kind === "error",
         ...(outcome.kind === "error" ? { errorReason: outcome.error.code } : {}),

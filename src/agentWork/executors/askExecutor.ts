@@ -515,14 +515,6 @@ export async function executeAskJob(
                 return { commentId: published.commentId };
               },
             });
-            captureDurableWorkCompleted({
-              item,
-              workType: "ask",
-              outcome: "published",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              extras: { replyTargetKind: payload.replyTarget.kind },
-            });
             try {
               await recordAskPublishStep(pool, {
                 workItemId: item.id,
@@ -558,6 +550,14 @@ export async function executeAskJob(
               });
               return { kind: "completed", degradation: ["publish_record_failed"] };
             }
+            captureDurableWorkCompleted({
+              item,
+              workType: "ask",
+              outcome: "published",
+              durationMs: durationMsFromClaim(env.claim),
+              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+              extras: { replyTargetKind: payload.replyTarget.kind },
+            });
           }
           return { kind: "completed" };
         },

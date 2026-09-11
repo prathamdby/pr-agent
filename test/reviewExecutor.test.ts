@@ -1066,7 +1066,16 @@ describe("executeReviewJob", () => {
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       }),
     );
-    expect(mocks.captureEvent).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          outcome: "superseded",
+          work_item_id: "wi-1",
+        }),
+      }),
+    );
   });
 
   it("emits work completed with lightweight outcome and no full review", async () => {
@@ -1076,6 +1085,33 @@ describe("executeReviewJob", () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          outcome: "lightweight",
+          work_item_id: "wi-1",
+          source: "auto",
+        }),
+      }),
+    );
+  });
+
+  it("emits work completed with lightweight outcome when lightweight completion is cancelled", async () => {
+    mockDurableExecution("auto");
+    mocks.lightweight.mockResolvedValue({ handled: true, published: false, reason: "skipped" });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was cancelled before lightweight completion.",
+      }),
+    );
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({

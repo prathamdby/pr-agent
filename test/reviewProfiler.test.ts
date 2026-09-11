@@ -67,6 +67,7 @@ describe("reviewWorkOutcome", () => {
   it("returns every supported outcome", () => {
     expect(reviewWorkOutcome({ published: false, publishSuperseded: true })).toBe("superseded");
     expect(reviewWorkOutcome({ published: true, lightweight: true })).toBe("lightweight");
+    expect(reviewWorkOutcome({ published: false, lightweight: true })).toBe("lightweight");
     expect(reviewWorkOutcome({ published: false })).toBe("failed");
     expect(
       reviewWorkOutcome({

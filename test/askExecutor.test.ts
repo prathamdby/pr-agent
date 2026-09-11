@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   waitForReadySnapshot: vi.fn(),
   recordAskProviderUsage: vi.fn(),
   createAskExecutionId: vi.fn(),
+  captureEvent: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -75,6 +76,11 @@ vi.mock("../src/codeIndex/repository.js", () => ({
 vi.mock("../src/agentWork/askQuota.js", () => ({
   recordAskProviderUsage: mocks.recordAskProviderUsage,
   createAskExecutionId: mocks.createAskExecutionId,
+}));
+
+vi.mock("../src/analytics/index.js", () => ({
+  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
+  captureException: vi.fn(),
 }));
 
 import { executeAskJob } from "../src/agentWork/executors/askExecutor.js";
@@ -195,6 +201,16 @@ describe("executeAskJob", () => {
       executionId: "11111111-1111-4111-8111-111111111111",
       usage: undefined,
     });
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          outcome: "published",
+          work_item_id: "wi-1",
+        }),
+      }),
+    );
   });
 
   it("records known usage under a new execution id for each model run", async () => {
@@ -265,6 +281,7 @@ describe("executeAskJob", () => {
     expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
     expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
     expect(mocks.createAskExecutionId).not.toHaveBeenCalled();
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
   });
 
   it("returns degraded when the publish record fails after answer delivery", async () => {
@@ -285,6 +302,18 @@ describe("executeAskJob", () => {
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          outcome: "degraded",
+          work_item_id: "wi-1",
+          degraded_reason: "durable_degradation",
+          durable_degradation: "publish_record_failed",
+        }),
+      }),
+    );
   });
 
   it("skips terminal failure reply after the answer was delivered", async () => {
