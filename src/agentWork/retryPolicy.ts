@@ -1,3 +1,4 @@
+import { isCancelAbortError } from "../agent/providers/providerErrors.js";
 import { resolveModelPolicy } from "../agent/runtime/modelPolicy.js";
 import type { ModelAssignment } from "../agent/runtime/types.js";
 import type { Config } from "../config.js";
@@ -26,6 +27,7 @@ const DETERMINISTIC_FAILURE_CODES: ReadonlySet<string> = new Set([
 export function retryDispositionFor(error: unknown): RetryDisposition {
   // One-shot stale-head replacement: a second replay can only repeat the same stale head.
   if (isStaleHeadReplacementExhausted(error)) return "terminal";
+  if (isCancelAbortError(error)) return "terminal";
   if (isAppError(error) && DETERMINISTIC_FAILURE_CODES.has(error.code)) return "deterministic";
   // Everything classifyProviderError and classifyGithubError can return keeps its queue
   // budget: transport, 5xx, rate limit, timeout, auth, quota, billing, and unknown.

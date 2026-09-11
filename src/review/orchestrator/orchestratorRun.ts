@@ -4,6 +4,7 @@ import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { combineAbortSignals } from "../../agent/providers/interface.js";
+import { isCancelAbortError } from "../../agent/providers/providerErrors.js";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
@@ -80,12 +81,15 @@ type SendResult =
 type DeadlineResult<T> =
   | { readonly kind: "settled"; readonly value: T }
   | { readonly kind: "rejected"; readonly error: unknown }
-  | { readonly kind: "deadline" };
+  | { readonly kind: "deadline" }
+  | { readonly kind: "aborted" };
 
 async function settleBefore<T>(
   promise: Promise<T>,
   deadlineMs: number,
+  signal?: AbortSignal,
 ): Promise<DeadlineResult<T>> {
+  if (signal?.aborted) return { kind: "aborted" };
   const remainingMs = deadlineMs - Date.now();
   if (remainingMs <= 0) return { kind: "deadline" };
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -96,8 +100,20 @@ async function settleBefore<T>(
     (value) => ({ kind: "settled", value }),
     (error: unknown) => ({ kind: "rejected", error }),
   );
-  const result = await Promise.race([settled, deadline]);
+  let removeAbort: (() => void) | undefined;
+  const aborted =
+    signal == null
+      ? undefined
+      : new Promise<DeadlineResult<T>>((resolve) => {
+          const onAbort = () => resolve({ kind: "aborted" });
+          signal.addEventListener("abort", onAbort, { once: true });
+          removeAbort = () => signal.removeEventListener("abort", onAbort);
+        });
+  const result = await Promise.race(
+    aborted == null ? [settled, deadline] : [settled, deadline, aborted],
+  );
   if (timer) clearTimeout(timer);
+  removeAbort?.();
   return result;
 }
 
@@ -367,6 +383,7 @@ export async function runOrchestratedPrReview(
     const creation = await settleBefore(
       sessionCreation,
       Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
+      params.signal,
     );
     if (creation.kind === "settled") {
       session = creation.value;
@@ -394,7 +411,14 @@ export async function runOrchestratedPrReview(
         pr: params.prNumber,
         ...classifiedFailureLogFields(deadlineFailure),
       });
-    } else {
+    } else if (creation.kind === "aborted") {
+      void sessionCreation
+        .then(async (lateSession) => {
+          await lateSession.abort().catch(() => undefined);
+          await lateSession.dispose().catch(() => undefined);
+        })
+        .catch(() => undefined);
+    } else if (creation.kind === "rejected") {
       state.judgment = "degraded";
       const appError = toAppError(creation.error, {
         code: "review.orchestrator_session_create_failed",
@@ -406,6 +430,9 @@ export async function runOrchestratedPrReview(
         ...errorLogFields(appError),
         ...classifiedFailureLogFields(failure),
       });
+    } else {
+      const exhaustive: never = creation;
+      return exhaustive;
     }
   } catch (error) {
     state.judgment = "degraded";
@@ -470,17 +497,6 @@ export async function runOrchestratedPrReview(
     return true;
   };
 
-  /**
-   * Fast cancel probe while the pump waits on specialists: one cheap durable-state
-   * read; a hit routes through the full gate so stop reasons stay single-sourced.
-   */
-  const pollWatch = async (): Promise<void> => {
-    const watch = params.gate.watch;
-    if (watch == null || state.lifecycle.kind !== "running") return;
-    if (!(await watch.cancelled())) return;
-    await stopFromGateResult(await params.gate.check());
-  };
-
   const sendWithRetry = async (
     phase: "recon" | "judgment" | "synthesis",
     prompt: string,
@@ -539,6 +555,7 @@ export async function runOrchestratedPrReview(
         const send = await settleBefore(
           sendPromise,
           Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
+          params.signal,
         );
         if (send.kind === "deadline") {
           state.lifecycle = { kind: "finalizing", reason: "deadline" };
@@ -554,7 +571,24 @@ export async function runOrchestratedPrReview(
             }),
           };
         }
+        if (send.kind === "aborted") {
+          void sendPromise.catch(() => undefined);
+          await session.abort().catch(() => undefined);
+          await stopFromGateResult(await params.gate.check());
+          return {
+            kind: "failed",
+            error: new AppError({
+              code: "agent.session_aborted",
+              message: "Orchestrator send aborted by host signal",
+              context: { phase, attempt },
+            }),
+          };
+        }
         if (send.kind === "rejected") throw send.error;
+        if (send.kind !== "settled") {
+          const exhaustive: never = send;
+          return exhaustive;
+        }
         recordAgentTurnMetrics(send.value);
         return { kind: "sent", text: send.value.text };
       } catch (error) {
@@ -563,6 +597,10 @@ export async function runOrchestratedPrReview(
           context: { phase, attempt },
         });
         firstError ??= appError;
+        if (isCancelAbortError(error) || params.signal?.aborted) {
+          await stopFromGateResult(await params.gate.check());
+          return { kind: "failed", error: appError };
+        }
         const failure = classifyFailure(appError, { phase });
         recordClassifiedFailure(failure);
         logWarn("review_orchestrator_send_retry", {
@@ -866,114 +904,114 @@ export async function runOrchestratedPrReview(
       });
     }
 
-    const submittedBrief = briefTool.getBrief();
-    const brief = submittedBrief ?? fallbackBrief(params);
-    if (submittedBrief == null) {
-      state.briefFallback = true;
-      logWarn("review_brief_fallback", {
-        owner: params.owner,
-        repo: params.repo,
-        pr: params.prNumber,
-        sessionRetired,
-      });
+    if (params.signal?.aborted && state.lifecycle.kind === "running") {
+      await stopFromGateResult(await params.gate.check());
     }
-    await markReconDoneAndTick();
 
-    const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
-    for (const specialist of SPECIALIST_IDS) {
-      const controller = new AbortController();
-      specialistControllers.set(specialist, controller);
-      pending.set(
-        specialist,
-        runSpecialist({
-          cfg: params.cfg,
-          cwd: sessionCwd,
+    let outcomes: SpecialistOutcome[] = [];
+    if (state.lifecycle.kind !== "stopped") {
+      const submittedBrief = briefTool.getBrief();
+      const brief = submittedBrief ?? fallbackBrief(params);
+      if (submittedBrief == null) {
+        state.briefFallback = true;
+        logWarn("review_brief_fallback", {
+          owner: params.owner,
+          repo: params.repo,
+          pr: params.prNumber,
+          sessionRetired,
+        });
+      }
+      await markReconDoneAndTick();
+
+      const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
+      for (const specialist of SPECIALIST_IDS) {
+        const controller = new AbortController();
+        specialistControllers.set(specialist, controller);
+        pending.set(
           specialist,
-          briefMessage: renderBriefMessage(
-            brief,
+          runSpecialist({
+            cfg: params.cfg,
+            cwd: sessionCwd,
             specialist,
-            submittedBrief == null
-              ? {
-                  pullRequestMetadata: { title: params.prTitle, body: params.prBody },
-                }
-              : undefined,
-          ),
-          workspaceTools: setup.workspaceTools,
-          timeoutMs: Math.max(
-            0,
-            Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
-          ),
-          shouldContinue: () => state.lifecycle.kind === "running",
-          signal: combineAbortSignals([params.signal, controller.signal]),
-          evidenceLedger: setup.evidenceLedger,
-          headSha: params.headSha,
-          checkoutCoverage: params.workspace.getCoverage(),
-          isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
-          agentEvents: agentEvents ?? undefined,
-          escalation: params.escalation,
-        }),
-      );
-    }
-
-    const outcomes = await pumpSpecialistCompletions({
-      pending,
-      shouldContinue: () => state.lifecycle.kind === "running",
-      watch:
-        params.gate.watch == null
-          ? undefined
-          : {
-              intervalMs: params.gate.watch.intervalMs,
-              onPoll: pollWatch,
-            },
-      onOutcome: async (outcome) => {
-        try {
-          if (await stopFromGateResult(await params.gate.check())) return;
-
-          await recordOutcome(outcome);
-          if (outcome.kind !== "report") return;
-          const judgmentSession = session;
-          if (state.judgment === "degraded" || sessionRetired || !judgmentSession) {
-            await degradeReport(outcome);
-            return;
-          }
-
-          publishThread.setSource(outcome.specialist);
-          const ledgerBefore = publishThread.getLedger();
-          publishAttempts += 1;
-          const judgment = await sendWithRetry("judgment", renderJudgmentTurn(outcome), {
-            maxToolRounds: escalatedToolRounds(
-              ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
-              params.escalation,
+            briefMessage: renderBriefMessage(
+              brief,
+              specialist,
+              submittedBrief == null
+                ? {
+                    pullRequestMetadata: { title: params.prTitle, body: params.prBody },
+                  }
+                : undefined,
             ),
-          });
-          if (judgment.kind === "failed") {
-            await degradeReport(outcome, judgment.error);
-            return;
-          }
-          lastText = judgment.text;
-          if (await applyPublishStop()) return;
-          state.specialists[outcome.specialist] = specialistDonePhase(
-            ledgerBefore,
-            publishThread.getLedger(),
-            outcome.specialist,
-          );
-          await writeTick();
-        } catch (error) {
-          await recordOutcome(outcome);
-          if (outcome.kind === "report") {
-            await degradeReport(outcome, error);
-            return;
-          }
-          throw error;
-        }
-      },
-    });
+            workspaceTools: setup.workspaceTools,
+            timeoutMs: Math.max(
+              0,
+              Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
+            ),
+            shouldContinue: () => state.lifecycle.kind === "running",
+            signal: combineAbortSignals([params.signal, controller.signal]),
+            evidenceLedger: setup.evidenceLedger,
+            headSha: params.headSha,
+            checkoutCoverage: params.workspace.getCoverage(),
+            isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
+            agentEvents: agentEvents ?? undefined,
+            escalation: params.escalation,
+          }),
+        );
+      }
 
-    if (state.lifecycle.kind === "running") {
-      for (const outcome of outcomes) {
-        if (state.outcomes[outcome.specialist] != null) continue;
-        await recordOutcome(outcome);
-        if (outcome.kind === "report") await degradeReport(outcome);
+      outcomes = await pumpSpecialistCompletions({
+        pending,
+        shouldContinue: () => state.lifecycle.kind === "running",
+        onOutcome: async (outcome) => {
+          try {
+            if (await stopFromGateResult(await params.gate.check())) return;
+
+            await recordOutcome(outcome);
+            if (outcome.kind !== "report") return;
+            const judgmentSession = session;
+            if (state.judgment === "degraded" || sessionRetired || !judgmentSession) {
+              await degradeReport(outcome);
+              return;
+            }
+
+            publishThread.setSource(outcome.specialist);
+            const ledgerBefore = publishThread.getLedger();
+            publishAttempts += 1;
+            const judgment = await sendWithRetry("judgment", renderJudgmentTurn(outcome), {
+              maxToolRounds: escalatedToolRounds(
+                ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+                params.escalation,
+              ),
+            });
+            if (judgment.kind === "failed") {
+              await degradeReport(outcome, judgment.error);
+              return;
+            }
+            lastText = judgment.text;
+            if (await applyPublishStop()) return;
+            state.specialists[outcome.specialist] = specialistDonePhase(
+              ledgerBefore,
+              publishThread.getLedger(),
+              outcome.specialist,
+            );
+            await writeTick();
+          } catch (error) {
+            await recordOutcome(outcome);
+            if (outcome.kind === "report") {
+              await degradeReport(outcome, error);
+              return;
+            }
+            throw error;
+          }
+        },
+      });
+
+      if (state.lifecycle.kind === "running") {
+        for (const outcome of outcomes) {
+          if (state.outcomes[outcome.specialist] != null) continue;
+          await recordOutcome(outcome);
+          if (outcome.kind === "report") await degradeReport(outcome);
+        }
       }
     }
 

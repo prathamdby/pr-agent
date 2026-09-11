@@ -6,8 +6,8 @@ export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
 /**
- * How often the orchestrator polls durable cancel state while specialists run.
- * Gate checks fire at send boundaries only; this closes the gap between them.
+ * How often a leased durable execute observes cancel or hold-loss and aborts
+ * the host signal. Immediate first tick, then this interval as a backstop.
  */
 export const REVIEW_CANCEL_POLL_INTERVAL_MS = 2_000;
 

@@ -264,6 +264,13 @@ describe("retryDispositionFor", () => {
     expect(retryDispositionFor(error)).toBe("transient");
   });
 
+  it.each(["agent.session_aborted", "review.specialist_aborted"])(
+    "classifies %s as terminal",
+    (code) => {
+      expect(retryDispositionFor(new AppError({ code, message: "aborted" }))).toBe("terminal");
+    },
+  );
+
   it("does not terminalise an unrelated AppError code", () => {
     expect(
       retryDispositionFor(

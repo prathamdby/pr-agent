@@ -1,7 +1,7 @@
 import { parentPort } from "node:worker_threads";
 import {
-  CodeModeHostHalt,
   decodeHostCallFailure,
+  hostCancelHalt,
   type CodeModeHostHaltPayload,
 } from "../codemode/hostHalt.js";
 import { runQuickJsCell } from "./quickjsCell.js";
@@ -48,7 +48,7 @@ parentPort.on("message", (message: HostMessage) => {
   if (message.type === "abort") {
     abortByExecution.get(message.executionId)?.abort();
     for (const waiter of pending.values()) {
-      waiter.reject(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
+      waiter.reject(hostCancelHalt());
     }
     pending.clear();
     return;
@@ -66,7 +66,7 @@ parentPort.on("message", (message: HostMessage) => {
       hostCall: (name, args, callId, signal) =>
         new Promise((resolve, reject) => {
           if (signal.aborted) {
-            reject(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
+            reject(hostCancelHalt());
             return;
           }
           pending.set(callId, { resolve, reject });

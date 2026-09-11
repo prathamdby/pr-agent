@@ -183,6 +183,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       renewPrActorLease(pool, {
         resourceKey,
         workType: "review",
+        workItemId: holder,
         leaseEpoch: 99,
         ttlSeconds: TTL_SECONDS,
       }),
@@ -192,11 +193,32 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       renewPrActorLease(pool, {
         resourceKey,
         workType: "review",
+        workItemId: holder,
         leaseEpoch: 1,
         ttlSeconds: TTL_SECONDS * 2,
       }),
     ).resolves.toBe(true);
     expect((await getLeaseRow(resourceKey)).expires_at.getTime()).toBeGreaterThan(before.getTime());
+  });
+
+  it("does not renew after the holder is cleared for the same epoch", async () => {
+    const resourceKey = `${OWNER}/renew-cleared-${randomUUID().slice(0, 8)}#1`;
+    const workItemId = randomUUID();
+
+    await acquire(resourceKey, workItemId);
+    await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch: 1 });
+
+    await expect(
+      renewPrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        workItemId,
+        leaseEpoch: 1,
+        ttlSeconds: TTL_SECONDS,
+      }),
+    ).resolves.toBe(false);
+    expect((await getLeaseRow(resourceKey)).work_item_id).toBeNull();
+    expect(Number((await getLeaseRow(resourceKey)).lease_epoch)).toBe(1);
   });
 
   it("keeps epochs monotonic across release so a stale holder cannot clear a live lease", async () => {

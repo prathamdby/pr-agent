@@ -4,7 +4,7 @@ import { idleAbortSignal } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
 import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
-import { CodeModeHostHalt } from "./hostHalt.js";
+import { CodeModeHostHalt, hostCancelHalt } from "./hostHalt.js";
 import type { CodeModeInnerFailureKind, CodeModeToolCall } from "./result.js";
 import type { CodeModeCapabilityExecutors, CodeModeWorkspaceToolName } from "./types.js";
 import {
@@ -88,11 +88,11 @@ export function createCodeModeCapabilityBridge(params: {
   async function acquireInFlight(signal: AbortSignal): Promise<void> {
     while (inFlight >= CODE_MODE_HOST_IN_FLIGHT) {
       if (signal.aborted) {
-        throw new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal");
+        throw hostCancelHalt();
       }
       await new Promise<void>((resolve, reject) => {
         const onAbort = () => {
-          reject(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
+          reject(hostCancelHalt());
         };
         signal.addEventListener("abort", onAbort, { once: true });
         waiters.push(() => {
@@ -112,7 +112,7 @@ export function createCodeModeCapabilityBridge(params: {
   async function invoke(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     const signal = params.signal ?? idleAbortSignal();
     if (signal.aborted) {
-      throw new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal");
+      throw hostCancelHalt();
     }
     const executor = params.capabilities[name as CodeModeWorkspaceToolName];
     if (!executor) {

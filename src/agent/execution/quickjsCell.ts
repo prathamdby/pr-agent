@@ -19,7 +19,7 @@ import {
   CODE_MODE_STATE_MAX_BYTES,
   CODE_MODE_TIMEOUT_MS,
 } from "../../settings/index.js";
-import { CodeModeHostHalt, isCodeModeHostHalt } from "../codemode/hostHalt.js";
+import { CodeModeHostHalt, hostCancelHalt, isCodeModeHostHalt } from "../codemode/hostHalt.js";
 import type { CodeModeErrorCode } from "../codemode/result.js";
 import { injectLastExpressionReturn } from "./injectReturn.js";
 import { asJsonObject, asJsonValue, type JsonObject, utf8ByteLength } from "./json.js";
@@ -125,7 +125,7 @@ function haltFromInterrupt(reason: "abort" | "cpu" | "timeout"): CodeModeHostHal
   if (reason === "timeout") {
     return new CodeModeHostHalt("TIMEOUT", `Code Mode exceeded ${CODE_MODE_TIMEOUT_MS}ms`);
   }
-  return new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal");
+  return hostCancelHalt();
 }
 
 function installLimits(vm: QuickJSContext): void {
@@ -231,7 +231,7 @@ function installHostTools(
       const deferred = vm.newPromise();
       deferreds.push(deferred);
       if (!vm.alive || !params.isCurrent() || params.signal.aborted) {
-        onHostHalt(new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal"));
+        onHostHalt(hostCancelHalt());
         return deferred.handle;
       }
       const dumped = argsHandle ? vm.dump(argsHandle) : {};
@@ -289,7 +289,7 @@ async function pumpUntilSettled(
     const interruptReason = meter.reason();
     if (interruptReason) throw haltFromInterrupt(interruptReason);
     if (params.signal.aborted || !params.isCurrent()) {
-      throw new CodeModeHostHalt("TIMEOUT", "Code Mode cancelled by host signal");
+      throw hostCancelHalt();
     }
     const jobs = runtime.executePendingJobs(CODE_MODE_PENDING_JOBS_PER_PUMP);
     if (jobs.error) {
@@ -393,7 +393,7 @@ export async function runQuickJsCell(params: QuickJsCellParams): Promise<QuickJs
   } catch (error) {
     if (isCodeModeHostHalt(error)) return failResult(error);
     if (params.signal.aborted) {
-      return failResult({ code: "TIMEOUT", message: "Code Mode cancelled by host signal" });
+      return failResult(hostCancelHalt());
     }
     const message = error instanceof Error ? error.message : String(error);
     if (/LIMIT_EXCEEDED/.test(message)) {

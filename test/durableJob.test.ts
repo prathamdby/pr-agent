@@ -231,7 +231,7 @@ describe("runDurableWorkItem", () => {
     });
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
-    expect(repo.shouldSkipWork).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(repo.shouldSkipWork).mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
@@ -826,7 +826,7 @@ describe("runDurableWorkItem", () => {
   it("returns when updateRunningWorkHeadSha races and rejects the update", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(false);
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
     const execute = vi.fn();
 
     await runReviewWorkItem({ execute });
@@ -839,7 +839,7 @@ describe("runDurableWorkItem", () => {
   it("invokes onCancelled when head update loses to a cancellation", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(false);
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
     const execute = vi.fn();
     const onCancelled = vi.fn().mockResolvedValue(undefined);
 
@@ -906,7 +906,7 @@ describe("runDurableWorkItem", () => {
 
   it("does not publish outcome reaction when cancelled after execute", async () => {
     mockFetchedItem(makeItem());
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
     const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runReviewWorkItem({ execute });
@@ -1060,7 +1060,7 @@ describe("runDurableWorkItem", () => {
   it("runs cancellation cleanup when a head mismatch becomes skippable after execute", async () => {
     const item = makeItem({ status: "running" });
     mockFetchedItem(item);
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
     const mismatch = new AppError({
       code: "github.head_sha_mismatch",
       message: "Pull request head SHA new does not match work item headSha old",
@@ -1481,6 +1481,58 @@ describe("runDurableWorkItem", () => {
 
     expect(execute).toHaveBeenCalledOnce();
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),
+    );
+  });
+
+  it("aborts the host signal when cancel is visible during execute", async () => {
+    mockFetchedItem(makeItem({ status: "running" }));
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
+    const execute = vi.fn(async (_item, env) => {
+      await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
+      throw new AppError({
+        code: "agent.session_aborted",
+        message: "Session aborted",
+      });
+    });
+
+    await runReviewWorkItem({
+      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 120 },
+      execute,
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(prActorLease.renewPrActorLease).not.toHaveBeenCalled();
+  });
+
+  it("aborts the host signal when the lease holder is cleared during execute", async () => {
+    mockFetchedItem(makeItem({ status: "running" }));
+    vi.mocked(prActorLease.isPrActorLeaseHeld)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
+    const execute = vi.fn(async (_item, env) => {
+      await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
+      throw new AppError({
+        code: "agent.session_aborted",
+        message: "Session aborted",
+      });
+    });
+
+    await runReviewWorkItem({
+      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 120 },
+      execute,
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(prActorLease.renewPrActorLease).not.toHaveBeenCalled();
     expect(evlog.logInfo).toHaveBeenCalledWith(
       "agent_work_stale_execution_skipped",
       expect.objectContaining({ workItemId: "wi-1", leaseEpoch: 1 }),

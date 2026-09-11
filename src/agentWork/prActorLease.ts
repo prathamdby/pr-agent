@@ -66,10 +66,14 @@ export async function acquirePrActorLease(
   };
 }
 
-/** Extend the deadline for the caller's epoch; false when a newer epoch owns the key. */
+/** Extend the deadline for this work item's live epoch; false when the holder is gone or a newer epoch owns the key. */
 export async function renewPrActorLease(
   db: Pool | PoolClient,
-  params: PrActorLeaseKey & { readonly leaseEpoch: number; readonly ttlSeconds: number },
+  params: PrActorLeaseKey & {
+    readonly leaseEpoch: number;
+    readonly ttlSeconds: number;
+    readonly workItemId: string;
+  },
 ): Promise<boolean> {
   const result = await db.query(
     `UPDATE pr_actor_leases
@@ -77,8 +81,9 @@ export async function renewPrActorLease(
             expires_at = now() + ($4 * interval '1 second')
       WHERE resource_key = $1
         AND work_type = $2
-        AND lease_epoch = $3`,
-    [params.resourceKey, params.workType, params.leaseEpoch, params.ttlSeconds],
+        AND lease_epoch = $3
+        AND work_item_id = $5`,
+    [params.resourceKey, params.workType, params.leaseEpoch, params.ttlSeconds, params.workItemId],
   );
   return (result.rowCount ?? 0) > 0;
 }

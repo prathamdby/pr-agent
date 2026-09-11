@@ -1,5 +1,11 @@
 import { isCodeModeErrorCode, type CodeModeErrorCode } from "./result.js";
 
+export const CODE_MODE_HOST_CANCEL_MESSAGE = "Code Mode cancelled by host signal";
+
+export function hostCancelHalt(): CodeModeHostHalt {
+  return new CodeModeHostHalt("CANCELLED", CODE_MODE_HOST_CANCEL_MESSAGE);
+}
+
 export class CodeModeHostHalt extends Error {
   readonly code: CodeModeErrorCode;
   readonly line?: number;

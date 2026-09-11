@@ -5,6 +5,7 @@ import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 import {
   classifyProviderError,
+  isCancelAbortError,
   type ProviderErrorKind,
 } from "../../agent/providers/providerErrors.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
@@ -410,7 +411,15 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
       classification = classifyProviderError(error);
     }
 
-    if (attempts >= MAX_SESSION_ATTEMPTS || !canContinue(params, deadlineMs)) break;
+    if (
+      isCancelAbortError(lastError) ||
+      classification === "cancelled" ||
+      params.signal?.aborted ||
+      attempts >= MAX_SESSION_ATTEMPTS ||
+      !canContinue(params, deadlineMs)
+    ) {
+      break;
+    }
 
     if (classification === "rate_limit" || classification === "timeout") {
       try {

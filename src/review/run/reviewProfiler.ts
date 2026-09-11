@@ -76,6 +76,7 @@ const PROVIDER_ERROR_KINDS = new Set<ProviderErrorKind>([
   "billing",
   "rate_limit",
   "timeout",
+  "cancelled",
   "unknown",
 ]);
 

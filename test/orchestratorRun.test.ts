@@ -1416,54 +1416,48 @@ describe("runOrchestratedPrReview", () => {
     ]);
   });
 
-  it("pollWatch does not call gate.check until watch.cancelled is true", async () => {
+  it("aborts a recon send when the host signal fires mid-stream", async () => {
+    const controller = new AbortController();
+    testState.sendDelay = { phase: "recon", ms: 200 };
     let gateChecks = 0;
-    let cancelRequested = false;
     const run = runOrchestratedPrReview({
       ...params(),
-      gate: {
-        check: async () => {
-          gateChecks += 1;
-          return cancelRequested ? { kind: "stop", reason: "superseded" } : { kind: "continue" };
-        },
-        watch: {
-          cancelled: async () => cancelRequested,
-          intervalMs: 5,
-        },
-      },
-      recordPublishStep: coordinatedRecordPublishStep(),
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const checksWhileClear = gateChecks;
-    await new Promise((resolve) => setTimeout(resolve, 15));
-    expect(gateChecks).toBe(checksWhileClear);
-
-    cancelRequested = true;
-    await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
-    expect(gateChecks).toBeGreaterThan(checksWhileClear);
-  });
-
-  it("aborts and joins every provider promise when the cancel watch fires during the pump wait", async () => {
-    let gateChecks = 0;
-    let cancelRequested = false;
-    const run = runOrchestratedPrReview({
-      ...params(),
+      signal: controller.signal,
       gate: {
         check: async () => {
           gateChecks += 1;
           return gateChecks === 1 ? { kind: "continue" } : { kind: "stop", reason: "superseded" };
         },
-        watch: {
-          cancelled: async () => cancelRequested,
-          intervalMs: 5,
+      },
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+
+    await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
+    expect(testState.sessionAborts).toBeGreaterThanOrEqual(1);
+    expect(testState.sessionDisposals).toBe(1);
+    expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("aborts and joins every specialist when the host signal fires during the pump wait", async () => {
+    const controller = new AbortController();
+    let gateChecks = 0;
+    const run = runOrchestratedPrReview({
+      ...params(),
+      signal: controller.signal,
+      gate: {
+        check: async () => {
+          gateChecks += 1;
+          return gateChecks === 1 ? { kind: "continue" } : { kind: "stop", reason: "superseded" };
         },
       },
       recordPublishStep: coordinatedRecordPublishStep(),
     });
-    // No specialist outcome resolves on its own: the durable cancel request is
-    // the only thing that can end this run while the pump waits.
-    cancelRequested = true;
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    controller.abort();
 
     await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
     expect(gateChecks).toBeGreaterThanOrEqual(2);
