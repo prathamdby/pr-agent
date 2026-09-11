@@ -121,16 +121,12 @@ export async function runCodeModeScript(params: {
   const session = params.session ?? createExecutionSessionStore();
   const hostAborted = () => params.signal?.aborted === true;
   const finish = (result: CodeModeResult): CodeModeResult => {
-    emitExecutionResult(
-      params,
-      result,
-      {
-        durationMs: Date.now() - startedAt,
-        admittedHostCalls: bridge.admittedHostCalls,
-        completedHostCalls: bridge.completedHostCalls,
-        transferredBytes: bridge.transferredBytes,
-      },
-    );
+    emitExecutionResult(params, result, {
+      durationMs: Date.now() - startedAt,
+      admittedHostCalls: bridge.admittedHostCalls,
+      completedHostCalls: bridge.completedHostCalls,
+      transferredBytes: bridge.transferredBytes,
+    });
     return result;
   };
 
