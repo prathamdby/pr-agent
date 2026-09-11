@@ -21,10 +21,7 @@ import { randomUUID } from "node:crypto";
 
 export type ExecutionOutcome = AgentLifecycleExecutionEvent["outcome"];
 
-export function executionOutcomeFromResult(
-  result: CodeModeResult,
-  hostAborted: boolean,
-): {
+export function executionOutcomeFromResult(result: CodeModeResult): {
   readonly outcome: ExecutionOutcome;
   readonly errorCode?: string;
   readonly terminationReason: string;
@@ -34,9 +31,6 @@ export function executionOutcomeFromResult(
   }
   const code = result.error.code;
   if (code === "CANCELLED") {
-    return { outcome: "cancelled", errorCode: "cancelled", terminationReason: "host_cancel" };
-  }
-  if (code === "TIMEOUT" && hostAborted) {
     return { outcome: "cancelled", errorCode: "cancelled", terminationReason: "host_cancel" };
   }
   if (code === "TIMEOUT") {
@@ -73,10 +67,9 @@ function emitExecutionResult(
     readonly completedHostCalls: number;
     readonly transferredBytes: number;
   },
-  hostAborted: boolean,
 ): void {
   if (!params.emit || !params.role || !params.provider || !params.model) return;
-  const classified = executionOutcomeFromResult(result, hostAborted);
+  const classified = executionOutcomeFromResult(result);
   const outputBytes = result.ok
     ? utf8ByteLength(result.output)
     : utf8ByteLength(result.error.message);
@@ -137,7 +130,6 @@ export async function runCodeModeScript(params: {
         completedHostCalls: bridge.completedHostCalls,
         transferredBytes: bridge.transferredBytes,
       },
-      hostAborted(),
     );
     return result;
   };
