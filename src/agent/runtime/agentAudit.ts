@@ -75,6 +75,7 @@ export function agentAuditRecordFromLifecycleEvent(
         ...(event.phase ? { phase: event.phase } : {}),
         ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
         ok: true,
+        ...(event.durationMs != null ? { durationMs: event.durationMs } : {}),
       };
     case "failure":
       return {
@@ -85,6 +86,7 @@ export function agentAuditRecordFromLifecycleEvent(
         failureCode: event.failureCode,
         ...(event.failureDomain ? { failureDomain: event.failureDomain } : {}),
         ...(event.errorKind ? { errorKind: event.errorKind } : {}),
+        ...(event.durationMs != null ? { durationMs: event.durationMs } : {}),
       };
     case "execution":
       return {

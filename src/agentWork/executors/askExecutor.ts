@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { captureEvent } from "../../analytics/index.js";
+import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
@@ -364,13 +364,46 @@ export async function executeAskJob(
           targetKind: recoveredReply.targetKind,
           leaseEpoch: env.leaseEpoch,
         });
-        return status === "degraded"
-          ? { kind: "completed", degradation: ["reply_recovery_degraded"] }
-          : { kind: "completed" };
+        if (status === "degraded") {
+          captureDurableWorkCompleted({
+            item,
+            workType: "ask",
+            outcome: "degraded",
+            durationMs: durationMsFromClaim(env.claim),
+            attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+            degradedReason: "durable_degradation",
+            extras: {
+              replyTargetKind: recoveredReply.targetKind,
+              durableDegradation: "reply_recovery_degraded",
+            },
+          });
+          return { kind: "completed", degradation: ["reply_recovery_degraded"] };
+        }
+        captureDurableWorkCompleted({
+          item,
+          workType: "ask",
+          outcome: "published",
+          durationMs: durationMsFromClaim(env.claim),
+          attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+          extras: { replyTargetKind: recoveredReply.targetKind },
+        });
+        return { kind: "completed" };
       }
       if (recoveredReply?.kind === "outcome_unknown") {
         // The provider may have accepted the reply, but no exact marker was
         // found. Do not rerun the model or create a fallback reply.
+        captureDurableWorkCompleted({
+          item,
+          workType: "ask",
+          outcome: "degraded",
+          durationMs: durationMsFromClaim(env.claim),
+          attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+          degradedReason: "durable_degradation",
+          extras: {
+            replyTargetKind: payload.replyTarget.kind,
+            durableDegradation: "reply_outcome_unknown",
+          },
+        });
         return { kind: "completed", degradation: ["reply_outcome_unknown"] };
       }
 
@@ -422,6 +455,9 @@ export async function executeAskJob(
               pool,
               workItemId: item.id,
               installationId: item.installationId,
+              owner: item.owner,
+              repo: item.repo,
+              prNumber: item.prNumber,
             },
             pool,
             codeIndexSnapshotId: ready?.id,
@@ -479,15 +515,13 @@ export async function executeAskJob(
                 return { commentId: published.commentId };
               },
             });
-            captureEvent({
-              distinctId: `installation:${item.installationId}`,
-              event: "ask answered",
-              properties: {
-                owner: item.owner,
-                repo: item.repo,
-                pr_number: item.prNumber,
-                reply_target_kind: payload.replyTarget.kind,
-              },
+            captureDurableWorkCompleted({
+              item,
+              workType: "ask",
+              outcome: "published",
+              durationMs: durationMsFromClaim(env.claim),
+              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+              extras: { replyTargetKind: payload.replyTarget.kind },
             });
             try {
               await recordAskPublishStep(pool, {
@@ -509,6 +543,18 @@ export async function executeAskJob(
                 workItemId: item.id,
                 message: e instanceof Error ? e.message : String(e),
                 ...classifiedFailureLogFields(failure),
+              });
+              captureDurableWorkCompleted({
+                item,
+                workType: "ask",
+                outcome: "degraded",
+                durationMs: durationMsFromClaim(env.claim),
+                attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+                degradedReason: "durable_degradation",
+                extras: {
+                  replyTargetKind: payload.replyTarget.kind,
+                  durableDegradation: "publish_record_failed",
+                },
               });
               return { kind: "completed", degradation: ["publish_record_failed"] };
             }

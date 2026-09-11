@@ -1,3 +1,5 @@
+import { emitWorkSpan, type AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
+import { publishSpanFromContext } from "../../analytics/workSpan.js";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import {
@@ -52,7 +54,8 @@ export type PublishSummaryOnlyResult =
   | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" };
 
 export async function publishReviewSummaryOnly(params: {
-  readonly cfg: Pick<Config, "piModel" | "features">;
+  readonly cfg: Pick<Config, "piModel" | "features"> & Partial<Pick<Config, "agentEventsEnabled">>;
+  readonly agentEvents?: AgentEventsContext;
   readonly ctx: ReviewPublishContext;
   readonly prSurface: PrSurface;
   readonly payload: ReviewPayload;
@@ -78,6 +81,22 @@ export async function publishReviewSummaryOnly(params: {
       context: { failedSpecialists: coverage.failed },
     });
   }
+  const startedAt = Date.now();
+  const finishPublished = (summaryCommentId: number): PublishSummaryOnlyResult => {
+    if (params.agentEvents) {
+      emitWorkSpan(
+        params.agentEvents,
+        { agentEventsEnabled: params.cfg.agentEventsEnabled === true },
+        publishSpanFromContext({
+          context: params.agentEvents,
+          publishStep: "summary",
+          latencyMs: Date.now() - startedAt,
+          isError: false,
+        }),
+      );
+    }
+    return { kind: "published", summaryCommentId };
+  };
   const partialCoverageNote = coverage.kind === "partial" ? coverage.note : undefined;
   const { owner, repo, prNumber, headSha } = params.ctx;
   const mode = params.mode ?? "review";
@@ -345,7 +364,7 @@ export async function publishReviewSummaryOnly(params: {
       pr: prNumber,
       message: currentLabels.message,
     });
-    return { kind: "published", summaryCommentId: summary.id };
+    return finishPublished(summary.id);
   }
   if (!Array.isArray(currentLabels)) {
     logWarn("review_labels_fetch_failed", {
@@ -355,7 +374,7 @@ export async function publishReviewSummaryOnly(params: {
       pr: prNumber,
       message: `listPullRequestLabels returned non-array: ${String(currentLabels)}`,
     });
-    return { kind: "published", summaryCommentId: summary.id };
+    return finishPublished(summary.id);
   }
 
   const wantsCategoryLabel = dominantReviewCategory(params.payload.findings) != null;
@@ -417,5 +436,5 @@ export async function publishReviewSummaryOnly(params: {
     }
   }
 
-  return { kind: "published", summaryCommentId: summary.id };
+  return finishPublished(summary.id);
 }

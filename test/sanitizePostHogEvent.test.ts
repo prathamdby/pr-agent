@@ -14,7 +14,7 @@ describe("sanitizePostHogEvent", () => {
   it("leaves benign events without error fields unchanged by identity", () => {
     const event: PostHogEventMessage = {
       distinctId: "installation:1",
-      event: "triage degraded",
+      event: "work completed",
       properties: { step: "publish_push", reason: "stale_head" },
     };
     expect(sanitizePostHogEvent(event)).toBe(event);

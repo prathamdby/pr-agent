@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { captureEvent } from "../../analytics/index.js";
+import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
@@ -79,6 +79,9 @@ export async function executeDescriptionJob(
               pool,
               workItemId: item.id,
               installationId: item.installationId,
+              owner: item.owner,
+              repo: item.repo,
+              prNumber: item.prNumber,
             },
             signal: env.signal,
           });
@@ -92,18 +95,25 @@ export async function executeDescriptionJob(
               pr: item.prNumber,
               ...classifiedFailureLogFields(failure),
             });
+            captureDurableWorkCompleted({
+              item,
+              workType: "description",
+              outcome: "degraded",
+              durationMs: durationMsFromClaim(env.claim),
+              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+              degradedReason: "durable_degradation",
+              extras: { source: payload.source, durableDegradation: "publish_not_completed" },
+            });
             return { kind: "completed", degradation: ["publish_not_completed"] };
           }
           if (result.published) {
-            captureEvent({
-              distinctId: `installation:${item.installationId}`,
-              event: "description published",
-              properties: {
-                owner: item.owner,
-                repo: item.repo,
-                pr_number: item.prNumber,
-                source: payload.source,
-              },
+            captureDurableWorkCompleted({
+              item,
+              workType: "description",
+              outcome: "published",
+              durationMs: durationMsFromClaim(env.claim),
+              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+              extras: { source: payload.source },
             });
           }
           return { kind: "completed" };

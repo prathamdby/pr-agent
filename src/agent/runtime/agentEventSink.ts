@@ -1,5 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import type { Config } from "../../config.js";
+import {
+  captureWorkSpan,
+  llmSpanFromSession,
+  publishSpanFromContext,
+  projectWorkSpanToAgentEventRow,
+  type WorkSpan,
+} from "../../analytics/workSpan.js";
 import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.js";
 import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.js";
 import type { AgentAuditRecord } from "./agentAudit.js";
@@ -180,7 +187,35 @@ export function createDurableLifecycleEventSink(
     const record = agentAuditRecordFromLifecycleEvent(event);
     const row = lifecycleAuditToInsertRow(context, record, event.role);
     safeAppendAgentEvents(context.pool, cfg, [row]);
+    if (event.kind !== "completion" && event.kind !== "failure") return;
+    if (event.phase == null) return;
+    emitWorkSpan(
+      context,
+      cfg,
+      llmSpanFromSession({
+        context,
+        phase: event.phase,
+        sessionRole: event.role,
+        provider: event.provider,
+        model: event.model,
+        inputTokens: event.inputTokens ?? 0,
+        outputTokens: event.outputTokens ?? 0,
+        latencyMs: event.durationMs ?? 0,
+        isError: event.kind === "failure",
+        ...(event.kind === "failure" ? { errorReason: event.failureCode } : {}),
+      }),
+    );
   };
+}
+
+export function emitWorkSpan(
+  context: AgentEventsContext | null,
+  cfg: Pick<Config, "agentEventsEnabled">,
+  span: WorkSpan,
+): void {
+  captureWorkSpan(span);
+  if (!context) return;
+  safeEmitAgentEvent(context, cfg, projectWorkSpanToAgentEventRow(context, span));
 }
 
 export function safeEmitAgentEvent(
@@ -205,6 +240,14 @@ export function safeEmitPublishEvent(
   params: Parameters<typeof publishEventRow>[1],
 ): void {
   safeEmitAgentEvent(context, cfg, publishEventRow(context, params));
+  captureWorkSpan(
+    publishSpanFromContext({
+      context,
+      publishStep: params.batchId,
+      latencyMs: 0,
+      isError: false,
+    }),
+  );
 }
 
 export function safeEmitCoverageEvent(

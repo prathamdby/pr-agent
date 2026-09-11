@@ -1,7 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { captureEvent } from "../analytics/index.js";
 import { logDebug, logWarn } from "../evlog.js";
 import {
   ACK_QUEUE,
@@ -298,17 +297,6 @@ export function logQueueDiagnosticsReport(report: QueueDiagnosticsReport): void 
       workType: stale.workType,
       ageSeconds: stale.ageSeconds,
       graceSeconds: STALE_QUEUED_WORK_GRACE_SECONDS,
-    });
-    captureEvent({
-      distinctId: "server",
-      event: "work item queued stale",
-      properties: {
-        work_item_id: stale.workItemId,
-        resource_key: stale.resourceKey,
-        work_type: stale.workType,
-        age_seconds: stale.ageSeconds,
-        grace_seconds: STALE_QUEUED_WORK_GRACE_SECONDS,
-      },
     });
   }
 }

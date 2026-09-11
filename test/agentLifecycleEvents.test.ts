@@ -115,6 +115,45 @@ describe("sanitizeAgentLifecycleEvent", () => {
       }),
     ).toBeNull();
   });
+
+  it("keeps token counts on completion and still rejects credential token keys", () => {
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "completion",
+        role: "orchestrator",
+        phase: "recon",
+        checkpointId: "orchestrator:recon",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        ok: true,
+        durationMs: 1200,
+        inputTokens: 40,
+        outputTokens: 12,
+      }),
+    ).toEqual({
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "orchestrator:recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      durationMs: 1200,
+      inputTokens: 40,
+      outputTokens: 12,
+    });
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "failure",
+        role: "ask",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        failureCode: "provider.auth",
+        token: "sk-live",
+        ok: false,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("agentAuditRecordFromLifecycleEvent", () => {

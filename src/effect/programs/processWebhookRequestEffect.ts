@@ -2,13 +2,45 @@ import { Duration, Effect } from "effect";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import type { Config } from "../../config.js";
-import { captureEvent } from "../../analytics/index.js";
+import { captureWebhookReceived } from "../../analytics/workCompleted.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
 import { toCiRefreshHeadSourceFromCompletedRun } from "../../webhook/payloads/ciRefreshHead.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
+
+function webhookDuplicateReason(
+  intakeLog: RequestLogger,
+): "delivery_duplicate" | "body_duplicate" | undefined {
+  const events = intakeLog.getContext().events;
+  if (!Array.isArray(events)) return undefined;
+  for (const entry of events) {
+    if (typeof entry !== "object" || entry == null) continue;
+    const event = (entry as { event?: unknown }).event;
+    if (event !== "deduped_delivery") continue;
+    const key = (entry as { dedupeKey?: unknown }).dedupeKey;
+    const keyText = typeof key === "string" ? key : "";
+    return keyText.startsWith("body:") ? "body_duplicate" : "delivery_duplicate";
+  }
+  return undefined;
+}
+
+function emitWebhookReceived(args: {
+  readonly githubEvent: string;
+  readonly delivery: string;
+  readonly elapsedMs: number;
+  readonly outcome: "accepted" | "duplicate" | "rejected";
+  readonly reason?: string;
+}): void {
+  captureWebhookReceived({
+    githubEvent: args.githubEvent,
+    delivery: args.delivery,
+    elapsedMs: args.elapsedMs,
+    outcome: args.outcome,
+    ...(args.reason != null ? { reason: args.reason } : {}),
+  });
+}
 
 type DispatchResult =
   | { readonly kind: "ok" }
@@ -116,6 +148,7 @@ export function processWebhookPostRequestEffect(
   intakeLog: RequestLogger,
 ): Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler | WebhookHandlers> {
   return Effect.gen(function* () {
+    const t0 = Date.now();
     const delivery = req.headers["x-github-delivery"];
     const githubEvent = req.headers["x-github-event"] ?? "";
     const logDelivery = delivery ?? "(missing)";
@@ -137,6 +170,13 @@ export function processWebhookPostRequestEffect(
         webhook: { status: response.status, signatureInvalid: true },
       });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_signature" }));
+      emitWebhookReceived({
+        githubEvent,
+        delivery: logDelivery,
+        elapsedMs: Date.now() - t0,
+        outcome: "rejected",
+        reason: "invalid_signature",
+      });
       return response;
     }
 
@@ -151,10 +191,16 @@ export function processWebhookPostRequestEffect(
       } satisfies WebhookResponseLike;
       intakeLog.set({ webhook: { status: response.status } });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_json" }));
+      emitWebhookReceived({
+        githubEvent,
+        delivery: logDelivery,
+        elapsedMs: Date.now() - t0,
+        outcome: "rejected",
+        reason: "invalid_json",
+      });
       return response;
     }
 
-    const t0 = Date.now();
     const responseBudgetMs = Math.max(1, WEBHOOK_TIMEOUT_MS - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
     const headers = {
       ...(delivery === undefined ? {} : { delivery }),
@@ -223,6 +269,13 @@ export function processWebhookPostRequestEffect(
         yield* Effect.promise(() =>
           emitOperationLogger(intakeLog, { event: "webhook_parse_error" }),
         );
+        emitWebhookReceived({
+          githubEvent,
+          delivery: logDelivery,
+          elapsedMs,
+          outcome: "rejected",
+          reason: "parse_error",
+        });
         return response;
       }
       case "failed":
@@ -248,6 +301,13 @@ export function processWebhookPostRequestEffect(
                 : "webhook_handler_error",
           }),
         );
+        emitWebhookReceived({
+          githubEvent,
+          delivery: logDelivery,
+          elapsedMs,
+          outcome: "rejected",
+          reason: result.kind === "timeout" ? "timeout" : "handler_failed",
+        });
         return response;
       }
       default: {
@@ -262,15 +322,27 @@ export function processWebhookPostRequestEffect(
       { event: githubEvent, delivery: logDelivery, ms: elapsedMs },
       "info",
     );
-    captureEvent({
-      distinctId: "server",
-      event: "webhook received",
-      properties: {
-        github_event: githubEvent,
+    const duplicateReason = webhookDuplicateReason(intakeLog);
+    if (duplicateReason != null) {
+      emitWebhookReceived({
+        githubEvent,
         delivery: logDelivery,
-        elapsed_ms: elapsedMs,
-      },
-    });
+        elapsedMs,
+        outcome: "duplicate",
+        reason: duplicateReason,
+      });
+    } else {
+      const lastEvent = intakeLog.getContext().lastEvent;
+      const ignored =
+        typeof lastEvent === "string" && lastEvent.startsWith("ignored") ? lastEvent : undefined;
+      emitWebhookReceived({
+        githubEvent,
+        delivery: logDelivery,
+        elapsedMs,
+        outcome: "accepted",
+        ...(ignored != null ? { reason: ignored } : {}),
+      });
+    }
     intakeLog.set({
       webhook: {
         status: 200,

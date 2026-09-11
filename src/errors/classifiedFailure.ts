@@ -161,27 +161,64 @@ function finalize(
   };
 }
 
+const POSTHOG_SAFE_PHASES = new Set([
+  "preflight",
+  "db-read",
+  "investigation",
+  "pre_submit",
+  "validation_repair",
+  "publish_recovery",
+  "plaintext_fallback",
+  "recon",
+  "specialist",
+  "judgment",
+  "synthesis",
+  "publish",
+  "ci_summary",
+  "ask",
+  "description",
+  "triage",
+  "verification",
+]);
+
+export function posthogSafePhase(phase: string | undefined): string | undefined {
+  if (phase == null) return undefined;
+  return POSTHOG_SAFE_PHASES.has(phase) ? phase : undefined;
+}
+
 type ClassifiedFailureFieldDescriptor = {
   readonly logKey: string;
   readonly posthogKey: string;
   readonly required: boolean;
+  readonly omitFromPostHog?: boolean;
 };
 
 /**
  * One inventory for classified-failure telemetry. Log keys stay camelCase;
  * PostHog keys stay snake_case. Adding a ClassifiedFailure field without a
  * descriptor here fails typecheck so the two public projections cannot drift.
+ * error_message and cause_chain stay on logs and never leave on PostHog.
  */
 const CLASSIFIED_FAILURE_FIELD_DESCRIPTORS = {
   failureDomain: { logKey: "failureDomain", posthogKey: "failure_domain", required: true },
   errorKind: { logKey: "errorKind", posthogKey: "error_kind", required: true },
-  errorMessage: { logKey: "errorMessage", posthogKey: "error_message", required: true },
+  errorMessage: {
+    logKey: "errorMessage",
+    posthogKey: "error_message",
+    required: true,
+    omitFromPostHog: true,
+  },
   errorCode: { logKey: "errorCode", posthogKey: "error_code", required: false },
   phase: { logKey: "phase", posthogKey: "phase", required: false },
   toolName: { logKey: "toolName", posthogKey: "tool_name", required: false },
   provider: { logKey: "provider", posthogKey: "provider", required: false },
   model: { logKey: "model", posthogKey: "model", required: false },
-  causeChain: { logKey: "causeChain", posthogKey: "cause_chain", required: false },
+  causeChain: {
+    logKey: "causeChain",
+    posthogKey: "cause_chain",
+    required: false,
+    omitFromPostHog: true,
+  },
   errorCount: { logKey: "errorCount", posthogKey: "error_count", required: false },
 } as const satisfies {
   readonly [K in keyof ClassifiedFailure]: ClassifiedFailureFieldDescriptor;
@@ -196,7 +233,16 @@ function projectClassifiedFailure(
     keyof typeof CLASSIFIED_FAILURE_FIELD_DESCRIPTORS
   >) {
     const descriptor = CLASSIFIED_FAILURE_FIELD_DESCRIPTORS[source];
+    if (naming === "posthogKey" && descriptor.omitFromPostHog === true) {
+      continue;
+    }
     const value = failure[source];
+    if (naming === "posthogKey" && source === "phase") {
+      const phase = posthogSafePhase(typeof value === "string" ? value : undefined);
+      if (phase == null) continue;
+      out[descriptor.posthogKey] = phase;
+      continue;
+    }
     if (descriptor.required || value != null) {
       out[descriptor[naming]] = value;
     }

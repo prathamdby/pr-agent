@@ -8,7 +8,9 @@ import { isCancelAbortError } from "../../agent/providers/providerErrors.js";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
+  emitWorkSpan,
 } from "../../agent/runtime/agentEventSink.js";
+import { llmSpanFromSession } from "../../analytics/workSpan.js";
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
@@ -265,6 +267,35 @@ export async function runOrchestratedPrReview(
   const briefTool = buildSpecialistBriefTool(phaseRef);
   const state = initialState();
   const agentEvents = resolveAgentEventsContext(params.cfg, params.durability);
+  const workSpanContext =
+    params.durability != null
+      ? {
+          workItemId: params.durability.workItemId,
+          installationId: params.durability.installationId,
+          owner: params.owner,
+          repo: params.repo,
+          prNumber: params.prNumber,
+        }
+      : null;
+  const emitSpecialistSpan = (outcome: SpecialistOutcome): void => {
+    if (!workSpanContext) return;
+    emitWorkSpan(
+      agentEvents,
+      params.cfg,
+      llmSpanFromSession({
+        context: workSpanContext,
+        phase: `specialist_${outcome.specialist}`,
+        sessionRole: "specialist",
+        provider: params.cfg.piProvider,
+        model: params.cfg.piModel,
+        inputTokens: 0,
+        outputTokens: 0,
+        latencyMs: outcome.durationMs,
+        isError: outcome.kind === "error",
+        ...(outcome.kind === "error" ? { errorReason: outcome.error.code } : {}),
+      }),
+    );
+  };
   const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
   const resolveProgressCommentUrl = async (): Promise<string | undefined> => {
     let commentId: number | null | undefined;
@@ -338,6 +369,7 @@ export async function runOrchestratedPrReview(
   const publishSummary = buildPublishSummaryTool({
     phaseRef,
     cfg: params.cfg,
+    agentEvents: agentEvents ?? undefined,
     ctx: publishCtx,
     prSurface: setup.prSurface,
 
@@ -451,6 +483,7 @@ export async function runOrchestratedPrReview(
   let sessionRetired = session == null;
   let lastText = "";
   let publishAttempts = 0;
+  let publishStepCount = 0;
   let fatalError: AppError | null = null;
 
   const retireSession = async (): Promise<void> => {
@@ -730,6 +763,7 @@ export async function runOrchestratedPrReview(
 
   const recordOutcome = async (outcome: SpecialistOutcome): Promise<void> => {
     if (state.outcomes[outcome.specialist] != null) return;
+    emitSpecialistSpan(outcome);
     state.outcomes[outcome.specialist] = outcome;
     state.completionOrder.push(outcome.specialist);
     state.progressRevision = nextProgressRevision(state.progressRevision);
@@ -830,6 +864,7 @@ export async function runOrchestratedPrReview(
     publishAttempts += 1;
     const result = await publishReviewSummaryOnly({
       cfg: params.cfg,
+      agentEvents: agentEvents ?? undefined,
       ctx: publishCtx,
       prSurface: setup.prSurface,
 
@@ -976,7 +1011,7 @@ export async function runOrchestratedPrReview(
 
             publishThread.setSource(outcome.specialist);
             const ledgerBefore = publishThread.getLedger();
-            publishAttempts += 1;
+            publishStepCount += 1;
             const judgment = await sendWithRetry("judgment", renderJudgmentTurn(outcome), {
               maxToolRounds: escalatedToolRounds(
                 ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
@@ -1043,7 +1078,7 @@ export async function runOrchestratedPrReview(
       await publishDeterministicSummary();
       markCompleteUnlessStopped();
     } else {
-      publishAttempts += 1;
+      publishStepCount += 1;
       const overviewPolicy = resolveDescriptionWritingPolicy(params.workspace.stats);
       const synthesisPrompt = renderSynthesisTurn({
         acceptedFindings: publishThread.getLedger().accepted,
@@ -1145,6 +1180,7 @@ export async function runOrchestratedPrReview(
   setReviewRunMetricFields({
     published: summaryState.published,
     publishAttempts,
+    publishStepCount,
     specialistOutcomes,
     threadBatches: publishThread.getPublishedBatchCount(),
     briefFallback: state.briefFallback,
@@ -1174,6 +1210,7 @@ export async function runOrchestratedPrReview(
     lastAssistant,
     published: summaryState.published,
     publishAttempts,
+    publishStepCount,
     publishSuperseded: state.lifecycle.kind === "stopped",
     ...(lastFailure != null ? { lastFailure } : {}),
   };

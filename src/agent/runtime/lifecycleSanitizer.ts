@@ -31,6 +31,9 @@ const SESSION_PHASES = new Set<AgentSessionPhase>([
 const FORBIDDEN_KEY_RE =
   /prompt|message|text|reasoning|content|argument|result|payload|token|secret|key|authorization|cookie|body|diff|patch|errorMessage|stack|cause/i;
 
+/** Count fields. The forbidden regex matches `token` inside `inputTokens`. */
+const TOKEN_COUNT_KEYS = new Set(["inputTokens", "outputTokens", "totalTokens"]);
+
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -64,6 +67,21 @@ function sanitizeReason(value: unknown): string | undefined {
   return cleaned;
 }
 
+function tokenAndDurationFields(raw: Record<string, unknown>): {
+  readonly durationMs?: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+} {
+  const durationMs = asFiniteNumber(raw.durationMs);
+  const inputTokens = asFiniteNumber(raw.inputTokens);
+  const outputTokens = asFiniteNumber(raw.outputTokens);
+  return {
+    ...(durationMs != null ? { durationMs } : {}),
+    ...(inputTokens != null ? { inputTokens } : {}),
+    ...(outputTokens != null ? { outputTokens } : {}),
+  };
+}
+
 /**
  * Allowlist + redact Agent lifecycle events before they leave the Pi session seam.
  * Returns null when the event cannot be represented safely.
@@ -71,6 +89,7 @@ function sanitizeReason(value: unknown): string | undefined {
 export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent | null {
   if (!isPlainObject(raw)) return null;
   for (const key of Object.keys(raw)) {
+    if (TOKEN_COUNT_KEYS.has(key)) continue;
     if (FORBIDDEN_KEY_RE.test(key)) return null;
   }
 
@@ -160,6 +179,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         provider,
         model,
         ok: true,
+        ...tokenAndDurationFields(raw),
       };
     }
     case "failure": {
@@ -180,6 +200,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         ...(sanitizeStableCode(raw.errorKind)
           ? { errorKind: sanitizeStableCode(raw.errorKind) }
           : {}),
+        ...tokenAndDurationFields(raw),
       };
     }
     case "execution": {

@@ -22,7 +22,7 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 5. **No escalation switch.** Escalation always follows the attempt count; queue policy (`standard`), retry limits, epoch fencing, and the lease contract are unchanged. pg-boss remains the single retry authority: escalation changes what a retry does, not who schedules it. Escalation never widens privilege — tool access, workspace path policy, repository-policy trust, and the Code Mode capability boundary are identical on every attempt. Ask is deliberately excluded: it is unleased and governed by its own admission quotas ([ADR 0031](0031-ask-admission-quotas.md)).
 
-6. **Outcome events match completion state.** `work item failed` fires on terminal failure only and now also carries `retry_disposition`. New `work item retried` fires when a failed attempt returns to the queue and carries `attempt_count`, `next_attempt`, `retry_disposition`, `escalation_kinds`, and the classified failure properties — the escalation-rate signal. New `work item degraded` fires when a work item completes with a partial publish and carries `degradation_reasons`. `ask failed`, `description failed`, and `verification failed` are deleted. Intentional skips (cancel, supersede, stale head, no open findings) emit no outcome event.
+6. **Outcome events match completion state.** One `"work completed"` event fires per durable work item that reaches a real terminal (`outcome` in `{published, degraded, failed, superseded, lightweight}`). `"work item retried"` fires when a failed attempt returns to the queue and carries `attempt_count`, `next_attempt`, `retry_disposition`, `escalation_kinds`, and classified failure fields without `error_message`. Intentional skips (cancel, supersede, stale head, no open findings) emit no outcome event.
 
 ## Consequences
 
@@ -30,7 +30,7 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 - Escalation rate and degradation reasons are observable from PostHog without reading run transcripts.
 - Provider transport retry is operator-tunable and its backoff is bounded by startup validation against `PROVIDER_PROMPT_TIMEOUT_MS`.
 - The fallback model is exercised only by escalation, so a fallback misconfiguration surfaces on the second attempt of a retried item.
-- A completed work item never emits a failure event; partial publishes are reported as degradation.
+- A completed work item never emits a failure event; partial publishes are `outcome=degraded` on `"work completed"`.
 - Attempts after a retry keep every privilege boundary of attempt 1, so escalation cannot widen repository or tool access.
 
 ## Reversal

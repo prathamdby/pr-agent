@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
@@ -163,6 +164,9 @@ export async function executeVerificationJob(
               pool,
               workItemId: item.id,
               installationId: item.installationId,
+              owner: item.owner,
+              repo: item.repo,
+              prNumber: item.prNumber,
             },
             signal: env.signal,
           });
@@ -246,8 +250,28 @@ export async function executeVerificationJob(
           resolutionStatus: resolutionResult.status,
           degradation: reasons,
         });
+        captureDurableWorkCompleted({
+          item,
+          workType: "verification",
+          outcome: "degraded",
+          durationMs: durationMsFromClaim(env.claim),
+          attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+          degradedReason: "durable_degradation",
+          extras: {
+            inventoryNarrowed,
+            durableDegradation: reasons[0],
+          },
+        });
         return { kind: "completed", degradation: reasons };
       }
+      captureDurableWorkCompleted({
+        item,
+        workType: "verification",
+        outcome: "published",
+        durationMs: durationMsFromClaim(env.claim),
+        attemptCount: env.claim?.attemptCount ?? item.attemptCount,
+        extras: { inventoryNarrowed },
+      });
       return { kind: "completed" };
     },
     onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {

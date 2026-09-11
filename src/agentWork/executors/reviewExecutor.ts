@@ -2,7 +2,14 @@ import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { captureEvent } from "../../analytics/index.js";
+import {
+  captureDurableWorkCompleted,
+  degradedReasonFromReviewFlags,
+  durationMsFromClaim,
+  reviewWorkOutcome,
+  workFailureReasonFromClassified,
+  type WorkCompletedOutcome,
+} from "../../analytics/workCompleted.js";
 import { AppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -46,13 +53,7 @@ import {
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
 } from "../../review/run/reviewRunMetrics.js";
-import {
-  reviewProfilerFailureProperties,
-  reviewProfilerOutcome,
-  reviewProfilerProperties,
-  type ReviewProfilerOutcome,
-  type ReviewWorkClaim,
-} from "../../review/run/reviewProfiler.js";
+import { reviewWorkExtras, type ReviewWorkClaim } from "../../review/run/reviewProfiler.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/summaryCommentUpsert.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
@@ -385,7 +386,10 @@ async function runLightweightCompletionOrSkip(args: {
     lightweight: true,
   });
   logReviewRunCompleted();
-  args.profile.record({ outcome: "lightweight", publishAttempts: 0 });
+  if (lightweightResult.published) {
+    args.profile.record({ outcome: "lightweight", publishAttempts: 0, publishStepCount: 0 });
+    args.profile.flush();
+  }
   await completeReviewCheckRun(pool, {
     prSurface,
     owner: item.owner,
@@ -444,9 +448,10 @@ async function buildPriorInlineFeedbackPromise(args: {
 }
 
 type ReviewProfileRecord = {
-  readonly outcome: ReviewProfilerOutcome;
+  readonly outcome: WorkCompletedOutcome;
   readonly lastFailure?: ReturnType<typeof classifyFailure>;
   readonly publishAttempts?: number;
+  readonly publishStepCount?: number;
 };
 
 type ReviewProfileSession = {
@@ -472,25 +477,32 @@ function createReviewProfileSession(args: {
       if (flushed || !pending) return;
       flushed = true;
       const snapshot = snapshotReviewRunMetrics();
-      captureEvent({
-        distinctId: `installation:${args.item.installationId}`,
-        event: "review profiled",
-        properties: {
-          work_item_id: args.item.id,
-          owner: args.item.owner,
-          repo: args.item.repo,
-          pr_number: args.item.prNumber,
-          review_lens: args.reviewLens,
-          source: args.payload.source,
-          outcome: pending.outcome,
-          ...reviewProfilerProperties({
-            snapshot,
-            cfg: args.cfg,
-            claim: args.claim,
-            publishAttempts: pending.publishAttempts,
-          }),
-          ...(pending.lastFailure ? reviewProfilerFailureProperties(pending.lastFailure) : {}),
-        },
+      const publishAttempts = pending.publishAttempts ?? snapshot?.publishAttempts ?? 0;
+      const publishStepCount = pending.publishStepCount ?? snapshot?.publishStepCount ?? 0;
+      const extras = reviewWorkExtras({
+        snapshot,
+        provider: args.cfg.piProvider,
+        model: args.cfg.piModel,
+        reviewLens: args.reviewLens,
+        source: args.payload.source,
+      });
+      captureDurableWorkCompleted({
+        item: args.item,
+        workType: "review",
+        outcome: pending.outcome,
+        durationMs: durationMsFromClaim(args.claim),
+        attemptCount: args.claim?.attemptCount ?? args.item.attemptCount,
+        publish: { publishAttempts, publishStepCount },
+        extras,
+        ...(pending.outcome === "degraded"
+          ? {
+              degradedReason:
+                degradedReasonFromReviewFlags({ publishAttempts, snapshot }) ?? "publish_retry",
+            }
+          : {}),
+        ...(pending.outcome === "failed" && pending.lastFailure
+          ? { failure: workFailureReasonFromClassified(pending.lastFailure) }
+          : {}),
       });
     },
   };
@@ -507,7 +519,7 @@ async function handleReviewPublishResult(args: {
 }): Promise<ReviewExecutionResult> {
   const { pool, item, reviewLens, prSurface, leaseEpoch, result } = args;
   const snapshot = snapshotReviewRunMetrics();
-  const outcome = reviewProfilerOutcome({
+  const outcome = reviewWorkOutcome({
     published: result.published,
     publishSuperseded: result.publishSuperseded,
     publishAttempts: result.publishAttempts,
@@ -521,7 +533,6 @@ async function handleReviewPublishResult(args: {
         pr: item.prNumber,
         publishAttempts: result.publishAttempts,
       });
-      args.profile.record({ outcome, publishAttempts: result.publishAttempts });
       await completeCheckFromStoredSummary({
         pool,
         item,
@@ -548,6 +559,7 @@ async function handleReviewPublishResult(args: {
         outcome,
         lastFailure,
         publishAttempts: result.publishAttempts,
+        publishStepCount: result.publishStepCount,
       });
       await completeCheckFromStoredSummary({
         pool,
@@ -561,7 +573,11 @@ async function handleReviewPublishResult(args: {
       });
     }
   } else {
-    args.profile.record({ outcome, publishAttempts: result.publishAttempts });
+    args.profile.record({
+      outcome,
+      publishAttempts: result.publishAttempts,
+      publishStepCount: result.publishStepCount,
+    });
   }
   if (result.published || result.publishSuperseded) {
     return { kind: "completed" };
@@ -1006,6 +1022,7 @@ export async function executeReviewJob(
         payload,
         claim: env.claim,
       });
+      let threw = false;
       try {
         return await runClaimedReview({
           job,
@@ -1019,13 +1036,10 @@ export async function executeReviewJob(
           profile,
         });
       } catch (error) {
-        profile.record({
-          outcome: "failed",
-          lastFailure: classifyFailure(error),
-        });
+        threw = true;
         throw error;
       } finally {
-        profile.flush();
+        if (!threw) profile.flush();
       }
     },
     onCancelled: async (item, prSurface, _reason, leaseEpoch) => {

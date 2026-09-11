@@ -267,7 +267,8 @@ describe("executeReviewJob", () => {
     mocks.lightweight.mockResolvedValue({ handled: false });
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: true,
-      publishAttempts: 1,
+      publishAttempts: 0,
+      publishStepCount: 5,
       publishSuperseded: false,
     });
     mocks.buildTrustedContext.mockResolvedValue("trusted");
@@ -499,7 +500,7 @@ describe("executeReviewJob", () => {
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
-      return { published: false, publishAttempts: 0, publishSuperseded: true };
+      return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
     mocks.buildStaleReschedule.mockReturnValue({
       kind: "rescheduled",
@@ -523,7 +524,7 @@ describe("executeReviewJob", () => {
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
-      return { published: false, publishAttempts: 0, publishSuperseded: true };
+      return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
     mocks.buildStaleReschedule.mockReturnValue({
       kind: "rescheduled",
@@ -701,7 +702,7 @@ describe("executeReviewJob", () => {
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
-      return { published: false, publishAttempts: 0, publishSuperseded: true };
+      return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
@@ -749,7 +750,7 @@ describe("executeReviewJob", () => {
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
-      return { published: false, publishAttempts: 0, publishSuperseded: true };
+      return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
@@ -765,7 +766,7 @@ describe("executeReviewJob", () => {
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "superseded" });
-      return { published: false, publishAttempts: 0, publishSuperseded: true };
+      return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
@@ -799,7 +800,7 @@ describe("executeReviewJob", () => {
         reason: "cancelled",
         attribution: { kind: "user", login: "alice" },
       });
-      return { published: false, publishAttempts: 0, publishSuperseded: true };
+      return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
@@ -851,6 +852,7 @@ describe("executeReviewJob", () => {
   it("completes an existing check as failure when publish is exhausted", async () => {
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
+      publishStepCount: 0,
       publishAttempts: 3,
       publishSuperseded: false,
     });
@@ -867,9 +869,10 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("emits review profiled with failed outcome and prior provider credit lastFailure", async () => {
+  it("emits work completed with failed outcome and prior provider credit lastFailure", async () => {
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
+      publishStepCount: 0,
       publishAttempts: 2,
       publishSuperseded: false,
       lastFailure: {
@@ -896,7 +899,7 @@ describe("executeReviewJob", () => {
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         distinctId: "installation:42",
-        event: "review profiled",
+        event: "work completed",
         properties: expect.objectContaining({
           outcome: "failed",
           work_item_id: "wi-1",
@@ -924,7 +927,7 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("emits review profiled with published outcome and formula-B timing props when generationMs > 0", async () => {
+  it("emits work completed with published outcome without token dumps", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 200_000,
       providerOutputTokens: 1500,
@@ -933,6 +936,9 @@ describe("executeReviewJob", () => {
       tokenCoverage: "full_run",
       findingsCount: 2,
       severities: ["high"],
+      specialistOutcomes: { report: 4 },
+      publishAttempts: 0,
+      publishStepCount: 5,
     } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
@@ -940,26 +946,30 @@ describe("executeReviewJob", () => {
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review profiled",
+        event: "work completed",
         properties: expect.objectContaining({
           outcome: "published",
+          work_type: "review",
           work_item_id: "wi-1",
-          wall_clock_ms: 200_000,
-          provider_output_tokens: 1500,
-          generation_ms: 50_000,
-          provider_output_tps: 30,
-          token_coverage: "full_run",
+          findings_count: 2,
+          specialist_report: 4,
           provider: "openai",
           model: "test",
-          publish_attempts: 1,
-          queue_ms: 10_000,
+          publish_attempts: 0,
+          publish_step_count: 5,
           attempt_count: 1,
         }),
       }),
     );
+    const properties = (
+      mocks.captureEvent.mock.calls[0]?.[0] as { properties: Record<string, unknown> }
+    ).properties;
+    expect(properties).not.toHaveProperty("wall_clock_ms");
+    expect(properties).not.toHaveProperty("provider_output_tokens");
+    expect(properties).not.toHaveProperty("error_message");
   });
 
-  it("omits provider_output_tps on review profiled when generationMs is 0", async () => {
+  it("omits generation telemetry from work completed", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 12_000,
       providerOutputTokens: 100,
@@ -967,26 +977,29 @@ describe("executeReviewJob", () => {
       tokenCoverage: "orchestrator_only",
       findingsCount: 0,
       severities: [],
+      specialistOutcomes: {},
+      publishAttempts: 0,
+      publishStepCount: 5,
     } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
     const call = mocks.captureEvent.mock.calls.find(
-      (args) => (args[0] as { event?: string }).event === "review profiled",
+      (args) => (args[0] as { event?: string }).event === "work completed",
     );
     expect(call).toBeDefined();
     const properties = (call?.[0] as { properties: Record<string, unknown> }).properties;
     expect(properties).toMatchObject({
       outcome: "published",
-      wall_clock_ms: 12_000,
-      provider_output_tokens: 100,
-      token_coverage: "orchestrator_only",
+      work_type: "review",
+      findings_count: 0,
     });
     expect(properties).not.toHaveProperty("generation_ms");
     expect(properties).not.toHaveProperty("provider_output_tps");
+    expect(properties).not.toHaveProperty("wall_clock_ms");
   });
 
-  it("emits review profiled with failed outcome and timing parity props from snapshot", async () => {
+  it("emits work completed with failed outcome without token dumps", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 190_000,
       providerOutputTokens: 800,
@@ -998,6 +1011,7 @@ describe("executeReviewJob", () => {
     } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
+      publishStepCount: 0,
       publishAttempts: 2,
       publishSuperseded: false,
       lastFailure: {
@@ -1013,22 +1027,17 @@ describe("executeReviewJob", () => {
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review profiled",
+        event: "work completed",
         properties: expect.objectContaining({
           outcome: "failed",
+          work_type: "review",
           work_item_id: "wi-1",
-          wall_clock_ms: 190_000,
-          provider_output_tokens: 800,
-          generation_ms: 40_000,
-          provider_output_tps: 20,
-          token_coverage: "full_run",
           provider: "openai",
           model: "test",
           publish_attempts: 2,
           failure_domain: "github",
           error_kind: "rate_limit",
           phase: "publish",
-          tool_call_errors: 1,
         }),
       }),
     );
@@ -1036,12 +1045,14 @@ describe("executeReviewJob", () => {
       properties: Record<string, unknown>;
     };
     expect(properties.properties).not.toHaveProperty("error_message");
+    expect(properties.properties).not.toHaveProperty("tool_call_errors");
     expect(JSON.stringify(properties.properties)).not.toMatch(/rate limit exceeded/i);
   });
 
   it("completes an existing check as cancelled when publish is superseded", async () => {
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
+      publishStepCount: 0,
       publishAttempts: 1,
       publishSuperseded: true,
     });
@@ -1055,19 +1066,10 @@ describe("executeReviewJob", () => {
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       }),
     );
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "review profiled",
-        properties: expect.objectContaining({
-          outcome: "superseded",
-          work_item_id: "wi-1",
-        }),
-      }),
-    );
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
   });
 
-  it("emits review profiled with lightweight outcome and no full review", async () => {
+  it("emits work completed with lightweight outcome and no full review", async () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
 
@@ -1077,7 +1079,7 @@ describe("executeReviewJob", () => {
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review profiled",
+        event: "work completed",
         properties: expect.objectContaining({
           outcome: "lightweight",
           work_item_id: "wi-1",
@@ -1087,35 +1089,16 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("emits review profiled once when the claimed review throws", async () => {
+  it("does not emit work completed when the claimed review throws", async () => {
     const thrownMessage = "orchestrator exploded at /tmp/secret.ts";
     mocks.runOrchestratedPrReview.mockRejectedValue(new Error(thrownMessage));
 
     await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(thrownMessage);
 
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        distinctId: "installation:42",
-        event: "review profiled",
-        properties: expect.objectContaining({
-          outcome: "failed",
-          work_item_id: "wi-1",
-          source: "slash",
-          failure_domain: expect.any(String),
-          error_kind: expect.any(String),
-        }),
-      }),
-    );
-    const properties = (
-      mocks.captureEvent.mock.calls[0]?.[0] as { properties: Record<string, unknown> }
-    ).properties;
-    expect(properties).not.toHaveProperty("error_message");
-    expect(JSON.stringify(properties)).not.toContain("orchestrator exploded");
-    expect(JSON.stringify(properties)).not.toContain("/tmp/secret.ts");
+    expect(mocks.captureEvent).not.toHaveBeenCalled();
   });
 
-  it("does not emit a second review profiled when check-run cleanup throws after capture", async () => {
+  it("does not emit a second work completed when check-run cleanup throws after capture", async () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
     vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockRejectedValue(
@@ -1129,7 +1112,7 @@ describe("executeReviewJob", () => {
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review profiled",
+        event: "work completed",
         properties: expect.objectContaining({
           outcome: "lightweight",
           work_item_id: "wi-1",
@@ -1138,7 +1121,7 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("emits review profiled with degraded outcome when a published run has tool errors", async () => {
+  it("emits work completed with degraded outcome when a published run has tool errors", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 90_000,
       providerOutputTokens: 400,
@@ -1159,11 +1142,12 @@ describe("executeReviewJob", () => {
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "review profiled",
+        event: "work completed",
         properties: expect.objectContaining({
           outcome: "degraded",
           work_item_id: "wi-1",
-          tool_call_errors: 2,
+          degraded_reason: "tool_call_error",
+          findings_count: 1,
         }),
       }),
     );

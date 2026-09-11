@@ -65,6 +65,9 @@ export type AgentLifecycleCompletionEvent = {
   readonly provider: string;
   readonly model: string;
   readonly ok: true;
+  readonly durationMs?: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
 };
 
 export type AgentLifecycleFailureEvent = {
@@ -78,6 +81,9 @@ export type AgentLifecycleFailureEvent = {
   readonly failureCode: string;
   readonly failureDomain?: string;
   readonly errorKind?: string;
+  readonly durationMs?: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
 };
 
 export type AgentLifecycleExecutionEvent = {

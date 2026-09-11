@@ -79,6 +79,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly startedAtMs: number;
   readonly published: boolean;
   readonly publishAttempts: number;
+  readonly publishStepCount: number;
   readonly submitCallCount: number;
   readonly validationFailureCount: number;
   readonly validationFailureKinds: Record<string, number>;
@@ -134,6 +135,7 @@ type MutableReviewRunMetrics = {
   startedAtMs: number;
   published: boolean;
   publishAttempts: number;
+  publishStepCount: number;
   submitCallCount: number;
   validationFailureCount: number;
   validationFailureKinds: Record<string, number>;
@@ -191,6 +193,7 @@ function createEmptyMetrics(meta: {
         : Date.now(),
     published: false,
     publishAttempts: 0,
+    publishStepCount: 0,
     submitCallCount: 0,
     validationFailureCount: 0,
     validationFailureKinds: {},
@@ -449,6 +452,7 @@ export function setReviewRunMetricFields(
       MutableReviewRunMetrics,
       | "published"
       | "publishAttempts"
+      | "publishStepCount"
       | "lightweight"
       | "specialistOutcomes"
       | "threadBatches"
@@ -463,6 +467,7 @@ export function setReviewRunMetricFields(
   if (!metrics) return;
   if (fields.published !== undefined) metrics.published = fields.published;
   if (fields.publishAttempts !== undefined) metrics.publishAttempts = fields.publishAttempts;
+  if (fields.publishStepCount !== undefined) metrics.publishStepCount = fields.publishStepCount;
   if (fields.lightweight !== undefined) metrics.lightweight = fields.lightweight;
   if (fields.specialistOutcomes !== undefined) {
     metrics.specialistOutcomes = { ...fields.specialistOutcomes };
@@ -491,6 +496,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     startedAtMs: metrics.startedAtMs,
     published: metrics.published,
     publishAttempts: metrics.publishAttempts,
+    publishStepCount: metrics.publishStepCount,
     submitCallCount: metrics.submitCallCount,
     validationFailureCount: metrics.validationFailureCount,
     validationFailureKinds: { ...metrics.validationFailureKinds },

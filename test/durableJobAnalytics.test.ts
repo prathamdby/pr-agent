@@ -128,7 +128,7 @@ describe("durableJob analytics forwarding", () => {
     await shutdownAnalytics();
   });
 
-  it("forwards terminal failures to captureException with repo context", async () => {
+  it("emits work completed on terminal failure without $exception", async () => {
     const item = makeReviewWorkItem({
       status: "running",
       id: "wi-1",
@@ -168,39 +168,32 @@ describe("durableJob analytics forwarding", () => {
     const client = mockPostHog.instances[0];
     expect(client?.capture).toHaveBeenCalledWith({
       distinctId: "installation:99",
-      event: "work item failed",
+      event: "work completed",
       properties: expect.objectContaining({
-        type: "review",
+        work_type: "review",
+        outcome: "failed",
         owner: "acme",
         repo: "widgets",
         pr_number: 12,
-        retry_disposition: "transient",
         failure_domain: expect.any(String),
         error_kind: expect.any(String),
-        error_message: expect.any(String),
       }),
     });
     expect(client?.capture).not.toHaveBeenCalledWith(
       expect.objectContaining({ event: "work item retried" }),
     );
-    expect(client?.captureException).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Error", message: "enqueue failed" }),
-      "installation:99",
-      expect.objectContaining({
-        event: "agent_work_failed",
-        type: "review",
-        owner: "acme",
-        repo: "widgets",
-        pr_number: 12,
-        workItemId: "wi-1",
-      }),
-    );
+    expect(client?.captureException).not.toHaveBeenCalled();
+    const properties = client?.capture.mock.calls.find(
+      (args) => (args[0] as { event?: string }).event === "work completed",
+    )?.[0] as { properties: Record<string, unknown> };
+    expect(properties.properties).not.toHaveProperty("error_message");
+    expect(properties.properties).not.toHaveProperty("cause_chain");
   });
 
-  it("classifies provider credit failures on work item failed", async () => {
+  it("classifies provider credit failures on work completed", async () => {
     const item = makeReviewWorkItem({
       status: "running",
-      id: "wi-credits",
+      id: "wi-quota",
       installationId: 99,
       owner: "acme",
       repo: "widgets",
@@ -213,7 +206,7 @@ describe("durableJob analytics forwarding", () => {
     const boom = new Error("Insufficient credits for model");
     const execute = vi.fn().mockRejectedValue(boom);
     const job = {
-      id: "job-credits",
+      id: "job-quota",
       data: { workItemId: item.id },
       retryCount: 3,
       retryLimit: 3,
@@ -235,14 +228,21 @@ describe("durableJob analytics forwarding", () => {
     const client = mockPostHog.instances[0];
     expect(client?.capture).toHaveBeenCalledWith({
       distinctId: "installation:99",
-      event: "work item failed",
+      event: "work completed",
       properties: expect.objectContaining({
+        outcome: "failed",
+        work_type: "review",
         failure_domain: "provider",
         error_kind: "quota",
-        error_message: expect.stringMatching(/credit/i),
         provider_error_kind: "quota",
       }),
     });
+    expect(client?.captureException).not.toHaveBeenCalled();
+    const properties = client?.capture.mock.calls[0]?.[0] as {
+      properties: Record<string, unknown>;
+    };
+    expect(properties.properties).not.toHaveProperty("error_message");
+    expect(JSON.stringify(properties.properties)).not.toMatch(/credit/i);
   });
 
   it("sanitizes AppError fields on terminal durable-job failures", async () => {
@@ -288,16 +288,18 @@ describe("durableJob analytics forwarding", () => {
       }),
     ).resolves.toBeUndefined();
 
-    const call = mockPostHog.instances[0]?.captureException.mock.calls[0];
-    expect(call?.[0]).not.toBe(boom);
-    expect(call?.[2]).toMatchObject({
-      errorCode: "agent_work.failed",
-      errorContext: { workItemId: item.id },
-    });
-    const json = JSON.stringify({ error: call?.[0], properties: call?.[2] });
+    const client = mockPostHog.instances[0];
+    expect(client?.captureException).not.toHaveBeenCalled();
+    const captured = client?.capture.mock.calls.find(
+      (args) => (args[0] as { event?: string }).event === "work completed",
+    )?.[0] as { properties: Record<string, unknown> };
+    expect(captured).toBeDefined();
+    const json = JSON.stringify(captured);
     expect(json).not.toContain(token);
     expect(json).not.toContain("postgres://");
     expect(json).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(captured.properties).not.toHaveProperty("error_message");
+    expect(captured.properties).not.toHaveProperty("cause_chain");
   });
 
   it("emits work item retried with the disposition and the next attempt's escalation kinds", async () => {
@@ -347,7 +349,7 @@ describe("durableJob analytics forwarding", () => {
       distinctId: "installation:99",
       event: "work item retried",
       properties: expect.objectContaining({
-        type: "review",
+        work_type: "review",
         owner: "acme",
         repo: "widgets",
         pr_number: 12,
@@ -357,7 +359,6 @@ describe("durableJob analytics forwarding", () => {
         escalation_kinds: ["tool_rounds", "fallback_model"],
         failure_domain: expect.any(String),
         error_kind: expect.any(String),
-        error_message: expect.any(String),
       }),
     });
     expect(client?.capture).toHaveBeenCalledWith({
@@ -369,11 +370,14 @@ describe("durableJob analytics forwarding", () => {
       }),
     });
     expect(client?.capture).not.toHaveBeenCalledWith(
-      expect.objectContaining({ event: "work item failed" }),
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({ outcome: "failed" }),
+      }),
     );
   });
 
-  it("emits work item degraded with the reported reasons after completion", async () => {
+  it("does not emit a terminal PostHog event from the durable runner on degraded completion", async () => {
     const item = makeReviewWorkItem({
       status: "running",
       id: "wi-degraded",
@@ -402,22 +406,10 @@ describe("durableJob analytics forwarding", () => {
     ).resolves.toBeUndefined();
 
     expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, item.id, null);
-    const client = mockPostHog.instances[0];
-    expect(client?.capture).toHaveBeenCalledWith({
-      distinctId: "installation:99",
-      event: "work item degraded",
-      properties: expect.objectContaining({
-        type: "review",
-        owner: "acme",
-        repo: "widgets",
-        pr_number: 12,
-        attempt_count: 1,
-        degradation_reasons: ["stale_head", "thread_resolution_degraded"],
-      }),
-    });
+    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalled();
   });
 
-  it("does not emit work item degraded for a clean completion", async () => {
+  it("does not emit a terminal PostHog event for a clean completion", async () => {
     const item = makeReviewWorkItem({
       status: "running",
       id: "wi-clean",
@@ -443,12 +435,10 @@ describe("durableJob analytics forwarding", () => {
     ).resolves.toBeUndefined();
 
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
-    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalledWith(
-      expect.objectContaining({ event: "work item degraded" }),
-    );
+    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalled();
   });
 
-  it("does not emit work item degraded when completion loses the race", async () => {
+  it("does not emit a terminal PostHog event when completion loses the race", async () => {
     const item = makeReviewWorkItem({
       status: "running",
       id: "wi-raced",
@@ -478,8 +468,6 @@ describe("durableJob analytics forwarding", () => {
     ).resolves.toBeUndefined();
 
     expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, item.id, null);
-    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalledWith(
-      expect.objectContaining({ event: "work item degraded" }),
-    );
+    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalled();
   });
 });

@@ -532,6 +532,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           throw toAppError(loopError, { code: "provider.request_failed" });
         }
         const promptMeta = promptMetadataFromText(prompt);
+        const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : 0;
         emit({
           kind: "completion",
           role: params.role,
@@ -540,11 +541,15 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           provider: params.primary.provider,
           model: params.primary.model,
           ok: true,
+          durationMs,
+          inputTokens: aggregatedUsage?.inputTokens ?? 0,
+          outputTokens: aggregatedUsage?.outputTokens ?? 0,
         });
         return aggregatedUsage
           ? { text: finalText, prompt: promptMeta, usage: aggregatedUsage }
           : { text: finalText, prompt: promptMeta };
       } catch (error) {
+        const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : 0;
         emit({
           kind: "failure",
           role: params.role,
@@ -554,6 +559,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           model: params.primary.model,
           ok: false,
           failureCode: error instanceof AppError ? error.code : "runtime.session_send_failed",
+          durationMs,
+          inputTokens: aggregatedUsage?.inputTokens ?? 0,
+          outputTokens: aggregatedUsage?.outputTokens ?? 0,
         });
         throw error;
       } finally {
