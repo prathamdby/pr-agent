@@ -18,7 +18,7 @@ Layer ask-only defenses (always on, no feature flag):
 
 2. **Untrusted data framing** — User questions and code anchors are wrapped in labeled blocks; the system prompt treats PR/tool content as untrusted data.
 
-3. **Local workspace tools** — Ask runs use the same read-only local workspace tools as review ([ADR 0011](0011-agent-runner-local-pr-workspace.md)). GitHub read tools are not on the ask investigation surface.
+3. **Code Mode investigation** — Ask runs use the same read-only workspace capabilities as review, hidden behind `execute({ code })` ([ADR 0011](0011-agent-runner-local-pr-workspace.md), [ADR 0033](0033-code-mode-execution.md)). GitHub read tools are not on the ask investigation surface.
 
 4. **Sensitive path gate** — Block local file reads on denylisted paths (`.env`, `*.pem`, etc.) unless the path appears in this PR's changed-files list (`assertPathAllowedForAsk` in `askSafety.ts`).
 

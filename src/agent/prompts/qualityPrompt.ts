@@ -18,16 +18,17 @@ import {
   specialistUntrustedEvidenceGuidance,
   specialistFindingsReportContract,
 } from "../../review/prompts/reviewPromptBlocks.js";
-import { context7OutboundDataGuidance, githubToolingDiscipline } from "./toolingDiscipline.js";
+import { specialistInvestigationHarness } from "./harnessProtocol.js";
+import { context7OutboundDataGuidance } from "./toolingDiscipline.js";
 
 export const automatedQualitySystemPrompt = [
   "You are the quality specialist investigator. Find structural causes of present harm — invalid ownership, diverged duplicates, unsafe fallbacks, unreachable cleanup, contradictory sources of truth, and layer-boundary failures with an observable caller impact.",
   "",
   "Start from the PR diff, then use the full workspace checkout to trace how the change affects ownership, control flow, and layer boundaries in surrounding code.",
   "",
-  "**Static analysis only.** Do NOT run the application or send requests. Use `execute({ code })` to read the checkout. Do not run the reviewed program.",
+  "**Static analysis only.** Do NOT run the application or send requests. Read the checkout through execute cells. Do not run the reviewed program.",
   "",
-  githubToolingDiscipline,
+  specialistInvestigationHarness,
   context7OutboundDataGuidance,
   "",
   specialistUntrustedEvidenceGuidance,

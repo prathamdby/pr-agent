@@ -15,7 +15,7 @@ import {
 
 /** Stable tool surface for prompt-cache prefixes (available and unavailable share these bytes). */
 export const SEARCH_CODE_INDEX_DESCRIPTION =
-  "Search the optional Postgres FTS code index for navigation hints (path and line ranges). Hints only — you must call readWorkspaceFile on any match before citing path or line numbers in findings. When the index is unavailable for this run, the tool returns { unavailable: true }; use listChangedFiles, searchWorkspace, and readWorkspaceFile instead.";
+  "Search the optional Postgres FTS code index for navigation hints (path and line ranges). Hints only. Confirm any match with `await tools.readWorkspaceFile({ path, startLine, maxLines })` inside `execute` before citing path or line numbers. When the index is unavailable, the tool returns { unavailable: true }; use `await tools.listChangedFiles()`, `await tools.searchWorkspace({ query })`, and `await tools.readWorkspaceFile({ path })` inside `execute`.";
 
 export const searchCodeIndexSchema = v.object({
   query: v.pipe(v.string(), v.minLength(1)),

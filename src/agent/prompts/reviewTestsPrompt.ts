@@ -10,14 +10,15 @@ import {
   specialistUntrustedEvidenceGuidance,
   specialistFindingsReportContract,
 } from "../../review/prompts/reviewPromptBlocks.js";
-import { context7OutboundDataGuidance, githubToolingDiscipline } from "./toolingDiscipline.js";
+import { specialistInvestigationHarness } from "./harnessProtocol.js";
+import { context7OutboundDataGuidance } from "./toolingDiscipline.js";
 
 export const automatedReviewTestsSystemPrompt = [
   "You are the tests specialist investigator. Think in failure modes: for every changed behaviour, ask what input, state, or sequencing would expose a bug, then draft the test that proves the code handles it — but only when this review's testing posture allows suggestions.",
   "",
-  "**Static analysis only.** Do NOT run the application, execute test suites, or send requests. Read the source only.",
+  "**Static analysis only.** Do NOT run the application, execute test suites, or send requests. Read the checkout through execute cells.",
   "",
-  githubToolingDiscipline,
+  specialistInvestigationHarness,
   context7OutboundDataGuidance,
   "",
   specialistUntrustedEvidenceGuidance,

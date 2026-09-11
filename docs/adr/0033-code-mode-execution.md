@@ -14,7 +14,7 @@ An in-process Acorn walker metered AST fuel. That interpreter could not preempt 
 
 ## Decision
 
-1. **One model-visible investigation tool.** Review, ask, and verification expose `execute({ code })`. The six workspace capabilities remain the typed implementation and run as `tools.*` inside the script. Context7 and code-index tools stay native siblings. Terminal handoffs (`submit_specialist_brief`, `submit_findings_report`, publish, `submitVerification`) stay native.
+1. **One model-visible investigation tool.** Review, ask, and verification expose `execute({ code })`. Workspace capabilities remain the typed implementation and run as `tools.*` inside the script. Review and ask install all six. Verification installs `readWorkspaceFile`, `searchWorkspace`, and `getWorkspaceDiff` only. Context7 and code-index tools stay native siblings on review and ask. Terminal handoffs (`submit_specialist_brief`, `submit_findings_report`, publish, `submitVerification`) stay native. The execute description and role prompts generate the guest catalogue from the installed capability set. Do not advertise a `tools.*` name the guest cannot call.
 
 2. **QuickJS WASM cell.** Each `execute` gets a fresh runtime and context. No `eval`, `new Function`, V8 isolate, OpenCode daemon, SQLite, PTY, or native add-ons. The guest sees math/data primitives and host-bridged `tools.*` only. There is no retained guest heap across cells and no MCP.
 
@@ -42,7 +42,7 @@ Recorded against `@jitl/quickjs-wasmfile-release-sync` 0.32.0 (`engineRevision` 
 
 ## Consequences
 
-- Model investigation prompts instruct `execute` + `tools.*` + `Promise.all`.
+- Model investigation prompts teach the current harness: one QuickJS cell per `execute`, explicit `state`, `{ coverage, truncation }` host results, `Promise.all` fan-out, and native submit/publish outside the guest. The execute description is generated from installed capabilities.
 - Description and triage keep native workspace tools. They can adopt Code Mode later without changing capabilities.
 - Worker `/health` and `/ready` stay on the Node event loop because production cells run off-thread and in-process cells are interrupt-bounded.
 - Mixing a QuickJS worker against a shared production queue that still runs the Acorn interpreter is forbidden while rolling this out.
