@@ -1100,12 +1100,19 @@ export async function runOrchestratedPrReview(
     if (!outcome) continue;
     specialistOutcomes[outcome.kind] = (specialistOutcomes[outcome.kind] ?? 0) + 1;
   }
+  const ledger = publishThread.getLedger();
+  const postedSeverities = ledger.accepted.flatMap((placement) =>
+    placement.kind === "summary_only" ? [] : [placement.placement.finding.severity],
+  );
   setReviewRunMetricFields({
     published: summaryState.published,
     publishAttempts,
     specialistOutcomes,
     threadBatches: publishThread.getPublishedBatchCount(),
     briefFallback: state.briefFallback,
+    findingsCount: ledger.postedInlineCount,
+    submitCallCount: ledger.threadCallCount,
+    severities: postedSeverities,
   });
   logReviewRunCompleted({
     judgment: state.judgment,
