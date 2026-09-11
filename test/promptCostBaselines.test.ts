@@ -48,7 +48,7 @@ describe("prompt cost baselines", () => {
     expect(prompt).toContain("submit_findings_report");
     expect(prompt).toContain("no_findings");
     expect(prompt).toContain("Report only issues introduced or exposed by this PR");
-    expect(prompt).toContain("Follow each tools.* contract");
+    expect(prompt).toContain("Honor each installed `tools.*` rule");
     for (const severity of SEVERITIES) {
       expect(prompt).toContain(severity);
     }
@@ -145,7 +145,7 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
-      budget: { bytes: 15_400, characters: 15_400, estimatedTokens: 3_850 },
+      budget: { bytes: 18_000, characters: 18_000, estimatedTokens: 4_500 },
     },
     {
       name: "local workspace tool definitions",

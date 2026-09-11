@@ -9,6 +9,7 @@ import {
 } from "../execution/sessionStore.js";
 import { runCodeModeScript } from "./runScript.js";
 import type { CodeModeResult } from "./result.js";
+import { renderExecuteDescription } from "./guestCatalogue.js";
 import { CODE_MODE_EXECUTE_NAME, type CodeModeCapabilityExecutors } from "./types.js";
 
 export {
@@ -17,18 +18,6 @@ export {
   type CodeModeCapabilityExecutors,
   type CodeModeWorkspaceToolName,
 } from "./types.js";
-
-const EXECUTE_DESCRIPTION = [
-  "Run a focused JavaScript program against the local PR workspace in one turn.",
-  "Author JavaScript only. The last expression is the return value.",
-  "Call workspace operations as `await tools.listChangedFiles()`, `await tools.readWorkspaceFile({ path })`, `await tools.searchWorkspace({ query })`, `await tools.getWorkspaceDiff({ path })`, `await tools.getWorkspaceBlame({ path })`, and `await tools.resolveSymbol({ name })`.",
-  "Each call returns declared fields plus `coverage` and `truncation`. Strings stay strings when truncated; omitted bytes are in `truncation`, not a replacement object.",
-  "`state` is JSON-compatible investigation data that persists across execute calls in this session. Functions and open resources do not persist.",
-  "Use `await Promise.all(...)` for concurrent inspections.",
-  "`fetch`, `require`, `import`, `process`, `fs`, and timers are unavailable.",
-  "Return compact summaries. Do not dump raw search or file contents back unless a finding needs a specific excerpt.",
-  "Terminal reports stay on sibling tools (`submit_findings_report`, `submit_specialist_brief`, publish actions). Do not submit findings from this script.",
-].join(" ");
 
 export function buildCodeModeExecuteTool(params: {
   readonly capabilities: CodeModeCapabilityExecutors;
@@ -41,7 +30,7 @@ export function buildCodeModeExecuteTool(params: {
 } {
   const session = params.session ?? createExecutionSessionStore();
   const tool: LocalTool = {
-    description: EXECUTE_DESCRIPTION,
+    description: renderExecuteDescription(params.capabilities),
     schema: v.object({
       code: v.pipe(v.string(), v.minLength(1)),
     }),

@@ -14,7 +14,7 @@ This repo already runs reviews through a Pi-AI tool loop over a local PR workspa
 
 1. **Triggers** — `/ask` slash command on `issue_comment` and `pull_request_review_comment` (`created` only), parsed on the first non-empty line like other commands; **or** an `@`-mention of the app bot login (and optional slug without `[bot]`) anywhere on those surfaces, subject to the same association allowlist as slash commands. Bare non-mention replies do not enqueue ask work.
 
-2. **Tool-loop investigation** — Ask runs call local workspace tools and Context7 doc lookup when needed. The model does not receive the full PR diff upfront. When the webhook includes a **code anchor** (inline review comment), path, line range, and `diff_hunk` are injected into the user message as the starting point.
+2. **Tool-loop investigation** — Ask runs investigate through `execute({ code })` cells. Scripts call the installed workspace capabilities as `tools.*`. Context7 (`resolveLibraryId`, `getLibraryDocs`) and `searchCodeIndex` stay native siblings. The model does not receive the full PR diff upfront. When the webhook includes a **code anchor** (inline review comment), path, line range, and `diff_hunk` are injected into the user message as the starting point.
 
 3. **Thread transcript** — Before the LLM turn, the ask worker loads the containing comment thread (inline review comments grouped by root, or PR conversation thread when `in_reply_to_id` is available) and injects it as untrusted `thread_transcript` context. Fetch failures soft-degrade to question-only. A char cap keeps oversized threads bounded (root + newest tail).
 

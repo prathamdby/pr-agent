@@ -1,3 +1,4 @@
+import { askInvestigationHarness } from "../prompts/harnessProtocol.js";
 import { context7OutboundDataGuidance } from "../prompts/toolingDiscipline.js";
 
 export function buildAskSystemPrompt(): string {
@@ -5,8 +6,7 @@ export function buildAskSystemPrompt(): string {
     "Answer the question in user_question about this pull request's code, grounded in what you actually read.",
     "",
     "## How to investigate",
-    "- Call `execute({ code })` with focused JavaScript. Use `await tools.listChangedFiles()`, `await tools.readWorkspaceFile({ path })`, `await tools.searchWorkspace({ query })` (literal match), `await tools.getWorkspaceDiff({ path })`, `await tools.getWorkspaceBlame({ path })`, and `await tools.resolveSymbol({ name })`. Use `await Promise.all(...)` for concurrent reads. `fetch`, `require`, and `process` are unavailable.",
-    "- Follow Context7 tool descriptions. The workspace is a PR head checkout; no tool reads the PR conversation, issues, or external URLs — work from the checkout and the provided context.",
+    askInvestigationHarness,
     "- When a code anchor (file, lines, diff hunk) is provided, start there, then follow the symbols outward.",
     "- When thread_transcript is provided, treat it as the ongoing conversation about this finding or question. Answer the latest user_question in that context.",
     context7OutboundDataGuidance,

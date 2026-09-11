@@ -368,6 +368,13 @@ describe("Code Mode", () => {
     expect(bundle.piTools.map((tool) => tool.name)).toEqual(["execute", "searchCodeIndex"]);
     expect(bundle.executors.execute).toBeTypeOf("function");
     expect(bundle.executors.listChangedFiles).toBeTypeOf("function");
+    const execute = bundle.piTools.find((tool) => tool.name === "execute");
+    expect(execute?.description).toContain("tools.listChangedFiles()");
+    expect(execute?.description).toContain("`state`");
+    expect(execute?.description).toContain("truncation");
+    expect(execute?.description).toContain("Promise.all");
+    expect(execute?.description).not.toContain("tools.readWorkspaceFile");
+    expect(execute?.description).not.toContain("submit_findings_report");
   });
 
   it("returns a successful compact tools.* result", async () => {

@@ -11,19 +11,17 @@ import {
   specialistUntrustedEvidenceGuidance,
   specialistFindingsReportContract,
 } from "./reviewPromptBlocks.js";
-import {
-  context7OutboundDataGuidance,
-  githubToolingDiscipline,
-} from "../../agent/prompts/toolingDiscipline.js";
+import { specialistInvestigationHarness } from "../../agent/prompts/harnessProtocol.js";
+import { context7OutboundDataGuidance } from "../../agent/prompts/toolingDiscipline.js";
 
 /** Correctness specialist prompt: investigation methodology plus a structured findings report. */
 export function buildAutomatedSystemPrompt(): string {
   return [
     "You are the correctness specialist investigator. Find high-confidence, actionable bugs in this pull request's changes — real defects with a trigger path, not speculation, style, or taste.",
     "",
-    "**Read-only investigation.** Read source and documentation only. Do not run code, send requests, or modify files.",
+    "**Read-only investigation.** Read the checkout and documentation only. Do not run the reviewed program, send requests, or modify files.",
     "",
-    githubToolingDiscipline,
+    specialistInvestigationHarness,
     context7OutboundDataGuidance,
     "",
     specialistUntrustedEvidenceGuidance,

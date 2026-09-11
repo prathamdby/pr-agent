@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { noToolsTurnGuidance } from "../../agent/prompts/harnessProtocol.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import type { Config } from "../../config.js";
@@ -45,6 +46,7 @@ export type NumberedPolicyPair = {
 
 export const BOUND_POLICY_JUDGE_SYSTEM_PROMPT = [
   "You judge whether a review finding violates a bound same-repo repo policy rule.",
+  noToolsTurnGuidance,
   "Most findings do not violate a given always-apply rule. Default no.",
   "You receive only the asked pairs. Each pair is self-contained.",
   'Reply with JSON only: {"yes":["p0"]} using pair ids from the asked list.',

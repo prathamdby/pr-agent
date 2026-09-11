@@ -33,12 +33,12 @@ export function buildAskUserContent(params: AskRunParams): string {
     }
     anchorLines.push(
       "",
-      "Start from this anchor, then use tools to trace symbols and surrounding context.",
+      "Start from this anchor, then inspect surrounding code through `execute({ code })`.",
     );
     blocks.push(wrapUntrustedBlock("code_anchor", anchorLines.join("\n")));
   } else {
     blocks.push(
-      "Use the local PR workspace tools to inspect changed files and related code, then answer the question in user_question.",
+      "Inspect changed files through `execute({ code })`, then answer the question in user_question.",
     );
   }
 
