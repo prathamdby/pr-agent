@@ -536,6 +536,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       renewPrActorLease(pool, {
         resourceKey,
         workType: "review",
+        workItemId: oldWorkItemId,
         leaseEpoch: heldEpoch,
         ttlSeconds: 900,
       }),
@@ -544,6 +545,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       renewPrActorLease(pool, {
         resourceKey,
         workType: "review",
+        workItemId: newRow!.id,
         leaseEpoch: heldEpoch + 1,
         ttlSeconds: 900,
       }),
