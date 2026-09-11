@@ -232,7 +232,8 @@ function projectClassifiedFailure(
   for (const source of Object.keys(CLASSIFIED_FAILURE_FIELD_DESCRIPTORS) as Array<
     keyof typeof CLASSIFIED_FAILURE_FIELD_DESCRIPTORS
   >) {
-    const descriptor = CLASSIFIED_FAILURE_FIELD_DESCRIPTORS[source];
+    const descriptor: ClassifiedFailureFieldDescriptor =
+      CLASSIFIED_FAILURE_FIELD_DESCRIPTORS[source];
     if (naming === "posthogKey" && descriptor.omitFromPostHog === true) {
       continue;
     }
