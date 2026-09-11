@@ -750,6 +750,9 @@ describe("runOrchestratedPrReview", () => {
       expect(snapshotReviewRunMetrics()).toMatchObject({
         modelTurnCount: 6,
         threadBatches: 4,
+        findingsCount: 4,
+        submitCallCount: 4,
+        severities: ["P2", "P2", "P2", "P2"],
       });
     });
   });
