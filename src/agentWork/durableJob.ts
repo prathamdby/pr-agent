@@ -12,7 +12,7 @@ import {
   mintInstallationToken,
 } from "../github/installationToken.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { classifyProviderError } from "../agent/providers/providerErrors.js";
+import { classifyProviderError, isCancelAbortError } from "../agent/providers/providerErrors.js";
 import {
   classifyFailure,
   classifiedFailureLogFields,
@@ -23,6 +23,7 @@ import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
+  REVIEW_CANCEL_POLL_INTERVAL_MS,
   type GithubReactionContent,
 } from "../settings/index.js";
 import {
@@ -101,6 +102,7 @@ function startLeaseRenewal(
   const timer = setInterval(() => {
     void renewPrActorLease(pool, {
       ...key,
+      workItemId,
       leaseEpoch,
       ttlSeconds: cfg.prActorLeaseTtlSeconds,
     }).then(
@@ -129,6 +131,52 @@ function startLeaseRenewal(
   }, cfg.prActorLeaseRenewalIntervalSeconds * 1000);
   timer.unref();
   return () => clearInterval(timer);
+}
+
+/**
+ * Observe durable cancel or hold-loss during leased execute and abort the host
+ * signal. Intake already terminalized the row; this only fires the existing
+ * abort wiring. Immediate first tick, then the same interval as before.
+ */
+function startCancelObserve(params: {
+  readonly pool: Pool;
+  readonly workItemId: string;
+  readonly leaseEpoch: number;
+  readonly abort: () => void;
+}): () => void {
+  let stopped = false;
+  let timer: ReturnType<typeof setInterval> | undefined;
+
+  const tick = async (): Promise<void> => {
+    if (stopped) return;
+    try {
+      const [skip, held] = await Promise.all([
+        shouldSkipWork(params.pool, { id: params.workItemId }),
+        isPrActorLeaseHeld(params.pool, params.workItemId, params.leaseEpoch),
+      ]);
+      if (stopped) return;
+      if (!skip && held) return;
+      stopped = true;
+      if (timer) clearInterval(timer);
+      params.abort();
+    } catch (error) {
+      logWarn("agent_work_cancel_observe_failed", {
+        workItemId: params.workItemId,
+        leaseEpoch: params.leaseEpoch,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
+  void tick();
+  timer = setInterval(() => {
+    void tick();
+  }, REVIEW_CANCEL_POLL_INTERVAL_MS);
+  timer.unref();
+  return () => {
+    stopped = true;
+    if (timer) clearInterval(timer);
+  };
 }
 
 function combineAbortSignals(...signals: AbortSignal[]): AbortSignal {
@@ -474,8 +522,11 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   let stopLeaseRenewal: (() => void) | undefined;
+  let stopCancelObserve: (() => void) | undefined;
   /** Stop renewal and clear the lease holder in place; safe to call more than once. */
   const releaseLeaseQuietly = async (): Promise<void> => {
+    stopCancelObserve?.();
+    stopCancelObserve = undefined;
     stopLeaseRenewal?.();
     stopLeaseRenewal = undefined;
     if (leaseKey == null || leaseEpoch == null) return;
@@ -850,6 +901,15 @@ export async function runDurableWorkItem<T extends WorkType>(
         });
         return;
       }
+      if (isCancelAbortError(error)) {
+        if (await recheckSkippableAndCancel("skipped_after_error")) return;
+        logInfo("agent_work_stale_execution_skipped", {
+          type: spec.type,
+          workItemId: item.id,
+          leaseEpoch,
+        });
+        return;
+      }
       if (jobSignal.aborted) {
         await recheckSkippableAndCancel("job_aborted");
         return;
@@ -954,6 +1014,14 @@ export async function runDurableWorkItem<T extends WorkType>(
       if (jobSignal.aborted) {
         await recheckSkippableAndCancel("job_aborted");
         return;
+      }
+      if (leaseAbortController != null && leaseEpoch != null) {
+        stopCancelObserve = startCancelObserve({
+          pool: spec.pool,
+          workItemId: item.id,
+          leaseEpoch,
+          abort: () => leaseAbortController?.abort(),
+        });
       }
       const result = await spec.execute(item, execution);
       await completeDurableExecution(result);

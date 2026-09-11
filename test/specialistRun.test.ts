@@ -479,8 +479,12 @@ describe("runSpecialist", () => {
 
     expect(outcome).toMatchObject({
       kind: "error",
-      error: { code: "review.specialist_failed", context: { attempts: 1 } },
+      error: {
+        code: "review.specialist_failed",
+        context: { classification: "cancelled", attempts: 1 },
+      },
     });
+    expect(runnerMocks.createSession).toHaveBeenCalledTimes(1);
     expect(runnerMocks.sessions[0]?.abort).toHaveBeenCalledTimes(1);
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
   });
