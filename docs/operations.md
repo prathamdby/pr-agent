@@ -126,6 +126,8 @@ example.com {
 
 Set the App webhook to `https://example.com/webhooks`. There is no Caddy, nginx, or certificate file in this repo.
 
+A host panel such as [Dokploy](https://dokploy.com) or [Coolify](https://coolify.io) is the same job: terminate TLS and forward to `pr-agent-web` on `7224`. Use the panel domain as the GitHub App webhook host. Route web only. Do not publish Postgres or the worker. Do not add a second compose file. VPS and panel picks: [README.md](../README.md#recommended-hosts).
+
 Canonical install steps live in [README.md](../README.md) **Installation**.
 
 ## Development

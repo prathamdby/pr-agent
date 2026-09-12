@@ -185,6 +185,11 @@ export const FAQ_ITEMS: FaqItem[] = [
     answer:
       "Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and replies in GitHub comments. GitLab and Bitbucket are not supported yet.",
   },
+  {
+    question: "Where should I host PR Agent?",
+    answer:
+      "On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger, DigitalOcean, Vultr, Linode, and OVHcloud also work. The App still needs the same Compose stack. The panel does not replace it.",
+  },
 ];
 
 type AlternativeRow = {
@@ -224,7 +229,7 @@ export const ALTERNATIVE_ROWS: AlternativeRow[] = [
 export const QUICKSTART_HEADING = "Installation";
 
 export const QUICKSTART_INTRO =
-  "Three steps from a fresh machine to a review on a real pull request. You need Docker, a GitHub App, and one AI provider key. GitHub must reach your host over HTTPS, or you run a tunnel on a laptop.";
+  "Three steps from a fresh machine to a review on a real pull request. You need Docker, a GitHub App, and one AI provider key. GitHub must reach your host over HTTPS, or you run a tunnel on a laptop. A VPS panel such as Dokploy or Coolify can supply the domain and the certificate.";
 
 type QuickstartStep = {
   n: string;

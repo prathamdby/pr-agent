@@ -23,7 +23,8 @@ PR Agent installs on your GitHub org or repos and runs reviews on machines you o
 - [Functions](#functions)
 - [Installation](#installation)
 - [Verification](#verification)
-- [Maintainer](#maintainer)
+- [Recommended hosts](#recommended-hosts)
+- [Pratham's way of hosting](#prathams-way-of-hosting)
 - [Examples](#examples)
 - [How it works](#how-it-works)
 - [Local development](#local-development)
@@ -231,11 +232,42 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
 
 </details>
 
-## Maintainer
+## Recommended hosts
 
-[Pratham](https://github.com/prathamdby) runs this App on all of his repositories, with every feature left on. Primary provider is [OpenCode Go](https://opencode.ai/go?ref=AHE1W13AS7) ($10 AI subscription). Model is Meta Muse Spark 1.3 Contributor.
+This repo still ships one stack: Compose `postgres`, `pr-agent-web`, and `pr-agent-worker`. A panel or reverse proxy only terminates TLS and forwards to web. Do not add a second compose file, publish Postgres, or expose the worker.
 
-That is his operator setup. The install path above still uses the Pi provider env vars (`PI_PROVIDER`, `PI_MODEL`, and the matching API key). This repo does not add a second runtime for OpenCode Go.
+Start the VPS at about 2 vCPU and 4 GB RAM. Web, worker, Postgres, and a panel will not fit well on 1 GB.
+
+| VPS                                            | Why pick it                                                                                         |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [Hetzner Cloud](https://www.hetzner.com/cloud) | Usually the cheapest 4 GB plan. NVMe, 20 TB traffic, sites in EU and the US.                        |
+| [Hostinger VPS](https://www.hostinger.com/vps) | Simple checkout. Their Docker Manager can start a Compose file if you do not want a separate panel. |
+| [DigitalOcean](https://www.digitalocean.com)   | Clear docs and a large marketplace. More regions. You pay more per GB of RAM.                       |
+| [Vultr](https://www.vultr.com)                 | Many cities. High-frequency plans if you care about single-core speed.                              |
+| [Linode (Akamai)](https://www.linode.com)      | Human support and a wide region list. Pricing is closer to DigitalOcean.                            |
+| [OVHcloud](https://www.ovhcloud.com)           | EU sites, unmetered bandwidth on many plans, included DDoS mitigation.                              |
+
+Hetzner is the default pick for this App. Hostinger is the default pick if you want a control panel from the VPS vendor. DigitalOcean, Vultr, and Linode are fine when you already have an account or need a city Hetzner does not offer.
+
+| Panel                            | What it gives you                                                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Dokploy](https://dokploy.com)   | Native Compose deploy. Built-in Traefik. Let's Encrypt. A domain you paste into the GitHub App.                                            |
+| [Coolify](https://coolify.io)    | Same idea. Traefik by default. Caddy is an option. Set the domain on the web service.                                                      |
+| Caddy, nginx, or a load balancer | Fine if you already run one. Point it at container port `7224`. Example: [docs/operations.md](docs/operations.md#tls-in-front-of-compose). |
+
+[CapRover](https://caprover.com) can sit in front of HTTP, but its Compose import is a subset. Prefer Dokploy, Coolify, or a proxy you already know.
+
+On the panel, route only `pr-agent-web`. The public URL is `https://<your-domain>/webhooks`. Leave Compose Postgres unpublished. Keep `DATABASE_URL` on hostname `postgres` inside the compose network. If the panel asks for an internal port, use `7224`.
+
+## Pratham's way of hosting
+
+[Pratham](https://github.com/prathamdby) runs this App on all of his repositories, with every feature left on.
+
+He runs it on a VPS with [Dokploy](https://dokploy.com). Dokploy's Traefik publishes the web service on a domain and issues the certificate. That HTTPS URL is what he puts on the GitHub App (`https://<domain>/webhooks`). The worker stays private. Postgres stays on the compose network.
+
+Primary provider is [OpenCode Go](https://opencode.ai/go?ref=AHE1W13AS7) ($10 AI subscription). Model is Meta Muse Spark 1.3 Contributor.
+
+That is his operator setup. The install path above still uses this repo's Compose file and the Pi provider env vars (`PI_PROVIDER`, `PI_MODEL`, and the matching API key). This repo does not add a Dokploy file or a second runtime.
 
 ## Examples
 
@@ -376,14 +408,14 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 
 ## Documentation
 
-| Document                                             | What it covers                         |
-| ---------------------------------------------------- | -------------------------------------- |
-| [DeepWiki](https://deepwiki.com/prathamdby/pr-agent) | Ask questions against this repository  |
-| [Features](docs/features.md)                         | `FEATURE_*` modes and slash commands   |
-| [Configuration](docs/configuration.md)               | Env vars, defaults, and code constants |
-| [Operations](docs/operations.md)                     | TLS, scripts, production overlay       |
-| [Queue runbook](docs/agent-work-ops.md)              | Inspect and recover durable work       |
-| [Development](docs/development.md)                   | Module layout and import rules         |
-| [Cursor Cloud](docs/cursor-cloud.md)                 | Cloud VM services                      |
-| [Domain terms](CONTEXT.md)                           | Product vocabulary                     |
-| [ADRs](docs/adr/)                                    | Architecture decisions                 |
+| Document                                             | What it covers                                |
+| ---------------------------------------------------- | --------------------------------------------- |
+| [DeepWiki](https://deepwiki.com/prathamdby/pr-agent) | Ask questions against this repository         |
+| [Features](docs/features.md)                         | `FEATURE_*` modes and slash commands          |
+| [Configuration](docs/configuration.md)               | Env vars, defaults, and code constants        |
+| [Operations](docs/operations.md)                     | TLS, host panels, scripts, production overlay |
+| [Queue runbook](docs/agent-work-ops.md)              | Inspect and recover durable work              |
+| [Development](docs/development.md)                   | Module layout and import rules                |
+| [Cursor Cloud](docs/cursor-cloud.md)                 | Cloud VM services                             |
+| [Domain terms](CONTEXT.md)                           | Product vocabulary                            |
+| [ADRs](docs/adr/)                                    | Architecture decisions                        |

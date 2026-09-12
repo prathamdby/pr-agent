@@ -172,6 +172,7 @@ The review path runs a recon phase, four specialists for correctness, security, 
 ## Additional guidance
 
 - Read [README.md](README.md) for the public topology and local stack before changing runtime behavior.
+- Hosting panels (Dokploy, Coolify, Caddy) terminate TLS in front of `pr-agent-web`. They are not a second runtime. Do not add a new compose file or publish Postgres to make a panel work. VPS and panel list: [README.md](README.md#recommended-hosts).
 - Read [CONTEXT.md](CONTEXT.md) before introducing or renaming domain terms.
 - Read the relevant ADR and runbook before changing durable work, leases, webhook handling, or publish behavior.
 - Do not infer behavior from filenames. Trace the entry point to its durable write, queue edge, executor, and external side effect.
