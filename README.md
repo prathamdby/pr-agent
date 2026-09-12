@@ -238,20 +238,35 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
 
 ## Examples
 
-<details>
-  <summary><h3>/describe</h3></summary>
-  <img src="site/public/screenshots/describe.example.webp" alt="Example /describe output showing PR Agent Description block" width="800" />
-</details>
-
-<details>
-  <summary><h3>/review</h3></summary>
-  <img src="site/public/screenshots/review.example.webp" alt="Example /review output showing PR Agent Review summary" width="800" />
-</details>
-
-<details>
-  <summary><h3>/ask</h3></summary>
-  <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
-</details>
+<table>
+  <tr>
+    <td width="38%" valign="top">
+      <h3>Review</h3>
+      <p>Flags problems on the pull request and comments next to the lines.</p>
+    </td>
+    <td width="62%">
+      <img src="site/public/screenshots/review.example.webp" alt="PR Agent review summary on a pull request" />
+    </td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top">
+      <h3>Description</h3>
+      <p>Turns a blank PR body into a readable summary.</p>
+    </td>
+    <td width="62%">
+      <img src="site/public/screenshots/describe.example.webp" alt="PR Agent description block in a pull request body" />
+    </td>
+  </tr>
+  <tr>
+    <td width="38%" valign="top">
+      <h3>Ask</h3>
+      <p>Answers a question about the change in the same thread.</p>
+    </td>
+    <td width="62%">
+      <img src="site/public/screenshots/ask.example.webp" alt="PR Agent answer on a pull request" />
+    </td>
+  </tr>
+</table>
 
 ## Recommended hosts
 
