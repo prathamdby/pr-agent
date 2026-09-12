@@ -4,7 +4,7 @@
 
 # PR Agent
 
-A pull request reviewer you run yourself
+Review pull requests on machines you own.
 
 <p>
   <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/DeepWiki-Ask-7B2CBF?style=for-the-badge" alt="Ask DeepWiki"></a>
@@ -17,9 +17,11 @@ A pull request reviewer you run yourself
 
 </div>
 
-Someone opens a pull request. PR Agent reads the change and comments next to the lines it flags. You host it. The GitHub App and the model key stay in your account. Work is stored in a database you run.
+Someone opens a pull request. PR Agent reads the change and comments next to the lines it flags.
 
-It can write the description, answer a question in the thread, try the fixes it found, or look again after you push. Two programs must stay up. **web** listens for GitHub. **worker** does the reading and posts. If worker is down, the pull request stays quiet.
+It can write the description, answer a question in the thread, try a fix, or look again after you push.
+
+CodeRabbit and the other hosted reviewers charge per person and keep your keys. This is free to install. You pay the computer and the AI bill, not a seat per teammate. You pick who reads the code.
 
 ## Contents
 
