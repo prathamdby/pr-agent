@@ -50,4 +50,4 @@ Long investigator prompt blocks stay in prompt modules. Correctness uses `src/re
 
 ## README runtime topology diagram
 
-When a change alters **runtime topology**, update the Mermaid diagram in [README.md](../README.md) **How It Works** in the same PR. Binding rule: [`.pr-agent/topology-diagram.mdc`](../.pr-agent/topology-diagram.mdc).
+When a change alters **runtime topology**, update the How it works figure in [README.md](../README.md) (`assets/runtime-topology.svg` and `assets/runtime-topology.png`) and the Mermaid in that section's details block in the same PR. Binding rule: [`.pr-agent/topology-diagram.mdc`](../.pr-agent/topology-diagram.mdc).

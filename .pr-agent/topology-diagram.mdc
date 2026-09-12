@@ -8,4 +8,4 @@ globs:
   - "README.md"
 ---
 
-If the PR changes web vs worker responsibilities, Postgres or pg-boss role, webhook route, queue lanes, or which executor owns a work type, update the README Mermaid "How It Works" diagram in the same PR. Prompt or publish-only tweaks that do not change diagram boxes or arrows do not require it.
+If the PR changes web vs worker responsibilities, Postgres or pg-boss role, webhook route, queue lanes, or which executor owns a work type, update the README How it works figure (`assets/runtime-topology.svg`, then export `assets/runtime-topology.png`) and the Mermaid in that section's details block in the same PR. Prompt or publish-only tweaks that do not change figure cards or arrows do not require it.
