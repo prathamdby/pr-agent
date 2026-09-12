@@ -33,6 +33,7 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 - [Pratham's way of hosting](#prathams-way-of-hosting)
 - [Local development](#local-development)
 - [Data privacy](#data-privacy)
+- [Optional analytics](#optional-analytics)
 - [Documentation](#documentation)
 
 ## Features
@@ -364,6 +365,10 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 **Logging.** Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings. AppError messages, contexts, raw values, causes, arrays, objects, and circular references are recursively sanitized at log and analytics boundaries; safe codes and identifiers remain available. See [the telemetry redaction policy](docs/operations.md#security).
 
 </details>
+
+## Optional analytics
+
+PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent. Use `POSTHOG_HOST` only if your project is not on the default host. Prompts, diffs, and error text stay off that path. Env catalog: [docs/configuration.md](docs/configuration.md).
 
 ## Documentation
 
