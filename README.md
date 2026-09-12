@@ -17,15 +17,15 @@ Review pull requests on machines you own.
 
 </div>
 
-Someone opens a pull request. PR Agent reads the change and comments next to the lines it flags.
+A pull request is opened on your project. PR Agent reads the change and comments next to the lines it flags.
 
-It can write the description, answer a question in the thread, try a fix, or look again after you push.
+You can have it write the description, answer a question in the thread, try a fix, or look again after you push.
 
 CodeRabbit and the other hosted reviewers charge per person and keep your keys. This is free to install. You pay the computer and the AI bill, not a seat per teammate. You pick who reads the code.
 
 ## Contents
 
-- [Functions](#functions)
+- [Features](#features)
 - [Installation](#installation)
 - [Verification](#verification)
 - [Recommended hosts](#recommended-hosts)
@@ -36,9 +36,9 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 - [Data privacy](#data-privacy)
 - [Documentation](#documentation)
 
-## Functions
+## Features
 
-| Function            | When it runs                                      | Command                         |
+| Feature             | When it runs                                      | Command                         |
 | ------------------- | ------------------------------------------------- | ------------------------------- |
 | Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`            | `/review` always                |
 | PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`          | `/describe`                     |
