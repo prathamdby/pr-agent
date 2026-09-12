@@ -78,16 +78,14 @@ export const CAPABILITIES: CapabilityItem[] = [
   },
   {
     title: "Ask code questions without leaving GitHub",
-    trigger: "Comment /ask … or mention the App bot ({slug}[bot]) with your question",
-    detail:
-      "The literal string @bot only matches if you named the App that. /ask does not need a mention.",
+    trigger: "Comment /ask … or mention the GitHub App bot with your question",
+    detail: "The word @bot only matches if you named the App that. /ask does not need a mention.",
   },
   {
     title: "Recheck open findings after each push",
-    trigger:
-      "Runs on every synchronize when FEATURE_VERIFICATION=auto, or when you comment /verify",
+    trigger: "Runs after each new push when that option is left on, or when you comment /verify",
     detail:
-      "Default auto spends tokens on every push. Turn it to manual or off if that bill is too high.",
+      "The default setting uses tokens on every push. Switch it to on-demand if the bill is too high.",
   },
   {
     title: "Revisit earlier findings on the pull request",
@@ -223,10 +221,10 @@ export const ALTERNATIVE_ROWS: AlternativeRow[] = [
   },
 ];
 
-export const QUICKSTART_HEADING = "Deploy it with Docker Compose";
+export const QUICKSTART_HEADING = "Installation";
 
 export const QUICKSTART_INTRO =
-  "Three steps from an empty machine to a review on a real pull request. You need Docker, a GitHub app, and one AI provider key.";
+  "Three steps from a fresh machine to a review on a real pull request. You need Docker, a GitHub App, and one AI provider key. GitHub must reach your host over HTTPS, or you run a tunnel on a laptop.";
 
 type QuickstartStep = {
   n: string;
@@ -243,12 +241,12 @@ export const QUICKSTART_STEPS: readonly [QuickstartStep, QuickstartStep, Quickst
   {
     n: "02",
     title: "Fill .env and start the stack",
-    body: "Copy the example env. Paste the generated App private key, webhook secret, and provider key. Then start PR Agent with Compose. The example PEM is not a real key.",
+    body: "Copy the example env. Paste the generated App private key as one line, the webhook secret, and a provider key. Then start PR Agent with Compose. The example key is not a real key.",
   },
   {
     n: "03",
-    title: "Open a PR and talk to it",
-    body: "Open a pull request on an installed repo. Comment /help from an OWNER, MEMBER, or COLLABORATOR account. Other associations get a silent 200.",
+    title: "Open a PR and comment /help",
+    body: "Open a pull request on an installed repo. Comment /help as a repo owner, member, or collaborator. Other accounts get no reply even though GitHub accepted the webhook.",
   },
 ];
 
@@ -260,19 +258,19 @@ export const APP_FIELDS = [
   },
   {
     label: "Homepage URL",
-    value: "https://github.com/prathamdby/pr-agent (or your public site). Skip user OAuth.",
+    value: "This repository or your public site. Leave user login off.",
     mono: false,
   },
   {
     label: "Subscribe to",
     value:
-      "pull_request · issue_comment · pull_request_review_comment · workflow_run · check_suite",
+      "Pull requests, issue comments, pull request review comments, workflow runs, and check suites",
     mono: false,
   },
   {
     label: "Permissions",
     value:
-      "Issues and Pull requests: read/write · Contents: read/write · Metadata: read · Checks: read/write · Actions: read · Commit statuses: only if FEATURE_COMMIT_STATUS=true",
+      "Issues and pull requests: read and write. Repository contents: read and write. Metadata: read. Checks: read and write. Actions: read. Commit statuses only if you turn on commit-status posting.",
     mono: false,
   },
 ] as const;

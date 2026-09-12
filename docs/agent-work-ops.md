@@ -55,7 +55,7 @@ Worker readiness is distinct from web probes: `GET /ready` on the worker process
 
 For end-to-end behavior (reviews, descriptions, asks, triage, and verification), run the full stack: `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`). Web-only accepts webhooks but does not execute agent work.
 
-Host `nub` processes need a published Postgres, not unpublished compose postgres. See [README.md](../README.md#local-development) and [operations.md](operations.md#local-development-edge-cases). The three-container path is [README.md](../README.md#host-with-docker-compose).
+Host `nub` processes need a published Postgres, not unpublished compose postgres. See [README.md](../README.md#local-development) and [operations.md](operations.md#local-development-edge-cases). The three-container path is [README.md](../README.md#installation).
 
 ## `/ask` red-team checklist (manual)
 

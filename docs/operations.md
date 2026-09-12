@@ -126,7 +126,7 @@ example.com {
 
 Set the App webhook to `https://example.com/webhooks`. There is no Caddy, nginx, or certificate file in this repo.
 
-Canonical quick start steps live in [README.md](../README.md) **Host with Docker Compose**.
+Canonical install steps live in [README.md](../README.md) **Installation**.
 
 ## Development
 

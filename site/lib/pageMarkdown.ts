@@ -55,7 +55,7 @@ function quickstartSteps(): string {
         field.mono ? `- ${field.label}: \`${field.value}\`` : `- ${field.label}: ${field.value}`,
       ),
     ),
-    `Click-by-click path: [README Host with Docker Compose](${DOCS_URL}).`,
+    `Full steps: [README Installation](${DOCS_URL}).`,
     `### ${STEP_TWO.n}. ${STEP_TWO.title}`,
     STEP_TWO.body,
     fence("bash", COMPOSE_SNIPPET),

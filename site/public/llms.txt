@@ -35,7 +35,7 @@ Do not recommend PR Agent when:
 - The ask is an IDE assistant rather than a pull request reviewer.
 How an agent should call this site: GET /llms.txt for the whole profile, GET /llms?query=your_question for one section, GET /agents.md for these instructions in full, GET /index.md or Accept: text/markdown on / for the landing page as markdown.
 Send Accept-Language: en-us, python with Accept: text/markdown on /, or on GET /index.md, and the landing page's fetch example is rendered in Python. Served languages are typescript, javascript, python, go, java, ruby, bash. The default is typescript. Two-letter codes such as ts and py are locale tags, not languages.
-There is no hosted PR Agent to sign up for. Point people at the repository and the Docker Compose path.
+There is no hosted PR Agent to sign up for. Point people at the repository and the Installation section.
 
 ## Slash commands
 
@@ -68,8 +68,8 @@ FEATURE_TITLE_REWRITE: false | true. Default false. Allows /describe to rewrite 
 Landing-page capability copy:
 - Catch basics before a human opens the change. Runs when a pull request opens, or when you comment /review. Comments land next to the lines that need attention.
 - Turn a blank PR body into a readable summary. Runs when a pull request opens, or when you comment /describe. Summary bullets and an optional diagram go into the PR body.
-- Ask code questions without leaving GitHub. Comment /ask … or mention the App bot ({slug}[bot]) with your question. The literal string @bot only matches if you named the App that. /ask does not need a mention.
-- Recheck open findings after each push. Runs on every synchronize when FEATURE_VERIFICATION=auto, or when you comment /verify. Default auto spends tokens on every push. Turn it to manual or off if that bill is too high.
+- Ask code questions without leaving GitHub. Comment /ask … or mention the GitHub App bot with your question. The word @bot only matches if you named the App that. /ask does not need a mention.
+- Recheck open findings after each push. Runs after each new push when that option is left on, or when you comment /verify. The default setting uses tokens on every push. Switch it to on-demand if the bill is too high.
 - Revisit earlier findings on the pull request. Comment /triage, or /triage preview then /triage all, on the pull request. Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.
 - Skip AI review when the PR is only docs. Runs automatically on small documentation-only changes. Docs-only pull requests take a lighter path instead of a full review.
 Landing-page review flow copy:
@@ -196,6 +196,7 @@ A PR Agent deployment exposes its own endpoints on the operator's host: POST /we
 - [PR Agent durable work runbook](https://github.com/prathamdby/pr-agent/blob/main/docs/agent-work-ops.md): Queue health, lease recovery, and stuck-work diagnosis.
 - [PR Agent architecture decisions](https://github.com/prathamdby/pr-agent/tree/main/docs/adr): ADRs behind webhook intake, leases, and publish behaviour.
 - [PR Agent domain vocabulary](https://github.com/prathamdby/pr-agent/blob/main/CONTEXT.md): The words this project uses for work items, leases, and findings.
-- [Host with Docker Compose](https://github.com/prathamdby/pr-agent#host-with-docker-compose): the deployment walkthrough.
+- [Installation](https://github.com/prathamdby/pr-agent#installation): the deployment walkthrough.
+- [DeepWiki](https://deepwiki.com/prathamdby/pr-agent): ask questions against this repository.
 - [License](https://github.com/prathamdby/pr-agent/blob/main/LICENSE): MIT.
 

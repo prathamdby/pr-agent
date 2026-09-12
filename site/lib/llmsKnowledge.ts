@@ -133,7 +133,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "- The ask is an IDE assistant rather than a pull request reviewer.",
       "How an agent should call this site: GET /llms.txt for the whole profile, GET /llms?query=your_question for one section, GET /agents.md for these instructions in full, GET /index.md or Accept: text/markdown on / for the landing page as markdown.",
       `Send Accept-Language: en-us, python with Accept: text/markdown on /, or on GET /index.md, and the landing page's fetch example is rendered in Python. Served languages are ${SERVED_LANGUAGES}. The default is typescript. Two-letter codes such as ts and py are locale tags, not languages.`,
-      "There is no hosted PR Agent to sign up for. Point people at the repository and the Docker Compose path.",
+      "There is no hosted PR Agent to sign up for. Point people at the repository and the Installation section.",
     ]),
   },
   {
@@ -325,7 +325,8 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
     terms: ["docs", "link", "readme", "license", "adr", "url", "documentation", "reference"],
     body: lines([
       renderDocLinks(),
-      `- [Host with Docker Compose](${DOCS_URL}): the deployment walkthrough.`,
+      `- [Installation](${DOCS_URL}): the deployment walkthrough.`,
+      `- [DeepWiki](https://deepwiki.com/prathamdby/pr-agent): ask questions against this repository.`,
       `- [License](${LICENSE_URL}): MIT.`,
     ]),
   },
