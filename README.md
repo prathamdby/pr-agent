@@ -240,30 +240,30 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
 
 <table>
   <tr>
-    <td width="38%" valign="top">
-      <h3>Review</h3>
-      <p>Flags problems on the pull request and comments next to the lines.</p>
+    <td width="36%" valign="middle">
+      <h3>Review on the pull request</h3>
+      <p>Flags problems on the change and comments next to the lines. The summary stays in the conversation.</p>
     </td>
-    <td width="62%">
-      <img src="site/public/screenshots/review.example.webp" alt="PR Agent review summary on a pull request" />
-    </td>
-  </tr>
-  <tr>
-    <td width="38%" valign="top">
-      <h3>Description</h3>
-      <p>Turns a blank PR body into a readable summary.</p>
-    </td>
-    <td width="62%">
-      <img src="site/public/screenshots/describe.example.webp" alt="PR Agent description block in a pull request body" />
+    <td width="64%">
+      <img src="site/public/screenshots/review.example.webp" alt="PR Agent review summary on a pull request" width="100%" />
     </td>
   </tr>
   <tr>
-    <td width="38%" valign="top">
-      <h3>Ask</h3>
-      <p>Answers a question about the change in the same thread.</p>
+    <td width="36%" valign="middle">
+      <h3>Description in the PR body</h3>
+      <p>Turns a blank pull request body into a readable summary. Bullets and a diagram land on the PR when they help.</p>
     </td>
-    <td width="62%">
-      <img src="site/public/screenshots/ask.example.webp" alt="PR Agent answer on a pull request" />
+    <td width="64%">
+      <img src="site/public/screenshots/describe.example.webp" alt="PR Agent description block in a pull request body" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="36%" valign="middle">
+      <h3>Ask in the thread</h3>
+      <p>Answers a question about the change in the same conversation. You stay on GitHub.</p>
+    </td>
+    <td width="64%">
+      <img src="site/public/screenshots/ask.example.webp" alt="PR Agent answer on a pull request" width="100%" />
     </td>
   </tr>
 </table>
