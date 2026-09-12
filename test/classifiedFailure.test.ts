@@ -25,10 +25,15 @@ describe("classifyFailure", () => {
 
   it("classifies GitHub GraphQL integration errors as github/forbidden", () => {
     const f = classifyFailure(
-      Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+      Object.assign(new Error("Resource not accessible by integration"), {
+        status: 403,
+        request: { url: "https://api.github.com/repos/acme/widgets/check-runs" },
+      }),
     );
     expect(f.failureDomain).toBe("github");
     expect(f.errorKind).toBe("forbidden");
+    expect(f.httpStatus).toBe(403);
+    expect(f.requestPath).toBe("/repos/acme/widgets/check-runs");
   });
 
   it("does not label superseded as provider", () => {
@@ -79,12 +84,15 @@ describe("classifyFailure", () => {
     expect(classifiedFailurePostHogProperties(f)).toMatchObject({
       failure_domain: "provider",
       error_kind: "quota",
+      error_message: "Insufficient credits",
       phase: "synthesis",
       tool_name: "publish_summary",
       provider: "pi",
       model: "m",
     });
-    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("error_message");
+    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("http_status");
+    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("request_path");
+    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("cause_chain");
   });
 
   it("omits unsafe phase text from PostHog while keeping it on logs", () => {
@@ -121,6 +129,7 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(requiredOnly)).toEqual({
       failure_domain: "unknown",
       error_kind: "unknown",
+      error_message: "plain boom",
     });
   });
 
@@ -140,6 +149,7 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(everyOptional)).toEqual({
       failure_domain: "provider",
       error_kind: "quota",
+      error_message: "Insufficient credits for model",
       error_code: "review.orchestrator_send_failed",
       phase: "synthesis",
       tool_name: "publish_summary",
@@ -152,8 +162,10 @@ describe("classified-failure projections", () => {
   it("projects equivalent facts under log and PostHog key conventions", () => {
     const log = classifiedFailureLogFields(everyOptional);
     const posthog = classifiedFailurePostHogProperties(everyOptional);
-    expect(posthog).not.toHaveProperty("error_message");
+    expect(posthog.error_message).toBe(log.errorMessage);
     expect(posthog).not.toHaveProperty("cause_chain");
+    expect(posthog).not.toHaveProperty("http_status");
+    expect(posthog).not.toHaveProperty("request_path");
     expect(log.failureDomain).toBe(posthog.failure_domain);
     expect(log.errorKind).toBe(posthog.error_kind);
     expect(log.errorCode).toBe(posthog.error_code);
@@ -176,6 +188,7 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(superseded)).toEqual({
       failure_domain: "internal",
       error_kind: "superseded",
+      error_message: "whatever",
     });
     expect(classifiedFailureLogFields(cancelled)).toEqual({
       failureDomain: "internal",
@@ -185,6 +198,7 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(cancelled)).toEqual({
       failure_domain: "internal",
       error_kind: "cancelled",
+      error_message: "head moved",
     });
   });
 
@@ -199,6 +213,7 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(zeroCount)).toEqual({
       failure_domain: "unknown",
       error_kind: "unknown",
+      error_message: "plain boom",
       error_count: 0,
     });
 
@@ -223,6 +238,71 @@ describe("classified-failure projections", () => {
     expect(classifiedFailurePostHogProperties(nullish)).toEqual({
       failure_domain: "unknown",
       error_kind: "unknown",
+      error_message: "plain boom",
+    });
+  });
+
+  it("projects GitHub 403 status, path, and sanitized message on PostHog", () => {
+    const token = ["ghp", "1234567890123456789012345678901234"].join("_");
+    const f = classifyFailure(
+      Object.assign(new Error(`Resource not accessible by integration Bearer ${token}`), {
+        status: 403,
+        request: {
+          url: "https://api.github.com/repos/acme/widgets/check-runs?access_token=secret",
+        },
+      }),
+    );
+    expect(classifiedFailureLogFields(f)).toMatchObject({
+      failureDomain: "github",
+      errorKind: "forbidden",
+      httpStatus: 403,
+      requestPath: "/repos/acme/widgets/check-runs",
+    });
+    expect(classifiedFailurePostHogProperties(f)).toEqual({
+      failure_domain: "github",
+      error_kind: "forbidden",
+      error_message: expect.stringContaining("Resource not accessible by integration"),
+      http_status: 403,
+      request_path: "/repos/acme/widgets/check-runs",
+    });
+    const json = JSON.stringify(classifiedFailurePostHogProperties(f));
+    expect(json).not.toContain(token);
+    expect(json).not.toContain("access_token");
+    expect(classifiedFailurePostHogProperties(f)).not.toHaveProperty("cause_chain");
+  });
+
+  it("extracts GitHub status and path from a wrapped cause", () => {
+    const f = classifyFailure(
+      new Error("verification failed", {
+        cause: Object.assign(new Error("Resource not accessible by integration"), {
+          status: 403,
+          request: { url: "https://api.github.com/repos/acme/widgets/check-runs" },
+        }),
+      }),
+    );
+    expect(f.failureDomain).toBe("github");
+    expect(f.errorKind).toBe("forbidden");
+    expect(f.httpStatus).toBe(403);
+    expect(f.requestPath).toBe("/repos/acme/widgets/check-runs");
+    expect(classifiedFailurePostHogProperties(f)).toMatchObject({
+      failure_domain: "github",
+      error_kind: "forbidden",
+      http_status: 403,
+      request_path: "/repos/acme/widgets/check-runs",
+    });
+  });
+
+  it("omits request_path when a GitHub error has status but no request URL", () => {
+    const f = classifyFailure(
+      Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+    );
+    expect(f.httpStatus).toBe(403);
+    expect(f.requestPath).toBeUndefined();
+    expect(classifiedFailurePostHogProperties(f)).toEqual({
+      failure_domain: "github",
+      error_kind: "forbidden",
+      error_message: "Resource not accessible by integration",
+      http_status: 403,
     });
   });
 });

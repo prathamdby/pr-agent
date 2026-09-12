@@ -8,7 +8,7 @@ import {
 } from "../src/agentWork/durableJob.js";
 import { initAnalytics, shutdownAnalytics } from "../src/analytics/index.js";
 import { AppError } from "../src/errors/appError.js";
-import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { makeReviewWorkItem, makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 
@@ -177,6 +177,7 @@ describe("durableJob analytics forwarding", () => {
         pr_number: 12,
         failure_domain: expect.any(String),
         error_kind: expect.any(String),
+        error_message: "enqueue failed",
       }),
     });
     expect(client?.capture).not.toHaveBeenCalledWith(
@@ -186,8 +187,9 @@ describe("durableJob analytics forwarding", () => {
     const properties = client?.capture.mock.calls.find(
       (args) => (args[0] as { event?: string }).event === "work completed",
     )?.[0] as { properties: Record<string, unknown> };
-    expect(properties.properties).not.toHaveProperty("error_message");
     expect(properties.properties).not.toHaveProperty("cause_chain");
+    expect(properties.properties).not.toHaveProperty("http_status");
+    expect(properties.properties).not.toHaveProperty("request_path");
   });
 
   it("classifies provider credit failures on work completed", async () => {
@@ -235,14 +237,16 @@ describe("durableJob analytics forwarding", () => {
         failure_domain: "provider",
         error_kind: "quota",
         provider_error_kind: "quota",
+        error_message: "Insufficient credits for model",
       }),
     });
     expect(client?.captureException).not.toHaveBeenCalled();
     const properties = client?.capture.mock.calls[0]?.[0] as {
       properties: Record<string, unknown>;
     };
-    expect(properties.properties).not.toHaveProperty("error_message");
-    expect(JSON.stringify(properties.properties)).not.toMatch(/credit/i);
+    expect(properties.properties).not.toHaveProperty("cause_chain");
+    expect(properties.properties).not.toHaveProperty("http_status");
+    expect(properties.properties).not.toHaveProperty("request_path");
   });
 
   it("sanitizes AppError fields on terminal durable-job failures", async () => {
@@ -298,7 +302,8 @@ describe("durableJob analytics forwarding", () => {
     expect(json).not.toContain(token);
     expect(json).not.toContain("postgres://");
     expect(json).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
-    expect(captured.properties).not.toHaveProperty("error_message");
+    expect(captured.properties).toHaveProperty("error_message");
+    expect(String(captured.properties.error_message)).toContain("[redacted]");
     expect(captured.properties).not.toHaveProperty("cause_chain");
   });
 
@@ -359,6 +364,7 @@ describe("durableJob analytics forwarding", () => {
         escalation_kinds: ["tool_rounds", "fallback_model"],
         failure_domain: expect.any(String),
         error_kind: expect.any(String),
+        error_message: "transient",
       }),
     });
     expect(client?.capture).toHaveBeenCalledWith({
@@ -375,6 +381,104 @@ describe("durableJob analytics forwarding", () => {
         properties: expect.objectContaining({ outcome: "failed" }),
       }),
     );
+  });
+
+  it("forwards GitHub 403 status, path, and sanitized message on work item retried", async () => {
+    const item = makeVerificationWorkItem({
+      status: "running",
+      id: "wi-github-403",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    const forbidden = Object.assign(new Error("Resource not accessible by integration"), {
+      status: 403,
+      request: { url: "https://api.github.com/repos/acme/widgets/check-runs" },
+    });
+    await expect(
+      runDurableWorkItem({
+        type: "verification",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 0, 3),
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockRejectedValue(forbidden),
+      }),
+    ).rejects.toBe(forbidden);
+
+    const client = mockPostHog.instances[0];
+    expect(client?.capture).toHaveBeenCalledWith({
+      distinctId: "installation:99",
+      event: "work item retried",
+      properties: expect.objectContaining({
+        work_type: "verification",
+        failure_domain: "github",
+        error_kind: "forbidden",
+        retry_disposition: "transient",
+        error_message: "Resource not accessible by integration",
+        http_status: 403,
+        request_path: "/repos/acme/widgets/check-runs",
+      }),
+    });
+    const captured = client?.capture.mock.calls.find(
+      (args) => (args[0] as { event?: string }).event === "work item retried",
+    )?.[0] as { properties: Record<string, unknown> };
+    expect(captured.properties).not.toHaveProperty("cause_chain");
+  });
+
+  it("forwards GitHub 403 status, path, and sanitized message on failed work completed", async () => {
+    const item = makeVerificationWorkItem({
+      status: "running",
+      id: "wi-github-403-terminal",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    const forbidden = Object.assign(new Error("Resource not accessible by integration"), {
+      status: 403,
+      request: { url: "https://api.github.com/repos/acme/widgets/check-runs" },
+    });
+    await expect(
+      runDurableWorkItem({
+        type: "verification",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 3, 3),
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute: vi.fn().mockRejectedValue(forbidden),
+      }),
+    ).resolves.toBeUndefined();
+
+    const client = mockPostHog.instances[0];
+    expect(client?.capture).toHaveBeenCalledWith({
+      distinctId: "installation:99",
+      event: "work completed",
+      properties: expect.objectContaining({
+        work_type: "verification",
+        outcome: "failed",
+        failure_domain: "github",
+        error_kind: "forbidden",
+        error_message: "Resource not accessible by integration",
+        http_status: 403,
+        request_path: "/repos/acme/widgets/check-runs",
+      }),
+    });
+    const captured = client?.capture.mock.calls.find(
+      (args) => (args[0] as { event?: string }).event === "work completed",
+    )?.[0] as { properties: Record<string, unknown> };
+    expect(captured.properties).not.toHaveProperty("cause_chain");
   });
 
   it("does not emit a terminal PostHog event from the durable runner on degraded completion", async () => {

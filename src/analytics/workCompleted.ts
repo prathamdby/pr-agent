@@ -1,6 +1,7 @@
-import { captureEvent } from "./index.js";
 import { posthogSafePhase, type ClassifiedFailure } from "../errors/classifiedFailure.js";
 import type { ReviewRunMetricsSnapshot } from "../review/run/reviewRunMetrics.js";
+import { MAX_LOG_MESSAGE_LEN } from "../settings/index.js";
+import { captureEvent } from "./index.js";
 
 /** Duplicate of agent-work `WorkType`. Analytics must not import that module. */
 export type TelemetryWorkType = "review" | "ask" | "description" | "triage" | "verification";
@@ -25,6 +26,9 @@ export type WorkFailureReason = {
   readonly errorKind: string;
   readonly providerErrorKind?: string;
   readonly phase?: string;
+  readonly errorMessage?: string;
+  readonly httpStatus?: number;
+  readonly requestPath?: string;
 };
 
 export type WorkIdentity = {
@@ -137,12 +141,39 @@ const EMPTY_PUBLISH: PublishTelemetry = { publishAttempts: 0, publishStepCount: 
 
 export function workFailureReasonFromClassified(failure: ClassifiedFailure): WorkFailureReason {
   const phase = posthogSafePhase(failure.phase);
+  const errorMessage = posthogErrorMessage(failure.errorMessage);
   return {
     failureDomain: failure.failureDomain,
     errorKind: failure.errorKind,
     ...(failure.failureDomain === "provider" ? { providerErrorKind: failure.errorKind } : {}),
     ...(phase != null ? { phase } : {}),
+    ...(errorMessage != null ? { errorMessage } : {}),
+    ...(failure.httpStatus != null ? { httpStatus: failure.httpStatus } : {}),
+    ...(failure.requestPath != null ? { requestPath: failure.requestPath } : {}),
   };
+}
+
+function posthogErrorMessage(message: string | undefined): string | undefined {
+  if (message == null || message.length === 0) return undefined;
+  return message.slice(0, MAX_LOG_MESSAGE_LEN);
+}
+
+function failureEnvelopeProperties(
+  failure: WorkFailureReason,
+): Record<string, string | number | boolean> {
+  const errorMessage = posthogErrorMessage(failure.errorMessage);
+  const properties: Record<string, string | number | boolean> = {
+    failure_domain: failure.failureDomain,
+    error_kind: failure.errorKind,
+  };
+  if (failure.providerErrorKind != null) {
+    properties.provider_error_kind = failure.providerErrorKind;
+  }
+  if (failure.phase != null) properties.phase = failure.phase;
+  if (errorMessage != null) properties.error_message = errorMessage;
+  if (failure.httpStatus != null) properties.http_status = failure.httpStatus;
+  if (failure.requestPath != null) properties.request_path = failure.requestPath;
+  return properties;
 }
 
 export function degradedReasonFromReviewFlags(input: {
@@ -250,13 +281,7 @@ function envelopeProperties(
       properties.degraded_reason = input.degradedReason;
       return properties;
     case "failed":
-      properties.failure_domain = input.failure.failureDomain;
-      properties.error_kind = input.failure.errorKind;
-      if (input.failure.providerErrorKind != null) {
-        properties.provider_error_kind = input.failure.providerErrorKind;
-      }
-      if (input.failure.phase != null) properties.phase = input.failure.phase;
-      return properties;
+      return { ...properties, ...failureEnvelopeProperties(input.failure) };
     default: {
       const exhaustive: never = input;
       return exhaustive;
@@ -427,12 +452,7 @@ export function captureWorkRetried(input: WorkItemRetried): void {
       next_attempt: input.nextAttempt,
       retry_disposition: input.retryDisposition,
       escalation_kinds: [...input.escalationKinds],
-      failure_domain: input.failure.failureDomain,
-      error_kind: input.failure.errorKind,
-      ...(input.failure.providerErrorKind != null
-        ? { provider_error_kind: input.failure.providerErrorKind }
-        : {}),
-      ...(input.failure.phase != null ? { phase: input.failure.phase } : {}),
+      ...failureEnvelopeProperties(input.failure),
     },
   });
 }

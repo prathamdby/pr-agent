@@ -149,9 +149,10 @@ describe("workFailureReasonFromClassified", () => {
       errorKind: "quota",
       providerErrorKind: "quota",
       phase: "synthesis",
+      errorMessage: "Insufficient credits at /tmp/secret.ts https://example.com/err",
     });
-    expect(failure).not.toHaveProperty("errorMessage");
-    expect(JSON.stringify(failure)).not.toMatch(/secret\.ts|https:\/\//);
+    expect(failure).not.toHaveProperty("httpStatus");
+    expect(failure).not.toHaveProperty("requestPath");
   });
 
   it("omits unsafe phase text from PostHog projections", () => {
@@ -164,10 +165,12 @@ describe("workFailureReasonFromClassified", () => {
     expect(workFailureReasonFromClassified(classified)).toEqual({
       failureDomain: "github",
       errorKind: "rate_limit",
+      errorMessage: "API rate limit exceeded",
     });
     expect(classifiedFailurePostHogProperties(classified)).toEqual({
       failure_domain: "github",
       error_kind: "rate_limit",
+      error_message: "API rate limit exceeded",
     });
   });
 });

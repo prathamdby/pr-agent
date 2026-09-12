@@ -906,6 +906,7 @@ describe("executeReviewJob", () => {
           failure_domain: "provider",
           error_kind: "quota",
           provider_error_kind: "quota",
+          error_message: "Insufficient credits for model",
           phase: "synthesis",
           publish_attempts: 2,
           provider: "openai",
@@ -916,8 +917,7 @@ describe("executeReviewJob", () => {
     const properties = mocks.captureEvent.mock.calls[0]?.[0] as {
       properties: Record<string, unknown>;
     };
-    expect(properties.properties).not.toHaveProperty("error_message");
-    expect(JSON.stringify(properties.properties)).not.toMatch(/credit/i);
+    expect(properties.properties).not.toHaveProperty("cause_chain");
     expect(mocks.logWarn).toHaveBeenCalledWith(
       "review_not_published",
       expect.objectContaining({
@@ -1037,6 +1037,7 @@ describe("executeReviewJob", () => {
           publish_attempts: 2,
           failure_domain: "github",
           error_kind: "rate_limit",
+          error_message: "API rate limit exceeded",
           phase: "publish",
         }),
       }),
@@ -1044,9 +1045,8 @@ describe("executeReviewJob", () => {
     const properties = mocks.captureEvent.mock.calls[0]?.[0] as {
       properties: Record<string, unknown>;
     };
-    expect(properties.properties).not.toHaveProperty("error_message");
+    expect(properties.properties).not.toHaveProperty("cause_chain");
     expect(properties.properties).not.toHaveProperty("tool_call_errors");
-    expect(JSON.stringify(properties.properties)).not.toMatch(/rate limit exceeded/i);
   });
 
   it("completes an existing check as cancelled when publish is superseded", async () => {

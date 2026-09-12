@@ -4,10 +4,13 @@ import {
 } from "../agent/providers/providerErrors.js";
 import {
   classifyGithubError,
+  githubRequestPath,
   looksLikeGithubError,
   type GithubErrorKind,
 } from "../github/githubErrors.js";
+import { allowlistedHttpStatus, httpStatus } from "../github/httpStatus.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { MAX_LOG_MESSAGE_LEN } from "../settings/index.js";
 import { isAppError } from "./appError.js";
 
 export type FailureDomain = "provider" | "github" | "internal" | "unknown";
@@ -32,6 +35,8 @@ export type ClassifiedFailure = {
   readonly model?: string;
   readonly causeChain?: readonly string[];
   readonly errorCount?: number;
+  readonly httpStatus?: number;
+  readonly requestPath?: string;
 };
 
 export type ClassifyFailureHints = {
@@ -140,6 +145,23 @@ export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): C
   return finalize(error, classified.domain, classified.kind, hints);
 }
 
+function githubHttpFields(error: unknown): {
+  readonly httpStatus?: number;
+  readonly requestPath?: string;
+} {
+  for (const node of walkErrors(error)) {
+    if (!looksLikeGithubError(node)) continue;
+    const status = allowlistedHttpStatus(httpStatus(node));
+    const requestPath = githubRequestPath(node);
+    if (status == null && requestPath == null) continue;
+    return {
+      ...(status != null ? { httpStatus: status } : {}),
+      ...(requestPath != null ? { requestPath } : {}),
+    };
+  }
+  return {};
+}
+
 function finalize(
   error: unknown,
   failureDomain: FailureDomain,
@@ -147,6 +169,7 @@ function finalize(
   hints?: ClassifyFailureHints,
 ): ClassifiedFailure {
   const causeChain = collectCauseChain(error);
+  const githubFields = failureDomain === "github" ? githubHttpFields(error) : {};
   return {
     failureDomain,
     errorKind,
@@ -158,6 +181,7 @@ function finalize(
     ...(hints?.model != null ? { model: hints.model } : {}),
     ...(causeChain.length > 0 ? { causeChain } : {}),
     ...(hints?.errorCount != null ? { errorCount: hints.errorCount } : {}),
+    ...githubFields,
   };
 }
 
@@ -197,7 +221,8 @@ type ClassifiedFailureFieldDescriptor = {
  * One inventory for classified-failure telemetry. Log keys stay camelCase;
  * PostHog keys stay snake_case. Adding a ClassifiedFailure field without a
  * descriptor here fails typecheck so the two public projections cannot drift.
- * error_message and cause_chain stay on logs and never leave on PostHog.
+ * Sanitized, length-bounded error_message is included on PostHog. cause_chain
+ * stays log-only. http_status and request_path omit when unknown.
  */
 const CLASSIFIED_FAILURE_FIELD_DESCRIPTORS = {
   failureDomain: { logKey: "failureDomain", posthogKey: "failure_domain", required: true },
@@ -206,7 +231,6 @@ const CLASSIFIED_FAILURE_FIELD_DESCRIPTORS = {
     logKey: "errorMessage",
     posthogKey: "error_message",
     required: true,
-    omitFromPostHog: true,
   },
   errorCode: { logKey: "errorCode", posthogKey: "error_code", required: false },
   phase: { logKey: "phase", posthogKey: "phase", required: false },
@@ -220,6 +244,8 @@ const CLASSIFIED_FAILURE_FIELD_DESCRIPTORS = {
     omitFromPostHog: true,
   },
   errorCount: { logKey: "errorCount", posthogKey: "error_count", required: false },
+  httpStatus: { logKey: "httpStatus", posthogKey: "http_status", required: false },
+  requestPath: { logKey: "requestPath", posthogKey: "request_path", required: false },
 } as const satisfies {
   readonly [K in keyof ClassifiedFailure]: ClassifiedFailureFieldDescriptor;
 };
@@ -242,6 +268,12 @@ function projectClassifiedFailure(
       const phase = posthogSafePhase(typeof value === "string" ? value : undefined);
       if (phase == null) continue;
       out[descriptor.posthogKey] = phase;
+      continue;
+    }
+    if (naming === "posthogKey" && source === "errorMessage") {
+      const message = typeof value === "string" ? value.slice(0, MAX_LOG_MESSAGE_LEN) : "";
+      if (message.length === 0) continue;
+      out[descriptor.posthogKey] = message;
       continue;
     }
     if (descriptor.required || value != null) {
