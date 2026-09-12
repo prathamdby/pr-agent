@@ -48,7 +48,7 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 | Restart review      | On demand (cancels the active run, latest commit) | `/review force`                 |
 | Help                | On demand                                         | `/help`                         |
 
-Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts only `manual` or `auto`. `off` crashes startup.
+Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts only `manual` or `auto`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup.
 
 <details>
 <summary>Review rules and slash matching</summary>
