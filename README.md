@@ -33,7 +33,6 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 - [Pratham's way of hosting](#prathams-way-of-hosting)
 - [Local development](#local-development)
 - [Data privacy](#data-privacy)
-- [Optional analytics](#optional-analytics)
 - [Documentation](#documentation)
 
 ## Features
@@ -358,17 +357,25 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 | Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)). |
 
 <details>
-<summary>Context7 and logging</summary>
+<summary>Context7</summary>
 
-**Context7 (optional).** Library lookup uses the fixed `https://context7.com/api` endpoint. Requests accept only short library identifiers and documentation questions; source, prompts, comments, credentials, URLs, and tool output are rejected before transmission. `CONTEXT7_API_KEY`, when set, is sent only as an `Authorization` header; empty keys use anonymous fallback.
-
-**Logging.** Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings. AppError messages, contexts, raw values, causes, arrays, objects, and circular references are recursively sanitized at log and analytics boundaries; safe codes and identifiers remain available. See [the telemetry redaction policy](docs/operations.md#security).
+Library lookup uses the fixed `https://context7.com/api` endpoint. Requests accept only short library identifiers and documentation questions; source, prompts, comments, credentials, URLs, and tool output are rejected before transmission. `CONTEXT7_API_KEY`, when set, is sent only as an `Authorization` header; empty keys use anonymous fallback.
 
 </details>
 
-## Optional analytics
+<details>
+<summary>Logging</summary>
+
+Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings. AppError messages, contexts, raw values, causes, arrays, objects, and circular references are recursively sanitized at log and analytics boundaries; safe codes and identifiers remain available. See [the telemetry redaction policy](docs/operations.md#security).
+
+</details>
+
+<details>
+<summary>PostHog</summary>
 
 PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent. Use `POSTHOG_HOST` only if your project is not on the default host. Prompts, diffs, and error text stay off that path. Env catalog: [docs/configuration.md](docs/configuration.md).
+
+</details>
 
 ## Documentation
 
