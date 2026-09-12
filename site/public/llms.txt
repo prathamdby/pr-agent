@@ -98,7 +98,7 @@ Permissions: Issues read/write, Pull requests read/write, Contents read/write, M
 Commit statuses read/write only if FEATURE_COMMIT_STATUS=true.
 Install the app on the orgs or repos to review. Creating the App is not enough. If you pick only selected repositories, include the test repo. Then recreate web and worker so they pick up credentials.
 GitHub needs HTTPS except when the webhook target is a loopback address. Compose publishes HTTP 7224 only. Put TLS in front, or run a smee-client or cloudflared process that forwards to /webhooks.
-A VPS plus Dokploy or Coolify is a TLS front for pr-agent-web. Route only the web service on internal port 7224. Leave Postgres unpublished. Keep DATABASE_URL on hostname postgres. Do not add a second compose file or expose the worker. Hetzner is the usual cheap 4 GB VPS. Hostinger, DigitalOcean, Vultr, Linode, and OVHcloud also work. See README Recommended hosts.
+A VPS plus Dokploy or Coolify is a TLS front for pr-agent-web. Route only the web service on internal port 7224. Leave Postgres unpublished. Keep DATABASE_URL on hostname postgres. Do not add a second compose file or expose the worker. Hetzner is the usual cheap 4 GB VPS. Hostinger and DigitalOcean also work. See README Recommended hosts.
 Check web with curl http://127.0.0.1:7224/health (ok) and /ready (ready when Postgres is up).
 Those probes do not prove GitHub can reach /webhooks or that a provider key is set. An empty provider key still boots. Reviews fail later on the worker. Host curl to 7224/ready is web Postgres, not worker consumers.
 Both web and worker must run. If webhooks return 200 and the PR stays quiet, the worker is down, missing a provider key, missing an App install, or the commenter is outside SLASH_ALLOWED_ASSOCIATIONS.
@@ -162,7 +162,7 @@ A: PR Agent works with OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, an
 Q: Does PR Agent only work with GitHub?
 A: Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and replies in GitHub comments. GitLab and Bitbucket are not supported yet.
 Q: Where should I host PR Agent?
-A: On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger, DigitalOcean, Vultr, Linode, and OVHcloud also work. The App still needs the same Compose stack. The panel does not replace it.
+A: On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger and DigitalOcean also work. The App still needs the same Compose stack. The panel does not replace it.
 
 ## Data privacy
 

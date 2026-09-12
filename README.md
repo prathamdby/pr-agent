@@ -28,9 +28,9 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 - [Features](#features)
 - [Installation](#installation)
 - [Verification](#verification)
+- [Examples](#examples)
 - [Recommended hosts](#recommended-hosts)
 - [Pratham's way of hosting](#prathams-way-of-hosting)
-- [Examples](#examples)
 - [Local development](#local-development)
 - [Data privacy](#data-privacy)
 - [Documentation](#documentation)
@@ -236,6 +236,23 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
 
 </details>
 
+## Examples
+
+<details>
+  <summary><h3>/describe</h3></summary>
+  <img src="site/public/screenshots/describe.example.webp" alt="Example /describe output showing PR Agent Description block" width="800" />
+</details>
+
+<details>
+  <summary><h3>/review</h3></summary>
+  <img src="site/public/screenshots/review.example.webp" alt="Example /review output showing PR Agent Review summary" width="800" />
+</details>
+
+<details>
+  <summary><h3>/ask</h3></summary>
+  <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
+</details>
+
 ## Recommended hosts
 
 This repo still ships one stack: Compose `postgres`, `pr-agent-web`, and `pr-agent-worker`. A panel or reverse proxy only terminates TLS and forwards to web. Do not add a second compose file, publish Postgres, or expose the worker.
@@ -247,11 +264,8 @@ Start the VPS at about 2 vCPU and 4 GB RAM. Web, worker, Postgres, and a panel w
 | [Hetzner Cloud](https://www.hetzner.com/cloud) | Usually the cheapest 4 GB plan. NVMe, 20 TB traffic, sites in EU and the US.                        |
 | [Hostinger VPS](https://www.hostinger.com/vps) | Simple checkout. Their Docker Manager can start a Compose file if you do not want a separate panel. |
 | [DigitalOcean](https://www.digitalocean.com)   | Clear docs and a large marketplace. More regions. You pay more per GB of RAM.                       |
-| [Vultr](https://www.vultr.com)                 | Many cities. High-frequency plans if you care about single-core speed.                              |
-| [Linode (Akamai)](https://www.linode.com)      | Human support and a wide region list. Pricing is closer to DigitalOcean.                            |
-| [OVHcloud](https://www.ovhcloud.com)           | EU sites, unmetered bandwidth on many plans, included DDoS mitigation.                              |
 
-Hetzner is the default pick for this App. Hostinger is the default pick if you want a control panel from the VPS vendor. DigitalOcean, Vultr, and Linode are fine when you already have an account or need a city Hetzner does not offer.
+Hetzner is the default pick for this App. Hostinger is the default pick if you want a control panel from the VPS vendor. DigitalOcean is fine when you already have an account.
 
 | Panel                            | What it gives you                                                                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -272,23 +286,6 @@ He runs it on a VPS with [Dokploy](https://dokploy.com). Dokploy's Traefik publi
 Primary provider is [OpenCode Go](https://opencode.ai/go?ref=AHE1W13AS7) ($10 AI subscription). Model is Meta Muse Spark 1.3 Contributor.
 
 That is his operator setup. The install path above still uses this repo's Compose file and the Pi provider env vars (`PI_PROVIDER`, `PI_MODEL`, and the matching API key). This repo does not add a Dokploy file or a second runtime.
-
-## Examples
-
-<details>
-  <summary><h3>/describe</h3></summary>
-  <img src="site/public/screenshots/describe.example.webp" alt="Example /describe output showing PR Agent Description block" width="800" />
-</details>
-
-<details>
-  <summary><h3>/review</h3></summary>
-  <img src="site/public/screenshots/review.example.webp" alt="Example /review output showing PR Agent Review summary" width="800" />
-</details>
-
-<details>
-  <summary><h3>/ask</h3></summary>
-  <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
-</details>
 
 ## Local development
 

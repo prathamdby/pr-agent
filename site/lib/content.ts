@@ -188,7 +188,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Where should I host PR Agent?",
     answer:
-      "On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger, DigitalOcean, Vultr, Linode, and OVHcloud also work. The App still needs the same Compose stack. The panel does not replace it.",
+      "On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger and DigitalOcean also work. The App still needs the same Compose stack. The panel does not replace it.",
   },
 ];
 
