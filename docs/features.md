@@ -4,22 +4,24 @@ The eight `FEATURE_*` settings are pr-agent's entire user-facing configuration.
 Everything else is deployment wiring or operator tuning (see
 [configuration.md](configuration.md)).
 
-Modes: `off` = disabled entirely (slash commands reply with a notice, nothing
-runs), `manual` = slash command only, `auto` = slash command plus an automatic
-trigger. Auto triggers are fixed: review and describe fire when a PR is
-`opened`; verification fires on `synchronize` (every push). A push while an
-auto review is still running cancels that review and replaces it with one for
-the new head; a push after the review finishes does not re-review. Custom
-trigger sets are intentionally not supported.
+Modes for describe, verification, ask, and triage: `off` = disabled entirely
+(slash commands reply with a notice, nothing runs), `manual` = slash command
+only, `auto` = slash command plus an automatic trigger. `FEATURE_REVIEW`
+accepts only `manual` or `auto`. `off` is invalid and crashes startup.
+`/review` always works. Auto triggers are fixed: review and describe fire when
+a PR is `opened`; verification fires on `synchronize` (every push). A push
+while an auto review is still running cancels that review and replaces it with
+one for the new head; a push after the review finishes does not re-review.
+Custom trigger sets are intentionally not supported.
 
 | Setting                 | Values                             | Default  | Spends tokens? | What it does                                                                                                                                                         |
 | ----------------------- | ---------------------------------- | -------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FEATURE_REVIEW`        | `manual` \| `auto`                 | `auto`   | yes            | Orchestrated review. `auto` reviews each PR when opened; `/review` is always available.                                                                              |
 | `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`   | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                               |
 | `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`   | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line. |
-| `FEATURE_ASK`           | `off` \| `manual`                  | `manual` | yes            | `/ask` and `@bot` question threads.                                                                                                                                  |
+| `FEATURE_ASK`           | `off` \| `manual`                  | `manual` | yes            | `/ask` and App-bot mention question threads.                                                                                                                         |
 | `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual` | yes            | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                                                                          |
-| `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`   | no             | Review size / security labels synced onto the PR.                                                                                                                    |
+| `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`   | no             | Size and security labels. `off` still syncs `Category: bug\|security\|performance\|style` when a finding has a category or a managed category label already exists.  |
 | `FEATURE_COMMIT_STATUS` | `false` \| `true`                  | `false`  | no             | Posts the `pr-agent/review` commit status on the PR head; usable in branch protection rules.                                                                         |
 | `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `false`  | no             | Allows `/describe` to rewrite the PR title.                                                                                                                          |
 
@@ -27,7 +29,12 @@ Notes:
 
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
 - Describe, verification, ask, and triage can be turned `off` to stop those
-  surfaces from spending tokens at all.
+  surfaces from spending tokens at all. Default `FEATURE_VERIFICATION=auto`
+  spends tokens on every `synchronize` push.
+- Ask mentions match the App bot login (`{slug}[bot]`), not the literal string
+  `@bot`.
+- `FEATURE_REVIEW_LABELS=off` stops size and security labels only. Category
+  labels still sync.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
 - Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,

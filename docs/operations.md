@@ -39,7 +39,7 @@ Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 - **`/triage`:** trigger-only autofix work type. Post `/triage` on the PR conversation to triage unresolved findings from current specialist runs and recognized legacy lens threads. Reply `/triage` inside a bot inline finding thread to scope the run to that finding. `/triage preview` posts **`## PR Agent Triage Preview`** with the would-be unified diff for the same scope and does not push or change threads. `/triage all` then replays those stored hunks (full PR even when posted on a thread; optional `exclude <thread ids>`). Bulk without a completed `triage_preview` for the same PR head is a report-only refusal and does not check out. It does not start a second agent run. Bare `/triage` still applies without a preview. Triage skips fork PR pushes, fixes same-repo findings in an isolated writable checkout, commits with validated messages, and pushes without force. A `dismissed` verdict requires an authorized non-bot maintainer decision from `MAINTAINER_DECISION_ASSOCIATIONS` on the matching finding thread; ordinary, missing-metadata, and bot replies remain untrusted evidence. After a successful push, it replies on `fixed` threads then resolves them. It resolves `already-resolved` and `dismissed` threads even when push is stale or there were no commits (`skipped` stays open). It upserts **`## PR Agent Triage`**. Fix commits use the human `/triage` issuer as git author and committer (profile or id-based noreply email) with a GitHub App `Co-authored-by` trailer; bot/app or unresolvable issuers keep App authorship without a redundant App co-author. Push still uses the installation token (App). The bot push triggers a normal `synchronize` verification run. Close/merge cancellation is terminal and no-push, including when the branch remains available. The writable workspace `searchWorkspace` may grep the checkout internally, but normalizes each result and applies the canonical sensitive/control-path policy to the path and its resolved symlink target before returning the path or matching text. Blocked matches are omitted and reported only with a non-sensitive filtered indicator; literal-query, timeout, result-cap, and output-budget behavior remains unchanged. GitHub App needs **Contents: read/write** for this command.
 - **Verification runs:** auto-triggered on `pull_request` `synchronize` when `FEATURE_VERIFICATION=auto` (the default), or on demand with `/verify` when the feature is `manual` or `auto` (`off` disables both). Read-only: re-checks open bot inline findings against the current head. Automatic and slash-triggered runs share one Local PR workspace object for the session directory, search, and diffs. `searchWorkspace` searches permitted tracked paths through that workspace's literal-search operation, then applies the same sensitive/control-path policy as triage before the result cap. Blocked paths are omitted and counted; the count is logged as `verification_search_matches_filtered`. Search output that exceeds `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` is treated as truncated, not a failed search. `getWorkspaceDiff` returns the cached GitHub PR patch, including deleted paths and omitted-patch notices. Private Git metadata stays outside the agent-visible tree. **Fixed** and **already-resolved** threads are resolved without a new reply; if a prior verification stub exists, it is edited in place to a short fixed/already-resolved line so a stale still-open signal is not left behind. **Still-open** findings on files changed in the push update one verification stub comment in place. **Dismissed** findings require an authorized non-bot maintainer decision from `MAINTAINER_DECISION_ASSOCIATIONS` on the matching finding thread; other reply text is untrusted evidence. Verification edits that stub (evidence + policy suggestion) and then resolves the thread. No ack reaction, progress comment, or summary comment is posted for a successful run. A terminal failure edits the existing CI cell for the bound execution head, or writes one bounded stub line, with ``Run `/verify` to try again.`` It edits only a bot-owned conversation comment. It does not open finding-thread replies or a new comment per finding. Silence on the PR means the run succeeded. If the live head moved after the run bound its SHA, publish is skipped, the skip log keeps both SHAs, and the work item completes degraded (`publishDegraded`) rather than as clean success. An escalated attempt (attempt 2 or later) re-checks only the `MAX_ESCALATED_VERIFICATION_INVENTORY` oldest open findings and records `inventory_narrowed` as a degradation reason; the remainder waits for a later attempt or run. Slash `/verify` has no automatic replacement. A later auto synchronize run is a separate item.
 - **Policy suggestions for dismissed findings:** when triage or verification dismisses a finding, the bot drafts a paste-ready `.pr-agent/*.mdc` suggestion. Verification grounds the suggestion in the checkout’s existing rules when exactly one rule matches the finding path (append fragment); otherwise it proposes a new `.mdc` starter. Triage always proposes a new `.mdc` starter.
-- **`/ask` and `@bot` mentions:** interactive Q&A about PR code (and conversational follow-ups in the same thread). Shared intake admits work through durable actor, repository, and installation token buckets plus outstanding limits before inserting `agent_work_items`. When configured, the installation provider budget reserves a bounded token amount; each distinct ask computation's known Pi usage is counted once, and unknown usage consumes the reservation. The budget window rolls on wall-clock time while outstanding reservations stay reserved. Excess asks receive one static throttling reply and do not enter `agent-work-ask`. The ask queue remains separate from review and triage queues. `@`-mention of the app bot (same allowlist as slash commands) on the PR conversation or an inline review thread also enqueues an ask; the worker loads the containing thread transcript into the prompt. Explain-only — no severity/dismiss mutations. A terminal **Ask failure reply** is posted only when durable state has no confirmed delivered answer, and that reply is idempotent under the `ask:failure_reply` operation-intent key. See [ADR 0005](adr/0005-ask-command.md).
+- **`/ask` and App-bot mentions:** interactive Q&A about PR code (and conversational follow-ups in the same thread). Mention matching uses the App bot login, not the literal string `@bot`. Shared intake admits work through durable actor, repository, and installation token buckets plus outstanding limits before inserting `agent_work_items`. When configured, the installation provider budget reserves a bounded token amount; each distinct ask computation's known Pi usage is counted once, and unknown usage consumes the reservation. The budget window rolls on wall-clock time while outstanding reservations stay reserved. Excess asks receive one static throttling reply and do not enter `agent-work-ask`. The ask queue remains separate from review and triage queues. `@`-mention of the app bot (same allowlist as slash commands) on the PR conversation or an inline review thread also enqueues an ask; the worker loads the containing thread transcript into the prompt. Explain-only — no severity/dismiss mutations. A terminal **Ask failure reply** is posted only when durable state has no confirmed delivered answer, and that reply is idempotent under the `ask:failure_reply` operation-intent key. See [ADR 0005](adr/0005-ask-command.md).
 - **Lightweight review completion:** automated reviews on docs-only trivial PRs may finish without an **orchestrated review run** under the **trivial change exemption**. See [ADR 0010](adr/0010-lightweight-review-completion.md).
 
 ## Large PRs and GitHub rate limits
@@ -54,14 +54,14 @@ Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 
 - **Stack:** [docker-compose.yml](../docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
 - **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)). The runtime stage installs Debian `git` from `node:22.22.0-bookworm-slim` (2.39.x). Shared workspace search uses `git grep -nF -I -z` and applies `maxResults` plus `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` after the process returns. It does not pass `--max-count` (Git 2.40+).
-- **Health (web):** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable (orchestrator readiness gating).
-- **Health (worker):** the worker listens on `PORT` for the same paths. `GET /health` is process liveness. `GET /ready` requires registered queue consumers plus Postgres/pg-boss access (idle empty queues still ready). Compose wires the worker healthcheck to `/ready`. Continuous queue/DLQ diagnostics emit every 60s; see [agent-work-ops.md](agent-work-ops.md).
-- **Webhook URL** (default Compose ports): `http://<host>:7224/webhooks`.
-- **`DATABASE_URL`** in Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`.
-- **Provider API keys** (for example **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, **`GOOGLE_GENERATIVE_AI_API_KEY`**) are loaded by [`src/config.ts`](../src/config.ts) into `modelProviderKeys`. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.
+- **Health (web):** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable. Shipped Compose healthchecks web with hardcoded `http://127.0.0.1:7224/health`, not `/ready`. `depends_on` is start-only. Postgres dying later does not fail the web service.
+- **Health (worker):** the worker listens on its own `PORT` for the same paths. That port is not published. `curl http://127.0.0.1:7224/ready` from the host hits web `/ready` (Postgres ping only). Worker `/ready` requires the nine registered consumers (`WORKER_CONSUMER_QUEUES`, including retention and `code-index-build`) plus Postgres/pg-boss. Compose checks that in-container. The image `HEALTHCHECK` hits `/health`, so a PaaS that honors only the Dockerfile can mark a worker healthy before consumers exist. Continuous queue/DLQ diagnostics emit every 60s; see [agent-work-ops.md](agent-work-ops.md).
+- **Webhook URL:** set GitHub to `https://<host>/webhooks`. The process binds HTTP on `7224`. Compose publishes that HTTP port only. A public `http://<host>:7224/webhooks` URL is rejected except for loopback.
+- **`DATABASE_URL`** in base Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`. Compose postgres is not published to the host.
+- **Provider API keys** (for example **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, **`GOOGLE_GENERATIVE_AI_API_KEY`**) are loaded by [`src/config.ts`](../src/config.ts) into `modelProviderKeys`. They are optional at boot. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker. `GET /health` and `GET /ready` stay green without a key.
 - **Custom Pi providers (`models.json`):** three ways to get a catalog into the container at `/app/models.json` (process cwd), or elsewhere via **`MODELS_JSON_PATH`**:
   1. **Build-context copy (default image behavior):** if repo-root `models.json` is present when you `docker build`, the runtime stage copies it to `/app/models.json`. If the file is absent, the build still succeeds (built-ins only). Dokploy **Patches** can `create` File Path `models.json` after clone and before build — no `MODELS_JSON_PATH` and no Dockerfile edit required when using the image cwd.
-  2. **Runtime bind mount:** copy [`models.json.example`](../models.json.example) to a host file, then mount it into **both** web and worker. Create the host file **before** mounting — Docker turns a missing host path into a directory.
+  2. **Runtime bind mount:** the committed [docker-compose.yml](../docker-compose.yml) does not mount `./models.json`. Copy [`models.json.example`](../models.json.example) to a host file, then add the fragment below to **both** web and worker, or rebuild with the file in context, or set `MODELS_JSON_PATH`. Create the host file **before** mounting. Docker turns a missing host path into a directory.
   3. **`MODELS_JSON_PATH`:** mount the catalog anywhere and point the env var at that path.
 
   Example Compose fragment for a host mount:
@@ -80,15 +80,18 @@ Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 
 ```bash
 cp .env.example .env
+# paste a generated one-line or base64 GitHub App PEM before the first start
 docker compose build
-docker compose up
+docker compose up -d
 ```
 
 Compose sets `environment.PORT=7224` and **`7224:7224`** publishing. For a host port clash, change **`ports`** to for example **`7227:7224`** and keep container **`PORT`** at **7224**.
 
 **Requires Docker Engine with Compose v2.** `env_file` defaults to **`.env`**; use host env **`PR_AGENT_ENV_FILE`** for an alternate path.
 
-The Compose `postgres` service sets `shm_size: 128mb` and conservative server tuning flags (`shared_buffers`, `effective_cache_size`, `maintenance_work_mem`, `wal_compression`, `random_page_cost`). Override them with the `POSTGRES_SHARED_BUFFERS`, `POSTGRES_EFFECTIVE_CACHE_SIZE`, `POSTGRES_MAINTENANCE_WORK_MEM`, `POSTGRES_WAL_COMPRESSION`, and `POSTGRES_RANDOM_PAGE_COST` Compose env vars. The base Compose file owns `shm_size` and those tuning flags; the production overlay only requires credentials via `:?` env vars.
+The Compose `postgres` service sets `shm_size: 128mb` and conservative server tuning flags (`shared_buffers`, `effective_cache_size`, `maintenance_work_mem`, `wal_compression`, `random_page_cost`). Override them with the `POSTGRES_SHARED_BUFFERS`, `POSTGRES_EFFECTIVE_CACHE_SIZE`, `POSTGRES_MAINTENANCE_WORK_MEM`, `POSTGRES_WAL_COMPRESSION`, and `POSTGRES_RANDOM_PAGE_COST` Compose env vars. The base Compose file owns `shm_size` and those tuning flags.
+
+The production overlay ([docker-compose.prod.yml](../docker-compose.prod.yml)) requires `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `DATABASE_URL` via `:?` vars. Those names are Compose-only. They are not `loadConfig()` keys, so do not add them as `KEY=value` lines in `.env.example`. If postgres stays in the same compose file, set `DATABASE_URL` to hostname `postgres`, not `localhost`. Inside the app container, `localhost` is the app process.
 
 ```bash
 PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
@@ -98,17 +101,30 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 - Production boot uses a **web/worker split** (`ROLE` env).
 - **Web:** [`processWebhookRequestEffect`](../src/effect/programs/processWebhookRequestEffect.ts) verifies signatures, parses payloads, and dispatches to [`WebhookHandlers`](../src/effect/services/webhookHandlers.ts), which call [`AgentWorkScheduler`](../src/agentWork/scheduler.ts) for Postgres intake and pg-boss enqueue.
-- **Worker:** [`agentWorkWorkerLive`](../src/agentWork/worker.ts) consumes acknowledgement, review, ask, description, triage, verification, and CI-refresh queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).
-- **PR actor lease cutover (one-time):** the release that introduces `pr_actor_leases` ([ADR 0030](adr/0030-pr-actor-lease.md)) changes the review, description, triage, and verification queues from `key_strict_fifo` to `standard`. Drain old workers before starting new ones: stop `pr-agent-worker`, let in-flight jobs finish or expire, then deploy. Migration 023 flips the policy on existing queue rows (pg-boss never changes a policy itself), and boot logs `agent_queue_policy_mismatch` if any leased queue was not flipped. Mixed old/new workers are still unsafe — old workers fence on per-job queue policy while new workers fence on the lease — so the drain is required even though the flip is automatic. There is nothing to backfill.
+- **Worker:** [`agentWorkWorkerLive`](../src/agentWork/worker.ts) consumes acknowledgement, review, ask, description, triage, verification, CI-refresh, code-index-build, and retention queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).
+- **PR actor lease cutover:** skip this on a first install. Fresh boot runs migrations before pg-boss. Migration 023 sees no `pgboss.queue` and creates `standard` queues. There are no old workers to drain. The drain matters only when an existing deployment still has `key_strict_fifo` rows. Stop those old workers, let in-flight jobs finish or expire, then deploy. Mixed old and new workers are unsafe if fifo workers still exist. Boot logs `agent_queue_policy_mismatch` if a leased queue was not flipped. See [ADR 0030](adr/0030-pr-actor-lease.md).
 
 ### Local development edge cases
 
 - **`nub src/index.ts` loads `.env` automatically** for local development. `nub watch src/index.ts` restarts on source, tsconfig, and env changes.
-- **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key**. For local-only dev: `openssl genrsa 2048 > key.pem` and set the escaped PEM in `.env`.
-- Tunnel webhooks (e.g. [smee.io](https://smee.io)) to local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
+- **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key**. For local-only boot: `openssl genrsa 2048 > key.pem` and set the escaped PEM in `.env`. The example blob in `.env.example` fails `crypto.createPrivateKey()`.
+- Tunnel webhooks to local `PORT` with a running client, then point the GitHub App webhook at that public URL. smee.io: create a channel, then `npx smee-client -u https://smee.io/<channel> --target http://127.0.0.1:<port>/webhooks`. Cloudflare Tunnel: `cloudflared tunnel --url http://127.0.0.1:<port>` and set the webhook to `https://<trycloudflare-host>/webhooks`. A channel or hostname with no client drops every delivery.
+- Host Nub must be `@nubjs/nub@0.7.2` (`package.json` `packageManager`). Image and Vercel pin the same version.
 - If switching from a prior pnpm- or npm-installed tree, delete `node_modules` before the first `nub install`.
-- **Vercel** site deploys install pinned Nub in [`site/vercel.json`](../site/vercel.json) (`npm install -g @nubjs/nub@…` + `nub ci`), then build with `nub --node run build` (same plain-Node path as `site:build`). The site serves a dense agent profile at `/llms.txt` plus queryable `GET /llms?query=` and `GET /llms/json?query=` from [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts).
-- **Docker image** installs with Nub only (`nub ci` for build deps; `nub prune --prod` for the runtime tree). No `corepack` / `pnpm deploy` in the Dockerfile. [`.dockerignore`](../.dockerignore) keeps `site/package.json` in the build context so the workspace lockfile stays valid under frozen installs; the rest of `site/` stays excluded.
+- **Vercel** site deploys install pinned Nub in [`site/vercel.json`](../site/vercel.json) (`npm install -g --ignore-scripts=false @nubjs/nub@0.7.2 && cd .. && nub ci --filter pr-agent-landing...`), then build with `nub --node run build` (same plain-Node path as `site:build`). The site serves a dense agent profile at `/llms.txt` plus queryable `GET /llms?query=` and `GET /llms/json?query=` from [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts).
+- **Docker image** installs with Nub only (`nub ci --filter 'pr-agent...'` for build deps; `nub prune --prod --filter 'pr-agent...'` for the runtime tree). No `corepack` / `pnpm deploy` in the Dockerfile. [`.dockerignore`](../.dockerignore) keeps `site/package.json` in the build context so the workspace lockfile stays valid under frozen installs; the rest of `site/` stays excluded.
+
+### TLS in front of Compose
+
+The product binds HTTP only. GitHub webhook URLs must be HTTPS except localhost. Put a terminator you already run in front of `pr-agent-web` on `7224`. Example Caddyfile on the same host:
+
+```
+example.com {
+	reverse_proxy 127.0.0.1:7224
+}
+```
+
+Set the App webhook to `https://example.com/webhooks`. There is no Caddy, nginx, or certificate file in this repo.
 
 Canonical quick start steps live in [README.md](../README.md) **Host with Docker Compose**.
 
@@ -116,29 +132,29 @@ Canonical quick start steps live in [README.md](../README.md) **Host with Docker
 
 ### Scripts
 
-| Script                                 | Purpose                                                                 |
-| -------------------------------------- | ----------------------------------------------------------------------- |
-| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)                                         |
-| `nub watch src/index.ts`               | Auto-restart dev entry                                                  |
-| `nub run build`                        | Compile to `dist/`                                                      |
-| `nub run start` / `node dist/index.js` | Run compiled `dist/`                                                    |
-| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                                            |
-| `nub run lint`                         | Type-aware Oxlint (includes `site/`)                                    |
-| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`                                     |
-| `nub run lint:fix`                     | Oxlint with safe fixes                                                  |
-| `nub run fmt`                          | Format with Oxfmt                                                       |
-| `nub run fmt:check`                    | Check formatting                                                        |
-| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`                                      |
-| `nub run check:effect-versions`        | Verify pinned Effect deps                                               |
-| `nub run check:prod-deps`              | Production dependency graph guard                                       |
-| `nub run test`                         | Vitest (`test/**/*.test.ts`)                                            |
-| `nub run test:watch`                   | Vitest watch mode                                                       |
-| `nub run test:integration`             | Vitest integration suite (requires Postgres; fails fast if unreachable) |
-| `nub run test:integration:inventory`   | Same suite, but may skip DB cases when `DATABASE_URL` is unset          |
-| `nub run --node test`                  | Vitest via plain Node (escape hatch)                                    |
-| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)                             |
-| `nub run site:build`                   | Landing site production build                                           |
-| `nub run site:generate-og`             | Generate landing OG assets                                              |
+| Script                                 | Purpose                                                                                                                     |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)                                                                                             |
+| `nub watch src/index.ts`               | Auto-restart dev entry                                                                                                      |
+| `nub run build`                        | Compile to `dist/`                                                                                                          |
+| `nub run start` / `node dist/index.js` | Run compiled `dist/`                                                                                                        |
+| `nub run typecheck`                    | `tsc --noEmit -p tsconfig.json` (`src/`, `test/`, Vitest configs). `nub run build` uses `tsconfig.build.json` (`src/` only) |
+| `nub run lint`                         | Type-aware Oxlint (includes `site/`)                                                                                        |
+| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`                                                                                         |
+| `nub run lint:fix`                     | Oxlint with safe fixes                                                                                                      |
+| `nub run fmt`                          | Format with Oxfmt                                                                                                           |
+| `nub run fmt:check`                    | Check formatting                                                                                                            |
+| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`                                                                                          |
+| `nub run check:effect-versions`        | Verify pinned Effect deps                                                                                                   |
+| `nub run check:prod-deps`              | Production dependency graph guard                                                                                           |
+| `nub run test`                         | Vitest unit suite (`test/**/*.test.ts` except `test/integration/**`)                                                        |
+| `nub run test:watch`                   | Vitest watch mode                                                                                                           |
+| `nub run test:integration`             | Vitest integration suite (requires Postgres; fails fast if unreachable)                                                     |
+| `nub run test:integration:inventory`   | Same suite, but may skip DB cases when `DATABASE_URL` is unset                                                              |
+| `nub run --node test`                  | Vitest via plain Node (escape hatch)                                                                                        |
+| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)                                                                                 |
+| `nub run site:build`                   | Landing site production build                                                                                               |
+| `nub run site:generate-og`             | Generate landing OG assets                                                                                                  |
 
 Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry cooling-window settings live only in [`nub.jsonc`](../nub.jsonc) (`install.minimumReleaseAge`, `install.minimumReleaseAgeExclude`); edit that file when adding or removing temporary excludes.
 

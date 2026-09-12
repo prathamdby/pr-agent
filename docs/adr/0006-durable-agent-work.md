@@ -16,7 +16,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 2. **Postgres + pg-boss** — Use Postgres for app-owned workflow state and pg-boss for delivery, retries, heartbeat, expiration, and dead-letter retention. Per-PR mutual exclusion is the **PR actor lease** ([ADR 0030](0030-pr-actor-lease.md)); work queues use the `standard` policy.
 
-3. **Web/worker split** — `ROLE=web` serves `/health`, `/ready`, and `/webhooks`. `ROLE=worker` runs acknowledgement, CI-refresh, review, ask, description, triage, verification, and retention workers from the same image.
+3. **Web/worker split** — `ROLE=web` serves `/health`, `/ready`, and `/webhooks`. `ROLE=worker` runs acknowledgement, CI-refresh, review, ask, description, triage, verification, retention, and code-index-build workers from the same image.
 
 4. **No PR-surface I/O on webhook fibers** — GitHub reactions, progress comments, ask replies, inline reviews, labels, and failure notices run in worker jobs. Webhook fibers verify, parse, dedupe, commit, enqueue, and return.
 

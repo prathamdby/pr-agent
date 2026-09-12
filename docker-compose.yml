@@ -1,3 +1,6 @@
+# Postgres is reachable on the compose network as hostname `postgres` only.
+# It is not published to the host. Host processes need `docker run -p 5432:5432`
+# or a compose override that adds `ports: ["5432:5432"]`.
 services:
   postgres:
     image: postgres:16-alpine
@@ -55,6 +58,8 @@ services:
       start_period: 15s
 
   pr-agent-worker:
+    # Same worker registers ack, CI-refresh, review, ask, description, triage,
+    # verification, retention, and code-index-build. Compose healthcheck uses /ready.
     build: .
     image: pr-agent:local
     env_file:

@@ -1,5 +1,10 @@
 # Production override: require explicit Postgres credentials (no local defaults).
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+#
+# Set POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD in the env file.
+# DATABASE_URL is injected into the app containers as written.
+# If postgres stays in this compose file, use hostname `postgres`, not localhost.
+# localhost inside pr-agent-web / pr-agent-worker is the app container.
 services:
   postgres:
     environment:

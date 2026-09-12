@@ -47,8 +47,10 @@ policy, durable checkpoints, and strict redaction.
    credentials, or installation tokens.
 4. Load only server-owned agent resources. Keep Pi built-in shell, write, edit,
    and filesystem tools disabled. Do not add MCP, cross-attempt guest state, or a
-   retained guest heap. Agent instruction files and repo policy rules remain
-   untrusted prompt context.
+   retained guest heap. Same-repo `.pr-agent/*.mdc` and root `AGENTS.md`,
+   `CLAUDE.md`, and `GEMINI.md` load as trusted, binding context. Fork-head
+   copies and malformed identity stay untrusted. See [ADR 0017](0017-mdc-repo-policy.md)
+   and [ADR 0019](0019-trusted-review-context.md).
 5. Assign three logical models: orchestrator primary, general primary, and shared
    fallback. A healthy session keeps one model. Fallback starts a fresh session
    from a committed Agent phase checkpoint after availability-class retry

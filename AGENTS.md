@@ -78,9 +78,12 @@ Before calling a behavior change complete, check the surfaces that can carry it:
 Use the smallest stack that exercises the behavior. `DATABASE_URL` is required for both roles.
 
 ```bash
-docker compose up -d postgres
+# Compose postgres is not published to the host. Use a published container:
+docker run -d --name pr-agent-postgres \
+  -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent \
+  -p 5432:5432 postgres:16-alpine
 cp .env.example .env
-# fill GitHub and provider fields
+# fill a real GitHub App PEM and provider fields
 nub install
 
 # terminal 1
@@ -89,6 +92,8 @@ PORT=3000 ROLE=web nub src/index.ts
 # terminal 2
 PORT=3001 ROLE=worker nub src/index.ts
 ```
+
+`docker compose up -d postgres` does not open host port `5432`. Full `docker compose up` rewrites web and worker to `@postgres:5432`. Host processes and `nub run test:integration` need the published `docker run` recipe (or a compose override that adds `ports`). Pin host Nub to `@nubjs/nub@0.7.2` when you install it globally.
 
 The web process owns `POST /webhooks` and exposes intake health and readiness probes. The worker owns queue consumers and agent execution, with separate readiness for consumer and Postgres health. Web-only runs accept work but do not publish reviews.
 
@@ -142,9 +147,9 @@ The review path runs a recon phase, four specialists for correctness, security, 
 - `src/effect/` owns the Effect server, programs, services, and runtime wiring.
 - `src/webhook/` verifies and parses GitHub deliveries.
 - `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention.
-- `src/review/` owns orchestration, specialist prompts, judgment, and review publication.
+- `src/review/` owns orchestration, the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and review publication.
 - `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
-- `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic.
+- `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - `src/security/` owns outbound, log, and analytics redaction.
