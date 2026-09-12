@@ -1,25 +1,18 @@
 <div align="center">
 
-<pre>
-██████╗ ██████╗      █████╗  ██████╗ ███████╗███╗   ██╗████████╗
-██╔══██╗██╔══██╗    ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
-██████╔╝██████╔╝    ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║
-██╔═══╝ ██╔══██╗    ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║
-██║     ██║  ██║    ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║
-╚═╝     ╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
-</pre>
+<img src="assets/wordmark.png" alt="PR Agent" width="100%">
 
 # PR Agent
 
 Self-hosted GitHub App for AI pull request reviews
 
 <p>
-  <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
-  <a href="https://context7.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/Context7-Ask-1A1A1A?style=for-the-badge" alt="Ask Context7"></a>
-  <a href="https://opencode.ai/go?ref=AHE1W13AS7"><img src="https://img.shields.io/badge/OpenCode-Go-111111?style=for-the-badge" alt="OpenCode Go"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="#documentation"><img src="https://img.shields.io/badge/Documentation-README-555555?style=for-the-badge" alt="Documentation"></a>
-  <a href="#installation"><img src="https://img.shields.io/badge/Node-22+-339933?style=for-the-badge" alt="Node 22+"></a>
+  <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/DeepWiki-Ask-7B2CBF?style=for-the-badge" alt="Ask DeepWiki"></a>
+  <a href="https://context7.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/Context7-Ask-4B0082?style=for-the-badge" alt="Ask Context7"></a>
+  <a href="https://opencode.ai/go?ref=AHE1W13AS7"><img src="https://img.shields.io/badge/OpenCode-Go-2563EB?style=for-the-badge" alt="OpenCode Go"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge" alt="License: MIT"></a>
+  <a href="#documentation"><img src="https://img.shields.io/badge/Documentation-README-EAB308?style=for-the-badge" alt="Documentation"></a>
+  <a href="#installation"><img src="https://img.shields.io/badge/Node-22+-EA580C?style=for-the-badge" alt="Node 22+"></a>
 </p>
 
 </div>
