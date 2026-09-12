@@ -79,7 +79,7 @@ function allowlistedRequestPath(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const path = value.split("?")[0] ?? "";
   if (!path.startsWith("/") || path.startsWith("//")) return undefined;
-  if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/\-]*$/.test(path)) return undefined;
+  if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$/.test(path)) return undefined;
   if (path.length > MAX_GITHUB_REQUEST_PATH_LEN) {
     return path.slice(0, MAX_GITHUB_REQUEST_PATH_LEN);
   }
