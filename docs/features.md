@@ -4,10 +4,12 @@ The eight `FEATURE_*` settings are pr-agent's entire user-facing configuration.
 Everything else is deployment wiring or operator tuning (see
 [configuration.md](configuration.md)).
 
-Modes for describe, verification, ask, and triage: `off` = disabled entirely
-(slash commands reply with a notice, nothing runs), `manual` = slash command
-only, `auto` = slash command plus an automatic trigger. `FEATURE_REVIEW`
-accepts only `manual` or `auto`. `off` is invalid and crashes startup.
+Modes for describe and verification: `off` = disabled entirely (slash
+commands reply with a notice, nothing runs), `manual` = slash command only,
+`auto` = slash command plus an automatic trigger. `FEATURE_ASK` and
+`FEATURE_TRIAGE` accept only `off` or `manual`. `auto` is invalid and crashes
+startup. `FEATURE_REVIEW` accepts only `manual` or `auto`. `off` is invalid
+and crashes startup.
 `/review` always works. Auto triggers are fixed: review and describe fire when
 a PR is `opened`; verification fires on `synchronize` (every push). A push
 while an auto review is still running cancels that review and replaces it with

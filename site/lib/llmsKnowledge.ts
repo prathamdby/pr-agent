@@ -172,7 +172,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
     terms: ["feature", "flag", "setting", "mode", "auto", "manual", "token", ...FEATURE_KEYS],
     body: lines([
       "Eight FEATURE_* settings are the user-facing configuration. Invalid values fail startup.",
-      "Modes for describe, verification, ask, and triage: off = disabled (slash replies with a notice), manual = slash only, auto = slash plus a fixed trigger. FEATURE_REVIEW accepts only manual or auto. off crashes startup.",
+      "Describe and verification: off = disabled (slash replies with a notice), manual = slash only, auto = slash plus a fixed trigger. FEATURE_ASK and FEATURE_TRIAGE accept only off or manual. auto crashes startup. FEATURE_REVIEW accepts only manual or auto. off crashes startup.",
       "Auto triggers: review and describe on pull_request opened; verification on synchronize.",
       `${FEATURE_KEYS[0]}: manual | auto. Default auto. Orchestrated review. /review always works.`,
       `${FEATURE_KEYS[1]}: off | manual | auto. Default auto. PR description generation.`,
