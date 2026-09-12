@@ -9,6 +9,7 @@
 **Queue** — [docs/agent-work-ops.md](docs/agent-work-ops.md). Durable-work health or recovery.
 **ADR** — [docs/adr/](docs/adr/). A significant architecture decision.
 **Cursor Cloud** — [docs/cursor-cloud.md](docs/cursor-cloud.md). Cloud VM services or setup.
+**Public docs** — [README.md](README.md). Operator voice. Same-PR pointer updates.
 
 Same PR: update every pointer whose branch matched the change.
 
@@ -177,3 +178,19 @@ The review path runs a recon phase, four specialists for correctness, security, 
 - Read the relevant ADR and runbook before changing durable work, leases, webhook handling, or publish behavior.
 - Do not infer behavior from filenames. Trace the entry point to its durable write, queue edge, executor, and external side effect.
 - If a repository rule conflicts with the task, surface the conflict and get explicit direction before breaking it.
+
+## Public documentation
+
+Any behavior, env, feature-mode, host, or privacy change updates the matching public copy in the same PR. That includes [README.md](README.md), [docs/features.md](docs/features.md), [docs/configuration.md](docs/configuration.md), [docs/operations.md](docs/operations.md), [site/lib/llmsKnowledge.ts](site/lib/llmsKnowledge.ts), [site/lib/content.ts](site/lib/content.ts), and `site/public/llms.txt` (`renderLlmsTxt()` must stay identical to the committed file). Do not leave a later docs PR. Match the voice below. Do not write a second register for the site or `/llms.txt`.
+
+- Speak to the operator. "A pull request is opened on your project." Not "Someone opens a pull request."
+- The README hook stays simple English. No web, worker, database, webhook, queue, Postgres, or HTTP status in the first paragraphs. Those words belong in Installation and later.
+- Lead with what lands on the pull request, then why this App: you run it, no per-seat bill, you pick who reads the code.
+- Keep this README order: Features, Installation, Verification, Examples, Recommended hosts, Pratham's way of hosting, Local development, Data privacy, Documentation. Do not add a How it works section or a topology mermaid to the README. Topology stays in [How it works](#how-it-works) in this file.
+- The Features table names commands the operator types. State invalid modes next to it. `FEATURE_REVIEW` accepts `manual` or `auto`. `off` crashes. `FEATURE_ASK` and `FEATURE_TRIAGE` accept `off` or `manual`. `auto` aborts.
+- Examples is a two-column highlight table. Name and short copy on the left, screenshot on the right. Review first, then Description, then Ask. Use `valign="middle"`, `36%` / `64%`, and `width="100%"` on the image. GitHub strips custom font sizes.
+- Recommended hosts lists three VPS rows only: Hetzner, Hostinger, DigitalOcean. Do not grow that table. Panels stay Dokploy, Coolify, or a proxy the operator already runs. Do not invent a second compose file or runtime.
+- Optional extras under Data privacy are separate `<details>` blocks: Context7, Logging, PostHog. Do not add a standalone analytics heading.
+- Sentence-case headings except `Pratham's way of hosting`. Short sentences. No puffery, no em dashes, no chatbot filler. If a sentence could sit in another project's README unchanged, cut it.
+- Long traps stay in `<details>`. The open page stays short.
+- After README or docs edits, run `nub run fmt` so `oxfmt --check` stays green.
