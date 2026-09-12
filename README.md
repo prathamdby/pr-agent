@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/wordmark.png" alt="PR Agent" width="100%">
+<img src="assets/pr-agent-wordmark.png" alt="PR Agent" width="100%">
 
 # PR Agent
 
