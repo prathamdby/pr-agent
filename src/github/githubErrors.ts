@@ -49,6 +49,43 @@ export type GithubErrorKind =
   | "rate_limit"
   | "unknown";
 
+const MAX_GITHUB_REQUEST_PATH_LEN = 200;
+
+/**
+ * Pathname from a structured Octokit/GitHub error only.
+ * Query strings and free-text blobs are dropped so tokens never become a path.
+ */
+export function githubRequestPath(error: unknown): string | undefined {
+  if (!isRecord(error)) return undefined;
+  const request = isRecord(error.request) ? error.request : undefined;
+  const fromRequestUrl = pathnameFromKnownUrl(request?.url);
+  if (fromRequestUrl != null) return fromRequestUrl;
+  const fromRequestPath = allowlistedRequestPath(request?.path);
+  if (fromRequestPath != null) return fromRequestPath;
+  const response = isRecord(error.response) ? error.response : undefined;
+  return pathnameFromKnownUrl(response?.url);
+}
+
+function pathnameFromKnownUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  try {
+    return allowlistedRequestPath(new URL(value).pathname);
+  } catch {
+    return allowlistedRequestPath(value);
+  }
+}
+
+function allowlistedRequestPath(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const path = value.split("?")[0] ?? "";
+  if (!path.startsWith("/") || path.startsWith("//")) return undefined;
+  if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$/.test(path)) return undefined;
+  if (path.length > MAX_GITHUB_REQUEST_PATH_LEN) {
+    return path.slice(0, MAX_GITHUB_REQUEST_PATH_LEN);
+  }
+  return path;
+}
+
 /** Message string for unknown errors (GitHub helpers share this). */
 export function githubErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyGithubError,
+  githubRequestPath,
   isDuplicateCheckRunCreationError,
 } from "../src/github/githubErrors.js";
 
@@ -120,5 +121,26 @@ describe("classifyGithubError", () => {
 
   it("returns unknown for unclassified errors", () => {
     expect(classifyGithubError(new Error("something else"))).toBe("unknown");
+  });
+});
+
+describe("githubRequestPath", () => {
+  it("takes the pathname from a structured request URL and drops the query", () => {
+    expect(
+      githubRequestPath({
+        status: 403,
+        request: {
+          url: "https://api.github.com/repos/acme/widgets/check-runs?access_token=secret",
+        },
+      }),
+    ).toBe("/repos/acme/widgets/check-runs");
+  });
+
+  it("accepts a relative request.path and ignores free-text blobs", () => {
+    expect(githubRequestPath({ request: { path: "/repos/acme/widgets/contents/.env" } })).toBe(
+      "/repos/acme/widgets/contents/.env",
+    );
+    expect(githubRequestPath({ message: "GET /repos/acme/widgets failed" })).toBeUndefined();
+    expect(githubRequestPath({ request: { url: "not a url" } })).toBeUndefined();
   });
 });
