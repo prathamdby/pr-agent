@@ -201,5 +201,6 @@ A PR Agent deployment exposes its own endpoints on the operator's host: POST /we
 - [PR Agent domain vocabulary](https://github.com/prathamdby/pr-agent/blob/main/CONTEXT.md): The words this project uses for work items, leases, and findings.
 - [Installation](https://github.com/prathamdby/pr-agent#installation): the deployment walkthrough.
 - [DeepWiki](https://deepwiki.com/prathamdby/pr-agent): ask questions against this repository.
+- [Context7](https://context7.com/prathamdby/pr-agent): ask questions against this repository.
 - [License](https://github.com/prathamdby/pr-agent/blob/main/LICENSE): MIT.
 

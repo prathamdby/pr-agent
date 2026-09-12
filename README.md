@@ -1,11 +1,21 @@
 <div align="center">
 
+<pre>
+██████╗ ██████╗      █████╗  ██████╗ ███████╗███╗   ██╗████████╗
+██╔══██╗██╔══██╗    ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
+██████╔╝██████╔╝    ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║
+██╔═══╝ ██╔══██╗    ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║
+██║     ██║  ██║    ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║
+╚═╝     ╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝
+</pre>
+
 # PR Agent
 
 Self-hosted GitHub App for AI pull request reviews
 
 <p>
   <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+  <a href="https://context7.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/Context7-Ask-1A1A1A?style=for-the-badge" alt="Ask Context7"></a>
   <a href="https://opencode.ai/go?ref=AHE1W13AS7"><img src="https://img.shields.io/badge/OpenCode-Go-111111?style=for-the-badge" alt="OpenCode Go"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="#documentation"><img src="https://img.shields.io/badge/Documentation-README-555555?style=for-the-badge" alt="Documentation"></a>
@@ -411,6 +421,7 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 | Document                                             | What it covers                                |
 | ---------------------------------------------------- | --------------------------------------------- |
 | [DeepWiki](https://deepwiki.com/prathamdby/pr-agent) | Ask questions against this repository         |
+| [Context7](https://context7.com/prathamdby/pr-agent) | Ask questions against this repository         |
 | [Features](docs/features.md)                         | `FEATURE_*` modes and slash commands          |
 | [Configuration](docs/configuration.md)               | Env vars, defaults, and code constants        |
 | [Operations](docs/operations.md)                     | TLS, host panels, scripts, production overlay |
