@@ -4,7 +4,7 @@
 
 # PR Agent
 
-Self-hosted GitHub App for AI pull request reviews
+A pull request reviewer you run yourself
 
 <p>
   <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/DeepWiki-Ask-7B2CBF?style=for-the-badge" alt="Ask DeepWiki"></a>
@@ -17,9 +17,9 @@ Self-hosted GitHub App for AI pull request reviews
 
 </div>
 
-PR Agent installs on your GitHub org or repos and runs reviews on machines you operate. Optional work: describe, ask, triage, and verification. You bring the GitHub App credentials, a Postgres database, and an LLM API key.
+Someone opens a pull request. PR Agent reads the change and comments next to the lines it flags. You host it. The GitHub App and the model key stay in your account. Work is stored in a database you run.
 
-**web** accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns `200` once that write succeeds. **worker** runs the queues and posts back to the PR. If only web is up, nothing appears on the PR.
+It can write the description, answer a question in the thread, try the fixes it found, or look again after you push. Two programs must stay up. **web** listens for GitHub. **worker** does the reading and posts. If worker is down, the pull request stays quiet.
 
 ## Contents
 
