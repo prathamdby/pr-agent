@@ -1,7 +1,7 @@
 # pr-agent
 
 **Vocabulary** — [CONTEXT.md](CONTEXT.md). Naming a product concept.
-**Topology** — [README.md](README.md) "How It Works". Web, worker, or queue edges.
+**Topology** — this file, [How it works](#how-it-works). Web, worker, or queue edges.
 **Feature** — [docs/features.md](docs/features.md). A `FEATURE_*` setting.
 **Knob** — [docs/configuration.md](docs/configuration.md). An env, default, or code constant.
 **Module** — [docs/development.md](docs/development.md). Layout, imports, prompts, or the topology-diagram rubric.
@@ -171,7 +171,7 @@ The review path runs a recon phase, four specialists for correctness, security, 
 
 ## Additional guidance
 
-- Read [README.md](README.md) for the public topology and local stack before changing runtime behavior.
+- Read [README.md](README.md) for the public install path and local stack before changing runtime behavior. Read [How it works](#how-it-works) in this file for the runtime topology.
 - Hosting panels (Dokploy, Coolify, Caddy) terminate TLS in front of `pr-agent-web`. They are not a second runtime. Do not add a new compose file or publish Postgres to make a panel work. VPS and panel list: [README.md](README.md#recommended-hosts).
 - Read [CONTEXT.md](CONTEXT.md) before introducing or renaming domain terms.
 - Read the relevant ADR and runbook before changing durable work, leases, webhook handling, or publish behavior.

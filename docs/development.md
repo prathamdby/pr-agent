@@ -48,6 +48,6 @@ Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Fiel
 
 Long investigator prompt blocks stay in prompt modules. Correctness uses `src/review/prompts/reviewSystemPrompt.ts`. Security, quality, and tests personas live under `src/agent/prompts/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; its high-signal bug-pattern list remains supporting recognition. Code Mode roles also include a generated guest-capability catalogue from `src/agent/codemode/guestCatalogue.ts` in the stable prefix. That list is the installed `tools.*` set for that role, not the bug-pattern list. Description and triage keep native workspace tools and do not receive `execute`. CI summary and bound-policy judgment are no-tool JSON turns.
 
-## README runtime topology diagram
+## Runtime topology diagram
 
-When a change alters **runtime topology**, update the How it works figure in [README.md](../README.md) (`assets/runtime-topology.svg` and `assets/runtime-topology.png`) and the Mermaid in that section's details block in the same PR. Binding rule: [`.pr-agent/topology-diagram.mdc`](../.pr-agent/topology-diagram.mdc).
+When a change alters **runtime topology**, update the Mermaid diagram in [AGENTS.md](../AGENTS.md) How it works in the same PR. Binding rule: [`.pr-agent/topology-diagram.mdc`](../.pr-agent/topology-diagram.mdc).

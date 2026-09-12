@@ -31,7 +31,6 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 - [Recommended hosts](#recommended-hosts)
 - [Pratham's way of hosting](#prathams-way-of-hosting)
 - [Examples](#examples)
-- [How it works](#how-it-works)
 - [Local development](#local-development)
 - [Data privacy](#data-privacy)
 - [Documentation](#documentation)
@@ -289,65 +288,6 @@ That is his operator setup. The install path above still uses this repo's Compos
 <details>
   <summary><h3>/ask</h3></summary>
   <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
-</details>
-
-## How it works
-
-<img src="assets/runtime-topology.png" alt="A pull request on GitHub reaches web, web stores the work in Postgres, the worker reviews it, and notes land on your pull request" width="100%">
-
-<details>
-<summary>Web, worker, and review path</summary>
-
-```mermaid
-flowchart LR
-  GitHub[GitHub webhooks] --> Web["ROLE=web /webhooks"]
-  Web --> Dedupe[Postgres webhook_events + body replay]
-  Dedupe --> Items[agent_work_items]
-  Items --> Boss[pg-boss enqueue]
-  Boss --> AckQ[ack queue]
-  Boss --> CiRefQ[ci-refresh queue]
-  Boss --> RevQ[review queue]
-  Boss --> AskQ[ask queue]
-  Boss --> DescQ[description queue]
-  Boss --> TriageQ[triage queue]
-  Boss --> VerifQ[verification queue]
-  Boss --> RetQ[retention queue]
-  Boss --> CodeIdxQ[code-index-build queue]
-  AckQ --> Worker["ROLE=worker executors"]
-  CiRefQ --> Worker
-  RevQ --> Worker
-  AskQ --> Worker
-  DescQ --> Worker
-  TriageQ --> Worker
-  VerifQ --> Worker
-  RetQ --> Worker
-  CodeIdxQ --> Worker
-  Worker --> Retention[retention cleanup]
-  Retention --> Dedupe
-  Retention --> Items
-  RevQ --> ReviewExec[Review executor]
-  ReviewExec --> Orchestrator[Review orchestrator]
-  Orchestrator --> Correctness[Correctness specialist]
-  Orchestrator --> Security[Security specialist]
-  Orchestrator --> Quality[Quality specialist]
-  Orchestrator --> Tests[Tests specialist]
-  Correctness --> Orchestrator
-  Security --> Orchestrator
-  Quality --> Orchestrator
-  Tests --> Orchestrator
-  Orchestrator --> Publish[GitHub PR-surface publish]
-  Worker --> Push[git push PR branch]
-```
-
-1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)) verifies the signature, parses the payload, applies delivery-ID and body-hash replay protection in Postgres, and schedules work. It does not create installation tokens or post to the PR.
-2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)) admits asks through durable actor, repository, installation, outstanding-work, and provider-budget state, then inserts `agent_work_items` and enqueues pg-boss jobs.
-3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` or `check_suite` completes later.
-4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep. One active run per PR per work type is enforced by the `pr_actor_leases` table ([ADR 0030](docs/adr/0030-pr-actor-lease.md)), not by queue policy, so a crashed worker's run is taken over once its lease lapses. Ask quota reservations release from terminal work-item transitions ([ADR 0031](docs/adr/0031-ask-admission-quotas.md)).
-5. **Feature executors** ([`src/agentWork/executors/`](src/agentWork/executors/)) create a GitHub installation token, open a local PR workspace (or a writable checkout for triage), run the agent, and publish through the epoch- and cancellation-fenced `PrSurface` mutation boundary for leased work; ask remains unleased.
-6. **Reviews** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)) inspect the PR, write a specialist brief, run four specialists in parallel, publish inline thread batches, then write the final summary.
-
-Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Design background: [ADR 0006](docs/adr/0006-durable-agent-work.md), [ADR 0005](docs/adr/0005-ask-command.md).
-
 </details>
 
 ## Local development
