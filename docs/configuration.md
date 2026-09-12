@@ -10,12 +10,12 @@ For behaviour, deployment, and developer scripts see [operations.md](operations.
 
 ## How to change something
 
-| Kind         | Where to edit                                                                  |
-| ------------ | ------------------------------------------------------------------------------ |
-| **feature**  | `.env` → `FEATURE_*` keys; catalog and semantics in [features.md](features.md) |
-| **env**      | `.env` / deployment env → keys below; defaults in `src/settings/defaults.ts`   |
-| **code**     | `src/settings/constants.ts`                                                    |
-| **external** | Provider env; loaded into config but never logged                              |
+| Kind         | Where to edit                                                                                                                                                                                      |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **feature**  | `.env` → `FEATURE_*` keys; catalog and semantics in [features.md](features.md)                                                                                                                     |
+| **env**      | `.env` / deployment env → keys below. Defaults live in `src/settings/defaults.ts`, plus ask-quota and code-index defaults there, and `LOG_PRETTY` in `src/config.ts` (`NODE_ENV !== "production"`) |
+| **code**     | `src/settings/constants.ts`                                                                                                                                                                        |
+| **external** | Provider env; loaded into config but never logged                                                                                                                                                  |
 
 Import convention: `import { … } from "../settings/index.js"` for constants; `Config` from `config.ts` at runtime.
 
@@ -30,7 +30,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 
 Do not add magic numbers or env default strings in feature modules; import from `src/settings/`.
 
-CI enforces env alignment via `test/settingsInventory.test.ts` (including that every `FEATURE_*` key appears in `docs/features.md`). `docs/configuration.md` code-constant rows are maintained on the honor system.
+CI enforces env alignment via `test/settingsInventory.test.ts` (including that every `FEATURE_*` key appears in `docs/features.md`). Loadable env names are `ENV` plus `EXTERNAL_ENV` in [`src/settings/envKeys.ts`](../src/settings/envKeys.ts), plus provider secrets Pi reads from `process.env` (`DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and others documented in [README.md](../README.md)). `docs/configuration.md` code-constant rows are maintained on the honor system. A backtick `SCREAMING_NAME` in a code-constant row is not an env var unless its Kind column says **env**.
 
 ---
 
@@ -53,7 +53,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Thinking ceiling                  | `PI_THINKING_CEILING`                    | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`)                                                                                                                                                                                                                                    |
 | Provider transport retries        | `PI_PROVIDER_RETRY_MAX`                  | `2`                      | Extra transport attempts per provider request on retryable 429/5xx/network failures; `0` disables provider transport retry, not Core turn retry after a retryable assistant error (`SESSION_TURN_RETRY_MAX`)                                                                                                                         |
 | Provider retry delay cap          | `PI_PROVIDER_MAX_RETRY_DELAY_MS`         | `60000`                  | Bounds a provider-requested retry delay (e.g. `Retry-After`); must be strictly less than `PROVIDER_PROMPT_TIMEOUT_MS` (fail-fast at startup)                                                                                                                                                                                         |
-| Resume snapshot key               | `AGENT_RESUME_SNAPSHOT_KEY`              | empty                    | Base64 32-byte key for encrypted Agent resume snapshots; empty disables snapshot persistence                                                                                                                                                                                                                                         |
+| Resume snapshot key               | `AGENT_RESUME_SNAPSHOT_KEY`              | empty                    | Base64 32-byte key for encrypted Agent resume snapshots. `loadConfig` only trims. Format is checked at first persist or load (`decodeMasterKey`). A bad string throws `runtime.resume_snapshot_key_invalid` then, not at boot. Empty or whitespace disables snapshots.                                                               |
 | Resume snapshot margin            | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS`   | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                                                                                                                                                                                                            |
 | Agent events enabled              | `AGENT_EVENTS_ENABLED`                   | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                               |
 | Agent events retention            | `AGENT_EVENTS_RETENTION_SECONDS`         | `0`                      | Optional TTL delete for `agent_events` by `recorded_at`; `0` relies on `AGENT_WORK_RETENTION_SECONDS` + `ON DELETE SET NULL` on `work_item_id`                                                                                                                                                                                       |
@@ -132,18 +132,18 @@ caps, CI-summary waits, workspace limits) are now code constants in
 - Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values. Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side. Model `cost` fields are USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`). Use `0` only for free local models; billed proxies need real rates so cache accounting is not silently free.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
-  - **Runtime mount:** Compose `./models.json:/app/models.json:ro` (create the host file first — a missing path becomes a directory).
+  - **Runtime mount:** add `./models.json:/app/models.json:ro` yourself. The committed compose file does not. Create the host file first. A missing path becomes a directory.
   - **Override path:** set `MODELS_JSON_PATH` when the catalog is not at cwd.
 
 ### External model provider secrets
 
 Loaded by `loadConfig()` into a redaction-safe map and never logged. Set the secret(s) for your `PI_PROVIDER`.
 
-| Env var                        | Purpose            |
-| ------------------------------ | ------------------ |
-| `OPENAI_API_KEY`               | OpenAI provider    |
-| `ANTHROPIC_API_KEY`            | Anthropic provider |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google provider    |
+| Env var                        | Purpose                                                                                                       |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | OpenAI provider                                                                                               |
+| `ANTHROPIC_API_KEY`            | Anthropic provider                                                                                            |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google provider. If empty, pi-ai also reads `GEMINI_API_KEY` from the process environment. Either name works. |
 
 ---
 
@@ -184,11 +184,11 @@ Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RET
 | `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                                    |
 | `VERIFICATION_PUBLISH_LENS`                | `verification`                                                                                                                                              |
 | `VERIFICATION_STUB_MARKER`                 | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                  |
-| `VERIFICATION_FAILURE_START` / `_END`      | `<!-- pr-agent:verification-failure -->` markers around the one in-place terminal-failure signal                                                            |
+| `VERIFICATION_FAILURE_START` / `_END`      | Start `<!-- pr-agent:verification-failure -->`. End `<!-- /pr-agent:verification-failure -->`.                                                              |
 | `VERIFICATION_FAILURE_TEXT`                | `Verification did not complete. Run \`/verify\` to try again.`                                                                                              |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                       |
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                             |
-| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery; the armed redelivery re-checks until the lease frees or lapses                         |
+| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery. Lives in `src/agentWork/prActorLease.ts`, not settings.                                |
 | `STALE_QUEUED_WORK_GRACE_SECONDS`          | 300, age after which a queued leased-type work item with no live lease and no live pg-boss job is logged as `agent_work_queued_stale` (delivery chain dead) |
 | `ESCALATED_TOOL_ROUNDS_MULTIPLIER`         | 2, factor applied to a base structured-loop tool-round budget on an escalated attempt (attempt 2 and later)                                                 |
 | `ESCALATED_TOOL_ROUNDS_CAP`                | 64, ceiling on any escalated tool-round budget                                                                                                              |
@@ -374,15 +374,15 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### Ask safety
 
-| Symbol                            | Default                                                                                                                 |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `MAX_ASK_QUESTION_CHARS`          | 8192                                                                                                                    |
-| `MAX_ASK_THREAD_TRANSCRIPT_CHARS` | 24000                                                                                                                   |
-| `ASK_META_REFUSAL`                | meta-probe reply                                                                                                        |
-| `BOT_META_PATTERNS`               | regex set                                                                                                               |
-| `BOT_SECRET_PATTERNS`             | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens                                      |
-| `SENSITIVE_PATH_PATTERNS`         | shared sensitive-path policy for ask reads, verification search, and triage reads, search, writes, staging, and commits |
-| `TRIAGE_CONTROL_PATH_PATTERNS`    | control-plane paths blocked by triage workspace reads, search, writes, staging, and commits, and by verification search |
+| Symbol                            | Default                                                                                                                                                                    |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MAX_ASK_QUESTION_CHARS`          | 8192                                                                                                                                                                       |
+| `MAX_ASK_THREAD_TRANSCRIPT_CHARS` | 24000                                                                                                                                                                      |
+| `ASK_META_REFUSAL`                | meta-probe reply                                                                                                                                                           |
+| `BOT_META_PATTERNS`               | regex set                                                                                                                                                                  |
+| `BOT_SECRET_PATTERNS`             | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens                                                                                         |
+| `SENSITIVE_PATH_PATTERNS`         | shared sensitive-path policy for ask reads, verification search, and triage reads, search, writes, staging, and commits                                                    |
+| `TRIAGE_CONTROL_PATH_PATTERNS`    | control-plane paths blocked by triage workspace reads, search, writes, staging, and commits, and by verification search. Lives in `src/agent/triage/triageWritePolicy.ts`. |
 
 ### GitHub API
 
@@ -440,29 +440,29 @@ Shared workspace search applies `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` to git-
 
 ### Code Mode
 
-| Symbol                                 | Default  |
-| -------------------------------------- | -------- |
-| `CODE_MODE_INTERRUPT_CHECKS`           | 50000    |
-| `CODE_MODE_CPU_BUDGET_MS`              | 80       |
-| `CODE_MODE_MAX_TOOL_CALLS`             | 25       |
-| `CODE_MODE_HOST_IN_FLIGHT`             | 4        |
-| `CODE_MODE_TIMEOUT_MS`                 | 15000    |
-| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8        |
-| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100      |
-| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768    |
-| `CODE_MODE_MAX_STRING_REPEAT`          | 65536    |
-| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536    |
-| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536    |
-| `CODE_MODE_STATE_MAX_BYTES`            | 65536    |
-| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144   |
-| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144   |
-| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608  |
-| `CODE_MODE_GUEST_STACK_BYTES`          | 524288   |
-| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64       |
-| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2        |
-| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8        |
-| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000    |
-| `CODE_MODE_EXECUTOR_KIND`              | resolved |
+| Symbol                                 | Default                                                                                                  |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `CODE_MODE_INTERRUPT_CHECKS`           | 50000                                                                                                    |
+| `CODE_MODE_CPU_BUDGET_MS`              | 80                                                                                                       |
+| `CODE_MODE_MAX_TOOL_CALLS`             | 25                                                                                                       |
+| `CODE_MODE_HOST_IN_FLIGHT`             | 4                                                                                                        |
+| `CODE_MODE_TIMEOUT_MS`                 | 15000                                                                                                    |
+| `CODE_MODE_SERIALIZE_MAX_DEPTH`        | 8                                                                                                        |
+| `CODE_MODE_SERIALIZE_MAX_ARRAY_LENGTH` | 100                                                                                                      |
+| `CODE_MODE_SERIALIZE_MAX_STRING_BYTES` | 32768                                                                                                    |
+| `CODE_MODE_MAX_STRING_REPEAT`          | 65536                                                                                                    |
+| `CODE_MODE_MAX_ARRAY_ALLOCATION`       | 65536                                                                                                    |
+| `CODE_MODE_MAX_SOURCE_BYTES`           | 65536                                                                                                    |
+| `CODE_MODE_STATE_MAX_BYTES`            | 65536                                                                                                    |
+| `CODE_MODE_HOST_TO_GUEST_MAX_BYTES`    | 262144                                                                                                   |
+| `CODE_MODE_MAX_OUTPUT_BYTES`           | 262144                                                                                                   |
+| `CODE_MODE_GUEST_HEAP_BYTES`           | 8388608                                                                                                  |
+| `CODE_MODE_GUEST_STACK_BYTES`          | 524288                                                                                                   |
+| `CODE_MODE_PENDING_JOBS_PER_PUMP`      | 64                                                                                                       |
+| `CODE_MODE_EXECUTOR_POOL_SIZE`         | 2                                                                                                        |
+| `CODE_MODE_EXECUTOR_QUEUE_LENGTH`      | 8                                                                                                        |
+| `CODE_MODE_EXECUTOR_QUEUE_WAIT_MS`     | 10000                                                                                                    |
+| `CODE_MODE_EXECUTOR_KINDS`             | `worker_threads` \| `in_process`. `resolveCodeModeExecutorKind()` in `src/settings/codeModeConstants.ts` |
 
 Review, ask, and verification expose one model-visible `execute` tool. Scripts call canonical workspace capabilities as `tools.*`. Terminal submit and publish tools stay native siblings. Each cell runs in QuickJS WASM with an interrupt and an 80ms guest CPU budget. `resolveCodeModeExecutorKind()` is `worker_threads` for compiled production and `in_process` for Vitest and TypeScript sources. The interpreter does not use `eval`, V8 isolates, or native add-ons. `CODE_MODE_MAX_STRING_REPEAT` also caps `+` concatenation. `CODE_MODE_MAX_ARRAY_ALLOCATION` also caps `Array.from`.
 

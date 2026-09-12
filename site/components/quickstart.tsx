@@ -73,14 +73,14 @@ export function Quickstart() {
               ))}
             </dl>
             <p className="mt-5 text-sm leading-relaxed text-ink-faint">
-              Need the click-by-click path? See{" "}
+              Full steps are in{" "}
               <a
                 href={DOCS_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-ink-soft underline decoration-edge-strong hover:text-ink"
               >
-                README Host with Docker Compose
+                README Installation
               </a>
               .
             </p>

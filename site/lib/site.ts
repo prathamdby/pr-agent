@@ -23,5 +23,5 @@ function resolveSiteOrigin(): string {
 export const SITE_ORIGIN = resolveSiteOrigin();
 
 export const REPO_URL = "https://github.com/prathamdby/pr-agent";
-export const DOCS_URL = `${REPO_URL}#host-with-docker-compose`;
+export const DOCS_URL = `${REPO_URL}#installation`;
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;

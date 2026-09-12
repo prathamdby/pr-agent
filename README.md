@@ -1,52 +1,102 @@
 <div align="center">
 
+<img src="assets/pr-agent-wordmark.png" alt="PR Agent" width="100%">
+
 # PR Agent
 
-Self-hosted GitHub App for AI pull request reviews
+Review pull requests on machines you own.
 
-`pr-agent` · Node 22+ · Postgres · pg-boss
+<p>
+  <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/DeepWiki-Ask-7B2CBF?style=for-the-badge" alt="Ask DeepWiki"></a>
+  <a href="https://context7.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/Context7-Ask-4B0082?style=for-the-badge" alt="Ask Context7"></a>
+  <a href="https://opencode.ai/go?ref=AHE1W13AS7"><img src="https://img.shields.io/badge/OpenCode-Go-2563EB?style=for-the-badge" alt="OpenCode Go"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge" alt="License: MIT"></a>
+  <a href="#documentation"><img src="https://img.shields.io/badge/Documentation-README-EAB308?style=for-the-badge" alt="Documentation"></a>
+  <a href="#installation"><img src="https://img.shields.io/badge/Node-22+-EA580C?style=for-the-badge" alt="Node 22+"></a>
+</p>
 
 </div>
 
-PR Agent installs on your GitHub org or repos, receives webhooks, and runs reviews (plus optional describe, ask, triage, and verification) on your own machines. You bring the GitHub App credentials, a Postgres database, and an LLM API key.
+A pull request is opened on your project. PR Agent reads the change and comments next to the lines it flags.
 
-Two processes must run together:
+You can have it write the description, answer a question in the thread, try a fix, or look again after you push.
 
-1. **web** accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns `200` once that write succeeds.
-2. **worker** runs the queues: reactions, progress comments, model sessions, and everything posted back to the PR.
+CodeRabbit and the other hosted reviewers charge per person and keep your keys. This is free to install. You pay the computer and the AI bill, not a seat per teammate. You pick who reads the code.
 
-If only web is up, nothing appears on the PR. Comments and reviews show up a few seconds later once a worker picks up the job.
+## Contents
 
-Deeper docs: [features](docs/features.md) · [configuration](docs/configuration.md) · [operations](docs/operations.md) · [queue runbook](docs/agent-work-ops.md) · [domain terms](CONTEXT.md)
-
----
-
-## Table of contents
-
-- [Host with Docker Compose](#host-with-docker-compose)
-- [Create the GitHub App](#create-the-github-app)
-- [Point GitHub at your server](#point-github-at-your-server)
-- [Choose an LLM provider](#choose-an-llm-provider)
-- [Check that it works](#check-that-it-works)
-- [What you get](#what-you-get)
-- [See it in action](#see-it-in-action)
-- [How it works](#how-it-works)
+- [Features](#features)
+- [Installation](#installation)
+- [Verification](#verification)
+- [Examples](#examples)
+- [Recommended hosts](#recommended-hosts)
+- [Pratham's way of hosting](#prathams-way-of-hosting)
 - [Local development](#local-development)
 - [Data privacy](#data-privacy)
+- [Documentation](#documentation)
 
-## Host with Docker Compose
+## Features
 
-You need Docker Engine with Compose v2, a host that GitHub can reach over HTTPS (or a tunnel while testing), and about 15 minutes.
+| Feature             | When it runs                                      | Command                         |
+| ------------------- | ------------------------------------------------- | ------------------------------- |
+| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`            | `/review` always                |
+| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`          | `/describe`                     |
+| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto` | `/verify`                       |
+| Ask                 | On demand when `FEATURE_ASK=manual`               | `/ask …` or mention the App bot |
+| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`            | `/triage`                       |
+| Cancel review       | On demand                                         | `/cancel`                       |
+| Restart review      | On demand (cancels the active run, latest commit) | `/review force`                 |
+| Help                | On demand                                         | `/help`                         |
 
-### 1. Clone and create `.env`
+Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts only `manual` or `auto`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup.
+
+<details>
+<summary>Review rules and slash matching</summary>
+
+Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A finding is published only when it meets the causal-publication contract. The orchestrator re-applies that contract during judgment. P0-P2 findings fail the review check run. P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0010](docs/adr/0010-lightweight-review-completion.md)).
+
+Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`). Mention matching uses the App bot login, not the word `@bot`. `/ask` and `/help` do not need a mention.
+
+Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags. Set `FEATURE_DESCRIBE=off`, `FEATURE_ASK=off`, and similar when you want those features to stop calling the model.
+
+</details>
+
+## Installation
+
+You need Docker Engine with Compose v2, a GitHub account that can create a GitHub App, one AI provider key, and a host GitHub can reach over HTTPS. A laptop can use a tunnel client instead of public TLS.
+
+Create the GitHub App and paste a real private key before you start Compose. The example key in `.env.example` is not a real key. Both app containers exit if you start them without a generated App key.
+
+### 1. Register the GitHub App
+
+1. Open [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
+2. Set **Homepage URL** to this repository (`https://github.com/prathamdby/pr-agent`) or your public site. The form requires it. The App does not use it at runtime.
+3. Leave **Identifying and authorizing users** off. Do not set a callback URL. This App does not use user login.
+4. Set **Webhook URL** to `https://<your-host>/webhooks` once you have HTTPS, or a tunnel URL that forwards to `/webhooks`. You can save the App first and add the URL after the host is up.
+5. Set **Webhook secret** now. Copy the same value into `WEBHOOK_SECRET` later.
+6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, and `check_suite`. Do not require `pull_request_review` unless you have a reason.
+7. Set repository permissions (table below). Create the app, generate a **private key**, and copy the **App ID**.
+8. Install the app on the orgs or repos you want reviewed. Creating the App is not enough. If you pick **Only select repositories**, include the test repo.
+
+| Permission      | Access       | Why                                               |
+| --------------- | ------------ | ------------------------------------------------- |
+| Issues          | Read & write | PR conversation comments and reactions            |
+| Pull requests   | Read & write | Reviews, inline threads, PR body for `/describe`  |
+| Contents        | Read & write | Read code; write only needed for `/triage` pushes |
+| Metadata        | Read         | Required by GitHub for apps                       |
+| Checks          | Read & write | Review check run + CI summary inputs              |
+| Actions         | Read         | Condensed job logs when CI fails                  |
+| Commit statuses | Read & write | Only if you set `FEATURE_COMMIT_STATUS=true`      |
+
+`workflow_run` or `check_suite` (completed) refreshes the CI row on an existing review summary when Actions finish later.
+
+### 2. Create the environment file
 
 ```bash
 git clone https://github.com/prathamdby/pr-agent.git
 cd pr-agent
 cp .env.example .env
 ```
-
-Edit `.env` and set at least:
 
 ```bash
 GITHUB_APP_ID=...
@@ -57,34 +107,38 @@ PI_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-...
 ```
 
-Notes:
+Paste the GitHub App private key as one line with `\n` for newlines, or as base64-encoded PEM. A literal multi-line PEM block is the form most likely to break Compose `env_file`. A placeholder or truncated PEM stops both app containers. Set the provider key before you expect a review to post. An empty `OPENAI_API_KEY` still boots.
 
-- Paste the GitHub App private key as one line with `\n` for newlines, as real multi-line PEM, or as base64-encoded PEM. Config loading accepts all three.
+<details>
+<summary>Environment notes</summary>
+
 - `WEBHOOK_SECRET` must match the secret you set on the GitHub App.
-- Compose overrides `ROLE` and `DATABASE_URL` for each service. You still need the GitHub and provider fields in `.env`.
+- Compose overrides `ROLE` and `DATABASE_URL` for each service. Web and worker use hostname `postgres` on the compose network. The `DATABASE_URL` in `.env.example` (`localhost:5432`) is for host processes only, and only after you publish Postgres. See [Local development](#local-development).
 - Default HTTP port is `7224` (Compose and `.env.example`). Bare `nub src/index.ts` without `PORT` falls back to `3000`.
+- `.env.example` sets `LOG_PRETTY=true` for a laptop. On a public host, set `LOG_PRETTY=false` or drop the line so production defaults apply. Change the default Postgres password if the host is reachable.
+- Full env catalog: [docs/configuration.md](docs/configuration.md). Feature switches: [docs/features.md](docs/features.md).
 
-Full env catalog: [docs/configuration.md](docs/configuration.md). Feature switches: [docs/features.md](docs/features.md).
+</details>
 
-### 2. Start the stack
+### 3. Start the stack
 
 ```bash
 docker compose build
 docker compose up -d
 ```
 
-That starts three services from [docker-compose.yml](docker-compose.yml):
+| Service           | Role          | What it does                                                                                                     |
+| ----------------- | ------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs. Not published to the host.                                     |
+| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                                     |
+| `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-refresh, code-index-build, and retention queues |
 
-| Service           | Role          | What it does                                                                                   |
-| ----------------- | ------------- | ---------------------------------------------------------------------------------------------- |
-| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs                                               |
-| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                   |
-| `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-refresh, and retention queues |
+Migrations run when each process opens its Postgres pool.
 
-Migrations run automatically when each process opens its Postgres pool. You do not run them by hand.
+<details>
+<summary>Compose overrides and the production overlay</summary>
 
 ```bash
-# optional: different env file path
 PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up -d
 ```
 
@@ -96,51 +150,35 @@ ports:
   - "7227:7224"
 ```
 
-Production credential hardening and extra deploy notes: [docs/operations.md](docs/operations.md).
+Do not start [docker-compose.prod.yml](docker-compose.prod.yml) with the example `DATABASE_URL`. That overlay replaces the in-compose `postgres` hostname with `${DATABASE_URL}`. Inside the container, `localhost` is the app container, not the database. The overlay also requires `POSTGRES_DB`, `POSTGRES_USER`, and `POSTGRES_PASSWORD`. Details: [docs/operations.md](docs/operations.md).
 
-## Create the GitHub App
-
-1. Open [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
-2. Set **Webhook URL** to `https://<your-host>/webhooks` (Compose default port is `7224` if you terminate TLS in front of it).
-3. Set **Webhook secret** to the same value as `WEBHOOK_SECRET` in `.env`.
-4. Subscribe to these repository events (and only these for a normal install):
-   - `pull_request`
-   - `issue_comment`
-   - `pull_request_review_comment`
-   - `workflow_run` and `check_suite` (either completed event refreshes the CI row on an existing review summary when Actions finish later)
-5. Do **not** require `pull_request_review` unless you have a reason. The bot does not need it for normal intake.
-6. Repository permissions:
-
-   | Permission      | Access       | Why                                               |
-   | --------------- | ------------ | ------------------------------------------------- |
-   | Issues          | Read & write | PR conversation comments and reactions            |
-   | Pull requests   | Read & write | Reviews, inline threads, PR body for `/describe`  |
-   | Contents        | Read & write | Read code; write only needed for `/triage` pushes |
-   | Metadata        | Read         | Required by GitHub for apps                       |
-   | Checks          | Read & write | Review check run + CI summary inputs              |
-   | Actions         | Read         | Condensed job logs when CI fails                  |
-   | Commit statuses | Read & write | Only if you set `FEATURE_COMMIT_STATUS=true`      |
-
-7. Create the app, generate a **private key**, and copy the **App ID**.
-8. Install the app on the orgs or repos you want reviewed.
-9. Put `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in `.env`, then recreate the containers so they pick up the change:
+If you change GitHub fields after the first start, recreate the app containers:
 
 ```bash
 docker compose up -d --force-recreate pr-agent-web pr-agent-worker
 ```
 
-## Point GitHub at your server
+</details>
 
-GitHub must reach `POST /webhooks` on the web service.
+### 4. Reach the webhook
 
-- **Production:** put TLS in front of `pr-agent-web` (Caddy, nginx, a load balancer, your PaaS). Forward to container port `7224`.
-- **Laptop test:** use a tunnel such as [smee.io](https://smee.io) or Cloudflare Tunnel. Point the GitHub App webhook at the public URL, and forward that traffic to `http://127.0.0.1:7224/webhooks`.
+GitHub must reach `POST /webhooks` on the web service over HTTPS. Localhost is the documented exception. Compose publishes HTTP `7224` only. There is no Caddy, nginx, or certificate in this repo. TLS is operator-owned.
 
-Webhook handler path is always `/webhooks` (see [`src/effect/server.ts`](src/effect/server.ts)).
+**Production.** Put TLS in front of `pr-agent-web` (Caddy, nginx, a load balancer, your PaaS). Forward to container port `7224`. A Caddy example lives in [docs/operations.md](docs/operations.md#tls-in-front-of-compose).
 
-## Choose an LLM provider
+**Laptop.** Start a tunnel client that forwards to `http://127.0.0.1:7224/webhooks`. A smee channel or Cloudflare hostname with no local client drops every delivery. GitHub can show 200 from the relay while this process sees nothing.
 
-LLM calls run on the **worker** only, through the Pi Core session runtime ([ADR 0023](docs/adr/0023-pi-native-agent-runtime.md)).
+```bash
+# smee.io: create a channel, then
+npx smee-client -u https://smee.io/<channel> --target http://127.0.0.1:7224/webhooks
+
+# or Cloudflare Tunnel, then set the App webhook to https://<trycloudflare-host>/webhooks
+cloudflared tunnel --url http://127.0.0.1:7224
+```
+
+### 5. Set the model provider
+
+LLM calls run on the **worker** only ([ADR 0023](docs/adr/0023-pi-native-agent-runtime.md)).
 
 | What                    | Env vars                                            | Used for                                                               |
 | ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -148,34 +186,33 @@ LLM calls run on the **worker** only, through the Pi Core session runtime ([ADR 
 | Orchestrator (optional) | `PI_ORCHESTRATOR_PROVIDER`, `PI_ORCHESTRATOR_MODEL` | Review orchestrator session; empty means inherit general primary       |
 | Fallback (optional)     | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL`         | Second attempt onward via retry escalation; both must be set to enable |
 
-Minimal OpenAI example:
-
 ```bash
 PI_PROVIDER=openai
 PI_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-...
 ```
 
-- Startup checks `PI_PROVIDER` / `PI_MODEL` against the installed pi-ai list, or against a project `models.json` when that file is present.
-- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/config.ts`](src/config.ts). Other Pi providers use their usual env vars on the worker (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Provider catalog: [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
-- Optional custom catalog: copy [`models.json.example`](models.json.example), place `models.json` at the repo root before `docker build` (copied to `/app/models.json` when present), mount it at runtime on **both** web and worker, or set `MODELS_JSON_PATH`. Details: [docs/operations.md](docs/operations.md).
-
-Restart the worker after provider changes:
-
 ```bash
 docker compose up -d --force-recreate pr-agent-worker
 ```
 
-## Check that it works
+<details>
+<summary>Provider catalog and models.json</summary>
+
+- Without a catalog, worker boot only checks that `PI_PROVIDER` is a builtin. An unknown `PI_MODEL` falls through to that provider's first model API type. The first session then throws `provider.model_not_found`. Web never validates the model id. A present `models.json` does fail worker boot on a missing selection.
+- pr-agent loads `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GOOGLE_GENERATIVE_AI_API_KEY` in [`src/config.ts`](src/config.ts). If the Google alias is empty, pi-ai also reads `GEMINI_API_KEY` from the process environment. Other Pi providers use their usual env vars on the worker (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). Provider catalog: [pi-ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
+- Optional custom catalog: copy [`models.json.example`](models.json.example), place `models.json` at the repo root before `docker build` (copied to `/app/models.json` when present), add a runtime mount on **both** web and worker (the committed compose file does not), or set `MODELS_JSON_PATH`. Details: [docs/operations.md](docs/operations.md).
+
+</details>
+
+## Verification
 
 ```bash
 curl -sS http://127.0.0.1:7224/health   # ok
 curl -sS http://127.0.0.1:7224/ready    # ready (web: Postgres up)
 ```
 
-Worker readiness (consumers registered + Postgres/pg-boss) is checked inside the Compose healthcheck on the worker container. From the host you only published the web port by default.
-
-Then open a small PR on an installed repo, or comment `/help` on an existing PR.
+Then open a small PR on an **installed** repo. Comment `/help` as an owner, member, or collaborator (`SLASH_ALLOWED_ASSOCIATIONS`, default `OWNER,MEMBER,COLLABORATOR`).
 
 | Expect                                      | Where                                      |
 | ------------------------------------------- | ------------------------------------------ |
@@ -184,129 +221,122 @@ Then open a small PR on an installed repo, or comment `/help` on an existing PR.
 | Inline findings on the Files tab            | When the bot can anchor them               |
 | Final summary replaces the progress comment | Same conversation comment                  |
 
-If webhooks return 200 but the PR stays quiet, the worker is down, misconfigured, or failing on the provider key. Check `docker compose logs -f pr-agent-worker` and the queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
-
-## What you get
-
-Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md).
-
-| Capability          | When it runs                                      | Command              |
-| ------------------- | ------------------------------------------------- | -------------------- |
-| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`            | `/review` always     |
-| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`          | `/describe`          |
-| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto` | `/verify`            |
-| Ask                 | On demand when `FEATURE_ASK=manual`               | `/ask …` or `@bot …` |
-| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`            | `/triage`            |
-| Cancel review       | On demand                                         | `/cancel`            |
-| Restart review      | On demand (cancels the active run, latest commit) | `/review force`      |
-| Help                | On demand                                         | `/help`              |
-
-Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A finding is published only when it meets the causal-publication contract; the orchestrator re-applies that contract during judgment. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0010](docs/adr/0010-lightweight-review-completion.md)).
-
-Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`).
-
-Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags. Set `FEATURE_DESCRIBE=off`, `FEATURE_ASK=off`, and similar when you want those features to stop calling the model.
-
-## See it in action
+Default `FEATURE_VERIFICATION=auto` spends tokens on every push. Switch it to `manual` or `off` if that bill is too high.
 
 <details>
-  <summary><h3>/describe</h3></summary>
-  <img src="site/public/screenshots/describe.example.webp" alt="Example /describe output showing PR Agent Description block" width="800" />
+<summary>What the probes do not prove</summary>
+
+Those probes do not prove GitHub can reach `/webhooks`, that the worker has a provider key, or that App permissions match what publish code calls. An empty `OPENAI_API_KEY` still boots.
+
+Worker readiness (consumers registered + Postgres/pg-boss) is checked inside the Compose healthcheck on the worker container (`GET /ready`). The image `HEALTHCHECK` hits `/health`, which is process liveness only. Compose overrides the worker check. From the host you only published the web port by default.
+
+A contributor or outside commenter gets webhook `200` and no reply. That looks like a dead worker.
+
+If webhooks return 200 but the PR stays quiet, check the worker logs, the provider key, App install (not just App create), slash allowlist, and the queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md). `docker compose logs -f pr-agent-worker`.
+
 </details>
 
-<details>
-  <summary><h3>/review</h3></summary>
-  <img src="site/public/screenshots/review.example.webp" alt="Example /review output showing PR Agent Review summary" width="800" />
-</details>
+## Examples
 
-<details>
-  <summary><h3>/ask</h3></summary>
-  <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
-</details>
+<table>
+  <tr>
+    <td width="36%" valign="middle">
+      <h3>Review on the pull request</h3>
+      <p>Flags problems on the change and comments next to the lines. The summary stays in the conversation.</p>
+    </td>
+    <td width="64%">
+      <img src="site/public/screenshots/review.example.webp" alt="PR Agent review summary on a pull request" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="36%" valign="middle">
+      <h3>Description in the PR body</h3>
+      <p>Turns a blank pull request body into a readable summary. Bullets and a diagram land on the PR when they help.</p>
+    </td>
+    <td width="64%">
+      <img src="site/public/screenshots/describe.example.webp" alt="PR Agent description block in a pull request body" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="36%" valign="middle">
+      <h3>Ask in the thread</h3>
+      <p>Answers a question about the change in the same conversation. You stay on GitHub.</p>
+    </td>
+    <td width="64%">
+      <img src="site/public/screenshots/ask.example.webp" alt="PR Agent answer on a pull request" width="100%" />
+    </td>
+  </tr>
+</table>
 
-## How it works
+## Recommended hosts
 
-```mermaid
-flowchart LR
-  GitHub[GitHub webhooks] --> Web["ROLE=web /webhooks"]
-  Web --> Dedupe[Postgres webhook_events + body replay]
-  Dedupe --> Items[agent_work_items]
-  Items --> Boss[pg-boss enqueue]
-  Boss --> AckQ[ack queue]
-  Boss --> CiRefQ[ci-refresh queue]
-  Boss --> RevQ[review queue]
-  Boss --> AskQ[ask queue]
-  Boss --> DescQ[description queue]
-  Boss --> TriageQ[triage queue]
-  Boss --> VerifQ[verification queue]
-  Boss --> RetQ[retention queue]
-  AckQ --> Worker["ROLE=worker executors"]
-  CiRefQ --> Worker
-  RevQ --> Worker
-  AskQ --> Worker
-  DescQ --> Worker
-  TriageQ --> Worker
-  VerifQ --> Worker
-  RetQ --> Worker
-  Worker --> Retention[retention cleanup]
-  Retention --> Dedupe
-  Retention --> Items
-  RevQ --> ReviewExec[Review executor]
-  ReviewExec --> Orchestrator[Review orchestrator]
-  Orchestrator --> Correctness[Correctness specialist]
-  Orchestrator --> Security[Security specialist]
-  Orchestrator --> Quality[Quality specialist]
-  Orchestrator --> Tests[Tests specialist]
-  Correctness --> Orchestrator
-  Security --> Orchestrator
-  Quality --> Orchestrator
-  Tests --> Orchestrator
-  Orchestrator --> Publish[GitHub PR-surface publish]
-  Worker --> Push[git push PR branch]
-```
+This repo still ships one stack: Compose `postgres`, `pr-agent-web`, and `pr-agent-worker`. A panel or reverse proxy only terminates TLS and forwards to web. Do not add a second compose file, publish Postgres, or expose the worker.
 
-1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)) verifies the signature, parses the payload, applies delivery-ID and body-hash replay protection in Postgres, and schedules work. It does not create installation tokens or post to the PR.
-2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)) admits asks through durable actor, repository, installation, outstanding-work, and provider-budget state, then inserts `agent_work_items` and enqueues pg-boss jobs.
-3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` or `check_suite` completes later.
-4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep. One active run per PR per work type is enforced by the `pr_actor_leases` table ([ADR 0030](docs/adr/0030-pr-actor-lease.md)), not by queue policy, so a crashed worker's run is taken over once its lease lapses. Ask quota reservations release from terminal work-item transitions ([ADR 0031](docs/adr/0031-ask-admission-quotas.md)).
-5. **Feature executors** ([`src/agentWork/executors/`](src/agentWork/executors/)) create a GitHub installation token, open a local PR workspace (or a writable checkout for triage), run the agent, and publish through the epoch- and cancellation-fenced `PrSurface` mutation boundary for leased work; ask remains unleased.
-6. **Reviews** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)) inspect the PR, write a specialist brief, run four specialists in parallel, publish inline thread batches, then write the final summary.
+Start the VPS at about 2 vCPU and 4 GB RAM. Web, worker, Postgres, and a panel will not fit well on 1 GB.
 
-Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Design background: [ADR 0006](docs/adr/0006-durable-agent-work.md), [ADR 0005](docs/adr/0005-ask-command.md).
+| VPS                                            | Why pick it                                                                                         |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [Hetzner Cloud](https://www.hetzner.com/cloud) | Usually the cheapest 4 GB plan. NVMe, 20 TB traffic, sites in EU and the US.                        |
+| [Hostinger VPS](https://www.hostinger.com/vps) | Simple checkout. Their Docker Manager can start a Compose file if you do not want a separate panel. |
+| [DigitalOcean](https://www.digitalocean.com)   | Clear docs and a large marketplace. More regions. You pay more per GB of RAM.                       |
+
+Hetzner is the default pick for this App. Hostinger is the default pick if you want a control panel from the VPS vendor. DigitalOcean is fine when you already have an account.
+
+| Panel                            | What it gives you                                                                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Dokploy](https://dokploy.com)   | Native Compose deploy. Built-in Traefik. Let's Encrypt. A domain you paste into the GitHub App.                                            |
+| [Coolify](https://coolify.io)    | Same idea. Traefik by default. Caddy is an option. Set the domain on the web service.                                                      |
+| Caddy, nginx, or a load balancer | Fine if you already run one. Point it at container port `7224`. Example: [docs/operations.md](docs/operations.md#tls-in-front-of-compose). |
+
+[CapRover](https://caprover.com) can sit in front of HTTP, but its Compose import is a subset. Prefer Dokploy, Coolify, or a proxy you already know.
+
+On the panel, route only `pr-agent-web`. The public URL is `https://<your-domain>/webhooks`. Leave Compose Postgres unpublished. Keep `DATABASE_URL` on hostname `postgres` inside the compose network. If the panel asks for an internal port, use `7224`.
+
+## Pratham's way of hosting
+
+[Pratham](https://github.com/prathamdby) runs this App on all of his repositories, with every feature left on.
+
+He runs it on a VPS with [Dokploy](https://dokploy.com). Dokploy's Traefik publishes the web service on a domain and issues the certificate. That HTTPS URL is what he puts on the GitHub App (`https://<domain>/webhooks`). The worker stays private. Postgres stays on the compose network.
+
+Primary provider is [OpenCode Go](https://opencode.ai/go?ref=AHE1W13AS7) ($10 AI subscription). Model is Meta Muse Spark 1.3 Contributor.
+
+That is his operator setup. The install path above still uses this repo's Compose file and the Pi provider env vars (`PI_PROVIDER`, `PI_MODEL`, and the matching API key). This repo does not add a Dokploy file or a second runtime.
 
 ## Local development
 
-Use this when you are changing the code. For production hosting, prefer Compose above.
-
-`DATABASE_URL` is required for both roles ([`src/config.ts`](src/config.ts)).
+Use this when you are changing the code. For production hosting, use [Installation](#installation).
 
 ```bash
-docker compose up -d postgres
-cp .env.example .env
-# fill GitHub + provider fields
+# Compose postgres is not published to the host. Use a published container for host processes:
+docker run -d --name pr-agent-postgres \
+  -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent \
+  -p 5432:5432 postgres:16-alpine
 
-npm install -g --ignore-scripts=false @nubjs/nub
+cp .env.example .env
+# fill a real GitHub App PEM + provider fields
+# DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent
+
+npm install -g --ignore-scripts=false @nubjs/nub@0.7.2
 nub install
 
-# terminal 1: webhook intake only
-ROLE=web nub src/index.ts
-
-# terminal 2: all queue consumers
-ROLE=worker nub src/index.ts
+PORT=3000 ROLE=web nub src/index.ts
+PORT=3001 ROLE=worker nub src/index.ts
 ```
 
-`nub src/index.ts` loads `.env` automatically. Auto-restart: `nub watch src/index.ts`. Tunnel webhooks to `/webhooks` on your `PORT`.
+`DATABASE_URL` is required for both roles. Nub loads `PORT` from `.env` (`7224`), so each role needs its own port.
+
+<details>
+<summary>Tests, Nub pin, and the landing site</summary>
+
+`nub src/index.ts` loads `.env` automatically. Auto-restart: `nub watch src/index.ts`. Tunnel webhooks to `/webhooks` on the web `PORT`. Pin Nub to `0.7.2` (`package.json` `packageManager`, `Dockerfile`, `site/vercel.json`). Compose deploy does not need a host Nub install.
+
+`docker compose up -d postgres` alone does not open host port `5432`. Full `docker compose up` works because web and worker get `DATABASE_URL` rewritten to `@postgres:5432`.
 
 If you previously installed with pnpm or npm at the repo root, delete `node_modules` before the first `nub install` so the virtual store is not mixed (`.pnpm/` vs Nub’s store).
 
 ```bash
-# unit tests (no database)
 nub run test
-
-# integration tests
 DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub run test:integration
-
-# typecheck + lint + format
 nub run check:code
 ```
 
@@ -314,18 +344,50 @@ Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for inte
 
 More scripts and edge cases: [docs/operations.md](docs/operations.md#development), [docs/cursor-cloud.md](docs/cursor-cloud.md).
 
-The marketing site under `site/` is a separate workspace package (`pr-agent-landing`). It is not required to run the bot. The human page is a short overview. Agents should read `/llms.txt` or `/agents.md`, query `GET /llms?query=` / `GET /llms/json?query=`, and can fetch the page itself as markdown from `/index.md` or by sending `Accept: text/markdown` to `/`. Every endpoint is described in `/openapi.json`.
+The marketing site under `site/` is a separate workspace package (`pr-agent-landing`). It is not required to run the bot. Agents should read `/llms.txt` or `/agents.md`, query `GET /llms?query=` / `GET /llms/json?query=`, and can fetch the page as markdown from `/index.md` or by sending `Accept: text/markdown` to `/`. Every endpoint is described in `/openapi.json`.
+
+</details>
 
 ## Data privacy
 
-**Self-hosted.** Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.
+| Topic         | Rule                                                                                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.                                                               |
+| LLM providers | Review text leaves your network only when the worker calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.                                                              |
+| Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)). |
 
-**LLM providers.** Review, description, ask, triage, verification, and CI-summary text leave your network only when the worker calls your configured provider (`PI_PROVIDER` / `PI_MODEL`). Read that provider's data policy (example: [OpenAI](https://openai.com/enterprise-privacy)).
+<details>
+<summary>Context7</summary>
 
-**Context7 (optional).** Library lookup uses the fixed `https://context7.com/api` endpoint. Requests accept only short library identifiers and documentation questions; source, prompts, comments, credentials, URLs, and tool output are rejected before transmission. `CONTEXT7_API_KEY`, when set, is sent only as an `Authorization` header; empty keys use anonymous fallback.
+Library lookup uses the fixed `https://context7.com/api` endpoint. Requests accept only short library identifiers and documentation questions; source, prompts, comments, credentials, URLs, and tool output are rejected before transmission. `CONTEXT7_API_KEY`, when set, is sent only as an `Authorization` header; empty keys use anonymous fallback.
 
-**Logging.** Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings. AppError messages, contexts, raw values, causes, arrays, objects, and circular references are recursively sanitized at log and analytics boundaries; safe codes and identifiers remain available. See [the telemetry redaction policy](docs/operations.md#security).
+</details>
 
-**Ask safety.** `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)).
+<details>
+<summary>Logging</summary>
 
-More security detail: [docs/operations.md](docs/operations.md#security).
+Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings. AppError messages, contexts, raw values, causes, arrays, objects, and circular references are recursively sanitized at log and analytics boundaries; safe codes and identifiers remain available. See [the telemetry redaction policy](docs/operations.md#security).
+
+</details>
+
+<details>
+<summary>PostHog</summary>
+
+PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent. Use `POSTHOG_HOST` only if your project is not on the default host. Prompts, diffs, and error text stay off that path. Env catalog: [docs/configuration.md](docs/configuration.md).
+
+</details>
+
+## Documentation
+
+| Document                                             | What it covers                                |
+| ---------------------------------------------------- | --------------------------------------------- |
+| [DeepWiki](https://deepwiki.com/prathamdby/pr-agent) | Ask questions against this repository         |
+| [Context7](https://context7.com/prathamdby/pr-agent) | Ask questions against this repository         |
+| [Features](docs/features.md)                         | `FEATURE_*` modes and slash commands          |
+| [Configuration](docs/configuration.md)               | Env vars, defaults, and code constants        |
+| [Operations](docs/operations.md)                     | TLS, host panels, scripts, production overlay |
+| [Queue runbook](docs/agent-work-ops.md)              | Inspect and recover durable work              |
+| [Development](docs/development.md)                   | Module layout and import rules                |
+| [Cursor Cloud](docs/cursor-cloud.md)                 | Cloud VM services                             |
+| [Domain terms](CONTEXT.md)                           | Product vocabulary                            |
+| [ADRs](docs/adr/)                                    | Architecture decisions                        |

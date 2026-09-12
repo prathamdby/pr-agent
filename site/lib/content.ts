@@ -46,7 +46,7 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "Feedback shows up on the pull request",
     detail:
-      "Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, or mention the bot. Replies stay in the same thread.",
+      "Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, or mention the App bot. Replies stay in the same thread.",
     cue: "/review · /describe · /ask · /triage",
     summary: "Reviews and replies posted in the pull request",
   },
@@ -78,8 +78,14 @@ export const CAPABILITIES: CapabilityItem[] = [
   },
   {
     title: "Ask code questions without leaving GitHub",
-    trigger: "Comment /ask … or mention the bot with your question",
-    detail: "Get an answer in the same thread, right where the code lives.",
+    trigger: "Comment /ask … or mention the GitHub App bot with your question",
+    detail: "The word @bot only matches if you named the App that. /ask does not need a mention.",
+  },
+  {
+    title: "Recheck open findings after each push",
+    trigger: "Runs after each new push when that option is left on, or when you comment /verify",
+    detail:
+      "The default setting uses tokens on every push. Switch it to on-demand if the bill is too high.",
   },
   {
     title: "Revisit earlier findings on the pull request",
@@ -179,6 +185,11 @@ export const FAQ_ITEMS: FaqItem[] = [
     answer:
       "Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and replies in GitHub comments. GitLab and Bitbucket are not supported yet.",
   },
+  {
+    question: "Where should I host PR Agent?",
+    answer:
+      "On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger and DigitalOcean also work. The App still needs the same Compose stack. The panel does not replace it.",
+  },
 ];
 
 type AlternativeRow = {
@@ -215,10 +226,10 @@ export const ALTERNATIVE_ROWS: AlternativeRow[] = [
   },
 ];
 
-export const QUICKSTART_HEADING = "Deploy it with Docker Compose";
+export const QUICKSTART_HEADING = "Installation";
 
 export const QUICKSTART_INTRO =
-  "Three steps from an empty machine to a review on a real pull request. You need Docker, a GitHub app, and one AI provider key.";
+  "Three steps from a fresh machine to a review on a real pull request. You need Docker, a GitHub App, and one AI provider key. GitHub must reach your host over HTTPS, or you run a tunnel on a laptop. A VPS panel such as Dokploy or Coolify can supply the domain and the certificate.";
 
 type QuickstartStep = {
   n: string;
@@ -230,17 +241,17 @@ export const QUICKSTART_STEPS: readonly [QuickstartStep, QuickstartStep, Quickst
   {
     n: "01",
     title: "Create a GitHub app",
-    body: "Register the app on your account or org, then point GitHub at the host where you will run PR Agent.",
+    body: "Register the app, generate a private key, then install it on the test repo. Creating the app is not enough. If you pick only selected repositories, include that repo.",
   },
   {
     n: "02",
     title: "Fill .env and start the stack",
-    body: "Copy the example env, drop in your GitHub app values and provider key, then start PR Agent with Compose.",
+    body: "Copy the example env. Paste the generated App private key as one line, the webhook secret, and a provider key. Then start PR Agent with Compose. The example key is not a real key.",
   },
   {
     n: "03",
-    title: "Open a PR and talk to it",
-    body: "Install the app on a repo, open a pull request, and wait for the automatic pass. Or type a command in the conversation when you want more.",
+    title: "Open a PR and comment /help",
+    body: "Open a pull request on an installed repo. Comment /help as a repo owner, member, or collaborator. Other accounts get no reply even though GitHub accepted the webhook.",
   },
 ];
 
@@ -251,13 +262,20 @@ export const APP_FIELDS = [
     mono: true,
   },
   {
+    label: "Homepage URL",
+    value: "This repository or your public site. Leave user login off.",
+    mono: false,
+  },
+  {
     label: "Subscribe to",
-    value: "Pull requests · Issue comments · Pull request review comments",
+    value:
+      "Pull requests, issue comments, pull request review comments, workflow runs, and check suites",
     mono: false,
   },
   {
     label: "Permissions",
-    value: "Issues and Pull requests: read/write · Contents: read/write · Metadata: read",
+    value:
+      "Issues and pull requests: read and write. Repository contents: read and write. Metadata: read. Checks: read and write. Actions: read. Commit statuses only if you turn on commit-status posting.",
     mono: false,
   },
 ] as const;
@@ -266,18 +284,20 @@ export const SLASH_COMMANDS = [
   { cmd: "/review", tip: "Run a full review on the changes" },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
-  { cmd: "/triage", tip: "Preview with /triage preview, apply with /triage all" },
+  { cmd: "/triage", tip: "Apply fixes and push. Preview is optional." },
   { cmd: "/triage preview", tip: "Show the would-be unified diff. Nothing is pushed." },
-  { cmd: "/triage all", tip: "Apply the previewed set. Optional exclude <thread ids>." },
+  {
+    cmd: "/triage all",
+    tip: "Apply the previewed set for this head. Refused without a matching preview.",
+  },
 ] as const;
 
 export const COMPOSE_SNIPPET = `cp .env.example .env
-# Fill GITHUB_*, WEBHOOK_SECRET, and your provider key
+# Fill a real one-line GitHub App PEM, WEBHOOK_SECRET, and your provider key
 docker compose build
-docker compose up`;
+docker compose up -d`;
 
-export const ENV_SNIPPET = `DATABASE_URL=postgres://...
-GITHUB_APP_ID=...
+export const ENV_SNIPPET = `GITHUB_APP_ID=...
 GITHUB_APP_PRIVATE_KEY=...
 WEBHOOK_SECRET=...
 PI_PROVIDER=openai

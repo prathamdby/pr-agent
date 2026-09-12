@@ -1,7 +1,7 @@
 # pr-agent
 
 **Vocabulary** — [CONTEXT.md](CONTEXT.md). Naming a product concept.
-**Topology** — [README.md](README.md) "How It Works". Web, worker, or queue edges.
+**Topology** — this file, [How it works](#how-it-works). Web, worker, or queue edges.
 **Feature** — [docs/features.md](docs/features.md). A `FEATURE_*` setting.
 **Knob** — [docs/configuration.md](docs/configuration.md). An env, default, or code constant.
 **Module** — [docs/development.md](docs/development.md). Layout, imports, prompts, or the topology-diagram rubric.
@@ -9,6 +9,7 @@
 **Queue** — [docs/agent-work-ops.md](docs/agent-work-ops.md). Durable-work health or recovery.
 **ADR** — [docs/adr/](docs/adr/). A significant architecture decision.
 **Cursor Cloud** — [docs/cursor-cloud.md](docs/cursor-cloud.md). Cloud VM services or setup.
+**Public docs** — [README.md](README.md). Operator voice. Same-PR pointer updates.
 
 Same PR: update every pointer whose branch matched the change.
 
@@ -78,9 +79,12 @@ Before calling a behavior change complete, check the surfaces that can carry it:
 Use the smallest stack that exercises the behavior. `DATABASE_URL` is required for both roles.
 
 ```bash
-docker compose up -d postgres
+# Compose postgres is not published to the host. Use a published container:
+docker run -d --name pr-agent-postgres \
+  -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent \
+  -p 5432:5432 postgres:16-alpine
 cp .env.example .env
-# fill GitHub and provider fields
+# fill a real GitHub App PEM and provider fields
 nub install
 
 # terminal 1
@@ -89,6 +93,8 @@ PORT=3000 ROLE=web nub src/index.ts
 # terminal 2
 PORT=3001 ROLE=worker nub src/index.ts
 ```
+
+`docker compose up -d postgres` does not open host port `5432`. Full `docker compose up` rewrites web and worker to `@postgres:5432`. Host processes and `nub run test:integration` need the published `docker run` recipe (or a compose override that adds `ports`). Pin host Nub to `@nubjs/nub@0.7.2` when you install it globally.
 
 The web process owns `POST /webhooks` and exposes intake health and readiness probes. The worker owns queue consumers and agent execution, with separate readiness for consumer and Postgres health. Web-only runs accept work but do not publish reviews.
 
@@ -142,9 +148,9 @@ The review path runs a recon phase, four specialists for correctness, security, 
 - `src/effect/` owns the Effect server, programs, services, and runtime wiring.
 - `src/webhook/` verifies and parses GitHub deliveries.
 - `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention.
-- `src/review/` owns orchestration, specialist prompts, judgment, and review publication.
+- `src/review/` owns orchestration, the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and review publication.
 - `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
-- `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic.
+- `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - `src/security/` owns outbound, log, and analytics redaction.
@@ -166,8 +172,25 @@ The review path runs a recon phase, four specialists for correctness, security, 
 
 ## Additional guidance
 
-- Read [README.md](README.md) for the public topology and local stack before changing runtime behavior.
+- Read [README.md](README.md) for the public install path and local stack before changing runtime behavior. Read [How it works](#how-it-works) in this file for the runtime topology.
+- Hosting panels (Dokploy, Coolify, Caddy) terminate TLS in front of `pr-agent-web`. They are not a second runtime. Do not add a new compose file or publish Postgres to make a panel work. VPS and panel list: [README.md](README.md#recommended-hosts).
 - Read [CONTEXT.md](CONTEXT.md) before introducing or renaming domain terms.
 - Read the relevant ADR and runbook before changing durable work, leases, webhook handling, or publish behavior.
 - Do not infer behavior from filenames. Trace the entry point to its durable write, queue edge, executor, and external side effect.
 - If a repository rule conflicts with the task, surface the conflict and get explicit direction before breaking it.
+
+## Public documentation
+
+Any behavior, env, feature-mode, host, or privacy change updates the matching public copy in the same PR. That includes [README.md](README.md), [docs/features.md](docs/features.md), [docs/configuration.md](docs/configuration.md), [docs/operations.md](docs/operations.md), [site/lib/llmsKnowledge.ts](site/lib/llmsKnowledge.ts), [site/lib/content.ts](site/lib/content.ts), and `site/public/llms.txt` (`renderLlmsTxt()` must stay identical to the committed file). Do not leave a later docs PR. Match the voice below. Do not write a second register for the site or `/llms.txt`.
+
+- Speak to the operator. "A pull request is opened on your project." Not "Someone opens a pull request."
+- The README hook stays simple English. No web, worker, database, webhook, queue, Postgres, or HTTP status in the first paragraphs. Those words belong in Installation and later.
+- Lead with what lands on the pull request, then why this App: you run it, no per-seat bill, you pick who reads the code.
+- Keep this README order: Features, Installation, Verification, Examples, Recommended hosts, Pratham's way of hosting, Local development, Data privacy, Documentation. Do not add a How it works section or a topology mermaid to the README. Topology stays in [How it works](#how-it-works) in this file.
+- The Features table names commands the operator types. State invalid modes next to it. `FEATURE_REVIEW` accepts `manual` or `auto`. `off` crashes. `FEATURE_ASK` and `FEATURE_TRIAGE` accept `off` or `manual`. `auto` aborts.
+- Examples is a two-column highlight table. Name and short copy on the left, screenshot on the right. Review first, then Description, then Ask. Use `valign="middle"`, `36%` / `64%`, and `width="100%"` on the image. GitHub strips custom font sizes.
+- Recommended hosts lists three VPS rows only: Hetzner, Hostinger, DigitalOcean. Do not grow that table. Panels stay Dokploy, Coolify, or a proxy the operator already runs. Do not invent a second compose file or runtime.
+- Optional extras under Data privacy are separate `<details>` blocks: Context7, Logging, PostHog. Do not add a standalone analytics heading.
+- Sentence-case headings except `Pratham's way of hosting`. Short sentences. No puffery, no em dashes, no chatbot filler. If a sentence could sit in another project's README unchanged, cut it.
+- Long traps stay in `<details>`. The open page stays short.
+- After README or docs edits, run `nub run fmt` so `oxfmt --check` stays green.

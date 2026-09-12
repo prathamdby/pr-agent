@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-Auto-review is `opened`-only by deliberate decision (`REVIEW_AUTO_ACTIONS`, PR #164): re-reviewing every push is expensive and noisy. But competitor analysis showed the stickiest behavior PR Agent lacks is Greptile's follow-up loop: it re-engages on every push, replies inside each finding's thread with "fixed / still broken and why," and disputes incomplete fixes. That loop, not finding quality, is what closed its findings (3/3 fixed on pr-agent #165).
+Auto-review is `opened`-only by deliberate decision (`AUTO_TRIGGER_ACTIONS.review` in `src/settings/featureModes.ts`; the old `REVIEW_AUTO_ACTIONS` env is unread): re-reviewing every push is expensive and noisy. But competitor analysis showed the stickiest behavior PR Agent lacks is Greptile's follow-up loop: it re-engages on every push, replies inside each finding's thread with "fixed / still broken and why," and disputes incomplete fixes. That loop, not finding quality, is what closed its findings (3/3 fixed on pr-agent #165).
 
 The concept already existed in the product under another name: a triage run verifies prior findings and emits per-finding verdicts, but it is slash-triggered, writable, and commits fixes.
 

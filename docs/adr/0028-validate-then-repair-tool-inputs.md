@@ -23,14 +23,14 @@ The four failure shapes above are mechanical and deterministic. Fixing them per 
 - Helper: [`src/agent/tools/parseToolInput.ts`](../../src/agent/tools/parseToolInput.ts)
 - Executor seams: [`defineWorkspaceTool.ts`](../../src/agent/tools/defineWorkspaceTool.ts), [`context7Tools.ts`](../../src/agent/tools/context7Tools.ts)
 - Metrics variant: [`reviewRunMetrics.ts`](../../src/review/run/reviewRunMetrics.ts) (`tool_input_repaired`)
-- Validate-then-repair reorder: [`submitReviewTool.ts`](../../src/review/publish/submitReviewTool.ts); deleted domain rule in [`reviewSchema.ts`](../../src/review/reviewSchema.ts)
+- Validate-then-repair: orchestrator tools in [`publishSummaryTool.ts`](../../src/review/orchestrator/publishSummaryTool.ts) and [`publishFindingBatch.ts`](../../src/review/publish/publishFindingBatch.ts); `VALIDATION_REPAIR_ROUNDS` is 3. Deleted domain rule in [`reviewSchema.ts`](../../src/review/reviewSchema.ts).
 
 ## Consequences
 
 - Model-visible error text for workspace tools changes from a raw `ValiError` dump to a formatted dot-path issue list.
 - The `findings_object_to_array` signal moves from `coercionsApplied` to `toolInputRepairs` (`submitReview:object_wrapped_as_array`); dashboards counting the old tag should switch.
 - Valid `submitReview` payloads are no longer trimmed or fence-stripped by the domain coercion; text is published as the model sent it.
-- Repair is bounded: one re-parse, four deterministic rules, no extra model round-trip.
+- Repair is bounded: three model repair rounds (`VALIDATION_REPAIR_ROUNDS`), then fail.
 
 ## Reversal
 

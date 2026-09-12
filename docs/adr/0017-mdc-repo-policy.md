@@ -19,7 +19,7 @@ ADR 0016 grounded verification dismiss suggestions against that YAML file (appen
    - This is the same fail-closed fork/base trust boundary used for root agent instruction files in [ADR 0019](0019-agent-instruction-files.md). Fork policy remains review evidence, not privileged control.
 3. **Drop structured policy knobs** (`tone`, `severityFloor`, `lensOverrides`, `pathInstructions`). Instruction prose lives in rule bodies; there is no policy-derived publish severity floor.
 4. **Do not read `.pr-agent.yml`.** No dual-read or automatic migration.
-5. **Policy suggestions recommend `.mdc`:** when exactly one loaded rule matches the finding path, suggest an append fragment for that file; otherwise suggest a new `.pr-agent/<slug>.mdc` starter. Verification continues to ground suggestions from the checkout; triage (no checkout today) always suggests create-new.
+5. **Policy suggestions recommend `.mdc`:** when exactly one loaded rule matches the finding path, suggest an append fragment for that file; otherwise suggest a new `.pr-agent/<slug>.mdc` starter. Verification grounds suggestions from the checkout. Triage uses a writable checkout ([`writablePrCheckout.ts`](../../src/prWorkspace/writablePrCheckout.ts)) and still always proposes a new `.mdc` starter.
 
 ## Consequences
 
