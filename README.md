@@ -88,7 +88,7 @@ Create the GitHub App and paste a real private key before you start Compose. The
 | Actions         | Read         | Condensed job logs when CI fails                                                |
 | Commit statuses | Read         | Legacy `status` events and CI facts. Add write if `FEATURE_COMMIT_STATUS=true`. |
 
-`workflow_run` or `check_suite` (completed) refreshes the CI row on an existing review summary when Actions finish later. `check_run` (`created`, `completed`) and `status` are recorded for the head even when no PR is known yet. Own-App `check_run` and `check_suite` deliveries are ignored.
+`workflow_run` or `check_suite` (completed) refreshes the CI row on an existing review summary when Actions finish later. `check_run` (`created`, `completed`) and `status` are recorded for the head even when no PR is known yet. Opening, synchronizing, or reopening a pull request also enqueues a snapshot when that head has no seeded row. Ack and publish do the same after they write the comment. Own-App `check_run` and `check_suite` deliveries are ignored.
 
 ### 2. Create the environment file
 

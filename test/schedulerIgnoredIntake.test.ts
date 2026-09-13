@@ -104,6 +104,9 @@ describe("makeAgentWorkScheduler ignored intake", () => {
         expect.any(String),
         "ignored_pull_request_labeled",
       ]);
+      expect(query.mock.calls.some(([sql]) => String(sql).includes("FROM pr_head_ci_state"))).toBe(
+        false,
+      );
       expect(boss.send).not.toHaveBeenCalled();
     } finally {
       txSpy.mockRestore();

@@ -17,6 +17,7 @@ import { recordEvent } from "../../evlog.js";
 import {
   type AckJobData,
   type AckTarget,
+  type CiProjectionJobData,
   type JobCorrelation,
   type PrRef,
   type WebhookHeaders,
@@ -32,9 +33,9 @@ import {
   enqueueVerification,
   jobCorrelation,
 } from "./queueing.js";
-import type { CiProjectionJobData } from "../types.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
-import { applyPrHeadCiFact } from "../prHeadCiState.js";
+import { isHeadCiSeedPullRequest, shouldSeedHeadCiFromPullRequest } from "../ciProjection.js";
+import { applyPrHeadCiFact, headCiNeedsSeed, loadPrHeadCiState } from "../prHeadCiState.js";
 import type { CiCheckFact } from "../../review/ci/classifySnapshot.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
@@ -97,6 +98,12 @@ export async function recordIgnoredWebhook(
   }
 }
 
+type PlannedAutomatedIntakeResult = {
+  readonly duplicate: boolean;
+  readonly correlation: JobCorrelation;
+  readonly events: DeferredIntakeEvent[];
+};
+
 async function applyPlannedAutomatedPullRequestIntake(
   boss: PgBoss,
   client: PoolClient,
@@ -104,7 +111,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   ref: PrRef,
   plan: AutomatedPrIntakePlan,
   pushBeforeSha?: string,
-): Promise<DeferredIntakeEvent[]> {
+): Promise<PlannedAutomatedIntakeResult> {
   const events: DeferredIntakeEvent[] = [];
   const event = await insertWebhookEvent(client, headers, "automated_review_enqueued");
   if (event.duplicate) {
@@ -115,7 +122,7 @@ async function applyPlannedAutomatedPullRequestIntake(
         event: headers.event,
       },
     });
-    return events;
+    return { duplicate: true, correlation: {}, events };
   }
   const correlation = jobCorrelation(event.id, headers);
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
@@ -264,7 +271,7 @@ async function applyPlannedAutomatedPullRequestIntake(
     );
   }
 
-  return events;
+  return { duplicate: false, correlation, events };
 }
 
 async function applyReviewCloseCancelIntake(
@@ -349,6 +356,64 @@ export type AutomatedPullRequestIntakeOpts = {
   readonly merged?: boolean;
 };
 
+async function enqueueHeadCiProjection(
+  boss: PgBoss,
+  client: PoolClient,
+  ref: PrRef,
+  correlation: JobCorrelation,
+): Promise<DeferredIntakeEvent> {
+  const job: CiProjectionJobData = {
+    kind: "ci_projection",
+    installationId: ref.installationId,
+    owner: ref.owner,
+    repo: ref.repo,
+    headSha: ref.headSha,
+    ...correlation,
+  };
+  const result = await enqueueCiProjectionDebounced(boss, client, job);
+  return {
+    name: "ci_projection_enqueued",
+    fields: {
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      result,
+    },
+  };
+}
+
+async function applyPullRequestCiSeedIntake(
+  boss: PgBoss,
+  client: PoolClient,
+  headers: WebhookHeaders,
+  ref: PrRef,
+  intakeLog: RequestLogger,
+  action: string,
+): Promise<DeferredIntakeEvent[]> {
+  if (!isHeadCiSeedPullRequest(action, ref.headSha)) {
+    await recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog);
+    return [];
+  }
+  const row = await loadPrHeadCiState(client, ref.owner, ref.repo, ref.headSha);
+  if (!headCiNeedsSeed(row)) {
+    await recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog);
+    return [];
+  }
+  const event = await insertWebhookEvent(client, headers, "ci_projection_enqueued");
+  if (event.duplicate) {
+    return [
+      {
+        name: "deduped_delivery",
+        fields: {
+          dedupeKey: event.dedupeKey,
+          event: headers.event,
+        },
+      },
+    ];
+  }
+  return [await enqueueHeadCiProjection(boss, client, ref, jobCorrelation(event.id, headers))];
+}
+
 export async function applyAutomatedPullRequestIntake(
   boss: PgBoss,
   pool: Pool,
@@ -368,16 +433,30 @@ export async function applyAutomatedPullRequestIntake(
   }
 
   const plan = planAutomatedPullRequestIntake(action, cfg.features);
+
   if (plan.kinds.length === 0) {
-    await inTransaction(pool, (client) =>
-      recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog),
+    const events = await inTransaction(pool, (client) =>
+      applyPullRequestCiSeedIntake(boss, client, headers, ref, intakeLog, action),
     );
+    flushDeferredEvents(intakeLog, events);
     return;
   }
 
-  const events = await inTransaction(pool, (client) =>
-    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, plan, opts?.pushBeforeSha),
-  );
+  const events = await inTransaction(pool, async (client) => {
+    const planned = await applyPlannedAutomatedPullRequestIntake(
+      boss,
+      client,
+      headers,
+      ref,
+      plan,
+      opts?.pushBeforeSha,
+    );
+    if (planned.duplicate) return planned.events;
+    const row = await loadPrHeadCiState(client, ref.owner, ref.repo, ref.headSha);
+    if (!shouldSeedHeadCiFromPullRequest(action, ref.headSha, row)) return planned.events;
+    planned.events.push(await enqueueHeadCiProjection(boss, client, ref, planned.correlation));
+    return planned.events;
+  });
   flushDeferredEvents(intakeLog, events);
 }
 

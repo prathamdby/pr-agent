@@ -6,8 +6,9 @@ import {
   waitingCiSummary,
   type RenderableHeadCi,
 } from "../review/ci/ciFromHeadState.js";
+import { AUTOMATED_PR_ACTIONS, DEFERRED_HEAD_SHA } from "../settings/index.js";
 import { enqueueCiProjectionDebouncedStandalone } from "./intake/queueing.js";
-import { loadPrHeadCiState } from "./prHeadCiState.js";
+import { headCiNeedsSeed, loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
 import type { CiProjectionJobData } from "./types.js";
 
 export async function loadRenderableHeadCi(
@@ -23,7 +24,34 @@ export async function loadRenderableHeadCi(
   });
 }
 
-export async function enqueueCiProjectionIfVersionMoved(params: {
+function isHeadCiSeedPullRequestAction(action: string): boolean {
+  return action !== "closed" && AUTOMATED_PR_ACTIONS.has(action);
+}
+
+/** True when this pull_request action and SHA may request a first head seed. */
+export function isHeadCiSeedPullRequest(action: string, headSha: string): boolean {
+  return isHeadCiSeedPullRequestAction(action) && headSha !== DEFERRED_HEAD_SHA;
+}
+
+/** True when this pull_request delivery should schedule the first head seed. */
+export function shouldSeedHeadCiFromPullRequest(
+  action: string,
+  headSha: string,
+  row: Pick<PrHeadCiStateRow, "seededAt"> | null,
+): boolean {
+  return isHeadCiSeedPullRequest(action, headSha) && headCiNeedsSeed(row);
+}
+
+/** True when a claim-time writer should enqueue after stamping the cell. */
+export function ciProjectionDue(
+  row: Pick<PrHeadCiStateRow, "seededAt" | "version"> | null,
+  renderedVersion: number,
+): boolean {
+  if (headCiNeedsSeed(row)) return true;
+  return row != null && row.version > renderedVersion;
+}
+
+export async function enqueueCiProjectionIfDue(params: {
   readonly boss: PgBoss | undefined;
   readonly pool: Pool;
   readonly installationId: number;
@@ -34,7 +62,7 @@ export async function enqueueCiProjectionIfVersionMoved(params: {
 }): Promise<void> {
   if (params.boss == null || params.installationId <= 0) return;
   const row = await loadPrHeadCiState(params.pool, params.owner, params.repo, params.headSha);
-  if (row == null || row.version <= params.renderedVersion) return;
+  if (!ciProjectionDue(row, params.renderedVersion)) return;
   const job: CiProjectionJobData = {
     kind: "ci_projection",
     installationId: params.installationId,

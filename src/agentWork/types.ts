@@ -98,7 +98,7 @@ export type VerificationJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
-/** Head-scoped projection after a `pr_head_ci_state` write or a completed-run webhook. */
+/** Head-scoped projection after a fact write, a first seed, or a completed-run webhook. */
 export type CiProjectionJobData = JobCorrelation & {
   readonly kind: "ci_projection";
   readonly installationId: number;

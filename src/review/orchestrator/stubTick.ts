@@ -1,9 +1,6 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import {
-  enqueueCiProjectionIfVersionMoved,
-  loadRenderableHeadCi,
-} from "../../agentWork/ciProjection.js";
+import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../../agentWork/ciProjection.js";
 import { logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
@@ -86,7 +83,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
       ciHeadSha: args.headSha,
       ciVersion: rendered.version,
     });
-    await enqueueCiProjectionIfVersionMoved({
+    await enqueueCiProjectionIfDue({
       boss: args.boss,
       pool: args.pool,
       installationId: args.installationId ?? 0,
