@@ -33,6 +33,10 @@ export type PrHeadCiStateRow = {
   readonly updatedAt: Date;
 };
 
+export function headCiNeedsSeed(row: Pick<PrHeadCiStateRow, "seededAt"> | null): boolean {
+  return row == null || row.seededAt == null;
+}
+
 export type ApplyPrHeadCiFactInput = {
   readonly owner: string;
   readonly repo: string;
@@ -150,12 +154,12 @@ type LoadedCiStateRow = {
 };
 
 export async function loadPrHeadCiState(
-  pool: Pool,
+  db: Pool | PoolClient,
   owner: string,
   repo: string,
   headSha: string,
 ): Promise<PrHeadCiStateRow | null> {
-  const result = await pool.query<LoadedCiStateRow>(
+  const result = await db.query<LoadedCiStateRow>(
     `SELECT owner, repo, head_sha, checks, rollup, version, authored, pr_numbers,
             truncated, seeded_at, first_seen_at, updated_at
        FROM pr_head_ci_state

@@ -7,7 +7,7 @@ import {
   type RenderableHeadCi,
 } from "../review/ci/ciFromHeadState.js";
 import { enqueueCiProjectionDebouncedStandalone } from "./intake/queueing.js";
-import { loadPrHeadCiState } from "./prHeadCiState.js";
+import { headCiNeedsSeed, loadPrHeadCiState } from "./prHeadCiState.js";
 import type { CiProjectionJobData } from "./types.js";
 
 export async function loadRenderableHeadCi(
@@ -34,7 +34,7 @@ export async function enqueueCiProjectionIfVersionMoved(params: {
 }): Promise<void> {
   if (params.boss == null || params.installationId <= 0) return;
   const row = await loadPrHeadCiState(params.pool, params.owner, params.repo, params.headSha);
-  if (row == null || row.version <= params.renderedVersion) return;
+  if (row != null && !headCiNeedsSeed(row) && row.version <= params.renderedVersion) return;
   const job: CiProjectionJobData = {
     kind: "ci_projection",
     installationId: params.installationId,
