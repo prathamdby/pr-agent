@@ -21,7 +21,6 @@ import {
   REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
   REVIEW_OVERVIEW_ALERT,
-  REVIEW_OVERVIEW_COMPACT_MAX_CHARS,
   REVIEW_POINTER_BODY,
   REVIEW_SECURITY_DEFAULT,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
@@ -325,6 +324,11 @@ export function renderSpecialistReviewBody(params: {
   return parts.join("\n");
 }
 
+export type ReviewActionLineCoverage = {
+  readonly kind: "full" | "partial" | "none";
+  readonly failed: readonly string[];
+};
+
 type ReviewSummaryRenderCtx = RenderContext & {
   summarySentinel: string;
   placements: readonly InlinePlacement[];
@@ -335,8 +339,62 @@ type ReviewSummaryRenderCtx = RenderContext & {
   /** Server-derived CI gate; omitted when disabled, unavailable, or no checks. */
   ciSummary?: CiSummary | null;
   ciVersion?: number;
-  partialCoverageNote?: string;
+  coverage?: ReviewActionLineCoverage;
 };
+
+/** Count of findings on the same list the findings table renders (every P0–P3). */
+export function countReviewFindingsForActionLine(
+  rows: readonly { severity: "P0" | "P1" | "P2" | "P3" }[],
+): number {
+  return rows.length;
+}
+
+export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): string {
+  if (coverage.kind === "full" || coverage.failed.length === 0) {
+    return "with full coverage";
+  }
+  const names = formatFailedSpecialistNames(coverage.failed);
+  if (coverage.kind === "none") {
+    return `with no coverage (${names} failed)`;
+  }
+  return `except ${names}`;
+}
+
+export function renderReviewActionLine(input: {
+  findingCount: number;
+  ciStatusText: string;
+  coverageStatusText: string;
+}): string {
+  return `${formatFindingCountClause(input.findingCount)}. ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
+}
+
+function formatFindingCountClause(count: number): string {
+  if (count === 0) return "No findings block merge";
+  if (count === 1) return "1 finding blocks merge";
+  return `${count} findings block merge`;
+}
+
+function formatFailedSpecialistNames(failed: readonly string[]): string {
+  if (failed.length === 0) return "";
+  if (failed.length === 1) return failed[0] ?? "";
+  if (failed.length === 2) return `${failed[0]} and ${failed[1]}`;
+  return `${failed.slice(0, -1).join(", ")}, and ${failed[failed.length - 1]}`;
+}
+
+function formatReviewActionLineCiStatus(summary: CiSummary | null | undefined): string {
+  switch (summary?.status) {
+    case "passing":
+      return "CI is passing";
+    case "failing":
+      return "CI is failing";
+    case "pending":
+      return "CI is pending";
+    case "unavailable":
+      return "CI is unavailable";
+    default:
+      return "CI has not started";
+  }
+}
 
 /** Expects `ctx.placements` pre-sorted by severity, file, and line. */
 function buildReviewSummaryBody(
@@ -348,14 +406,19 @@ function buildReviewSummaryBody(
   if (options.findingRowLimit != null) {
     visiblePlacements = visiblePlacements.slice(0, options.findingRowLimit);
   }
-  const overview = options.compact
-    ? payload.prCharacter.trim().slice(0, REVIEW_OVERVIEW_COMPACT_MAX_CHARS)
-    : payload.prCharacter.trim();
+  const coverage = ctx.coverage ?? { kind: "full", failed: [] };
+  const actionLine = renderReviewActionLine({
+    findingCount: countReviewFindingsForActionLine(
+      ctx.placements.map((placement) => placement.finding),
+    ),
+    ciStatusText: formatReviewActionLineCiStatus(ctx.ciSummary),
+    coverageStatusText: formatReviewCoverageStatus(coverage),
+  });
 
   const rows: string[] = [];
   rows.push(ctx.summarySentinel);
   rows.push("");
-  rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, overview));
+  rows.push(actionLine);
   rows.push("");
 
   const tableRows: Array<[string, string]> = [
@@ -416,11 +479,6 @@ function buildReviewSummaryBody(
   }
 
   rows.push(renderKeyValueTable(tableRows));
-
-  if (ctx.partialCoverageNote) {
-    rows.push("");
-    rows.push(ctx.partialCoverageNote);
-  }
 
   if (summaryOnlyAccordions.length > 0) {
     rows.push("");

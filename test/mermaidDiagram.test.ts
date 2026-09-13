@@ -49,6 +49,6 @@ describe("mermaidDiagram", () => {
       { line: 3, message: "Slash in unquoted label breaks GitHub." },
     ]);
     expect(text).toContain("line 3");
-    expect(text).toContain("omit changesDiagram");
+    expect(text).toContain("omit the mermaid visual");
   });
 });

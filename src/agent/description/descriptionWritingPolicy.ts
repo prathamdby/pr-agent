@@ -1,15 +1,15 @@
 import {
-  DESCRIPTION_BODY_BRIEF_BULLET_MAX,
-  DESCRIPTION_BODY_BRIEF_BULLET_MIN,
-  DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET,
-  DESCRIPTION_BODY_DETAILED_BULLET_MAX,
-  DESCRIPTION_BODY_DETAILED_BULLET_MIN,
-  DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET,
-  DESCRIPTION_BODY_STANDARD_BULLET_MAX,
-  DESCRIPTION_BODY_STANDARD_BULLET_MIN,
-  DESCRIPTION_BODY_STANDARD_MAX_FILES,
-  DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES,
-  DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET,
+  DESCRIPTION_BODY_L_BULLET_MAX,
+  DESCRIPTION_BODY_L_BULLET_MIN,
+  DESCRIPTION_BODY_L_MAX_WORDS_PER_BULLET,
+  DESCRIPTION_BODY_M_BULLET_MAX,
+  DESCRIPTION_BODY_M_BULLET_MIN,
+  DESCRIPTION_BODY_M_MAX_FILES,
+  DESCRIPTION_BODY_M_MAX_LINE_CHANGES,
+  DESCRIPTION_BODY_M_MAX_WORDS_PER_BULLET,
+  DESCRIPTION_BODY_S_BULLET_MAX,
+  DESCRIPTION_BODY_S_BULLET_MIN,
+  DESCRIPTION_BODY_S_MAX_WORDS_PER_BULLET,
   DESCRIPTION_MAP_MAX_ENTRIES,
   DESCRIPTION_MAP_OMIT_MAX_FILES,
   DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
@@ -23,7 +23,7 @@ export type DescriptionMapMode = "omit" | "read_first";
  * How much prose and technical detail the description body should carry.
  * Derived once per run from workspace size stats.
  */
-export type DescriptionBodyScale = "brief" | "standard" | "detailed";
+export type DescriptionBodyScale = "S" | "M" | "L";
 
 /**
  * How deep the bullets go for reviewers.
@@ -56,50 +56,50 @@ type BodyScaleSpec = {
 };
 
 const BODY_SCALE_SPEC: Record<DescriptionBodyScale, BodyScaleSpec> = {
-  brief: {
-    bulletMin: DESCRIPTION_BODY_BRIEF_BULLET_MIN,
-    bulletMax: DESCRIPTION_BODY_BRIEF_BULLET_MAX,
-    maxWordsPerBullet: DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET,
+  S: {
+    bulletMin: DESCRIPTION_BODY_S_BULLET_MIN,
+    bulletMax: DESCRIPTION_BODY_S_BULLET_MAX,
+    maxWordsPerBullet: DESCRIPTION_BODY_S_MAX_WORDS_PER_BULLET,
     technicalDepth: "what_why",
   },
-  standard: {
-    bulletMin: DESCRIPTION_BODY_STANDARD_BULLET_MIN,
-    bulletMax: DESCRIPTION_BODY_STANDARD_BULLET_MAX,
-    maxWordsPerBullet: DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET,
+  M: {
+    bulletMin: DESCRIPTION_BODY_M_BULLET_MIN,
+    bulletMax: DESCRIPTION_BODY_M_BULLET_MAX,
+    maxWordsPerBullet: DESCRIPTION_BODY_M_MAX_WORDS_PER_BULLET,
     technicalDepth: "what_why_risk",
   },
-  detailed: {
-    bulletMin: DESCRIPTION_BODY_DETAILED_BULLET_MIN,
-    bulletMax: DESCRIPTION_BODY_DETAILED_BULLET_MAX,
-    maxWordsPerBullet: DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET,
+  L: {
+    bulletMin: DESCRIPTION_BODY_L_BULLET_MIN,
+    bulletMax: DESCRIPTION_BODY_L_BULLET_MAX,
+    maxWordsPerBullet: DESCRIPTION_BODY_L_MAX_WORDS_PER_BULLET,
     technicalDepth: "what_why_how",
   },
 };
 
 export function resolveDescriptionBodyScale(input: DescriptionSizeInput): DescriptionBodyScale {
-  if (input.truncated) return "detailed";
+  if (input.truncated) return "L";
   if (
     input.fileCount <= DESCRIPTION_MAP_OMIT_MAX_FILES &&
     input.totalChanges < DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES
   ) {
-    return "brief";
+    return "S";
   }
   if (
-    input.fileCount <= DESCRIPTION_BODY_STANDARD_MAX_FILES &&
-    input.totalChanges < DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES
+    input.fileCount <= DESCRIPTION_BODY_M_MAX_FILES &&
+    input.totalChanges < DESCRIPTION_BODY_M_MAX_LINE_CHANGES
   ) {
-    return "standard";
+    return "M";
   }
-  return "detailed";
+  return "L";
 }
 
-/** Pair map mode with body scale: brief omits the review map; larger scales keep it. */
+/** Pair map mode with body scale: S omits the review map; larger scales keep it. */
 export function mapModeForBodyScale(bodyScale: DescriptionBodyScale): DescriptionMapMode {
-  return bodyScale === "brief" ? "omit" : "read_first";
+  return bodyScale === "S" ? "omit" : "read_first";
 }
 
 /**
- * Map mode follows body scale. Truncation forces detailed body scale, so truncated
+ * Map mode follows body scale. Truncation forces L body scale, so truncated
  * sets always get read_first.
  */
 export function resolveDescriptionMapMode(input: DescriptionSizeInput): DescriptionMapMode {

@@ -64,15 +64,15 @@ describe("prepareReviewPayloadForPublish", () => {
     expect(result.prepared.payload.findings[0]?.detail).toBe(detail);
   });
 
-  it("rejects overview with internal failure phrasing instead of redacting", () => {
+  it("rejects gate text with internal failure phrasing instead of redacting", () => {
     const payload = makeReviewPayload({
-      prCharacter: "Structured publish failed after 3/3 attempt(s). Check server logs.",
+      securityConcerns: "Structured publish failed after 3/3 attempt(s). Check server logs.",
     });
 
     const result = prepareReviewPayloadForPublish({ payload });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toMatch(/prCharacter/);
+    expect(result.error).toMatch(/securityConcerns/);
   });
 
   it("scrubs secret assignments in prepared payload", () => {

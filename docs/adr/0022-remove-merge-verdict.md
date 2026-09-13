@@ -12,7 +12,7 @@ The review summary once included a model-authored **Merge verdict** row (score /
 
 1. **Remove the field.** Drop `mergeVerdict` from `ReviewPayload`, prompt contracts, public-output redaction, and payload validation clamps.
 2. **Remove the row.** The summary renderer no longer emits a Merge verdict table row or mechanical fallbacks.
-3. **Keep other gates.** Overview is `prCharacter` plus `size`, findings, tests, security, follow-ups, and CI. Effort is gone. Legacy effort labels are stripped in `src/review/run/reviewLabels.ts`.
+3. **Keep other gates.** The summary comment keeps `size`, findings, tests, security, follow-ups, and CI. The header above the table is a server-built action line (finding count, CI, specialist coverage), not LLM overview prose. Effort is gone. Legacy effort labels are stripped in `src/review/run/reviewLabels.ts`. (Amended when `prCharacter` left `ReviewPayload`; see [ADR 0003](0003-structured-review-output.md).)
 
 ## Consequences
 

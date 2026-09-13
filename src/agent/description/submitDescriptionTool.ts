@@ -19,11 +19,12 @@ import {
   enforceDescriptionMapPayload,
   type DescriptionMapMode,
 } from "./descriptionWritingPolicy.js";
+import { enforceDescriptionTitle } from "./descriptionTitle.js";
 import {
-  formatMermaidValidationError,
-  sanitizeMermaidDiagram,
-  validateSanitizedMermaidFence,
-} from "./mermaidDiagram.js";
+  enforceDescriptionVisualPayload,
+  formatDescriptionVisualValidationError,
+  validateDescriptionVisuals,
+} from "./descriptionVisualSanitize.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import {
   descriptionPrBodyOperationKey,
@@ -112,18 +113,17 @@ export function buildSubmitDescriptionTool(params: {
     }
 
     let payload = parsed.value;
-    if (payload.changesDiagram?.trim()) {
-      const sanitizedDiagram = sanitizeMermaidDiagram(payload.changesDiagram);
-      const mermaidIssues = validateSanitizedMermaidFence(sanitizedDiagram);
-      if (mermaidIssues.length > 0) {
-        params.state.lastValidationError = formatMermaidValidationError(mermaidIssues);
-        throw new AppError({
-          code: "description.validation_failed",
-          message: params.state.lastValidationError,
-        });
-      }
-      payload = { ...payload, changesDiagram: sanitizedDiagram };
+    payload = enforceDescriptionVisualPayload(payload);
+    const visualIssues = validateDescriptionVisuals(payload.visuals ?? []);
+    if (visualIssues.length > 0) {
+      params.state.lastValidationError = formatDescriptionVisualValidationError(visualIssues);
+      throw new AppError({
+        code: "description.validation_failed",
+        message: params.state.lastValidationError,
+      });
     }
+
+    payload = { ...payload, title: enforceDescriptionTitle(payload.title) };
 
     const enforced = enforceDescriptionMapPayload(payload, params.mapMode, {
       knownPaths: params.knownPaths,
@@ -209,6 +209,7 @@ export function buildSubmitDescriptionTool(params: {
       bodyUpdated: result.bodyUpdated,
       mapMode: params.mapMode,
       mapEntries: payload.prFiles?.length ?? 0,
+      visualCount: payload.visuals?.length ?? 0,
     });
 
     if (params.recordPublishStep) {

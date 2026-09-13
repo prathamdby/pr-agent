@@ -91,7 +91,6 @@ describe("severity helpers", () => {
 
   it("requires fixPrompt for P3 findings", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Overview",
       findings: [
         {
           severity: "P3",
@@ -130,7 +129,6 @@ describe("selectInlineFindings", () => {
   it("accepts more than eight findings", () => {
     const findings = Array.from({ length: 12 }, (_, i) => makeFinding("P2", `bug-${i}`));
     const parsed = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Large review",
       findings,
       size: "M",
       relevantTests: "partial",
@@ -147,7 +145,6 @@ describe("selectInlineFindings", () => {
   it("rejects payloads above the soft findings ceiling", () => {
     const findings = Array.from({ length: 129 }, (_, i) => makeFinding("P2", `bug-${i}`));
     const parsed = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Huge review",
       findings,
       size: "M",
       relevantTests: "partial",
@@ -161,7 +158,6 @@ describe("selectInlineFindings", () => {
 describe("reviewPayloadSchema", () => {
   it("accepts optional suggestedCode and confidence fields", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Review with suggestion metadata",
       findings: [
         {
           severity: "P1",
@@ -191,7 +187,6 @@ describe("reviewPayloadSchema", () => {
   it("rejects invalid confidence and oversized suggestedCode", () => {
     for (const confidence of [0, 6]) {
       const parsed = v.safeParse(reviewPayloadSchema, {
-        prCharacter: "Review with bad confidence",
         findings: [{ ...makeFinding("P1", "bad confidence"), confidence }],
         size: "S",
         relevantTests: "partial",
@@ -202,7 +197,6 @@ describe("reviewPayloadSchema", () => {
     }
 
     const oversized = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Review with large suggestion",
       findings: [
         {
           ...makeFinding("P1", "large suggestion"),
@@ -221,7 +215,6 @@ describe("reviewPayloadSchema", () => {
 describe("coerceReviewPayloadInput", () => {
   it("maps CRITICAL severity alias to P0", () => {
     const { value, coerced } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [
         {
           severity: "CRITICAL",
@@ -259,7 +252,6 @@ describe("coerceReviewPayloadInput", () => {
       fixPrompt: "fix",
     };
     const { value } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [finding],
       size: "S",
       relevantTests: "no",
@@ -272,7 +264,6 @@ describe("coerceReviewPayloadInput", () => {
 
   it("trims securityConcerns only when whitespace changes the value", () => {
     const trimmed = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [],
       size: "XS",
       relevantTests: "no",
@@ -283,7 +274,6 @@ describe("coerceReviewPayloadInput", () => {
     expect(trimmed.coerced).toBe(true);
 
     const alreadyTrimmed = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [],
       size: "XS",
       relevantTests: "no",
@@ -297,7 +287,6 @@ describe("coerceReviewPayloadInput", () => {
 describe("reviewFinding leftover violatedRule", () => {
   it("drops leftover violatedRule and still accepts the payload", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
-      prCharacter: "Unknown key must not fail the payload",
       findings: [
         {
           ...makeFinding("P2", "ordinary bug"),
@@ -325,7 +314,6 @@ describe("reviewFinding category", () => {
   it("accepts optional category enum and legacy payloads without category", () => {
     expect(
       v.safeParse(reviewPayloadSchema, {
-        prCharacter: "Adds retry logic.",
         findings: [
           {
             severity: "P2",
@@ -347,7 +335,6 @@ describe("reviewFinding category", () => {
 
     expect(
       v.safeParse(reviewPayloadSchema, {
-        prCharacter: "Adds retry logic.",
         findings: [
           {
             severity: "P2",
@@ -368,7 +355,6 @@ describe("reviewFinding category", () => {
 
     expect(
       v.safeParse(reviewPayloadSchema, {
-        prCharacter: "Adds retry logic.",
         findings: [
           {
             severity: "P2",
@@ -392,7 +378,6 @@ describe("reviewFinding category", () => {
 
 describe("reviewPayload unknown fields", () => {
   const baseInput = {
-    prCharacter: "Adds retry logic.",
     findings: [],
     size: "S",
     relevantTests: "no" as const,
@@ -435,7 +420,7 @@ describe("reviewPayload unknown fields", () => {
 
 describe("formatReviewValidationError", () => {
   it("lists field paths in bullet form with failureKind", () => {
-    const parsed = v.safeParse(reviewPayloadSchema, { prCharacter: "x" });
+    const parsed = v.safeParse(reviewPayloadSchema, { size: "S" });
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
       const formatted = formatReviewValidationError(parsed.issues);

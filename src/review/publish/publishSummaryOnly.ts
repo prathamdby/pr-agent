@@ -98,7 +98,6 @@ export async function publishReviewSummaryOnly(params: {
     }
     return { kind: "published", summaryCommentId };
   };
-  const partialCoverageNote = coverage.kind === "partial" ? coverage.note : undefined;
   const { owner, repo, prNumber, headSha } = params.ctx;
   const mode = params.mode ?? "review";
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
@@ -158,7 +157,10 @@ export async function publishReviewSummaryOnly(params: {
     cachedDiffIndex: params.cachedDiffIndex,
     ciSummary,
     ciVersion: renderedCi.version,
-    partialCoverageNote,
+    coverage:
+      coverage.kind === "full"
+        ? { kind: "full", failed: [] }
+        : { kind: coverage.kind, failed: coverage.failed },
     runFooter: {
       durationMs,
       model: params.cfg.piModel,

@@ -5,7 +5,6 @@ import { coerceReviewPayloadInput, reviewPayloadSchema } from "../src/review/rev
 describe("coerceReviewPayloadInput extra rescue rules", () => {
   it("maps line to startLine/endLine", () => {
     const { value, coercions } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [
         {
           severity: "P1",
@@ -32,7 +31,6 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
 
   it("does not coerce decimal line numbers", () => {
     const { value, coercions } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [
         {
           severity: "P1",
@@ -55,7 +53,6 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
 
   it("maps lines array to startLine/endLine", () => {
     const { coercions } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [
         {
           severity: "P1",
@@ -77,7 +74,6 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
   it("unwraps payload envelope keys", () => {
     const { coercions } = coerceReviewPayloadInput({
       payload: {
-        prCharacter: "x",
         findings: [],
         size: "XS",
         relevantTests: "no",
@@ -99,7 +95,6 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
       fixPrompt: "fix",
     };
     const { value, coercions } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings,
       size: "XS",
       relevantTests: "no",
@@ -114,7 +109,6 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
 
   it("rescues severity aliases like P1 (High) and integer 2", () => {
     const { value, coercions } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [
         {
           severity: "P1 (High)",
@@ -152,7 +146,6 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
   it("preserves suggestedCode and coerces confidence through finding coercion", () => {
     const suggestedCode = "if (ok) {\n  return ```literal```;\n}";
     const { value, coercions } = coerceReviewPayloadInput({
-      prCharacter: "x",
       findings: [
         {
           severity: "P1 (High)",
@@ -184,7 +177,6 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
 
   it("strips fences only when wrapping entire trimmed value", () => {
     const wrapped = coerceReviewPayloadInput({
-      prCharacter: "```\nSummary text\n```",
       findings: [
         {
           severity: "P2",
@@ -198,10 +190,10 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
       ],
       size: "XS",
       relevantTests: "no",
-      securityConcerns: null,
+      securityConcerns: "```\nSummary text\n```",
       followUps: [],
     });
-    expect(wrapped.coercions).toContain("prCharacter_fence_strip");
+    expect(wrapped.coercions).toContain("securityConcerns_fence_strip");
     expect(
       (wrapped.value as { findings: Array<{ detail: string }> }).findings[0]?.detail,
     ).toContain("```not stripped```");

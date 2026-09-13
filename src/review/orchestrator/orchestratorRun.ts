@@ -42,7 +42,6 @@ import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
 import { buildSpecialistBriefTool, renderBriefMessage, type SpecialistBrief } from "./briefTool.js";
 import { pumpSpecialistCompletions } from "./completionPump.js";
-import { resolveDescriptionWritingPolicy } from "../../agent/description/descriptionWritingPolicy.js";
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
@@ -231,14 +230,9 @@ function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]
 }
 
 function deterministicPayload(params: {
-  readonly state: OrchestratedRunState;
   readonly findings: ReviewPayload["findings"];
 }): ReviewPayload {
-  const degraded = params.state.judgment === "degraded";
   return {
-    prCharacter: degraded
-      ? "Judgment degraded. The deterministic summary preserves every accepted finding."
-      : "The orchestrated review completed.",
     findings: [...params.findings],
     size: "M",
     relevantTests: "partial",
@@ -873,7 +867,6 @@ export async function runOrchestratedPrReview(
   const publishDeterministicSummary = async (): Promise<void> => {
     const ledger = publishThread.getLedger();
     const payload = deterministicPayload({
-      state,
       findings: ledger.accepted.map((accepted) => accepted.placement.finding),
     });
 
@@ -1098,7 +1091,6 @@ export async function runOrchestratedPrReview(
       markCompleteUnlessStopped();
     } else {
       publishStepCount += 1;
-      const overviewPolicy = resolveDescriptionWritingPolicy(params.workspace.stats);
       const synthesisPrompt = renderSynthesisTurn({
         acceptedFindings: publishThread.getLedger().accepted,
         partialSpecialists: state.failedSpecialists,
@@ -1106,10 +1098,6 @@ export async function runOrchestratedPrReview(
           const outcome = state.outcomes[specialist];
           return outcome ? [outcome] : [];
         }),
-        overviewPolicy,
-        fileCount: params.workspace.stats.fileCount,
-        totalChanges: params.workspace.stats.totalChanges,
-        truncated: params.workspace.stats.truncated,
       });
       const synthesis = await sendWithRetry("synthesis", synthesisPrompt);
       if (synthesis.kind === "sent") lastText = synthesis.text;

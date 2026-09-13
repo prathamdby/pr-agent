@@ -7,7 +7,6 @@ import {
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
-  REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
   REVIEW_SIZES,
   type ReviewValidationFailureKind,
@@ -59,7 +58,6 @@ export const reviewFindingSchema = v.pipe(
 
 export function createReviewPayloadSchema() {
   return v.object({
-    prCharacter: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_OVERVIEW_MAX_CHARS)),
     findings: v.pipe(v.array(reviewFindingSchema), v.maxLength(MAX_REVIEW_PAYLOAD_FINDINGS)),
     size: v.picklist(REVIEW_SIZES),
     relevantTests: v.picklist(["yes", "no", "partial"]),
@@ -172,7 +170,7 @@ function unwrapPayloadEnvelope(raw: unknown): {
     const nested = obj[key];
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
       const nestedObj = nested as Record<string, unknown>;
-      if ("findings" in nestedObj || "prCharacter" in nestedObj) {
+      if ("findings" in nestedObj) {
         return { value: nested, coercions: [`unwrap_${key}`] };
       }
     }
@@ -290,12 +288,6 @@ export function coerceReviewPayloadInput(raw: unknown): {
 
   const input = { ...(unwrapped.value as Record<string, unknown>) };
 
-  if ("prCharacter" in input && typeof input.prCharacter === "string") {
-    const { text, changed } = coerceReviewTextField(input.prCharacter, "prCharacter", coercions);
-    if (changed) {
-      input.prCharacter = text;
-    }
-  }
   if ("size" in input && typeof input.size === "string") {
     const normalized = input.size.trim().toUpperCase();
     if (normalized !== input.size) {
@@ -375,7 +367,7 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
+    `Required top-level fields: findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
   lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
   const firstIssue = issues[0];

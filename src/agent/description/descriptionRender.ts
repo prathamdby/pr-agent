@@ -7,6 +7,7 @@ import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../settings/index.js";
 import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
+import { renderDescriptionVisual } from "./descriptionVisualSanitize.js";
 
 export type DescriptionRenderContext = GitHubPullRequestFileContext;
 
@@ -24,13 +25,19 @@ function renderReviewMap(
   return lines.join("\n").trimEnd();
 }
 
+function renderVisuals(payload: DescriptionPayload): string {
+  const visuals = payload.visuals;
+  if (!visuals || visuals.length === 0) return "";
+  return visuals.map((visual) => renderDescriptionVisual(visual)).join("\n\n");
+}
+
 export function renderDescriptionAgentBlock(
   payload: DescriptionPayload,
   ctx: DescriptionRenderContext,
 ): string {
   const typeLine = payload.type.join(", ");
   const description = payload.description.trim();
-  const diagram = payload.changesDiagram?.trim() ?? "";
+  const visualBlock = renderVisuals(payload);
   const reviewMap = payload.prFiles?.length ? renderReviewMap(payload.prFiles, ctx) : "";
 
   const sections = [
@@ -45,8 +52,8 @@ export function renderDescriptionAgentBlock(
     description,
   ];
 
-  if (diagram) {
-    sections.push("", "### Changes Diagram", "", diagram);
+  if (visualBlock) {
+    sections.push("", visualBlock);
   }
   if (reviewMap) {
     sections.push("", reviewMap);

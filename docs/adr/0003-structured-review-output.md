@@ -1,5 +1,11 @@
 # ADR 0003 — Structured review payload and two non-overlapping surfaces
 
+> **Changelog:** 2026-09-14, the review summary comment dropped LLM overview
+> prose (`prCharacter`). It now opens with a server-built action line (finding
+> count for every P0–P3 table row, CI status, specialist coverage). See
+> [ADR 0022](0022-remove-merge-verdict.md) and
+> [ADR 0009](0009-review-location-validation.md).
+
 ## Status
 
 Accepted.
@@ -16,14 +22,14 @@ The review agent previously instructed the model to submit a GitHub pull request
 ## Decision
 
 1. **`ReviewPayload`** (Valibot) is the validated summary contract for a review run. Incremental inline batches use `publish_thread`; the summary publisher consumes `ReviewPayload` via `submitReview` / `publish_summary` ([ADR 0020](0020-orchestrated-review.md), [ADR 0027](0027-replace-zod-with-valibot.md)).
-2. **Server-side renderers** (`reviewRender.ts`) produce inline thread bodies (P0–P3, with `Prompt to fix` accordion), the **review pointer body** (per-specialist Files-tab pull request review header: NOTE linking to the **review progress comment** plus a specialist tagline; no Fix All accordion), and the **review summary comment** (sentinel `## PR Agent Review`, overview alert plus a unified table: size, finding rows keyed by severity, tests, security, and follow-ups; aggregate **agent fix prompt** accordion below the table; hidden **stale review metadata** HTML comment). Finding rows for inline-posted severities list title, location, and a footnote only; **detail text appears in the summary table only for summary-only placements**. P3 is inline-eligible so `/triage` can fix it; review check runs still fail only for P0–P2 (see [ADR 0021](0021-p3-inline-triage.md)).
+2. **Server-side renderers** (`reviewRender.ts`) produce inline thread bodies (P0–P3, with `Prompt to fix` accordion), the **review pointer body** (per-specialist Files-tab pull request review header: NOTE linking to the **review progress comment** plus a specialist tagline; no Fix All accordion), and the **review summary comment** (sentinel `## PR Agent Review`, server-built action line, then a unified table: size, finding rows keyed by severity, tests, security, and follow-ups; aggregate **agent fix prompt** accordion below the table; hidden **stale review metadata** HTML comment). The action line names finding count (every P0–P3 table row), CI status, and specialist coverage. It is not model-authored. `ReviewPayload` has no overview field. Finding rows for inline-posted severities list title, location, and a footnote only; **detail text appears in the summary table only for summary-only placements**. P3 is inline-eligible so `/triage` can fix it; review check runs still fail only for P0–P2 (see [ADR 0021](0021-p3-inline-triage.md)).
 3. **Publish** uses `publish_thread` and `publish_summary` through `PrSurface` ([`publish/publishFindingBatch.ts`](../../src/review/publish/publishFindingBatch.ts), [`publish/publishSummaryOnly.ts`](../../src/review/publish/publishSummaryOnly.ts), [`orchestrator/publishSummaryTool.ts`](../../src/review/orchestrator/publishSummaryTool.ts)). Feature code must not construct raw Octokit clients.
 4. **Phase 3:** summary comment upsert by sentinel; optional idempotent labels (`size:<XS-XXL>`, `Possible security concern`) behind config flags.
 5. **Strict bugs only** — no suggestions/improvements framing; `fixPrompt` is for coding agents, not human refactor advice.
 
 ## Consequences
 
-- Three publish surfaces per review run when P0–P3 findings exist: **inline review threads** (per-finding on the diff), **review pointer body** (per-specialist NOTE + tagline pointing at the progress stub), and **review summary comment** (overview table plus one aggregate agent fix prompt for the full run). The no-duplication rule applies to finding bodies in the summary table, not the agent fix prompt accordion.
+- Three publish surfaces per review run when P0–P3 findings exist: **inline review threads** (per-finding on the diff), **review pointer body** (per-specialist NOTE + tagline pointing at the progress stub), and **review summary comment** (action line, gates table, plus one aggregate agent fix prompt for the full run). The no-duplication rule applies to finding bodies in the summary table, not the agent fix prompt accordion. The PR body agent block is the only prose+visual overview of the change.
 - Layout changes require code, not prompt edits (intentional).
 - Validation failures get `VALIDATION_REPAIR_ROUNDS` (3) repair turns, then fail.
 - We diverge from PR-Agent on surface model (inline threads retained) and scope (no `/improve`-style suggestions).

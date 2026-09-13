@@ -107,7 +107,6 @@ describe("publishReviewSummaryOnly", () => {
     const first = finding(10);
     const second = finding(20);
     const payload: ReviewPayload = {
-      prCharacter: "Two findings.",
       findings: [first, second],
       size: "S",
       relevantTests: "yes",
@@ -163,9 +162,11 @@ describe("publishReviewSummaryOnly", () => {
     const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r41");
     expect(summaryBody).toContain("#discussion_r42");
-    expect(summaryBody).toContain("Coverage partial: security specialist failed.");
-    expect(summaryBody?.indexOf("Coverage partial")).toBeGreaterThan(
-      summaryBody?.indexOf("</table>") ?? -1,
+    expect(summaryBody).toContain("2 findings block merge.");
+    expect(summaryBody).toContain("All specialists ran except security.");
+    expect(summaryBody).not.toContain("Coverage partial: security specialist failed.");
+    expect(summaryBody?.indexOf("All specialists ran")).toBeLessThan(
+      summaryBody?.indexOf("<table>") ?? Number.POSITIVE_INFINITY,
     );
   });
 
@@ -183,7 +184,6 @@ describe("publishReviewSummaryOnly", () => {
       },
       prSurface: bundle.surface,
       payload: {
-        prCharacter: "No findings.",
         findings: [],
         size: "XS",
         relevantTests: "no",
@@ -225,7 +225,6 @@ describe("publishReviewSummaryOnly", () => {
       },
       prSurface: surface,
       payload: {
-        prCharacter: "One finding with partial coverage.",
         findings: [finding(10)],
         size: "S",
         relevantTests: "partial",
@@ -283,7 +282,6 @@ describe("publishReviewSummaryOnly", () => {
       },
       prSurface: surface,
       payload: {
-        prCharacter: "One finding.",
         findings: [finding(10)],
         size: "S",
         relevantTests: "yes",
@@ -323,7 +321,6 @@ describe("publishReviewSummaryOnly", () => {
         },
         prSurface: bundle.surface,
         payload: {
-          prCharacter: "No coverage.",
           findings: [],
           size: "XS",
           relevantTests: "no",

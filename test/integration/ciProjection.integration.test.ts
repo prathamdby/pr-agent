@@ -636,7 +636,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         },
         prSurface: fake.surface,
         payload: {
-          prCharacter: "No findings.",
           findings: [],
           size: "XS",
           relevantTests: "no",

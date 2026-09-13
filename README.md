@@ -243,7 +243,7 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
   <tr>
     <td width="36%" valign="middle">
       <h3>Description in the PR body</h3>
-      <p>Turns a blank pull request body into a readable summary. Bullets and a diagram land on the PR when they help.</p>
+      <p>Turns a blank pull request body into a readable summary. Bullets and optional visual sketches land on the PR when the diff proves them.</p>
     </td>
     <td width="64%">
       <img src="site/public/screenshots/describe.example.webp" alt="PR Agent description block in a pull request body" width="100%" />

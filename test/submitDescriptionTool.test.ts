@@ -181,6 +181,36 @@ describe("submitDescription tool", () => {
     ]);
   });
 
+  it("enforces title rules before publish", async () => {
+    const { executor } = buildTool();
+    await executor({
+      ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
+      title: "feat: add user session validation.",
+    });
+
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    expect(published.payload.title).toBe("Add user session validation");
+  });
+
+  it("sanitizes mermaid visuals before publish", async () => {
+    const raw = [
+      "```mermaid",
+      "flowchart LR",
+      "  J[Admin Users List] --> K[/api/admin-users/list proxy]",
+      "```",
+    ].join("\n");
+    const { executor } = buildTool();
+    await executor({
+      title: "Update admin flow",
+      type: ["Enhancement"],
+      description: "- Route admin list through proxy",
+      visuals: [{ kind: "mermaid", content: raw }],
+    });
+
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    expect(published.payload.visuals?.[0]?.content).toContain('K["api/admin-users/list proxy"]');
+  });
+
   it("caps read_first prFiles at five before publish", async () => {
     const prFiles = Array.from({ length: 8 }, (_, i) => ({
       filename: `src/f${i}.ts`,

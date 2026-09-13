@@ -92,9 +92,7 @@ describe("formatReviewSizeBudgetBlock", () => {
       totalChanges: 2500,
     });
     expect(block).toContain("- Tier: large");
-    expect(block).toContain(
-      "- Change set truncated: treat coverage as partial and note limits in prCharacter.",
-    );
+    expect(block).toContain("- Change set truncated: treat coverage as partial.");
     expect(block).toContain("- Large PR:");
   });
 });

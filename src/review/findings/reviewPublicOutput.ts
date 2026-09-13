@@ -8,7 +8,6 @@ export function redactReviewText(text: string): string {
 export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayload {
   return {
     ...payload,
-    prCharacter: redactReviewText(payload.prCharacter),
     securityConcerns:
       payload.securityConcerns == null ? null : redactReviewText(payload.securityConcerns),
     followUps: payload.followUps.map((item) => redactReviewText(item)),

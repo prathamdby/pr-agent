@@ -5,7 +5,7 @@ export const SLASH_HELP_BODY = [
   "Commands (first line of a **new** comment):",
   "- `/help` - show this message",
   "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
-  "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite needs FEATURE_TITLE_REWRITE=true",
+  "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
   "- `/review` - review the PR for bugs (also runs when a PR opens; later reviews need `/review`)",
   "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
   "- `/cancel` - cancel a queued or in-progress review on this PR",

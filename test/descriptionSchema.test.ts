@@ -66,4 +66,30 @@ describe("descriptionSchema", () => {
       expect(parsed.output.prFiles?.[0]?.changesTitle).toBe("Open this first for the data path");
     }
   });
+
+  it("accepts optional visuals array", () => {
+    const parsed = v.safeParse(descriptionPayloadSchema, {
+      title: "Add cache",
+      type: ["Enhancement"],
+      description: "- Add cache layer",
+      visuals: [
+        {
+          kind: "call_tree",
+          content: "handler\n  loadCache\n  return value",
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("does not coerce legacy changes_diagram field", () => {
+    const coerced = coerceDescriptionPayloadInput({
+      title: "t",
+      type: ["Enhancement"],
+      description: "- d",
+      changes_diagram: "```mermaid\nflowchart LR\n  A --> B\n```",
+    });
+    expect(coerced.changesDiagram).toBeUndefined();
+    expect(coerced.changes_diagram).toBeDefined();
+  });
 });

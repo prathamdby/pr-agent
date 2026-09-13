@@ -1,9 +1,8 @@
 import type { AcceptedPlacement, SpecialistId, SpecialistOutcome } from "../orchestratorTypes.js";
-import type { DescriptionWritingPolicy } from "../../../agent/description/descriptionWritingPolicy.js";
 import { orchestratorHarness } from "../../../agent/prompts/harnessProtocol.js";
+import { ste100WritingGuidance } from "../../../agent/prompts/ste100Guidance.js";
 import { wrapUntrustedEvidence } from "../../../agent/prompts/promptBlocks.js";
 import { causalPublicationContract } from "../../prompts/reviewPromptBlocks.js";
-import { formatOverviewWritingHardRule, reviewOverviewWritingGuidance } from "./overviewWriting.js";
 
 type ReportOutcome = Extract<SpecialistOutcome, { readonly kind: "report" }>;
 
@@ -18,7 +17,18 @@ export const orchestratorSystemPrompt = [
   "Silence is never completion. Every phase ends by calling the active tool (`submit_specialist_brief`, `publish_thread`, or `publish_summary`).",
   "",
   causalPublicationContract,
-  reviewOverviewWritingGuidance,
+  ste100WritingGuidance,
+  [
+    "## Review gates",
+    "",
+    "The server writes the summary action line from finding count, CI, and specialist coverage.",
+    "Do not write a PR overview or a coverage note.",
+    "",
+    "- securityConcerns: null when none; otherwise one or two short STE100 sentences naming the risk.",
+    "- size: XS | S | M | L | XL | XXL for the scale of the change set, not code quality.",
+    "- relevantTests: yes | no | partial from the accepted evidence only.",
+    "- followUps: short STE100 lines for deferred non-blocking work; empty when none.",
+  ].join("\n"),
 ].join("\n\n");
 
 const reconRiskMapGuidance = [
@@ -74,27 +84,13 @@ export function renderSynthesisTurn(params: {
   readonly acceptedFindings: readonly AcceptedPlacement[];
   readonly partialSpecialists: readonly SpecialistId[];
   readonly outcomes: readonly SpecialistOutcome[];
-  readonly overviewPolicy: DescriptionWritingPolicy;
-  readonly fileCount: number;
-  readonly totalChanges: number;
-  readonly truncated: boolean;
 }): string {
   return [
     "Synthesize the final pull request review.",
     "Use accepted placements below as the sole source of review findings. Do not add findings from raw specialist reports, remove accepted findings, change their severity, or relocate them.",
     "`execute` may still run to confirm a placement. It cannot invent findings.",
-    "Carry partial coverage into the summary whenever partialSpecialists is non-empty. Name the failed specialist coverage plainly and avoid full-coverage or safe-to-merge claims.",
+    "The server writes the summary action line from finding count, CI, and specialist coverage. Carry partial coverage only as accepted evidence; do not add a coverage note or a PR overview.",
     "Call `publish_summary` exactly once. Do not call `publish_thread` in this turn.",
-    "",
-    "Trusted context (review overview writing policy):",
-    `- Overview scale: ${params.overviewPolicy.bodyScale}`,
-    `- Technical depth: ${params.overviewPolicy.technicalDepth}`,
-    `- Sentence or bullet range: ${params.overviewPolicy.bulletMin}–${params.overviewPolicy.bulletMax}`,
-    `- Max words per sentence: ${params.overviewPolicy.maxWordsPerBullet}`,
-    `- Changed files: ${params.fileCount}`,
-    `- Total line changes (additions + deletions): ${params.totalChanges}`,
-    `- Change set truncated: ${params.truncated ? "yes" : "no"}`,
-    formatOverviewWritingHardRule(params.overviewPolicy),
     "",
     "<accepted_placements>",
     wrapUntrustedEvidence("accepted_placements", JSON.stringify(params.acceptedFindings, null, 2)),
