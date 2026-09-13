@@ -58,7 +58,7 @@ describe("renderReviewSummaryComment", () => {
     });
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain(
-      "No findings. CI has not started. All specialists ran with full coverage.",
+      "No findings, ready to merge. CI has not started. All specialists ran with full coverage.",
     );
     expect(body).toContain("[!NOTE]");
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
@@ -475,10 +475,10 @@ describe("renderReviewSummaryComment", () => {
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
       coverage: { kind: "partial", failed: ["quality"] },
     });
-    expect(body).toContain("2 findings. CI is passing. All specialists ran except quality.");
+    expect(body).toContain("2 findings block merge. CI is passing. All specialists ran except quality.");
     expect(body).toContain("[!NOTE]");
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
-    expect(body.indexOf("2 findings.")).toBeLessThan(body.indexOf("<table>"));
+    expect(body.indexOf("2 findings block merge")).toBeLessThan(body.indexOf("<table>"));
   });
 
   it("uses the general summary identity for recognized legacy modes", () => {
@@ -696,7 +696,7 @@ describe("renderReviewSummaryComment", () => {
       },
       2_500,
     );
-    expect(body).toContain("12 findings.");
+    expect(body).toContain("12 findings block merge.");
     expect(body).toContain(REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX);
   });
 });
@@ -736,14 +736,14 @@ describe("review action line helpers", () => {
         ciStatusText: "CI has not started",
         coverageStatusText: "with full coverage",
       }),
-    ).toBe("No findings. CI has not started. All specialists ran with full coverage.");
+    ).toBe("No findings, ready to merge. CI has not started. All specialists ran with full coverage.");
     expect(
       renderReviewActionLine({
         findingCount: 1,
         ciStatusText: "CI is failing",
         coverageStatusText: "except security",
       }),
-    ).toBe("1 finding. CI is failing. All specialists ran except security.");
+    ).toBe("1 finding blocks merge. CI is failing. All specialists ran except security.");
   });
 });
 

@@ -369,10 +369,10 @@ export function renderReviewActionLine(input: {
 }
 
 function formatFindingCountClause(count: number): string {
-  // N counts every P0–P3 table row. Wording avoids "block merge" because only P0–P2 fail the check.
-  if (count === 0) return "No findings";
-  if (count === 1) return "1 finding";
-  return `${count} findings`;
+  // N counts every P0–P3 table row (design copy; check failure remains P0–P2 only).
+  if (count === 0) return "No findings, ready to merge";
+  if (count === 1) return "1 finding blocks merge";
+  return `${count} findings block merge`;
 }
 
 function formatFailedSpecialistNames(failed: readonly string[]): string {
