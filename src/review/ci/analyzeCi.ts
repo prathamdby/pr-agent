@@ -9,9 +9,17 @@ import {
   REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
   REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
   REVIEW_CI_SUMMARY_MAX_FAILURES,
+  OWN_COMMIT_STATUS_CONTEXT,
   REVIEW_CI_SUMMARY_UNAVAILABLE,
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
 } from "../../settings/index.js";
+import {
+  checkRunSnapshotToFact,
+  classifyGithubSnapshot,
+  isCheckFactFailing,
+  legacyStatusToFact,
+  type CiCheckFact,
+} from "./classifySnapshot.js";
 import {
   factsOnlyFailingSummary,
   mergeCiSummaryWithFacts,
@@ -33,20 +41,6 @@ import {
 } from "./condenseCiLogs.js";
 
 const OWN_CHECK_NAME_PREFIX = "PR Agent";
-const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
-
-const FAILING_CONCLUSIONS = new Set(["failure", "timed_out", "action_required", "startup_failure"]);
-
-const PENDING_CHECK_STATUSES = new Set([
-  "queued",
-  "in_progress",
-  "waiting",
-  "pending",
-  "requested",
-]);
-
-const FAILING_LEGACY_STATES = new Set(["failure", "error"]);
-const PENDING_LEGACY_STATES = new Set(["pending"]);
 
 type BuildCiSummaryOptions = {
   readonly prSurface: PrSurface;
@@ -232,13 +226,11 @@ export function isOwnCiCheckName(name: string): boolean {
 }
 
 function isCheckFailing(run: CiCheckRunSnapshot): boolean {
-  return (
-    run.status === "completed" && run.conclusion != null && FAILING_CONCLUSIONS.has(run.conclusion)
-  );
+  return isCheckFactFailing(checkRunSnapshotToFact(run));
 }
 
 function isLegacyFailing(status: CiLegacyStatus): boolean {
-  return FAILING_LEGACY_STATES.has(status.state);
+  return isCheckFactFailing(legacyStatusToFact(status));
 }
 
 async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
@@ -271,23 +263,6 @@ async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalC
   }
 }
 
-function classifySnapshot(
-  checks: readonly CiCheckRunSnapshot[],
-  statuses: readonly CiLegacyStatus[],
-): "none" | "pending" | "failing" | "passing" {
-  if (checks.length === 0 && statuses.length === 0) return "none";
-  const anyFailing = checks.some(isCheckFailing) || statuses.some(isLegacyFailing);
-  if (anyFailing) return "failing";
-  const anyPending =
-    checks.some(
-      (run) =>
-        run.status !== "completed" &&
-        (PENDING_CHECK_STATUSES.has(run.status) || run.conclusion == null),
-    ) || statuses.some((status) => PENDING_LEGACY_STATES.has(status.state));
-  if (anyPending) return "pending";
-  return "passing";
-}
-
 async function waitForTerminalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   const waitMs = options.waitMs ?? 0;
   const pollMs = Math.max(options.waitPollMs ?? REVIEW_CI_SUMMARY_WAIT_POLL_MS, 100);
@@ -307,7 +282,7 @@ async function waitForTerminalCi(options: BuildCiSummaryOptions): Promise<Extern
 }
 
 function isTerminalCiLoad(loaded: Extract<ExternalCiLoad, { readonly ok: true }>): boolean {
-  const state = classifySnapshot(loaded.checks, loaded.statuses);
+  const state = classifyGithubSnapshot(loaded.checks, loaded.statuses);
   if (state === "pending") return false;
   if (state === "failing") return true;
   return loaded.checkRunsComplete !== false;
@@ -320,7 +295,7 @@ export function summarizeCiSnapshot(params: {
   readonly permissionNote?: string;
   readonly checkRunsComplete?: boolean;
 }): CiSummary {
-  const state = classifySnapshot(params.checks, params.statuses);
+  const state = classifyGithubSnapshot(params.checks, params.statuses);
   const permissionNote = params.permissionNote;
   const incomplete = params.checkRunsComplete === false;
   if (incomplete && (state === "none" || state === "passing")) {
@@ -365,6 +340,13 @@ export function summarizeCiSnapshot(params: {
         ...(permissionNote != null ? { permissionNote } : {}),
       };
     }
+    case "unknown":
+      return {
+        status: "unavailable",
+        headline: REVIEW_CI_SUMMARY_UNAVAILABLE,
+        failures: [],
+        ...(permissionNote != null ? { permissionNote } : {}),
+      };
     default: {
       const exhaustive: never = state;
       return exhaustive;
@@ -422,6 +404,34 @@ function buildAuthorInput(
   };
 }
 
+export function summarizeCiFacts(checks: Readonly<Record<string, CiCheckFact>>): CiSummary {
+  const checkRuns: CiCheckRunSnapshot[] = [];
+  const statuses: CiLegacyStatus[] = [];
+  for (const fact of Object.values(checks)) {
+    if (fact.source === "status") {
+      statuses.push({
+        context: fact.name,
+        state: fact.status,
+        description: null,
+        targetUrl: fact.url,
+      });
+    } else {
+      checkRuns.push({
+        id: fact.check_run_id ?? 0,
+        name: fact.name,
+        externalId: fact.external_id,
+        status: fact.status,
+        conclusion: fact.conclusion,
+        htmlUrl: fact.url,
+        outputTitle: null,
+        outputSummary: null,
+        outputText: null,
+      });
+    }
+  }
+  return summarizeCiSnapshot({ checks: checkRuns, statuses });
+}
+
 export async function buildCiSummaryForSurface(
   prSurface: PrSurface,
   options: Omit<BuildCiSummaryOptions, "prSurface">,
@@ -443,7 +453,7 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
       statuses: loaded.statuses,
       checkRunsComplete: loaded.checkRunsComplete,
     };
-    const state = classifySnapshot(snapshot.checks, snapshot.statuses);
+    const state = classifyGithubSnapshot(snapshot.checks, snapshot.statuses);
     if (state !== "failing" || options.lightweight) {
       return summarizeCiSnapshot(snapshot);
     }

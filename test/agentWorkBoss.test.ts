@@ -13,6 +13,8 @@ import {
   ACK_QUEUE,
   ASK_DEAD_LETTER_QUEUE,
   ASK_QUEUE,
+  CI_PROJECTION_DEAD_LETTER_QUEUE,
+  CI_PROJECTION_QUEUE,
   CI_REFRESH_DEAD_LETTER_QUEUE,
   CI_REFRESH_QUEUE,
   CODE_INDEX_BUILD_QUEUE,
@@ -57,6 +59,7 @@ describe("ensureAgentQueues", () => {
       TRIAGE_DEAD_LETTER_QUEUE,
       VERIFICATION_DEAD_LETTER_QUEUE,
       CI_REFRESH_DEAD_LETTER_QUEUE,
+      CI_PROJECTION_DEAD_LETTER_QUEUE,
     ];
     const parentQueues = [
       ACK_QUEUE,
@@ -66,6 +69,7 @@ describe("ensureAgentQueues", () => {
       TRIAGE_QUEUE,
       VERIFICATION_QUEUE,
       CI_REFRESH_QUEUE,
+      CI_PROJECTION_QUEUE,
     ];
 
     type Deferred = {
@@ -119,6 +123,10 @@ describe("ensureAgentQueues", () => {
       expect.objectContaining({
         policy: "standard",
         deadLetter: CI_REFRESH_DEAD_LETTER_QUEUE,
+      }),
+      expect.objectContaining({
+        policy: "standard",
+        deadLetter: CI_PROJECTION_DEAD_LETTER_QUEUE,
       }),
     ]);
 

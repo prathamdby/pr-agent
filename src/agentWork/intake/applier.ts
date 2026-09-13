@@ -26,13 +26,16 @@ import { flushDeferredEvents, type DeferredIntakeEvent } from "./deferredEvents.
 import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
 import {
   enqueueAck,
+  enqueueCiProjectionDebounced,
   enqueueCiRefreshIdempotent,
   enqueueDescription,
   enqueueReview,
   enqueueVerification,
   jobCorrelation,
 } from "./queueing.js";
-import type { CiRefreshJobData } from "../types.js";
+import type { CiProjectionJobData, CiRefreshJobData } from "../types.js";
+import { applyPrHeadCiFact } from "../prHeadCiState.js";
+import type { CiCheckFact } from "../../review/ci/classifySnapshot.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
   cancelActiveTriage,
@@ -438,6 +441,79 @@ export async function applyCiRefreshIntake(
         },
       });
     }
+    return deferred;
+  });
+  flushDeferredEvents(intakeLog, events);
+}
+
+export type CiStateFactInput = {
+  readonly installationId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly fact: CiCheckFact;
+};
+
+/**
+ * Writes `pr_head_ci_state` for a check_run or status delivery and enqueues a
+ * debounced projection. Does not resolve PRs and does not call GitHub.
+ */
+export async function applyCiStateIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  data: CiStateFactInput,
+  intakeLog: RequestLogger,
+): Promise<void> {
+  const events = await inTransaction(pool, async (client) => {
+    const deferred: DeferredIntakeEvent[] = [];
+    const event = await insertWebhookEvent(client, headers, "ci_state_applied");
+    if (event.duplicate) {
+      deferred.push({
+        name: "deduped_delivery",
+        fields: {
+          dedupeKey: event.dedupeKey,
+          event: headers.event,
+        },
+      });
+      return deferred;
+    }
+    const applied = await applyPrHeadCiFact(client, {
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      fact: data.fact,
+    });
+    deferred.push({
+      name: "ci_state_applied",
+      fields: {
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+        name: data.fact.name,
+        accepted: applied.accepted,
+        version: applied.version,
+      },
+    });
+    if (!applied.accepted) return deferred;
+    const job: CiProjectionJobData = {
+      kind: "ci_projection",
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      ...jobCorrelation(event.id, headers),
+    };
+    const result = await enqueueCiProjectionDebounced(boss, client, job);
+    deferred.push({
+      name: "ci_projection_enqueued",
+      fields: {
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+        result,
+      },
+    });
     return deferred;
   });
   flushDeferredEvents(intakeLog, events);

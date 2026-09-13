@@ -98,6 +98,15 @@ export type VerificationJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
+/** Head-scoped projection after a `pr_head_ci_state` write. Consumer lands with the renderer. */
+export type CiProjectionJobData = JobCorrelation & {
+  readonly kind: "ci_projection";
+  readonly installationId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+};
+
 /** Fire-and-forget CI cell refresh after workflow_run / check_suite completed (ADR 0018). */
 export type CiRefreshJobData = JobCorrelation & {
   readonly kind: "ci_refresh";

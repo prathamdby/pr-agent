@@ -11,6 +11,11 @@ import {
   isOwnCiCheckName,
   summarizeCiSnapshot,
 } from "../src/review/ci/analyzeCi.js";
+import {
+  applyCiCheckFact,
+  classifySnapshot,
+  type CiCheckFact,
+} from "../src/review/ci/classifySnapshot.js";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../src/github/prSurface.js";
 import type { CiAuthorInput, CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
 import type { CiCheckRunSnapshot } from "../src/review/ci/ciSummaryTypes.js";
@@ -1144,5 +1149,94 @@ describe("analyzeCi", () => {
     expect(summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
     expect(poll).toBeGreaterThanOrEqual(2);
     expect(poll).toBeLessThan(10);
+  });
+});
+
+describe("classifySnapshot and applyCiCheckFact", () => {
+  function checkFact(
+    name: string,
+    status: string,
+    conclusion: string | null,
+    observedAt = "2026-01-01T00:00:00.000Z",
+  ): CiCheckFact {
+    return {
+      name,
+      source: "check_run",
+      status,
+      conclusion,
+      url: null,
+      external_id: null,
+      app_id: null,
+      check_run_id: 1,
+      observed_at: observedAt,
+    };
+  }
+
+  function statusFact(
+    name: string,
+    state: string,
+    observedAt = "2026-01-01T00:00:00.000Z",
+  ): CiCheckFact {
+    return {
+      name,
+      source: "status",
+      status: state,
+      conclusion: null,
+      url: null,
+      external_id: null,
+      app_id: null,
+      check_run_id: null,
+      observed_at: observedAt,
+    };
+  }
+
+  it("classifies empty facts as none", () => {
+    expect(classifySnapshot([])).toBe("none");
+  });
+
+  it("lets a failing check beat a pending sibling", () => {
+    expect(
+      classifySnapshot([
+        checkFact("lint", "completed", "failure"),
+        checkFact("tests", "in_progress", null),
+      ]),
+    ).toBe("failing");
+  });
+
+  it("classifies a pending check as pending", () => {
+    expect(classifySnapshot([checkFact("lint", "queued", null)])).toBe("pending");
+  });
+
+  it("classifies completed success as passing", () => {
+    expect(classifySnapshot([checkFact("lint", "completed", "success")])).toBe("passing");
+  });
+
+  it("treats a legacy error status as failing", () => {
+    expect(classifySnapshot([statusFact("Vercel", "error")])).toBe("failing");
+  });
+
+  it("rejects an older observation for the same name", () => {
+    const current = {
+      lint: checkFact("lint", "completed", "failure", "2026-01-01T00:00:02.000Z"),
+    };
+    const result = applyCiCheckFact(
+      current,
+      checkFact("lint", "completed", "success", "2026-01-01T00:00:01.000Z"),
+      200,
+    );
+    expect(result.accepted).toBe(false);
+    expect(result.checks.lint?.conclusion).toBe("failure");
+  });
+
+  it("accepts a newer observation and evicts the oldest other name on overflow", () => {
+    const current = {
+      old: checkFact("old", "completed", "success", "2026-01-01T00:00:01.000Z"),
+      mid: checkFact("mid", "completed", "success", "2026-01-01T00:00:02.000Z"),
+    };
+    const incoming = checkFact("new", "completed", "failure", "2026-01-01T00:00:03.000Z");
+    const result = applyCiCheckFact(current, incoming, 2);
+    expect(result.accepted).toBe(true);
+    expect(result.truncated).toBe(true);
+    expect(Object.keys(result.checks).toSorted()).toEqual(["mid", "new"]);
   });
 });

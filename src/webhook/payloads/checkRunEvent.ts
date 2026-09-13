@@ -15,6 +15,8 @@ export const checkRunBodySchema = v.object({
   conclusion: v.nullable(v.string()),
   name: v.string(),
   html_url: v.optional(v.nullable(v.string())),
+  started_at: v.optional(v.nullable(v.string())),
+  completed_at: v.optional(v.nullable(v.string())),
   external_id: v.optional(v.nullable(v.string())),
   app: v.optional(v.object({ id: githubSafeIdSchema })),
   pull_requests: v.optional(v.array(ciRefreshPullRequestSchema), []),

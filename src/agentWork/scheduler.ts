@@ -8,6 +8,8 @@ import type { RequestLogger } from "../evlog.js";
 import {
   applyAutomatedPullRequestIntake,
   applyCiRefreshIntake,
+  applyCiStateIntake,
+  type CiStateFactInput,
   recordIgnoredWebhook,
 } from "./intake/applier.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./intake/slashIntake.js";
@@ -39,6 +41,11 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
         readonly headSha: string;
         readonly prNumbers: readonly number[];
       },
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
+    readonly submitCiState: (
+      headers: WebhookHeaders,
+      data: CiStateFactInput,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly submitSlashCommand: (
@@ -75,6 +82,12 @@ export function makeAgentWorkScheduler(
     submitCiRefresh: (headers, data, intakeLog) =>
       Effect.tryPromise({
         try: () => applyCiRefreshIntake(boss, pool, headers, data, intakeLog),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }).pipe(Effect.uninterruptible),
+
+    submitCiState: (headers, data, intakeLog) =>
+      Effect.tryPromise({
+        try: () => applyCiStateIntake(boss, pool, headers, data, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }).pipe(Effect.uninterruptible),
 

@@ -30,6 +30,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
   afterEach(async () => {
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
   });
 
   async function insertWorkItem(
@@ -136,5 +137,29 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     const ids = rows.map((r) => r.id);
     expect(ids).not.toContain(expiredId);
     expect(ids).toContain(freshId);
+  });
+
+  it("deletes aged head CI state with no work item for that head", async () => {
+    await insertWorkItem("completed", daysAgo(1));
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, updated_at)
+       VALUES
+         ($1, 'r', 'orphan-aged', '{}'::jsonb, 'none', 0, $2),
+         ($1, 'r', 'h', '{}'::jsonb, 'none', 0, $2),
+         ($1, 'r', 'fresh', '{}'::jsonb, 'none', 0, now())`,
+      [OWNER, daysAgo(60)],
+    );
+
+    const result = await runRetention(pool, RETENTION);
+    expect(result.prHeadCiStateDeleted).toBeGreaterThanOrEqual(1);
+
+    const { rows } = await pool.query<{ head_sha: string }>(
+      "SELECT head_sha FROM pr_head_ci_state WHERE owner = $1",
+      [OWNER],
+    );
+    const heads = rows.map((row) => row.head_sha);
+    expect(heads).not.toContain("orphan-aged");
+    expect(heads).toContain("h");
+    expect(heads).toContain("fresh");
   });
 });

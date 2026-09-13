@@ -39,7 +39,10 @@ export type PublishStep =
   | "triage_thread_actions"
   | "triage_report"
   | "triage_preview"
-  | "verification_thread_actions";
+  | "verification_thread_actions"
+  | "ci_cell"
+  | "commit_status"
+  | "verification_failure";
 type SharedPublishStep = Exclude<PublishStep, "ask_reply" | "check_run">;
 type AskPublishStep = Extract<PublishStep, "ask_reply">;
 

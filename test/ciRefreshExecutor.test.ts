@@ -22,8 +22,7 @@ let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 7 });
 const mocks = vi.hoisted(() => ({
   mintInstallationToken: vi.fn(),
   hasActiveReviewWorkItem: vi.fn(),
-  buildCiSummaryForSurface: vi.fn(),
-  createAgentCiSummaryAuthor: vi.fn(),
+  loadPrHeadCiState: vi.fn(),
   shouldRenderCiSummaryRow: vi.fn(),
   parseReviewMetaFromCommentBody: vi.fn(),
   commentBodyHasCiSummaryCell: vi.fn(),
@@ -36,11 +35,8 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
 vi.mock("../src/agentWork/repository.js", () => ({
   hasActiveReviewWorkItem: mocks.hasActiveReviewWorkItem,
 }));
-vi.mock("../src/review/ci/analyzeCi.js", () => ({
-  buildCiSummaryForSurface: mocks.buildCiSummaryForSurface,
-}));
-vi.mock("../src/review/ci/authorCiSummary.js", () => ({
-  createAgentCiSummaryAuthor: mocks.createAgentCiSummaryAuthor,
+vi.mock("../src/agentWork/prHeadCiState.js", () => ({
+  loadPrHeadCiState: mocks.loadPrHeadCiState,
 }));
 vi.mock("../src/review/ci/renderCiSummary.js", () => ({
   shouldRenderCiSummaryRow: mocks.shouldRenderCiSummaryRow,
@@ -68,6 +64,35 @@ const data: CiRefreshJobData = {
 
 function fakeBoss(send: PgBoss["send"] = vi.fn().mockResolvedValue("job-id")) {
   return { send } as unknown as PgBoss;
+}
+
+function factsRow(headSha = "head") {
+  return {
+    owner: "o",
+    repo: "r",
+    headSha,
+    checks: {
+      lint: {
+        name: "lint",
+        source: "check_run" as const,
+        status: "completed",
+        conclusion: "success",
+        url: null,
+        external_id: null,
+        app_id: null,
+        check_run_id: 1,
+        observed_at: "2026-01-01T00:00:00.000Z",
+      },
+    },
+    rollup: "passing" as const,
+    version: 1,
+    authored: null,
+    prNumbers: [],
+    truncated: false,
+    seededAt: null,
+    firstSeenAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  };
 }
 
 describe("nextCiRefreshAttempt", () => {
@@ -104,8 +129,7 @@ describe("executeCiRefreshJob", () => {
       token: "tok",
       expiresAtTs: Date.now() + 60_000,
     });
-    mocks.createAgentCiSummaryAuthor.mockReturnValue({});
-    mocks.buildCiSummaryForSurface.mockResolvedValue({ status: "success" });
+    mocks.loadPrHeadCiState.mockResolvedValue(factsRow());
     mocks.shouldRenderCiSummaryRow.mockReturnValue(true);
     mocks.hasActiveReviewWorkItem.mockResolvedValue(false);
     mocks.parseReviewMetaFromCommentBody.mockReturnValue({ headSha: "head" });
@@ -158,6 +182,20 @@ describe("executeCiRefreshJob", () => {
     });
 
     expect(send).not.toHaveBeenCalled();
+    expect(
+      surfaceBundle.controls.events.some((event) => event.kind === "listConversationComments"),
+    ).toBe(false);
+    expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
+  });
+
+  it("skips mint and comment edits when no head CI state exists", async () => {
+    mocks.loadPrHeadCiState.mockResolvedValueOnce(null);
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "summary body", 55);
+
+    await executeCiRefreshJob(cfg, pool, fakeBoss(), data);
+
+    expect(mocks.loadPrHeadCiState).toHaveBeenCalledWith(pool, "o", "r", "head");
+    expect(mocks.mintInstallationToken).not.toHaveBeenCalled();
     expect(
       surfaceBundle.controls.events.some((event) => event.kind === "listConversationComments"),
     ).toBe(false);

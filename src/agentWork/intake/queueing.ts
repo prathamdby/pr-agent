@@ -5,6 +5,7 @@ import { pgBossDb } from "../../db/postgres.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
+  CI_PROJECTION_QUEUE,
   CI_REFRESH_QUEUE,
   CI_REFRESH_RETRY_ATTEMPT_LIMIT,
   CI_REFRESH_RETRY_DELAY_SECONDS,
@@ -18,6 +19,7 @@ import {
   installationGroupId,
   type AckJobData,
   type AskJobData,
+  type CiProjectionJobData,
   type CiRefreshJobData,
   type DescriptionJobData,
   type JobCorrelation,
@@ -230,6 +232,26 @@ export async function enqueueCiRefreshIdempotent(
     data,
     ciRefreshSendOptions({ ...data, webhookEventId }, { db: pgBossDb(client) }),
   );
+}
+
+/** One pending projection per head. Later writes join the next 5s slot. */
+export async function enqueueCiProjectionDebounced(
+  boss: PgBoss,
+  client: PoolClient,
+  data: CiProjectionJobData,
+): Promise<"enqueued" | "already_present"> {
+  const jobId = await boss.sendDebounced(
+    CI_PROJECTION_QUEUE,
+    data,
+    {
+      db: pgBossDb(client),
+      priority: 40,
+      group: { id: installationGroupId(data.installationId) },
+    },
+    5,
+    `${data.owner}/${data.repo}:${data.headSha}`,
+  );
+  return jobId == null ? "already_present" : "enqueued";
 }
 
 /** Delayed retain hop after an active review. Same send options as intake. */

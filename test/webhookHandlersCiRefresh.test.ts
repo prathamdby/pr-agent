@@ -35,6 +35,7 @@ describe("WebhookHandlers.ciRefresh", () => {
               installationId: data.installationId,
             });
           }),
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -95,6 +96,7 @@ describe("WebhookHandlers.ciRefresh", () => {
           Effect.sync(() => {
             captured.push(data.prNumbers);
           }),
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );

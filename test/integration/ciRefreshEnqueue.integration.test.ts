@@ -2,13 +2,16 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { applyCiRefreshIntake } from "../../src/agentWork/intake/applier.js";
+import { applyCiRefreshIntake, applyCiStateIntake } from "../../src/agentWork/intake/applier.js";
 import { ciRefreshJobId, enqueueCiRefreshRetry } from "../../src/agentWork/intake/queueing.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { loadPrHeadCiState } from "../../src/agentWork/prHeadCiState.js";
 import type { CiRefreshJobData, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
+import type { CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import {
+  CI_PROJECTION_QUEUE,
   CI_REFRESH_QUEUE,
   CI_REFRESH_RETRY_DELAY_SECONDS,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
@@ -52,14 +55,33 @@ function intakeLog() {
   return createOperationLogger({ method: "POST", path: "/webhooks" });
 }
 
-async function deleteCiRefreshJobs(boss: PgBoss): Promise<void> {
-  const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
+async function deleteQueueJobs(boss: PgBoss, queue: string): Promise<void> {
+  const jobs = await boss.findJobs(queue, {});
   if (jobs.length > 0) {
     await boss.deleteJob(
-      CI_REFRESH_QUEUE,
+      queue,
       jobs.map((job) => job.id),
     );
   }
+}
+
+async function deleteCiRefreshJobs(boss: PgBoss): Promise<void> {
+  await deleteQueueJobs(boss, CI_REFRESH_QUEUE);
+}
+
+function ciStateFact(overrides: Partial<CiCheckFact> = {}): CiCheckFact {
+  return {
+    name: "lint",
+    source: "check_run",
+    status: "completed",
+    conclusion: "failure",
+    url: "https://github.com/o/r/runs/1",
+    external_id: null,
+    app_id: 9,
+    check_run_id: 77,
+    observed_at: "2026-09-13T00:00:02.000Z",
+    ...overrides,
+  };
 }
 
 describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integration)", () => {
@@ -73,6 +95,7 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
     boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
     await ensureAgentQueues(boss, queueConfig);
     await deleteCiRefreshJobs(boss);
+    await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
   });
 
   afterAll(async () => {
@@ -81,8 +104,12 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
   });
 
   afterEach(async () => {
-    await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
+      [EVENT, "check_run"],
+    ]);
+    await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await deleteCiRefreshJobs(boss);
+    await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
   });
 
   it("enqueues a uuid job id and commits the webhook dedupe row", async () => {
@@ -239,5 +266,102 @@ describe.skipIf(!hasDatabase)("CI-refresh enqueue against real pg-boss (integrat
     const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.data).toMatchObject({ headSha: "same-head", prNumber: 11 });
+  });
+
+  it("writes pr_head_ci_state and enqueues a debounced projection", async () => {
+    const delivery = `ci-state-${randomUUID().slice(0, 8)}`;
+    const headSha = "cafebabe0123456789abcdef0123456789abcdef";
+    const fact = ciStateFact();
+
+    await applyCiStateIntake(
+      boss,
+      pool,
+      {
+        event: "check_run",
+        delivery,
+        rawBody: Buffer.from(JSON.stringify({ action: "completed", delivery })),
+      },
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: "app",
+        headSha,
+        fact,
+      },
+      intakeLog(),
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, "app", headSha);
+    expect(row).not.toBeNull();
+    expect(row?.version).toBe(1);
+    expect(row?.rollup).toBe("failing");
+    expect(row?.checks.lint?.conclusion).toBe("failure");
+
+    const { rows: events } = await pool.query<{ processing_decision: string }>(
+      "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+      [delivery],
+    );
+    expect(events[0]?.processing_decision).toBe("ci_state_applied");
+
+    const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.data).toMatchObject({
+      kind: "ci_projection",
+      owner: OWNER,
+      repo: "app",
+      headSha,
+    });
+  });
+
+  it("rejects an older observation and does not enqueue another projection", async () => {
+    const headSha = "deadbeef0123456789abcdef0123456789abcdef";
+    const newer = ciStateFact({
+      conclusion: "failure",
+      observed_at: "2026-09-13T00:00:05.000Z",
+    });
+    const older = ciStateFact({
+      conclusion: "success",
+      observed_at: "2026-09-13T00:00:01.000Z",
+    });
+
+    await applyCiStateIntake(
+      boss,
+      pool,
+      {
+        event: "check_run",
+        delivery: `ci-state-new-${randomUUID().slice(0, 8)}`,
+        rawBody: Buffer.from("{}"),
+      },
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: "app",
+        headSha,
+        fact: newer,
+      },
+      intakeLog(),
+    );
+    await applyCiStateIntake(
+      boss,
+      pool,
+      {
+        event: "check_run",
+        delivery: `ci-state-old-${randomUUID().slice(0, 8)}`,
+        rawBody: Buffer.from("{}"),
+      },
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: "app",
+        headSha,
+        fact: older,
+      },
+      intakeLog(),
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, "app", headSha);
+    expect(row?.version).toBe(1);
+    expect(row?.checks.lint?.conclusion).toBe("failure");
+    await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(1);
   });
 });

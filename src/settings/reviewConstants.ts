@@ -161,6 +161,12 @@ export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
 export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
 export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
 
+/** Commit status context posted when FEATURE_COMMIT_STATUS is on. Excluded from CI facts. */
+export const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
+
+/** Max named checks stored on one `pr_head_ci_state` row. Overflow drops the oldest observation. */
+export const CI_STATE_MAX_CHECKS = 200;
+
 /** Review CI summary (optional gate row): fallbacks when call sites omit wait/cap options. */
 export const REVIEW_CI_SUMMARY_WAIT_POLL_MS = 2_000;
 export const REVIEW_CI_SUMMARY_MAX_FAILURES = 3;

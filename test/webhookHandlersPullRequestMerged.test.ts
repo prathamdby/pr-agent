@@ -46,6 +46,7 @@ describe("WebhookHandlers.pullRequest merged flag", () => {
           }),
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -89,6 +90,7 @@ describe("WebhookHandlers.pullRequest merged flag", () => {
           }),
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );

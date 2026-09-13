@@ -103,6 +103,7 @@ function slashTraceLayers(
           });
         }),
       submitCiRefresh: () => Effect.void,
+      submitCiState: () => Effect.void,
       ping: () => Effect.succeed(true),
     }),
   );
@@ -186,6 +187,7 @@ describe("WebhookHandlers Effect resolution", () => {
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.fail(new Error("scheduler failed")),
         submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -238,6 +240,7 @@ describe("WebhookHandlers Effect resolution", () => {
             slash = true;
           }),
         submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -289,6 +292,7 @@ describe("WebhookHandlers Effect resolution", () => {
             slash = true;
           }),
         submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );

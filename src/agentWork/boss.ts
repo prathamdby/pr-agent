@@ -6,6 +6,8 @@ import {
   ACK_QUEUE,
   ASK_DEAD_LETTER_QUEUE,
   ASK_QUEUE,
+  CI_PROJECTION_DEAD_LETTER_QUEUE,
+  CI_PROJECTION_QUEUE,
   CI_REFRESH_DEAD_LETTER_QUEUE,
   CI_REFRESH_QUEUE,
   CODE_INDEX_BUILD_QUEUE,
@@ -34,6 +36,7 @@ export const AGENT_DEAD_LETTER_QUEUES = [
   TRIAGE_DEAD_LETTER_QUEUE,
   VERIFICATION_DEAD_LETTER_QUEUE,
   CI_REFRESH_DEAD_LETTER_QUEUE,
+  CI_PROJECTION_DEAD_LETTER_QUEUE,
 ] as const;
 
 function queueDefaults(cfg: QueueConfig): QueueOptions {
@@ -90,6 +93,7 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     { name: TRIAGE_QUEUE, deadLetter: TRIAGE_DEAD_LETTER_QUEUE },
     { name: VERIFICATION_QUEUE, deadLetter: VERIFICATION_DEAD_LETTER_QUEUE },
     { name: CI_REFRESH_QUEUE, deadLetter: CI_REFRESH_DEAD_LETTER_QUEUE },
+    { name: CI_PROJECTION_QUEUE, deadLetter: CI_PROJECTION_DEAD_LETTER_QUEUE },
   ] as const;
   await Promise.all(
     workQueues.map(({ name, deadLetter }) =>
