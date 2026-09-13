@@ -51,7 +51,7 @@ export type ListPullRequestReviewCommentsResult = {
   readonly truncated: boolean;
 };
 export type ReviewCommitStatusParams = {
-  readonly state: "success" | "failure" | "error";
+  readonly state: "success" | "failure" | "error" | "pending";
   readonly description: string;
   readonly targetUrl?: string;
 };

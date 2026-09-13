@@ -74,6 +74,7 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 });
 
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
+import * as closeOwnVerdict from "../src/agentWork/closeOwnVerdict.js";
 import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
 import type { Pool, PoolClient } from "pg";
 
@@ -200,6 +201,7 @@ describe("publishReviewSummaryOnly", () => {
       resourceKey: "o/r#1",
     });
     const { surface, setReviewCommitStatus, upsertProgressComment } = configuredSummarySurface();
+    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict");
     const result = await publishReviewSummaryOnly({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
@@ -236,6 +238,15 @@ describe("publishReviewSummaryOnly", () => {
         prSurface: surface,
         conclusion: "neutral",
         summary: "Coverage partial: security specialist failed.",
+      }),
+    );
+    expect(close).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commitStatusEnabled: true,
+        outcome: {
+          kind: "partial",
+          note: "Coverage partial: security specialist failed.",
+        },
       }),
     );
     expect(setReviewCommitStatus).toHaveBeenCalledWith(

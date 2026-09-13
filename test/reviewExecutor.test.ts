@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   logWarn: vi.fn(),
   captureEvent: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
+  getProgressCommentOwner: vi.fn(async () => ({ workItemId: "wi-1", generation: 0 })),
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
   getWorkItem: vi.fn(async (): Promise<unknown> => null),
   recordPublishStep: vi.fn(),
@@ -54,6 +55,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
   shouldSkipWork: mocks.shouldSkipWork,
   getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
+  getProgressCommentOwner: mocks.getProgressCommentOwner,
   getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   getWorkItem: mocks.getWorkItem,
 }));
@@ -571,10 +573,9 @@ describe("executeReviewJob", () => {
       1,
     );
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "cancelled",
         summary: "Review was rescheduled for a newer pull request head.",
       }),
     );
@@ -708,10 +709,9 @@ describe("executeReviewJob", () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "cancelled",
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       }),
     );
@@ -811,10 +811,10 @@ describe("executeReviewJob", () => {
       ),
     ).toBe(false);
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "cancelled",
+        summary: "Review publish was skipped because the work was superseded or cancelled.",
       }),
     );
   });
@@ -849,7 +849,7 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("completes an existing check as failure when publish is exhausted", async () => {
+  it("completes an existing check as action_required when publish is exhausted", async () => {
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
       publishStepCount: 0,
@@ -862,7 +862,7 @@ describe("executeReviewJob", () => {
     expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "failure",
+        conclusion: "action_required",
         summary: "PR Agent could not publish a structured review.",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
       }),
@@ -1059,10 +1059,9 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "cancelled",
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       }),
     );
@@ -1105,10 +1104,9 @@ describe("executeReviewJob", () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "cancelled",
         summary: "Review was cancelled before lightweight completion.",
       }),
     );
@@ -1189,7 +1187,7 @@ describe("executeReviewJob", () => {
     );
   });
 
-  it("completes an existing check as failure from the terminal failure hook", async () => {
+  it("completes an existing check as action_required from the terminal failure hook", async () => {
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
@@ -1203,14 +1201,14 @@ describe("executeReviewJob", () => {
     expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "failure",
+        conclusion: "action_required",
         summary: "PR Agent could not complete the review after retries.",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
       }),
     );
   });
 
-  it("skips failure notice when a summary sentinel already exists on GitHub", async () => {
+  it("writes the failure notice into the owned stub and closes the crashed verdict", async () => {
     durableSurfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "landed", 4242);
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
@@ -1222,12 +1220,25 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(
-      durableSurfaceBundle.controls.events.filter(
-        (event: FakePrSurfaceEvent) => event.kind === "upsertProgressComment",
-      ),
-    ).toHaveLength(0);
-    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    const edits = durableSurfaceBundle.controls.events.filter(
+      (event: FakePrSurfaceEvent) => event.kind === "editComment",
+    );
+    expect(edits).toEqual([
+      expect.objectContaining({
+        kind: "editComment",
+        commentId: 4242,
+      }),
+    ]);
+    const edit = edits[0];
+    expect(edit?.kind === "editComment" ? edit.body : "").toContain("Review did not finish");
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "action_required",
+        summary: "PR Agent could not complete the review after retries.",
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-4242",
+      }),
+    );
   });
 
   it("does not overwrite a completed summary from the terminal failure hook", async () => {

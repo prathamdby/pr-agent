@@ -16,8 +16,6 @@ import {
 } from "../settings/index.js";
 import {
   getReviewCheckRunGithubId,
-  getSummaryCommentGithubId,
-  getWorkItemCore,
   recordReviewCheckRun,
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
@@ -438,6 +436,7 @@ export async function cancelReviewCheckRun(
     leaseEpoch?: number | null;
     headSha?: string;
     detailsUrl?: string;
+    summary?: string;
   },
 ): Promise<boolean> {
   // One-shot lookup: cancel must not burn the late-start wait used by complete/publish.
@@ -463,58 +462,9 @@ export async function cancelReviewCheckRun(
       reviewLens: params.reviewLens,
       ...leaseEpochParam(params.leaseEpoch),
       conclusion: "cancelled",
-      summary: REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
+      summary: params.summary ?? REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
       detailsUrl: params.detailsUrl,
     },
     checkRunId,
-  );
-}
-
-export async function cancelReviewCheckRunsForWorkItems(
-  pool: Pool,
-  params: {
-    prSurface: PrSurface;
-    owner: string;
-    repo: string;
-    prNumber: number;
-    workItemIds: readonly string[];
-  },
-): Promise<void> {
-  await Promise.all(
-    params.workItemIds.map(async (workItemId) => {
-      try {
-        const core = await getWorkItemCore(pool, workItemId);
-        if (core == null || core.type !== "review" || core.reviewLens == null) return;
-        const summaryCommentId = await getSummaryCommentGithubId(
-          pool,
-          core.resourceKey,
-          core.reviewLens,
-        );
-        await cancelReviewCheckRun(pool, {
-          prSurface: params.prSurface,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-          workItemId,
-          resourceKey: core.resourceKey,
-          reviewLens: core.reviewLens,
-          headSha: core.headSha,
-          detailsUrl: reviewCheckDetailsUrl(
-            params.owner,
-            params.repo,
-            params.prNumber,
-            summaryCommentId,
-          ),
-        });
-      } catch (error) {
-        logWarn("review_check_run_cancel_item_failed", {
-          owner: params.owner,
-          repo: params.repo,
-          pr: params.prNumber,
-          workItemId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }),
   );
 }

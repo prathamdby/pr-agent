@@ -141,8 +141,12 @@ export function reviewCheckOperationKey(workItemId: string): string {
   return `review:check_run:${workItemId}`;
 }
 
-export function reviewCommitStatusOperationKey(resourceKey: string, headSha: string): string {
-  return `review:commit_status:${resourceKey}:${headSha}`;
+export function reviewCommitStatusOperationKey(
+  resourceKey: string,
+  headSha: string,
+  state: "pending" | "success" | "failure" | "error",
+): string {
+  return `review:commit_status:${resourceKey}:${headSha}:${state}`;
 }
 
 export function reviewLabelsOperationKey(resourceKey: string): string {

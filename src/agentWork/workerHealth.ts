@@ -7,6 +7,7 @@ import {
   ASK_QUEUE,
   CI_REFRESH_QUEUE,
   CODE_INDEX_BUILD_QUEUE,
+  DEFAULT_PR_ACTOR_LEASE_TTL_SECONDS,
   DESCRIPTION_QUEUE,
   HEALTH_DB_PING_TIMEOUT_MS,
   RETENTION_QUEUE,
@@ -143,12 +144,20 @@ export type StaleQueuedWorkItem = {
   readonly ageSeconds: number | null;
 };
 
+export type LostRunningWorkItem = {
+  readonly workItemId: string;
+  readonly resourceKey: string;
+  readonly workType: string;
+  readonly ageSeconds: number | null;
+};
+
 export type QueueDiagnosticsReport = {
   readonly at: string;
   readonly queues: readonly QueueLaneDiagnostic[];
   readonly deadLetters: readonly DeadLetterDiagnostic[];
   readonly oldestRunningWorkItemAgeMs: number | null;
   readonly staleQueuedWorkItems: readonly StaleQueuedWorkItem[];
+  readonly lostRunningWorkItems: readonly LostRunningWorkItem[];
 };
 
 type DiagnosticsBoss = Pick<PgBoss, "getQueueStats">;
@@ -171,6 +180,7 @@ export async function collectQueueDiagnostics(params: {
   readonly now: Date;
   readonly diagnosticQueues?: readonly string[];
   readonly dlqQueues?: readonly string[];
+  readonly lostRunningMinAgeSeconds?: number;
 }): Promise<QueueDiagnosticsReport> {
   const diagnosticQueues = params.diagnosticQueues ?? WORKER_DIAGNOSTIC_QUEUES;
   const dlqQueues = params.dlqQueues ?? WORKER_DLQ_QUEUES;
@@ -185,6 +195,10 @@ export async function collectQueueDiagnostics(params: {
 
   let oldestRunningWorkItemAgeMs: number | null = null;
   let staleQueuedWorkItems: StaleQueuedWorkItem[] = [];
+  let lostRunningWorkItems: LostRunningWorkItem[] = [];
+  const lostRunningMinAgeSeconds =
+    params.lostRunningMinAgeSeconds ??
+    DEFAULT_PR_ACTOR_LEASE_TTL_SECONDS + STALE_QUEUED_WORK_GRACE_SECONDS;
   try {
     const result = await params.pool.query<{ age_ms: string | number | null }>(
       `SELECT EXTRACT(EPOCH FROM ($1::timestamptz - started_at)) * 1000 AS age_ms
@@ -252,9 +266,59 @@ export async function collectQueueDiagnostics(params: {
         ageSeconds: Number.isFinite(age) ? Math.floor(age) : null,
       };
     });
+
+    const lost = await params.pool.query<{
+      id: string;
+      resource_key: string;
+      work_type: string;
+      age_seconds: string | number;
+    }>(
+      `SELECT w.id::text AS id,
+              w.resource_key,
+              w.type AS work_type,
+              EXTRACT(EPOCH FROM ($1::timestamptz - w.started_at)) AS age_seconds
+         FROM agent_work_items w
+        WHERE w.type IN ('review', 'description', 'triage', 'verification')
+          AND w.status = 'running'
+          AND w.started_at IS NOT NULL
+          AND w.started_at < $1::timestamptz - ($2 * interval '1 second')
+          AND NOT EXISTS (
+            SELECT 1 FROM pr_actor_leases l
+             WHERE l.work_item_id = w.id
+               AND l.expires_at > $1::timestamptz
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pgboss.job j
+             WHERE j.name = CASE w.type
+               WHEN 'review' THEN '${REVIEW_QUEUE}'
+               WHEN 'description' THEN '${DESCRIPTION_QUEUE}'
+               WHEN 'triage' THEN '${TRIAGE_QUEUE}'
+               WHEN 'verification' THEN '${VERIFICATION_QUEUE}'
+             END
+               AND j.state IN ('created', 'active', 'retry')
+               AND (
+                 j.id = w.id
+                 OR j.singleton_key = w.id::text
+                 OR j.data @> jsonb_build_object('workItemId', w.id::text)
+               )
+          )
+        ORDER BY w.started_at ASC
+        LIMIT $3::int`,
+      [params.now.toISOString(), lostRunningMinAgeSeconds, STALE_QUEUED_WORK_BATCH_SIZE],
+    );
+    lostRunningWorkItems = lost.rows.map((row) => {
+      const age = typeof row.age_seconds === "number" ? row.age_seconds : Number(row.age_seconds);
+      return {
+        workItemId: row.id,
+        resourceKey: row.resource_key,
+        workType: row.work_type,
+        ageSeconds: Number.isFinite(age) ? Math.floor(age) : null,
+      };
+    });
   } catch {
     oldestRunningWorkItemAgeMs = null;
     staleQueuedWorkItems = [];
+    lostRunningWorkItems = [];
   }
 
   return {
@@ -263,6 +327,7 @@ export async function collectQueueDiagnostics(params: {
     deadLetters,
     oldestRunningWorkItemAgeMs,
     staleQueuedWorkItems,
+    lostRunningWorkItems,
   };
 }
 
@@ -297,6 +362,14 @@ export function logQueueDiagnosticsReport(report: QueueDiagnosticsReport): void 
       workType: stale.workType,
       ageSeconds: stale.ageSeconds,
       graceSeconds: STALE_QUEUED_WORK_GRACE_SECONDS,
+    });
+  }
+  for (const lost of report.lostRunningWorkItems) {
+    logWarn("agent_work_running_lost", {
+      workItemId: lost.workItemId,
+      resourceKey: lost.resourceKey,
+      workType: lost.workType,
+      ageSeconds: lost.ageSeconds,
     });
   }
 }

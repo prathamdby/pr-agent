@@ -16,6 +16,7 @@ import {
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
+  STALE_QUEUED_WORK_GRACE_SECONDS,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
@@ -47,6 +48,7 @@ import {
   startWorkerHealthServer,
   WORKER_CONSUMER_QUEUES,
 } from "./workerHealth.js";
+import { reconcileLostRunningWork } from "./lostRunningWork.js";
 
 const AGENT_QUEUE_STATS_QUEUES = [
   ACK_QUEUE,
@@ -258,8 +260,26 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           });
 
           const runDiagnostics = async (now: Date): Promise<void> => {
-            const report = await collectQueueDiagnostics({ boss, pool, now });
+            const report = await collectQueueDiagnostics({
+              boss,
+              pool,
+              now,
+              lostRunningMinAgeSeconds:
+                cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
+            });
             logQueueDiagnosticsReport(report);
+            try {
+              await reconcileLostRunningWork({
+                cfg,
+                pool,
+                items: report.lostRunningWorkItems,
+              });
+            } catch (e) {
+              logWarn("lost_running_work_sweep_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
             try {
               await cleanupStaleLocalPrWorkspaces();
             } catch (e) {

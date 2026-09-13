@@ -4,16 +4,12 @@ import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import {
   operationIntentMarker,
-  reviewCommitStatusOperationKey,
   reviewLabelsOperationKey,
   reviewSummaryOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
-import {
-  completeReviewCheckRun,
-  reviewCheckDetailsUrl,
-  reviewCheckRunOutcome,
-} from "../../agentWork/reviewCheckRun.js";
+import { closeOwnVerdict } from "../../agentWork/closeOwnVerdict.js";
+import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
@@ -275,14 +271,10 @@ export async function publishReviewSummaryOnly(params: {
     updated: summary.updated,
   });
 
-  const findingsOutcome = reviewCheckRunOutcome(params.payload.findings);
-  const checkOutcome: ReturnType<typeof reviewCheckRunOutcome> =
-    coverage.kind === "partial"
-      ? { conclusion: "neutral", summary: coverage.note }
-      : findingsOutcome;
   const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
   if (summaryCoordination) {
-    await completeReviewCheckRun(summaryCoordination.pool, {
+    await closeOwnVerdict({
+      pool: summaryCoordination.pool,
       prSurface: params.prSurface,
       owner,
       repo,
@@ -290,70 +282,15 @@ export async function publishReviewSummaryOnly(params: {
       workItemId: summaryCoordination.workItemId,
       resourceKey: summaryCoordination.resourceKey,
       reviewLens: mode,
+      headSha,
       leaseEpoch: summaryCoordination.leaseEpoch,
-      conclusion: checkOutcome.conclusion,
-      summary: checkOutcome.summary,
+      commitStatusEnabled: params.cfg.features.commitStatus,
       detailsUrl: targetUrl,
-    });
-  }
-
-  if (params.cfg.features.commitStatus) {
-    const commitStatus = {
-      state:
+      outcome:
         coverage.kind === "partial"
-          ? ("error" as const)
-          : checkOutcome.conclusion === "failure"
-            ? ("failure" as const)
-            : ("success" as const),
-      description: checkOutcome.summary,
-      targetUrl,
-    };
-    try {
-      const publishCommitStatus = () =>
-        params.prSurface.setReviewCommitStatus(headSha, commitStatus);
-      if (summaryCoordination == null) {
-        await publishCommitStatus();
-      } else {
-        await withOperationIntent<void>({
-          client: summaryCoordination.pool,
-          workItemId: summaryCoordination.workItemId,
-          operationKey: reviewCommitStatusOperationKey(summaryCoordination.resourceKey, headSha),
-          mutationKind: "github.review_commit_status",
-          leaseEpoch: summaryCoordination.leaseEpoch,
-          allowsUndefinedResult: true,
-          detail: {
-            step: "commit_status",
-            resourceKey: summaryCoordination.resourceKey,
-            headSha,
-            context: "pr-agent/review",
-            ...commitStatus,
-          },
-          recover: async () => {
-            const current = await params.prSurface.getCiStatus(headSha);
-            const found = current.legacyStatuses.some(
-              (status) =>
-                status.context === "pr-agent/review" &&
-                status.state === commitStatus.state &&
-                status.description === commitStatus.description &&
-                status.targetUrl === (commitStatus.targetUrl ?? null),
-            );
-            return found
-              ? { kind: "reconciled" as const, value: undefined }
-              : { kind: "absent" as const };
-          },
-          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-          mutate: publishCommitStatus,
-        });
-      }
-    } catch (error) {
-      logWarn("review_commit_status_failed", {
-        mode,
-        owner,
-        repo,
-        pr: prNumber,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
+          ? { kind: "partial", note: coverage.note }
+          : { kind: "published", findings: params.payload.findings },
+    });
   }
 
   if (currentLabels instanceof Error) {

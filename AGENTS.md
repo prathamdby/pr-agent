@@ -133,7 +133,7 @@ flowchart LR
   Surface --> GitHub
 ```
 
-The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Ask work is deliberately unleased and relies on publish-record idempotency. Triage may push a branch and uses separate publish records for thread actions.
+The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. Ask work is deliberately unleased and relies on publish-record idempotency. Triage may push a branch and uses separate publish records for thread actions.
 
 ## Where code lives
 

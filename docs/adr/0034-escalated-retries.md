@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amends [ADR 0023](0023-pi-native-agent-runtime.md) decision 5 (the in-run fallback restart is deleted; the fallback model is reached through retry escalation). Preserves [ADR 0006](0006-durable-agent-work.md) (pg-boss owns retries) and [ADR 0030](0030-pr-actor-lease.md) (every attempt re-acquires the lease with a fresh epoch). Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
+Accepted. Amends [ADR 0023](0023-pi-native-agent-runtime.md) decision 5 (the in-run fallback restart is deleted; the fallback model is reached through retry escalation). Preserves [ADR 0006](0006-durable-agent-work.md) (pg-boss owns retries) and [ADR 0030](0030-pr-actor-lease.md) (every attempt re-acquires the lease with a fresh epoch). Amended: terminal review outcomes write `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer; a diagnostics sweeper marks lost running items `failed` (`worker_lost`) and closes the crashed verdict. Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 
@@ -24,6 +24,8 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 6. **Outcome events match completion state.** One `"work completed"` event fires per durable work item that a worker completes (`outcome` in `{published, degraded, failed, superseded, lightweight}`). `"work item retried"` fires when a failed attempt returns to the queue and carries `attempt_count`, `next_attempt`, `retry_disposition`, `escalation_kinds`, and classified failure fields including sanitized `error_message`. GitHub-domain failures also carry `http_status` and `request_path` when those values are known. `cause_chain` stays log-only. Already-published replay, stale-head replacement, no-open-findings short-circuit, and intake supersede of queued items that never run emit no outcome event.
 
+7. **Terminal review GitHub outcomes share one writer.** `closeOwnVerdict` is the only path that finishes `PR Agent Review` and optional `pr-agent/review`. Live executions fence on the lease epoch. Unleased callers pass `leaseEpoch: null` and write only after `agent_work_items.status` is terminal. Crash and unpublished runs conclude the check as `action_required`. Published P0–P2 findings conclude it as `failure`. A leased-type item that stays `running` past `PR_ACTOR_LEASE_TTL_SECONDS + STALE_QUEUED_WORK_GRACE_SECONDS` with a lapsed lease and no live pg-boss job is marked `failed` (`worker_lost`) on the diagnostics tick, then the crashed verdict is closed. pg-boss retry exhaustion is not enough on its own: a hard crash can leave the row `running` after the job budget is gone.
+
 ## Consequences
 
 - A deterministic failure costs at most one extra attempt; the second identical failure is terminal without waiting out the queue budget.
@@ -32,6 +34,7 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 - The fallback model is exercised only by escalation, so a fallback misconfiguration surfaces on the second attempt of a retried item.
 - A completed work item never emits a failure event; partial publishes are `outcome=degraded` on `"work completed"`.
 - Attempts after a retry keep every privilege boundary of attempt 1, so escalation cannot widen repository or tool access.
+- A required `PR Agent Review` check does not stay in progress after retry exhaustion or a lost worker. Crash and findings are different conclusions.
 
 ## Reversal
 

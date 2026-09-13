@@ -21,6 +21,7 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 
 import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
+import * as closeOwnVerdict from "../src/agentWork/closeOwnVerdict.js";
 
 const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
@@ -148,22 +149,38 @@ describe("publishReview commit status", () => {
     harness.upsertProgressComment.mockResolvedValue({ id: 2, updated: false });
   });
 
-  it("posts failure when published findings include P1", async () => {
+  function coordinatedRecordPublishStep() {
+    return attachSummaryCommentCoordination(vi.fn(), {
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+  }
+
+  it("closes the own verdict as failure when published findings include P1", async () => {
+    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
+
     await publishReviewForTest({
       ...baseParams,
       cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
       publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(harness.setReviewCommitStatus).toHaveBeenCalledWith("sha", {
-      state: "failure",
-      description: "1 finding",
-      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
-    });
+    expect(close).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commitStatusEnabled: true,
+        outcome: expect.objectContaining({ kind: "published" }),
+      }),
+    );
+    expect(closeOwnVerdict.ownVerdictSurfaces(close.mock.calls[0]?.[0].outcome)).toEqual(
+      expect.objectContaining({ checkRun: "failure", commitStatus: "failure" }),
+    );
   });
 
-  it("posts failure when findings are P2-only", async () => {
+  it("closes the own verdict as failure when findings are P2-only", async () => {
+    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
     const p2Payload: ReviewPayload = {
       ...payload,
       findings: [
@@ -185,13 +202,18 @@ describe("publishReview commit status", () => {
       payload: p2Payload,
       publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(harness.setReviewCommitStatus).toHaveBeenCalledWith("sha", {
-      state: "failure",
-      description: "1 finding",
-      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
-    });
+    expect(close).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commitStatusEnabled: true,
+        outcome: expect.objectContaining({ kind: "published" }),
+      }),
+    );
+    expect(closeOwnVerdict.ownVerdictSurfaces(close.mock.calls[0]?.[0].outcome)).toEqual(
+      expect.objectContaining({ checkRun: "failure", commitStatus: "failure" }),
+    );
   });
 
   it("completes publish when commit status API throws", async () => {
@@ -203,17 +225,22 @@ describe("publishReview commit status", () => {
         cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
         publishState: testPublishState({ inlineReviewIds: [1] }),
         cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+        recordPublishStep: coordinatedRecordPublishStep(),
       }),
     ).resolves.toBeUndefined();
   });
 
-  it("skips commit status when flag is off", async () => {
+  it("asks the own verdict writer to skip commit status when the flag is off", async () => {
+    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
+
     await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: coordinatedRecordPublishStep(),
     });
 
+    expect(close).toHaveBeenCalledWith(expect.objectContaining({ commitStatusEnabled: false }));
     expect(harness.setReviewCommitStatus).not.toHaveBeenCalled();
   });
 });

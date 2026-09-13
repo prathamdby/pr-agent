@@ -25,9 +25,12 @@ import {
 } from "../src/agentWork/repository.js";
 import { logWarn } from "../src/evlog.js";
 import {
+  closeOwnVerdictsForWorkItems,
+  ownVerdictSurfaces,
+} from "../src/agentWork/closeOwnVerdict.js";
+import {
   REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
   cancelReviewCheckRun,
-  cancelReviewCheckRunsForWorkItems,
   completeReviewCheckRun,
   ensureReviewCheckRunStarted,
   reviewCheckRunName,
@@ -103,6 +106,37 @@ describe("review check run lifecycle", () => {
       conclusion: "success",
       summary: "No findings",
     });
+  });
+
+  it("maps each own-verdict outcome to one check conclusion and commit status", () => {
+    expect(ownVerdictSurfaces({ kind: "published", findings: [{ severity: "P1" }] })).toEqual({
+      checkRun: "failure",
+      commitStatus: "failure",
+      summary: "1 finding",
+    });
+    expect(ownVerdictSurfaces({ kind: "published", findings: [] })).toEqual({
+      checkRun: "success",
+      commitStatus: "success",
+      summary: "No findings",
+    });
+    expect(ownVerdictSurfaces({ kind: "partial", note: "Coverage partial." })).toEqual({
+      checkRun: "neutral",
+      commitStatus: "error",
+      summary: "Coverage partial.",
+    });
+    expect(ownVerdictSurfaces({ kind: "cancelled" })).toEqual({
+      checkRun: "cancelled",
+      commitStatus: "error",
+      summary: REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
+    });
+    expect(ownVerdictSurfaces({ kind: "superseded" }).checkRun).toBe("cancelled");
+    expect(ownVerdictSurfaces({ kind: "stale_head" }).checkRun).toBe("cancelled");
+    expect(ownVerdictSurfaces({ kind: "crashed" })).toEqual({
+      checkRun: "action_required",
+      commitStatus: "error",
+      summary: "PR Agent could not complete the review after retries.",
+    });
+    expect(ownVerdictSurfaces({ kind: "not_published" }).checkRun).toBe("action_required");
   });
 
   it("creates and records an in-progress check run", async () => {
@@ -741,12 +775,14 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(11).mockResolvedValueOnce(22);
     const prSurface = makePrSurface();
 
-    await cancelReviewCheckRunsForWorkItems(pool, {
+    await closeOwnVerdictsForWorkItems(pool, {
       prSurface,
       owner: "o",
       repo: "r",
       prNumber: 1,
       workItemIds: ["wi-a", "wi-b"],
+      commitStatusEnabled: false,
+      outcome: { kind: "cancelled" },
     });
 
     expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(2);
@@ -813,12 +849,14 @@ describe("review check run lifecycle", () => {
       }),
     });
 
-    await cancelReviewCheckRunsForWorkItems(pool, {
+    await closeOwnVerdictsForWorkItems(pool, {
       prSurface,
       owner: "o",
       repo: "r",
       prNumber: 1,
       workItemIds: ["wi-missing", "wi-ask", "wi-null-lens", "wi-a", "wi-b"],
+      commitStatusEnabled: false,
+      outcome: { kind: "cancelled" },
     });
 
     expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(2);
@@ -856,12 +894,14 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(22);
     const prSurface = makePrSurface();
 
-    await cancelReviewCheckRunsForWorkItems(pool, {
+    await closeOwnVerdictsForWorkItems(pool, {
       prSurface,
       owner: "o",
       repo: "r",
       prNumber: 1,
       workItemIds: ["wi-a", "wi-b"],
+      commitStatusEnabled: false,
+      outcome: { kind: "cancelled" },
     });
 
     expect(logWarn).toHaveBeenCalledWith(

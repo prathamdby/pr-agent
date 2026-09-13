@@ -63,7 +63,7 @@ FEATURE_VERIFICATION: off | manual | auto. Default auto. Rechecks open findings 
 FEATURE_ASK: off | manual. Default manual. /ask and App-bot mention questions.
 FEATURE_TRIAGE: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.
 FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Size and security labels. off still syncs Category labels. No model tokens.
-FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review commit status. No model tokens.
+FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review: pending when the check starts, success or failure from published findings, error on cancel, crash, stale head, unpublished, or partial coverage. No model tokens.
 FEATURE_TITLE_REWRITE: false | true. Default false. Allows /describe to rewrite the PR title.
 Landing-page capability copy:
 - Catch basics before a human opens the change. Runs when a pull request opens, or when you comment /review. Comments land next to the lines that need attention.
@@ -116,7 +116,7 @@ Review runs four specialists (correctness, security, quality, tests) under one o
 A finding is published only when it meets the causal-publication contract: one atomic problem, a concrete trigger, PR-introduced or PR-exposed harm or a precise unprotected regression, an observable consequence, ledger-authorized reviewed-head evidence, and a bounded fix.
 Quality findings require present structural harm. Test findings require a named changed behaviour, untested state, invariant, and plausible regression.
 The orchestrator re-applies that contract during judgment. Specialist reports remain evidence.
-P0-P2 findings fail the review check run. P3 does not.
+P0-P2 findings fail the review check run. P3 does not. Crash and unpublished runs conclude the check as action_required. Cancel, supersede, and stale head conclude it as cancelled.
 Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.
 Web does not create installation tokens or post to the PR. Workers do that.
 
