@@ -3,6 +3,9 @@ globs:
   - "src/agent/verification/**"
   - "src/agentWork/executors/verificationExecutor.ts"
   - "src/agentWork/verificationPublishGate.ts"
+  - "src/agentWork/verificationThreadLedger.ts"
+  - "src/settings/verificationConstants.ts"
+  - "src/review/ci/verificationFailureBlock.ts"
 ---
 
-Verification run is read-only: no new findings, no code edits, no writable PR checkout. One verification stub per inline review thread (`<!-- pr-agent:verification-stub -->`), edited in place. Fixed and already-resolved quietly resolve; dismissed edits the stub (evidence + policy suggestion) then resolves. Stale superseded runs must not publish (ADR 0014–0016). A stale-head skip at the publish gate completes degraded, never as clean success.
+Verification (ADR 0014) re-checks existing inline findings against the new head: no new findings, no `withWritablePrCheckout`, and `buildVerificationWorkspaceTools` installs `readWorkspaceFile`, `searchWorkspace`, and `getWorkspaceDiff` only. Each thread owns one reply carrying `VERIFICATION_STUB_MARKER`, found via `src/agentWork/verificationThreadLedger.ts` and edited in place by `publishVerification`. `fixed` and `already-resolved` add no comment; a prior stub is rewritten, then the thread resolves (ADR 0015). `dismissed` rewrites the stub with evidence plus the `loadRepoPolicy` suggestion, then resolves (ADR 0016). `verificationHeadFreshness` in `src/agentWork/verificationPublishGate.ts` gates on `getHeadSha()`; a stale head returns `STALE_VERIFICATION_RESULT` (`completed` with `stale_head`), never a clean success or a publish. Failure is one `VERIFICATION_FAILURE_START` block with `VERIFICATION_FAILURE_TEXT`, no diagnostics. Guard: `test/publishVerification.test.ts`.

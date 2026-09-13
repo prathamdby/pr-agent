@@ -1,11 +1,15 @@
 ---
 globs:
-  - "src/agentWork/**"
   - "src/effect/**"
+  - "src/agentWork/**"
   - "src/index.ts"
   - "src/worker.ts"
+  - "src/settings/queueConstants.ts"
+  - "migrations/**"
   - "docker-compose.yml"
+  - "docker-compose.dev.yml"
   - "AGENTS.md"
+  - "README.md"
 ---
 
-If the PR changes web vs worker responsibilities, Postgres or pg-boss role, webhook route, queue lanes, or which executor owns a work type, update the Mermaid diagram in [AGENTS.md](../AGENTS.md) How it works in the same PR. Prompt or publish-only tweaks that do not change diagram boxes or arrows do not require it.
+The Mermaid flowchart under How it works in `AGENTS.md` is the only topology diagram; `docs/development.md` (Runtime topology diagram) points at it and `README.md` never gets one. Its boxes are runtime edges: `POST /webhooks` in `src/effect/server.ts`, `webhook_events` and `agent_work_items` written by `src/agentWork/intake/`, the pg-boss queues in `src/settings/queueConstants.ts`, the consumers in `src/agentWork/worker.ts`, `src/agentWork/prActorLease.ts`, the executors in `src/agentWork/executors/`, the Pi runtime, and `PrSurface`. When a change adds, removes, or re-owns one of those (a new `*_QUEUE`, a queue entering or leaving `LEASED_WORK_QUEUES`, a new `*Executor.ts`, a new route, a table that becomes a durable hand-off, a `docker-compose.yml` service), the same PR must update the boxes or arrows and the prose right after the fence. Do not flag prompt, publish-copy, retry-budget, or constant changes that leave every box and arrow true.

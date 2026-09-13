@@ -1,9 +1,13 @@
 ---
 globs:
-  - "src/agentWork/**"
   - "src/effect/**"
   - "src/webhook/**"
+  - "src/agentWork/intake/**"
+  - "src/agentWork/runtime.ts"
   - "src/commands/**"
+  - "src/index.ts"
+  - "src/worker.ts"
+  - "test/webImportGraph.test.ts"
 ---
 
-Webhook path stays verify → parse → durable dedupe/enqueue → respond. Do not mint installation tokens or perform PR-surface I/O (acknowledgement reactions, review progress comments, reviews, ask replies, labels) on the web fiber — workers own that. Agent work items store `installationId`; mint tokens at execution time (ADR 0006).
+`src/index.ts` splits roles on `cfg.role`. The web fiber (`src/effect/server.ts`) serves `/health`, `/ready`, and `POST /webhooks` and does intake only: verify, parse, `insertWebhookEvent` (`src/agentWork/intake/webhookEvents.ts`) plus the intake plan under `inTransaction`, then `200`. Reactions, progress stubs, slash replies, comments, checks, and labels are worker work: `executeAckJob` on `ACK_QUEUE` (`src/agentWork/executors/ackExecutor.ts`) or a durable executor. Work items carry `installationId`; the worker mints the token inside `PrSurface` at execution time (ADR 0006). `test/webImportGraph.test.ts` walks the runtime import graph from `src/effect/server.ts` and fails if it reaches `src/agentWork/worker.ts`, `reviewExecutor.ts`, `orchestratorRun.ts`, `piSession.ts`, or `modelsJson.ts`, or exceeds 120 files. Flag a `createPrSurface`, Octokit, or Pi import under `src/effect/` or `src/webhook/`, and any intake path that responds before its rows commit.

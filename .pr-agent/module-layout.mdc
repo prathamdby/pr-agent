@@ -1,6 +1,7 @@
 ---
 globs:
   - "src/**"
+  - "docs/development.md"
 ---
 
-Keep public entries: review → `orchestrator/orchestratorRun.ts`, `publish/publishSummaryOnly.ts`, `publish/publishFindingBatch.ts`, `ci/analyzeCi.ts`; workspace → `prWorkspace/index.ts`; intake → `planner.ts` / `applier.ts`; executors → `src/agentWork/executors/*.ts`; web → `agentWork/runtime.ts` (`agentWorkWebLive`); worker → `agentWork/worker.ts` (`agentWorkWorkerLive`). Import GitHub review error helpers (`isLineResolutionPublishError`, etc.) from `src/github/reviewErrors.js` — not via `reviewDiffPlacement.ts` or other placement re-exports.
+Public entries (`docs/development.md`). Review: `src/review/orchestrator/orchestratorRun.ts`, `src/review/publish/publishSummaryOnly.ts`, `src/review/publish/publishFindingBatch.ts`, `src/review/ci/analyzeCi.ts`. Workspace: `src/prWorkspace/index.ts` (`withPrRepositoryView`). Intake: `src/agentWork/intake/planner.ts` (pure) and `applier.ts` (Postgres plus pg-boss). Executors: one file per work type under `src/agentWork/executors/`, imported only by `src/agentWork/worker.ts`. Verdict and CI rows: `src/agentWork/closeOwnVerdict.ts`, `src/agentWork/prHeadCiState.ts`. Web: `agentWorkWebLive` (`src/agentWork/runtime.ts`); worker: `agentWorkWorkerLive` (`worker.ts`). Features: `src/agent/{ask,description,verification,triage}/`. Inline placement lives in `src/review/placement/`; GitHub review error predicates come from `src/github/reviewErrors.ts`. Do not add a second entry for an area, a forwarding-only wrapper, or a new top-level `src/` directory without a row in that table.

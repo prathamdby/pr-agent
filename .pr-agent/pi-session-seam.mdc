@@ -2,9 +2,10 @@
 globs:
   - "src/agent/**"
   - "src/review/orchestrator/**"
-  - "src/review/ci/**"
+  - "src/review/run/**"
+  - "src/agentWork/executors/**"
   - "test/webImportGraph.test.ts"
   - "test/createPiSession.test.ts"
 ---
 
-Feature harnesses must call `createFeaturePiSession` → `createPiSession` (`src/agent/runtime/createFeatureSession.ts`, `piSession.ts`). Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep built-in shell/write/edit/filesystem tools disabled (`ToolPolicy.allowBuiltin: false` in `src/agent/runtime/types.ts`). Web import graph must stay free of Pi/models (`test/webImportGraph.test.ts`, ADR 0023). A settled unrecovered Pi provider error fails `send`; recovered SDK retries, public cancellation, idle timeout, and tool-budget stops stay distinct.
+Feature harnesses get a model session only from `createFeaturePiSession` (`src/agent/runtime/createFeatureSession.ts`), which wraps `send` with checkpoint and snapshot persistence over `createPiSession` (`piSession.ts`). Only `src/agent/runtime/` may import `piSessionImpl.ts`, `runAgentLoop`, or build a pi-ai stream (ADR 0023). `ToolPolicy.allowBuiltin` is the literal type `false` in `types.ts`: no shell, write, edit, or filesystem built-in reaches a session. Register the full tool set at create time; phase gating happens in executors through `src/review/orchestrator/phaseToolPolicy.ts`, never by swapping active tools mid-session, so the system-plus-tools prefix stays cache-stable (ADR 0025, `promptCachePolicy.ts`). `src/effect/server.ts` must not reach `piSession.ts` or `modelsJson.ts` (`test/webImportGraph.test.ts`). `send` rejects on a settled unrecovered provider error; recovered retries, public cancellation, idle timeout, and tool-budget stops stay distinct outcomes.

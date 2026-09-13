@@ -1,1 +1,6 @@
-Switches over discriminated unions or enums must be exhaustive. Use a `never` check in the default case (`const exhaustive: never = …` or `satisfies never`) so newly added variants fail at compile time until handled. Do not use a silent `default` that drops unknown cases.
+---
+globs:
+  - "src/**/*.ts"
+---
+
+A `switch` over a discriminated or string-literal union ends in a `default` that assigns the value to `never`. The repo idiom is `const exhaustive: never = value; return exhaustive;` (`src/agent/triage/publishTriage.ts`, `src/agentWork/workItemStateRepository.ts`, `src/settings/reviewConstants.ts`) or `value satisfies never` (`src/effect/programs/processWebhookRequestEffect.ts`). Adding a variant to `TriageVerdict`, `TriagePushOutcome`, `OwnVerdictOutcome`, `OperationIntentStatus`, `CiRollup`, `AgentSessionPhase`, or `WorkType` must break `nub run typecheck` until every switch handles it. Do not write a `default` that returns a fallback, logs, or throws for an unknown variant; that hides the missing case until runtime. When a lookup table replaces the switch, type it `Record<Union, T>` or `satisfies Record<Union, ...>` as `GUEST_CAPABILITY_SPEC_BY_NAME` does in `src/agent/codemode/guestCatalogue.ts`, so the compiler still forces the new key.

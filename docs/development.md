@@ -2,7 +2,7 @@
 
 Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md). Cursor Cloud VM setup: [cursor-cloud.md](cursor-cloud.md). Maintainer-local Compose is [docker-compose.dev.yml](../docker-compose.dev.yml) (Postgres, Caddy, web, worker, and a Cloudflare quick tunnel).
 
-Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/) — this guide indexes areas and links those rules; do not restate `.mdc` bodies here.
+Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/). This guide indexes areas and links those rules. Do not restate `.mdc` bodies here. Author or refresh them with [`skills/authoring-pr-agent-rules`](../skills/authoring-pr-agent-rules/SKILL.md).
 
 ## Module layout (production)
 

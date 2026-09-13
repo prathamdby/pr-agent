@@ -2,11 +2,11 @@
 globs:
   - "src/review/prompts/**"
   - "src/agent/prompts/**"
-  - "src/agent/ask/**"
-  - "src/agent/description/**"
-  - "src/agent/triage/**"
-  - "src/agent/verification/**"
+  - "src/agent/*/*Prompt.ts"
+  - "src/agent/*/*UserMessage.ts"
+  - "src/agent/ask/askUserContent.ts"
+  - "src/review/ci/ciGatePrompt.ts"
   - "src/settings/**"
 ---
 
-Long investigator prompt blocks stay in prompt modules under `src/review/prompts/` and `src/agent/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Do not relocate large prompt prose into settings, and do not hardcode new shared user-facing strings in feature modules when a settings constant should own them.
+Prompt prose lives in prompt modules; `src/settings/reviewConstants.ts` and its sibling constants modules hold numbers and shared user-visible strings only. Correctness persona: `src/review/prompts/reviewSystemPrompt.ts`. Security, quality, tests: `src/agent/prompts/securityPrompt.ts`, `qualityPrompt.ts`, `reviewTestsPrompt.ts`. Harness and native-tool sections come from `src/agent/prompts/harnessProtocol.ts`, which renders the installed `tools.*` catalogue via `src/agent/codemode/guestCatalogue.ts`; do not hand-write a tool list or a cell bound inside a persona. PR-specific content belongs in the user-message builders (`*UserMessage.ts`, `askUserContent.ts`) wrapped by `wrapUntrustedBlock`; the system prompt stays byte-stable for prompt caching (ADR 0025). `MAX_REPO_POLICY_INSTRUCTION_CHARS`, `ASK_META_REFUSAL`, and `REVIEW_CI_SUMMARY_UNAVAILABLE` belong in settings; a paragraph of investigator guidance does not. Guard: `test/reviewPromptContract.test.ts`.

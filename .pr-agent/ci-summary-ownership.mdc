@@ -1,8 +1,12 @@
 ---
 globs:
   - "src/review/ci/**"
+  - "src/agentWork/prHeadCiState.ts"
+  - "src/agentWork/ciProjection.ts"
+  - "src/agentWork/ciAuthoring.ts"
+  - "src/agentWork/closeOwnVerdict.ts"
   - "src/agentWork/executors/ciProjectionExecutor.ts"
-  - "src/settings/reviewConstants.ts"
+  - "src/agentWork/intake/applier.ts"
 ---
 
-CI summary split (ADR 0018): server owns Checks/status facts, Actions log condense+redact, schema validation, and HTML table cell rendering. The model only fills structured `headline` / `reason` / `fixHint` fields (`authorCiSummary.ts`). Server must overwrite model-drifted `status` and check names from GitHub facts. Ack, ticks, and publish render the cell from `pr_head_ci_state`. The projector patches the marked cell when `head` matches and `v` is newer. Do not let the model emit table markup.
+CI facts are a Postgres row, never model text (ADR 0018, ADR 0035). `check_run` and `status` deliveries call `applyPrHeadCiFact` in the same `inTransaction` as `insertWebhookEvent` and enqueue `CI_PROJECTION_QUEUE`; `classifySnapshot` derives the rollup, and an incomplete check page is `unknown`, not passing. The model fills only `headline`, `reason`, `fixHint` (`ciSummaryLlmSchema`); `mergeCiSummaryWithFacts` overwrites `status` and failure names from facts, and `authorHeadCiIfFactsChanged` runs one turn per `hashCiFacts` change. Ack, ticks, and publish render the cell from the row and stamp `v=<version>`. Later writes go only through `replaceCiSummaryCellIfNewer`: marker `head` must match and `v` must be older, and it re-injects the verification-failure block. `closeOwnVerdict.ts` is the single writer for the `PR Agent Review` check and `pr-agent/review` status. Do not poll GitHub at publish, let the model emit table markup, or add a second cell writer.
