@@ -6,6 +6,7 @@ import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import {
   ACK_QUEUE,
+  CI_PROJECTION_QUEUE,
   DEFERRED_HEAD_SHA,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
@@ -34,9 +35,18 @@ function makePrRef() {
   };
 }
 
+function headCiStateSelect(sql: string): { rows: unknown[] } | null {
+  if (sql.includes("FROM pr_head_ci_state")) {
+    return { rows: [] };
+  }
+  return null;
+}
+
 function mockAutomatedClient() {
   return {
     query: vi.fn(async (sql: string) => {
+      const ci = headCiStateSelect(sql);
+      if (ci != null) return ci;
       if (sql.includes("INSERT INTO webhook_event_replays")) {
         return { rows: [{ body_sha256: "hash" }] };
       }
@@ -66,6 +76,10 @@ function makeBoss(sentQueues: string[]): PgBoss {
       sentQueues.push(queue);
       return "job-1";
     }),
+    sendDebounced: vi.fn(async (queue: string) => {
+      sentQueues.push(queue);
+      return "job-ci";
+    }),
     findJobs: vi.fn(async () => []),
     deleteJob: vi.fn(async () => ({ rows: [] })),
     cancel: vi.fn(async () => ({ rows: [] })),
@@ -94,6 +108,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).toContain(REVIEW_QUEUE);
     expect(sentQueues).toContain(ACK_QUEUE);
     expect(sentQueues).toContain(DESCRIPTION_QUEUE);
+    expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
   });
 
   it("does not enqueue a replacement review on synchronize when no review is active", async () => {
@@ -101,9 +116,11 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const boss = makeBoss(sentQueues);
 
     // synchronize never starts a review, so with no queued/running auto review the
-    // push supersede finds nothing to replace and intake enqueues nothing.
-    // Verification is also disabled here to keep the test focused on review.
+    // push supersede finds nothing to replace. Verification is off so the only
+    // enqueue is the unseeded CI projection.
     const query = vi.fn(async (sql: string) => {
+      const ci = headCiStateSelect(sql);
+      if (ci != null) return ci;
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
         return { rows: [] };
       }
@@ -152,6 +169,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
       expect(sentQueues).not.toContain(REVIEW_QUEUE);
       expect(sentQueues).not.toContain(ACK_QUEUE);
       expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
+      expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
       expect(boss.send).not.toHaveBeenCalled();
     } finally {
       txSpy.mockRestore();
@@ -164,6 +182,8 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const workItemInserts: unknown[][] = [];
 
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      const ci = headCiStateSelect(sql);
+      if (ci != null) return ci;
       if (sql.includes("INSERT INTO webhook_event_replays")) {
         return { rows: [{ body_sha256: "hash" }] };
       }
@@ -212,6 +232,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).toContain(REVIEW_QUEUE);
     expect(sentQueues).toContain(ACK_QUEUE);
     expect(sentQueues).toContain(VERIFICATION_QUEUE);
+    expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
     // Replacement review is created with a deferred head for claim-time resolution.
     const replacementInsert = workItemInserts.find((params) => params[2] === "review");
     expect(replacementInsert?.[8]).toBe(DEFERRED_HEAD_SHA);
@@ -241,6 +262,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     );
 
     expect(sentQueues).toContain(VERIFICATION_QUEUE);
+    expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
     expect(sentQueues).not.toContain(REVIEW_QUEUE);
     expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
   });
@@ -266,6 +288,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     );
 
     expect(sentQueues).toContain(REVIEW_QUEUE);
+    expect(sentQueues).toContain(CI_PROJECTION_QUEUE);
     expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
   });
 });
