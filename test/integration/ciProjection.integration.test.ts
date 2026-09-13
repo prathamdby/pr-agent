@@ -781,6 +781,17 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       reviewCommentBody(headSha, 0, workItemId),
       55,
     );
+    fake.controls.setProgressComment(
+      TRIAGE_SUMMARY_SENTINEL,
+      [
+        TRIAGE_SUMMARY_SENTINEL,
+        "",
+        "Full PR triage.",
+        "",
+        `CI: ${renderCiRollupMarker(headSha, 0, "none")}`,
+      ].join("\n"),
+      56,
+    );
 
     await executeCiProjectionJob(
       cfg,
@@ -798,10 +809,12 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(row?.rollup).toBe("unknown");
-    const latest = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
-    expect(latest?.body).toContain(REVIEW_CI_SUMMARY_INCOMPLETE);
-    expect(latest?.body).toContain(renderCiRollupMarker(headSha, row?.version ?? 0, "unknown"));
-    expect(latest?.body).not.toMatch(/All CI is passing/i);
+    const review = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(review?.body).toContain(REVIEW_CI_SUMMARY_INCOMPLETE);
+    expect(review?.body).not.toContain("<!-- pr-agent:ci-rollup");
+    expect(review?.body).not.toMatch(/All CI is passing/i);
+    const triage = fake.controls.getProgressComment(TRIAGE_SUMMARY_SENTINEL);
+    expect(triage?.body).toContain(renderCiRollupMarker(headSha, row?.version ?? 0, "unknown"));
   });
 
   it("projects a second PR after the stored list already held the first", async () => {
