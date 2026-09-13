@@ -9,7 +9,6 @@ import { checkRunFindingsSummary } from "../github/statusCopy.js";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
-  DEFERRED_HEAD_SHA,
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
   REVIEW_CHECK_RUN_WAIT_POLL_MS,
@@ -399,30 +398,7 @@ export async function completeReviewCheckRun(
   return applyReviewCheckRunCompletion(pool, params, checkRunId);
 }
 
-async function findOpenReviewCheckRunId(
-  prSurface: PrSurface,
-  headSha: string,
-  externalId: string,
-): Promise<number | null> {
-  try {
-    const status = await prSurface.getCiStatus(headSha);
-    if (status.checkRunsComplete === false) return null;
-    const matches = status.checkRuns.filter(
-      (run) =>
-        run.name === reviewCheckRunName() &&
-        run.status === "in_progress" &&
-        run.externalId === externalId,
-    );
-    return matches.length === 1 ? (matches[0]?.id ?? null) : null;
-  } catch (error) {
-    logCheckRunWarning("review_check_run_cancel_lookup_failed", error, {
-      headSha,
-    });
-    return null;
-  }
-}
-
-/** Finish the review check as `cancelled`; recovers only one exact remote identity. */
+/** Finish the review check as `cancelled` from the stored publish record. */
 export async function cancelReviewCheckRun(
   pool: Pool,
   params: {
@@ -439,16 +415,7 @@ export async function cancelReviewCheckRun(
     summary?: string;
   },
 ): Promise<boolean> {
-  // One-shot lookup: cancel must not burn the late-start wait used by complete/publish.
-  let checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-  // Queued reviews keep DEFERRED_HEAD_SHA; only recover open checks for real SHAs.
-  if (checkRunId == null && params.headSha && params.headSha !== DEFERRED_HEAD_SHA) {
-    checkRunId = await findOpenReviewCheckRunId(
-      params.prSurface,
-      params.headSha,
-      params.workItemId,
-    );
-  }
+  const checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (checkRunId == null) return false;
   return applyReviewCheckRunCompletion(
     pool,

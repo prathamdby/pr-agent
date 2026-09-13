@@ -498,142 +498,15 @@ describe("review check run lifecycle", () => {
     );
   });
 
-  it("recovers an in-progress check by exact head and external id when the github id never persists", async () => {
+  it("returns false without a GitHub snapshot when no stored check run id exists", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
     const prSurface = makePrSurface();
-    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
-      checkRuns: [
-        {
-          id: 555,
-          name: "PR Agent Review",
-          externalId: "wi-1",
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ],
-      legacyStatuses: [],
-    });
+    const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
 
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
 
     expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
-    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkRunId: 555,
-        conclusion: "cancelled",
-      }),
-    );
-  });
-
-  it("does not cancel a same-head check owned by another work item", async () => {
-    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
-    const prSurface = makePrSurface();
-    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
-      checkRuns: [
-        {
-          id: 556,
-          name: "PR Agent Review",
-          externalId: "other-work-item",
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ],
-      legacyStatuses: [],
-    });
-
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
-    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
-  });
-
-  it("does not cancel when the provider omits external id", async () => {
-    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
-    const prSurface = makePrSurface();
-    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
-      checkRuns: [
-        {
-          id: 556,
-          name: "PR Agent Review",
-          externalId: null,
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ],
-      legacyStatuses: [],
-    });
-
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
-    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
-  });
-
-  it("does not cancel when the provider check-run view is truncated", async () => {
-    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
-    const prSurface = makePrSurface();
-    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
-      checkRuns: [
-        {
-          id: 557,
-          name: "PR Agent Review",
-          externalId: "wi-1",
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ],
-      checkRunsComplete: false,
-      legacyStatuses: [],
-    });
-
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
-    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
-  });
-
-  it("does not cancel when exact remote identity is ambiguous", async () => {
-    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
-    const prSurface = makePrSurface();
-    vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
-      checkRuns: [
-        {
-          id: 557,
-          name: "PR Agent Review",
-          externalId: "wi-1",
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-        {
-          id: 558,
-          name: "PR Agent Review",
-          externalId: "wi-1",
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ],
-      legacyStatuses: [],
-    });
-
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    expect(getCiStatus).not.toHaveBeenCalled();
     expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
   });
 
@@ -641,16 +514,13 @@ describe("review check run lifecycle", () => {
     vi.useFakeTimers();
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
     const prSurface = makePrSurface();
-    const getCiStatus = vi.spyOn(prSurface, "getCiStatus").mockResolvedValue({
-      checkRuns: [],
-      legacyStatuses: [],
-    });
+    const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
 
     const pending = cancelReviewCheckRun(pool, startParams(prSurface));
     await expect(pending).resolves.toBe(false);
 
     expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
-    expect(getCiStatus).toHaveBeenCalledTimes(1);
+    expect(getCiStatus).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
   });
@@ -671,54 +541,6 @@ describe("review check run lifecycle", () => {
       2,
       expect.objectContaining({ checkRunId: 123, conclusion: "cancelled" }),
     );
-  });
-
-  it("returns false when cancel fallback finds no open check", async () => {
-    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
-    const prSurface = makePrSurface();
-    const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
-
-    getCiStatus.mockRejectedValueOnce(new Error("status boom"));
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
-
-    getCiStatus.mockResolvedValueOnce({ checkRuns: [], legacyStatuses: [] });
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
-
-    getCiStatus.mockResolvedValueOnce({
-      checkRuns: [
-        {
-          id: 1,
-          name: "Other Check",
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ],
-      legacyStatuses: [],
-    });
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
-
-    getCiStatus.mockResolvedValueOnce({
-      checkRuns: [
-        {
-          id: 2,
-          name: "PR Agent Review",
-          status: "completed",
-          conclusion: "success",
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ],
-      legacyStatuses: [],
-    });
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
-
-    expect(prSurface.finishReviewCheck).not.toHaveBeenCalled();
   });
 
   it("does not look up open checks when headSha is undefined", async () => {
