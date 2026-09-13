@@ -3,10 +3,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
+  applyAutomatedPullRequestIntake,
   applyCompletedRunCiIntake,
   applyCiStateIntake,
 } from "../../src/agentWork/intake/applier.js";
-import { loadRenderableHeadCi } from "../../src/agentWork/ciProjection.js";
+import {
+  enqueueCiProjectionIfVersionMoved,
+  loadRenderableHeadCi,
+} from "../../src/agentWork/ciProjection.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
 import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
@@ -135,7 +139,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     pool = integrationPool();
     await runMigrations(pool);
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
-      ["workflow_run", "check_run"],
+      ["workflow_run", "check_run", "pull_request"],
     ]);
     boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
     await ensureAgentQueues(boss, queueConfig);
@@ -149,7 +153,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
   afterEach(async () => {
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
-      ["workflow_run", "check_run"],
+      ["workflow_run", "check_run", "pull_request"],
     ]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
@@ -230,6 +234,192 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       repo: REPO,
       headSha,
     });
+  });
+
+  it("enqueues a projection from pull_request opened when the head is unseeded", async () => {
+    const delivery = `ci-pr-open-${randomUUID().slice(0, 8)}`;
+    const headSha = "11".repeat(20);
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("pull_request", delivery),
+      {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha,
+      },
+      "opened",
+      intakeLog(),
+      cfg,
+    );
+
+    const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.data).toMatchObject({
+      kind: "ci_projection",
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    });
+  });
+
+  it("does not enqueue a projection from pull_request opened when the head is already seeded", async () => {
+    const delivery = `ci-pr-seeded-${randomUUID().slice(0, 8)}`;
+    const headSha = "0e".repeat(20);
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
+       VALUES ($1, $2, $3, '{}'::jsonb, 'none', 1, now())`,
+      [OWNER, REPO, headSha],
+    );
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("pull_request", delivery),
+      {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha,
+      },
+      "opened",
+      intakeLog(),
+      cfg,
+    );
+
+    await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
+  });
+
+  it("enqueues a projection from pull_request opened when review is manual and the head is unseeded", async () => {
+    const delivery = `ci-pr-manual-${randomUUID().slice(0, 8)}`;
+    const headSha = "55".repeat(20);
+    const manualCfg = makeTestConfig({
+      features: { ...cfg.features, review: "manual", describe: "off", verification: "off" },
+    });
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("pull_request", delivery),
+      {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha,
+      },
+      "opened",
+      intakeLog(),
+      manualCfg,
+    );
+
+    const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.data).toMatchObject({
+      kind: "ci_projection",
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    });
+  });
+
+  it("does not enqueue a projection from pull_request labeled", async () => {
+    const delivery = `ci-pr-label-${randomUUID().slice(0, 8)}`;
+    const headSha = "22".repeat(20);
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("pull_request", delivery),
+      {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha,
+      },
+      "labeled",
+      intakeLog(),
+      cfg,
+    );
+
+    await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
+  });
+
+  it("enqueues a projection after a claim-time write when the head is unseeded", async () => {
+    const headSha = "33".repeat(20);
+
+    await enqueueCiProjectionIfVersionMoved({
+      boss,
+      pool,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+      renderedVersion: 0,
+    });
+
+    const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.data).toMatchObject({
+      kind: "ci_projection",
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    });
+  });
+
+  it("enqueues a projection after a claim-time write when the row exists and seeded_at is null", async () => {
+    const headSha = "0f".repeat(20);
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
+       VALUES ($1, $2, $3, '{}'::jsonb, 'none', 0)`,
+      [OWNER, REPO, headSha],
+    );
+
+    await enqueueCiProjectionIfVersionMoved({
+      boss,
+      pool,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+      renderedVersion: 0,
+    });
+
+    const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.data).toMatchObject({
+      kind: "ci_projection",
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    });
+  });
+
+  it("does not enqueue after a claim-time write when the head is seeded and the version matches", async () => {
+    const headSha = "44".repeat(20);
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
+       VALUES ($1, $2, $3, '{}'::jsonb, 'none', 2, now())`,
+      [OWNER, REPO, headSha],
+    );
+
+    await enqueueCiProjectionIfVersionMoved({
+      boss,
+      pool,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+      renderedVersion: 2,
+    });
+
+    await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
   });
 
   it("writes pr_head_ci_state and enqueues a debounced projection", async () => {
