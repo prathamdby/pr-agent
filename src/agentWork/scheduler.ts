@@ -7,7 +7,7 @@ import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
 import {
   applyAutomatedPullRequestIntake,
-  applyCiRefreshIntake,
+  applyCompletedRunCiIntake,
   applyCiStateIntake,
   type CiStateFactInput,
   recordIgnoredWebhook,
@@ -81,7 +81,7 @@ export function makeAgentWorkScheduler(
 
     submitCiRefresh: (headers, data, intakeLog) =>
       Effect.tryPromise({
-        try: () => applyCiRefreshIntake(boss, pool, headers, data, intakeLog),
+        try: () => applyCompletedRunCiIntake(boss, pool, headers, data, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }).pipe(Effect.uninterruptible),
 

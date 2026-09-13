@@ -2,26 +2,31 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { applyCiRefreshIntake, applyCiStateIntake } from "../../src/agentWork/intake/applier.js";
-import { ciRefreshJobId } from "../../src/agentWork/intake/queueing.js";
+import {
+  applyCompletedRunCiIntake,
+  applyCiStateIntake,
+} from "../../src/agentWork/intake/applier.js";
+import { loadRenderableHeadCi } from "../../src/agentWork/ciProjection.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
-import { executeCiRefreshJob } from "../../src/agentWork/executors/ciRefreshExecutor.js";
 import { loadPrHeadCiState } from "../../src/agentWork/prHeadCiState.js";
-import type { CiRefreshJobData, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
+import type { QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
 import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
 import { hashCiFacts, parseCiAuthoredCache } from "../../src/review/ci/ciAuthoredCache.js";
 import type { CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
 import { renderCiRollupMarker } from "../../src/review/ci/ciRollupMarker.js";
 import { parseCiSummaryMarkerVersion } from "../../src/review/ci/ciSummaryCell.js";
 import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
+import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
+import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
+import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
+import { renderReviewProgressComment } from "../../src/review/run/progressComment.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import {
   CI_PROJECTION_QUEUE,
-  CI_REFRESH_QUEUE,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
@@ -131,7 +136,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     ]);
     boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
     await ensureAgentQueues(boss, queueConfig);
-    await deleteQueueJobs(boss, CI_REFRESH_QUEUE);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
   });
 
@@ -146,7 +150,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     ]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
-    await deleteQueueJobs(boss, CI_REFRESH_QUEUE);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
   });
 
@@ -163,12 +166,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     return id;
   }
 
-  it("enqueues leftover ci-refresh from workflow_run intake", async () => {
-    const delivery = `ci-refresh-${randomUUID().slice(0, 8)}`;
-    const prNumber = 42;
+  it("enqueues one projection from workflow_run intake", async () => {
+    const delivery = `ci-run-${randomUUID().slice(0, 8)}`;
     const headSha = "abc123def456";
 
-    await applyCiRefreshIntake(
+    await applyCompletedRunCiIntake(
       boss,
       pool,
       headers("workflow_run", delivery),
@@ -177,46 +179,46 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         owner: OWNER,
         repo: REPO,
         headSha,
-        prNumbers: [prNumber],
+        prNumbers: [42],
       },
       intakeLog(),
     );
 
-    const { rows: events } = await pool.query<{ id: string }>(
-      "SELECT id FROM webhook_events WHERE event_name = $1 AND delivery_id = $2",
+    const { rows: events } = await pool.query<{ processing_decision: string }>(
+      "SELECT processing_decision FROM webhook_events WHERE event_name = $1 AND delivery_id = $2",
       ["workflow_run", delivery],
     );
     expect(events).toHaveLength(1);
-    const webhookEventId = events[0]!.id;
+    expect(events[0]?.processing_decision).toBe("ci_projection_enqueued");
 
-    const jobs = await boss.findJobs(CI_REFRESH_QUEUE, {});
+    const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.id).toBe(ciRefreshJobId(webhookEventId, prNumber, 0));
     expect(jobs[0]!.data).toMatchObject({
-      kind: "ci_refresh",
+      kind: "ci_projection",
       owner: OWNER,
       repo: REPO,
-      prNumber,
       headSha,
-      attempt: 0,
-      webhookEventId,
     });
   });
 
-  it("turns a leftover refresh job into one projection", async () => {
+  it("enqueues one projection when workflow_run has no PR numbers", async () => {
+    const delivery = `ci-run-empty-${randomUUID().slice(0, 8)}`;
     const headSha = "deadbeef0123456789abcdef0123456789abcdef";
-    const job: CiRefreshJobData = {
-      kind: "ci_refresh",
-      installationId: 9001,
-      owner: OWNER,
-      repo: REPO,
-      prNumber: PR_NUMBER,
-      headSha,
-      webhookEventId: randomUUID(),
-      attempt: 0,
-    };
 
-    await executeCiRefreshJob(cfg, pool, boss, job);
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("workflow_run", delivery),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+        prNumbers: [],
+      },
+      intakeLog(),
+    );
+
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.data).toMatchObject({
@@ -539,5 +541,214 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     const latest = fake.controls.getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(latest?.body).toContain(renderCiRollupMarker(newHead, 1, "failing"));
     expect(latest?.body).not.toContain(renderCiRollupMarker(newHead, 0, "none"));
+  });
+
+  it("keeps an older-head cell when a later head is published and projected", async () => {
+    const resourceKey = `${OWNER}/${REPO}#${PR_NUMBER}`;
+    const headA = "33".repeat(20);
+    const headB = "44".repeat(20);
+    const workA = await insertReviewWorkItem(headA);
+    await applyCiStateIntake(
+      boss,
+      pool,
+      headers("check_run", `ci-e2e-a-${randomUUID().slice(0, 8)}`),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha: headA,
+        fact: ciStateFact({
+          name: "lint-a",
+          check_run_id: 201,
+          observed_at: "2026-09-13T00:01:00.000Z",
+        }),
+      },
+      intakeLog(),
+    );
+
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headA, [{ number: PR_NUMBER }]);
+    fake.controls.setPullsForHead(headB, [{ number: PR_NUMBER }]);
+
+    const postAckStub = async (workItemId: string, headSha: string) => {
+      const rendered = await loadRenderableHeadCi(pool, OWNER, REPO, headSha);
+      const body = renderReviewProgressComment({
+        mode: "review",
+        headSha,
+        source: "auto",
+        ciSummary: rendered.summary,
+        ciVersion: rendered.version,
+        progressRevision: 0,
+        progressWorkItemId: workItemId,
+      });
+      await upsertSummaryCommentWithCreationClaim({
+        pool,
+        workItemId,
+        resourceKey,
+        reviewLens: "review",
+        prSurface: fake.surface,
+        body,
+        sentinel: REVIEW_SUMMARY_SENTINEL,
+        progressRevision: 0,
+        ciHeadSha: headSha,
+        ciVersion: rendered.version,
+      });
+    };
+    const tickReview = async (workItemId: string, headSha: string) => {
+      await tickProgressComment({
+        pool,
+        workItemId,
+        resourceKey,
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        mode: "review",
+        headSha,
+        source: "auto",
+        progressRevision: 2,
+        prSurface: fake.surface,
+        installationId: 9001,
+        boss,
+        tickState: {
+          kind: "specialists",
+          recon: "done",
+          specialists: {
+            correctness: { phase: "done", findingsAccepted: 0 },
+            security: { phase: "running" },
+            quality: { phase: "running" },
+            tests: { phase: "running" },
+          },
+        },
+      });
+    };
+    const publishReview = async (workItemId: string, headSha: string) => {
+      const result = await publishReviewSummaryOnly({
+        cfg,
+        ctx: {
+          owner: OWNER,
+          repo: REPO,
+          prNumber: PR_NUMBER,
+          headSha,
+          hasDescriptionReviewMap: false,
+        },
+        prSurface: fake.surface,
+        payload: {
+          prCharacter: "No findings.",
+          findings: [],
+          size: "XS",
+          relevantTests: "no",
+          securityConcerns: null,
+          followUps: [],
+        },
+        ledger: createFindingLedger(),
+        pool,
+        workItemId,
+        resourceKey,
+        boss,
+        installationId: 9001,
+      });
+      expect(result.kind).toBe("published");
+    };
+    const projectHead = async (headSha: string) => {
+      await executeCiProjectionJob(
+        cfg,
+        pool,
+        boss,
+        {
+          kind: "ci_projection",
+          installationId: 9001,
+          owner: OWNER,
+          repo: REPO,
+          headSha,
+        },
+        {
+          createSurface: async () => fake.surface,
+          author: stubCiAuthor([]),
+        },
+      );
+    };
+
+    await postAckStub(workA, headA);
+    await tickReview(workA, headA);
+    await publishReview(workA, headA);
+    await pool.query(
+      `UPDATE agent_work_items
+          SET status = 'completed', completed_at = now()
+        WHERE id = $1`,
+      [workA],
+    );
+    const afterHeadA = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(afterHeadA?.body).toContain(`head=${headA}`);
+
+    const workB = await insertReviewWorkItem(headB);
+    await applyCiStateIntake(
+      boss,
+      pool,
+      headers("check_run", `ci-e2e-b-${randomUUID().slice(0, 8)}`),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha: headB,
+        fact: ciStateFact({
+          name: "lint-b",
+          check_run_id: 202,
+          observed_at: "2026-09-13T00:02:00.000Z",
+        }),
+      },
+      intakeLog(),
+    );
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("workflow_run", `ci-e2e-b-run-${randomUUID().slice(0, 8)}`),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha: headB,
+        prNumbers: [PR_NUMBER],
+      },
+      intakeLog(),
+    );
+
+    await postAckStub(workB, headB);
+    await tickReview(workB, headB);
+    await publishReview(workB, headB);
+    const afterHeadB = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(afterHeadB?.body).toContain(`head=${headB}`);
+    expect(afterHeadB?.body).not.toContain(`head=${headA}`);
+
+    await projectHead(headA);
+    const afterOldProjection = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(afterOldProjection?.body).toContain(`head=${headB}`);
+    expect(afterOldProjection?.body).not.toContain(`head=${headA}`);
+
+    await applyCiStateIntake(
+      boss,
+      pool,
+      headers("check_run", `ci-e2e-b2-${randomUUID().slice(0, 8)}`),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha: headB,
+        fact: ciStateFact({
+          name: "test-b",
+          check_run_id: 203,
+          conclusion: "success",
+          observed_at: "2026-09-13T00:03:00.000Z",
+        }),
+      },
+      intakeLog(),
+    );
+    const rowB = await loadPrHeadCiState(pool, OWNER, REPO, headB);
+    expect(rowB?.version).toBeGreaterThanOrEqual(2);
+
+    await projectHead(headB);
+    const afterNewProjection = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(afterNewProjection?.body).toContain(`head=${headB}`);
+    expect(parseCiSummaryMarkerVersion(afterNewProjection?.body ?? "")).toBe(rowB?.version);
+    expect(afterNewProjection?.body).toContain(`v=${rowB?.version}`);
   });
 });

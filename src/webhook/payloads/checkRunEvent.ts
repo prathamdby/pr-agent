@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { ciRefreshPullRequestSchema } from "./ciRefreshHead.js";
+import { ciHeadPullRequestSchema } from "./ciHeadSource.js";
 import {
   githubSafeIdSchema,
   githubShaSchema,
@@ -19,7 +19,7 @@ export const checkRunBodySchema = v.object({
   completed_at: v.optional(v.nullable(v.string())),
   external_id: v.optional(v.nullable(v.string())),
   app: v.optional(v.object({ id: githubSafeIdSchema })),
-  pull_requests: v.optional(v.array(ciRefreshPullRequestSchema), []),
+  pull_requests: v.optional(v.array(ciHeadPullRequestSchema), []),
 });
 
 export const checkRunWebhookSchema = v.object({

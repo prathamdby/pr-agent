@@ -127,11 +127,11 @@ docker compose build
 docker compose up -d
 ```
 
-| Service           | Role          | What it does                                                                                                                             |
-| ----------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs. Not published to the host.                                                             |
-| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                                                             |
-| `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-projection, leftover CI-refresh, code-index-build, and retention queues |
+| Service           | Role          | What it does                                                                                                        |
+| ----------------- | ------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs. Not published to the host.                                        |
+| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                                        |
+| `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-projection, code-index-build, and retention queues |
 
 Migrations run when each process opens its Postgres pool.
 

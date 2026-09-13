@@ -31,6 +31,7 @@ Large PR reviews drive many GitHub REST calls in a single **review run** (pg-bos
 - Throttle state is per-process; `REVIEW_CONCURRENCY > 1` or multi-replica deploys can still burst the same installation.
 - Effective GitHub load scales roughly as `replicas × localConcurrency` per queue (see [operations.md](../operations.md)).
 - **MVP shared circuit:** opening a local rate-limit circuit also upserts Postgres `github_installation_rate_limit_circuits` (`installation_id`, `open_until`, `last_error_kind`). Other workers check that row before starting review/ask runs and hydrate their local circuit open so they do not immediately re-amplify 403/429 on the same installation.
+- **CI projector:** the projector is the other shared-circuit consumer ([ADR 0035](0035-head-ci-state-projection.md)). If the row is open, it re-enqueues with `startAfter = open_until` and exits. That is the only REST gate for projection. The in-process circuit still short-circuits agent tools only.
 
 ## Superseded by ADR 0006
 

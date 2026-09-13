@@ -10,7 +10,6 @@ import {
   ACK_QUEUE,
   ASK_QUEUE,
   CI_PROJECTION_QUEUE,
-  CI_REFRESH_QUEUE,
   CODE_INDEX_BUILD_CONCURRENCY,
   CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_QUEUE,
@@ -24,7 +23,6 @@ import {
 import { executeAckJob } from "./executors/ackExecutor.js";
 import { executeAskJob } from "./executors/askExecutor.js";
 import { executeCiProjectionJob } from "./executors/ciProjectionExecutor.js";
-import { executeCiRefreshJob } from "./executors/ciRefreshExecutor.js";
 import { executeDescriptionJob } from "./executors/descriptionExecutor.js";
 import { executeReviewJob } from "./executors/reviewExecutor.js";
 import { executeTriageJob } from "./executors/triageExecutor.js";
@@ -34,7 +32,6 @@ import {
   type AckJobData,
   type AskJobData,
   type CiProjectionJobData,
-  type CiRefreshJobData,
   type DescriptionJobData,
   type ReviewJobData,
   type TriageJobData,
@@ -60,7 +57,6 @@ const AGENT_QUEUE_STATS_QUEUES = [
   DESCRIPTION_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-  CI_REFRESH_QUEUE,
   CI_PROJECTION_QUEUE,
 ] as const;
 
@@ -169,14 +165,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               (job) => executeAckJob(cfg, pool, job.data, boss),
             ).then(() => {
               registeredQueues.add(ACK_QUEUE);
-            }),
-            registerPlainQueue<CiRefreshJobData>(
-              boss,
-              CI_REFRESH_QUEUE,
-              { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
-              (job) => executeCiRefreshJob(cfg, pool, boss, job.data),
-            ).then(() => {
-              registeredQueues.add(CI_REFRESH_QUEUE);
             }),
             registerPlainQueue<CiProjectionJobData>(
               boss,

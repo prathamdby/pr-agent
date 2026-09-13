@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Decisions 5 and 6 are superseded by [ADR 0035](0035-head-ci-state-projection.md). Authoring lives on the projector and is cached by facts hash. Publish does not wait or poll. Later cells come from `pr_head_ci_state`, not a refresh job.
 
 ## Context
 
@@ -26,9 +26,9 @@ Constraints that still hold:
 
 4. **Actions: read** is required for job-log download. Soft-fail without breaking the review: missing Checks shows a grant-Checks CI row; missing Actions on a red head keeps the failure row, falls back to condensed/redacted/size-bounded check output when possible, and adds a grant-Actions note.
 
-5. **Timing.** Publish reuses `REVIEW_CI_SUMMARY_WAIT_*` wait/poll. Wait durations stay as they are. Failing-head annotation and job-log fetches run concurrently within `REVIEW_CI_SUMMARY_FETCH_CONCURRENCY`; workflow runs are filtered to the reviewed head before job listing; raw logs are bounded to a failure-preserving intake window before condensation. If still pending at publish, leave a pending row. When CI later completes, a `workflow_run` or `check_suite` (completed) webhook enqueues a CI-refresh job that surgically edits the CI cell (HTML markers) on the matching **review summary comment** for that head SHA — without a full re-review. A refresh that arrives while a review is still queued or running is retained on that same lane (delayed re-enqueue, bounded `attempt`) until it can patch or the cap is exhausted; a superseded head never overwrites a newer cell.
+5. **Timing. Superseded by [ADR 0035](0035-head-ci-state-projection.md).** Publish no longer waits or polls. `workflow_run` and `check_suite` completed deliveries enqueue one head-scoped `ci-projection`. The projector patches the marked cell from `pr_head_ci_state` when `head` matches and `v` is older.
 
-6. **Noise filter.** Condensation and the prompt contract prefer real failures (test/lint/type/build) over Actions runner deprecation warnings.
+6. **Noise filter. Superseded in part by [ADR 0035](0035-head-ci-state-projection.md).** Condensation and the prompt contract still prefer real failures over runner deprecation warnings. The LLM turn now runs on the projector once per facts hash, not at publish or on a refresh job.
 
 ## Amendment
 
@@ -37,8 +37,8 @@ The CI marker carries `head=<sha>`. Preserve drops the prior row when the marker
 ## Consequences
 
 - Operators need **Actions: read** in addition to Checks read for rich failure explanations.
-- A second LLM call runs at publish when CI is failing (and again on refresh). Passing/pending/none use server templates without a model call.
-- Webhook subscriptions grow to include **`workflow_run`** and **`check_suite`**. Topology gains a CI-refresh queue lane.
+- A second LLM call runs on the projector when CI is failing and the facts hash is new. Passing/pending/none use server templates without a model call.
+- Webhook subscriptions include **`workflow_run`** and **`check_suite`**. Those events enqueue `ci-projection`. The refresh queue lane is deleted.
 - Annotation-first digests and “no Actions permission” assumptions from the first CI-summary design are obsolete.
 
 ## Reversal

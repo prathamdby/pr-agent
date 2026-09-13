@@ -6,7 +6,7 @@ import { captureWebhookReceived } from "../../analytics/workCompleted.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
-import { toCiRefreshHeadSourceFromCompletedRun } from "../../webhook/payloads/ciRefreshHead.js";
+import { toCiHeadSourceFromCompletedRun } from "../../webhook/payloads/ciHeadSource.js";
 import { isOwnCiCheck, observedAtFromGithub } from "../../review/ci/classifySnapshot.js";
 import { OWN_COMMIT_STATUS_CONTEXT } from "../../settings/index.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
@@ -112,7 +112,7 @@ function dispatchGithubEventEffect(
       case "workflow_run":
         yield* handlers.ciRefresh(
           headers,
-          toCiRefreshHeadSourceFromCompletedRun({
+          toCiHeadSourceFromCompletedRun({
             installation: parsed.data.installation,
             repository: parsed.data.repository,
             run: parsed.data.workflow_run,
@@ -133,7 +133,7 @@ function dispatchGithubEventEffect(
         }
         yield* handlers.ciRefresh(
           headers,
-          toCiRefreshHeadSourceFromCompletedRun({
+          toCiHeadSourceFromCompletedRun({
             installation: parsed.data.installation,
             repository: parsed.data.repository,
             run: parsed.data.check_suite,

@@ -6,20 +6,16 @@ import {
   ACK_QUEUE,
   ASK_QUEUE,
   CI_PROJECTION_QUEUE,
-  CI_REFRESH_QUEUE,
-  CI_REFRESH_RETRY_DELAY_SECONDS,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
-import { uuidv5 } from "../../util/uuidv5.js";
 import {
   installationGroupId,
   type AckJobData,
   type AskJobData,
   type CiProjectionJobData,
-  type CiRefreshJobData,
   type DescriptionJobData,
   type JobCorrelation,
   type PrRef,
@@ -28,18 +24,6 @@ import {
   type VerificationJobData,
   type WebhookHeaders,
 } from "../types.js";
-
-/** Deterministic pg-boss id for one delivery + PR + attempt. */
-export function ciRefreshJobId(webhookEventId: string, prNumber: number, attempt: number): string {
-  return uuidv5(webhookEventId, `ci-refresh:${prNumber}:${attempt}`);
-}
-
-/** One pending job per PR head and attempt. Later same-head sends join that slot. */
-export function ciRefreshSingletonKey(
-  data: Pick<CiRefreshJobData, "owner" | "repo" | "prNumber" | "headSha" | "attempt">,
-): string {
-  return `${data.owner}/${data.repo}#${data.prNumber}:${data.headSha}:${data.attempt}`;
-}
 
 export function jobCorrelation(
   eventId: string,
@@ -193,38 +177,6 @@ export async function enqueueVerification(
     ...correlation,
   };
   await enqueueLeasedWork(boss, client, ref, VERIFICATION_QUEUE, data);
-}
-
-function ciRefreshSendOptions(
-  data: CiRefreshJobData,
-  extra: Pick<NonNullable<Parameters<PgBoss["send"]>[2]>, "db" | "startAfter">,
-): NonNullable<Parameters<PgBoss["send"]>[2]> {
-  const options: NonNullable<Parameters<PgBoss["send"]>[2]> = {
-    ...extra,
-    singletonKey: ciRefreshSingletonKey(data),
-    singletonSeconds: CI_REFRESH_RETRY_DELAY_SECONDS,
-    priority: 40,
-    group: { id: installationGroupId(data.installationId) },
-  };
-  if (data.webhookEventId) {
-    options.id = ciRefreshJobId(data.webhookEventId, data.prNumber, data.attempt);
-  }
-  return options;
-}
-
-/** Idempotent CI refresh: one job per webhook delivery + PR + attempt. */
-export async function enqueueCiRefreshIdempotent(
-  boss: PgBoss,
-  client: PoolClient,
-  data: CiRefreshJobData,
-  webhookEventId: string,
-): Promise<"enqueued" | "already_present"> {
-  return sendBossJobIdempotent(
-    boss,
-    CI_REFRESH_QUEUE,
-    data,
-    ciRefreshSendOptions({ ...data, webhookEventId }, { db: pgBossDb(client) }),
-  );
 }
 
 /** One pending projection per head. Later writes join the next 5s slot. */

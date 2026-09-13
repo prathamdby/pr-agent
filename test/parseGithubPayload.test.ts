@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import { AppError } from "../src/errors/appError.js";
 import { WebhookParseError, parseGithubPayload } from "../src/webhook/parseGithubPayload.js";
+import { prNumbersForCiHead, toCiHeadSource } from "../src/webhook/payloads/ciHeadSource.js";
 
 describe("WebhookParseError", () => {
   it("preserves eventName and valibotError through AppError", () => {
@@ -613,7 +614,7 @@ describe("parseGithubPayload", () => {
     ).toThrow(WebhookParseError);
   });
 
-  it("rejects ciRefresh pull_requests out-of-range", () => {
+  it("rejects CI head pull_requests out-of-range", () => {
     const workflowBase = {
       action: "completed",
       installation: { id: 9 },
@@ -975,5 +976,65 @@ describe("parseGithubPayload", () => {
         repository: { name: "pr-agent", owner: { login: "acme" } },
       }),
     ).toThrow(WebhookParseError);
+  });
+});
+
+describe("toCiHeadSource", () => {
+  it("maps installation, repository, head SHA, and pull requests", () => {
+    expect(
+      toCiHeadSource({
+        installation: { id: 9 },
+        repository: { owner: { login: "acme" }, name: "pr-agent" },
+        headSha: "sha-a",
+        pullRequests: [{ number: 11, head: { sha: "sha-a" } }],
+      }),
+    ).toEqual({
+      installationId: 9,
+      owner: "acme",
+      repo: "pr-agent",
+      headSha: "sha-a",
+      pullRequests: [{ number: 11, head: { sha: "sha-a" } }],
+    });
+  });
+
+  it("defaults missing pull requests to an empty list", () => {
+    expect(
+      toCiHeadSource({
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        headSha: "sha",
+      }),
+    ).toEqual({
+      installationId: 1,
+      owner: "o",
+      repo: "r",
+      headSha: "sha",
+      pullRequests: [],
+    });
+  });
+});
+
+describe("prNumbersForCiHead", () => {
+  it("keeps only PRs whose head SHA matches the CI head", () => {
+    expect(
+      prNumbersForCiHead("sha-a", [
+        { number: 11, head: { sha: "sha-a" } },
+        { number: 12, head: { sha: "sha-b" } },
+        { number: 13, head: { sha: "sha-a" } },
+      ]),
+    ).toEqual([11, 13]);
+  });
+
+  it("dedupes repeated PR numbers", () => {
+    expect(
+      prNumbersForCiHead("sha-a", [
+        { number: 7, head: { sha: "sha-a" } },
+        { number: 7, head: { sha: "sha-a" } },
+      ]),
+    ).toEqual([7]);
+  });
+
+  it("returns an empty list when no PR heads match", () => {
+    expect(prNumbersForCiHead("sha-a", [{ number: 1, head: { sha: "other" } }])).toEqual([]);
   });
 });

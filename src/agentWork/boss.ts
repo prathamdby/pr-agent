@@ -1,6 +1,6 @@
 import { PgBoss, type ConstructorOptions, type QueueOptions } from "pg-boss";
 import type { Config } from "../config.js";
-import { logWarn, logError } from "../evlog.js";
+import { logDebug, logWarn, logError } from "../evlog.js";
 import {
   ACK_DEAD_LETTER_QUEUE,
   ACK_QUEUE,
@@ -8,8 +8,6 @@ import {
   ASK_QUEUE,
   CI_PROJECTION_DEAD_LETTER_QUEUE,
   CI_PROJECTION_QUEUE,
-  CI_REFRESH_DEAD_LETTER_QUEUE,
-  CI_REFRESH_QUEUE,
   CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
@@ -35,9 +33,12 @@ export const AGENT_DEAD_LETTER_QUEUES = [
   DESCRIPTION_DEAD_LETTER_QUEUE,
   TRIAGE_DEAD_LETTER_QUEUE,
   VERIFICATION_DEAD_LETTER_QUEUE,
-  CI_REFRESH_DEAD_LETTER_QUEUE,
   CI_PROJECTION_DEAD_LETTER_QUEUE,
 ] as const;
+
+/** Retired one-release shim. Boot deletes both after a drain check. */
+const RETIRED_CI_REFRESH_QUEUE = "agent-work-ci-refresh";
+const RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
 
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {
@@ -92,7 +93,6 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     { name: DESCRIPTION_QUEUE, deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE },
     { name: TRIAGE_QUEUE, deadLetter: TRIAGE_DEAD_LETTER_QUEUE },
     { name: VERIFICATION_QUEUE, deadLetter: VERIFICATION_DEAD_LETTER_QUEUE },
-    { name: CI_REFRESH_QUEUE, deadLetter: CI_REFRESH_DEAD_LETTER_QUEUE },
     { name: CI_PROJECTION_QUEUE, deadLetter: CI_PROJECTION_DEAD_LETTER_QUEUE },
   ] as const;
   await Promise.all(
@@ -118,6 +118,46 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     const queue = await boss.getQueue(name);
     if (queue?.policy !== "standard") {
       logError("agent_queue_policy_mismatch", { queue: name, policy: queue?.policy });
+    }
+  }
+
+  await retireLeftoverCiRefreshQueues(boss);
+}
+
+type RetiredQueueBoss = Pick<PgBoss, "getQueue" | "getQueueStats" | "deleteQueue">;
+
+function retiredQueueLiveCount(
+  stats:
+    | {
+        readonly queuedCount?: number;
+        readonly activeCount?: number;
+        readonly deferredCount?: number;
+      }
+    | null
+    | undefined,
+): number {
+  return (stats?.queuedCount ?? 0) + (stats?.activeCount ?? 0) + (stats?.deferredCount ?? 0);
+}
+
+/** Delete the retired refresh lane after it has no queued, active, or deferred jobs. */
+export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Promise<void> {
+  for (const name of [RETIRED_CI_REFRESH_QUEUE, RETIRED_CI_REFRESH_DEAD_LETTER_QUEUE]) {
+    try {
+      const queue = await boss.getQueue(name);
+      if (queue == null) continue;
+      const [stats] = await boss.getQueueStats(name);
+      const liveCount = retiredQueueLiveCount(stats);
+      if (liveCount > 0) {
+        logWarn("retired_queue_not_empty", { queue: name, liveCount });
+        continue;
+      }
+      await boss.deleteQueue(name);
+      logDebug("retired_queue_deleted", { queue: name });
+    } catch (error) {
+      logWarn("retired_queue_delete_failed", {
+        queue: name,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }
