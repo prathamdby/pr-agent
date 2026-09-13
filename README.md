@@ -262,7 +262,7 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
 
 ## Recommended hosts
 
-This repo still ships one stack: Compose `postgres`, `pr-agent-web`, and `pr-agent-worker`. A panel or reverse proxy only terminates TLS and forwards to web. Do not add a second compose file, publish Postgres, or expose the worker.
+Production hosting still ships one stack: Compose `postgres`, `pr-agent-web`, and `pr-agent-worker`. A panel or reverse proxy only terminates TLS and forwards to web. Do not add another production or panel compose file, publish Postgres, or expose the worker. Maintainer-local work uses [docker-compose.dev.yml](docker-compose.dev.yml).
 
 Start the VPS at about 2 vCPU and 4 GB RAM. Web, worker, Postgres, and a panel will not fit well on 1 GB.
 
@@ -330,7 +330,7 @@ Caddy uses an internal certificate. GitHub will not trust it. The Compose `cloud
 
 Published ports bind `127.0.0.1`. Binding `80` and `443` on all interfaces exposes the laptop on the LAN.
 
-If you already run `docker compose up -d postgres` or a published `docker run` Postgres on `5432`, stop that container first. This file reuses the `postgres-data` volume from the repo Compose project. `compose down` keeps that volume.
+If you already run `docker compose up -d postgres` or a published `docker run` Postgres on `5432`, stop that container first so host port `5432` is free. This file uses its own `postgres-data-dev` volume. `compose down` keeps that volume.
 
 For live App deliveries, put real GitHub fields in `.env` and start with `PR_AGENT_ENV_FILE=.env docker compose -f docker-compose.dev.yml up -d --build`.
 

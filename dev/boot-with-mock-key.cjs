@@ -27,6 +27,22 @@ const child = spawn(process.execPath, ["dist/index.js"], {
   stdio: "inherit",
   env: process.env,
 });
+
+function forward(signal) {
+  if (!child.killed) {
+    child.kill(signal);
+  }
+}
+
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) {
+  process.on(signal, () => {
+    forward(signal);
+  });
+}
+
+child.on("error", () => {
+  process.exit(1);
+});
 child.on("exit", (code, signal) => {
   if (signal) {
     process.kill(process.pid, signal);

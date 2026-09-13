@@ -17,8 +17,8 @@
 # Published ports bind 127.0.0.1. Opening 80 or 443 on all interfaces is an
 # operator choice and exposes the laptop on the LAN.
 #
-# The postgres-data volume name matches docker-compose.yml. Do not run both
-# files at once. compose down keeps the volume.
+# Postgres data is postgres-data-dev. Production Compose uses postgres-data.
+# compose down keeps the volume. Do not run both Compose files at once.
 services:
   postgres:
     image: postgres:16-alpine
@@ -42,7 +42,7 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data-dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pr_agent} -d ${POSTGRES_DB:-pr_agent}"]
       interval: 5s
@@ -138,6 +138,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres-data:
+  postgres-data-dev:
   caddy-data:
   caddy-config:
