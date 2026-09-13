@@ -1,0 +1,143 @@
+# Maintainer-local stack. Postgres, Caddy, web, worker, and a Cloudflare
+# quick tunnel. Production hosting still uses docker-compose.yml. That file
+# has no Caddy and no tunnel.
+#
+#   docker compose -f docker-compose.dev.yml up -d --build
+#   node dev/print-public-webhook-url.cjs
+#
+# Mock GitHub App fields live in dev/mock.env. The boot script generates a
+# throwaway PEM at process start. They are not a real App. For live deliveries:
+#   PR_AGENT_ENV_FILE=.env docker compose -f docker-compose.dev.yml up -d --build
+#
+# Local Postgres uses trust auth so this file does not embed a password.
+# Host integration tests may still use the documented URL with user pr_agent.
+# The tunnel origin is HTTP to the web service. Paste the printed
+# trycloudflare URL on the GitHub App. The hostname changes on restart.
+#
+# Published ports bind 127.0.0.1. Opening 80 or 443 on all interfaces is an
+# operator choice and exposes the laptop on the LAN.
+#
+# Postgres data is postgres-data-dev. Production Compose uses postgres-data.
+# compose down keeps the volume. Do not run both Compose files at once.
+services:
+  postgres:
+    image: postgres:16-alpine
+    shm_size: 128mb
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-768MB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}
+      - -c
+      - wal_compression=${POSTGRES_WAL_COMPRESSION:-on}
+      - -c
+      - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pr_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-pr_agent}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pr_agent} -d ${POSTGRES_DB:-pr_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  pr-agent-web:
+    build: .
+    image: pr-agent:local
+    env_file:
+      - ${PR_AGENT_ENV_FILE:-dev/mock.env}
+    environment:
+      ROLE: "web"
+      PORT: "7224"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-pr_agent}@postgres:5432/${POSTGRES_DB:-pr_agent}"
+    command: ["node", "/app/boot-with-mock-key.cjs"]
+    volumes:
+      - ./dev/boot-with-mock-key.cjs:/app/boot-with-mock-key.cjs:ro
+    ports:
+      - "127.0.0.1:7224:7224"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7224/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  pr-agent-worker:
+    build: .
+    image: pr-agent:local
+    env_file:
+      - ${PR_AGENT_ENV_FILE:-dev/mock.env}
+    environment:
+      ROLE: "worker"
+      PORT: "7225"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-pr_agent}@postgres:5432/${POSTGRES_DB:-pr_agent}"
+    command: ["node", "/app/boot-with-mock-key.cjs"]
+    volumes:
+      - ./dev/boot-with-mock-key.cjs:/app/boot-with-mock-key.cjs:ro
+    ports:
+      - "127.0.0.1:7225:7225"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7225/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./dev/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - pr-agent-web
+      - pr-agent-worker
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.6.0
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://pr-agent-web:7224
+    depends_on:
+      pr-agent-web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data-dev:
+  caddy-data:
+  caddy-config:

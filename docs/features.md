@@ -44,5 +44,7 @@ Notes:
   `FEATURE_*` only. There are no aliases.
 
 Defaults reproduce the pre-revision out-of-the-box behavior exactly.
+Local Compose (`docker-compose.dev.yml`) boots with these same defaults.
+It does not add a feature key.
 CI enforces that every `FEATURE_*` key is documented here
 ([`test/settingsInventory.test.ts`](../test/settingsInventory.test.ts)).

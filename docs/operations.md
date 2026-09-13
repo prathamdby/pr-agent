@@ -56,8 +56,8 @@ Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 - **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)). The runtime stage installs Debian `git` from `node:22.22.0-bookworm-slim` (2.39.x). Shared workspace search uses `git grep -nF -I -z` and applies `maxResults` plus `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` after the process returns. It does not pass `--max-count` (Git 2.40+).
 - **Health (web):** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable. Shipped Compose healthchecks web with hardcoded `http://127.0.0.1:7224/health`, not `/ready`. `depends_on` is start-only. Postgres dying later does not fail the web service.
 - **Health (worker):** the worker listens on its own `PORT` for the same paths. That port is not published. `curl http://127.0.0.1:7224/ready` from the host hits web `/ready` (Postgres ping only). Worker `/ready` requires the nine registered consumers (`WORKER_CONSUMER_QUEUES`, including retention and `code-index-build`) plus Postgres/pg-boss. Compose checks that in-container. The image `HEALTHCHECK` hits `/health`, so a PaaS that honors only the Dockerfile can mark a worker healthy before consumers exist. Continuous queue/DLQ diagnostics emit every 60s; see [agent-work-ops.md](agent-work-ops.md).
-- **Webhook URL:** set GitHub to `https://<host>/webhooks`. The process binds HTTP on `7224`. Compose publishes that HTTP port only. A public `http://<host>:7224/webhooks` URL is rejected except for loopback.
-- **`DATABASE_URL`** in base Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`. Compose postgres is not published to the host.
+- **Webhook URL:** set GitHub to `https://<host>/webhooks`. The process binds HTTP on `7224`. Production Compose publishes that HTTP port only. Maintainer-local Caddy and a Cloudflare quick tunnel live in [docker-compose.dev.yml](../docker-compose.dev.yml). A public `http://<host>:7224/webhooks` URL is rejected except for loopback.
+- **`DATABASE_URL`** in base Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`. Production Compose postgres is not published to the host. [docker-compose.dev.yml](../docker-compose.dev.yml) publishes `127.0.0.1:5432` and uses trust auth (`postgres://pr_agent@postgres:5432/pr_agent`).
 - **Provider API keys** (for example **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, **`GOOGLE_GENERATIVE_AI_API_KEY`**) are loaded by [`src/config.ts`](../src/config.ts) into `modelProviderKeys`. They are optional at boot. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker. `GET /health` and `GET /ready` stay green without a key.
 - **Custom Pi providers (`models.json`):** three ways to get a catalog into the container at `/app/models.json` (process cwd), or elsewhere via **`MODELS_JSON_PATH`**:
   1. **Build-context copy (default image behavior):** if repo-root `models.json` is present when you `docker build`, the runtime stage copies it to `/app/models.json`. If the file is absent, the build still succeeds (built-ins only). Dokploy **Patches** can `create` File Path `models.json` after clone and before build — no `MODELS_JSON_PATH` and no Dockerfile edit required when using the image cwd.
@@ -106,9 +106,10 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 ### Local development edge cases
 
-- **`nub src/index.ts` loads `.env` automatically** for local development. `nub watch src/index.ts` restarts on source, tsconfig, and env changes.
+- **Primary start** is `docker compose -f docker-compose.dev.yml up -d --build`. That file starts Postgres, Caddy, web, worker, and a Cloudflare quick tunnel to the web process. `dev/mock.env` has no PEM. The boot script generates one at process start. Print the public webhook URL with `node dev/print-public-webhook-url.cjs` and paste it on the GitHub App. The trycloudflare hostname changes on restart. Probe the laptop side with `curl -k https://web.localhost/health` and `curl -k https://worker.localhost/ready`. If the names do not resolve, add them to `/etc/hosts` or pass `curl --resolve`. Do not mix that file with `docker compose up`.
+- **`nub src/index.ts` loads `.env` automatically** when you opt into host processes. `nub watch src/index.ts` restarts on source, tsconfig, and env changes.
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key**. For local-only boot: `openssl genrsa 2048 > key.pem` and set the escaped PEM in `.env`. The example blob in `.env.example` fails `crypto.createPrivateKey()`.
-- Tunnel webhooks to local `PORT` with a running client, then point the GitHub App webhook at that public URL. smee.io: create a channel, then `npx smee-client -u https://smee.io/<channel> --target http://127.0.0.1:<port>/webhooks`. Cloudflare Tunnel: `cloudflared tunnel --url http://127.0.0.1:<port>` and set the webhook to `https://<trycloudflare-host>/webhooks`. A channel or hostname with no client drops every delivery.
+- The Compose `cloudflared` service is the public webhook path. Do not start a host smee or `cloudflared` process unless that service cannot reach Cloudflare. Do not point any fallback at the worker.
 - Host Nub must be `@nubjs/nub@0.7.2` (`package.json` `packageManager`). Image and Vercel pin the same version.
 - If switching from a prior pnpm- or npm-installed tree, delete `node_modules` before the first `nub install`.
 - **Vercel** site deploys install pinned Nub in [`site/vercel.json`](../site/vercel.json) (`npm install -g --ignore-scripts=false @nubjs/nub@0.7.2 && cd .. && nub ci --filter pr-agent-landing...`), then build with `nub --node run build` (same plain-Node path as `site:build`). The site serves a dense agent profile at `/llms.txt` plus queryable `GET /llms?query=` and `GET /llms/json?query=` from [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts).
@@ -124,13 +125,28 @@ example.com {
 }
 ```
 
-Set the App webhook to `https://example.com/webhooks`. There is no Caddy, nginx, or certificate file in this repo.
+Set the App webhook to `https://example.com/webhooks`. Production Compose still has no Caddy, nginx, or certificate. Do not add Caddy to [docker-compose.yml](../docker-compose.yml).
 
-A host panel such as [Dokploy](https://dokploy.com) or [Coolify](https://coolify.io) is the same job: terminate TLS and forward to `pr-agent-web` on `7224`. Use the panel domain as the GitHub App webhook host. Route web only. Do not publish Postgres or the worker. Do not add a second compose file. VPS and panel picks: [README.md](../README.md#recommended-hosts).
+Maintainer-local HTTPS is [docker-compose.dev.yml](../docker-compose.dev.yml) plus [dev/Caddyfile](../dev/Caddyfile). That Caddy uses `tls internal`. GitHub does not trust it. The same Compose file starts `cloudflared` for App deliveries.
+
+A host panel such as [Dokploy](https://dokploy.com) or [Coolify](https://coolify.io) is the same job: terminate TLS and forward to `pr-agent-web` on `7224`. Use the panel domain as the GitHub App webhook host. Route web only. Do not publish Postgres or the worker. Do not add a panel-specific compose file. VPS and panel picks: [README.md](../README.md#recommended-hosts).
 
 Canonical install steps live in [README.md](../README.md) **Installation**.
 
 ## Development
+
+Maintainer-local start is one Compose file, then optional host Nub if you want hot reload.
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build
+node dev/print-public-webhook-url.cjs
+curl -k https://web.localhost/health
+curl -k https://worker.localhost/ready
+```
+
+If those names do not resolve, add `127.0.0.1 web.localhost worker.localhost` to `/etc/hosts`, or pass `--resolve web.localhost:443:127.0.0.1` to `curl`.
+
+Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.localhost` and `worker.localhost`. The public GitHub URL is the printed trycloudflare host plus `/webhooks`. Production `docker compose up` is a different path. It has no Caddy, no tunnel, and does not publish Postgres.
 
 ### Scripts
 

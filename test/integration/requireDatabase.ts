@@ -6,7 +6,7 @@ export const INTEGRATION_DATABASE_HINT = [
   "Integration tests require a reachable Postgres database.",
   "",
   "Start one, then re-run:",
-  "  docker compose up -d postgres",
+  "  docker compose -f docker-compose.dev.yml up -d",
   "  export DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent",
   "  nub run test:integration",
   "",

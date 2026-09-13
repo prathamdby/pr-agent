@@ -25,7 +25,7 @@ describe("assertIntegrationDatabaseReady", () => {
   it("fails fast with start instructions when DATABASE_URL is missing", async () => {
     await expect(assertIntegrationDatabaseReady({})).rejects.toThrow(/DATABASE_URL is unset/);
     await expect(assertIntegrationDatabaseReady({})).rejects.toThrow(
-      /docker compose up -d postgres/,
+      /docker compose -f docker-compose.dev.yml up -d/,
     );
     await expect(assertIntegrationDatabaseReady({})).rejects.toThrow(
       /nub run test:integration:inventory/,
