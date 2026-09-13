@@ -475,7 +475,9 @@ describe("renderReviewSummaryComment", () => {
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
       coverage: { kind: "partial", failed: ["quality"] },
     });
-    expect(body).toContain("2 findings block merge. CI is passing. All specialists ran except quality.");
+    expect(body).toContain(
+      "2 findings block merge. CI is passing. All specialists ran except quality.",
+    );
     expect(body).toContain("[!NOTE]");
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
     expect(body.indexOf("2 findings block merge")).toBeLessThan(body.indexOf("<table>"));
@@ -736,7 +738,9 @@ describe("review action line helpers", () => {
         ciStatusText: "CI has not started",
         coverageStatusText: "with full coverage",
       }),
-    ).toBe("No findings, ready to merge. CI has not started. All specialists ran with full coverage.");
+    ).toBe(
+      "No findings, ready to merge. CI has not started. All specialists ran with full coverage.",
+    );
     expect(
       renderReviewActionLine({
         findingCount: 1,
