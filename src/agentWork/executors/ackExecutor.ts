@@ -20,7 +20,7 @@ import {
   type ReviewQueuePosition,
 } from "../repository.js";
 import { closeOwnVerdictsForWorkItems, postOwnVerdictPending } from "../closeOwnVerdict.js";
-import { enqueueCiProjectionIfVersionMoved, loadRenderableHeadCi } from "../ciProjection.js";
+import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../ciProjection.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import {
   parseProgressRevisionState,
@@ -115,7 +115,7 @@ async function publishAckProgress(
     ciHeadSha: headSha,
     ciVersion: rendered.version,
   });
-  await enqueueCiProjectionIfVersionMoved({
+  await enqueueCiProjectionIfDue({
     boss,
     pool,
     installationId: data.installationId,

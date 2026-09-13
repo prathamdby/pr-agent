@@ -10,10 +10,7 @@ import {
   reviewSummaryOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
-import {
-  enqueueCiProjectionIfVersionMoved,
-  loadRenderableHeadCi,
-} from "../../agentWork/ciProjection.js";
+import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../../agentWork/ciProjection.js";
 import { closeOwnVerdict } from "../../agentWork/closeOwnVerdict.js";
 import { summaryCommentVerdictMeta } from "../../agentWork/ownCheckReconcile.js";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
@@ -254,7 +251,7 @@ export async function publishReviewSummaryOnly(params: {
         });
   const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
   if (ciPool != null) {
-    await enqueueCiProjectionIfVersionMoved({
+    await enqueueCiProjectionIfDue({
       boss: params.boss,
       pool: ciPool,
       installationId: params.installationId ?? 0,

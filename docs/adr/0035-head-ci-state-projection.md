@@ -16,19 +16,21 @@ Webhook delivery is best effort. A head whose checks finished before the App saw
 
 1. **One durable row.** `pr_head_ci_state` is keyed `(owner, repo, head_sha)`. `check_run` and `status` deliveries write named checks under a newer-observation rule in the same transaction as `webhook_events`. `classifySnapshot` derives `rollup`. `version` increments only when a write is accepted.
 
-2. **One later writer.** `ci-projection` is the only job that renders CI cells after claim time. Ack, ticks, and publish read the row at claim time, stamp `v=<version>` on the marker, and re-enqueue if the version moved after the GitHub write or if the row is missing or `seeded_at` is null. The projector patches when marker `head` matches and marker `v` is older. It re-reads the body immediately before the write and re-enqueues if `progress-revision` moved. Lost updates converge by that version re-check. No writer copies a previous body's CI row. No advisory lock is held across HTTP.
+2. **One later writer.** `ci-projection` is the only job that renders CI cells after claim time. Ack, ticks, and publish read the row at claim time, stamp `v=<version>` on the marker, and re-enqueue when the head still needs a seed or the row version moved after the GitHub write. The projector patches when marker `head` matches and marker `v` is older. It re-reads the body immediately before the write and re-enqueues if `progress-revision` moved. Lost updates converge by that version re-check. No writer copies a previous body's CI row. No advisory lock is held across HTTP.
 
 3. **One seed.** When the row is missing or `seeded_at` is null, the projector takes one `getCiStatus` read, writes it with `seeded_at`, and continues. A failed first snapshot after `storePrNumbersForHead` inserts an empty row still seeds on the next job. No other path reads CI from GitHub.
 
 4. **One own-verdict writer.** Terminal `PR Agent Review` and optional `pr-agent/review` writes go through `closeOwnVerdict`. Live executions fence on the lease epoch. The projector and sweeper pass `leaseEpoch: null` and write only after `agent_work_items.status` is terminal. A started `check_run` publish row stays open while `detail.status` is `in_progress` or `detail.conclusion` is missing. Failed reviews close as crashed. A completed review with a `summary_comment` record closes as published or partial from that record. A completed review without a summary closes as unpublished. The sweeper retries that close for terminal reviews, not only `running` rows.
 
-5. **Completed-run intake is head-scoped.** `workflow_run` and `check_suite` completed deliveries enqueue one debounced `ci-projection` for the head. They do not write facts. Empty `pull_requests[]` still enqueues. `pull_request` `opened`, `synchronize`, and `reopened` enqueue the same job when the row is missing or `seeded_at` is null, including when no review work is planned. Each projection merges stored `pr_numbers` with `agent_work_items` and one `commits/{sha}/pulls` lookup.
+5. **Completed-run intake is head-scoped.** `workflow_run` and `check_suite` completed deliveries enqueue one debounced `ci-projection` for the head. They do not write facts. Empty `pull_requests[]` still enqueues. Each projection merges stored `pr_numbers` with `agent_work_items` and one `commits/{sha}/pulls` lookup.
 
-6. **Authoring lives on the projector.** A failing rollup runs one LLM turn per facts hash. The result is stored on `authored` and does not bump `version`. Publish does not wait or poll.
+6. **First seed from pull_request.** `opened`, `synchronize`, and `reopened` enqueue that same job only when the row is missing or `seeded_at` is null. A delivery that plans no review work records `ci_projection_enqueued` when it schedules that seed, and `ignored_pull_request_${action}` when it does not. Completed-run intake still always enqueues.
 
-7. **Shared-circuit deferral.** Before any GitHub read or write, the projector reads `github_installation_rate_limit_circuits`. If the circuit is open, it re-enqueues with `startAfter = open_until` and exits. That is the only REST gate for projection. The in-process circuit still short-circuits agent tools only.
+7. **Authoring lives on the projector.** A failing rollup runs one LLM turn per facts hash. The result is stored on `authored` and does not bump `version`. Publish does not wait or poll.
 
-8. **Retired refresh lane.** `agent-work-ci-refresh` and `agent-work-ci-refresh-dead` are not live queues. Boot deletes both after a drain check (no queued, active, or deferred jobs). In-flight leftovers expire if the drain check refuses.
+8. **Shared-circuit deferral.** Before any GitHub read or write, the projector reads `github_installation_rate_limit_circuits`. If the circuit is open, it re-enqueues with `startAfter = open_until` and exits. That is the only REST gate for projection. The in-process circuit still short-circuits agent tools only.
+
+9. **Retired refresh lane.** `agent-work-ci-refresh` and `agent-work-ci-refresh-dead` are not live queues. Boot deletes both after a drain check (no queued, active, or deferred jobs). In-flight leftovers expire if the drain check refuses.
 
 ## Consequences
 

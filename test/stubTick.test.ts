@@ -7,7 +7,7 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
   })),
-  enqueueCiProjectionIfVersionMoved: vi.fn(async () => undefined),
+  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/review/publish/summaryCommentUpsert.js", () => ({

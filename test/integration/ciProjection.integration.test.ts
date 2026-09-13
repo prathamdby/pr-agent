@@ -8,7 +8,7 @@ import {
   applyCiStateIntake,
 } from "../../src/agentWork/intake/applier.js";
 import {
-  enqueueCiProjectionIfVersionMoved,
+  enqueueCiProjectionIfDue,
   loadRenderableHeadCi,
 } from "../../src/agentWork/ciProjection.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
@@ -173,6 +173,14 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     return id;
   }
 
+  async function webhookDecision(delivery: string): Promise<string | undefined> {
+    const { rows } = await pool.query<{ processing_decision: string }>(
+      "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+      [delivery],
+    );
+    return rows[0]?.processing_decision;
+  }
+
   it("enqueues one projection from workflow_run intake", async () => {
     const delivery = `ci-run-${randomUUID().slice(0, 8)}`;
     const headSha = "abc123def456";
@@ -263,7 +271,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       owner: OWNER,
       repo: REPO,
       headSha,
+      webhookEventId: expect.any(String),
     });
+    await expect(webhookDecision(delivery)).resolves.toBe("automated_review_enqueued");
   });
 
   it("does not enqueue a projection from pull_request opened when the head is already seeded", async () => {
@@ -292,6 +302,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
 
     await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
+    await expect(webhookDecision(delivery)).resolves.toBe("automated_review_enqueued");
   });
 
   it("enqueues a projection from pull_request opened when review is manual and the head is unseeded", async () => {
@@ -324,7 +335,41 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       owner: OWNER,
       repo: REPO,
       headSha,
+      webhookEventId: expect.any(String),
     });
+    await expect(webhookDecision(delivery)).resolves.toBe("ci_projection_enqueued");
+  });
+
+  it("records ignored_pull_request_opened when review is manual and the head is already seeded", async () => {
+    const delivery = `ci-pr-manual-seeded-${randomUUID().slice(0, 8)}`;
+    const headSha = "66".repeat(20);
+    const manualCfg = makeTestConfig({
+      features: { ...cfg.features, review: "manual", describe: "off", verification: "off" },
+    });
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
+       VALUES ($1, $2, $3, '{}'::jsonb, 'none', 1, now())`,
+      [OWNER, REPO, headSha],
+    );
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("pull_request", delivery),
+      {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha,
+      },
+      "opened",
+      intakeLog(),
+      manualCfg,
+    );
+
+    await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
+    await expect(webhookDecision(delivery)).resolves.toBe("ignored_pull_request_opened");
   });
 
   it("does not enqueue a projection from pull_request labeled", async () => {
@@ -348,12 +393,13 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     );
 
     await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
+    await expect(webhookDecision(delivery)).resolves.toBe("ignored_pull_request_labeled");
   });
 
   it("enqueues a projection after a claim-time write when the head is unseeded", async () => {
     const headSha = "33".repeat(20);
 
-    await enqueueCiProjectionIfVersionMoved({
+    await enqueueCiProjectionIfDue({
       boss,
       pool,
       installationId: 9001,
@@ -381,7 +427,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       [OWNER, REPO, headSha],
     );
 
-    await enqueueCiProjectionIfVersionMoved({
+    await enqueueCiProjectionIfDue({
       boss,
       pool,
       installationId: 9001,
@@ -409,7 +455,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       [OWNER, REPO, headSha],
     );
 
-    await enqueueCiProjectionIfVersionMoved({
+    await enqueueCiProjectionIfDue({
       boss,
       pool,
       installationId: 9001,

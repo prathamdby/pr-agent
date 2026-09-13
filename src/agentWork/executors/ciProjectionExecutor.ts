@@ -48,6 +48,7 @@ import {
 } from "../intake/queueing.js";
 import {
   asPrNumbers,
+  headCiNeedsSeed,
   listPrNumbersForHeadFromWorkItems,
   listTerminalReviewsForHead,
   loadPrHeadCiState,
@@ -445,7 +446,7 @@ export async function executeCiProjectionJob(
     await storePrNumbersForHead(pool, data.owner, data.repo, data.headSha, prNumbers);
   }
 
-  if (row == null || row.seededAt == null) {
+  if (headCiNeedsSeed(row)) {
     const seedSurface = await createSurface(prNumbers[0] ?? 0);
     let snapshot: Awaited<ReturnType<PrSurface["getCiStatus"]>>;
     try {
