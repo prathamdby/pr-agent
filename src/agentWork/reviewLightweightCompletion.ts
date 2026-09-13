@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
+import { upsertSummaryCommentWithCreationClaim } from "../review/publish/summaryCommentUpsert.js";
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
 import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
@@ -8,6 +10,7 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema
 import type { PrSurface } from "../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
+import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "./ciProjection.js";
 import { summaryCommentVerdictMeta } from "./ownCheckReconcile.js";
 import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
@@ -40,6 +43,7 @@ export async function tryLightweightAutoReviewCompletion(
     preflight: ReviewPreflightMetadata;
     model: string;
     leaseEpoch: number | null;
+    boss?: PgBoss;
   },
 ): Promise<LightweightAutoReviewResult> {
   if (params.item.source !== "auto") return { handled: false };
@@ -55,14 +59,23 @@ export async function tryLightweightAutoReviewCompletion(
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
-  const body = renderLightweightReviewCompletion({
-    headSha: params.item.headSha,
-    durationMs: resolveReviewWallClockMs({
-      metricsStartedAtMs: metricsSnapshot?.startedAtMs,
-      endedAtMs: Date.now(),
-    }),
-    model: params.model,
-  });
+  const renderedCi = await loadRenderableHeadCi(
+    pool,
+    params.item.owner,
+    params.item.repo,
+    params.item.headSha,
+  );
+  const body = renderLightweightReviewCompletion(
+    {
+      headSha: params.item.headSha,
+      durationMs: resolveReviewWallClockMs({
+        metricsStartedAtMs: metricsSnapshot?.startedAtMs,
+        endedAtMs: Date.now(),
+      }),
+      model: params.model,
+    },
+    { ciSummary: renderedCi.summary, ciVersion: renderedCi.version },
+  );
   const sentinel = REVIEW_SUMMARY_SENTINEL;
   const operationKey = reviewSummaryOperationKey(params.item.resourceKey, params.reviewLens);
   const operationMarker = operationIntentMarker(operationKey, params.item.id);
@@ -95,7 +108,31 @@ export async function tryLightweightAutoReviewCompletion(
         knownExistingId: knownExisting?.id,
       }),
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-    mutate: () => params.prSurface.upsertProgressComment(bodyWithMarker, sentinel, knownExisting),
+    // Terminal revision 7 fences a late ack stub (revision 0) from overwriting this body.
+    mutate: () =>
+      upsertSummaryCommentWithCreationClaim({
+        pool,
+        workItemId: params.item.id,
+        leaseEpoch: params.leaseEpoch,
+        resourceKey: params.item.resourceKey,
+        reviewLens: params.reviewLens,
+        prSurface: params.prSurface,
+        body: bodyWithMarker,
+        sentinel,
+        hintCommentId: knownExisting?.id ?? storedId,
+        progressRevision: 7,
+        ciHeadSha: params.item.headSha,
+        ciVersion: renderedCi.version,
+      }),
+  });
+  await enqueueCiProjectionIfDue({
+    boss: params.boss,
+    pool,
+    installationId: params.item.installationId,
+    owner: params.item.owner,
+    repo: params.item.repo,
+    headSha: params.item.headSha,
+    renderedVersion: renderedCi.version,
   });
   await recordPublishStep(pool, {
     workItemId: params.item.id,

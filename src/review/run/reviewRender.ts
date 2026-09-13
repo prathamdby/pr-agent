@@ -76,21 +76,37 @@ export function renderRepeatNoBugsReviewBody(
 
 export function renderLightweightReviewCompletion(
   footer: { readonly headSha: string } & ReviewRunFooterMeta,
+  options?: {
+    readonly ciSummary?: CiSummary | null;
+    readonly ciVersion?: number;
+  },
 ): string {
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
+  const tableRows: Array<[string, string]> = [
+    [renderTableStrong("Review"), escapeTableHtml("Skipped")],
+    [renderTableStrong("Reason"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_REASON)],
+    [renderTableStrong("Next step"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_HINT)],
+  ];
+  if (shouldRenderCiSummaryRow(options?.ciSummary)) {
+    tableRows.push([
+      renderTableStrong("CI"),
+      renderCiSummaryCell(options?.ciSummary, footer.headSha, options?.ciVersion),
+    ]);
+  }
   const rows: string[] = [];
   rows.push(summarySentinel);
   rows.push("");
   rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, LIGHTWEIGHT_REVIEW_COMPLETION_LEAD));
   rows.push("");
-  rows.push(
-    renderKeyValueTable([
-      [renderTableStrong("Review"), escapeTableHtml("Skipped")],
-      [renderTableStrong("Reason"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_REASON)],
-      [renderTableStrong("Next step"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_HINT)],
-    ]),
-  );
+  rows.push(renderKeyValueTable(tableRows));
   rows.push("");
+  rows.push(
+    renderStaleReviewMetadataComment({
+      headSha: footer.headSha,
+      mode: "review",
+      stale: false,
+    }),
+  );
   rows.push(
     renderReviewRunFooter({
       headSha: footer.headSha,
