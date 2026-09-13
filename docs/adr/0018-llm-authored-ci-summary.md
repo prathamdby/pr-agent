@@ -30,6 +30,10 @@ Constraints that still hold:
 
 6. **Noise filter.** Condensation and the prompt contract prefer real failures (test/lint/type/build) over Actions runner deprecation warnings.
 
+## Amendment
+
+The CI marker carries `head=<sha>`. Preserve drops the prior row when the marker head is missing or differs from the next review-meta head. Ack renders `none` as `Waiting for CI` on the stub. Own-app `check_suite` deliveries are ignored at intake.
+
 ## Consequences
 
 - Operators need **Actions: read** in addition to Checks read for rich failure explanations.

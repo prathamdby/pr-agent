@@ -9,6 +9,7 @@ import {
   renderTableEm,
   renderTableLink,
 } from "../../github/markdownFormat.js";
+import { parseReviewMetaFromCommentBody } from "./reviewMetaParse.js";
 import type { CiFailureDetail, CiSummary } from "./ciSummaryTypes.js";
 
 /** HTML comment markers for surgical CI-cell refresh (ADR 0018). */
@@ -16,7 +17,11 @@ export const CI_SUMMARY_CELL_START = "<!-- pr-agent:ci-summary -->";
 export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 
 const CI_SUMMARY_CELL_RE =
-  /<!--\s*pr-agent:ci-summary\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
+  /<!--\s*pr-agent:ci-summary(?:\s+head=([^\s]+))?\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
+
+export function parseCiSummaryMarkerHead(body: string): string | null {
+  return CI_SUMMARY_CELL_RE.exec(body)?.[1] ?? null;
+}
 
 export type CiSummarySections = {
   readonly headline: string;
@@ -58,7 +63,7 @@ export function formatCiSummaryPlainText(summary: CiSummary): string {
 }
 
 /** Renders the CI gate cell for the review summary / progress stub table. */
-export function renderCiSummaryCell(summary: CiSummary): string {
+export function renderCiSummaryCell(summary: CiSummary, headSha?: string): string {
   const sections = selectCiSummarySections(summary);
   const parts: string[] = [escapeTablePlainCell(sections.headline)];
   for (const failure of sections.failures) {
@@ -74,7 +79,11 @@ export function renderCiSummaryCell(summary: CiSummary): string {
     parts.push(renderTableEm(sections.permissionNote));
   }
   const inner = parts.join("<br><br>");
-  return `${CI_SUMMARY_CELL_START}${inner}${CI_SUMMARY_CELL_END}`;
+  const start =
+    headSha == null || headSha.length === 0
+      ? CI_SUMMARY_CELL_START
+      : `<!-- pr-agent:ci-summary head=${headSha} -->`;
+  return `${start}${inner}${CI_SUMMARY_CELL_END}`;
 }
 
 export type RenderableCiSummary = CiSummary & {
@@ -97,10 +106,14 @@ export function shouldRenderCiSummaryRow(
  * Replaces the marked CI cell inside an existing summary comment body.
  * Returns null when markers are missing (cannot surgically patch).
  */
-export function patchCiSummaryCellInCommentBody(body: string, summary: CiSummary): string | null {
+export function patchCiSummaryCellInCommentBody(
+  body: string,
+  summary: CiSummary,
+  headSha?: string,
+): string | null {
   if (!CI_SUMMARY_CELL_RE.test(body)) return null;
   const failure = extractVerificationFailureBlock(body);
-  let nextCell = renderCiSummaryCell(summary);
+  let nextCell = renderCiSummaryCell(summary, headSha);
   if (failure != null) nextCell = injectVerificationFailureIntoCiCell(nextCell, failure);
   return body.replace(CI_SUMMARY_CELL_RE, nextCell);
 }
@@ -110,17 +123,23 @@ export function commentBodyHasCiSummaryCell(body: string): boolean {
 }
 
 const CI_SUMMARY_TABLE_ROW_RE =
-  /<tr><td><strong>CI<\/strong><\/td><td><!--\s*pr-agent:ci-summary\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*--><\/td><\/tr>/;
+  /<tr><td><strong>CI<\/strong><\/td><td><!--\s*pr-agent:ci-summary(?:\s+head=[^\s]+)?\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*--><\/td><\/tr>/;
 
 const SOURCE_TABLE_ROW_RE = /<tr><td><strong>Source<\/strong><\/td><td>[\s\S]*?<\/td><\/tr>/;
 
 /**
  * Keeps the prior CI gate row when a progress tick rewrites the stub without a
- * fresh CI summary (ack posted it; specialist/terminal ticks should not drop it).
+ * fresh CI summary (ack posted it; specialist ticks should not drop it).
+ * Drops the prior row when its marker head is absent or differs from the next
+ * body review-meta head, so an old red summary never freezes onto a new head.
  */
 export function preserveCiSummaryRowInCommentBody(previousBody: string, nextBody: string): string {
   const nextWithFailure = preserveVerificationFailureBlock(previousBody, nextBody);
   if (commentBodyHasCiSummaryCell(nextWithFailure)) return nextWithFailure;
+  const nextHead = parseReviewMetaFromCommentBody(nextBody)?.headSha;
+  if (nextHead != null && parseCiSummaryMarkerHead(previousBody) !== nextHead) {
+    return nextWithFailure;
+  }
   const ciRow = CI_SUMMARY_TABLE_ROW_RE.exec(previousBody)?.[0];
   if (ciRow == null) return nextWithFailure;
   if (!SOURCE_TABLE_ROW_RE.test(nextWithFailure)) return nextWithFailure;

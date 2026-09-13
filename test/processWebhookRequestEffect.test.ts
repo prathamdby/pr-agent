@@ -825,6 +825,51 @@ describe("processWebhookPostRequestEffect", () => {
     ]);
   });
 
+  it("ignores completed check_suite deliveries from the own GitHub App", async () => {
+    const captured: Array<{
+      readonly headSha: string;
+      readonly prNumbers: readonly number[];
+      readonly owner: string;
+      readonly repo: string;
+      readonly installationId: number;
+    }> = [];
+    const payload = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: {
+        name: "pr-agent",
+        owner: { login: "acme" },
+        size: 10,
+      },
+      check_suite: {
+        id: 55,
+        head_sha: "sha-a",
+        status: "completed",
+        conclusion: "failure",
+        pull_requests: [{ number: 11, head: { sha: "sha-a" } }],
+        app: { id: 1 },
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "check_suite",
+            "x-github-delivery": "d-own-check-suite",
+          },
+          rawBody: body,
+        },
+        ciRefreshCaptureLayer(captured),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(captured).toEqual([]);
+  });
+
   it("returns 503 when handling exceeds the timeout budget", async () => {
     const slowLayer = Layer.mergeAll(
       Layer.succeed(

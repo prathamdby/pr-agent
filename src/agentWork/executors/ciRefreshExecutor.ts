@@ -95,7 +95,7 @@ export async function executeCiRefreshJob(
       if (meta == null || meta.headSha !== data.headSha) continue;
       if (!commentBodyHasCiSummaryCell(comment.body)) continue;
 
-      const patched = patchCiSummaryCellInCommentBody(comment.body, ciSummary);
+      const patched = patchCiSummaryCellInCommentBody(comment.body, ciSummary, data.headSha);
       if (patched == null || patched === comment.body) continue;
 
       await prSurface.editComment(comment.id, patched);

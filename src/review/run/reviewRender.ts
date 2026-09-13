@@ -404,7 +404,7 @@ function buildReviewSummaryBody(
   ]);
 
   if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
-    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary)]);
+    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary, ctx.headSha)]);
   }
 
   for (const item of payload.followUps) {
