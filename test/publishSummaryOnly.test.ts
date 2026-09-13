@@ -162,7 +162,7 @@ describe("publishReviewSummaryOnly", () => {
     const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r41");
     expect(summaryBody).toContain("#discussion_r42");
-    expect(summaryBody).toContain("2 findings block merge.");
+    expect(summaryBody).toContain("2 findings.");
     expect(summaryBody).toContain("All specialists ran except security.");
     expect(summaryBody).not.toContain("Coverage partial: security specialist failed.");
     expect(summaryBody?.indexOf("All specialists ran")).toBeLessThan(

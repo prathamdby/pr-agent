@@ -209,6 +209,26 @@ describe("submitDescription tool", () => {
 
     const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
     expect(published.payload.visuals?.[0]?.content).toContain('K["api/admin-users/list proxy"]');
+    expect(published.payload.visuals?.[0]?.content.startsWith("```")).toBe(false);
+  });
+
+  it("rejects invalid mermaid on full_block language mermaid", async () => {
+    const { executor } = buildTool();
+    await expect(
+      executor({
+        title: "Update admin flow",
+        type: ["Enhancement"],
+        description: "- Route admin list through proxy",
+        visuals: [
+          {
+            kind: "full_block",
+            language: "mermaid",
+            content: ["flowchart BAD", '  A["Start"] --> B["End"]'].join("\n"),
+          },
+        ],
+      }),
+    ).rejects.toThrow(/mermaid/i);
+    expect(publishDescriptionToPullRequest).not.toHaveBeenCalled();
   });
 
   it("caps read_first prFiles at five before publish", async () => {

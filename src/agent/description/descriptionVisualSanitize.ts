@@ -1,5 +1,11 @@
 import type { DescriptionPayload, DescriptionVisual } from "./descriptionSchema.js";
-import { sanitizeMermaidDiagram, validateSanitizedMermaidFence } from "./mermaidDiagram.js";
+import {
+  extractMermaidDiagramBody,
+  sanitizeMermaidDiagram,
+  validateSanitizedMermaidFence,
+} from "./mermaidDiagram.js";
+
+const FENCE_BREAKER_RE = /```/g;
 
 export function fenceLanguageForVisual(visual: DescriptionVisual): string {
   switch (visual.kind) {
@@ -22,26 +28,44 @@ export function fenceLanguageForVisual(visual: DescriptionVisual): string {
   }
 }
 
-export function sanitizeDescriptionVisual(visual: DescriptionVisual): DescriptionVisual {
-  const content = visual.content.trim();
-  if (visual.kind !== "mermaid") {
-    return { ...visual, content };
-  }
+export function isMermaidVisual(visual: DescriptionVisual): boolean {
+  return visual.kind === "mermaid" || fenceLanguageForVisual(visual) === "mermaid";
+}
 
-  const fence = content.startsWith("```mermaid")
-    ? content
-    : ["```mermaid", content, "```"].join("\n");
-  const sanitized = sanitizeMermaidDiagram(fence);
-  return { ...visual, content: sanitized, language: "mermaid" };
+/** Remove one outer markdown fence so the server always owns the wrapper. */
+export function stripOuterMarkdownFence(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("```")) return trimmed;
+  const newline = trimmed.indexOf("\n");
+  if (newline < 0) {
+    return trimmed.replace(/^```\w*/, "").trim();
+  }
+  let body = trimmed.slice(newline + 1);
+  if (body.trimEnd().endsWith("```")) {
+    body = body.replace(/\n?```\s*$/, "");
+  }
+  return body.trim();
+}
+
+function escapeFenceBreakers(text: string): string {
+  return text.replace(FENCE_BREAKER_RE, "\\`\\`\\`");
+}
+
+export function sanitizeDescriptionVisual(visual: DescriptionVisual): DescriptionVisual {
+  const stripped = stripOuterMarkdownFence(visual.content);
+  if (isMermaidVisual(visual)) {
+    const fence = ["```mermaid", stripped, "```"].join("\n");
+    const sanitizedFence = sanitizeMermaidDiagram(fence);
+    const body = extractMermaidDiagramBody(sanitizedFence || fence);
+    return { ...visual, content: body, language: "mermaid" };
+  }
+  return { ...visual, content: escapeFenceBreakers(stripped) };
 }
 
 export function renderDescriptionVisual(visual: DescriptionVisual): string {
-  const content = visual.content.trim();
-  if (content.startsWith("```")) {
-    return content;
-  }
   const language = fenceLanguageForVisual(visual);
-  return ["```" + language, content, "```"].join("\n");
+  const body = escapeFenceBreakers(stripOuterMarkdownFence(visual.content));
+  return ["```" + language, body, "```"].join("\n");
 }
 
 export type DescriptionVisualValidationError = {
@@ -54,17 +78,20 @@ export function validateDescriptionVisuals(
 ): DescriptionVisualValidationError[] {
   const issues: DescriptionVisualValidationError[] = [];
   visuals.forEach((visual, index) => {
-    if (visual.kind === "mermaid") {
-      const mermaidIssues = validateSanitizedMermaidFence(visual.content);
+    if (!visual.content.trim()) {
+      issues.push({ index, message: `visuals[${index}] content is empty.` });
+    }
+    if (isMermaidVisual(visual)) {
+      const fence = visual.content.trim().startsWith("```mermaid")
+        ? visual.content.trim()
+        : ["```mermaid", stripOuterMarkdownFence(visual.content), "```"].join("\n");
+      const mermaidIssues = validateSanitizedMermaidFence(fence);
       for (const issue of mermaidIssues) {
         issues.push({
           index,
           message: `visuals[${index}] mermaid line ${issue.line}: ${issue.message}`,
         });
       }
-    }
-    if (!visual.content.trim()) {
-      issues.push({ index, message: `visuals[${index}] content is empty.` });
     }
   });
   return issues;
@@ -82,9 +109,7 @@ export function formatDescriptionVisualValidationError(
   ].join("\n");
 }
 
-export function enforceDescriptionVisualPayload(
-  payload: DescriptionPayload,
-): DescriptionPayload {
+export function enforceDescriptionVisualPayload(payload: DescriptionPayload): DescriptionPayload {
   const raw = payload.visuals;
   if (!raw || raw.length === 0) {
     const { visuals: _removed, ...rest } = payload;

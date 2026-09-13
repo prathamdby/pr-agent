@@ -102,7 +102,7 @@ describe("descriptionRender", () => {
         type: ["Enhancement"],
         description: "- Main change",
         visuals: [
-          { kind: "call_tree", content: "entry\n  callee" },
+          { kind: "call_tree", content: "```html\n<script>alert(1)</script>\n```" },
           { kind: "mermaid", content: mermaid, language: "mermaid" },
         ],
         prFiles: [{ filename: "src/a.ts", changesTitle: "Auth boundary risk" }],
@@ -118,6 +118,9 @@ describe("descriptionRender", () => {
     expect(mermaidIndex).toBeGreaterThan(callTreeIndex);
     expect(mapIndex).toBeGreaterThan(mermaidIndex);
     expect(body).not.toContain("### Changes Diagram");
+    expect(body).not.toContain("```html");
+    expect(body).toContain("<script>alert(1)</script>");
+    expect(body).toContain("```mermaid\nflowchart LR");
   });
 
   it("ignores legacy label and changesSummary in map render", () => {
