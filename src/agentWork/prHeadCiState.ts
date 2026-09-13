@@ -7,6 +7,7 @@ import {
   type CiCheckFact,
   type CiRollup,
 } from "../review/ci/classifySnapshot.js";
+import type { CiAuthoredCache } from "../review/ci/ciAuthoredCache.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
 import {
   CI_STATE_MAX_CHECKS,
@@ -178,6 +179,22 @@ export async function newestHeadShaForResource(
     [resourceKey, DEFERRED_HEAD_SHA],
   );
   return result.rows[0]?.head_sha ?? null;
+}
+
+export async function storePrHeadCiAuthored(
+  pool: Pool,
+  owner: string,
+  repo: string,
+  headSha: string,
+  authored: CiAuthoredCache,
+): Promise<void> {
+  await pool.query(
+    `UPDATE pr_head_ci_state
+        SET authored = $4::jsonb,
+            updated_at = now()
+      WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+    [owner, repo, headSha, JSON.stringify(authored)],
+  );
 }
 
 export async function storePrNumbersForHead(

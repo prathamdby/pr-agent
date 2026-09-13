@@ -55,8 +55,6 @@ const testState = vi.hoisted(() => ({
   submittedBrief: null as Record<string, unknown> | null,
   sentPrompts: [] as string[],
   deterministicSummaries: [] as Array<Record<string, unknown>>,
-  deterministicCiAuthors: [] as Array<unknown>,
-  summaryToolCiAuthors: [] as Array<unknown>,
   ticks: [] as Array<{
     readonly progressRevision: number;
     readonly kind: string;
@@ -182,12 +180,7 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
 vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
   createPublishSummaryState: vi.fn(() => ({ published: false, lastValidationError: null })),
   buildPublishSummaryTool: vi.fn(
-    (params: {
-      state: { published: boolean };
-      getCoverage: () => ReviewCoverage;
-      ciAuthor?: unknown;
-    }) => {
-      testState.summaryToolCiAuthors.push(params.ciAuthor);
+    (params: { state: { published: boolean }; getCoverage: () => ReviewCoverage }) => {
       return {
         piTool: { name: "publish_summary", description: "summary", parameters: {} },
         executor: vi.fn(async () => {
@@ -229,14 +222,11 @@ vi.mock("../src/review/run/reviewRunFallback.js", () => ({
 }));
 
 vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
-  publishReviewSummaryOnly: vi.fn(
-    async (params: { readonly payload: Record<string, unknown>; readonly ciAuthor?: unknown }) => {
-      testState.publishOrder.push("summary");
-      testState.deterministicSummaries.push(params.payload);
-      testState.deterministicCiAuthors.push(params.ciAuthor);
-      return { kind: "published", summaryCommentId: 10 };
-    },
-  ),
+  publishReviewSummaryOnly: vi.fn(async (params: { readonly payload: Record<string, unknown> }) => {
+    testState.publishOrder.push("summary");
+    testState.deterministicSummaries.push(params.payload);
+    return { kind: "published", summaryCommentId: 10 };
+  }),
 }));
 
 const runner = vi.hoisted(() => ({
@@ -431,8 +421,6 @@ describe("runOrchestratedPrReview", () => {
     testState.sentSendOptions.length = 0;
     testState.specialistEscalations.length = 0;
     testState.deterministicSummaries.length = 0;
-    testState.deterministicCiAuthors.length = 0;
-    testState.summaryToolCiAuthors.length = 0;
     testState.ticks.length = 0;
     testState.createError = null;
     testState.createDelayMs = 0;
@@ -644,8 +632,6 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
-    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
-    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
   it("returns before returnByMs when session creation crosses modelStopAtMs", async () => {
@@ -754,7 +740,6 @@ describe("runOrchestratedPrReview", () => {
       "security",
       "summary",
     ]);
-    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
   });
 
   it("records every successful orchestrator turn and only new thread batches", async () => {
@@ -1183,7 +1168,6 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
     expect(testState.failureNotices).toBe(0);
     expect(testState.deterministicSummaries).toHaveLength(1);
-    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
   it("dispatches specialists when recon submits an empty risk map", async () => {
@@ -1323,7 +1307,6 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
     expect(testState.sessionAborts).toBe(1);
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
-    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
   it("preserves a report when judgment publish_thread throws", async () => {

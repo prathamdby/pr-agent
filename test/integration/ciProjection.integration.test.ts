@@ -9,6 +9,8 @@ import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjecti
 import { executeCiRefreshJob } from "../../src/agentWork/executors/ciRefreshExecutor.js";
 import { loadPrHeadCiState } from "../../src/agentWork/prHeadCiState.js";
 import type { CiRefreshJobData, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
+import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
+import { hashCiFacts, parseCiAuthoredCache } from "../../src/review/ci/ciAuthoredCache.js";
 import type { CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
 import { parseCiSummaryMarkerVersion } from "../../src/review/ci/ciSummaryCell.js";
 import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
@@ -86,6 +88,16 @@ function ciStateFact(overrides: Partial<CiCheckFact> = {}): CiCheckFact {
     check_run_id: 77,
     observed_at: "2026-09-13T00:00:02.000Z",
     ...overrides,
+  };
+}
+
+function stubCiAuthor(calls: unknown[]): CiSummaryAuthor {
+  return async (input) => {
+    calls.push(input);
+    return {
+      headline: "❌ authored lint",
+      failures: [{ name: "lint", reason: "oxfmt failed", fixHint: "run oxfmt" }],
+    };
   };
 }
 
@@ -382,11 +394,13 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       }),
       executeCiProjectionJob(cfg, pool, boss, job, {
         createSurface: async () => fake.surface,
+        author: stubCiAuthor([]),
       }),
     ]);
 
     await executeCiProjectionJob(cfg, pool, boss, job, {
       createSurface: async () => fake.surface,
+      author: stubCiAuthor([]),
     });
 
     const latest = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
@@ -394,5 +408,74 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(parseCiSummaryMarkerVersion(latest?.body ?? "")).toBe(row?.version);
     expect(latest?.body).toContain(`v=${row?.version}`);
     expect(latest?.body).toContain(`head=${headSha}`);
+  });
+
+  it("authors a failing rollup once per facts hash and does not bump version", async () => {
+    const headSha = "cc".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    await applyCiStateIntake(
+      boss,
+      pool,
+      headers("check_run", `ci-state-author-${randomUUID().slice(0, 8)}`),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+        fact: ciStateFact({
+          observed_at: "2026-09-13T00:00:20.000Z",
+        }),
+      },
+      intakeLog(),
+    );
+    const afterIntake = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterIntake?.version).toBe(1);
+    expect(afterIntake?.rollup).toBe("failing");
+    expect(parseCiAuthoredCache(afterIntake?.authored)).toBeNull();
+
+    const calls: unknown[] = [];
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(headSha, 0, workItemId),
+      91,
+    );
+    fake.controls.setJobLogs(
+      77,
+      ["Format issues found in above 1 files.", "Error: Process completed with exit code 1."].join(
+        "\n",
+      ),
+    );
+
+    const job = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const options = {
+      createSurface: async () => fake.surface,
+      author: stubCiAuthor(calls),
+    };
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(calls).toHaveLength(1);
+    const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterFirst?.version).toBe(1);
+    const authored = parseCiAuthoredCache(afterFirst?.authored);
+    expect(authored?.headline).toBe("❌ authored lint");
+    expect(authored?.factsHash).toBe(hashCiFacts(afterFirst?.checks ?? {}));
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(calls).toHaveLength(1);
+    const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterSecond?.version).toBe(1);
+    expect(parseCiAuthoredCache(afterSecond?.authored)?.factsHash).toBe(authored?.factsHash);
+
+    const latest = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(latest?.body).toContain("authored lint");
+    expect(latest?.body).toContain("v=1");
   });
 });

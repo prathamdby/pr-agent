@@ -21,7 +21,6 @@ import type { PrSurface } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
@@ -68,7 +67,6 @@ export async function publishReviewSummaryOnly(params: {
   readonly leaseEpoch?: number | null;
   readonly boss?: PgBoss;
   readonly installationId?: number;
-  readonly ciAuthor?: CiSummaryAuthor;
   readonly coverage?: ReviewCoverage;
   readonly remainingFinalizationMs?: () => number;
   readonly shouldAbortPublish?: () => Promise<boolean>;
@@ -76,7 +74,6 @@ export async function publishReviewSummaryOnly(params: {
   readonly dedupedFindingCount?: number;
 }): Promise<PublishSummaryOnlyResult> {
   const coverage = params.coverage ?? { kind: "full" };
-  void params.ciAuthor;
   if (coverage.kind === "none") {
     throw new AppError({
       code: "review.summary_coverage_none",

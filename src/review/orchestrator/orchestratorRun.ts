@@ -26,7 +26,6 @@ import {
   VALIDATION_REPAIR_ROUNDS,
 } from "../../settings/index.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
-import { createAgentCiSummaryAuthor } from "../ci/authorCiSummary.js";
 import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.js";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
 import type { ReviewPayload } from "../reviewSchema.js";
@@ -378,7 +377,6 @@ export async function runOrchestratedPrReview(
   const summaryState = createPublishSummaryState({
     published: params.initialPublishState?.published,
   });
-  const ciAuthor = createAgentCiSummaryAuthor(params.cfg);
   const publishSummary = buildPublishSummaryTool({
     phaseRef,
     cfg: params.cfg,
@@ -398,7 +396,6 @@ export async function runOrchestratedPrReview(
     ...ownVerdictPublishParams(params),
     boss: params.boss,
     installationId: params.durability?.installationId,
-    ciAuthor,
     state: summaryState,
     getLedger: publishThread.getLedger,
     getCoverage: () => coverage(state),
@@ -902,7 +899,6 @@ export async function runOrchestratedPrReview(
       coverage: coverage(state),
       shouldAbortPublish: params.shouldAbortPublish,
       publishAbortState: params.publishAbortState,
-      ciAuthor,
     });
     if (result.kind === "stopped") {
       state.lifecycle = { kind: "stopped", reason: result.reason };

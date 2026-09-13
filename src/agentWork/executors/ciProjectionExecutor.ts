@@ -16,6 +16,7 @@ import {
   renderVerificationFailureBlock,
 } from "../../review/ci/verificationFailureBlock.js";
 import { replaceCiSummaryCellIfNewer } from "../../review/ci/ciSummaryCell.js";
+import type { CiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
 import { ciSummaryFromFacts, waitingCiSummary } from "../../review/ci/ciFromHeadState.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
@@ -25,6 +26,7 @@ import {
   isAnyReviewLens,
   LEGACY_REVIEW_SUMMARY_SENTINELS,
 } from "../../settings/legacyReviewLenses.js";
+import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { closeOwnVerdict, type OwnVerdictOutcome } from "../closeOwnVerdict.js";
 import {
@@ -162,7 +164,7 @@ async function verificationFailureActive(
 }
 
 function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean): string | null {
-  const rendered = ciSummaryFromFacts(row.checks, row.version);
+  const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored);
   if (!shouldRenderCiSummaryRow(rendered.summary) && row.version === 0) {
     const waiting = waitingCiSummary(row.version);
     let cell = renderCiSummaryCell(waiting.summary, row.headSha, waiting.version);
@@ -340,6 +342,7 @@ export async function executeCiProjectionJob(
   data: CiProjectionJobData,
   options?: {
     readonly createSurface?: CiProjectionSurfaceFactory;
+    readonly author?: CiSummaryAuthor;
   },
 ): Promise<void> {
   if (await isSharedRateLimitCircuitOpen(pool, data.installationId)) {
@@ -404,6 +407,25 @@ export async function executeCiProjectionJob(
       headSha: data.headSha,
       checkRuns: snapshot.checkRuns,
       legacyStatuses: snapshot.legacyStatuses,
+    });
+  }
+
+  try {
+    const authorSurface =
+      prNumbers.length > 0 ? await createSurface(prNumbers[0] ?? 0) : probeSurface;
+    row = await authorHeadCiIfFactsChanged({
+      cfg,
+      pool,
+      prSurface: authorSurface,
+      row,
+      author: options?.author,
+    });
+  } catch (error) {
+    logWarn("ci_projection_author_failed", {
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      message: error instanceof Error ? error.message : String(error),
     });
   }
 

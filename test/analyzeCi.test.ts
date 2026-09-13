@@ -11,6 +11,8 @@ import {
   type CiCheckFact,
 } from "../src/review/ci/classifySnapshot.js";
 import type { CiCheckRunSnapshot } from "../src/review/ci/ciSummaryTypes.js";
+import { fetchCiAuthorContext } from "../src/review/ci/fetchCiAuthorContext.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 import { REVIEW_CI_SUMMARY_INCOMPLETE } from "../src/settings/index.js";
 
 function completedCheck(id: number, name: string, conclusion: string): CiCheckRunSnapshot {
@@ -204,6 +206,85 @@ describe("analyzeCi", () => {
     });
     expect(summary.status).toBe("failing");
     expect(summary.headline).toContain("lint");
+  });
+
+  it("downloads Actions logs by check_run_id before listing workflow jobs", async () => {
+    const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    fake.controls.setJobLogs(
+      11,
+      ["Format issues found in above 1 files.", "Error: Process completed with exit code 1."].join(
+        "\n",
+      ),
+    );
+    fake.controls.setFailingJobs("abc", [{ id: 99, name: "other", conclusion: "failure" }]);
+    const context = await fetchCiAuthorContext({
+      prSurface: fake.surface,
+      headSha: "abc",
+      checks: {
+        lint: {
+          name: "lint",
+          source: "check_run",
+          status: "completed",
+          conclusion: "failure",
+          url: "https://github.com/o/r/actions/runs/1",
+          external_id: null,
+          app_id: 1,
+          check_run_id: 11,
+          observed_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+    expect(context.condensedLogs).toContain("Format issues found");
+    expect(fake.controls.events.filter((event) => event.kind === "downloadActionsJobLogs")).toEqual(
+      [{ kind: "downloadActionsJobLogs", jobId: 11 }],
+    );
+    expect(fake.controls.events.some((event) => event.kind === "listFailingActionsJobs")).toBe(
+      false,
+    );
+  });
+
+  it("lists failing Actions jobs when check_run_id logs are empty", async () => {
+    const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    fake.controls.setFailingJobs("abc", [
+      {
+        id: 99,
+        name: "lint",
+        conclusion: "failure",
+        htmlUrl: "https://github.com/o/r/actions/runs/99",
+      },
+    ]);
+    fake.controls.setJobLogs(
+      99,
+      ["Format issues found in above 1 files.", "Error: Process completed with exit code 1."].join(
+        "\n",
+      ),
+    );
+    const context = await fetchCiAuthorContext({
+      prSurface: fake.surface,
+      headSha: "abc",
+      checks: {
+        lint: {
+          name: "lint",
+          source: "check_run",
+          status: "completed",
+          conclusion: "failure",
+          url: "https://github.com/o/r/actions/runs/1",
+          external_id: null,
+          app_id: 1,
+          check_run_id: 11,
+          observed_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+    });
+    expect(context.condensedLogs).toContain("Format issues found");
+    expect(
+      fake.controls.events
+        .filter((event) => event.kind === "downloadActionsJobLogs")
+        .map((event) => (event.kind === "downloadActionsJobLogs" ? event.jobId : null)),
+    ).toEqual([11, 99]);
+    expect(fake.controls.events.some((event) => event.kind === "listFailingActionsJobs")).toBe(
+      true,
+    );
   });
 });
 

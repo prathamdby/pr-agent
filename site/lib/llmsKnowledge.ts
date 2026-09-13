@@ -243,7 +243,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "ROLE=web accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns 200 once that write succeeds.",
       "ROLE=worker runs the queues: reactions, progress comments, model sessions, and everything posted back to the PR.",
       "Flow: GitHub webhooks → web /webhooks → Postgres webhook_events dedupe → agent_work_items → pg-boss enqueue.",
-      "check_run and status write pr_head_ci_state and enqueue a debounced ci-projection job. The worker consumes that queue and renders CI cells from the row. Leftover ci-refresh jobs become one projection.",
+      "check_run and status write pr_head_ci_state and enqueue a debounced ci-projection job. The worker consumes that queue and renders CI cells from the row. A failing rollup authors once per facts hash and stores the result on authored. Leftover ci-refresh jobs become one projection.",
       "Queues: ack, ci-refresh, ci-projection, review, ask, description, triage, verification, retention, code-index-build.",
       "Ack worker posts the eyes reaction and the review progress stub.",
       "Review runs four specialists (correctness, security, quality, tests) under one orchestrator.",

@@ -17,7 +17,7 @@ export async function loadRenderableHeadCi(
 ): Promise<RenderableHeadCi> {
   const row = await loadPrHeadCiState(pool, owner, repo, headSha);
   if (row == null) return waitingCiSummary(0);
-  return ciSummaryFromFacts(row.checks, row.version);
+  return ciSummaryFromFacts(row.checks, row.version, row.authored);
 }
 
 export async function enqueueCiProjectionIfVersionMoved(params: {

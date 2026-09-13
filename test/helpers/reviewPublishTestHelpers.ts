@@ -12,7 +12,6 @@ import {
   applyFindingLedgerDelta,
   createFindingLedger,
 } from "../../src/review/orchestrator/orchestratorTypes.js";
-import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
 import type { ReviewPayload, ReviewPublishContext } from "../../src/review/reviewSchema.js";
 import type { RepoPolicyResult } from "../../src/review/repoPolicy.js";
 import type { BoundPolicyJudge } from "../../src/review/publish/boundPolicyJudge.js";
@@ -64,7 +63,6 @@ export async function runTestPublishFlow(
     staleReview?: boolean;
     recordPublishStep?: RecordPublishStepWithCoordination;
     storedInlineFingerprints?: readonly string[];
-    ciSummaryAuthor?: CiSummaryAuthor;
     workItemId?: string;
     resumedPlacements?: readonly AcceptedPlacement[];
     shouldAbortPublish?: () => Promise<boolean>;
@@ -135,7 +133,6 @@ export async function runTestPublishFlow(
     progressCommentIdHint: params.progressCommentIdHint,
     staleReview: params.staleReview,
     recordPublishStep: params.recordPublishStep,
-    ciAuthor: params.ciSummaryAuthor,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
     dedupedFindingCount: params.dedupedFindingCount,
