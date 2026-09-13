@@ -402,3 +402,5 @@ PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set
 | [Cursor Cloud](docs/cursor-cloud.md)                 | Cloud VM services                             |
 | [Domain terms](CONTEXT.md)                           | Product vocabulary                            |
 | [ADRs](docs/adr/)                                    | Architecture decisions                        |
+
+<!-- Dummy revision for PR pipeline verification. -->
