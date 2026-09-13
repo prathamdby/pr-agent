@@ -36,6 +36,7 @@ export const FAILING_CHECK_CONCLUSIONS = new Set([
   "timed_out",
   "action_required",
   "startup_failure",
+  "cancelled",
 ]);
 
 export const PENDING_CHECK_STATUSES = new Set([

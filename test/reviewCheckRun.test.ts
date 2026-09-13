@@ -29,6 +29,11 @@ import {
   ownVerdictSurfaces,
 } from "../src/agentWork/closeOwnVerdict.js";
 import {
+  isOwnCheckOpen,
+  ownVerdictFromSummaryDetail,
+  summaryCommentVerdictMeta,
+} from "../src/agentWork/ownCheckReconcile.js";
+import {
   REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
   cancelReviewCheckRun,
   completeReviewCheckRun,
@@ -137,6 +142,38 @@ describe("review check run lifecycle", () => {
       summary: "PR Agent could not complete the review after retries.",
     });
     expect(ownVerdictSurfaces({ kind: "not_published" }).checkRun).toBe("action_required");
+  });
+
+  it("treats a recorded check as open until GitHub stores a conclusion", () => {
+    expect(isOwnCheckOpen(null)).toBe(true);
+    expect(isOwnCheckOpen({ status: "in_progress" })).toBe(true);
+    expect(isOwnCheckOpen({ status: "completed" })).toBe(true);
+    expect(isOwnCheckOpen({ status: "completed", conclusion: "failure" })).toBe(false);
+    expect(isOwnCheckOpen({ conclusion: "success" })).toBe(false);
+  });
+
+  it("replays a stored summary verdict without guessing unpublished", () => {
+    expect(ownVerdictFromSummaryDetail(null)).toEqual({ kind: "not_published" });
+    expect(
+      ownVerdictFromSummaryDetail({
+        ownVerdictKind: "partial",
+        ownVerdictNote: "Security specialist failed.",
+      }),
+    ).toEqual({ kind: "partial", note: "Security specialist failed." });
+    expect(ownVerdictFromSummaryDetail({ ownCheckFailing: true })).toEqual({
+      kind: "published",
+      findings: [{ severity: "P1" }],
+    });
+    expect(ownVerdictFromSummaryDetail({ ownVerdictKind: "published" })).toEqual({
+      kind: "published",
+      findings: [],
+    });
+    expect(
+      summaryCommentVerdictMeta({
+        kind: "published",
+        findings: [{ severity: "P1" }],
+      }),
+    ).toEqual({ ownVerdictKind: "published", ownCheckFailing: true });
   });
 
   it("creates and records an in-progress check run", async () => {

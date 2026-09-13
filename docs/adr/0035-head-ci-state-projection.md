@@ -18,11 +18,11 @@ Webhook delivery is best effort. A head whose checks finished before the App saw
 
 2. **One later writer.** `ci-projection` is the only job that renders CI cells after claim time. Ack, ticks, and publish read the row at claim time, stamp `v=<version>` on the marker, and re-enqueue if the version moved after the GitHub write. The projector patches when marker `head` matches and marker `v` is older. It re-reads the body immediately before the write and re-enqueues if `progress-revision` moved. Lost updates converge by that version re-check. No writer copies a previous body's CI row. No advisory lock is held across HTTP.
 
-3. **One seed.** When the row is missing, the projector takes one `getCiStatus` read, writes it with `seeded_at`, and continues. No other path reads CI from GitHub.
+3. **One seed.** When the row is missing or `seeded_at` is null, the projector takes one `getCiStatus` read, writes it with `seeded_at`, and continues. A failed first snapshot after `storePrNumbersForHead` inserts an empty row still seeds on the next job. No other path reads CI from GitHub.
 
-4. **One own-verdict writer.** Terminal `PR Agent Review` and optional `pr-agent/review` writes go through `closeOwnVerdict`. Live executions fence on the lease epoch. The projector and sweeper pass `leaseEpoch: null` and write only after `agent_work_items.status` is terminal.
+4. **One own-verdict writer.** Terminal `PR Agent Review` and optional `pr-agent/review` writes go through `closeOwnVerdict`. Live executions fence on the lease epoch. The projector and sweeper pass `leaseEpoch: null` and write only after `agent_work_items.status` is terminal. A started `check_run` publish row stays open while `detail.status` is `in_progress` or `detail.conclusion` is missing. Failed reviews close as crashed. A completed review with a `summary_comment` record closes as published or partial from that record. A completed review without a summary closes as unpublished. The sweeper retries that close for terminal reviews, not only `running` rows.
 
-5. **Completed-run intake is head-scoped.** `workflow_run` and `check_suite` completed deliveries enqueue one debounced `ci-projection` for the head. They do not write facts. Empty `pull_requests[]` still enqueues. The projector resolves pull requests from `agent_work_items`, payload numbers, then one `commits/{sha}/pulls` lookup.
+5. **Completed-run intake is head-scoped.** `workflow_run` and `check_suite` completed deliveries enqueue one debounced `ci-projection` for the head. They do not write facts. Empty `pull_requests[]` still enqueues. Each projection merges stored `pr_numbers` with `agent_work_items` and one `commits/{sha}/pulls` lookup.
 
 6. **Authoring lives on the projector.** A failing rollup runs one LLM turn per facts hash. The result is stored on `authored` and does not bump `version`. Publish does not wait or poll.
 

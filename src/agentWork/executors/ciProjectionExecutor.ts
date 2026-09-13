@@ -21,7 +21,11 @@ import {
   replaceCiRollupMarkerIfNewer,
 } from "../../review/ci/ciRollupMarker.js";
 import type { CiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
-import { ciSummaryFromFacts, waitingCiSummary } from "../../review/ci/ciFromHeadState.js";
+import {
+  ciSummaryFromFacts,
+  headCiFactsAreComplete,
+  waitingCiSummary,
+} from "../../review/ci/ciFromHeadState.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { parseProgressRevisionState } from "../../review/run/progressComment.js";
@@ -37,7 +41,7 @@ import {
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
 import { mintInstallationToken } from "../durableJob.js";
-import { closeOwnVerdict, type OwnVerdictOutcome } from "../closeOwnVerdict.js";
+import { closeOwnVerdict } from "../closeOwnVerdict.js";
 import {
   enqueueCiProjectionAfter,
   enqueueCiProjectionDebouncedStandalone,
@@ -53,9 +57,14 @@ import {
   type PrHeadCiStateRow,
 } from "../prHeadCiState.js";
 import {
+  asTerminalOwnCheckStatus,
+  isOwnCheckOpen,
+  resolveOwnVerdictForTerminalReview,
+} from "../ownCheckReconcile.js";
+import {
+  getCompletedPublishStepDetail,
   getLatestCompletedPublishStepDetail,
   getProgressCommentOwner,
-  hasCompletedPublishStep,
   recordPublishStep,
 } from "../repository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
@@ -63,21 +72,6 @@ import { prResourceKey, type CiProjectionJobData } from "../types.js";
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
 export type CiProjectionSurfaceFactory = (prNumber: number) => Promise<PrSurface>;
-
-function outcomeForTerminalStatus(status: string): OwnVerdictOutcome | null {
-  switch (status) {
-    case "failed":
-      return { kind: "crashed" };
-    case "cancelled":
-      return { kind: "cancelled" };
-    case "superseded":
-      return { kind: "superseded" };
-    case "completed":
-      return { kind: "not_published" };
-    default:
-      return null;
-  }
-}
 
 async function resolvePrNumbers(params: {
   readonly pool: Pool;
@@ -88,16 +82,16 @@ async function resolvePrNumbers(params: {
   readonly listPulls: () => Promise<readonly { readonly number: number }[]>;
 }): Promise<number[]> {
   const stored = asPrNumbers(params.stored);
-  if (stored.length > 0) return stored;
   const fromWork = await listPrNumbersForHeadFromWorkItems(
     params.pool,
     params.owner,
     params.repo,
     params.headSha,
   );
-  if (fromWork.length > 0) return fromWork;
   const pulls = await params.listPulls();
-  return [...new Set(pulls.map((pull) => pull.number).filter((n) => n > 0))];
+  return [
+    ...new Set([...stored, ...fromWork, ...pulls.map((pull) => pull.number).filter((n) => n > 0)]),
+  ];
 }
 
 async function reconcileOwnVerdicts(params: {
@@ -118,19 +112,16 @@ async function reconcileOwnVerdicts(params: {
   );
   for (const item of items) {
     if (!isAnyReviewLens(item.reviewLens)) continue;
-    if (
-      await hasCompletedPublishStep(
-        params.pool,
-        item.id,
-        item.resourceKey,
-        item.reviewLens,
-        "check_run",
-      )
-    ) {
-      continue;
-    }
-    const outcome = outcomeForTerminalStatus(item.status);
-    if (outcome == null) continue;
+    const checkDetail = await getCompletedPublishStepDetail(
+      params.pool,
+      item.id,
+      item.resourceKey,
+      item.reviewLens,
+      "check_run",
+    );
+    if (!isOwnCheckOpen(checkDetail)) continue;
+    const status = asTerminalOwnCheckStatus(item.status);
+    if (status == null) continue;
     try {
       await closeOwnVerdict({
         pool: params.pool,
@@ -144,7 +135,13 @@ async function reconcileOwnVerdicts(params: {
         headSha: params.headSha,
         leaseEpoch: null,
         commitStatusEnabled: params.cfg.features.commitStatus,
-        outcome,
+        outcome: await resolveOwnVerdictForTerminalReview({
+          pool: params.pool,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reviewLens: item.reviewLens,
+          status,
+        }),
       });
     } catch (error) {
       logWarn("ci_projection_own_verdict_failed", {
@@ -173,7 +170,9 @@ async function verificationFailureActive(
 }
 
 function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean): string | null {
-  const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored);
+  const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
+    checkRunsComplete: headCiFactsAreComplete(row.rollup),
+  });
   if (!shouldRenderCiSummaryRow(rendered.summary) && row.version === 0) {
     const waiting = waitingCiSummary(row.version);
     let cell = renderCiSummaryCell(waiting.summary, row.headSha, waiting.version);
@@ -392,7 +391,7 @@ async function projectOnePr(params: {
 
 /**
  * Renders `pr_head_ci_state` onto every review summary for the head.
- * Seeds a missing row with one `getCiStatus` read. Unleased writer.
+ * Seeds when `seeded_at` is null with one `getCiStatus` read. Unleased writer.
  */
 export async function executeCiProjectionJob(
   cfg: Config,
@@ -446,7 +445,7 @@ export async function executeCiProjectionJob(
     await storePrNumbersForHead(pool, data.owner, data.repo, data.headSha, prNumbers);
   }
 
-  if (row == null) {
+  if (row == null || row.seededAt == null) {
     const seedSurface = await createSurface(prNumbers[0] ?? 0);
     let snapshot: Awaited<ReturnType<PrSurface["getCiStatus"]>>;
     try {
@@ -482,6 +481,8 @@ export async function executeCiProjectionJob(
       });
     }
   }
+
+  if (row == null) return;
 
   try {
     const authorSurface =

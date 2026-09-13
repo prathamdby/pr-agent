@@ -27,6 +27,7 @@ import type { DescriptionPayload } from "../agent/description/descriptionSchema.
 import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
+import type { ReviewCheckRunConclusion } from "./reviewPublish.js";
 
 export type FakePrSurfaceEvent =
   | { readonly kind: "getHead" }
@@ -86,7 +87,11 @@ export type FakePrSurfaceEvent =
       readonly externalId: string;
       readonly summary?: string;
     }
-  | { readonly kind: "finishReviewCheck"; readonly checkRunId: number }
+  | {
+      readonly kind: "finishReviewCheck";
+      readonly checkRunId: number;
+      readonly conclusion: ReviewCheckRunConclusion;
+    }
   | { readonly kind: "getCiStatus"; readonly headSha: string }
   | { readonly kind: "listPullsForHead"; readonly headSha: string }
   | { readonly kind: "listFailingActionsJobs"; readonly headSha: string }
@@ -690,7 +695,11 @@ export function createFakePrSurface(
     },
 
     async finishReviewCheck(outcome) {
-      events.push({ kind: "finishReviewCheck", checkRunId: outcome.checkRunId });
+      events.push({
+        kind: "finishReviewCheck",
+        checkRunId: outcome.checkRunId,
+        conclusion: outcome.conclusion,
+      });
     },
 
     async getCiStatus(headShaArg) {

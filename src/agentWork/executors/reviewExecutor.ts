@@ -73,6 +73,7 @@ import {
   postOwnVerdictPending,
   type OwnVerdictOutcome,
 } from "../closeOwnVerdict.js";
+import { isOwnCheckOpen, ownVerdictFromSummaryDetail } from "../ownCheckReconcile.js";
 import { ensureReviewCheckRunStarted, reviewCheckDetailsUrl } from "../reviewCheckRun.js";
 import {
   formatFindingHistoryTrustedBlock,
@@ -80,7 +81,7 @@ import {
   safeLoadFindingHistoryCandidates,
 } from "../findingHistoryRepository.js";
 import {
-  hasCompletedPublishStep,
+  getCompletedPublishStepDetail,
   loadReviewExecutorPublishContext,
   getProgressCommentOwner,
   getSummaryCommentGithubId,
@@ -1136,15 +1137,38 @@ export async function executeReviewJob(
       if (!prSurface) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;
-      if (
-        await hasCompletedPublishStep(
+      const summaryDetail = await getCompletedPublishStepDetail(
+        pool,
+        item.id,
+        item.resourceKey,
+        reviewLens,
+        "summary_comment",
+      );
+      const checkDetail = await getCompletedPublishStepDetail(
+        pool,
+        item.id,
+        item.resourceKey,
+        reviewLens,
+        "check_run",
+      );
+      if (summaryDetail != null) {
+        if (!isOwnCheckOpen(checkDetail)) return;
+        const commentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
+        await closeOwnVerdict({
           pool,
-          item.id,
-          item.resourceKey,
+          prSurface,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
           reviewLens,
-          "summary_comment",
-        )
-      ) {
+          headSha: item.headSha,
+          leaseEpoch,
+          commitStatusEnabled: cfg.features.commitStatus,
+          outcome: ownVerdictFromSummaryDetail(summaryDetail),
+          detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, commentId),
+        });
         return;
       }
       const owner = await getProgressCommentOwner(pool, item.resourceKey, reviewLens);

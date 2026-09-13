@@ -349,6 +349,21 @@ describe("classifySnapshot and applyCiCheckFact", () => {
     expect(classifySnapshot([checkFact("lint", "completed", "success")])).toBe("passing");
   });
 
+  it("classifies a cancelled check as failing", () => {
+    expect(classifySnapshot([checkFact("lint", "completed", "cancelled")])).toBe("failing");
+  });
+
+  it("summarizes stored facts as incomplete when the listing is truncated", () => {
+    const summary = summarizeCiFacts(
+      {
+        lint: checkFact("lint", "completed", "success"),
+      },
+      { checkRunsComplete: false },
+    );
+    expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+  });
+
   it("treats a legacy error status as failing", () => {
     expect(classifySnapshot([statusFact("Vercel", "error")])).toBe("failing");
   });

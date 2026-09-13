@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
   ciSummaryFromFacts,
+  headCiFactsAreComplete,
   waitingCiSummary,
   type RenderableHeadCi,
 } from "../review/ci/ciFromHeadState.js";
@@ -17,7 +18,9 @@ export async function loadRenderableHeadCi(
 ): Promise<RenderableHeadCi> {
   const row = await loadPrHeadCiState(pool, owner, repo, headSha);
   if (row == null) return waitingCiSummary(0);
-  return ciSummaryFromFacts(row.checks, row.version, row.authored);
+  return ciSummaryFromFacts(row.checks, row.version, row.authored, {
+    checkRunsComplete: headCiFactsAreComplete(row.rollup),
+  });
 }
 
 export async function enqueueCiProjectionIfVersionMoved(params: {

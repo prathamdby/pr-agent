@@ -6,6 +6,7 @@ import {
 } from "../src/review/ci/authorCiSummary.js";
 import { hashCiFacts, parseCiAuthoredCache } from "../src/review/ci/ciAuthoredCache.js";
 import { ciSummaryFromFacts, WAITING_FOR_CI_SUMMARY } from "../src/review/ci/ciFromHeadState.js";
+import { REVIEW_CI_SUMMARY_INCOMPLETE } from "../src/settings/index.js";
 import { ciSummaryLlmSchema } from "../src/review/ci/ciSummarySchema.js";
 import type { CiCheckFact } from "../src/review/ci/classifySnapshot.js";
 import { buildCiContextUserMessage, ciGateRowContract } from "../src/review/ci/ciGatePrompt.js";
@@ -223,5 +224,18 @@ describe("ciSummarySchema", () => {
     expect(ignored.summary.headline).toContain("All CI is passing");
 
     expect(ciSummaryFromFacts({}, 0).summary).toEqual(WAITING_FOR_CI_SUMMARY);
+  });
+
+  it("renders an incomplete listing as unavailable instead of waiting or passing", () => {
+    const incompleteEmpty = ciSummaryFromFacts({}, 3, undefined, { checkRunsComplete: false });
+    expect(incompleteEmpty.summary.status).toBe("unavailable");
+    expect(incompleteEmpty.summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+
+    const passing = { lint: checkFact({ conclusion: "success" }) };
+    const incompletePassing = ciSummaryFromFacts(passing, 3, undefined, {
+      checkRunsComplete: false,
+    });
+    expect(incompletePassing.summary.status).toBe("unavailable");
+    expect(incompletePassing.summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
   });
 });

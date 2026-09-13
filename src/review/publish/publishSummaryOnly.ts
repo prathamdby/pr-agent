@@ -15,6 +15,7 @@ import {
   loadRenderableHeadCi,
 } from "../../agentWork/ciProjection.js";
 import { closeOwnVerdict } from "../../agentWork/closeOwnVerdict.js";
+import { summaryCommentVerdictMeta } from "../../agentWork/ownCheckReconcile.js";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -272,6 +273,11 @@ export async function publishReviewSummaryOnly(params: {
       dedupedFindingCount: params.dedupedFindingCount ?? 0,
       diffCacheEmpty: params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0,
       updated: summary.updated,
+      ...summaryCommentVerdictMeta({
+        kind: coverage.kind === "partial" ? "partial" : "published",
+        note: coverage.kind === "partial" ? coverage.note : undefined,
+        findings: params.payload.findings,
+      }),
     },
   });
   logDebug("review_published_summary", {

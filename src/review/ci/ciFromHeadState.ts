@@ -1,6 +1,6 @@
 import { summarizeCiFacts } from "./analyzeCi.js";
 import { hashCiFacts, parseCiAuthoredCache } from "./ciAuthoredCache.js";
-import type { CiCheckFact } from "./classifySnapshot.js";
+import type { CiCheckFact, CiRollup } from "./classifySnapshot.js";
 import type { CiSummary } from "./ciSummaryTypes.js";
 
 export const WAITING_FOR_CI_SUMMARY: CiSummary = {
@@ -14,12 +14,17 @@ export type RenderableHeadCi = {
   readonly version: number;
 };
 
+export function headCiFactsAreComplete(rollup: CiRollup): boolean {
+  return rollup !== "unknown";
+}
+
 export function ciSummaryFromFacts(
   checks: Readonly<Record<string, CiCheckFact>>,
   version: number,
   authored?: unknown,
+  options?: { readonly checkRunsComplete?: boolean },
 ): RenderableHeadCi {
-  const facts = summarizeCiFacts(checks);
+  const facts = summarizeCiFacts(checks, options);
   if (facts.status === "none") {
     return { summary: WAITING_FOR_CI_SUMMARY, version };
   }

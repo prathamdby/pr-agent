@@ -102,7 +102,10 @@ export function summarizeCiSnapshot(params: {
   }
 }
 
-export function summarizeCiFacts(checks: Readonly<Record<string, CiCheckFact>>): CiSummary {
+export function summarizeCiFacts(
+  checks: Readonly<Record<string, CiCheckFact>>,
+  options?: { readonly checkRunsComplete?: boolean },
+): CiSummary {
   const checkRuns: CiCheckRunSnapshot[] = [];
   const statuses: CiLegacyStatus[] = [];
   for (const fact of Object.values(checks)) {
@@ -127,7 +130,11 @@ export function summarizeCiFacts(checks: Readonly<Record<string, CiCheckFact>>):
       });
     }
   }
-  return summarizeCiSnapshot({ checks: checkRuns, statuses });
+  return summarizeCiSnapshot({
+    checks: checkRuns,
+    statuses,
+    checkRunsComplete: options?.checkRunsComplete,
+  });
 }
 
 export function isOwnCommitStatusContext(context: string): boolean {
