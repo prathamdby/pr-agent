@@ -17,7 +17,6 @@ import {
   SPECIALIST_IDS,
   type SpecialistOutcome,
 } from "../src/review/orchestrator/orchestratorTypes.js";
-import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.js";
 
 function validRiskArea() {
   return {
@@ -415,67 +414,24 @@ describe("orchestrator prompts", () => {
       acceptedFindings: [],
       partialSpecialists: ["security"],
       outcomes: [],
-      overviewPolicy: resolveDescriptionWritingPolicy({
-        fileCount: 12,
-        totalChanges: 500,
-        truncated: false,
-      }),
-      fileCount: 12,
-      totalChanges: 500,
-      truncated: false,
     });
 
     expect(prompt).toContain("sole source of review findings");
     expect(prompt).toContain("partial coverage");
     expect(prompt).toContain("publish_summary` exactly once");
     expect(prompt).toContain('"security"');
-    expect(prompt).toContain("Hard rule (overview scale: standard)");
-    expect(prompt).toContain("Overview scale: standard");
-    expect(prompt).toContain("notable risks or contracts");
+    expect(prompt).toContain("do not add a coverage note or a PR overview");
+    expect(prompt).not.toContain("Hard rule (overview scale");
+    expect(prompt).not.toContain("prCharacter");
     expect(prompt).toContain("Source: accepted_placements");
     expect(prompt).toContain("Source: specialist_outcomes");
   });
 
-  it("injects brief overview hard rule for small change sets", () => {
-    const prompt = renderSynthesisTurn({
-      acceptedFindings: [],
-      partialSpecialists: [],
-      outcomes: [],
-      overviewPolicy: resolveDescriptionWritingPolicy({
-        fileCount: 2,
-        totalChanges: 40,
-        truncated: false,
-      }),
-      fileCount: 2,
-      totalChanges: 40,
-      truncated: false,
-    });
-    expect(prompt).toContain("Hard rule (overview scale: brief)");
-    expect(prompt).toContain("what changed and why it matters");
-  });
-
-  it("injects detailed overview hard rule for large or truncated change sets", () => {
-    const prompt = renderSynthesisTurn({
-      acceptedFindings: [],
-      partialSpecialists: [],
-      outcomes: [],
-      overviewPolicy: resolveDescriptionWritingPolicy({
-        fileCount: 1,
-        totalChanges: 1,
-        truncated: true,
-      }),
-      fileCount: 1,
-      totalChanges: 1,
-      truncated: true,
-    });
-    expect(prompt).toContain("Hard rule (overview scale: detailed)");
-    expect(prompt).toContain("how key modules or paths interact");
-    expect(prompt).toContain("Change set truncated: yes");
-  });
-
-  it("documents STE100 and overview scale in the orchestrator system prompt", () => {
+  it("documents STE100 and gate fields in the orchestrator system prompt", () => {
     expect(orchestratorSystemPrompt).toContain("## Writing style (ASD-STE100)");
-    expect(orchestratorSystemPrompt).toContain("## Review overview (prCharacter)");
-    expect(orchestratorSystemPrompt).toContain("Do not report specialist lane status");
+    expect(orchestratorSystemPrompt).toContain("## Review gates");
+    expect(orchestratorSystemPrompt).toContain("securityConcerns");
+    expect(orchestratorSystemPrompt).not.toContain("prCharacter");
+    expect(orchestratorSystemPrompt).not.toContain("## Review overview");
   });
 });

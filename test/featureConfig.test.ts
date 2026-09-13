@@ -35,7 +35,7 @@ describe("feature config", () => {
       triage: "manual",
       reviewLabels: "size",
       commitStatus: false,
-      titleRewrite: false,
+      titleRewrite: true,
     });
   });
 

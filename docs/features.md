@@ -25,7 +25,7 @@ Custom trigger sets are intentionally not supported.
 | `FEATURE_TRIAGE`        | `off` \| `manual`                  | `manual` | yes            | `/triage` autofix plus `/triage preview` then `/triage all` (preview required before bulk).                                                                                                                                              |
 | `FEATURE_REVIEW_LABELS` | `off` \| `size` \| `size+security` | `size`   | no             | Size and security labels. `off` still syncs `Category: bug\|security\|performance\|style` when a finding has a category or a managed category label already exists.                                                                      |
 | `FEATURE_COMMIT_STATUS` | `false` \| `true`                  | `false`  | no             | Posts `pr-agent/review` on the PR head. `pending` when the check starts. `success` or `failure` from published findings. `error` on cancel, supersede, stale head, crash, unpublished, or partial coverage. Usable in branch protection. |
-| `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `false`  | no             | Allows `/describe` to rewrite the PR title.                                                                                                                                                                                              |
+| `FEATURE_TITLE_REWRITE` | `false` \| `true`                  | `true`   | no             | Allows `/describe` to rewrite the PR title using make-pr default title rules (imperative sentence case, no type prefix, no trailing period, at most 60 characters). Set `false` to keep the existing title.                              |
 
 Notes:
 

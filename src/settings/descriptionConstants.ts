@@ -20,24 +20,24 @@ export const MAX_DESCRIPTION_PAYLOAD_PR_FILES = 20;
 export const DESCRIPTION_REVIEW_MAP_HEADING = "### Review map";
 
 /**
- * Body scale upper bounds for the standard tier.
- * At or above either bound (or truncated) becomes detailed.
- * Brief uses the map-omit thresholds above.
+ * Body scale M upper bounds.
+ * At or above either bound (or truncated) becomes L.
+ * S uses the map-omit thresholds above.
  */
-export const DESCRIPTION_BODY_STANDARD_MAX_FILES = 20;
-export const DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES = 1500;
+export const DESCRIPTION_BODY_M_MAX_FILES = 20;
+export const DESCRIPTION_BODY_M_MAX_LINE_CHANGES = 1500;
 
 /** Bullet and word budgets per body scale (injected as hard prompt rules). */
-export const DESCRIPTION_BODY_BRIEF_BULLET_MIN = 2;
-export const DESCRIPTION_BODY_BRIEF_BULLET_MAX = 5;
-export const DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET = 25;
+export const DESCRIPTION_BODY_S_BULLET_MIN = 2;
+export const DESCRIPTION_BODY_S_BULLET_MAX = 5;
+export const DESCRIPTION_BODY_S_MAX_WORDS_PER_BULLET = 25;
 
-export const DESCRIPTION_BODY_STANDARD_BULLET_MIN = 4;
-export const DESCRIPTION_BODY_STANDARD_BULLET_MAX = 8;
-export const DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET = 30;
+export const DESCRIPTION_BODY_M_BULLET_MIN = 4;
+export const DESCRIPTION_BODY_M_BULLET_MAX = 8;
+export const DESCRIPTION_BODY_M_MAX_WORDS_PER_BULLET = 30;
 
-export const DESCRIPTION_BODY_DETAILED_BULLET_MIN = 6;
-export const DESCRIPTION_BODY_DETAILED_BULLET_MAX = 12;
-export const DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET = 35;
+export const DESCRIPTION_BODY_L_BULLET_MIN = 6;
+export const DESCRIPTION_BODY_L_BULLET_MAX = 12;
+export const DESCRIPTION_BODY_L_MAX_WORDS_PER_BULLET = 35;
 
 export const MAX_TOOL_ROUNDS_DESCRIBE = 16;

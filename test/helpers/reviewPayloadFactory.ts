@@ -1,7 +1,6 @@
 import type { ReviewPayload } from "../../src/review/reviewSchema.js";
 
 const DEFAULT_REVIEW_PAYLOAD: ReviewPayload = {
-  prCharacter: "Test.",
   findings: [],
   size: "S",
   relevantTests: "no",

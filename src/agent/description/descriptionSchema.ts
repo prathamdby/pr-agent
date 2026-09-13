@@ -10,6 +10,24 @@ const descriptionPrTypeSchema = v.picklist([
   "Other",
 ]);
 
+const descriptionVisualKindSchema = v.picklist([
+  "pseudocode",
+  "call_tree",
+  "component_tree",
+  "file_tree",
+  "mermaid",
+  "diff",
+  "full_block",
+]);
+
+const descriptionVisualLanguageSchema = v.picklist(["text", "tsx", "ts", "diff", "mermaid"]);
+
+const descriptionVisualSchema = v.object({
+  kind: descriptionVisualKindSchema,
+  language: v.optional(descriptionVisualLanguageSchema),
+  content: v.pipe(v.string(), v.minLength(1)),
+});
+
 const descriptionFileSchema = v.object({
   filename: v.pipe(v.string(), v.minLength(1)),
   changesTitle: v.pipe(v.string(), v.minLength(1)),
@@ -21,12 +39,14 @@ export const descriptionPayloadSchema = v.object({
   title: v.pipe(v.string(), v.minLength(1)),
   type: v.pipe(v.array(descriptionPrTypeSchema), v.minLength(1)),
   description: v.pipe(v.string(), v.minLength(1)),
-  changesDiagram: v.optional(v.string()),
+  visuals: v.optional(v.array(descriptionVisualSchema)),
   prFiles: v.optional(
     v.pipe(v.array(descriptionFileSchema), v.maxLength(MAX_DESCRIPTION_PAYLOAD_PR_FILES)),
   ),
 });
 
+export type DescriptionVisualKind = v.InferOutput<typeof descriptionVisualKindSchema>;
+export type DescriptionVisual = v.InferOutput<typeof descriptionVisualSchema>;
 export type DescriptionPayload = v.InferOutput<typeof descriptionPayloadSchema>;
 export type DescriptionPrFile = v.InferOutput<typeof descriptionFileSchema>;
 
@@ -92,6 +112,31 @@ function coercePrTypes(
   return mapped.length > 0 ? [...new Set(mapped)] : undefined;
 }
 
+function coerceVisuals(value: unknown): DescriptionVisual[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const visuals = value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const kind = trimString(row.kind);
+    const content = trimString(row.content);
+    if (!kind || !content) return [];
+    const match = v.safeParse(descriptionVisualKindSchema, kind);
+    if (!match.success) return [];
+    const languageRaw = trimString(row.language);
+    const languageMatch = languageRaw
+      ? v.safeParse(descriptionVisualLanguageSchema, languageRaw)
+      : null;
+    return [
+      {
+        kind: match.output,
+        content,
+        ...(languageMatch?.success ? { language: languageMatch.output } : {}),
+      },
+    ];
+  });
+  return visuals.length > 0 ? visuals : undefined;
+}
+
 function coercePrFiles(value: unknown): DescriptionPrFile[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const files = value.flatMap((item) => {
@@ -128,9 +173,6 @@ export function coerceDescriptionPayloadInput(
   }
 
   const coerced: Record<string, unknown> = { ...source };
-  if (coerced.changes_diagram != null && coerced.changesDiagram == null) {
-    coerced.changesDiagram = coerced.changes_diagram;
-  }
   if (coerced.pr_files != null && coerced.prFiles == null) {
     coerced.prFiles = coerced.pr_files;
   }
@@ -138,10 +180,10 @@ export function coerceDescriptionPayloadInput(
   if (title) coerced.title = title;
   const description = trimString(coerced.description);
   if (description) coerced.description = description;
-  const diagram = trimString(coerced.changesDiagram);
-  if (diagram) coerced.changesDiagram = diagram;
   const types = coercePrTypes(coerced.type);
   if (types) coerced.type = types;
+  const visuals = coerceVisuals(coerced.visuals);
+  if (visuals) coerced.visuals = visuals;
   const prFiles = coercePrFiles(coerced.prFiles);
   if (prFiles) coerced.prFiles = prFiles;
   return coerced;

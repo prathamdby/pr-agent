@@ -631,7 +631,13 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
-    expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
+    expect(testState.deterministicSummaries[0]).toMatchObject({
+      size: "M",
+      relevantTests: "partial",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");
   });
 
   it("returns before returnByMs when session creation crosses modelStopAtMs", async () => {
@@ -1306,7 +1312,13 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
     expect(testState.sessionAborts).toBe(1);
-    expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
+    expect(testState.deterministicSummaries[0]).toMatchObject({
+      size: "M",
+      relevantTests: "partial",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");
   });
 
   it("preserves a report when judgment publish_thread throws", async () => {

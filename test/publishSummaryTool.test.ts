@@ -75,7 +75,6 @@ function accepted(
 
 function summaryInput(ids: readonly string[]) {
   return {
-    prCharacter: "The change updates request routing.",
     findings: ids.map((findingId, index) => ({
       findingId,
       title: `Summary title ${index + 1}`,

@@ -19,7 +19,7 @@ const baseTestConfig: Config = {
     triage: "manual",
     reviewLabels: "size",
     commitStatus: false,
-    titleRewrite: false,
+    titleRewrite: true,
   },
   piProvider: "openai",
   piModel: "gpt-4o-mini",

@@ -94,6 +94,35 @@ describe("descriptionRender", () => {
     expect(body).not.toContain("<b>html</b>");
   });
 
+  it("renders visuals as fences after description bullets and before review map", () => {
+    const mermaid = ["```mermaid", "flowchart LR", '  A["Start"] --> B["End"]', "```"].join("\n");
+    const body = renderDescriptionAgentBlock(
+      {
+        title: "t",
+        type: ["Enhancement"],
+        description: "- Main change",
+        visuals: [
+          { kind: "call_tree", content: "```html\n<script>alert(1)</script>\n```" },
+          { kind: "mermaid", content: mermaid, language: "mermaid" },
+        ],
+        prFiles: [{ filename: "src/a.ts", changesTitle: "Auth boundary risk" }],
+      },
+      RENDER_CTX,
+    );
+    const descriptionIndex = body.indexOf("- Main change");
+    const callTreeIndex = body.indexOf("```text");
+    const mermaidIndex = body.indexOf("```mermaid");
+    const mapIndex = body.indexOf(DESCRIPTION_REVIEW_MAP_HEADING);
+    expect(descriptionIndex).toBeGreaterThan(-1);
+    expect(callTreeIndex).toBeGreaterThan(descriptionIndex);
+    expect(mermaidIndex).toBeGreaterThan(callTreeIndex);
+    expect(mapIndex).toBeGreaterThan(mermaidIndex);
+    expect(body).not.toContain("### Changes Diagram");
+    expect(body).not.toContain("```html");
+    expect(body).toContain("<script>alert(1)</script>");
+    expect(body).toContain("```mermaid\nflowchart LR");
+  });
+
   it("ignores legacy label and changesSummary in map render", () => {
     const body = renderDescriptionAgentBlock(
       {

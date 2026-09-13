@@ -50,7 +50,7 @@ export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget): string {
     `- Total line changes (additions + deletions): ${budget.totalChanges}`,
   ];
   if (budget.truncated) {
-    lines.push("- Change set truncated: treat coverage as partial and note limits in prCharacter.");
+    lines.push("- Change set truncated: treat coverage as partial.");
   }
   if (budget.tier === "large") {
     lines.push(

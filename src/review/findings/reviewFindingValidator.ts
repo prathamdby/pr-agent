@@ -102,7 +102,6 @@ export function validateReviewPayload(params: {
   enforceInlineAnchorValidation?: boolean;
 }): ReviewPayloadValidationResult {
   const overviewFields: Array<[string, string | null | undefined]> = [
-    ["prCharacter", params.payload.prCharacter],
     ["securityConcerns", params.payload.securityConcerns],
   ];
   for (const [name, value] of overviewFields) {

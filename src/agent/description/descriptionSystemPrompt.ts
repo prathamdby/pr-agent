@@ -1,9 +1,10 @@
 import { descriptionNativeTooling } from "../prompts/harnessProtocol.js";
 import { ste100WritingGuidance } from "../prompts/ste100Guidance.js";
+import { formatDescriptionTitleHardRule } from "./descriptionTitle.js";
 import {
   descriptionBodyScaleGuidance,
-  descriptionMermaidGuidance,
   descriptionReviewMapGuidance,
+  descriptionVisualsGuidance,
 } from "./descriptionPromptBlocks.js";
 
 export const descriptionSystemPrompt = [
@@ -16,17 +17,19 @@ export const descriptionSystemPrompt = [
   "When you have enough context, call submitDescription exactly once with a DescriptionPayload object.",
   "",
   "DescriptionPayload fields:",
-  "- title: short descriptive title (5–12 words)",
+  "- title: short imperative title following the title hard rule in the user message",
   "- type: array of one or more of: Bug fix, Tests, Enhancement, Documentation, Other",
   "- description: markdown bullet list sized by the body-scale hard rule in the user message (not a fixed short template)",
-  "- changesDiagram (optional): fenced ```mermaid flowchart LR```; omit if not useful",
+  "- visuals (optional): flat array of { kind, content, language? } publishable sketches; omit when not useful",
   "- prFiles (optional, mode-dependent): read-first review map entries only — filename + changesTitle (why open first); max 5; omit entirely when map mode is omit",
+  "",
+  formatDescriptionTitleHardRule(),
   "",
   ste100WritingGuidance,
   "",
   descriptionBodyScaleGuidance,
   "",
-  descriptionMermaidGuidance,
+  descriptionVisualsGuidance,
   "",
   descriptionReviewMapGuidance,
 ].join("\n");

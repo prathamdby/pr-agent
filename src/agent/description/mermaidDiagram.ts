@@ -152,7 +152,7 @@ function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
 export function validateSanitizedMermaidFence(sanitizedFence: string): MermaidValidationIssue[] {
   const trimmed = sanitizedFence.trim();
   if (!trimmed.startsWith("```mermaid")) {
-    return [{ line: 1, message: "changesDiagram must be a ```mermaid fenced block." }];
+    return [{ line: 1, message: "Mermaid visual content must be a ```mermaid fenced block." }];
   }
   return validateMermaidDiagramBody(extractMermaidDiagramBody(trimmed));
 }
@@ -161,7 +161,7 @@ export function validateMermaidDiagram(diagramRaw: string): MermaidValidationIss
   const trimmed = diagramRaw.trim();
   if (!trimmed) return [];
   if (!trimmed.startsWith("```mermaid")) {
-    return [{ line: 1, message: "changesDiagram must be a ```mermaid fenced block." }];
+    return [{ line: 1, message: "Mermaid visual content must be a ```mermaid fenced block." }];
   }
   return validateSanitizedMermaidFence(sanitizeMermaidDiagram(trimmed));
 }
@@ -169,9 +169,9 @@ export function validateMermaidDiagram(diagramRaw: string): MermaidValidationIss
 export function formatMermaidValidationError(issues: readonly MermaidValidationIssue[]): string {
   const lines = issues.map((issue) => `- line ${issue.line}: ${issue.message}`);
   return [
-    "changesDiagram Mermaid validation failed:",
+    "Mermaid visual validation failed:",
     ...lines,
     "",
-    "Fix the diagram (quoted labels, no /subroutine/ shapes, one connected flowchart LR) or omit changesDiagram.",
+    "Fix the diagram (quoted labels, no /subroutine/ shapes, one connected flowchart LR) or omit the mermaid visual.",
   ].join("\n");
 }

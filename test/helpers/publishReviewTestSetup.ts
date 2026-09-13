@@ -6,7 +6,6 @@ import { makeReviewPayload } from "./reviewPayloadFactory.js";
 import { makeTestConfig } from "./config.js";
 
 export const publishReviewTestPayload: ReviewPayload = makeReviewPayload({
-  prCharacter: "Test PR.",
   findings: [
     {
       severity: "P1",

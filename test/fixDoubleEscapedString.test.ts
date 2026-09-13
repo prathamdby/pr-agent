@@ -111,7 +111,6 @@ describe("fixDoubleEscapedString", () => {
 describe("coerceReviewPayloadInput double escape", () => {
   it("coerces double-escaped finding detail", () => {
     const { value, coercions } = coerceReviewPayloadInput({
-      prCharacter: "Summary",
       findings: [
         {
           severity: "P1",

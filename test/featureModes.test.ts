@@ -20,7 +20,7 @@ describe("feature modes", () => {
     expect(DEFAULT_FEATURE_TRIAGE).toBe("manual");
     expect(DEFAULT_FEATURE_REVIEW_LABELS).toBe("size");
     expect(DEFAULT_FEATURE_COMMIT_STATUS).toBe(false);
-    expect(DEFAULT_FEATURE_TITLE_REWRITE).toBe(false);
+    expect(DEFAULT_FEATURE_TITLE_REWRITE).toBe(true);
   });
 
   it("auto triggers match the pre-revision AUTO_ACTIONS defaults", () => {

@@ -103,7 +103,6 @@ export type FindingBatchContext = {
 
 function batchPayload(findings: readonly ReviewFinding[]): ReviewPayload {
   return {
-    prCharacter: "Incremental review findings.",
     findings: [...findings],
     size: "M",
     relevantTests: "no",

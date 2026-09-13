@@ -7,14 +7,14 @@ import {
 } from "../src/agent/description/descriptionWritingPolicy.js";
 import type { DescriptionPayload } from "../src/agent/description/descriptionSchema.js";
 import {
-  DESCRIPTION_BODY_DETAILED_BULLET_MAX,
-  DESCRIPTION_BODY_DETAILED_BULLET_MIN,
-  DESCRIPTION_BODY_STANDARD_BULLET_MAX,
-  DESCRIPTION_BODY_STANDARD_BULLET_MIN,
-  DESCRIPTION_BODY_STANDARD_MAX_FILES,
-  DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES,
-  DESCRIPTION_BODY_BRIEF_BULLET_MAX,
-  DESCRIPTION_BODY_BRIEF_BULLET_MIN,
+  DESCRIPTION_BODY_L_BULLET_MAX,
+  DESCRIPTION_BODY_L_BULLET_MIN,
+  DESCRIPTION_BODY_M_BULLET_MAX,
+  DESCRIPTION_BODY_M_BULLET_MIN,
+  DESCRIPTION_BODY_M_MAX_FILES,
+  DESCRIPTION_BODY_M_MAX_LINE_CHANGES,
+  DESCRIPTION_BODY_S_BULLET_MAX,
+  DESCRIPTION_BODY_S_BULLET_MIN,
   DESCRIPTION_MAP_MAX_ENTRIES,
   DESCRIPTION_MAP_OMIT_MAX_FILES,
   DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
@@ -101,140 +101,140 @@ describe("resolveDescriptionMapMode", () => {
 });
 
 describe("resolveDescriptionBodyScale", () => {
-  it("uses brief under map-omit thresholds", () => {
+  it("uses S under map-omit thresholds", () => {
     expect(
       resolveDescriptionBodyScale({
         fileCount: DESCRIPTION_MAP_OMIT_MAX_FILES,
         totalChanges: DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES - 1,
         truncated: false,
       }),
-    ).toBe("brief");
+    ).toBe("S");
   });
 
-  it("uses standard between brief and detailed bounds", () => {
+  it("uses M between S and L bounds", () => {
     expect(
       resolveDescriptionBodyScale({
         fileCount: DESCRIPTION_MAP_OMIT_MAX_FILES + 1,
         totalChanges: 400,
         truncated: false,
       }),
-    ).toBe("standard");
+    ).toBe("M");
   });
 
-  it("flips to standard at the omit line-change bound with omit-max files", () => {
+  it("flips to M at the omit line-change bound with omit-max files", () => {
     expect(
       resolveDescriptionBodyScale({
         fileCount: DESCRIPTION_MAP_OMIT_MAX_FILES,
         totalChanges: DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
         truncated: false,
       }),
-    ).toBe("standard");
+    ).toBe("M");
   });
 
-  it("stays standard at the standard file bound under the line-change bound", () => {
+  it("stays M at the M file bound under the line-change bound", () => {
     expect(
       resolveDescriptionBodyScale({
-        fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES,
+        fileCount: DESCRIPTION_BODY_M_MAX_FILES,
         totalChanges: 10,
         truncated: false,
       }),
-    ).toBe("standard");
+    ).toBe("M");
   });
 
-  it("stays standard at the standard file bound just under the line-change bound", () => {
+  it("stays M at the M file bound just under the line-change bound", () => {
     expect(
       resolveDescriptionBodyScale({
-        fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES,
-        totalChanges: DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES - 1,
+        fileCount: DESCRIPTION_BODY_M_MAX_FILES,
+        totalChanges: DESCRIPTION_BODY_M_MAX_LINE_CHANGES - 1,
         truncated: false,
       }),
-    ).toBe("standard");
+    ).toBe("M");
   });
 
-  it("uses detailed when file count exceeds standard max", () => {
+  it("uses L when file count exceeds M max", () => {
     expect(
       resolveDescriptionBodyScale({
-        fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES + 1,
+        fileCount: DESCRIPTION_BODY_M_MAX_FILES + 1,
         totalChanges: 10,
         truncated: false,
       }),
-    ).toBe("detailed");
+    ).toBe("L");
   });
 
-  it("uses detailed when totalChanges is at or above standard max", () => {
+  it("uses L when totalChanges is at or above M max", () => {
     expect(
       resolveDescriptionBodyScale({
         fileCount: 1,
-        totalChanges: DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES,
+        totalChanges: DESCRIPTION_BODY_M_MAX_LINE_CHANGES,
         truncated: false,
       }),
-    ).toBe("detailed");
+    ).toBe("L");
   });
 
-  it("uses detailed at the standard file bound when line changes hit the max", () => {
+  it("uses L at the M file bound when line changes hit the max", () => {
     expect(
       resolveDescriptionBodyScale({
-        fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES,
-        totalChanges: DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES,
+        fileCount: DESCRIPTION_BODY_M_MAX_FILES,
+        totalChanges: DESCRIPTION_BODY_M_MAX_LINE_CHANGES,
         truncated: false,
       }),
-    ).toBe("detailed");
+    ).toBe("L");
   });
 
-  it("uses detailed when truncated even if small", () => {
+  it("uses L when truncated even if small", () => {
     expect(
       resolveDescriptionBodyScale({
         fileCount: 1,
         totalChanges: 1,
         truncated: true,
       }),
-    ).toBe("detailed");
+    ).toBe("L");
   });
 });
 
 describe("resolveDescriptionWritingPolicy", () => {
-  it("pairs brief body with omit map under small-change thresholds", () => {
+  it("pairs S body with omit map under small-change thresholds", () => {
     const policy = resolveDescriptionWritingPolicy({
       fileCount: 2,
       totalChanges: 40,
       truncated: false,
     });
     expect(policy).toMatchObject({
-      bodyScale: "brief",
+      bodyScale: "S",
       mapMode: "omit",
       technicalDepth: "what_why",
-      bulletMin: DESCRIPTION_BODY_BRIEF_BULLET_MIN,
-      bulletMax: DESCRIPTION_BODY_BRIEF_BULLET_MAX,
+      bulletMin: DESCRIPTION_BODY_S_BULLET_MIN,
+      bulletMax: DESCRIPTION_BODY_S_BULLET_MAX,
     });
   });
 
-  it("pairs standard body with read_first map", () => {
+  it("pairs M body with read_first map", () => {
     const policy = resolveDescriptionWritingPolicy({
       fileCount: 12,
       totalChanges: 500,
       truncated: false,
     });
     expect(policy).toMatchObject({
-      bodyScale: "standard",
+      bodyScale: "M",
       mapMode: "read_first",
       technicalDepth: "what_why_risk",
-      bulletMin: DESCRIPTION_BODY_STANDARD_BULLET_MIN,
-      bulletMax: DESCRIPTION_BODY_STANDARD_BULLET_MAX,
+      bulletMin: DESCRIPTION_BODY_M_BULLET_MIN,
+      bulletMax: DESCRIPTION_BODY_M_BULLET_MAX,
     });
   });
 
-  it("pairs detailed body with read_first map for large or truncated sets", () => {
+  it("pairs L body with read_first map for large or truncated sets", () => {
     const policy = resolveDescriptionWritingPolicy({
-      fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES + 5,
-      totalChanges: DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES + 100,
+      fileCount: DESCRIPTION_BODY_M_MAX_FILES + 5,
+      totalChanges: DESCRIPTION_BODY_M_MAX_LINE_CHANGES + 100,
       truncated: false,
     });
     expect(policy).toMatchObject({
-      bodyScale: "detailed",
+      bodyScale: "L",
       mapMode: "read_first",
       technicalDepth: "what_why_how",
-      bulletMin: DESCRIPTION_BODY_DETAILED_BULLET_MIN,
-      bulletMax: DESCRIPTION_BODY_DETAILED_BULLET_MAX,
+      bulletMin: DESCRIPTION_BODY_L_BULLET_MIN,
+      bulletMax: DESCRIPTION_BODY_L_BULLET_MAX,
     });
   });
 });

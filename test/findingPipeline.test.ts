@@ -31,7 +31,6 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
 
 function payload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
   return {
-    prCharacter: "Test.",
     findings: [],
     size: "S",
     relevantTests: "no",

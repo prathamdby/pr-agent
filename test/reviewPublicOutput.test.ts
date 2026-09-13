@@ -12,10 +12,10 @@ describe("reviewPublicOutput", () => {
     expect(redactReviewText(detail)).toBe(detail);
   });
 
-  it("leaves prCharacter mentioning submitReview unchanged", () => {
-    const prCharacter =
+  it("leaves securityConcerns mentioning submitReview unchanged", () => {
+    const securityConcerns =
       "This PR extends the review harness and touches submitReview and reviewFindingValidator.";
-    expect(redactReviewText(prCharacter)).toBe(prCharacter);
+    expect(redactReviewText(securityConcerns)).toBe(securityConcerns);
   });
 
   it("redacts Bearer tokens embedded in finding detail", () => {
@@ -35,7 +35,6 @@ describe("reviewPublicOutput", () => {
 
   it("scrubs secrets across payload fields in redactReviewPayloadSecrets", () => {
     const payload: ReviewPayload = {
-      prCharacter: "Safe overview.",
       findings: [
         {
           severity: "P1",

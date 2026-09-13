@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  countReviewFindingsForActionLine,
+  formatReviewCoverageStatus,
   renderAgentFixPrompt,
   renderInlineThreadBody,
   renderLightweightReviewCompletion,
   renderRepeatNoBugsReviewBody,
+  renderReviewActionLine,
   renderReviewPointerLensMarker,
   renderReviewSummaryComment,
   renderSpecialistReviewBody,
@@ -41,7 +44,6 @@ const ctx = {
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
   return makeReviewPayload({
-    prCharacter: "Adds a retry wrapper around the webhook dispatcher.",
     size: "M",
     relevantTests: "partial",
     ...overrides,
@@ -55,7 +57,10 @@ describe("renderReviewSummaryComment", () => {
       placements: testPlacements(basePayload().findings),
     });
     expect(body).toContain("## PR Agent Review");
-    expect(body).toContain("[!NOTE]");
+    expect(body).toContain(
+      "No findings. CI has not started. All specialists ran with full coverage.",
+    );
+    expect(body).not.toContain("[!NOTE]");
     expect(body).not.toContain("| | |");
     expect(body).toContain("<table>");
     expect(body).toContain(REVIEW_FINDINGS_NONE);
@@ -440,14 +445,38 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Webhook secret compared");
   });
 
-  it("escapes pipes in prCharacter", () => {
-    const payload = basePayload({ prCharacter: "Adds auth | breaks table" });
+  it("opens with the action line and no overview Note", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+        {
+          severity: "P3",
+          file: "src/y.ts",
+          startLine: 2,
+          endLine: 2,
+          title: "Nit",
+          detail: "minor",
+          fixPrompt: "Fix the nit.",
+        },
+      ],
+    });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: testPlacements(payload.findings),
+      ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
+      coverage: { kind: "partial", failed: ["quality"] },
     });
-    expect(body).toContain("[!NOTE]");
-    expect(body).toContain("Adds auth | breaks table");
+    expect(body).toContain("2 findings. CI is passing. All specialists ran except quality.");
+    expect(body.indexOf("2 findings.")).toBeLessThan(body.indexOf("<table>"));
+    expect(body).not.toContain("[!NOTE]");
   });
 
   it("uses the general summary identity for recognized legacy modes", () => {
@@ -476,7 +505,6 @@ describe("renderReviewSummaryComment", () => {
 
   it("renders finding text mentioning submitReview without redaction", () => {
     const payload = basePayload({
-      prCharacter: "Safe overview.",
       findings: [
         {
           severity: "P1",
@@ -494,7 +522,6 @@ describe("renderReviewSummaryComment", () => {
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
 
-    expect(body).toContain("Safe overview.");
     expect(body).toContain("Uses submitReview internally.");
     expect(body).not.toContain("[redacted internal details]");
   });
@@ -646,6 +673,75 @@ describe("renderReviewSummaryComment", () => {
     });
     expect(body).not.toContain("review map");
     expect(body).not.toContain("file walkthrough");
+  });
+
+  it("counts every accepted table row on the action line after compaction omits rows", () => {
+    const findings = Array.from({ length: 12 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "x".repeat(5000),
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const body = fitReviewSummaryBody(
+      payload,
+      {
+        ...ctx,
+        placements: testPlacements(payload.findings, { inlinePosted: false }),
+      },
+      2_500,
+    );
+    expect(body).toContain("12 findings.");
+    expect(body).toContain(REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX);
+  });
+});
+
+describe("review action line helpers", () => {
+  it("counts every supplied P0–P3 row", () => {
+    expect(countReviewFindingsForActionLine([])).toBe(0);
+    expect(
+      countReviewFindingsForActionLine([
+        { severity: "P0" },
+        { severity: "P3" },
+        { severity: "P2" },
+      ]),
+    ).toBe(3);
+  });
+
+  it("formats coverage for full, partial, and none", () => {
+    expect(formatReviewCoverageStatus({ kind: "full", failed: [] })).toBe("with full coverage");
+    expect(formatReviewCoverageStatus({ kind: "partial", failed: ["quality"] })).toBe(
+      "except quality",
+    );
+    expect(formatReviewCoverageStatus({ kind: "partial", failed: ["quality", "tests"] })).toBe(
+      "except quality and tests",
+    );
+    expect(
+      formatReviewCoverageStatus({
+        kind: "none",
+        failed: ["correctness", "security", "quality", "tests"],
+      }),
+    ).toBe("with no coverage (correctness, security, quality, and tests failed)");
+  });
+
+  it("joins the three action-line facts", () => {
+    expect(
+      renderReviewActionLine({
+        findingCount: 0,
+        ciStatusText: "CI has not started",
+        coverageStatusText: "with full coverage",
+      }),
+    ).toBe("No findings. CI has not started. All specialists ran with full coverage.");
+    expect(
+      renderReviewActionLine({
+        findingCount: 1,
+        ciStatusText: "CI is failing",
+        coverageStatusText: "except security",
+      }),
+    ).toBe("1 finding. CI is failing. All specialists ran except security.");
   });
 });
 

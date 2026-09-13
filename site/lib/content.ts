@@ -74,7 +74,8 @@ export const CAPABILITIES: CapabilityItem[] = [
   {
     title: "Turn a blank PR body into a readable summary",
     trigger: "Runs when a pull request opens, or when you comment /describe",
-    detail: "Summary bullets and an optional diagram go into the PR body.",
+    detail:
+      "Summary bullets and optional visual sketches go into the PR body when the diff proves them.",
   },
   {
     title: "Ask code questions without leaving GitHub",
