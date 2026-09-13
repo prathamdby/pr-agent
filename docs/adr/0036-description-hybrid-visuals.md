@@ -3,9 +3,11 @@
 The description agent must work on small and frontier models, and GitHub must
 render only safe fences. Nested theme trees overfit large models. Freeform
 markdown fences are hard to sanitize. The submit contract is markdown
-`description` plus optional flat `visuals[]` entries (`kind` + `content`) drawn
-from the make-pr / show-me view menu. The server validates and renders; omitting
-`visuals` is valid. `changesDiagram` is not a field.
+`description` plus flat `visuals[]` entries (`kind` + `content`) drawn
+from the make-pr / show-me view menu. The server validates and renders.
+Prompt guidance treats visuals as the primary surface and steers the model
+to prefer sketches over long bullets; omitting `visuals` remains schema-valid
+when the diff has no sketchable shape. `changesDiagram` is not a field.
 
 ## Status
 

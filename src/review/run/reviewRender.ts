@@ -419,7 +419,7 @@ function buildReviewSummaryBody(
   const rows: string[] = [];
   rows.push(ctx.summarySentinel);
   rows.push("");
-  rows.push(actionLine);
+  rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, actionLine));
   rows.push("");
 
   const tableRows: Array<[string, string]> = [

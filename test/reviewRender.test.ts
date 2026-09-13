@@ -60,7 +60,8 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain(
       "No findings. CI has not started. All specialists ran with full coverage.",
     );
-    expect(body).not.toContain("[!NOTE]");
+    expect(body).toContain("[!NOTE]");
+    expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
     expect(body).not.toContain("| | |");
     expect(body).toContain("<table>");
     expect(body).toContain(REVIEW_FINDINGS_NONE);
@@ -445,7 +446,7 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Webhook secret compared");
   });
 
-  it("opens with the action line and no overview Note", () => {
+  it("opens with the action line inside a NOTE alert", () => {
     const payload = basePayload({
       findings: [
         {
@@ -475,8 +476,9 @@ describe("renderReviewSummaryComment", () => {
       coverage: { kind: "partial", failed: ["quality"] },
     });
     expect(body).toContain("2 findings. CI is passing. All specialists ran except quality.");
+    expect(body).toContain("[!NOTE]");
+    expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
     expect(body.indexOf("2 findings.")).toBeLessThan(body.indexOf("<table>"));
-    expect(body).not.toContain("[!NOTE]");
   });
 
   it("uses the general summary identity for recognized legacy modes", () => {

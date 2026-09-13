@@ -5,11 +5,12 @@ import { technicalDepthRule, type DescriptionWritingPolicy } from "./description
 function formatDescriptionBodyHardRule(policy: DescriptionWritingPolicy): string {
   return [
     `Hard rule (body scale: ${policy.bodyScale}):`,
-    `Write ${policy.bulletMin}–${policy.bulletMax} markdown bullets.`,
+    `Write ${policy.bulletMin}–${policy.bulletMax} short markdown bullets as captions only.`,
     `Each bullet is one short sentence of at most ${policy.maxWordsPerBullet} words.`,
     technicalDepthRule(policy.technicalDepth),
     "Ground every bullet in the diff. Do not invent behaviour.",
-    "Match the bullet count to the real change groups; stay inside the range.",
+    "Prefer the low end of the bullet range. Put substance in visuals[], not long prose.",
+    "Do not narrate a flow, tree, or delta in bullets when a visual can show it.",
     visualsHardRule(policy),
   ].join(" ");
 }
@@ -17,16 +18,16 @@ function formatDescriptionBodyHardRule(policy: DescriptionWritingPolicy): string
 function visualsHardRule(policy: DescriptionWritingPolicy): string {
   const tierHint =
     policy.bodyScale === "S"
-      ? "Add a visual for each theme with a proved shape when a sketch helps reviewers."
+      ? "Emit visuals[] for each theme with a proved shape; prefer mermaid, diff, or call_tree over extra bullets."
       : policy.bodyScale === "M"
-        ? "Add visuals for every proved shape; prefer mermaid, diff, and component-tree fences when the diff shows them."
-        : "Add every proved visual a stranger needs to read the shape at a glance; use multiple views when one leaves a boundary unclear.";
-  return `Visuals: optional visuals[] array after the bullets. ${tierHint} Omit visuals when the diff does not prove a sketch.`;
+        ? "Emit visuals[] for every proved shape; prefer mermaid, diff, call_tree, and component_tree when the diff shows them."
+        : "Emit every proved visual a stranger needs at a glance; use multiple views when one fence leaves a boundary unclear.";
+  return `Hard rule (visuals): lean on visuals[]. ${tierHint} Omit visuals only when the diff has no sketchable shape.`;
 }
 
 function mapHardRule(policy: DescriptionWritingPolicy): string {
   if (policy.mapMode === "omit") {
-    return "Hard rule (map mode: omit): do not emit prFiles. Publish type, description bullets, and optional visuals only. No review map.";
+    return "Hard rule (map mode: omit): do not emit prFiles. Publish type, short description bullets, and visuals. No review map.";
   }
   return [
     "Hard rule (map mode: read_first): emit prFiles with 1–5 entries only.",
