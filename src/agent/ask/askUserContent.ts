@@ -1,5 +1,14 @@
-import type { AskRunParams } from "./askRunTypes.js";
+import type { AskCiState, AskRunParams } from "./askRunTypes.js";
 import { wrapTrustedContext, wrapUntrustedBlock } from "../prompts/promptBlocks.js";
+
+export function formatAskCiState(state: AskCiState): string {
+  const lines = [`rollup: ${state.rollup}`, `version: ${state.version}`];
+  for (const check of state.checks) {
+    const conclusion = check.conclusion != null ? `/${check.conclusion}` : "";
+    lines.push(`- ${check.name}: ${check.status}${conclusion}`);
+  }
+  return lines.join("\n");
+}
 
 export function buildAskUserContent(params: AskRunParams): string {
   const blocks = [
@@ -10,6 +19,10 @@ export function buildAskUserContent(params: AskRunParams): string {
     ]),
     wrapUntrustedBlock("user_question", params.question),
   ];
+
+  if (params.ciState != null) {
+    blocks.push(wrapUntrustedBlock("ci_state", formatAskCiState(params.ciState)));
+  }
 
   if (params.threadTranscript?.trim()) {
     const header = params.threadTranscriptTruncated

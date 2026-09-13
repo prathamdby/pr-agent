@@ -16,12 +16,20 @@ import {
   renderVerificationFailureBlock,
 } from "../../review/ci/verificationFailureBlock.js";
 import { replaceCiSummaryCellIfNewer } from "../../review/ci/ciSummaryCell.js";
+import {
+  renderCiRollupMarker,
+  replaceCiRollupMarkerIfNewer,
+} from "../../review/ci/ciRollupMarker.js";
 import type { CiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
 import { ciSummaryFromFacts, waitingCiSummary } from "../../review/ci/ciFromHeadState.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { parseProgressRevisionState } from "../../review/run/progressComment.js";
-import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
+import {
+  REVIEW_SUMMARY_SENTINEL,
+  TRIAGE_SUMMARY_SENTINEL,
+  VERIFICATION_PUBLISH_LENS,
+} from "../../settings/index.js";
 import {
   isAnyReviewLens,
   LEGACY_REVIEW_SUMMARY_SENTINELS,
@@ -179,6 +187,42 @@ function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean): str
   return cell;
 }
 
+async function patchTriageRollupComments(params: {
+  readonly comments: readonly PrConversationComment[];
+  readonly prSurface: PrSurface;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly headSha: string;
+  readonly version: number;
+  readonly rollup: PrHeadCiStateRow["rollup"];
+}): Promise<void> {
+  const nextMarker = renderCiRollupMarker(params.headSha, params.version, params.rollup);
+  const targets = params.comments.filter((comment) =>
+    comment.body.startsWith(TRIAGE_SUMMARY_SENTINEL),
+  );
+  for (const comment of targets) {
+    const writeBody = replaceCiRollupMarkerIfNewer(
+      comment.body,
+      nextMarker,
+      params.headSha,
+      params.version,
+    );
+    if (writeBody == null) continue;
+    try {
+      await params.prSurface.editComment(comment.id, writeBody);
+    } catch (error) {
+      logWarn("ci_projection_triage_rollup_failed", {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        commentId: comment.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+}
+
 function findHeadSummaryComments(
   comments: readonly PrConversationComment[],
   headSha: string,
@@ -201,7 +245,8 @@ async function projectOnePr(params: {
 }): Promise<"reenqueue" | "done"> {
   const resourceKey = prResourceKey(params.data.owner, params.data.repo, params.prNumber);
   const newest = await newestHeadShaForResource(params.pool, resourceKey);
-  if (newest != null && newest !== params.data.headSha) {
+  const staleHead = newest != null && newest !== params.data.headSha;
+  if (staleHead) {
     logDebug("ci_projection_skipped_stale_head", {
       owner: params.data.owner,
       repo: params.data.repo,
@@ -209,26 +254,26 @@ async function projectOnePr(params: {
       headSha: params.data.headSha,
       newest,
     });
-    return "done";
   }
 
-  await reconcileOwnVerdicts({
-    cfg: params.cfg,
-    pool: params.pool,
-    prSurface: params.prSurface,
-    owner: params.data.owner,
-    repo: params.data.repo,
-    prNumber: params.prNumber,
-    headSha: params.data.headSha,
-  });
+  if (!staleHead) {
+    await reconcileOwnVerdicts({
+      cfg: params.cfg,
+      pool: params.pool,
+      prSurface: params.prSurface,
+      owner: params.data.owner,
+      repo: params.data.repo,
+      prNumber: params.prNumber,
+      headSha: params.data.headSha,
+    });
+  }
 
   const injectFailure = await verificationFailureActive(
     params.pool,
     resourceKey,
     params.data.headSha,
   );
-  const nextCell = renderProjectedCell(params.row, injectFailure);
-  if (nextCell == null) return "done";
+  const nextCell = staleHead ? null : renderProjectedCell(params.row, injectFailure);
 
   let comments: readonly PrConversationComment[];
   try {
@@ -242,6 +287,19 @@ async function projectOnePr(params: {
     });
     return "done";
   }
+
+  await patchTriageRollupComments({
+    comments,
+    prSurface: params.prSurface,
+    owner: params.data.owner,
+    repo: params.data.repo,
+    prNumber: params.prNumber,
+    headSha: params.data.headSha,
+    version: params.row.version,
+    rollup: params.row.rollup,
+  });
+
+  if (nextCell == null) return "done";
 
   const targets = findHeadSummaryComments(comments, params.data.headSha);
   for (const comment of targets) {

@@ -12,6 +12,7 @@ import type { CiRefreshJobData, QueueConfig, WebhookHeaders } from "../../src/ag
 import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
 import { hashCiFacts, parseCiAuthoredCache } from "../../src/review/ci/ciAuthoredCache.js";
 import type { CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
+import { renderCiRollupMarker } from "../../src/review/ci/ciRollupMarker.js";
 import { parseCiSummaryMarkerVersion } from "../../src/review/ci/ciSummaryCell.js";
 import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
@@ -32,6 +33,7 @@ import {
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_SUMMARY_SENTINEL,
+  TRIAGE_SUMMARY_SENTINEL,
 } from "../../src/settings/index.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -477,5 +479,65 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     const latest = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
     expect(latest?.body).toContain("authored lint");
     expect(latest?.body).toContain("v=1");
+  });
+
+  it("patches a triage rollup marker after a push whose work-item head is older", async () => {
+    const oldHead = "11".repeat(20);
+    const newHead = "22".repeat(20);
+    await insertReviewWorkItem(oldHead);
+    await applyCiStateIntake(
+      boss,
+      pool,
+      headers("check_run", `ci-state-triage-${randomUUID().slice(0, 8)}`),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha: newHead,
+        fact: ciStateFact({
+          observed_at: "2026-09-13T00:00:30.000Z",
+        }),
+      },
+      intakeLog(),
+    );
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, newHead);
+    expect(row?.rollup).toBe("failing");
+    expect(row?.version).toBe(1);
+
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(newHead, [{ number: PR_NUMBER }]);
+    fake.controls.setProgressComment(
+      TRIAGE_SUMMARY_SENTINEL,
+      [
+        TRIAGE_SUMMARY_SENTINEL,
+        "",
+        "Full PR triage.",
+        `Evaluated head: \`${oldHead}\``,
+        "",
+        `CI: ${renderCiRollupMarker(newHead, 0, "none")}`,
+      ].join("\n"),
+      92,
+    );
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha: newHead,
+      },
+      {
+        createSurface: async () => fake.surface,
+        author: stubCiAuthor([]),
+      },
+    );
+
+    const latest = fake.controls.getProgressComment(TRIAGE_SUMMARY_SENTINEL);
+    expect(latest?.body).toContain(renderCiRollupMarker(newHead, 1, "failing"));
+    expect(latest?.body).not.toContain(renderCiRollupMarker(newHead, 0, "none"));
   });
 });

@@ -14,6 +14,16 @@ export type CodeAnchor = {
   diffHunk?: string;
 };
 
+export type AskCiState = {
+  readonly rollup: string;
+  readonly version: number;
+  readonly checks: readonly {
+    readonly name: string;
+    readonly status: string;
+    readonly conclusion: string | null;
+  }[];
+};
+
 export type AskRunParams = {
   cfg: Config;
   prSurface: PrSurface;
@@ -31,6 +41,8 @@ export type AskRunParams = {
   workspace: LocalPrWorkspace;
   durability?: FeatureSessionDurability;
   pool?: Pool;
+  /** Durable CI facts for this head. Loaded by the ask run from `pr_head_ci_state`. */
+  ciState?: AskCiState;
   codeIndexSnapshotId?: string;
   /** Durable job/lease abort for tool execution. */
   signal?: AbortSignal;
