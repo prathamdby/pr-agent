@@ -135,6 +135,18 @@ function dispatchGithubEventEffect(
         );
         return { kind: "ok" as const };
       }
+      case "check_run": {
+        const appId = parsed.data.check_run.app?.id;
+        if (appId != null && String(appId) === cfg.githubAppId) {
+          yield* scheduler.recordIgnored(headers, "ignored_own_check_run", intakeLog);
+          return { kind: "ok" as const };
+        }
+        yield* scheduler.recordIgnored(headers, "ignored_ci_event_pending_state", intakeLog);
+        return { kind: "ok" as const };
+      }
+      case "status":
+        yield* scheduler.recordIgnored(headers, "ignored_ci_event_pending_state", intakeLog);
+        return { kind: "ok" as const };
       default:
         parsed satisfies never;
         recordEvent(intakeLog, "unhandled_parsed_event", { event }, "warn");

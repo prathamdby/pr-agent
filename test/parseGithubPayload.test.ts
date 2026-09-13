@@ -903,4 +903,77 @@ describe("parseGithubPayload", () => {
     });
     expect(parsed.name).toBe("ignored");
   });
+
+  it("parses check_run created and completed and drops output", () => {
+    const raw = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" } },
+      check_run: {
+        id: 77,
+        head_sha: "abc123",
+        status: "completed",
+        conclusion: "failure",
+        name: "build",
+        html_url: "https://github.com/acme/pr-agent/runs/77",
+        external_id: "job-1",
+        app: { id: 15368 },
+        pull_requests: [{ number: 12, head: { sha: "abc123" } }],
+        output: { title: "secret", summary: "do not store", text: "logs" },
+      },
+    };
+    const completed = parseGithubPayload("check_run", raw);
+    expect(completed.name).toBe("check_run");
+    if (completed.name !== "check_run") {
+      throw new Error("expected check_run payload");
+    }
+    expect(completed.data.check_run.id).toBe(77);
+    expect(completed.data.check_run.head_sha).toBe("abc123");
+    expect(completed.data.check_run.app?.id).toBe(15368);
+    expect(completed.data.check_run).not.toHaveProperty("output");
+
+    const created = parseGithubPayload("check_run", { ...raw, action: "created" });
+    expect(created.name).toBe("check_run");
+  });
+
+  it("ignores check_run actions other than created or completed", () => {
+    const parsed = parseGithubPayload("check_run", {
+      action: "rerequested",
+      installation: { id: 1 },
+    });
+    expect(parsed.name).toBe("ignored");
+  });
+
+  it("parses status events without an action", () => {
+    const parsed = parseGithubPayload("status", {
+      sha: "abc123",
+      state: "failure",
+      context: "Vercel",
+      description: "Deployment failed",
+      target_url: "https://vercel.com/acme/pr-agent/1",
+      created_at: "2026-09-13T00:00:00Z",
+      updated_at: "2026-09-13T00:00:01Z",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" } },
+    });
+    expect(parsed.name).toBe("status");
+    if (parsed.name !== "status") {
+      throw new Error("expected status payload");
+    }
+    expect(parsed.data.sha).toBe("abc123");
+    expect(parsed.data.context).toBe("Vercel");
+    expect(parsed.data.state).toBe("failure");
+  });
+
+  it("rejects status events with an empty sha", () => {
+    expect(() =>
+      parseGithubPayload("status", {
+        sha: "",
+        state: "pending",
+        context: "Vercel",
+        installation: { id: 9 },
+        repository: { name: "pr-agent", owner: { login: "acme" } },
+      }),
+    ).toThrow(WebhookParseError);
+  });
 });

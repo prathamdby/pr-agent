@@ -269,13 +269,13 @@ export const APP_FIELDS = [
   {
     label: "Subscribe to",
     value:
-      "Pull requests, issue comments, pull request review comments, workflow runs, and check suites",
+      "Pull requests, issue comments, pull request review comments, workflow runs, check suites, check runs, and statuses",
     mono: false,
   },
   {
     label: "Permissions",
     value:
-      "Issues and pull requests: read and write. Repository contents: read and write. Metadata: read. Checks: read and write. Actions: read. Commit statuses only if you turn on commit-status posting.",
+      "Issues and pull requests: read and write. Repository contents: read and write. Metadata: read. Checks: read and write. Actions: read. Commit statuses: read on every install. Write only if you turn on commit-status posting.",
     mono: false,
   },
 ] as const;

@@ -320,6 +320,33 @@ describe("processWebhookPostRequestEffect", () => {
         },
       },
       {
+        event: "check_run",
+        delivery: "d-empty-check-run-sha",
+        payload: {
+          action: "completed",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
+          check_run: {
+            id: 77,
+            head_sha: "",
+            status: "completed",
+            conclusion: "failure",
+            name: "build",
+          },
+        },
+      },
+      {
+        event: "status",
+        delivery: "d-empty-status-sha",
+        payload: {
+          sha: "",
+          state: "failure",
+          context: "Vercel",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
+        },
+      },
+      {
         event: "pull_request",
         delivery: "d-oversize-login",
         payload: {
@@ -868,6 +895,87 @@ describe("processWebhookPostRequestEffect", () => {
 
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(captured).toEqual([]);
+  });
+
+  it("records check_run as pending CI state and ignores the own App", async () => {
+    const decisions: string[] = [];
+    const layer = slashGateLayer(decisions, []);
+    const foreign = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" }, size: 10 },
+      check_run: {
+        id: 77,
+        head_sha: "sha-a",
+        status: "completed",
+        conclusion: "failure",
+        name: "build",
+        app: { id: 15368 },
+      },
+    };
+    const own = {
+      ...foreign,
+      check_run: { ...foreign.check_run, app: { id: 1 } },
+    };
+
+    const foreignBody = Buffer.from(JSON.stringify(foreign));
+    const ownBody = Buffer.from(JSON.stringify(own));
+    await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(foreignBody),
+            "x-github-event": "check_run",
+            "x-github-delivery": "d-check-run-foreign",
+          },
+          rawBody: foreignBody,
+        },
+        layer,
+      ),
+    );
+    await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(ownBody),
+            "x-github-event": "check_run",
+            "x-github-delivery": "d-check-run-own",
+          },
+          rawBody: ownBody,
+        },
+        layer,
+      ),
+    );
+
+    expect(decisions).toEqual(["ignored_ci_event_pending_state", "ignored_own_check_run"]);
+  });
+
+  it("records status events as pending CI state", async () => {
+    const decisions: string[] = [];
+    const payload = {
+      sha: "sha-a",
+      state: "failure",
+      context: "Vercel",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" }, size: 10 },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "status",
+            "x-github-delivery": "d-status",
+          },
+          rawBody: body,
+        },
+        slashGateLayer(decisions, []),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual(["ignored_ci_event_pending_state"]);
   });
 
   it("returns 503 when handling exceeds the timeout budget", async () => {

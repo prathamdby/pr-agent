@@ -74,21 +74,21 @@ Create the GitHub App and paste a real private key before you start Compose. The
 3. Leave **Identifying and authorizing users** off. Do not set a callback URL. This App does not use user login.
 4. Set **Webhook URL** to `https://<your-host>/webhooks` once you have HTTPS, or a tunnel URL that forwards to `/webhooks`. You can save the App first and add the URL after the host is up.
 5. Set **Webhook secret** now. Copy the same value into `WEBHOOK_SECRET` later.
-6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, and `check_suite`. Do not require `pull_request_review` unless you have a reason.
+6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. Do not require `pull_request_review` unless you have a reason.
 7. Set repository permissions (table below). Create the app, generate a **private key**, and copy the **App ID**.
 8. Install the app on the orgs or repos you want reviewed. Creating the App is not enough. If you pick **Only select repositories**, include the test repo.
 
-| Permission      | Access       | Why                                               |
-| --------------- | ------------ | ------------------------------------------------- |
-| Issues          | Read & write | PR conversation comments and reactions            |
-| Pull requests   | Read & write | Reviews, inline threads, PR body for `/describe`  |
-| Contents        | Read & write | Read code; write only needed for `/triage` pushes |
-| Metadata        | Read         | Required by GitHub for apps                       |
-| Checks          | Read & write | Review check run + CI summary inputs              |
-| Actions         | Read         | Condensed job logs when CI fails                  |
-| Commit statuses | Read & write | Only if you set `FEATURE_COMMIT_STATUS=true`      |
+| Permission      | Access       | Why                                                                             |
+| --------------- | ------------ | ------------------------------------------------------------------------------- |
+| Issues          | Read & write | PR conversation comments and reactions                                          |
+| Pull requests   | Read & write | Reviews, inline threads, PR body for `/describe`                                |
+| Contents        | Read & write | Read code; write only needed for `/triage` pushes                               |
+| Metadata        | Read         | Required by GitHub for apps                                                     |
+| Checks          | Read & write | Review check run + CI summary inputs                                            |
+| Actions         | Read         | Condensed job logs when CI fails                                                |
+| Commit statuses | Read         | Legacy `status` events and CI facts. Add write if `FEATURE_COMMIT_STATUS=true`. |
 
-`workflow_run` or `check_suite` (completed) refreshes the CI row on an existing review summary when Actions finish later.
+`workflow_run` or `check_suite` (completed) refreshes the CI row on an existing review summary when Actions finish later. `check_run` (`created`, `completed`) and `status` are recorded for the head even when no PR is known yet. Own-App `check_run` and `check_suite` deliveries are ignored.
 
 ### 2. Create the environment file
 
