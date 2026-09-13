@@ -39,7 +39,9 @@ const mocks = vi.hoisted(() => ({
   getWorkItem: vi.fn(async (): Promise<unknown> => null),
   recordPublishStep: vi.fn(),
   hasCompletedPublishStep: vi.fn(async () => false),
-  getCompletedPublishStepDetail: vi.fn(async () => null),
+  getCompletedPublishStepDetail: vi.fn(
+    async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
+  ),
   shouldSkipWork: vi.fn(async () => false),
   getSharedRateLimitCircuit: vi.fn(async () => null),
   openSharedRateLimitCircuitBestEffort: vi.fn(),
@@ -229,7 +231,9 @@ describe("executeReviewJob", () => {
           : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
     );
     mocks.getSharedRateLimitCircuit.mockResolvedValue(null);
-    mocks.getCompletedPublishStepDetail.mockImplementation(async () => null);
+    mocks.getCompletedPublishStepDetail.mockImplementation(
+      async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
+    );
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
     vi.spyOn(reviewLightweightCompletion, "tryLightweightAutoReviewCompletion").mockImplementation(
       mocks.lightweight,
@@ -1266,14 +1270,12 @@ describe("executeReviewJob", () => {
   });
 
   it("does not overwrite a completed summary from the terminal failure hook", async () => {
-    mocks.getCompletedPublishStepDetail.mockImplementation(
-      async (_pool, _id, _key, _lens, step) => {
-        if (step === "summary_comment") {
-          return { ownVerdictKind: "published", ownCheckFailing: false };
-        }
-        return { status: "in_progress" };
-      },
-    );
+    mocks.getCompletedPublishStepDetail.mockImplementation(async (...args: unknown[]) => {
+      if (args[4] === "summary_comment") {
+        return { ownVerdictKind: "published", ownCheckFailing: false };
+      }
+      return { status: "in_progress" };
+    });
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
@@ -1305,14 +1307,12 @@ describe("executeReviewJob", () => {
   });
 
   it("skips the terminal failure close when the check already has a conclusion", async () => {
-    mocks.getCompletedPublishStepDetail.mockImplementation(
-      async (_pool, _id, _key, _lens, step) => {
-        if (step === "summary_comment") {
-          return { ownVerdictKind: "published", ownCheckFailing: true };
-        }
-        return { status: "completed", conclusion: "failure" };
-      },
-    );
+    mocks.getCompletedPublishStepDetail.mockImplementation(async (...args: unknown[]) => {
+      if (args[4] === "summary_comment") {
+        return { ownVerdictKind: "published", ownCheckFailing: true };
+      }
+      return { status: "completed", conclusion: "failure" };
+    });
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
