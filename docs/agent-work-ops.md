@@ -53,7 +53,7 @@ Worker readiness is distinct from web probes: `GET /ready` on the worker process
 
 ## Local Development
 
-For end-to-end behavior (reviews, descriptions, asks, triage, and verification), run the full stack. Maintainers use `docker compose -f docker-compose.dev.yml up -d --build` (Postgres, Caddy, web, and worker). Self-host uses `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`, no Caddy). Web-only accepts webhooks but does not execute agent work.
+For end-to-end behavior (reviews, descriptions, asks, triage, and verification), run the full stack. Maintainers use `docker compose -f docker-compose.dev.yml up -d --build` (Postgres, Caddy, web, worker, and a Cloudflare quick tunnel). Self-host uses `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`, no Caddy, no tunnel). Web-only accepts webhooks but does not execute agent work.
 
 See [README.md](../README.md#local-development) and [operations.md](operations.md#development). The production three-container path is [README.md](../README.md#installation).
 

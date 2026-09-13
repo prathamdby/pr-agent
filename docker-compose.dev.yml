@@ -1,7 +1,9 @@
-# Maintainer-local stack. Postgres, Caddy, web, and worker.
-# Production hosting still uses docker-compose.yml. That file has no Caddy.
+# Maintainer-local stack. Postgres, Caddy, web, worker, and a Cloudflare
+# quick tunnel. Production hosting still uses docker-compose.yml. That file
+# has no Caddy and no tunnel.
 #
 #   docker compose -f docker-compose.dev.yml up -d --build
+#   node dev/print-public-webhook-url.cjs
 #
 # Mock GitHub App fields live in dev/mock.env. The boot script generates a
 # throwaway PEM at process start. They are not a real App. For live deliveries:
@@ -9,6 +11,8 @@
 #
 # Local Postgres uses trust auth so this file does not embed a password.
 # Host integration tests may still use the documented URL with user pr_agent.
+# The tunnel origin is HTTP to the web service. Paste the printed
+# trycloudflare URL on the GitHub App. The hostname changes on restart.
 #
 # Published ports bind 127.0.0.1. Opening 80 or 443 on all interfaces is an
 # operator choice and exposes the laptop on the LAN.
@@ -119,6 +123,18 @@ services:
     depends_on:
       - pr-agent-web
       - pr-agent-worker
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.6.0
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://pr-agent-web:7224
+    depends_on:
+      pr-agent-web:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

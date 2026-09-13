@@ -82,9 +82,9 @@ Use the smallest stack that exercises the behavior. `DATABASE_URL` is required f
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-That file starts Postgres (published on `127.0.0.1:5432`), Caddy, web (`7224`), and worker (`7225`). `dev/mock.env` has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App. For live deliveries, fill `.env` and pass `PR_AGENT_ENV_FILE=.env`.
+That file starts Postgres (published on `127.0.0.1:5432`), Caddy, web (`7224`), worker (`7225`), and a Cloudflare quick tunnel to the web process. `dev/mock.env` has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App. Print the public webhook URL with `node dev/print-public-webhook-url.cjs` and paste it on the GitHub App. For live deliveries, fill `.env` and pass `PR_AGENT_ENV_FILE=.env`.
 
-`docker compose up` remains the self-host path. It starts containerized web and worker without Caddy and does not publish Postgres. Do not run both Compose files at once. `docker compose up -d postgres` from the base file still does not open host port `5432`.
+`docker compose up` remains the self-host path. It starts containerized web and worker without Caddy or a tunnel and does not publish Postgres. Do not run both Compose files at once. `docker compose up -d postgres` from the base file still does not open host port `5432`.
 
 Host Nub is optional on the maintainer-local path. Pin it to `@nubjs/nub@0.7.2` when you install it globally. Use `nub watch` only when you want host hot reload instead of an image rebuild.
 
