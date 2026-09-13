@@ -28,15 +28,18 @@ function isHeadCiSeedPullRequestAction(action: string): boolean {
   return action !== "closed" && AUTOMATED_PR_ACTIONS.has(action);
 }
 
+/** True when this pull_request action and SHA may request a first head seed. */
+export function isHeadCiSeedPullRequest(action: string, headSha: string): boolean {
+  return isHeadCiSeedPullRequestAction(action) && headSha !== DEFERRED_HEAD_SHA;
+}
+
 /** True when this pull_request delivery should schedule the first head seed. */
 export function shouldSeedHeadCiFromPullRequest(
   action: string,
   headSha: string,
   row: Pick<PrHeadCiStateRow, "seededAt"> | null,
 ): boolean {
-  return (
-    isHeadCiSeedPullRequestAction(action) && headSha !== DEFERRED_HEAD_SHA && headCiNeedsSeed(row)
-  );
+  return isHeadCiSeedPullRequest(action, headSha) && headCiNeedsSeed(row);
 }
 
 /** True when a claim-time writer should enqueue after stamping the cell. */

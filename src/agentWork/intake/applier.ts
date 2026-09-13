@@ -34,8 +34,8 @@ import {
   jobCorrelation,
 } from "./queueing.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
-import { shouldSeedHeadCiFromPullRequest } from "../ciProjection.js";
-import { applyPrHeadCiFact, loadPrHeadCiState } from "../prHeadCiState.js";
+import { isHeadCiSeedPullRequest, shouldSeedHeadCiFromPullRequest } from "../ciProjection.js";
+import { applyPrHeadCiFact, headCiNeedsSeed, loadPrHeadCiState } from "../prHeadCiState.js";
 import type { CiCheckFact } from "../../review/ci/classifySnapshot.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
@@ -390,8 +390,12 @@ async function applyPullRequestCiSeedIntake(
   intakeLog: RequestLogger,
   action: string,
 ): Promise<DeferredIntakeEvent[]> {
+  if (!isHeadCiSeedPullRequest(action, ref.headSha)) {
+    await recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog);
+    return [];
+  }
   const row = await loadPrHeadCiState(client, ref.owner, ref.repo, ref.headSha);
-  if (!shouldSeedHeadCiFromPullRequest(action, ref.headSha, row)) {
+  if (!headCiNeedsSeed(row)) {
     await recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog);
     return [];
   }
