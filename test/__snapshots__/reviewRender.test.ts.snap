@@ -95,7 +95,8 @@ Adjust slice end index to include the last item.
 exports[`renderReviewSummaryComment > drops finding rows from the tail when compact mode still exceeds the body budget 1`] = `
 "## PR Agent Review
 
-12 findings. CI has not started. All specialists ran with full coverage.
+> [!NOTE]
+> 12 findings. CI has not started. All specialists ran with full coverage.
 
 <table>
 <tbody>
