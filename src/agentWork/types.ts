@@ -98,16 +98,13 @@ export type VerificationJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
-/** Fire-and-forget CI cell refresh after workflow_run / check_suite completed (ADR 0018). */
-export type CiRefreshJobData = JobCorrelation & {
-  readonly kind: "ci_refresh";
+/** Head-scoped projection after a `pr_head_ci_state` write or a completed-run webhook. */
+export type CiProjectionJobData = JobCorrelation & {
+  readonly kind: "ci_projection";
   readonly installationId: number;
   readonly owner: string;
   readonly repo: string;
-  readonly prNumber: number;
   readonly headSha: string;
-  /** 0 at intake. Each retain hop increments until the cap. */
-  readonly attempt: number;
 };
 
 export type StaleHeadReplacementState = "pending-enqueue" | "enqueued";

@@ -21,7 +21,7 @@ describe("runRetention batched delete loop", () => {
 
     const pool = {
       query: vi.fn(async (text: string) => {
-        if (text.includes("agent_work_items")) {
+        if (text.includes("DELETE FROM agent_work_items")) {
           const batch = workBatches[workCalls++];
           if (batch === undefined) {
             throw new Error("unexpected extra agent_work_items query");
@@ -47,6 +47,9 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("ask_quota_buckets")) {
           return { rowCount: 0 };
         }
+        if (text.includes("DELETE FROM pr_head_ci_state")) {
+          return { rowCount: 0 };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -59,6 +62,7 @@ describe("runRetention batched delete loop", () => {
     expect(result.agentEventsDeleted).toBe(0);
     expect(result.codeIndexSnapshotsDeleted).toBe(0);
     expect(result.askQuotaBucketsDeleted).toBe(0);
+    expect(result.prHeadCiStateDeleted).toBe(0);
     expect(workCalls).toBe(2);
     expect(webhookCalls).toBe(2);
   });
@@ -69,7 +73,7 @@ describe("runRetention batched delete loop", () => {
 
     const pool = {
       query: vi.fn(async (text: string) => {
-        if (text.includes("agent_work_items")) {
+        if (text.includes("DELETE FROM agent_work_items")) {
           workCalls += 1;
           return { rowCount: 3 };
         }
@@ -86,6 +90,9 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("ask_quota_buckets")) {
           return { rowCount: 0 };
         }
+        if (text.includes("DELETE FROM pr_head_ci_state")) {
+          return { rowCount: 0 };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -97,6 +104,7 @@ describe("runRetention batched delete loop", () => {
     expect(result.resumeSnapshotsDeleted).toBe(0);
     expect(result.agentEventsDeleted).toBe(0);
     expect(result.askQuotaBucketsDeleted).toBe(0);
+    expect(result.prHeadCiStateDeleted).toBe(0);
     expect(workCalls).toBe(1);
     expect(webhookCalls).toBe(1);
   });
@@ -105,11 +113,12 @@ describe("runRetention batched delete loop", () => {
     const eventBatches = [RETENTION_DELETE_BATCH_SIZE, 7];
     let eventCalls = 0;
     const query = vi.fn(async (text: string) => {
-      if (text.includes("agent_work_items")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
       if (text.includes("webhook_events")) return { rowCount: 0 };
       if (text.includes("agent_resume_snapshots")) return { rowCount: 0 };
       if (text.includes("code_index_snapshots")) return { rowCount: 0 };
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM pr_head_ci_state")) return { rowCount: 0 };
       if (text.includes("agent_events")) {
         expect(text).toContain("recorded_at");
         expect(text).toContain("DELETE FROM agent_events");
@@ -128,5 +137,32 @@ describe("runRetention batched delete loop", () => {
 
     expect(result.agentEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 7);
     expect(eventCalls).toBe(2);
+  });
+
+  it("batches pr_head_ci_state deletes and reports the count", async () => {
+    const stateBatches = [RETENTION_DELETE_BATCH_SIZE, 4];
+    let stateCalls = 0;
+    const query = vi.fn(async (text: string) => {
+      if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
+      if (text.includes("webhook_events")) return { rowCount: 0 };
+      if (text.includes("agent_resume_snapshots")) return { rowCount: 0 };
+      if (text.includes("code_index_snapshots")) return { rowCount: 0 };
+      if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
+      if (text.includes("agent_events")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM pr_head_ci_state")) {
+        expect(text).toContain("updated_at");
+        expect(text).toContain("agent_work_items");
+        const batch = stateBatches[stateCalls++];
+        if (batch === undefined) throw new Error("unexpected extra pr_head_ci_state query");
+        return { rowCount: batch };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    });
+    const pool = { query } as unknown as Pool;
+
+    const result = await runRetention(pool, RETENTION);
+
+    expect(result.prHeadCiStateDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 4);
+    expect(stateCalls).toBe(2);
   });
 });

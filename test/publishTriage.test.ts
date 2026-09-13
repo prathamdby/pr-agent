@@ -852,6 +852,9 @@ describe("publishTriage", () => {
     expect(body).toContain(
       "0 Fixed · 1 Already resolved · 0 Skipped · 0 Dismissed · 0 Previously resolved",
     );
+    expect(body).toContain("pr-agent:ci-rollup");
+    expect(body).toContain("v=0");
+    expect(body).toContain("none");
   });
 
   it("redacts report-only bodies at the same upsert chokepoint", async () => {

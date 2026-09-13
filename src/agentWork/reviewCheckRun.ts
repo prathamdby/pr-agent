@@ -9,15 +9,12 @@ import { checkRunFindingsSummary } from "../github/statusCopy.js";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
-  DEFERRED_HEAD_SHA,
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
   REVIEW_CHECK_RUN_WAIT_POLL_MS,
 } from "../settings/index.js";
 import {
   getReviewCheckRunGithubId,
-  getSummaryCommentGithubId,
-  getWorkItemCore,
   recordReviewCheckRun,
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
@@ -66,6 +63,7 @@ function logCheckRunWarning(
   error: unknown,
   fields: Record<string, string | number | undefined>,
 ): void {
+  // Missing Checks (403) is an install-permission miss. 404 is a missing run.
   if (
     isMissingActionsPermissionError(error) ||
     (error instanceof Error && isMissingActionsPermissionError(error.cause))
@@ -401,30 +399,7 @@ export async function completeReviewCheckRun(
   return applyReviewCheckRunCompletion(pool, params, checkRunId);
 }
 
-async function findOpenReviewCheckRunId(
-  prSurface: PrSurface,
-  headSha: string,
-  externalId: string,
-): Promise<number | null> {
-  try {
-    const status = await prSurface.getCiStatus(headSha);
-    if (status.checkRunsComplete === false) return null;
-    const matches = status.checkRuns.filter(
-      (run) =>
-        run.name === reviewCheckRunName() &&
-        run.status === "in_progress" &&
-        run.externalId === externalId,
-    );
-    return matches.length === 1 ? (matches[0]?.id ?? null) : null;
-  } catch (error) {
-    logCheckRunWarning("review_check_run_cancel_lookup_failed", error, {
-      headSha,
-    });
-    return null;
-  }
-}
-
-/** Finish the review check as `cancelled`; recovers only one exact remote identity. */
+/** Finish the review check as `cancelled` from the stored publish record. */
 export async function cancelReviewCheckRun(
   pool: Pool,
   params: {
@@ -438,18 +413,10 @@ export async function cancelReviewCheckRun(
     leaseEpoch?: number | null;
     headSha?: string;
     detailsUrl?: string;
+    summary?: string;
   },
 ): Promise<boolean> {
-  // One-shot lookup: cancel must not burn the late-start wait used by complete/publish.
-  let checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-  // Queued reviews keep DEFERRED_HEAD_SHA; only recover open checks for real SHAs.
-  if (checkRunId == null && params.headSha && params.headSha !== DEFERRED_HEAD_SHA) {
-    checkRunId = await findOpenReviewCheckRunId(
-      params.prSurface,
-      params.headSha,
-      params.workItemId,
-    );
-  }
+  const checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (checkRunId == null) return false;
   return applyReviewCheckRunCompletion(
     pool,
@@ -463,58 +430,9 @@ export async function cancelReviewCheckRun(
       reviewLens: params.reviewLens,
       ...leaseEpochParam(params.leaseEpoch),
       conclusion: "cancelled",
-      summary: REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
+      summary: params.summary ?? REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
       detailsUrl: params.detailsUrl,
     },
     checkRunId,
-  );
-}
-
-export async function cancelReviewCheckRunsForWorkItems(
-  pool: Pool,
-  params: {
-    prSurface: PrSurface;
-    owner: string;
-    repo: string;
-    prNumber: number;
-    workItemIds: readonly string[];
-  },
-): Promise<void> {
-  await Promise.all(
-    params.workItemIds.map(async (workItemId) => {
-      try {
-        const core = await getWorkItemCore(pool, workItemId);
-        if (core == null || core.type !== "review" || core.reviewLens == null) return;
-        const summaryCommentId = await getSummaryCommentGithubId(
-          pool,
-          core.resourceKey,
-          core.reviewLens,
-        );
-        await cancelReviewCheckRun(pool, {
-          prSurface: params.prSurface,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-          workItemId,
-          resourceKey: core.resourceKey,
-          reviewLens: core.reviewLens,
-          headSha: core.headSha,
-          detailsUrl: reviewCheckDetailsUrl(
-            params.owner,
-            params.repo,
-            params.prNumber,
-            summaryCommentId,
-          ),
-        });
-      } catch (error) {
-        logWarn("review_check_run_cancel_item_failed", {
-          owner: params.owner,
-          repo: params.repo,
-          pr: params.prNumber,
-          workItemId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }),
   );
 }

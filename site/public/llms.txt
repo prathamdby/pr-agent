@@ -44,8 +44,8 @@ Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMB
 /review: run an orchestrated review. Always available. FEATURE_REVIEW has no off mode.
 /review force: cancel any queued or running review and start a new one on the latest commit.
 /describe: write summary bullets and an optional diagram into the PR body.
-/ask … or mention the App bot ({slug}[bot]): answer a code question in the same thread. The literal string @bot only matches if the App was named that.
-/triage: apply-mode fix for open bot findings. /triage preview renders would-be diffs without push. /triage all replays those stored hunks (refused without a matching preview on this head).
+/ask … or mention the App bot ({slug}[bot]): answer a code question in the same thread. The prompt includes a read-only ci_state block from pr_head_ci_state. No CI tool is added. The literal string @bot only matches if the App was named that.
+/triage: apply-mode fix for open bot findings. The report stamps a CI rollup marker the projector patches. /triage preview renders would-be diffs without push. /triage all replays those stored hunks (refused without a matching preview on this head).
 /triage preview: render the would-be unified diff. No commits, no push.
 /triage all: replay the stored preview hunks (optional exclude <thread ids>). Refused without a matching preview on this head. Does not start a second agent run.
 /cancel: cancel a queued or running orchestrated review.
@@ -63,7 +63,7 @@ FEATURE_VERIFICATION: off | manual | auto. Default auto. Rechecks open findings 
 FEATURE_ASK: off | manual. Default manual. /ask and App-bot mention questions.
 FEATURE_TRIAGE: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.
 FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Size and security labels. off still syncs Category labels. No model tokens.
-FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review commit status. No model tokens.
+FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review: pending when the check starts, success or failure from published findings, error on cancel, crash, stale head, unpublished, or partial coverage. No model tokens.
 FEATURE_TITLE_REWRITE: false | true. Default false. Allows /describe to rewrite the PR title.
 Landing-page capability copy:
 - Catch basics before a human opens the change. Runs when a pull request opens, or when you comment /review. Comments land next to the lines that need attention.
@@ -94,9 +94,9 @@ Start production with: docker compose build && docker compose up -d
 Production services: postgres (durable state, unpublished), pr-agent-web (ROLE=web, POST /webhooks, GET /health, GET /ready), pr-agent-worker (queue consumers including code-index-build).
 Migrations run when each process opens its Postgres pool.
 GitHub App webhook URL: https://<host>/webhooks. Webhook secret must match WEBHOOK_SECRET.
-Subscribe to pull_request, issue_comment, pull_request_review_comment, workflow_run, and check_suite.
+Subscribe to pull_request, issue_comment, pull_request_review_comment, workflow_run, check_suite, check_run, and status.
 Permissions: Issues read/write, Pull requests read/write, Contents read/write, Metadata read, Checks read/write, Actions read.
-Commit statuses read/write only if FEATURE_COMMIT_STATUS=true.
+Commit statuses read on every install for legacy status events. Write only if FEATURE_COMMIT_STATUS=true.
 Install the app on the orgs or repos to review. Creating the App is not enough. If you pick only selected repositories, include the test repo. Then recreate web and worker so they pick up credentials.
 GitHub needs HTTPS except when the webhook target is a loopback address. Production Compose publishes HTTP 7224 only. Put TLS in front, or use the maintainer-local Compose file, which starts a Cloudflare quick tunnel to /webhooks.
 A VPS plus Dokploy or Coolify is a TLS front for pr-agent-web. Route only the web service on internal port 7224. Leave Postgres unpublished. Keep DATABASE_URL on hostname postgres. Do not add a panel-specific compose file or expose the worker. Hetzner is the usual cheap 4 GB VPS. Hostinger and DigitalOcean also work. See README Recommended hosts.
@@ -110,13 +110,14 @@ Two processes must run together.
 ROLE=web accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns 200 once that write succeeds.
 ROLE=worker runs the queues: reactions, progress comments, model sessions, and everything posted back to the PR.
 Flow: GitHub webhooks → web /webhooks → Postgres webhook_events dedupe → agent_work_items → pg-boss enqueue.
-Queues: ack, ci-refresh, review, ask, description, triage, verification, retention, code-index-build.
+check_run and status write pr_head_ci_state and enqueue a debounced ci-projection job. workflow_run and check_suite completed deliveries enqueue the same projection without writing facts. The worker consumes that queue and renders CI cells from the row. An incomplete seed stays unavailable on the cell and the rollup marker. A row whose seeded_at is still null is seeded on the next projection. Cancelled check conclusions roll up as failing. Each projection refreshes the head-to-PR list. A terminal review with an open check is closed from the recorded outcome. Ask reads a ci_state block from the same row. The triage report stamps a rollup marker the projector patches, including after a push whose work-item head is still the pre-push SHA. The own check is excluded by App id or work-item external id, not by name. A failing rollup authors once per facts hash and stores the result on authored. PostHog work completed carries ci_rollup, ci_failing_count, and ci_authored. One ci state changed event fires when rollup moves.
+Queues: ack, ci-projection, review, ask, description, triage, verification, retention, code-index-build.
 Ack worker posts the eyes reaction and the review progress stub.
 Review runs four specialists (correctness, security, quality, tests) under one orchestrator.
 A finding is published only when it meets the causal-publication contract: one atomic problem, a concrete trigger, PR-introduced or PR-exposed harm or a precise unprotected regression, an observable consequence, ledger-authorized reviewed-head evidence, and a bounded fix.
 Quality findings require present structural harm. Test findings require a named changed behaviour, untested state, invariant, and plausible regression.
 The orchestrator re-applies that contract during judgment. Specialist reports remain evidence.
-P0-P2 findings fail the review check run. P3 does not.
+P0-P2 findings fail the review check run. P3 does not. Crash and unpublished runs conclude the check as action_required. Cancel, supersede, and stale head conclude it as cancelled.
 Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.
 Web does not create installation tokens or post to the PR. Workers do that.
 

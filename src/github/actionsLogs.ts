@@ -4,7 +4,7 @@ import {
   REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
 } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
-import { httpStatus } from "./httpStatus.js";
+import { classifyGithubError } from "./githubErrors.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 
 const WORKFLOW_RUNS_PAGE_SIZE = 20;
@@ -28,14 +28,11 @@ export type DownloadActionsJobLogsResult =
   | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
 
 export function isMissingActionsPermissionError(error: unknown): boolean {
-  const status = httpStatus(error);
-  if (status !== 403 && status !== 404) return false;
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes("Resource not accessible by integration") ||
-    message.includes("Not Found") ||
-    status === 404
-  );
+  return classifyGithubError(error) === "forbidden";
+}
+
+export function isGithubNotFoundError(error: unknown): boolean {
+  return classifyGithubError(error) === "not_found";
 }
 
 export async function listFailingActionsJobsForHead(
@@ -96,6 +93,9 @@ export async function listFailingActionsJobsForHead(
     if (isMissingActionsPermissionError(error)) {
       return { ok: false, reason: "actions_permission" };
     }
+    if (isGithubNotFoundError(error)) {
+      return { ok: true, jobs: [] };
+    }
     throw error;
   }
 }
@@ -128,6 +128,9 @@ export async function downloadActionsJobLogs(
   } catch (error) {
     if (isMissingActionsPermissionError(error)) {
       return { ok: false, reason: "actions_permission" };
+    }
+    if (isGithubNotFoundError(error)) {
+      return { ok: false, reason: "empty" };
     }
     throw error;
   }

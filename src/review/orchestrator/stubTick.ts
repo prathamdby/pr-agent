@@ -1,9 +1,13 @@
 import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
+import {
+  enqueueCiProjectionIfVersionMoved,
+  loadRenderableHeadCi,
+} from "../../agentWork/ciProjection.js";
 import { logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { upsertSummaryCommentWithCreationClaim } from "../publish/summaryCommentUpsert.js";
 import { REVIEW_SUMMARY_SENTINEL, type WorkSource } from "../reviewSchema.js";
 import {
@@ -26,9 +30,10 @@ type TickProgressCommentBase = {
   readonly mode: AnyReviewLens;
   readonly headSha: string;
   readonly source: WorkSource;
-  readonly ciSummary?: CiSummary | null;
   readonly prSurface: PrSurface;
   readonly hintCommentId?: number | null;
+  readonly installationId?: number;
+  readonly boss?: PgBoss;
 };
 
 export type TickProgressCommentArgs = TickProgressCommentBase &
@@ -58,6 +63,7 @@ export type WriteCancelledProgressCommentArgs = {
 
 export async function tickProgressComment(args: TickProgressCommentArgs): Promise<void> {
   try {
+    const rendered = await loadRenderableHeadCi(args.pool, args.owner, args.repo, args.headSha);
     await upsertSummaryCommentWithCreationClaim({
       pool: args.pool,
       workItemId: args.workItemId,
@@ -68,7 +74,8 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
         mode: args.mode,
         headSha: args.headSha,
         source: args.source,
-        ciSummary: args.ciSummary,
+        ciSummary: rendered.summary,
+        ciVersion: rendered.version,
         tickState: args.tickState,
         progressRevision: args.progressRevision,
         progressWorkItemId: args.workItemId,
@@ -76,6 +83,17 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
       sentinel: REVIEW_SUMMARY_SENTINEL,
       hintCommentId: args.hintCommentId,
       progressRevision: args.progressRevision,
+      ciHeadSha: args.headSha,
+      ciVersion: rendered.version,
+    });
+    await enqueueCiProjectionIfVersionMoved({
+      boss: args.boss,
+      pool: args.pool,
+      installationId: args.installationId ?? 0,
+      owner: args.owner,
+      repo: args.repo,
+      headSha: args.headSha,
+      renderedVersion: rendered.version,
     });
   } catch (error) {
     logWarn("review_progress_tick_failed", {

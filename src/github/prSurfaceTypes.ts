@@ -51,7 +51,7 @@ export type ListPullRequestReviewCommentsResult = {
   readonly truncated: boolean;
 };
 export type ReviewCommitStatusParams = {
-  readonly state: "success" | "failure" | "error";
+  readonly state: "success" | "failure" | "error" | "pending";
   readonly description: string;
   readonly targetUrl?: string;
 };
@@ -222,6 +222,7 @@ export type PrSurfaceReadMethods = {
   getLabels(): Promise<readonly string[]>;
   findReviewCheck?(headSha: string, externalId: string): Promise<CheckRef | null>;
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
+  listPullsForHead(headSha: string): Promise<readonly { readonly number: number }[]>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;
   listCheckRunAnnotations(checkRunId: number): Promise<readonly CiCheckAnnotation[]>;

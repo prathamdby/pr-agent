@@ -23,8 +23,12 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
   })),
 }));
 
-vi.mock("../src/review/ci/analyzeCi.js", () => ({
-  buildCiSummaryForSurface: vi.fn(async () => null),
+vi.mock("../src/agentWork/ciProjection.js", () => ({
+  loadRenderableHeadCi: vi.fn(async () => ({
+    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+    version: 0,
+  })),
+  enqueueCiProjectionIfVersionMoved: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -51,7 +55,12 @@ vi.mock("../src/review/publish/summaryCommentUpsert.js", async (importOriginal) 
 
 vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
   ensureReviewCheckRunStarted: vi.fn(),
-  cancelReviewCheckRunsForWorkItems: vi.fn(async () => undefined),
+}));
+
+vi.mock("../src/agentWork/closeOwnVerdict.js", () => ({
+  closeOwnVerdictsForWorkItems: vi.fn(async () => undefined),
+  postOwnVerdictPending: vi.fn(async () => undefined),
+  closeOwnVerdict: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/evlog.js", () => ({
@@ -59,17 +68,15 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
-import { buildCiSummaryForSurface } from "../src/review/ci/analyzeCi.js";
+import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
 import {
   getProgressCommentOwner,
   getReviewQueuePosition,
   getWorkItemCore,
   recordPublishStep,
 } from "../src/agentWork/repository.js";
-import {
-  cancelReviewCheckRunsForWorkItems,
-  ensureReviewCheckRunStarted,
-} from "../src/agentWork/reviewCheckRun.js";
+import { closeOwnVerdictsForWorkItems } from "../src/agentWork/closeOwnVerdict.js";
+import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
 import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
@@ -82,7 +89,7 @@ import {
 } from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
 
-const cfg = {} as Config;
+const cfg = { features: { commitStatus: false } } as Config;
 const pool = {} as Pool;
 
 function ackData(): AckJobData {
@@ -333,7 +340,7 @@ describe("executeAckJob", () => {
     expect(body).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
     expect(body).not.toContain("<strong>Recon</strong>");
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
-    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel"],
@@ -438,7 +445,7 @@ describe("executeAckJob", () => {
       101,
     );
     vi.mocked(upsertSummaryCommentWithCreationClaim).mockClear();
-    vi.mocked(cancelReviewCheckRunsForWorkItems).mockClear();
+    vi.mocked(closeOwnVerdictsForWorkItems).mockClear();
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -454,7 +461,7 @@ describe("executeAckJob", () => {
     const body = edit?.kind === "editComment" ? edit.body : "";
     expect(body).toContain(reviewProgressCancelledNote({ kind: "merged" }));
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
-    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel", "wi-other"],
@@ -480,7 +487,7 @@ describe("executeAckJob", () => {
       },
     });
 
-    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel"],
@@ -509,7 +516,7 @@ describe("executeAckJob", () => {
       }),
     ).resolves.toBeUndefined();
 
-    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: [],
@@ -526,7 +533,7 @@ describe("executeAckJob", () => {
       progressWorkItemId: "wi-cancel",
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
-    vi.mocked(cancelReviewCheckRunsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
+    vi.mocked(closeOwnVerdictsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
 
     await expect(
       executeAckJob(cfg, pool, {
@@ -579,7 +586,7 @@ describe("executeAckJob", () => {
         message: "edit 403",
       }),
     );
-    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         workItemIds: ["wi-cancel"],
@@ -618,7 +625,7 @@ describe("executeAckJob", () => {
     expect(edit).toMatchObject({ kind: "editComment", commentId: 99 });
     const editBody = edit?.kind === "editComment" ? edit.body : "";
     expect(editBody).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
-    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ workItemIds: ["wi-old"] }),
     );
@@ -629,7 +636,7 @@ describe("executeAckJob", () => {
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
       }),
     );
-    const cancelOrder = vi.mocked(cancelReviewCheckRunsForWorkItems).mock.invocationCallOrder[0]!;
+    const cancelOrder = vi.mocked(closeOwnVerdictsForWorkItems).mock.invocationCallOrder[0]!;
     const progressOrder = vi.mocked(upsertSummaryCommentWithCreationClaim).mock
       .invocationCallOrder[0]!;
     expect(cancelOrder).toBeLessThan(progressOrder);
@@ -670,7 +677,7 @@ describe("executeAckJob", () => {
       expect.objectContaining({ workItemId: "wi-old", message: "edit 403" }),
     );
     // Comment I/O failure must not block check cancellation or the new stub.
-    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+    expect(closeOwnVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ workItemIds: ["wi-old"] }),
     );
@@ -693,7 +700,7 @@ describe("executeAckJob", () => {
       progressWorkItemId: "wi-old",
     });
     surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
-    vi.mocked(cancelReviewCheckRunsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
+    vi.mocked(closeOwnVerdictsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
     vi.mocked(getWorkItemCore).mockResolvedValueOnce({
       id: "wi-new",
       status: "queued",
@@ -753,7 +760,7 @@ describe("executeAckJob", () => {
       expect.objectContaining({ workItemId: "wi-old", message: "lookup boom" }),
     );
     // The throw happens before check cancellation; only the new stub and reply land.
-    expect(cancelReviewCheckRunsForWorkItems).not.toHaveBeenCalled();
+    expect(closeOwnVerdictsForWorkItems).not.toHaveBeenCalled();
     expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
     expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -765,10 +772,9 @@ describe("executeAckJob", () => {
   });
 
   it("renders waiting for CI when the ack snapshot sees no checks yet", async () => {
-    vi.mocked(buildCiSummaryForSurface).mockResolvedValueOnce({
-      status: "none",
-      headline: "No CI checks on this head",
-      failures: [],
+    vi.mocked(loadRenderableHeadCi).mockResolvedValueOnce({
+      summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+      version: 0,
     });
     vi.mocked(getWorkItemCore).mockResolvedValueOnce({
       id: "wi-1",

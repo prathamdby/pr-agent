@@ -137,6 +137,7 @@ describe("PrSurface lease mutation boundary", () => {
       ["listCommitCompareFiles", () => surface.listCommitCompareFiles("base", "head")],
       ["getLabels", () => surface.getLabels()],
       ["getCiStatus", () => surface.getCiStatus("head")],
+      ["listPullsForHead", () => surface.listPullsForHead("head")],
       ["listFailingActionsJobs", () => surface.listFailingActionsJobs("head")],
       ["downloadActionsJobLogs", () => surface.downloadActionsJobLogs(1)],
       ["listCheckRunAnnotations", () => surface.listCheckRunAnnotations(1)],

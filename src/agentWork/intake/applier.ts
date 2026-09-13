@@ -26,13 +26,16 @@ import { flushDeferredEvents, type DeferredIntakeEvent } from "./deferredEvents.
 import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
 import {
   enqueueAck,
-  enqueueCiRefreshIdempotent,
+  enqueueCiProjectionDebounced,
   enqueueDescription,
   enqueueReview,
   enqueueVerification,
   jobCorrelation,
 } from "./queueing.js";
-import type { CiRefreshJobData } from "../types.js";
+import type { CiProjectionJobData } from "../types.js";
+import { captureCiStateChanged } from "../../analytics/workCompleted.js";
+import { applyPrHeadCiFact } from "../prHeadCiState.js";
+import type { CiCheckFact } from "../../review/ci/classifySnapshot.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
   cancelActiveTriage,
@@ -379,10 +382,10 @@ export async function applyAutomatedPullRequestIntake(
 }
 
 /**
- * Enqueues CI-refresh jobs for a completed workflow_run / check_suite on matching PR heads.
- * No agent_work_item row — fire-and-forget like ack (ADR 0018).
+ * Enqueues one head-scoped projection for a completed workflow_run / check_suite.
+ * Does not write facts. Empty pull_requests still enqueue (ADR 0035).
  */
-export async function applyCiRefreshIntake(
+export async function applyCompletedRunCiIntake(
   boss: PgBoss,
   pool: Pool,
   headers: WebhookHeaders,
@@ -395,15 +398,9 @@ export async function applyCiRefreshIntake(
   },
   intakeLog: RequestLogger,
 ): Promise<void> {
-  if (data.prNumbers.length === 0) {
-    await inTransaction(pool, (client) =>
-      recordIgnoredWebhook(client, headers, "ignored_workflow_run_no_pr", intakeLog),
-    );
-    return;
-  }
   const events = await inTransaction(pool, async (client) => {
     const deferred: DeferredIntakeEvent[] = [];
-    const event = await insertWebhookEvent(client, headers, "ci_refresh_enqueued");
+    const event = await insertWebhookEvent(client, headers, "ci_projection_enqueued");
     if (event.duplicate) {
       deferred.push({
         name: "deduped_delivery",
@@ -414,31 +411,124 @@ export async function applyCiRefreshIntake(
       });
       return deferred;
     }
-    const correlation = jobCorrelation(event.id, headers);
-    for (const prNumber of data.prNumbers) {
-      const job: CiRefreshJobData = {
-        kind: "ci_refresh",
-        installationId: data.installationId,
+    const job: CiProjectionJobData = {
+      kind: "ci_projection",
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      ...jobCorrelation(event.id, headers),
+    };
+    const result = await enqueueCiProjectionDebounced(boss, client, job);
+    deferred.push({
+      name: "ci_projection_enqueued",
+      fields: {
         owner: data.owner,
         repo: data.repo,
-        prNumber,
         headSha: data.headSha,
-        attempt: 0,
-        ...correlation,
-      };
-      const result = await enqueueCiRefreshIdempotent(boss, client, job, event.id);
-      deferred.push({
-        name: "ci_refresh_enqueued",
-        fields: {
-          owner: data.owner,
-          repo: data.repo,
-          pr: prNumber,
-          headSha: data.headSha,
-          result,
-        },
-      });
-    }
+        prCount: data.prNumbers.length,
+        result,
+      },
+    });
     return deferred;
   });
+  flushDeferredEvents(intakeLog, events);
+}
+
+export type CiStateFactInput = {
+  readonly installationId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly fact: CiCheckFact;
+};
+
+/**
+ * Writes `pr_head_ci_state` for a check_run or status delivery and enqueues a
+ * debounced projection. Does not resolve PRs and does not call GitHub.
+ */
+export async function applyCiStateIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  data: CiStateFactInput,
+  intakeLog: RequestLogger,
+): Promise<void> {
+  const rollupTransition: {
+    current: {
+      readonly previousRollup: string;
+      readonly rollup: string;
+      readonly version: number;
+    } | null;
+  } = { current: null };
+  const events = await inTransaction(pool, async (client) => {
+    const deferred: DeferredIntakeEvent[] = [];
+    const event = await insertWebhookEvent(client, headers, "ci_state_applied");
+    if (event.duplicate) {
+      deferred.push({
+        name: "deduped_delivery",
+        fields: {
+          dedupeKey: event.dedupeKey,
+          event: headers.event,
+        },
+      });
+      return deferred;
+    }
+    const applied = await applyPrHeadCiFact(client, {
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      fact: data.fact,
+    });
+    deferred.push({
+      name: "ci_state_applied",
+      fields: {
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+        name: data.fact.name,
+        accepted: applied.accepted,
+        version: applied.version,
+      },
+    });
+    if (!applied.accepted) return deferred;
+    if (applied.previousRollup !== applied.rollup) {
+      rollupTransition.current = {
+        previousRollup: applied.previousRollup,
+        rollup: applied.rollup,
+        version: applied.version,
+      };
+    }
+    const job: CiProjectionJobData = {
+      kind: "ci_projection",
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      ...jobCorrelation(event.id, headers),
+    };
+    const result = await enqueueCiProjectionDebounced(boss, client, job);
+    deferred.push({
+      name: "ci_projection_enqueued",
+      fields: {
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+        result,
+      },
+    });
+    return deferred;
+  });
+  if (rollupTransition.current != null) {
+    captureCiStateChanged({
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      fromRollup: rollupTransition.current.previousRollup,
+      toRollup: rollupTransition.current.rollup,
+      version: rollupTransition.current.version,
+    });
+  }
   flushDeferredEvents(intakeLog, events);
 }

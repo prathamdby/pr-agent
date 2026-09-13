@@ -93,6 +93,7 @@ describe("collectQueueDiagnostics", () => {
       query: vi
         .fn()
         .mockResolvedValueOnce({ rows: [{ age_ms: "45000" }] })
+        .mockResolvedValueOnce({ rows: [] })
         .mockResolvedValueOnce({ rows: [] }),
     } as unknown as Pick<import("pg").Pool, "query">;
 
@@ -117,6 +118,7 @@ describe("collectQueueDiagnostics", () => {
     expect(report.deadLetters).toEqual([{ queue: "agent-work-review-dead", queued: 2, total: 5 }]);
     expect(report.oldestRunningWorkItemAgeMs).toBe(45_000);
     expect(report.staleQueuedWorkItems).toEqual([]);
+    expect(report.lostRunningWorkItems).toEqual([]);
     expect(report.at).toBe(now.toISOString());
   });
 
@@ -136,7 +138,8 @@ describe("collectQueueDiagnostics", () => {
               age_seconds: "612.5",
             },
           ],
-        }),
+        })
+        .mockResolvedValueOnce({ rows: [] }),
     } as unknown as Pick<import("pg").Pool, "query">;
 
     const report = await collectQueueDiagnostics({
@@ -167,7 +170,11 @@ describe("collectQueueDiagnostics", () => {
 
   it("treats an empty stale-query result as a live job chain, not a warning", async () => {
     const now = new Date("2026-07-26T12:00:00.000Z");
-    const query = vi.fn().mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [] });
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
     const pool = { query } as unknown as Pick<import("pg").Pool, "query">;
 
     const report = await collectQueueDiagnostics({
@@ -179,9 +186,56 @@ describe("collectQueueDiagnostics", () => {
     });
 
     expect(report.staleQueuedWorkItems).toEqual([]);
+    expect(report.lostRunningWorkItems).toEqual([]);
     const staleSql = String(query.mock.calls[1]?.[0]);
     expect(staleSql).toContain("NOT EXISTS");
     expect(staleSql).toContain("pgboss.job");
+  });
+
+  it("reports running leased work whose lease lapsed and whose job is gone", async () => {
+    const now = new Date("2026-07-26T12:00:00.000Z");
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    const pool = {
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              id: "wi-lost",
+              resource_key: "o/r#7",
+              work_type: "review",
+              age_seconds: "1300.2",
+            },
+          ],
+        }),
+    } as unknown as Pick<import("pg").Pool, "query">;
+
+    const report = await collectQueueDiagnostics({
+      boss: { getQueueStats: vi.fn(async () => []) },
+      pool,
+      now,
+      diagnosticQueues: [],
+      dlqQueues: [],
+    });
+
+    expect(report.lostRunningWorkItems).toEqual([
+      { workItemId: "wi-lost", resourceKey: "o/r#7", workType: "review", ageSeconds: 1300 },
+    ]);
+    const lostSql = String(vi.mocked(pool.query).mock.calls[2]?.[0]);
+    expect(lostSql).toContain("status = 'running'");
+    expect(lostSql).toContain("pgboss.job");
+    logQueueDiagnosticsReport(report);
+    expect(logWarn).toHaveBeenCalledWith(
+      "agent_work_running_lost",
+      expect.objectContaining({
+        workItemId: "wi-lost",
+        resourceKey: "o/r#7",
+        workType: "review",
+        ageSeconds: 1300,
+      }),
+    );
   });
 });
 

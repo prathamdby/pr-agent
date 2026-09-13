@@ -1,8 +1,8 @@
 ---
 globs:
   - "src/review/ci/**"
-  - "src/agentWork/executors/ciRefreshExecutor.ts"
+  - "src/agentWork/executors/ciProjectionExecutor.ts"
   - "src/settings/reviewConstants.ts"
 ---
 
-CI summary split (ADR 0018): server owns Checks/status facts, wait/poll, Actions log condense+redact, schema validation, and HTML table cell rendering. The model only fills structured `headline` / `reason` / `fixHint` fields (`authorCiSummary.ts`). Server must overwrite model-drifted `status` and check names from GitHub facts. Ack stays non-LLM. CI refresh edits the CI cell only — never a full re-review. Do not let the model emit table markup.
+CI summary split (ADR 0018): server owns Checks/status facts, Actions log condense+redact, schema validation, and HTML table cell rendering. The model only fills structured `headline` / `reason` / `fixHint` fields (`authorCiSummary.ts`). Server must overwrite model-drifted `status` and check names from GitHub facts. Ack, ticks, and publish render the cell from `pr_head_ci_state`. The projector patches the marked cell when `head` matches and `v` is newer. Do not let the model emit table markup.

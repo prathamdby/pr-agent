@@ -19,7 +19,15 @@ export type DegradedReason =
   | "rate_limit_circuit"
   | "validation_failure"
   | "tool_call_error"
-  | "durable_degradation";
+  | "durable_degradation"
+  | "ci_unavailable";
+
+export type CiWorkTelemetry = {
+  readonly rollup: string;
+  readonly failingCount: number;
+  readonly authored: boolean;
+  readonly unavailableReason?: string;
+};
 
 export type WorkFailureReason = {
   readonly failureDomain: string;
@@ -135,6 +143,7 @@ export type WorkCompletedExtras =
 
 export type CaptureWorkCompletedInput = WorkCompleted & {
   readonly extras?: WorkCompletedExtras;
+  readonly ci?: CiWorkTelemetry;
 };
 
 const EMPTY_PUBLISH: PublishTelemetry = { publishAttempts: 0, publishStepCount: 0 };
@@ -254,6 +263,17 @@ function scalarProperties(
   return properties;
 }
 
+function ciProperties(ci: CiWorkTelemetry | undefined): Record<string, string | number | boolean> {
+  if (ci == null) return {};
+  const properties: Record<string, string | number | boolean> = {
+    ci_rollup: ci.rollup,
+    ci_failing_count: ci.failingCount,
+    ci_authored: ci.authored,
+  };
+  if (ci.unavailableReason != null) properties.ci_unavailable_reason = ci.unavailableReason;
+  return properties;
+}
+
 function envelopeProperties(
   input: CaptureWorkCompletedInput,
 ): Record<string, string | number | boolean> {
@@ -271,6 +291,7 @@ function envelopeProperties(
     publish_attempts: input.publish.publishAttempts,
     publish_step_count: input.publish.publishStepCount,
     ...scalarProperties(input.extras),
+    ...ciProperties(input.ci),
   };
   switch (input.outcome) {
     case "published":
@@ -336,6 +357,7 @@ export function captureDurableWorkCompleted(input: {
   readonly degradedReason?: DegradedReason;
   readonly failure?: WorkFailureReason;
   readonly extras?: WorkCompletedExtras;
+  readonly ci?: CiWorkTelemetry;
 }): void {
   const identity = identityFromWorkItem(input.item, input.workType);
   const distinctId = installationDistinctId(input.item.installationId);
@@ -354,6 +376,7 @@ export function captureDurableWorkCompleted(input: {
         outcome: "published",
         reason: "published",
         extras: input.extras,
+        ci: input.ci,
       });
       return;
     case "superseded":
@@ -362,6 +385,7 @@ export function captureDurableWorkCompleted(input: {
         outcome: "superseded",
         reason: "superseded",
         extras: input.extras,
+        ci: input.ci,
       });
       return;
     case "lightweight":
@@ -370,6 +394,7 @@ export function captureDurableWorkCompleted(input: {
         outcome: "lightweight",
         reason: "lightweight",
         extras: input.extras,
+        ci: input.ci,
       });
       return;
     case "degraded": {
@@ -380,6 +405,7 @@ export function captureDurableWorkCompleted(input: {
         reason: degradedReason,
         degradedReason,
         extras: input.extras,
+        ci: input.ci,
       });
       return;
     }
@@ -394,6 +420,7 @@ export function captureDurableWorkCompleted(input: {
         reason: failure.errorKind,
         failure,
         extras: input.extras,
+        ci: input.ci,
       });
       return;
     }
@@ -453,6 +480,32 @@ export function captureWorkRetried(input: WorkItemRetried): void {
       retry_disposition: input.retryDisposition,
       escalation_kinds: [...input.escalationKinds],
       ...failureEnvelopeProperties(input.failure),
+    },
+  });
+}
+
+export type CiStateChanged = {
+  readonly installationId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly fromRollup: string;
+  readonly toRollup: string;
+  readonly version: number;
+};
+
+export function captureCiStateChanged(input: CiStateChanged): void {
+  if (input.fromRollup === input.toRollup) return;
+  captureEvent({
+    distinctId: installationDistinctId(input.installationId),
+    event: "ci state changed",
+    properties: {
+      owner: input.owner,
+      repo: input.repo,
+      head_sha: input.headSha,
+      from_rollup: input.fromRollup,
+      to_rollup: input.toRollup,
+      version: input.version,
     },
   });
 }

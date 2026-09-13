@@ -1,15 +1,12 @@
 import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { PrConversationComment } from "../../github/prSurfaceTypes.js";
-import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
-import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  VERIFICATION_FAILURE_START,
-  VERIFICATION_PUBLISH_LENS,
-} from "../../settings/index.js";
+import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
+import { enqueueCiProjectionDebouncedStandalone } from "../../agentWork/intake/queueing.js";
+import { recordPublishStep } from "../../agentWork/repository.js";
 import {
   clearVerificationFailureSignalFromLedger,
   loadVerificationThreadLedger,
@@ -18,19 +15,7 @@ import {
   type VerificationFailureSignal,
   type VerificationThreadLedger,
 } from "../../agentWork/verificationThreadLedger.js";
-import {
-  operationIntentMarker,
-  verificationFailureOperationKey,
-  withOperationIntent,
-} from "../../agentWork/withOperationIntent.js";
-import {
-  applyVerificationFailureToComment,
-  commentHasVisibleVerificationFailure,
-  isClearedVerificationFailureStub,
-  renderClearedVerificationFailureStub,
-  renderVerificationFailureBlock,
-  stripVerificationFailureFromComment,
-} from "./verificationFailureSignal.js";
+import type { CiProjectionJobData } from "../../agentWork/types.js";
 
 const REVIEW_SUMMARY_SENTINELS = [
   REVIEW_SUMMARY_SENTINEL,
@@ -44,6 +29,8 @@ type PublishVerificationFailureParams = {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly leaseEpoch: number | null;
+  readonly boss?: PgBoss;
+  readonly installationId?: number;
 };
 
 function isReviewSummaryBody(body: string): boolean {
@@ -59,18 +46,6 @@ function findHeadReviewComment(
       isReviewSummaryBody(comment.body) &&
       parseReviewMetaFromCommentBody(comment.body)?.headSha === headSha,
   );
-}
-
-function findFailureStubComment(
-  comments: readonly PrConversationComment[],
-): PrConversationComment | undefined {
-  return comments.findLast((comment) => comment.body.startsWith(VERIFICATION_FAILURE_START));
-}
-
-function findCommentWithFailure(
-  comments: readonly PrConversationComment[],
-): PrConversationComment | undefined {
-  return comments.findLast((comment) => commentHasVisibleVerificationFailure(comment.body));
 }
 
 async function botOwnedComments(prSurface: PrSurface): Promise<readonly PrConversationComment[]> {
@@ -92,69 +67,37 @@ async function persistLedger(
   });
 }
 
-async function recoverFailureCommentId(prSurface: PrSurface): Promise<number | undefined | null> {
-  const botLogin = await prSurface.getBotLogin?.();
-  if (botLogin == null) return null;
-  const comments = await prSurface.listConversationComments();
-  return findCommentIdByMarker(
-    comments,
-    VERIFICATION_FAILURE_START,
-    (comment) => comment.authorLogin === botLogin,
-  );
+async function enqueueProjection(params: PublishVerificationFailureParams): Promise<void> {
+  if (params.boss == null || params.installationId == null || params.installationId <= 0) return;
+  const job: CiProjectionJobData = {
+    kind: "ci_projection",
+    installationId: params.installationId,
+    owner: params.prSurface.owner,
+    repo: params.prSurface.repo,
+    headSha: params.headSha,
+  };
+  await enqueueCiProjectionDebouncedStandalone(params.boss, job);
 }
 
 export async function publishVerificationFailure(
   params: PublishVerificationFailureParams,
 ): Promise<VerificationFailureSignal> {
+  await recordPublishStep(params.pool, {
+    workItemId: params.workItemId,
+    resourceKey: params.resourceKey,
+    reviewLens: VERIFICATION_PUBLISH_LENS,
+    step: "verification_failure",
+    leaseEpoch: params.leaseEpoch,
+    detail: { headSha: params.headSha, active: true },
+  });
+  await enqueueProjection(params);
+
   const comments = await botOwnedComments(params.prSurface);
   const headReview = findHeadReviewComment(comments, params.headSha);
-  const existingStub = findFailureStubComment(comments);
-  const target = headReview ?? existingStub;
-  const operationKey = verificationFailureOperationKey(params.headSha);
-  const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-
-  const commentId = await withOperationIntent<number>({
-    client: params.pool,
-    workItemId: params.workItemId,
-    leaseEpoch: params.leaseEpoch,
-    operationKey,
-    mutationKind: "github.verification_thread",
-    detail: {
-      step: "verification_thread_actions",
-      resourceKey: params.resourceKey,
-      reviewLens: VERIFICATION_PUBLISH_LENS,
-      headSha: params.headSha,
-      operationMarker,
-    },
-    recover: async () => {
-      const recovered = await recoverFailureCommentId(params.prSurface);
-      return recovered == null
-        ? { kind: "absent" as const }
-        : { kind: "reconciled" as const, value: recovered };
-    },
-    isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-    mutate: async () => {
-      if (target != null) {
-        const applied = applyVerificationFailureToComment(target.body);
-        if (applied.changed) {
-          await params.prSurface.editComment(target.id, applied.nextBody);
-        }
-        return target.id;
-      }
-      const created = await params.prSurface.upsertProgressComment(
-        renderVerificationFailureBlock(),
-        VERIFICATION_FAILURE_START,
-      );
-      return created.id;
-    },
-  });
-
-  const appliedSurface =
-    target != null ? applyVerificationFailureToComment(target.body).surface : "stub_line";
   const signal: VerificationFailureSignal = {
     headSha: params.headSha,
-    commentId,
-    surface: appliedSurface,
+    commentId: headReview?.id ?? 0,
+    surface: "ci_cell",
   };
   const ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,
@@ -166,25 +109,18 @@ export async function publishVerificationFailure(
 export async function clearVerificationFailureSignal(
   params: PublishVerificationFailureParams,
 ): Promise<void> {
-  const comments = await botOwnedComments(params.prSurface);
+  await recordPublishStep(params.pool, {
+    workItemId: params.workItemId,
+    resourceKey: params.resourceKey,
+    reviewLens: VERIFICATION_PUBLISH_LENS,
+    step: "verification_failure",
+    leaseEpoch: params.leaseEpoch,
+    detail: { headSha: params.headSha, active: false },
+  });
+  await enqueueProjection(params);
   const ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,
   });
-  const recorded = ledger.failureSignal;
-  const ledgerTarget =
-    recorded == null ? undefined : comments.find((comment) => comment.id === recorded.commentId);
-  const target = ledgerTarget ?? findCommentWithFailure(comments);
-  if (target != null) {
-    const stripped = stripVerificationFailureFromComment(target.body);
-    if (stripped.changed) {
-      const nextBody = stripped.nextBody.trim();
-      if (nextBody.length > 0) {
-        await params.prSurface.editComment(target.id, stripped.nextBody);
-      } else if (!isClearedVerificationFailureStub(target.body)) {
-        await params.prSurface.editComment(target.id, renderClearedVerificationFailureStub());
-      }
-    }
-  }
-  if (ledger.failureSignal == null && target == null) return;
+  if (ledger.failureSignal == null) return;
   await persistLedger(params, clearVerificationFailureSignalFromLedger(ledger));
 }

@@ -17,6 +17,10 @@ import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
 } from "../src/settings/index.js";
+import {
+  renderCiRollupMarker,
+  replaceCiRollupMarkerIfNewer,
+} from "../src/review/ci/ciRollupMarker.js";
 
 function thread(
   rootCommentId: number,
@@ -50,6 +54,43 @@ describe("renderTriageReport policy suggestion footer", () => {
     });
 
     expect(result).not.toContain("Policy suggestions");
+    expect(result).not.toContain("pr-agent:ci-rollup");
+  });
+
+  it("renders a CI rollup marker the projector can patch", () => {
+    const headSha = "a".repeat(40);
+    const result = renderTriageReport({
+      headSha,
+      inventory: [thread(1)],
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
+        ],
+      } as TriagePayload,
+      commits: [],
+      previouslyResolvedCount: 0,
+      ciRollup: { headSha, version: 2, rollup: "failing" },
+    });
+    expect(result).toContain("<!-- pr-agent:ci-rollup head=");
+    expect(result).toContain("v=2");
+    expect(result).toContain("failing");
+  });
+
+  it("replaces an older CI rollup marker on the same head", () => {
+    const headSha = "a".repeat(40);
+    const body = `CI: ${renderCiRollupMarker(headSha, 1, "pending")}`;
+    const next = renderCiRollupMarker(headSha, 2, "failing");
+    expect(replaceCiRollupMarkerIfNewer(body, next, headSha, 2)).toBe(`CI: ${next}`);
+  });
+
+  it("leaves a newer CI rollup marker and a different head untouched", () => {
+    const headSha = "a".repeat(40);
+    const otherHead = "b".repeat(40);
+    const newer = `CI: ${renderCiRollupMarker(headSha, 3, "passing")}`;
+    const other = `CI: ${renderCiRollupMarker(otherHead, 1, "pending")}`;
+    const next = renderCiRollupMarker(headSha, 2, "failing");
+    expect(replaceCiRollupMarkerIfNewer(newer, next, headSha, 2)).toBeNull();
+    expect(replaceCiRollupMarkerIfNewer(other, next, headSha, 2)).toBeNull();
   });
 
   it("adds a policy suggestion footer for dismissed verdicts", () => {

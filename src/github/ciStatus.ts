@@ -1,4 +1,4 @@
-import { isMissingActionsPermissionError } from "./actionsLogs.js";
+import { isGithubNotFoundError, isMissingActionsPermissionError } from "./actionsLogs.js";
 import { installationOctokit } from "./appAuth.js";
 import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
@@ -50,6 +50,7 @@ export async function listCheckRunsForHead(
         id: run.id,
         name: run.name,
         externalId: run.external_id ?? null,
+        appId: run.app?.id ?? null,
         status: run.status,
         conclusion: run.conclusion ?? null,
         htmlUrl: run.html_url ?? null,
@@ -93,6 +94,31 @@ export async function listCheckRunAnnotations(
   }));
 }
 
+export async function listPullsForHead(
+  token: string,
+  owner: string,
+  repo: string,
+  headSha: string,
+  expiresAtTs?: number,
+): Promise<readonly { readonly number: number }[]> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const pulls = await paginateOctokitPages({
+    perPage: 100,
+    maxPages: 2,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+        owner,
+        repo,
+        commit_sha: headSha,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+  return pulls.map((pull) => ({ number: pull.number }));
+}
+
 export async function listLegacyCommitStatusesForHead(
   token: string,
   owner: string,
@@ -114,7 +140,7 @@ export async function listLegacyCommitStatusesForHead(
       targetUrl: status.target_url ?? null,
     }));
   } catch (error) {
-    if (isMissingChecksPermissionError(error)) return [];
+    if (isMissingChecksPermissionError(error) || isGithubNotFoundError(error)) return [];
     throw error;
   }
 }

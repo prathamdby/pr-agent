@@ -19,6 +19,7 @@ const webhookLayer = Layer.mergeAll(
       submitAutomatedReview: () => Effect.void,
       submitSlashCommand: () => Effect.void,
       submitCiRefresh: () => Effect.void,
+      submitCiState: () => Effect.void,
       ping: () => Effect.succeed(true),
     }),
   ),

@@ -5,20 +5,17 @@ import { pgBossDb } from "../../db/postgres.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
-  CI_REFRESH_QUEUE,
-  CI_REFRESH_RETRY_ATTEMPT_LIMIT,
-  CI_REFRESH_RETRY_DELAY_SECONDS,
+  CI_PROJECTION_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
-import { uuidv5 } from "../../util/uuidv5.js";
 import {
   installationGroupId,
   type AckJobData,
   type AskJobData,
-  type CiRefreshJobData,
+  type CiProjectionJobData,
   type DescriptionJobData,
   type JobCorrelation,
   type PrRef,
@@ -27,24 +24,6 @@ import {
   type VerificationJobData,
   type WebhookHeaders,
 } from "../types.js";
-
-/** Deterministic pg-boss id for one delivery + PR + attempt. */
-export function ciRefreshJobId(webhookEventId: string, prNumber: number, attempt: number): string {
-  return uuidv5(webhookEventId, `ci-refresh:${prNumber}:${attempt}`);
-}
-
-/** One pending job per PR head and attempt. Later same-head sends join that slot. */
-export function ciRefreshSingletonKey(
-  data: Pick<CiRefreshJobData, "owner" | "repo" | "prNumber" | "headSha" | "attempt">,
-): string {
-  return `${data.owner}/${data.repo}#${data.prNumber}:${data.headSha}:${data.attempt}`;
-}
-
-/** Next retain hop, or null when the cap is exhausted. */
-export function nextCiRefreshAttempt(attempt: number): number | null {
-  if (attempt >= CI_REFRESH_RETRY_ATTEMPT_LIMIT) return null;
-  return attempt + 1;
-}
 
 export function jobCorrelation(
   eventId: string,
@@ -200,47 +179,55 @@ export async function enqueueVerification(
   await enqueueLeasedWork(boss, client, ref, VERIFICATION_QUEUE, data);
 }
 
-function ciRefreshSendOptions(
-  data: CiRefreshJobData,
-  extra: Pick<NonNullable<Parameters<PgBoss["send"]>[2]>, "db" | "startAfter">,
-): NonNullable<Parameters<PgBoss["send"]>[2]> {
-  const options: NonNullable<Parameters<PgBoss["send"]>[2]> = {
-    ...extra,
-    singletonKey: ciRefreshSingletonKey(data),
-    singletonSeconds: CI_REFRESH_RETRY_DELAY_SECONDS,
-    priority: 40,
-    group: { id: installationGroupId(data.installationId) },
-  };
-  if (data.webhookEventId) {
-    options.id = ciRefreshJobId(data.webhookEventId, data.prNumber, data.attempt);
-  }
-  return options;
-}
-
-/** Idempotent CI refresh: one job per webhook delivery + PR + attempt. */
-export async function enqueueCiRefreshIdempotent(
+/** One pending projection per head. Later writes join the next 5s slot. */
+export async function enqueueCiProjectionDebounced(
   boss: PgBoss,
   client: PoolClient,
-  data: CiRefreshJobData,
-  webhookEventId: string,
+  data: CiProjectionJobData,
 ): Promise<"enqueued" | "already_present"> {
-  return sendBossJobIdempotent(
-    boss,
-    CI_REFRESH_QUEUE,
+  const jobId = await boss.sendDebounced(
+    CI_PROJECTION_QUEUE,
     data,
-    ciRefreshSendOptions({ ...data, webhookEventId }, { db: pgBossDb(client) }),
+    {
+      db: pgBossDb(client),
+      priority: 40,
+      group: { id: installationGroupId(data.installationId) },
+    },
+    5,
+    `${data.owner}/${data.repo}:${data.headSha}`,
   );
+  return jobId == null ? "already_present" : "enqueued";
 }
 
-/** Delayed retain hop after an active review. Same send options as intake. */
-export async function enqueueCiRefreshRetry(
+/** Same debounce as intake, without a transaction client. Used by the projector and writers. */
+export async function enqueueCiProjectionDebouncedStandalone(
   boss: PgBoss,
-  data: CiRefreshJobData,
+  data: CiProjectionJobData,
 ): Promise<"enqueued" | "already_present"> {
-  return sendBossJobIdempotent(
-    boss,
-    CI_REFRESH_QUEUE,
+  const jobId = await boss.sendDebounced(
+    CI_PROJECTION_QUEUE,
     data,
-    ciRefreshSendOptions(data, { startAfter: CI_REFRESH_RETRY_DELAY_SECONDS }),
+    {
+      priority: 40,
+      group: { id: installationGroupId(data.installationId) },
+    },
+    5,
+    `${data.owner}/${data.repo}:${data.headSha}`,
   );
+  return jobId == null ? "already_present" : "enqueued";
+}
+
+/** Defer one projection until the shared rate-limit circuit closes. */
+export async function enqueueCiProjectionAfter(
+  boss: PgBoss,
+  data: CiProjectionJobData,
+  startAfterSeconds: number,
+): Promise<"enqueued" | "already_present"> {
+  return sendBossJobIdempotent(boss, CI_PROJECTION_QUEUE, data, {
+    startAfter: Math.max(1, startAfterSeconds),
+    singletonKey: `${data.owner}/${data.repo}:${data.headSha}:deferred`,
+    singletonSeconds: Math.max(1, startAfterSeconds),
+    priority: 40,
+    group: { id: installationGroupId(data.installationId) },
+  });
 }

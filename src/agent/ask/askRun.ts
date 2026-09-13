@@ -11,8 +11,9 @@ import {
   MAX_ASK_TOOL_ROUNDS,
 } from "../../settings/index.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
+import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.js";
 import { buildAskUserContent } from "./askUserContent.js";
-import type { AskRunParams, AskRunResult } from "./askRunTypes.js";
+import type { AskCiState, AskRunParams, AskRunResult } from "./askRunTypes.js";
 import { mergeExactUsage } from "../providers/usageMetadata.js";
 import { classifyAskQuestionIntent } from "./askSafety.js";
 import { buildAskRunSetup } from "./askRunSetup.js";
@@ -25,6 +26,28 @@ import {
   getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
+
+async function loadAskCiState(
+  pool: AskRunParams["pool"],
+  owner: string,
+  repo: string,
+  headSha: string,
+): Promise<AskCiState | undefined> {
+  if (pool == null) return undefined;
+  const row = await loadPrHeadCiState(pool, owner, repo, headSha);
+  if (row == null) {
+    return { rollup: "none", version: 0, checks: [] };
+  }
+  return {
+    rollup: row.rollup,
+    version: row.version,
+    checks: Object.values(row.checks).map((fact) => ({
+      name: fact.name,
+      status: fact.status,
+      conclusion: fact.conclusion,
+    })),
+  };
+}
 
 export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   const { cfg, question, replyTarget } = params;
@@ -112,7 +135,10 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
         checkpointId: "ask:ask",
       };
       let usage: AskRunResult["usage"];
-      const firstTurn = await session.send(buildAskUserContent(params), sendOpts);
+      const ciState =
+        params.ciState ??
+        (await loadAskCiState(params.pool, params.owner, params.repo, params.headSha));
+      const firstTurn = await session.send(buildAskUserContent({ ...params, ciState }), sendOpts);
       usage = mergeExactUsage(usage, firstTurn.usage);
       let lastText = firstTurn.text.trim();
 

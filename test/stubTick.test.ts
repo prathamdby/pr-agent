@@ -2,6 +2,14 @@ import type { Pool } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
+vi.mock("../src/agentWork/ciProjection.js", () => ({
+  loadRenderableHeadCi: vi.fn(async () => ({
+    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+    version: 0,
+  })),
+  enqueueCiProjectionIfVersionMoved: vi.fn(async () => undefined),
+}));
+
 vi.mock("../src/review/publish/summaryCommentUpsert.js", () => ({
   upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({
     id: 42,

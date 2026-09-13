@@ -4,6 +4,8 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.js";
 import { renderPolicySuggestionForDismissed } from "../../review/repoPolicy.js";
 import { TRIAGE_PREVIEW_SENTINEL, TRIAGE_SUMMARY_SENTINEL } from "../../settings/index.js";
+import type { CiRollup } from "../../review/ci/classifySnapshot.js";
+import { renderCiRollupMarker } from "../../review/ci/ciRollupMarker.js";
 
 export type TriagePreviewHunk = {
   readonly threadRootCommentId: number;
@@ -183,6 +185,11 @@ export function renderTriageReport(params: {
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
   readonly bulkOutcomes?: ReadonlyMap<number, TriageBulkOutcome>;
+  readonly ciRollup?: {
+    readonly headSha: string;
+    readonly version: number;
+    readonly rollup: CiRollup;
+  };
 }): string {
   const verdictById = new Map(
     params.payload.verdicts.map((verdict) => [verdict.threadRootCommentId, verdict]),
@@ -196,6 +203,12 @@ export function renderTriageReport(params: {
     lines.push(`Thread root: \`${params.threadRootCommentId}\``);
   }
   lines.push(`Evaluated head: ${renderTableCode(params.headSha)}`, "");
+  if (params.ciRollup != null) {
+    lines.push(
+      `CI: ${renderCiRollupMarker(params.ciRollup.headSha, params.ciRollup.version, params.ciRollup.rollup)}`,
+      "",
+    );
+  }
   if (params.notice) lines.push(params.notice, "");
   lines.push(countVerdicts(params.payload, params.previouslyResolvedCount), "");
   if (params.commits.length > 0) {

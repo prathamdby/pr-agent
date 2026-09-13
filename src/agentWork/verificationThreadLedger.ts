@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { VerificationFailureSurface } from "../agent/verification/verificationFailureSignal.js";
+import type { VerificationFailureSurface } from "../review/ci/verificationFailureBlock.js";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
 import { getLatestCompletedPublishStepDetail } from "./publishRecordRepository.js";
 import { recordPublishStep } from "./repository.js";

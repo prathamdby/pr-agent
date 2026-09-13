@@ -24,6 +24,7 @@ import {
 } from "../../settings/index.js";
 import { assertTriagePullRequestWritable, TriageClosedPullRequestError } from "./triageErrors.js";
 import { recordPublishStep } from "../../agentWork/repository.js";
+import { loadPrHeadCiState } from "../../agentWork/prHeadCiState.js";
 import {
   operationIntentMarker,
   triagePreviewOperationKey,
@@ -610,10 +611,19 @@ export async function publishTriage(params: PublishTriageParams): Promise<Publis
     [...bulkOutcomes.values()].some((outcome) => outcome === "applied") &&
     [...bulkOutcomes.values()].some((outcome) => outcome === "failed");
 
+  const ciHeadSha =
+    pushOutcome === "pushed" ? (committedDetails.at(-1)?.sha ?? params.headSha) : params.headSha;
+  const ciRow = await loadPrHeadCiState(params.pool, params.owner, params.repo, ciHeadSha);
+
   await upsertTriageReport({
     ...params,
     body: renderTriageReport({
       headSha: params.headSha,
+      ciRollup: {
+        headSha: ciHeadSha,
+        version: ciRow?.version ?? 0,
+        rollup: ciRow?.rollup ?? "none",
+      },
       inventory: params.inventory,
       payload: params.payload,
       commits: pushOutcome === "pushed" ? committedDetails : [],

@@ -80,6 +80,10 @@ function slashGateLayer(
           });
         }),
       submitCiRefresh: () => Effect.void,
+      submitCiState: () =>
+        Effect.sync(() => {
+          decisions.push("ci_state_applied");
+        }),
       ping: () => Effect.succeed(true),
     }),
   );
@@ -102,6 +106,7 @@ describe("processWebhookPostRequestEffect", () => {
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     ),
@@ -247,6 +252,10 @@ describe("processWebhookPostRequestEffect", () => {
           Effect.sync(() => {
             calls.push("submitCiRefresh");
           }),
+        submitCiState: () =>
+          Effect.sync(() => {
+            calls.push("submitCiState");
+          }),
         ping: () => Effect.succeed(true),
       }),
     );
@@ -317,6 +326,33 @@ describe("processWebhookPostRequestEffect", () => {
             conclusion: "success",
             pull_requests: [{ number: 12, head: { sha: "abc" } }],
           },
+        },
+      },
+      {
+        event: "check_run",
+        delivery: "d-empty-check-run-sha",
+        payload: {
+          action: "completed",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
+          check_run: {
+            id: 77,
+            head_sha: "",
+            status: "completed",
+            conclusion: "failure",
+            name: "build",
+          },
+        },
+      },
+      {
+        event: "status",
+        delivery: "d-empty-status-sha",
+        payload: {
+          sha: "",
+          state: "failure",
+          context: "Vercel",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r", size: 10 },
         },
       },
       {
@@ -707,6 +743,7 @@ describe("processWebhookPostRequestEffect", () => {
               installationId: data.installationId,
             });
           }),
+        submitCiState: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -870,6 +907,144 @@ describe("processWebhookPostRequestEffect", () => {
     expect(captured).toEqual([]);
   });
 
+  it("applies foreign check_run as CI state and ignores the own App", async () => {
+    const decisions: string[] = [];
+    const layer = slashGateLayer(decisions, []);
+    const foreign = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" }, size: 10 },
+      check_run: {
+        id: 77,
+        head_sha: "sha-a",
+        status: "completed",
+        conclusion: "failure",
+        name: "build",
+        app: { id: 15368 },
+      },
+    };
+    const own = {
+      ...foreign,
+      check_run: { ...foreign.check_run, app: { id: 1 } },
+    };
+
+    const foreignBody = Buffer.from(JSON.stringify(foreign));
+    const ownBody = Buffer.from(JSON.stringify(own));
+    await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(foreignBody),
+            "x-github-event": "check_run",
+            "x-github-delivery": "d-check-run-foreign",
+          },
+          rawBody: foreignBody,
+        },
+        layer,
+      ),
+    );
+    await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(ownBody),
+            "x-github-event": "check_run",
+            "x-github-delivery": "d-check-run-own",
+          },
+          rawBody: ownBody,
+        },
+        layer,
+      ),
+    );
+
+    expect(decisions).toEqual(["ci_state_applied", "ignored_own_check_run"]);
+  });
+
+  it("applies a foreign check named PR Agent Review", async () => {
+    const decisions: string[] = [];
+    const payload = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" }, size: 10 },
+      check_run: {
+        id: 88,
+        head_sha: "sha-a",
+        status: "completed",
+        conclusion: "failure",
+        name: "PR Agent Review",
+        app: { id: 15368 },
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "check_run",
+            "x-github-delivery": "d-check-run-named-like-ours",
+          },
+          rawBody: body,
+        },
+        slashGateLayer(decisions, []),
+      ),
+    );
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual(["ci_state_applied"]);
+  });
+
+  it("applies status events as CI state and ignores the own review status", async () => {
+    const decisions: string[] = [];
+    const payload = {
+      sha: "sha-a",
+      state: "failure",
+      context: "Vercel",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" }, size: 10 },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "status",
+            "x-github-delivery": "d-status",
+          },
+          rawBody: body,
+        },
+        slashGateLayer(decisions, []),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual(["ci_state_applied"]);
+
+    const ownStatus = {
+      sha: "sha-a",
+      state: "error",
+      context: "pr-agent/review",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" }, size: 10 },
+    };
+    const ownBody = Buffer.from(JSON.stringify(ownStatus));
+    const ownDecisions: string[] = [];
+    await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(ownBody),
+            "x-github-event": "status",
+            "x-github-delivery": "d-own-status",
+          },
+          rawBody: ownBody,
+        },
+        slashGateLayer(ownDecisions, []),
+      ),
+    );
+    expect(ownDecisions).toEqual(["ignored_own_commit_status"]);
+  });
+
   it("returns 503 when handling exceeds the timeout budget", async () => {
     const slowLayer = Layer.mergeAll(
       Layer.succeed(
@@ -879,6 +1054,7 @@ describe("processWebhookPostRequestEffect", () => {
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
           submitCiRefresh: () => Effect.void,
+          submitCiState: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),
@@ -989,6 +1165,7 @@ describe("processWebhookPostRequestEffect", () => {
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
           submitCiRefresh: () => Effect.void,
+          submitCiState: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),

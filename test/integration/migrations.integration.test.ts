@@ -43,6 +43,7 @@ const EXPECTED_MIGRATIONS = [
   "027_verification_slash_active_uniqueness.sql",
   "028_triage_preview_step.sql",
   "029_ask_quota_execution_receipts.sql",
+  "030_pr_head_ci_state.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
@@ -87,6 +88,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(names).toContain("agent_work_items_status_retention_age_idx");
     expect(names).toContain("agent_work_items_slash_active_uniqueness_idx");
     expect(names).toContain("agent_work_items_ask_webhook_event_id_uniqueness_idx");
+    expect(names).toContain("agent_work_items_owner_repo_head_sha_idx");
     expect(names).not.toContain("agent_work_items_status_idx");
     expect(names).not.toContain("agent_work_items_status_completed_at_idx");
     expect(names).not.toContain("agent_work_items_installation_status_idx");
@@ -238,6 +240,38 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
       await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]);
       await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
     }
+  });
+
+  it("stores head CI state and the extra publish-record steps", async () => {
+    const table = await pool.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'pr_head_ci_state'`,
+    );
+    expect(table.rows).toHaveLength(1);
+
+    const { rows: rollupCheck } = await pool.query<{ check_clause: string }>(
+      `SELECT pg_get_constraintdef(c.oid) AS check_clause
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'pr_head_ci_state'
+          AND c.contype = 'c'`,
+    );
+    const rollupClause = rollupCheck.map((row) => row.check_clause).join(" ");
+    expect(rollupClause).toContain("pending");
+    expect(rollupClause).toContain("unknown");
+
+    const { rows: stepCheck } = await pool.query<{ check_clause: string }>(
+      `SELECT pg_get_constraintdef(c.oid) AS check_clause
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'publish_records'
+          AND c.contype = 'c'
+          AND c.conname = 'publish_records_step_check'`,
+    );
+    const clause = stepCheck[0]?.check_clause ?? "";
+    expect(clause).toContain("ci_cell");
+    expect(clause).toContain("commit_status");
+    expect(clause).toContain("verification_failure");
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {

@@ -27,6 +27,7 @@ import type { DescriptionPayload } from "../agent/description/descriptionSchema.
 import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
+import type { ReviewCheckRunConclusion } from "./reviewPublish.js";
 
 export type FakePrSurfaceEvent =
   | { readonly kind: "getHead" }
@@ -86,8 +87,13 @@ export type FakePrSurfaceEvent =
       readonly externalId: string;
       readonly summary?: string;
     }
-  | { readonly kind: "finishReviewCheck"; readonly checkRunId: number }
+  | {
+      readonly kind: "finishReviewCheck";
+      readonly checkRunId: number;
+      readonly conclusion: ReviewCheckRunConclusion;
+    }
   | { readonly kind: "getCiStatus"; readonly headSha: string }
+  | { readonly kind: "listPullsForHead"; readonly headSha: string }
   | { readonly kind: "listFailingActionsJobs"; readonly headSha: string }
   | { readonly kind: "downloadActionsJobLogs"; readonly jobId: number }
   | { readonly kind: "listCheckRunAnnotations"; readonly checkRunId: number }
@@ -127,6 +133,10 @@ export type FakePrSurfaceControls = {
     },
   ) => void;
   readonly setCiStatusError: (error: unknown) => void;
+  readonly setPullsForHead: (
+    headSha: string,
+    pulls: readonly { readonly number: number }[],
+  ) => void;
   readonly setProgressComment: (sentinel: string, body: string, id?: number) => void;
   readonly getProgressComment: (
     sentinel: string,
@@ -239,6 +249,7 @@ export function createFakePrSurface(
   let credentialToken = options?.credentialToken ?? "fake-git-token";
   let credentialExpiresAtTs = Date.now() + 3_600_000;
   let ciStatusError: unknown;
+  const pullsByHead = new Map<string, readonly { readonly number: number }[]>();
   const ciStatusByHead = new Map<
     string,
     {
@@ -345,6 +356,9 @@ export function createFakePrSurface(
     },
     setCiStatusError(error) {
       ciStatusError = error;
+    },
+    setPullsForHead(headShaArg, pulls) {
+      pullsByHead.set(headShaArg, pulls);
     },
     setProgressComment(sentinel, body, id) {
       const commentId = id ?? nextCommentId++;
@@ -681,7 +695,11 @@ export function createFakePrSurface(
     },
 
     async finishReviewCheck(outcome) {
-      events.push({ kind: "finishReviewCheck", checkRunId: outcome.checkRunId });
+      events.push({
+        kind: "finishReviewCheck",
+        checkRunId: outcome.checkRunId,
+        conclusion: outcome.conclusion,
+      });
     },
 
     async getCiStatus(headShaArg) {
@@ -694,6 +712,11 @@ export function createFakePrSurface(
           legacyStatuses: [],
         }
       );
+    },
+
+    async listPullsForHead(headShaArg) {
+      events.push({ kind: "listPullsForHead", headSha: headShaArg });
+      return pullsByHead.get(headShaArg) ?? [];
     },
 
     async listFailingActionsJobs(headShaArg) {

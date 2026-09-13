@@ -95,7 +95,6 @@ function buildTool(params: {
   getLedger: () => FindingLedger;
   getCoverage?: () => ReviewCoverage;
   state?: ReturnType<typeof createPublishSummaryState>;
-  ciAuthor?: Parameters<typeof buildPublishSummaryTool>[0]["ciAuthor"];
 }) {
   return buildPublishSummaryTool({
     phaseRef: createOrchestratorPhaseRef("synthesis"),
@@ -111,7 +110,6 @@ function buildTool(params: {
     getLedger: params.getLedger,
     getCoverage: params.getCoverage ?? (() => ({ kind: "full" })),
     state: params.state ?? createPublishSummaryState(),
-    ciAuthor: params.ciAuthor,
   });
 }
 
@@ -345,16 +343,5 @@ describe("buildPublishSummaryTool", () => {
     await tool.executor(summaryInput(["finding-1"]));
 
     expect(vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0].coverage).toEqual(coverage);
-  });
-
-  it("forwards ciAuthor to publishReviewSummaryOnly", async () => {
-    const ledger = createFindingLedger({ accepted: [accepted("finding-1", finding(10))] });
-    const ciAuthor = vi.fn(async () => null);
-    const tool = buildTool({ getLedger: () => ledger, ciAuthor });
-
-    await tool.executor(summaryInput(["finding-1"]));
-
-    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0];
-    expect(call?.ciAuthor).toBe(ciAuthor);
   });
 });

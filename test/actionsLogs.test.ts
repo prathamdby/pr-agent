@@ -26,6 +26,8 @@ vi.mock("../src/github/appAuth.js", () => ({
 
 import {
   downloadActionsJobLogs,
+  isGithubNotFoundError,
+  isMissingActionsPermissionError,
   listFailingActionsJobsForHead,
 } from "../src/github/actionsLogs.js";
 
@@ -104,6 +106,24 @@ describe("listFailingActionsJobsForHead", () => {
     }
     expect(listJobsForWorkflowRun.mock.calls.map((call) => call[0].run_id)).toEqual([10, 11]);
   });
+
+  it("returns no jobs on 404 and permission-denied on 403", async () => {
+    listWorkflowRunsForRepo.mockRejectedValueOnce(
+      Object.assign(new Error("Not Found"), { status: 404 }),
+    );
+    await expect(listFailingActionsJobsForHead("tok", "o", "r", "abc")).resolves.toEqual({
+      ok: true,
+      jobs: [],
+    });
+
+    listWorkflowRunsForRepo.mockRejectedValueOnce(
+      Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+    );
+    await expect(listFailingActionsJobsForHead("tok", "o", "r", "abc")).resolves.toEqual({
+      ok: false,
+      reason: "actions_permission",
+    });
+  });
 });
 
 describe("downloadActionsJobLogs", () => {
@@ -140,5 +160,28 @@ describe("downloadActionsJobLogs", () => {
     expect(downloaded.text).toContain("Format issues found");
     expect(downloaded.text).toContain("exit code 1");
     expect(downloaded.text.endsWith(huge.slice(-cap))).toBe(false);
+  });
+
+  it("treats 403 as a missing Actions permission and 404 as empty logs", async () => {
+    const forbidden = Object.assign(new Error("Resource not accessible by integration"), {
+      status: 403,
+    });
+    const missing = Object.assign(new Error("Not Found"), { status: 404 });
+    expect(isMissingActionsPermissionError(forbidden)).toBe(true);
+    expect(isMissingActionsPermissionError(missing)).toBe(false);
+    expect(isGithubNotFoundError(missing)).toBe(true);
+    expect(isGithubNotFoundError(forbidden)).toBe(false);
+
+    downloadJobLogsForWorkflowRun.mockRejectedValueOnce(forbidden);
+    await expect(downloadActionsJobLogs("tok", "o", "r", 9)).resolves.toEqual({
+      ok: false,
+      reason: "actions_permission",
+    });
+
+    downloadJobLogsForWorkflowRun.mockRejectedValueOnce(missing);
+    await expect(downloadActionsJobLogs("tok", "o", "r", 9)).resolves.toEqual({
+      ok: false,
+      reason: "empty",
+    });
   });
 });

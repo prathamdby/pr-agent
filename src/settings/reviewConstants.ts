@@ -161,8 +161,13 @@ export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
 export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
 export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
 
-/** Review CI summary (optional gate row): fallbacks when call sites omit wait/cap options. */
-export const REVIEW_CI_SUMMARY_WAIT_POLL_MS = 2_000;
+/** Commit status context posted when FEATURE_COMMIT_STATUS is on. Excluded from CI facts. */
+export const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
+
+/** Max named checks stored on one `pr_head_ci_state` row. Overflow drops the oldest observation. */
+export const CI_STATE_MAX_CHECKS = 200;
+
+/** Review CI summary: max failing checks named in the facts-only headline. */
 export const REVIEW_CI_SUMMARY_MAX_FAILURES = 3;
 /** Max bytes of condensed CI log context injected into the CI-summary LLM call. */
 export const REVIEW_CI_SUMMARY_LOG_MAX_BYTES = 24_000;
@@ -247,6 +252,5 @@ export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
 /** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */
 export const MAX_PR_FILES_LISTED = 300;
 export const MAX_PR_FILES_PATCH_BYTES = 500_000;
-export const REVIEW_CI_SUMMARY_WAIT_MS = 15_000;
 export const REVIEW_ANCHOR_MENU_MAX_FILES = 40;
 export const REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE = 20;

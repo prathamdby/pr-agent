@@ -1,5 +1,6 @@
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import { logWarn } from "../../evlog.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/summaryCommentUpsert.js";
@@ -18,11 +19,9 @@ import {
   getWorkItemCore,
   type ReviewQueuePosition,
 } from "../repository.js";
-import {
-  cancelReviewCheckRunsForWorkItems,
-  ensureReviewCheckRunStarted,
-} from "../reviewCheckRun.js";
-import { buildCiSummaryForSurface } from "../../review/ci/analyzeCi.js";
+import { closeOwnVerdictsForWorkItems, postOwnVerdictPending } from "../closeOwnVerdict.js";
+import { enqueueCiProjectionIfVersionMoved, loadRenderableHeadCi } from "../ciProjection.js";
+import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import {
   parseProgressRevisionState,
   renderReviewCancelledNotice,
@@ -75,19 +74,13 @@ async function publishAckProgress(
   data: AckJobData & { readonly progress: NonNullable<AckJobData["progress"]> },
   installation: AckInstallation,
   resourceKey: string,
+  boss?: PgBoss,
 ): Promise<void> {
   const prSurface = ackPrSurface(cfg, data, installation);
   const deferredHead = data.progress.headSha === DEFERRED_HEAD_SHA;
   const headSha = deferredHead ? await prSurface.getHeadSha() : data.progress.headSha;
-  const snapshot = await buildCiSummaryForSurface(prSurface, {
-    headSha,
-    lightweight: true,
-    waitMs: 0,
-  });
-  const ciSummary =
-    snapshot != null && snapshot.status === "none"
-      ? { status: "pending" as const, headline: "⏳ Waiting for CI", failures: [] }
-      : snapshot;
+  const rendered = await loadRenderableHeadCi(pool, data.owner, data.repo, headSha);
+  const ciSummary = rendered.summary;
   let queuePosition: ReviewQueuePosition | null = null;
   if (data.workItemId != null) {
     try {
@@ -105,6 +98,7 @@ async function publishAckProgress(
     headSha,
     source: data.progress.source,
     ciSummary,
+    ciVersion: rendered.version,
     queuePosition,
     progressRevision: 0,
     progressWorkItemId: data.workItemId,
@@ -118,11 +112,22 @@ async function publishAckProgress(
     body,
     sentinel: REVIEW_SUMMARY_SENTINEL,
     progressRevision: 0,
+    ciHeadSha: headSha,
+    ciVersion: rendered.version,
+  });
+  await enqueueCiProjectionIfVersionMoved({
+    boss,
+    pool,
+    installationId: data.installationId,
+    owner: data.owner,
+    repo: data.repo,
+    headSha,
+    renderedVersion: rendered.version,
   });
   // Deferred-head reviews resolve the binding head at claim time; starting the
   // check run here would pin it to an earlier SHA if another push lands first.
   if (data.workItemId && !deferredHead) {
-    await ensureReviewCheckRunStarted(pool, {
+    const startedCheckId = await ensureReviewCheckRunStarted(pool, {
       prSurface,
       owner: data.owner,
       repo: data.repo,
@@ -132,6 +137,19 @@ async function publishAckProgress(
       resourceKey,
       reviewLens: data.progress.lens,
     });
+    if (startedCheckId != null) {
+      await postOwnVerdictPending({
+        pool,
+        prSurface,
+        workItemId: data.workItemId,
+        resourceKey,
+        owner: data.owner,
+        repo: data.repo,
+        prNumber: data.prNumber,
+        headSha,
+        commitStatusEnabled: cfg.features.commitStatus,
+      });
+    }
   }
 }
 
@@ -183,12 +201,14 @@ async function publishCancelProgress(
     data.cancelProgress.workItemId,
   ];
 
-  await cancelReviewCheckRunsForWorkItems(pool, {
+  await closeOwnVerdictsForWorkItems(pool, {
     prSurface,
     owner: data.owner,
     repo: data.repo,
     prNumber: data.prNumber,
     workItemIds: cancelledWorkItemIds,
+    commitStatusEnabled: cfg.features.commitStatus,
+    outcome: { kind: "cancelled" },
   });
 }
 
@@ -204,7 +224,12 @@ async function publishTriageCancellation(
 }
 
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
-export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
+export async function executeAckJob(
+  cfg: Config,
+  pool: Pool,
+  data: AckJobData,
+  boss?: PgBoss,
+): Promise<void> {
   try {
     const bot = await getAppBotIdentity(cfg);
     if (data.commenterId != null && bot.userId === data.commenterId) return;
@@ -266,10 +291,10 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
           reviewLens: progressData.progress.lens,
         });
       } else {
-        await publishAckProgress(cfg, pool, progressData, installation, resourceKey);
+        await publishAckProgress(cfg, pool, progressData, installation, resourceKey, boss);
       }
     } else {
-      await publishAckProgress(cfg, pool, progressData, installation, resourceKey);
+      await publishAckProgress(cfg, pool, progressData, installation, resourceKey, boss);
     }
   }
 

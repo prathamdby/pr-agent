@@ -2,7 +2,8 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
@@ -365,7 +366,7 @@ export async function executeAskJob(
           leaseEpoch: env.leaseEpoch,
         });
         if (status === "degraded") {
-          captureDurableWorkCompleted({
+          await captureDurableWorkCompletedWithCi(pool, {
             item,
             workType: "ask",
             outcome: "degraded",
@@ -379,7 +380,7 @@ export async function executeAskJob(
           });
           return { kind: "completed", degradation: ["reply_recovery_degraded"] };
         }
-        captureDurableWorkCompleted({
+        await captureDurableWorkCompletedWithCi(pool, {
           item,
           workType: "ask",
           outcome: "published",
@@ -392,7 +393,7 @@ export async function executeAskJob(
       if (recoveredReply?.kind === "outcome_unknown") {
         // The provider may have accepted the reply, but no exact marker was
         // found. Do not rerun the model or create a fallback reply.
-        captureDurableWorkCompleted({
+        await captureDurableWorkCompletedWithCi(pool, {
           item,
           workType: "ask",
           outcome: "degraded",
@@ -536,7 +537,7 @@ export async function executeAskJob(
                 message: e instanceof Error ? e.message : String(e),
                 ...classifiedFailureLogFields(failure),
               });
-              captureDurableWorkCompleted({
+              await captureDurableWorkCompletedWithCi(pool, {
                 item,
                 workType: "ask",
                 outcome: "degraded",
@@ -550,7 +551,7 @@ export async function executeAskJob(
               });
               return { kind: "completed", degradation: ["publish_record_failed"] };
             }
-            captureDurableWorkCompleted({
+            await captureDurableWorkCompletedWithCi(pool, {
               item,
               workType: "ask",
               outcome: "published",

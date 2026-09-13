@@ -6,7 +6,9 @@ import { captureWebhookReceived } from "../../analytics/workCompleted.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
-import { toCiRefreshHeadSourceFromCompletedRun } from "../../webhook/payloads/ciRefreshHead.js";
+import { toCiHeadSourceFromCompletedRun } from "../../webhook/payloads/ciHeadSource.js";
+import { isOwnCiCheck, observedAtFromGithub } from "../../review/ci/classifySnapshot.js";
+import { OWN_COMMIT_STATUS_CONTEXT } from "../../settings/index.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
 
@@ -110,7 +112,7 @@ function dispatchGithubEventEffect(
       case "workflow_run":
         yield* handlers.ciRefresh(
           headers,
-          toCiRefreshHeadSourceFromCompletedRun({
+          toCiHeadSourceFromCompletedRun({
             installation: parsed.data.installation,
             repository: parsed.data.repository,
             run: parsed.data.workflow_run,
@@ -119,18 +121,85 @@ function dispatchGithubEventEffect(
         );
         return { kind: "ok" as const };
       case "check_suite": {
-        const appId = parsed.data.check_suite.app?.id;
-        if (appId != null && String(appId) === cfg.githubAppId) {
+        const suite = parsed.data.check_suite;
+        if (
+          isOwnCiCheck(
+            { githubAppId: cfg.githubAppId },
+            { app_id: suite.app?.id ?? null, external_id: null },
+          )
+        ) {
           yield* scheduler.recordIgnored(headers, "ignored_own_check_suite", intakeLog);
           return { kind: "ok" as const };
         }
         yield* handlers.ciRefresh(
           headers,
-          toCiRefreshHeadSourceFromCompletedRun({
+          toCiHeadSourceFromCompletedRun({
             installation: parsed.data.installation,
             repository: parsed.data.repository,
             run: parsed.data.check_suite,
           }),
+          intakeLog,
+        );
+        return { kind: "ok" as const };
+      }
+      case "check_run": {
+        const run = parsed.data.check_run;
+        if (
+          isOwnCiCheck(
+            { githubAppId: cfg.githubAppId },
+            { app_id: run.app?.id ?? null, external_id: run.external_id ?? null },
+          )
+        ) {
+          yield* scheduler.recordIgnored(headers, "ignored_own_check_run", intakeLog);
+          return { kind: "ok" as const };
+        }
+        yield* scheduler.submitCiState(
+          headers,
+          {
+            installationId: parsed.data.installation.id,
+            owner: parsed.data.repository.owner.login,
+            repo: parsed.data.repository.name,
+            headSha: run.head_sha,
+            fact: {
+              name: run.name,
+              source: "check_run",
+              status: run.status,
+              conclusion: run.conclusion,
+              url: run.html_url ?? null,
+              external_id: run.external_id ?? null,
+              app_id: run.app?.id ?? null,
+              check_run_id: run.id,
+              observed_at: observedAtFromGithub(run.completed_at, run.started_at),
+            },
+          },
+          intakeLog,
+        );
+        return { kind: "ok" as const };
+      }
+      case "status": {
+        if (parsed.data.context === OWN_COMMIT_STATUS_CONTEXT) {
+          yield* scheduler.recordIgnored(headers, "ignored_own_commit_status", intakeLog);
+          return { kind: "ok" as const };
+        }
+        yield* scheduler.submitCiState(
+          headers,
+          {
+            installationId: parsed.data.installation.id,
+            owner: parsed.data.repository.owner.login,
+            repo: parsed.data.repository.name,
+            headSha: parsed.data.sha,
+            fact: {
+              name: parsed.data.context,
+              source: "status",
+              status: parsed.data.state,
+              conclusion: null,
+              url: parsed.data.target_url ?? null,
+              external_id: null,
+              app_id: null,
+              check_run_id: null,
+              observed_at: observedAtFromGithub(parsed.data.updated_at, parsed.data.created_at),
+            },
+          },
           intakeLog,
         );
         return { kind: "ok" as const };

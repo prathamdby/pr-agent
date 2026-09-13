@@ -43,4 +43,24 @@ describe("buildAskUserContent thread_transcript", () => {
     );
     expect(content).not.toContain("thread_transcript");
   });
+
+  it("includes a read-only ci_state block from durable facts", () => {
+    const content = buildAskUserContent(
+      baseParams({
+        ciState: {
+          rollup: "failing",
+          version: 3,
+          checks: [{ name: "lint", status: "completed", conclusion: "failure" }],
+        },
+      }),
+    );
+    expect(content).toContain('<ci_state untrusted="true">');
+    expect(content).toContain("rollup: failing");
+    expect(content).toContain("- lint: completed/failure");
+  });
+
+  it("omits ci_state when facts were not loaded", () => {
+    const content = buildAskUserContent(baseParams());
+    expect(content).not.toContain("ci_state");
+  });
 });

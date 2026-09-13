@@ -5,7 +5,7 @@ export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
 export const TRIAGE_QUEUE = "agent-work-triage";
 export const VERIFICATION_QUEUE = "agent-work-verification";
-export const CI_REFRESH_QUEUE = "agent-work-ci-refresh";
+export const CI_PROJECTION_QUEUE = "agent-work-ci-projection";
 export const RETENTION_QUEUE = "agent-work-retention";
 export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
 /** Rows deleted per batch in the retention sweep (each batch is its own transaction). */
@@ -16,16 +16,8 @@ export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
 export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
 export const TRIAGE_DEAD_LETTER_QUEUE = "agent-work-triage-dead";
 export const VERIFICATION_DEAD_LETTER_QUEUE = "agent-work-verification-dead";
-export const CI_REFRESH_DEAD_LETTER_QUEUE = "agent-work-ci-refresh-dead";
+export const CI_PROJECTION_DEAD_LETTER_QUEUE = "agent-work-ci-projection-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
-
-/** Seconds a CI-refresh waits before retrying after it hits an active review. */
-export const CI_REFRESH_RETRY_DELAY_SECONDS = 15;
-/**
- * Max retain hops after the original delivery. 15s × 120 = 30 minutes, enough
- * for a typical orchestrated review; exhaustion stops silently.
- */
-export const CI_REFRESH_RETRY_ATTEMPT_LIMIT = 120;
 
 /**
  * Escalated attempts (attempt 2+) multiply their base structured-loop tool-round

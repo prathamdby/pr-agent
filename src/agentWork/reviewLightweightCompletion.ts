@@ -8,6 +8,7 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema
 import type { PrSurface } from "../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
+import { summaryCommentVerdictMeta } from "./ownCheckReconcile.js";
 import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 import {
@@ -105,6 +106,7 @@ export async function tryLightweightAutoReviewCompletion(
     detail: {
       lightweightCompletion: true,
       trivialReason: "docs_only",
+      ...summaryCommentVerdictMeta({ kind: "published", findings: [] }),
     },
     leaseEpoch: params.leaseEpoch,
   });

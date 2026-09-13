@@ -11,7 +11,6 @@ import { logWarn } from "../../evlog.js";
 import type { IssueCommentRef, PrSurface } from "../../github/prSurface.js";
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { preserveCiSummaryRowInCommentBody } from "../ci/renderCiSummary.js";
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/progressComment.js";
 
 export type SummaryCommentCoordination = {
@@ -65,6 +64,8 @@ type SummaryCommentUpsertParams = {
   sentinel: string;
   hintCommentId?: number | null;
   progressRevision?: ProgressCommentRevision;
+  ciHeadSha?: string;
+  ciVersion?: number;
 };
 
 async function upsertSummaryCommentWithoutRevision(
@@ -217,17 +218,16 @@ async function prepareSummaryCommentAtRevision(
       detail: {
         progressRevision: params.progressRevision,
         ...(stubPostedAtMs != null ? { stubPostedAtMs } : {}),
+        ...(params.ciHeadSha != null
+          ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
+          : {}),
       },
     });
   }
 
   return {
     kind: "write",
-    body: withProgressRevisionComment(
-      preserveCiSummaryRowInCommentBody(currentComment?.body ?? "", params.body),
-      params.progressRevision,
-      params.workItemId,
-    ),
+    body: withProgressRevisionComment(params.body, params.progressRevision, params.workItemId),
     hintCommentId: currentComment?.id ?? params.hintCommentId,
     stubPostedAtMs,
   };
@@ -299,6 +299,9 @@ export async function upsertSummaryCommentWithCreationClaim(
         updated: result.updated,
         ...(outcome.value.stubPostedAtMs != null
           ? { stubPostedAtMs: outcome.value.stubPostedAtMs }
+          : {}),
+        ...(params.ciHeadSha != null
+          ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
           : {}),
       },
     });

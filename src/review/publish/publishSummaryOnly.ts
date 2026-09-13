@@ -1,31 +1,27 @@
 import { emitWorkSpan, type AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { publishSpanFromContext } from "../../analytics/workSpan.js";
+import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import {
   operationIntentMarker,
-  reviewCommitStatusOperationKey,
   reviewLabelsOperationKey,
   reviewSummaryOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
 import {
-  completeReviewCheckRun,
-  reviewCheckDetailsUrl,
-  reviewCheckRunOutcome,
-} from "../../agentWork/reviewCheckRun.js";
+  enqueueCiProjectionIfVersionMoved,
+  loadRenderableHeadCi,
+} from "../../agentWork/ciProjection.js";
+import { closeOwnVerdict } from "../../agentWork/closeOwnVerdict.js";
+import { summaryCommentVerdictMeta } from "../../agentWork/ownCheckReconcile.js";
+import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import {
-  REVIEW_CI_SUMMARY_MAX_FAILURES,
-  REVIEW_CI_SUMMARY_WAIT_MS,
-  REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-} from "../../settings/index.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { buildCiSummaryForSurface } from "../ci/analyzeCi.js";
-import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
@@ -66,7 +62,12 @@ export async function publishReviewSummaryOnly(params: {
   readonly progressCommentIdHint?: number | null;
   readonly staleReview?: boolean;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
-  readonly ciAuthor?: CiSummaryAuthor;
+  readonly pool?: Pool;
+  readonly workItemId?: string;
+  readonly resourceKey?: string;
+  readonly leaseEpoch?: number | null;
+  readonly boss?: PgBoss;
+  readonly installationId?: number;
   readonly coverage?: ReviewCoverage;
   readonly remainingFinalizationMs?: () => number;
   readonly shouldAbortPublish?: () => Promise<boolean>;
@@ -138,16 +139,12 @@ export async function publishReviewSummaryOnly(params: {
 
   const metricsSnapshot = snapshotReviewRunMetrics();
   const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
-  const ciSummary = await buildCiSummaryForSurface(params.prSurface, {
-    headSha,
-    waitMs: Math.max(
-      0,
-      Math.min(REVIEW_CI_SUMMARY_WAIT_MS, params.remainingFinalizationMs?.() ?? Infinity),
-    ),
-    waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-    maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
-    author: params.ciAuthor,
-  });
+  const ciPool = params.pool ?? summaryCoordination?.pool;
+  const renderedCi =
+    ciPool == null
+      ? { summary: undefined, version: 0 }
+      : await loadRenderableHeadCi(ciPool, owner, repo, headSha);
+  const ciSummary = renderedCi.summary;
   const durationMs = resolveReviewWallClockMs({
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
     endedAtMs: Date.now(),
@@ -160,6 +157,7 @@ export async function publishReviewSummaryOnly(params: {
     staleReview: params.staleReview ?? false,
     cachedDiffIndex: params.cachedDiffIndex,
     ciSummary,
+    ciVersion: renderedCi.version,
     partialCoverageNote,
     runFooter: {
       durationMs,
@@ -253,6 +251,17 @@ export async function publishReviewSummaryOnly(params: {
           mutate: runSummaryUpsert,
         });
   const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
+  if (ciPool != null) {
+    await enqueueCiProjectionIfVersionMoved({
+      boss: params.boss,
+      pool: ciPool,
+      installationId: params.installationId ?? 0,
+      owner,
+      repo,
+      headSha,
+      renderedVersion: renderedCi.version,
+    });
+  }
   const summaryOnlyCount = params.ledger.accepted.filter(
     (accepted) => accepted.kind === "summary_only",
   ).length;
@@ -264,6 +273,11 @@ export async function publishReviewSummaryOnly(params: {
       dedupedFindingCount: params.dedupedFindingCount ?? 0,
       diffCacheEmpty: params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0,
       updated: summary.updated,
+      ...summaryCommentVerdictMeta({
+        kind: coverage.kind === "partial" ? "partial" : "published",
+        note: coverage.kind === "partial" ? coverage.note : undefined,
+        findings: params.payload.findings,
+      }),
     },
   });
   logDebug("review_published_summary", {
@@ -275,85 +289,31 @@ export async function publishReviewSummaryOnly(params: {
     updated: summary.updated,
   });
 
-  const findingsOutcome = reviewCheckRunOutcome(params.payload.findings);
-  const checkOutcome: ReturnType<typeof reviewCheckRunOutcome> =
-    coverage.kind === "partial"
-      ? { conclusion: "neutral", summary: coverage.note }
-      : findingsOutcome;
   const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
-  if (summaryCoordination) {
-    await completeReviewCheckRun(summaryCoordination.pool, {
+  const verdictPool = params.pool ?? summaryCoordination?.pool;
+  const verdictWorkItemId = params.workItemId ?? summaryCoordination?.workItemId;
+  const verdictResourceKey = params.resourceKey ?? summaryCoordination?.resourceKey;
+  const verdictLeaseEpoch =
+    summaryCoordination != null ? summaryCoordination.leaseEpoch : params.leaseEpoch;
+  if (verdictPool != null && verdictWorkItemId != null && verdictResourceKey != null) {
+    await closeOwnVerdict({
+      pool: verdictPool,
       prSurface: params.prSurface,
       owner,
       repo,
       prNumber,
-      workItemId: summaryCoordination.workItemId,
-      resourceKey: summaryCoordination.resourceKey,
+      workItemId: verdictWorkItemId,
+      resourceKey: verdictResourceKey,
       reviewLens: mode,
-      leaseEpoch: summaryCoordination.leaseEpoch,
-      conclusion: checkOutcome.conclusion,
-      summary: checkOutcome.summary,
+      headSha,
+      leaseEpoch: verdictLeaseEpoch,
+      commitStatusEnabled: params.cfg.features.commitStatus,
       detailsUrl: targetUrl,
-    });
-  }
-
-  if (params.cfg.features.commitStatus) {
-    const commitStatus = {
-      state:
+      outcome:
         coverage.kind === "partial"
-          ? ("error" as const)
-          : checkOutcome.conclusion === "failure"
-            ? ("failure" as const)
-            : ("success" as const),
-      description: checkOutcome.summary,
-      targetUrl,
-    };
-    try {
-      const publishCommitStatus = () =>
-        params.prSurface.setReviewCommitStatus(headSha, commitStatus);
-      if (summaryCoordination == null) {
-        await publishCommitStatus();
-      } else {
-        await withOperationIntent<void>({
-          client: summaryCoordination.pool,
-          workItemId: summaryCoordination.workItemId,
-          operationKey: reviewCommitStatusOperationKey(summaryCoordination.resourceKey, headSha),
-          mutationKind: "github.review_commit_status",
-          leaseEpoch: summaryCoordination.leaseEpoch,
-          allowsUndefinedResult: true,
-          detail: {
-            step: "commit_status",
-            resourceKey: summaryCoordination.resourceKey,
-            headSha,
-            context: "pr-agent/review",
-            ...commitStatus,
-          },
-          recover: async () => {
-            const current = await params.prSurface.getCiStatus(headSha);
-            const found = current.legacyStatuses.some(
-              (status) =>
-                status.context === "pr-agent/review" &&
-                status.state === commitStatus.state &&
-                status.description === commitStatus.description &&
-                status.targetUrl === (commitStatus.targetUrl ?? null),
-            );
-            return found
-              ? { kind: "reconciled" as const, value: undefined }
-              : { kind: "absent" as const };
-          },
-          isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-          mutate: publishCommitStatus,
-        });
-      }
-    } catch (error) {
-      logWarn("review_commit_status_failed", {
-        mode,
-        owner,
-        repo,
-        pr: prNumber,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
+          ? { kind: "partial", note: coverage.note }
+          : { kind: "published", findings: params.payload.findings },
+    });
   }
 
   if (currentLabels instanceof Error) {

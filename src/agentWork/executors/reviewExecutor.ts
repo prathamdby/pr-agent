@@ -3,13 +3,13 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import {
-  captureDurableWorkCompleted,
   degradedReasonFromReviewFlags,
   durationMsFromClaim,
   reviewWorkOutcome,
   workFailureReasonFromClassified,
   type WorkCompletedOutcome,
 } from "../../analytics/workCompleted.js";
+import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { AppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -69,19 +69,21 @@ import {
 } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
-  cancelReviewCheckRun,
-  completeReviewCheckRun,
-  ensureReviewCheckRunStarted,
-  reviewCheckDetailsUrl,
-} from "../reviewCheckRun.js";
+  closeOwnVerdict,
+  postOwnVerdictPending,
+  type OwnVerdictOutcome,
+} from "../closeOwnVerdict.js";
+import { isOwnCheckOpen, ownVerdictFromSummaryDetail } from "../ownCheckReconcile.js";
+import { ensureReviewCheckRunStarted, reviewCheckDetailsUrl } from "../reviewCheckRun.js";
 import {
   formatFindingHistoryTrustedBlock,
   safeLoadCrossPrSuppressionFingerprints,
   safeLoadFindingHistoryCandidates,
 } from "../findingHistoryRepository.js";
 import {
-  hasCompletedPublishStep,
+  getCompletedPublishStepDetail,
   loadReviewExecutorPublishContext,
+  getProgressCommentOwner,
   getSummaryCommentGithubId,
   getWorkItem,
   recordPublishStep,
@@ -243,8 +245,9 @@ async function handleStaleHeadReschedule(args: {
   readonly payload: ReviewWorkPayload;
   readonly prSurface: PrSurface;
   readonly leaseEpoch: number | null;
+  readonly commitStatusEnabled: boolean;
 }): Promise<StaleReviewRescheduleResult | undefined> {
-  const { pool, item, reviewLens, payload, prSurface, leaseEpoch } = args;
+  const { pool, item, reviewLens, payload, prSurface, leaseEpoch, commitStatusEnabled } = args;
   if (
     (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
@@ -257,7 +260,8 @@ async function handleStaleHeadReschedule(args: {
     item,
     leaseEpoch,
     beforeBuild: async () => {
-      await completeReviewCheckRun(pool, {
+      await closeOwnVerdict({
+        pool,
         prSurface,
         owner: item.owner,
         repo: item.repo,
@@ -265,26 +269,36 @@ async function handleStaleHeadReschedule(args: {
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
+        headSha: item.headSha,
         leaseEpoch,
-        conclusion: "cancelled",
-        summary: "Review was rescheduled for a newer pull request head.",
+        commitStatusEnabled,
+        outcome: { kind: "stale_head" },
       });
     },
   });
 }
 
-async function completeCheckFromStoredSummary(args: {
+async function closeStoredReviewVerdict(args: {
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly prSurface: PrSurface;
   readonly leaseEpoch: number | null;
-  readonly conclusion: "failure" | "cancelled";
-  readonly summary: string;
+  readonly commitStatusEnabled: boolean;
+  readonly outcome: OwnVerdictOutcome;
   readonly lastFailure?: ReviewRunResult["lastFailure"];
 }): Promise<void> {
-  const { pool, item, reviewLens, prSurface, leaseEpoch, conclusion, summary, lastFailure } = args;
-  if (conclusion === "failure" && lastFailure != null) {
+  const {
+    pool,
+    item,
+    reviewLens,
+    prSurface,
+    leaseEpoch,
+    commitStatusEnabled,
+    outcome,
+    lastFailure,
+  } = args;
+  if (outcome.kind === "not_published" && lastFailure != null) {
     logWarn("review_check_run_failure_classified", {
       owner: item.owner,
       repo: item.repo,
@@ -293,7 +307,8 @@ async function completeCheckFromStoredSummary(args: {
     });
   }
   const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-  await completeReviewCheckRun(pool, {
+  await closeOwnVerdict({
+    pool,
     prSurface,
     owner: item.owner,
     repo: item.repo,
@@ -301,9 +316,10 @@ async function completeCheckFromStoredSummary(args: {
     workItemId: item.id,
     resourceKey: item.resourceKey,
     reviewLens,
+    headSha: item.headSha,
     leaseEpoch,
-    conclusion,
-    summary,
+    commitStatusEnabled,
+    outcome,
     detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
   });
 }
@@ -317,9 +333,20 @@ async function runLightweightCompletionOrSkip(args: {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly leaseEpoch: number | null;
+  readonly commitStatusEnabled: boolean;
   readonly profile: ReviewProfileSession;
 }): Promise<LightweightPhaseResult> {
-  const { cfg, pool, item, reviewLens, payload, prSurface, headSha, leaseEpoch } = args;
+  const {
+    cfg,
+    pool,
+    item,
+    reviewLens,
+    payload,
+    prSurface,
+    headSha,
+    leaseEpoch,
+    commitStatusEnabled,
+  } = args;
   if (payload.source !== "auto") {
     return { done: false, prefetchedPrFiles: undefined };
   }
@@ -346,14 +373,14 @@ async function runLightweightCompletionOrSkip(args: {
       item,
       leaseEpoch,
       beforeBuild: () =>
-        completeCheckFromStoredSummary({
+        closeStoredReviewVerdict({
           pool,
           item,
           reviewLens,
           prSurface,
           leaseEpoch,
-          conclusion: "cancelled",
-          summary: "Review was rescheduled for a newer pull request head.",
+          commitStatusEnabled,
+          outcome: { kind: "stale_head" },
         }),
     });
     if (reschedule) {
@@ -387,8 +414,9 @@ async function runLightweightCompletionOrSkip(args: {
   });
   logReviewRunCompleted();
   args.profile.record({ outcome: "lightweight", publishAttempts: 0, publishStepCount: 0 });
-  args.profile.flush();
-  await completeReviewCheckRun(pool, {
+  await args.profile.flush();
+  await closeOwnVerdict({
+    pool,
     prSurface,
     owner: item.owner,
     repo: item.repo,
@@ -396,11 +424,12 @@ async function runLightweightCompletionOrSkip(args: {
     workItemId: item.id,
     resourceKey: item.resourceKey,
     reviewLens,
+    headSha,
     leaseEpoch,
-    conclusion: lightweightResult.published ? "success" : "cancelled",
-    summary: lightweightResult.published
-      ? "Documentation-only change set."
-      : "Review was cancelled before lightweight completion.",
+    commitStatusEnabled,
+    outcome: lightweightResult.published
+      ? { kind: "published", findings: [], summary: "Documentation-only change set." }
+      : { kind: "cancelled", summary: "Review was cancelled before lightweight completion." },
     detailsUrl: reviewCheckDetailsUrl(
       item.owner,
       item.repo,
@@ -454,11 +483,12 @@ type ReviewProfileRecord = {
 
 type ReviewProfileSession = {
   record(record: ReviewProfileRecord): void;
-  flush(): void;
+  flush(): Promise<void>;
 };
 
 function createReviewProfileSession(args: {
   readonly cfg: Pick<Config, "piProvider" | "piModel">;
+  readonly pool: Pool;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
@@ -471,7 +501,7 @@ function createReviewProfileSession(args: {
       if (pending || flushed) return;
       pending = record;
     },
-    flush() {
+    async flush() {
       if (flushed || !pending) return;
       flushed = true;
       const snapshot = snapshotReviewRunMetrics();
@@ -484,7 +514,7 @@ function createReviewProfileSession(args: {
         reviewLens: args.reviewLens,
         source: args.payload.source,
       });
-      captureDurableWorkCompleted({
+      await captureDurableWorkCompletedWithCi(args.pool, {
         item: args.item,
         workType: "review",
         outcome: pending.outcome,
@@ -512,10 +542,11 @@ async function handleReviewPublishResult(args: {
   readonly reviewLens: ReviewMode;
   readonly prSurface: PrSurface;
   readonly leaseEpoch: number | null;
+  readonly commitStatusEnabled: boolean;
   readonly result: ReviewRunResult;
   readonly profile: ReviewProfileSession;
 }): Promise<ReviewExecutionResult> {
-  const { pool, item, reviewLens, prSurface, leaseEpoch, result } = args;
+  const { pool, item, reviewLens, prSurface, leaseEpoch, commitStatusEnabled, result } = args;
   const snapshot = snapshotReviewRunMetrics();
   const outcome = reviewWorkOutcome({
     published: result.published,
@@ -536,14 +567,14 @@ async function handleReviewPublishResult(args: {
         publishAttempts: result.publishAttempts,
         publishStepCount: result.publishStepCount,
       });
-      await completeCheckFromStoredSummary({
+      await closeStoredReviewVerdict({
         pool,
         item,
         reviewLens,
         prSurface,
         leaseEpoch,
-        conclusion: "cancelled",
-        summary: "Review publish was skipped because the work was superseded or cancelled.",
+        commitStatusEnabled,
+        outcome: { kind: "superseded" },
       });
     } else {
       const lastFailure =
@@ -564,14 +595,14 @@ async function handleReviewPublishResult(args: {
         publishAttempts: result.publishAttempts,
         publishStepCount: result.publishStepCount,
       });
-      await completeCheckFromStoredSummary({
+      await closeStoredReviewVerdict({
         pool,
         item,
         reviewLens,
         prSurface,
         leaseEpoch,
-        conclusion: "failure",
-        summary: "PR Agent could not publish a structured review.",
+        commitStatusEnabled,
+        outcome: { kind: "not_published" },
         lastFailure,
       });
     }
@@ -580,6 +611,18 @@ async function handleReviewPublishResult(args: {
       outcome,
       publishAttempts: result.publishAttempts,
       publishStepCount: result.publishStepCount,
+    });
+    await closeStoredReviewVerdict({
+      pool,
+      item,
+      reviewLens,
+      prSurface,
+      leaseEpoch,
+      commitStatusEnabled,
+      outcome:
+        result.coverage?.kind === "partial"
+          ? { kind: "partial", note: result.coverage.note }
+          : { kind: "published", findings: result.publishedFindings ?? [] },
     });
   }
   if (result.published || result.publishSuperseded) {
@@ -607,6 +650,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly priorInlineFeedback: Promise<SettledPriorInlineFeedback>;
   readonly repositoryView: PrRepositoryView;
   readonly leaseEpoch: number | null;
+  readonly commitStatusEnabled: boolean;
   readonly signal: AbortSignal;
   readonly profile: ReviewProfileSession;
   readonly escalation?: EscalationPlan;
@@ -629,6 +673,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     priorInlineFeedback,
     repositoryView,
     leaseEpoch,
+    commitStatusEnabled,
     signal,
     profile,
     escalation,
@@ -795,6 +840,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       }
       return false;
     },
+    boss,
     durability: {
       pool,
       workItemId: item.id,
@@ -817,14 +863,14 @@ async function runFullReviewAgainstRepositoryView(args: {
         item,
         leaseEpoch,
         beforeBuild: async () => {
-          await completeCheckFromStoredSummary({
+          await closeStoredReviewVerdict({
             pool,
             item,
             reviewLens,
             prSurface,
             leaseEpoch,
-            conclusion: "cancelled",
-            summary: "Review was rescheduled for a newer pull request head.",
+            commitStatusEnabled,
+            outcome: { kind: "stale_head" },
           });
         },
       });
@@ -838,6 +884,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     reviewLens,
     prSurface,
     leaseEpoch,
+    commitStatusEnabled,
     result,
     profile,
   });
@@ -855,6 +902,7 @@ async function runClaimedReview(args: {
   readonly profile: ReviewProfileSession;
 }): Promise<ReviewExecutionResult> {
   const { job, cfg, pool, boss, item, reviewLens, payload, env, profile } = args;
+  const commitStatusEnabled = cfg.features.commitStatus;
   const staleHeadResult = await handleStaleHeadReschedule({
     pool,
     item,
@@ -862,6 +910,7 @@ async function runClaimedReview(args: {
     payload,
     prSurface: env.prSurface,
     leaseEpoch: env.leaseEpoch,
+    commitStatusEnabled,
   });
   if (staleHeadResult) return staleHeadResult;
 
@@ -890,7 +939,7 @@ async function runClaimedReview(args: {
   const staleHeadAtPublish = { value: false };
   const publishAbortState: { staleHead?: boolean } = {};
 
-  await ensureReviewCheckRunStarted(pool, {
+  const startedCheckId = await ensureReviewCheckRunStarted(pool, {
     prSurface,
     owner: item.owner,
     repo: item.repo,
@@ -901,6 +950,22 @@ async function runClaimedReview(args: {
     reviewLens,
     leaseEpoch: env.leaseEpoch,
   });
+  if (startedCheckId != null) {
+    const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
+    await postOwnVerdictPending({
+      pool,
+      prSurface,
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+      headSha,
+      commitStatusEnabled,
+      leaseEpoch: env.leaseEpoch,
+      detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
+    });
+  }
 
   const lightweight = await runLightweightCompletionOrSkip({
     cfg,
@@ -911,6 +976,7 @@ async function runClaimedReview(args: {
     prSurface,
     headSha,
     leaseEpoch: env.leaseEpoch,
+    commitStatusEnabled,
     profile,
   });
   if (lightweight.done) return lightweight.result;
@@ -986,6 +1052,7 @@ async function runClaimedReview(args: {
           priorInlineFeedback,
           repositoryView,
           leaseEpoch: env.leaseEpoch,
+          commitStatusEnabled,
           signal: env.signal,
           profile,
           escalation: env.escalation,
@@ -1020,6 +1087,7 @@ export async function executeReviewJob(
       });
       const profile = createReviewProfileSession({
         cfg,
+        pool,
         item,
         reviewLens,
         payload,
@@ -1042,14 +1110,15 @@ export async function executeReviewJob(
         threw = true;
         throw error;
       } finally {
-        if (!threw) profile.flush();
+        if (!threw) await profile.flush();
       }
     },
     onCancelled: async (item, prSurface, _reason, leaseEpoch) => {
       if (!item.reviewLens) return;
       const reviewLens = item.reviewLens;
       const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-      await cancelReviewCheckRun(pool, {
+      await closeOwnVerdict({
+        pool,
         prSurface,
         owner: item.owner,
         repo: item.repo,
@@ -1057,8 +1126,10 @@ export async function executeReviewJob(
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
-        leaseEpoch,
         headSha: item.headSha,
+        leaseEpoch,
+        commitStatusEnabled: cfg.features.commitStatus,
+        outcome: { kind: "cancelled" },
         detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
       });
     },
@@ -1066,27 +1137,59 @@ export async function executeReviewJob(
       if (!prSurface) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;
-      if (
-        await hasCompletedPublishStep(
+      const summaryDetail = await getCompletedPublishStepDetail(
+        pool,
+        item.id,
+        item.resourceKey,
+        reviewLens,
+        "summary_comment",
+      );
+      const checkDetail = await getCompletedPublishStepDetail(
+        pool,
+        item.id,
+        item.resourceKey,
+        reviewLens,
+        "check_run",
+      );
+      if (summaryDetail != null) {
+        if (!isOwnCheckOpen(checkDetail)) return;
+        const commentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
+        await closeOwnVerdict({
           pool,
-          item.id,
-          item.resourceKey,
+          prSurface,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
           reviewLens,
-          "summary_comment",
-        )
-      ) {
+          headSha: item.headSha,
+          leaseEpoch,
+          commitStatusEnabled: cfg.features.commitStatus,
+          outcome: ownVerdictFromSummaryDetail(summaryDetail),
+          detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, commentId),
+        });
         return;
       }
-      const landedSummary = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
-      if (landedSummary != null) return;
-      const summary = await prSurface.upsertProgressComment(
-        renderReviewFailureNotice({
-          mode: reviewLens,
-          retryCommand: "/review",
-        }),
-        REVIEW_SUMMARY_SENTINEL,
-      );
-      await completeReviewCheckRun(pool, {
+      const owner = await getProgressCommentOwner(pool, item.resourceKey, reviewLens);
+      const weOwnStub = owner == null || owner.workItemId === item.id;
+      const notice = renderReviewFailureNotice({
+        mode: reviewLens,
+        retryCommand: "/review",
+      });
+      let commentId: number | null = null;
+      if (weOwnStub) {
+        const existing = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
+        if (existing != null) {
+          await prSurface.editComment(existing.id, notice);
+          commentId = existing.id;
+        } else {
+          const summary = await prSurface.upsertProgressComment(notice, REVIEW_SUMMARY_SENTINEL);
+          commentId = summary.id;
+        }
+      }
+      await closeOwnVerdict({
+        pool,
         prSurface,
         owner: item.owner,
         repo: item.repo,
@@ -1094,10 +1197,11 @@ export async function executeReviewJob(
         workItemId: item.id,
         resourceKey: item.resourceKey,
         reviewLens,
+        headSha: item.headSha,
         leaseEpoch,
-        conclusion: "failure",
-        summary: "PR Agent could not complete the review after retries.",
-        detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summary.id),
+        commitStatusEnabled: cfg.features.commitStatus,
+        outcome: { kind: "crashed" },
+        detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, commentId),
       });
     },
   });

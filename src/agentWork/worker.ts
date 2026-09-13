@@ -9,19 +9,20 @@ import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
-  CI_REFRESH_QUEUE,
+  CI_PROJECTION_QUEUE,
   CODE_INDEX_BUILD_CONCURRENCY,
   CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
+  STALE_QUEUED_WORK_GRACE_SECONDS,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import { executeAckJob } from "./executors/ackExecutor.js";
 import { executeAskJob } from "./executors/askExecutor.js";
-import { executeCiRefreshJob } from "./executors/ciRefreshExecutor.js";
+import { executeCiProjectionJob } from "./executors/ciProjectionExecutor.js";
 import { executeDescriptionJob } from "./executors/descriptionExecutor.js";
 import { executeReviewJob } from "./executors/reviewExecutor.js";
 import { executeTriageJob } from "./executors/triageExecutor.js";
@@ -30,7 +31,7 @@ import { executeCodeIndexBuildJob, type CodeIndexBuildJobData } from "../codeInd
 import {
   type AckJobData,
   type AskJobData,
-  type CiRefreshJobData,
+  type CiProjectionJobData,
   type DescriptionJobData,
   type ReviewJobData,
   type TriageJobData,
@@ -47,6 +48,7 @@ import {
   startWorkerHealthServer,
   WORKER_CONSUMER_QUEUES,
 } from "./workerHealth.js";
+import { reconcileLostRunningWork } from "./lostRunningWork.js";
 
 const AGENT_QUEUE_STATS_QUEUES = [
   ACK_QUEUE,
@@ -55,7 +57,7 @@ const AGENT_QUEUE_STATS_QUEUES = [
   DESCRIPTION_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-  CI_REFRESH_QUEUE,
+  CI_PROJECTION_QUEUE,
 ] as const;
 
 export async function logAgentQueueStats(boss: PgBoss): Promise<void> {
@@ -160,17 +162,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               boss,
               ACK_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
-              (job) => executeAckJob(cfg, pool, job.data),
+              (job) => executeAckJob(cfg, pool, job.data, boss),
             ).then(() => {
               registeredQueues.add(ACK_QUEUE);
             }),
-            registerPlainQueue<CiRefreshJobData>(
+            registerPlainQueue<CiProjectionJobData>(
               boss,
-              CI_REFRESH_QUEUE,
+              CI_PROJECTION_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
-              (job) => executeCiRefreshJob(cfg, pool, boss, job.data),
+              (job) => executeCiProjectionJob(cfg, pool, boss, job.data),
             ).then(() => {
-              registeredQueues.add(CI_REFRESH_QUEUE);
+              registeredQueues.add(CI_PROJECTION_QUEUE);
             }),
             registerMetadataQueue<ReviewJobData>(
               boss,
@@ -258,8 +260,26 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           });
 
           const runDiagnostics = async (now: Date): Promise<void> => {
-            const report = await collectQueueDiagnostics({ boss, pool, now });
+            const report = await collectQueueDiagnostics({
+              boss,
+              pool,
+              now,
+              lostRunningMinAgeSeconds:
+                cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
+            });
             logQueueDiagnosticsReport(report);
+            try {
+              await reconcileLostRunningWork({
+                cfg,
+                pool,
+                items: report.lostRunningWorkItems,
+              });
+            } catch (e) {
+              logWarn("lost_running_work_sweep_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
             try {
               await cleanupStaleLocalPrWorkspaces();
             } catch (e) {

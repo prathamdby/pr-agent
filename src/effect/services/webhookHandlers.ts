@@ -12,10 +12,7 @@ import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import { IGNORED_BOT_SLASH_COMMAND, IGNORED_UNAUTHORIZED_SLASH } from "../../settings/index.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
-import {
-  prNumbersForCiHead,
-  type CiRefreshHeadSource,
-} from "../../webhook/payloads/ciRefreshHead.js";
+import { prNumbersForCiHead, type CiHeadSource } from "../../webhook/payloads/ciHeadSource.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
@@ -64,10 +61,10 @@ export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
       data: PullRequestReviewCommentData,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
-    /** CI cell refresh from a completed workflow_run or check_suite head. */
+    /** Head-scoped CI projection from a completed workflow_run or check_suite. */
     readonly ciRefresh: (
       headers: WebhookHeaders,
-      data: CiRefreshHeadSource,
+      data: CiHeadSource,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
   }

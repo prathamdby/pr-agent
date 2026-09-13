@@ -1,10 +1,14 @@
 import * as v from "valibot";
+import { checkRunWebhookSchema, type CheckRunWebhookPayload } from "./payloads/checkRunEvent.js";
+import {
+  checkSuiteWebhookSchema,
+  type CheckSuiteWebhookPayload,
+} from "./payloads/checkSuiteEvent.js";
 import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.js";
 import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.js";
 import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
-import { checkSuiteWebhookSchema } from "./payloads/checkSuiteEvent.js";
+import { statusWebhookSchema, type StatusWebhookPayload } from "./payloads/statusEvent.js";
 import { workflowRunWebhookSchema } from "./payloads/workflowRunEvent.js";
-import type { CheckSuiteWebhookPayload } from "./payloads/checkSuiteEvent.js";
 import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
 import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
@@ -40,7 +44,11 @@ export type ParsedGithubEvent =
     }
   | { name: "workflow_run"; data: WorkflowRunWebhookPayload }
   | { name: "check_suite"; data: CheckSuiteWebhookPayload }
+  | { name: "check_run"; data: CheckRunWebhookPayload }
+  | { name: "status"; data: StatusWebhookPayload }
   | { name: "ignored"; data: unknown };
+
+const CHECK_RUN_ACTIONS = new Set(["created", "completed"]);
 
 function parseOrThrow<T>(
   eventName: string,
@@ -107,6 +115,19 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
       return {
         name: "check_suite",
         data: parseOrThrow(eventName, checkSuiteWebhookSchema, payload),
+      };
+    case "check_run":
+      if (!CHECK_RUN_ACTIONS.has(payloadAction(payload) ?? "")) {
+        return { name: "ignored", data: payload };
+      }
+      return {
+        name: "check_run",
+        data: parseOrThrow(eventName, checkRunWebhookSchema, payload),
+      };
+    case "status":
+      return {
+        name: "status",
+        data: parseOrThrow(eventName, statusWebhookSchema, payload),
       };
     default:
       return { name: "ignored", data: payload };

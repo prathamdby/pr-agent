@@ -4,11 +4,11 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import {
-  captureDurableWorkCompleted,
   captureWorkRetried,
   durationMsFromClaim,
   workFailureReasonFromClassified,
 } from "../analytics/workCompleted.js";
+import { captureDurableWorkCompletedWithCi } from "./ciWorkTelemetry.js";
 import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import { getAppBotIdentity, type BotIdentity, type InstallationToken } from "../github/appAuth.js";
@@ -947,7 +947,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         },
         error,
       );
-      captureDurableWorkCompleted({
+      await captureDurableWorkCompletedWithCi(spec.pool, {
         item,
         workType: spec.type,
         outcome: "failed",

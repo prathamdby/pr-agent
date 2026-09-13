@@ -1,11 +1,12 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
-import type { WorkSource } from "../reviewSchema.js";
+import type { ReviewFinding, WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
+import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import type { RecordPublishStepWithCoordination } from "../publish/summaryCommentUpsert.js";
 import type { FeatureSessionDurability } from "../../agent/runtime/sessionDurability.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
@@ -37,6 +38,7 @@ export type ReviewRunParams = {
   readonly workItemId?: string;
   readonly resumedPlacements?: readonly AcceptedPlacement[];
   readonly durability?: FeatureSessionDurability;
+  readonly boss?: PgBoss;
   readonly reviewSource?: WorkSource;
   readonly staleHeadRescheduled?: boolean;
   readonly publishAbortState?: { readonly staleHead?: boolean };
@@ -56,4 +58,6 @@ export type ReviewRunResult = {
   readonly publishSuperseded: boolean;
   /** Last classified external/internal failure from the run (soft-fail diagnostics). */
   readonly lastFailure?: ClassifiedFailure;
+  readonly publishedFindings?: readonly Pick<ReviewFinding, "severity">[];
+  readonly coverage?: ReviewCoverage;
 };
