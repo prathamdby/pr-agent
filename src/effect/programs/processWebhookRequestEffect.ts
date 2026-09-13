@@ -7,7 +7,7 @@ import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlo
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
 import { toCiRefreshHeadSourceFromCompletedRun } from "../../webhook/payloads/ciRefreshHead.js";
-import { observedAtFromGithub } from "../../review/ci/classifySnapshot.js";
+import { isOwnCiCheck, observedAtFromGithub } from "../../review/ci/classifySnapshot.js";
 import { OWN_COMMIT_STATUS_CONTEXT } from "../../settings/index.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
@@ -121,8 +121,13 @@ function dispatchGithubEventEffect(
         );
         return { kind: "ok" as const };
       case "check_suite": {
-        const appId = parsed.data.check_suite.app?.id;
-        if (appId != null && String(appId) === cfg.githubAppId) {
+        const suite = parsed.data.check_suite;
+        if (
+          isOwnCiCheck(
+            { githubAppId: cfg.githubAppId },
+            { app_id: suite.app?.id ?? null, external_id: null },
+          )
+        ) {
           yield* scheduler.recordIgnored(headers, "ignored_own_check_suite", intakeLog);
           return { kind: "ok" as const };
         }
@@ -138,12 +143,16 @@ function dispatchGithubEventEffect(
         return { kind: "ok" as const };
       }
       case "check_run": {
-        const appId = parsed.data.check_run.app?.id;
-        if (appId != null && String(appId) === cfg.githubAppId) {
+        const run = parsed.data.check_run;
+        if (
+          isOwnCiCheck(
+            { githubAppId: cfg.githubAppId },
+            { app_id: run.app?.id ?? null, external_id: run.external_id ?? null },
+          )
+        ) {
           yield* scheduler.recordIgnored(headers, "ignored_own_check_run", intakeLog);
           return { kind: "ok" as const };
         }
-        const run = parsed.data.check_run;
         yield* scheduler.submitCiState(
           headers,
           {

@@ -310,6 +310,21 @@ describe("review check run lifecycle", () => {
     expect(logWarn).not.toHaveBeenCalled();
   });
 
+  it("logs a 404 when creating a check run", async () => {
+    const prSurface = makePrSurface({
+      startReviewCheck: vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("Not Found"), { status: 404 })),
+    });
+
+    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_check_run_start_failed",
+      expect.objectContaining({ message: "Not Found" }),
+    );
+  });
+
   it("cancels the GitHub check when recording a created check run fails", async () => {
     vi.mocked(recordReviewCheckRun).mockRejectedValueOnce(new Error("db unavailable"));
     const prSurface = makePrSurface();

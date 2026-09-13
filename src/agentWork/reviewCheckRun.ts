@@ -63,6 +63,7 @@ function logCheckRunWarning(
   error: unknown,
   fields: Record<string, string | number | undefined>,
 ): void {
+  // Missing Checks (403) is an install-permission miss. 404 is a missing run.
   if (
     isMissingActionsPermissionError(error) ||
     (error instanceof Error && isMissingActionsPermissionError(error.cause))

@@ -17,6 +17,20 @@ export type CiCheckFact = {
   readonly observed_at: string;
 };
 
+/** Identity for the installation's own check. Name prefixes are not identity. */
+export type OwnCheckIdentity = {
+  readonly githubAppId: string;
+  readonly workItemId?: string;
+};
+
+export function isOwnCiCheck(
+  identity: OwnCheckIdentity,
+  fact: Pick<CiCheckFact, "app_id" | "external_id">,
+): boolean {
+  if (fact.app_id != null && String(fact.app_id) === identity.githubAppId) return true;
+  return identity.workItemId != null && fact.external_id === identity.workItemId;
+}
+
 export const FAILING_CHECK_CONCLUSIONS = new Set([
   "failure",
   "timed_out",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  isOwnCiCheckName,
+  isOwnCiCheck,
   isOwnCommitStatusContext,
   summarizeCiFacts,
   summarizeCiSnapshot,
@@ -29,10 +29,12 @@ function completedCheck(id: number, name: string, conclusion: string): CiCheckRu
 }
 
 describe("analyzeCi", () => {
-  it("recognizes PR Agent owned check names", () => {
-    expect(isOwnCiCheckName("PR Agent Review")).toBe(true);
-    expect(isOwnCiCheckName("PR Agent Security Review")).toBe(true);
-    expect(isOwnCiCheckName("lint")).toBe(false);
+  it("identifies the own check by App id or work-item external id", () => {
+    const identity = { githubAppId: "99", workItemId: "wi-1" };
+    expect(isOwnCiCheck(identity, { app_id: 99, external_id: null })).toBe(true);
+    expect(isOwnCiCheck(identity, { app_id: 7, external_id: "wi-1" })).toBe(true);
+    expect(isOwnCiCheck(identity, { app_id: 7, external_id: "other" })).toBe(false);
+    expect(isOwnCiCheck({ githubAppId: "99" }, { app_id: 7, external_id: "wi-1" })).toBe(false);
   });
 
   it("recognizes the own commit status context", () => {

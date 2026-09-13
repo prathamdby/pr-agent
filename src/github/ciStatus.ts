@@ -1,4 +1,4 @@
-import { isMissingActionsPermissionError } from "./actionsLogs.js";
+import { isGithubNotFoundError, isMissingActionsPermissionError } from "./actionsLogs.js";
 import { installationOctokit } from "./appAuth.js";
 import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../settings/index.js";
@@ -140,7 +140,7 @@ export async function listLegacyCommitStatusesForHead(
       targetUrl: status.target_url ?? null,
     }));
   } catch (error) {
-    if (isMissingChecksPermissionError(error)) return [];
+    if (isMissingChecksPermissionError(error) || isGithubNotFoundError(error)) return [];
     throw error;
   }
 }

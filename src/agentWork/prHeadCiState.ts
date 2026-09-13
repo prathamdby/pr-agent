@@ -3,9 +3,11 @@ import {
   applyCiCheckFact,
   checkRunSnapshotToFact,
   classifySnapshot,
+  isOwnCiCheck,
   legacyStatusToFact,
   type CiCheckFact,
   type CiRollup,
+  type OwnCheckIdentity,
 } from "../review/ci/classifySnapshot.js";
 import type { CiAuthoredCache } from "../review/ci/ciAuthoredCache.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
@@ -267,11 +269,13 @@ export async function listTerminalReviewsForHead(
 function snapshotFacts(
   checkRuns: readonly CiCheckRunSnapshot[],
   legacyStatuses: readonly CiLegacyStatus[],
+  identity: OwnCheckIdentity,
 ): CiCheckFact[] {
   const facts: CiCheckFact[] = [];
   for (const run of checkRuns) {
-    if (run.name.startsWith("PR Agent")) continue;
-    facts.push(checkRunSnapshotToFact(run));
+    const fact = checkRunSnapshotToFact(run);
+    if (isOwnCiCheck(identity, fact)) continue;
+    facts.push(fact);
   }
   for (const status of legacyStatuses) {
     if (status.context === OWN_COMMIT_STATUS_CONTEXT) continue;
@@ -288,6 +292,7 @@ export async function seedPrHeadCiStateFromSnapshot(
     readonly headSha: string;
     readonly checkRuns: readonly CiCheckRunSnapshot[];
     readonly legacyStatuses: readonly CiLegacyStatus[];
+    readonly githubAppId: string;
   },
 ): Promise<PrHeadCiStateRow> {
   const client = await pool.connect();
@@ -318,7 +323,9 @@ export async function seedPrHeadCiStateFromSnapshot(
     let checks = asCheckMap(row.checks);
     let truncated = row.truncated;
     let acceptedAny = false;
-    for (const fact of snapshotFacts(input.checkRuns, input.legacyStatuses)) {
+    for (const fact of snapshotFacts(input.checkRuns, input.legacyStatuses, {
+      githubAppId: input.githubAppId,
+    })) {
       const merged = applyCiCheckFact(checks, fact, CI_STATE_MAX_CHECKS);
       if (!merged.accepted) continue;
       checks = merged.checks;

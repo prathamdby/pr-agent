@@ -7,16 +7,14 @@ import {
   checkRunSnapshotToFact,
   classifyGithubSnapshot,
   isCheckFactFailing,
+  isOwnCiCheck,
   legacyStatusToFact,
   type CiCheckFact,
+  type OwnCheckIdentity,
 } from "./classifySnapshot.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus, CiSummary } from "./ciSummaryTypes.js";
 
-const OWN_CHECK_NAME_PREFIX = "PR Agent";
-
-export function isOwnCiCheckName(name: string): boolean {
-  return name.startsWith(OWN_CHECK_NAME_PREFIX);
-}
+export { isOwnCiCheck, type OwnCheckIdentity };
 
 function isCheckFailing(run: CiCheckRunSnapshot): boolean {
   return isCheckFactFailing(checkRunSnapshotToFact(run));

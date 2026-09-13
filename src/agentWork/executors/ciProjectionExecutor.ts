@@ -407,6 +407,7 @@ export async function executeCiProjectionJob(
       headSha: data.headSha,
       checkRuns: snapshot.checkRuns,
       legacyStatuses: snapshot.legacyStatuses,
+      githubAppId: cfg.githubAppId,
     });
   }
 

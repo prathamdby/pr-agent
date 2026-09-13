@@ -960,6 +960,39 @@ describe("processWebhookPostRequestEffect", () => {
     expect(decisions).toEqual(["ci_state_applied", "ignored_own_check_run"]);
   });
 
+  it("applies a foreign check named PR Agent Review", async () => {
+    const decisions: string[] = [];
+    const payload = {
+      action: "completed",
+      installation: { id: 9 },
+      repository: { name: "pr-agent", owner: { login: "acme" }, size: 10 },
+      check_run: {
+        id: 88,
+        head_sha: "sha-a",
+        status: "completed",
+        conclusion: "failure",
+        name: "PR Agent Review",
+        app: { id: 15368 },
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "check_run",
+            "x-github-delivery": "d-check-run-named-like-ours",
+          },
+          rawBody: body,
+        },
+        slashGateLayer(decisions, []),
+      ),
+    );
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual(["ci_state_applied"]);
+  });
+
   it("applies status events as CI state and ignores the own review status", async () => {
     const decisions: string[] = [];
     const payload = {
