@@ -34,6 +34,7 @@ import {
   isAnyReviewLens,
   LEGACY_REVIEW_SUMMARY_SENTINELS,
 } from "../../settings/legacyReviewLenses.js";
+import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { closeOwnVerdict, type OwnVerdictOutcome } from "../closeOwnVerdict.js";
@@ -459,14 +460,27 @@ export async function executeCiProjectionJob(
       });
       return;
     }
-    row = await seedPrHeadCiStateFromSnapshot(pool, {
+    const seeded = await seedPrHeadCiStateFromSnapshot(pool, {
       owner: data.owner,
       repo: data.repo,
       headSha: data.headSha,
       checkRuns: snapshot.checkRuns,
       legacyStatuses: snapshot.legacyStatuses,
       githubAppId: cfg.githubAppId,
+      checkRunsComplete: snapshot.checkRunsComplete,
     });
+    row = seeded.row;
+    if (seeded.previousRollup !== row.rollup) {
+      captureCiStateChanged({
+        installationId: data.installationId,
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+        fromRollup: seeded.previousRollup,
+        toRollup: row.rollup,
+        version: row.version,
+      });
+    }
   }
 
   try {

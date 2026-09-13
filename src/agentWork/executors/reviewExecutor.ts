@@ -3,13 +3,13 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import {
-  captureDurableWorkCompleted,
   degradedReasonFromReviewFlags,
   durationMsFromClaim,
   reviewWorkOutcome,
   workFailureReasonFromClassified,
   type WorkCompletedOutcome,
 } from "../../analytics/workCompleted.js";
+import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { AppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -413,7 +413,7 @@ async function runLightweightCompletionOrSkip(args: {
   });
   logReviewRunCompleted();
   args.profile.record({ outcome: "lightweight", publishAttempts: 0, publishStepCount: 0 });
-  args.profile.flush();
+  await args.profile.flush();
   await closeOwnVerdict({
     pool,
     prSurface,
@@ -482,11 +482,12 @@ type ReviewProfileRecord = {
 
 type ReviewProfileSession = {
   record(record: ReviewProfileRecord): void;
-  flush(): void;
+  flush(): Promise<void>;
 };
 
 function createReviewProfileSession(args: {
   readonly cfg: Pick<Config, "piProvider" | "piModel">;
+  readonly pool: Pool;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
@@ -499,7 +500,7 @@ function createReviewProfileSession(args: {
       if (pending || flushed) return;
       pending = record;
     },
-    flush() {
+    async flush() {
       if (flushed || !pending) return;
       flushed = true;
       const snapshot = snapshotReviewRunMetrics();
@@ -512,7 +513,7 @@ function createReviewProfileSession(args: {
         reviewLens: args.reviewLens,
         source: args.payload.source,
       });
-      captureDurableWorkCompleted({
+      await captureDurableWorkCompletedWithCi(args.pool, {
         item: args.item,
         workType: "review",
         outcome: pending.outcome,
@@ -1085,6 +1086,7 @@ export async function executeReviewJob(
       });
       const profile = createReviewProfileSession({
         cfg,
+        pool,
         item,
         reviewLens,
         payload,
@@ -1107,7 +1109,7 @@ export async function executeReviewJob(
         threw = true;
         throw error;
       } finally {
-        if (!threw) profile.flush();
+        if (!threw) await profile.flush();
       }
     },
     onCancelled: async (item, prSurface, _reason, leaseEpoch) => {

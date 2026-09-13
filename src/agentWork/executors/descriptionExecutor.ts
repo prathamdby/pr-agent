@@ -1,7 +1,8 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
@@ -95,7 +96,7 @@ export async function executeDescriptionJob(
               pr: item.prNumber,
               ...classifiedFailureLogFields(failure),
             });
-            captureDurableWorkCompleted({
+            await captureDurableWorkCompletedWithCi(pool, {
               item,
               workType: "description",
               outcome: "degraded",
@@ -107,7 +108,7 @@ export async function executeDescriptionJob(
             return { kind: "completed", degradation: ["publish_not_completed"] };
           }
           if (result.published) {
-            captureDurableWorkCompleted({
+            await captureDurableWorkCompletedWithCi(pool, {
               item,
               workType: "description",
               outcome: "published",
@@ -116,7 +117,7 @@ export async function executeDescriptionJob(
               extras: { source: payload.source },
             });
           } else if (result.publishSuperseded) {
-            captureDurableWorkCompleted({
+            await captureDurableWorkCompletedWithCi(pool, {
               item,
               workType: "description",
               outcome: "superseded",

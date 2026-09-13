@@ -43,13 +43,34 @@ export type ApplyPrHeadCiFactInput = {
 export type ApplyPrHeadCiFactResult = {
   readonly accepted: boolean;
   readonly version: number;
+  readonly previousRollup: CiRollup;
+  readonly rollup: CiRollup;
+};
+
+export type SeedPrHeadCiStateResult = {
+  readonly row: PrHeadCiStateRow;
+  readonly previousRollup: CiRollup;
 };
 
 type LockedCiStateRow = {
   readonly checks: Record<string, CiCheckFact>;
   readonly truncated: boolean;
   readonly version: string | number;
+  readonly rollup: string;
 };
+
+function asRollup(value: unknown): CiRollup {
+  switch (value) {
+    case "pending":
+    case "passing":
+    case "failing":
+    case "none":
+    case "unknown":
+      return value;
+    default:
+      return "unknown";
+  }
+}
 
 function asCheckMap(value: unknown): Record<string, CiCheckFact> {
   if (value == null || typeof value !== "object" || Array.isArray(value)) return {};
@@ -67,7 +88,7 @@ export async function applyPrHeadCiFact(
     [input.owner, input.repo, input.headSha],
   );
   const locked = await client.query<LockedCiStateRow>(
-    `SELECT checks, truncated, version
+    `SELECT checks, truncated, version, rollup
        FROM pr_head_ci_state
       WHERE owner = $1 AND repo = $2 AND head_sha = $3
       FOR UPDATE`,
@@ -78,10 +99,16 @@ export async function applyPrHeadCiFact(
     throw new Error("pr_head_ci_state lock missed after insert");
   }
   const currentChecks = asCheckMap(row.checks);
+  const previousRollup = asRollup(row.rollup);
   const merged = applyCiCheckFact(currentChecks, input.fact, CI_STATE_MAX_CHECKS);
   const currentVersion = Number(row.version);
   if (!merged.accepted) {
-    return { accepted: false, version: currentVersion };
+    return {
+      accepted: false,
+      version: currentVersion,
+      previousRollup,
+      rollup: previousRollup,
+    };
   }
   const rollup = classifySnapshot(Object.values(merged.checks));
   const nextVersion = currentVersion + 1;
@@ -104,7 +131,7 @@ export async function applyPrHeadCiFact(
       truncated,
     ],
   );
-  return { accepted: true, version: nextVersion };
+  return { accepted: true, version: nextVersion, previousRollup, rollup };
 }
 
 type LoadedCiStateRow = {
@@ -293,9 +320,11 @@ export async function seedPrHeadCiStateFromSnapshot(
     readonly checkRuns: readonly CiCheckRunSnapshot[];
     readonly legacyStatuses: readonly CiLegacyStatus[];
     readonly githubAppId: string;
+    readonly checkRunsComplete?: boolean;
   },
-): Promise<PrHeadCiStateRow> {
+): Promise<SeedPrHeadCiStateResult> {
   const client = await pool.connect();
+  let previousRollup: CiRollup = "none";
   try {
     await client.query("BEGIN");
     await client.query(
@@ -318,7 +347,8 @@ export async function seedPrHeadCiStateFromSnapshot(
     }
     if (row.seeded_at != null) {
       await client.query("COMMIT");
-      return mapLoadedRow(row);
+      const mapped = mapLoadedRow(row);
+      return { row: mapped, previousRollup: mapped.rollup };
     }
     let checks = asCheckMap(row.checks);
     let truncated = row.truncated;
@@ -332,8 +362,13 @@ export async function seedPrHeadCiStateFromSnapshot(
       truncated = truncated || merged.truncated;
       acceptedAny = true;
     }
-    const rollup = classifySnapshot(Object.values(checks));
-    const nextVersion = acceptedAny ? Number(row.version) + 1 : Number(row.version);
+    previousRollup = asRollup(row.rollup);
+    let rollup = classifySnapshot(Object.values(checks));
+    if (input.checkRunsComplete === false && (rollup === "none" || rollup === "passing")) {
+      rollup = "unknown";
+    }
+    const nextVersion =
+      acceptedAny || rollup !== previousRollup ? Number(row.version) + 1 : Number(row.version);
     await client.query(
       `UPDATE pr_head_ci_state
           SET checks = $4::jsonb,
@@ -364,7 +399,7 @@ export async function seedPrHeadCiStateFromSnapshot(
   if (seeded == null) {
     throw new Error("pr_head_ci_state missing after seed");
   }
-  return seeded;
+  return { row: seeded, previousRollup };
 }
 
 function mapLoadedRow(row: LoadedCiStateRow): PrHeadCiStateRow {

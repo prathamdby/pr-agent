@@ -1,7 +1,8 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
@@ -254,7 +255,7 @@ export async function executeVerificationJob(
           resolutionStatus: resolutionResult.status,
           degradation: reasons,
         });
-        captureDurableWorkCompleted({
+        await captureDurableWorkCompletedWithCi(pool, {
           item,
           workType: "verification",
           outcome: "degraded",
@@ -268,7 +269,7 @@ export async function executeVerificationJob(
         });
         return { kind: "completed", degradation: reasons };
       }
-      captureDurableWorkCompleted({
+      await captureDurableWorkCompletedWithCi(pool, {
         item,
         workType: "verification",
         outcome: "published",

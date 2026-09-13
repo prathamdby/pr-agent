@@ -32,7 +32,8 @@ import {
   type StoredTriagePreviewDetail,
   type StoredTriagePushDetail,
 } from "../../agent/triage/publishTriage.js";
-import { captureDurableWorkCompleted, durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { durationMsFromClaim } from "../../analytics/workCompleted.js";
+import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_BULK_PREVIEW_STALE,
@@ -102,14 +103,15 @@ type InventoryAndScope = {
   readonly reportContext: TriageReportContext;
 };
 
-function emitTriageWorkCompleted(input: {
+async function emitTriageWorkCompleted(input: {
+  readonly pool: Pool;
   readonly item: TriageWorkItem;
   readonly claim: { readonly startedAt: Date; readonly attemptCount: number } | null | undefined;
   readonly result: TriageExecuteResult;
-}): void {
+}): Promise<void> {
   const firstReason = input.result.degradation?.[0];
   const degraded = firstReason != null;
-  captureDurableWorkCompleted({
+  await captureDurableWorkCompletedWithCi(input.pool, {
     item: input.item,
     workType: "triage",
     outcome: degraded ? "degraded" : "published",
@@ -1027,7 +1029,12 @@ export async function executeTriageJob(
         }
       })();
       if (!omitTerminal && result.kind === "completed") {
-        emitTriageWorkCompleted({ item, claim: env.claim, result });
+        await emitTriageWorkCompleted({
+          pool,
+          item,
+          claim: env.claim,
+          result,
+        });
       }
       return result;
     },

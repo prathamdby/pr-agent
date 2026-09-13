@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Pool } from "pg";
 
 const mocks = vi.hoisted(() => ({
   capture: vi.fn(),
@@ -10,7 +11,14 @@ vi.mock("../src/analytics/index.js", () => ({
   captureException: mocks.captureException,
 }));
 
-import { captureDurableWorkCompleted } from "../src/analytics/workCompleted.js";
+import {
+  captureCiStateChanged,
+  captureDurableWorkCompleted,
+} from "../src/analytics/workCompleted.js";
+import {
+  captureDurableWorkCompletedWithCi,
+  ciWorkTelemetryFromRow,
+} from "../src/agentWork/ciWorkTelemetry.js";
 
 describe("triage work completed", () => {
   beforeEach(() => {
@@ -86,5 +94,120 @@ describe("triage work completed", () => {
       }),
     });
     expect(mocks.captureException).not.toHaveBeenCalled();
+  });
+
+  it("attaches CI properties on work completed", () => {
+    captureDurableWorkCompleted({
+      item,
+      workType: "review",
+      outcome: "published",
+      durationMs: 10,
+      attemptCount: 1,
+      ci: { rollup: "failing", failingCount: 2, authored: true },
+    });
+    expect(mocks.capture).toHaveBeenCalledWith({
+      distinctId: "installation:42",
+      event: "work completed",
+      properties: expect.objectContaining({
+        ci_rollup: "failing",
+        ci_failing_count: 2,
+        ci_authored: true,
+      }),
+    });
+  });
+
+  it("maps an unknown rollup to incomplete and emits ci state changed only on a move", () => {
+    expect(
+      ciWorkTelemetryFromRow({
+        owner: "o",
+        repo: "r",
+        headSha: "abc123",
+        checks: {},
+        rollup: "unknown",
+        version: 3,
+        authored: null,
+        prNumbers: [],
+        truncated: false,
+        seededAt: null,
+        firstSeenAt: new Date(),
+        updatedAt: new Date(),
+      }),
+    ).toEqual({
+      rollup: "unknown",
+      failingCount: 0,
+      authored: false,
+      unavailableReason: "incomplete",
+    });
+    captureCiStateChanged({
+      installationId: 42,
+      owner: "o",
+      repo: "r",
+      headSha: "abc123",
+      fromRollup: "pending",
+      toRollup: "failing",
+      version: 2,
+    });
+    captureCiStateChanged({
+      installationId: 42,
+      owner: "o",
+      repo: "r",
+      headSha: "abc123",
+      fromRollup: "failing",
+      toRollup: "failing",
+      version: 3,
+    });
+    expect(mocks.capture).toHaveBeenCalledTimes(1);
+    expect(mocks.capture).toHaveBeenCalledWith({
+      distinctId: "installation:42",
+      event: "ci state changed",
+      properties: {
+        owner: "o",
+        repo: "r",
+        head_sha: "abc123",
+        from_rollup: "pending",
+        to_rollup: "failing",
+        version: 2,
+      },
+    });
+  });
+
+  it("marks a published review degraded when the CI row is unknown", async () => {
+    const pool = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            owner: "o",
+            repo: "r",
+            head_sha: "abc123",
+            checks: {},
+            rollup: "unknown",
+            version: 1,
+            authored: null,
+            pr_numbers: [],
+            truncated: false,
+            seeded_at: null,
+            first_seen_at: new Date(),
+            updated_at: new Date(),
+          },
+        ],
+      })),
+    } as unknown as Pool;
+    await captureDurableWorkCompletedWithCi(pool, {
+      item,
+      workType: "review",
+      outcome: "published",
+      durationMs: 10,
+      attemptCount: 1,
+    });
+    expect(mocks.capture).toHaveBeenCalledWith({
+      distinctId: "installation:42",
+      event: "work completed",
+      properties: expect.objectContaining({
+        outcome: "degraded",
+        degraded_reason: "ci_unavailable",
+        ci_rollup: "unknown",
+        ci_unavailable_reason: "incomplete",
+      }),
+    });
   });
 });

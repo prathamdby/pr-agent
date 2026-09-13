@@ -34,6 +34,7 @@ import {
   jobCorrelation,
 } from "./queueing.js";
 import type { CiProjectionJobData, CiRefreshJobData } from "../types.js";
+import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { applyPrHeadCiFact } from "../prHeadCiState.js";
 import type { CiCheckFact } from "../../review/ci/classifySnapshot.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
@@ -465,6 +466,13 @@ export async function applyCiStateIntake(
   data: CiStateFactInput,
   intakeLog: RequestLogger,
 ): Promise<void> {
+  const rollupTransition: {
+    current: {
+      readonly previousRollup: string;
+      readonly rollup: string;
+      readonly version: number;
+    } | null;
+  } = { current: null };
   const events = await inTransaction(pool, async (client) => {
     const deferred: DeferredIntakeEvent[] = [];
     const event = await insertWebhookEvent(client, headers, "ci_state_applied");
@@ -496,6 +504,13 @@ export async function applyCiStateIntake(
       },
     });
     if (!applied.accepted) return deferred;
+    if (applied.previousRollup !== applied.rollup) {
+      rollupTransition.current = {
+        previousRollup: applied.previousRollup,
+        rollup: applied.rollup,
+        version: applied.version,
+      };
+    }
     const job: CiProjectionJobData = {
       kind: "ci_projection",
       installationId: data.installationId,
@@ -516,5 +531,16 @@ export async function applyCiStateIntake(
     });
     return deferred;
   });
+  if (rollupTransition.current != null) {
+    captureCiStateChanged({
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      fromRollup: rollupTransition.current.previousRollup,
+      toRollup: rollupTransition.current.rollup,
+      version: rollupTransition.current.version,
+    });
+  }
   flushDeferredEvents(intakeLog, events);
 }
