@@ -5,13 +5,13 @@ import {
   commentBodyHasCiSummaryCell,
   formatCiSummaryPlainText,
   parseCiSummaryMarkerHead,
-  patchCiSummaryCellInCommentBody,
-  preserveCiSummaryRowInCommentBody,
+  parseCiSummaryMarkerVersion,
   renderCiSummaryCell,
   shouldRenderCiSummaryRow,
 } from "../src/review/ci/renderCiSummary.js";
+import { replaceCiSummaryCellIfNewer } from "../src/review/ci/ciSummaryCell.js";
 import type { CiSummary } from "../src/review/ci/ciSummaryTypes.js";
-import { renderVerificationFailureBlock } from "../src/agent/verification/verificationFailureSignal.js";
+import { renderVerificationFailureBlock } from "../src/review/ci/verificationFailureBlock.js";
 import { VERIFICATION_FAILURE_TEXT } from "../src/settings/index.js";
 
 describe("renderCiSummary", () => {
@@ -185,39 +185,89 @@ describe("renderCiSummary", () => {
     expect(html).not.toContain("href=");
   });
 
-  it("patches only the marked CI cell in a summary body", () => {
-    const original = [
-      "## PR Agent Review",
-      "",
-      "| Gate | Detail |",
-      `| CI | ${renderCiSummaryCell({ status: "pending", headline: "⏳ CI still running", failures: [] })} |`,
-      "",
-      "<!-- pr-agent:review-meta headSha=abc123 lens=review stale=false -->",
-    ].join("\n");
-    expect(commentBodyHasCiSummaryCell(original)).toBe(true);
-    const patched = patchCiSummaryCellInCommentBody(original, {
-      status: "passing",
-      headline: "✅ All CI is passing",
-      failures: [],
-    });
-    expect(patched).not.toBeNull();
-    expect(patched).toContain("All CI is passing");
-    expect(patched).not.toContain("still running");
-    expect(patched).toContain("headSha=abc123");
+  it("stamps head and version into the CI marker", () => {
+    const head = "d".repeat(40);
+    const cell = renderCiSummaryCell(
+      { status: "passing", headline: "✅ All CI is passing", failures: [] },
+      head,
+      3,
+    );
+    expect(cell).toContain(`head=${head}`);
+    expect(cell).toContain("v=3");
+    expect(cell.startsWith(`<!-- pr-agent:ci-summary head=${head} v=3 -->`)).toBe(true);
+    expect(parseCiSummaryMarkerHead(cell)).toBe(head);
+    expect(parseCiSummaryMarkerVersion(cell)).toBe(3);
+    expect(
+      parseCiSummaryMarkerHead(
+        renderCiSummaryCell({ status: "passing", headline: "x", failures: [] }),
+      ),
+    ).toBeNull();
   });
 
-  it("keeps a verification failure block when the CI cell is refreshed", () => {
+  it("treats a missing v as older than any stored version", () => {
+    const head = "e".repeat(40);
+    const body = `| CI | ${renderCiSummaryCell(
+      { status: "pending", headline: "⏳ CI still running", failures: [] },
+      head,
+    )} |`;
+    expect(parseCiSummaryMarkerVersion(body)).toBe(0);
+    const next = renderCiSummaryCell(
+      { status: "passing", headline: "✅ All CI is passing", failures: [] },
+      head,
+      2,
+    );
+    const patched = replaceCiSummaryCellIfNewer(body, next, head, 2);
+    expect(patched).toContain("All CI is passing");
+    expect(patched).toContain("v=2");
+    expect(patched).not.toContain("still running");
+  });
+
+  it("does not replace a newer or equal marker version", () => {
+    const head = "f".repeat(40);
+    const body = `| CI | ${renderCiSummaryCell(
+      { status: "passing", headline: "✅ All CI is passing", failures: [] },
+      head,
+      4,
+    )} |`;
+    const older = renderCiSummaryCell(
+      { status: "pending", headline: "⏳ CI still running", failures: [] },
+      head,
+      3,
+    );
+    expect(replaceCiSummaryCellIfNewer(body, older, head, 3)).toBeNull();
+    expect(replaceCiSummaryCellIfNewer(body, older, head, 4)).toBeNull();
+  });
+
+  it("does not replace a cell for a different head", () => {
+    const oldHead = "a".repeat(40);
+    const newHead = "b".repeat(40);
+    const body = `| CI | ${renderCiSummaryCell(
+      { status: "failing", headline: "❌ CI failing — lint", failures: [] },
+      oldHead,
+      1,
+    )} |`;
+    const next = renderCiSummaryCell(
+      { status: "passing", headline: "✅ All CI is passing", failures: [] },
+      newHead,
+      2,
+    );
+    expect(replaceCiSummaryCellIfNewer(body, next, newHead, 2)).toBeNull();
+  });
+
+  it("keeps a verification failure block when the CI cell is replaced", () => {
+    const head = "g".repeat(40);
     const failure = renderVerificationFailureBlock();
     const original = [
       "## PR Agent Review",
       "",
       `| CI | ${CI_SUMMARY_CELL_START}⏳ CI still running${failure}${CI_SUMMARY_CELL_END} |`,
     ].join("\n");
-    const patched = patchCiSummaryCellInCommentBody(original, {
-      status: "passing",
-      headline: "✅ All CI is passing",
-      failures: [],
-    });
+    const next = renderCiSummaryCell(
+      { status: "passing", headline: "✅ All CI is passing", failures: [] },
+      head,
+      1,
+    );
+    const patched = replaceCiSummaryCellIfNewer(original, next, head, 1);
     expect(patched).toContain("All CI is passing");
     expect(patched).toContain(VERIFICATION_FAILURE_TEXT);
     expect(patched).not.toContain("still running");
@@ -227,277 +277,12 @@ describe("renderCiSummary", () => {
     const body = "## PR Agent Review\n\nNo CI cell here.\n";
     expect(commentBodyHasCiSummaryCell(body)).toBe(false);
     expect(
-      patchCiSummaryCellInCommentBody(body, {
-        status: "passing",
-        headline: "✅ All CI is passing",
-        failures: [],
-      }),
-    ).toBeNull();
-  });
-
-  it("is a no-op when the replacement cell matches the existing cell", () => {
-    const summary: CiSummary = {
-      status: "pending",
-      headline: "⏳ CI still running",
-      failures: [],
-    };
-    const body = `| CI | ${renderCiSummaryCell(summary)} |`;
-    expect(patchCiSummaryCellInCommentBody(body, summary)).toBe(body);
-  });
-
-  it("preserves the prior CI table row when a progress rewrite omits CI", () => {
-    const ciRow = `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell({
-      status: "pending",
-      headline: "⏳ CI is still running",
-      failures: [],
-    })}</td></tr>`;
-    const previous = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>abc</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Pull request update</td></tr>",
-      ciRow,
-      "<tr><td><strong>Recon</strong></td><td>⏳ Running</td></tr>",
-      "</tbody>",
-      "</table>",
-    ].join("\n");
-    const next = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>abc</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Pull request update</td></tr>",
-      "<tr><td><strong>Recon</strong></td><td>✅ Done</td></tr>",
-      "</tbody>",
-      "</table>",
-    ].join("\n");
-
-    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
-    expect(preserved).toContain("<strong>CI</strong>");
-    expect(preserved).toContain("CI is still running");
-    expect(preserved.indexOf("<strong>Source</strong>")).toBeLessThan(
-      preserved.indexOf("<strong>CI</strong>"),
-    );
-    expect(preserved.indexOf("<strong>CI</strong>")).toBeLessThan(
-      preserved.indexOf("<strong>Recon</strong>"),
-    );
-  });
-
-  it("does not duplicate CI when the next body already has a CI cell", () => {
-    const ciCell = renderCiSummaryCell({
-      status: "passing",
-      headline: "✅ All CI is passing",
-      failures: [],
-    });
-    const previous = `<tr><td><strong>CI</strong></td><td>${ciCell}</td></tr>`;
-    const next = [
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      `<tr><td><strong>CI</strong></td><td>${ciCell}</td></tr>`,
-    ].join("\n");
-    expect(preserveCiSummaryRowInCommentBody(previous, next)).toBe(next);
-  });
-
-  it("keeps a verification failure block when a full summary rewrite already has a CI cell", () => {
-    const failure = renderVerificationFailureBlock();
-    const previousCell = `${CI_SUMMARY_CELL_START}⏳ CI still running${failure}${CI_SUMMARY_CELL_END}`;
-    const nextCell = renderCiSummaryCell({
-      status: "passing",
-      headline: "✅ All CI is passing",
-      failures: [],
-    });
-    const previous = `<tr><td><strong>CI</strong></td><td>${previousCell}</td></tr>`;
-    const next = [
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      `<tr><td><strong>CI</strong></td><td>${nextCell}</td></tr>`,
-    ].join("\n");
-    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
-    expect(preserved).toContain("All CI is passing");
-    expect(preserved).toContain(VERIFICATION_FAILURE_TEXT);
-    expect(preserved).not.toContain("still running");
-  });
-
-  it("drops the prior CI row when its marker has no head", () => {
-    const oldHead = "a".repeat(40);
-    const newHead = "b".repeat(40);
-    const ciRow = `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell({
-      status: "failing",
-      headline: "❌ CI failing — GitGuardian Security Checks",
-      failures: [],
-    })}</td></tr>`;
-    const previous = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>aaa</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      ciRow,
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${oldHead} lens=review stale=false -->`,
-    ].join("\n");
-    const next = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>bbb</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      "<tr><td><strong>Recon</strong></td><td>⏳ Running</td></tr>",
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${newHead} lens=review stale=false -->`,
-    ].join("\n");
-
-    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
-    expect(preserved).not.toContain("<strong>CI</strong>");
-    expect(preserved).not.toContain("GitGuardian");
-    expect(preserved).toContain(newHead);
-  });
-
-  it("drops the prior CI row when its marker head differs from the next head", () => {
-    const oldHead = "a".repeat(40);
-    const newHead = "b".repeat(40);
-    const ciRow = `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell(
-      {
-        status: "failing",
-        headline: "❌ CI failing — GitGuardian Security Checks",
-        failures: [],
-      },
-      oldHead,
-    )}</td></tr>`;
-    const previous = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>aaa</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      ciRow,
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${oldHead} lens=review stale=false -->`,
-    ].join("\n");
-    const next = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>bbb</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      "<tr><td><strong>Recon</strong></td><td>⏳ Running</td></tr>",
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${newHead} lens=review stale=false -->`,
-    ].join("\n");
-
-    expect(parseCiSummaryMarkerHead(previous)).toBe(oldHead);
-    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
-    expect(preserved).not.toContain("<strong>CI</strong>");
-    expect(preserved).not.toContain("GitGuardian");
-  });
-
-  it("keeps the prior CI row when its marker head matches the next head", () => {
-    const head = "c".repeat(40);
-    const ciRow = `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell(
-      {
-        status: "pending",
-        headline: "⏳ Waiting for CI",
-        failures: [],
-      },
-      head,
-    )}</td></tr>`;
-    const previous = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>ccc</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      ciRow,
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${head} lens=review stale=false -->`,
-    ].join("\n");
-    const next = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>ccc</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      "<tr><td><strong>Recon</strong></td><td>✅ Done</td></tr>",
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${head} lens=review stale=false -->`,
-    ].join("\n");
-
-    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
-    expect(preserved).toContain("<strong>CI</strong>");
-    expect(preserved).toContain("Waiting for CI");
-    expect(parseCiSummaryMarkerHead(preserved)).toBe(head);
-  });
-
-  it("stamps the head into the CI marker on render", () => {
-    const head = "d".repeat(40);
-    const cell = renderCiSummaryCell(
-      { status: "passing", headline: "✅ All CI is passing", failures: [] },
-      head,
-    );
-    expect(cell).toContain(`head=${head}`);
-    expect(cell.startsWith(`<!-- pr-agent:ci-summary head=${head} -->`)).toBe(true);
-    expect(parseCiSummaryMarkerHead(cell)).toBe(head);
-    expect(
-      parseCiSummaryMarkerHead(
-        renderCiSummaryCell({ status: "passing", headline: "x", failures: [] }),
+      replaceCiSummaryCellIfNewer(
+        body,
+        renderCiSummaryCell({ status: "passing", headline: "✅ All CI is passing", failures: [] }),
+        "abc",
+        1,
       ),
     ).toBeNull();
-  });
-
-  it("never shows the old head CI across stub, tick, and refresh", () => {
-    const oldHead = "e".repeat(40);
-    const newHead = "f".repeat(40);
-    const oldFailing = renderCiSummaryCell(
-      { status: "failing", headline: "❌ CI failing — GitGuardian Security Checks", failures: [] },
-      oldHead,
-    );
-    const oldBody = [
-      "<table>",
-      "<tbody>",
-      `<tr><td><strong>CI</strong></td><td>${oldFailing}</td></tr>`,
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${oldHead} lens=review stale=false -->`,
-    ].join("\n");
-    const newStubWithoutCi = [
-      "<table>",
-      "<tbody>",
-      "<tr><td><strong>Head</strong></td><td><code>fff</code></td></tr>",
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      "<tr><td><strong>Recon</strong></td><td>⏳ Running</td></tr>",
-      "</tbody>",
-      "</table>",
-      "",
-      `<!-- pr-agent:review-meta headSha=${newHead} lens=review stale=false -->`,
-    ].join("\n");
-
-    const ticked = preserveCiSummaryRowInCommentBody(oldBody, newStubWithoutCi);
-    expect(ticked).not.toContain("GitGuardian");
-    expect(ticked).not.toContain("<strong>CI</strong>");
-
-    const waiting = renderCiSummaryCell(
-      { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
-      newHead,
-    );
-    const waitingBody = newStubWithoutCi.replace(
-      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
-      `<tr><td><strong>Source</strong></td><td>Slash command</td></tr>\n<tr><td><strong>CI</strong></td><td>${waiting}</td></tr>`,
-    );
-    expect(waitingBody).toContain("Waiting for CI");
-    expect(waitingBody).not.toContain("GitGuardian");
-
-    const refreshed = patchCiSummaryCellInCommentBody(
-      waitingBody,
-      { status: "passing", headline: "✅ All CI is passing", failures: [] },
-      newHead,
-    );
-    expect(refreshed).not.toBeNull();
-    expect(refreshed).toContain("All CI is passing");
-    expect(refreshed).not.toContain("GitGuardian");
-    expect(parseCiSummaryMarkerHead(refreshed ?? "")).toBe(newHead);
   });
 });

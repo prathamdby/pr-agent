@@ -24,6 +24,14 @@ vi.mock("../src/evlog.js", async (importOriginal) => {
   return { ...actual, logWarn: vi.fn() };
 });
 
+vi.mock("../src/agentWork/ciProjection.js", () => ({
+  loadRenderableHeadCi: vi.fn(async () => ({
+    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+    version: 0,
+  })),
+  enqueueCiProjectionIfVersionMoved: vi.fn(async () => undefined),
+}));
+
 import {
   attachSummaryCommentCoordination,
   upsertSummaryCommentWithCreationClaim,
@@ -244,7 +252,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.useRealTimers();
   });
 
-  it("preserves the prior CI row when a later progress tick omits CI", async () => {
+  it("does not copy a prior CI cell when the next body omits CI", async () => {
     const { pool: lockedPool } = createLockedPool();
     const priorBody = [
       REVIEW_SUMMARY_SENTINEL,
@@ -286,14 +294,9 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0] as string;
-    expect(writtenBody).toContain("<strong>CI</strong>");
-    expect(writtenBody).toContain("CI is still running");
-    expect(writtenBody.indexOf("<strong>Source</strong>")).toBeLessThan(
-      writtenBody.indexOf("<strong>CI</strong>"),
-    );
-    expect(writtenBody.indexOf("<strong>CI</strong>")).toBeLessThan(
-      writtenBody.indexOf("<strong>Recon</strong>"),
-    );
+    expect(writtenBody).not.toContain("<strong>CI</strong>");
+    expect(writtenBody).not.toContain("CI is still running");
+    expect(writtenBody).toContain("<strong>Recon</strong>");
   });
 
   it("allows a new work item to restart progress at revision zero", async () => {

@@ -36,6 +36,8 @@ export type CiCheckRunSnapshot = {
   readonly name: string;
   /** Provider identity for durable PR Agent check-run recovery, when returned. */
   readonly externalId?: string | null;
+  /** GitHub App id that created the check run, when returned. */
+  readonly appId?: number | null;
   readonly status: string;
   readonly conclusion: string | null;
   readonly htmlUrl: string | null;

@@ -334,6 +334,7 @@ type ReviewSummaryRenderCtx = RenderContext & {
   cachedDiffIndex?: CachedPrDiffIndex;
   /** Server-derived CI gate; omitted when disabled, unavailable, or no checks. */
   ciSummary?: CiSummary | null;
+  ciVersion?: number;
   partialCoverageNote?: string;
 };
 
@@ -404,7 +405,10 @@ function buildReviewSummaryBody(
   ]);
 
   if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
-    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary, ctx.headSha)]);
+    tableRows.push([
+      renderTableStrong("CI"),
+      renderCiSummaryCell(ctx.ciSummary, ctx.headSha, ctx.ciVersion),
+    ]);
   }
 
   for (const item of payload.followUps) {

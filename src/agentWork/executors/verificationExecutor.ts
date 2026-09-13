@@ -96,6 +96,8 @@ export async function executeVerificationJob(
           prSurface,
           headSha,
           leaseEpoch: env.leaseEpoch,
+          boss,
+          installationId: item.installationId,
         });
         return { kind: "completed" };
       }
@@ -235,6 +237,8 @@ export async function executeVerificationJob(
         prSurface,
         headSha,
         leaseEpoch: env.leaseEpoch,
+        boss,
+        installationId: item.installationId,
       });
 
       const degradation = new Set<DegradationReason>(publish.degradation);
@@ -283,6 +287,8 @@ export async function executeVerificationJob(
         prSurface,
         headSha: item.headSha,
         leaseEpoch: leaseEpoch ?? null,
+        boss,
+        installationId: item.installationId,
       });
     },
   });

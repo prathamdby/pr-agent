@@ -50,6 +50,7 @@ export async function listCheckRunsForHead(
         id: run.id,
         name: run.name,
         externalId: run.external_id ?? null,
+        appId: run.app?.id ?? null,
         status: run.status,
         conclusion: run.conclusion ?? null,
         htmlUrl: run.html_url ?? null,
@@ -91,6 +92,31 @@ export async function listCheckRunAnnotations(
     message: annotation.message ?? "",
     annotationLevel: annotation.annotation_level ?? "notice",
   }));
+}
+
+export async function listPullsForHead(
+  token: string,
+  owner: string,
+  repo: string,
+  headSha: string,
+  expiresAtTs?: number,
+): Promise<readonly { readonly number: number }[]> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const pulls = await paginateOctokitPages({
+    perPage: 100,
+    maxPages: 2,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+        owner,
+        repo,
+        commit_sha: headSha,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+  return pulls.map((pull) => ({ number: pull.number }));
 }
 
 export async function listLegacyCommitStatusesForHead(

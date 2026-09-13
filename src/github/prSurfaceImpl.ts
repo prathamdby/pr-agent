@@ -9,6 +9,7 @@ import {
   listCheckRunsForHead,
   listCheckRunAnnotations,
   listLegacyCommitStatusesForHead,
+  listPullsForHead,
 } from "./ciStatus.js";
 import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.js";
 import { createRateLimitCircuit } from "./rateLimitCircuit.js";
@@ -770,6 +771,11 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         checkRunsComplete: !checkRuns.truncated,
         legacyStatuses,
       };
+    },
+
+    async listPullsForHead(headSha) {
+      const { token, expiresAtTs } = await ensureAuth();
+      return listPullsForHead(token, owner, repo, headSha, expiresAtTs);
     },
 
     async listFailingActionsJobs(headSha) {

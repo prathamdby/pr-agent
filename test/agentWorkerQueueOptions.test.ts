@@ -5,6 +5,7 @@ import * as evlog from "../src/evlog.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
+  CI_PROJECTION_QUEUE,
   CI_REFRESH_QUEUE,
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
@@ -36,6 +37,7 @@ describe("logAgentQueueStats", () => {
       TRIAGE_QUEUE,
       VERIFICATION_QUEUE,
       CI_REFRESH_QUEUE,
+      CI_PROJECTION_QUEUE,
     ];
     type Deferred = {
       readonly queue: string;

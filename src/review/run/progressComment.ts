@@ -194,6 +194,7 @@ export function renderReviewProgressComment(params: {
   headSha: string;
   source: WorkSource;
   ciSummary?: CiSummary | null;
+  ciVersion?: number;
   /**
    * When omitted, the stub is in the queued presentation: Head/Source/(Queue)/(CI) only,
    * no Recon or specialist rows, and a queued note (not “in progress”).
@@ -219,7 +220,7 @@ export function renderReviewProgressComment(params: {
   if (shouldRenderCiSummaryRow(params.ciSummary)) {
     tableRows.push([
       renderTableStrong("CI"),
-      renderCiSummaryCell(params.ciSummary, params.headSha),
+      renderCiSummaryCell(params.ciSummary, params.headSha, params.ciVersion),
     ]);
   }
   if (params.tickState != null) {

@@ -826,6 +826,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       }
       return false;
     },
+    boss,
     durability: {
       pool,
       workItemId: item.id,

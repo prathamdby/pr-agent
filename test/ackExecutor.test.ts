@@ -23,8 +23,12 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
   })),
 }));
 
-vi.mock("../src/review/ci/analyzeCi.js", () => ({
-  buildCiSummaryForSurface: vi.fn(async () => null),
+vi.mock("../src/agentWork/ciProjection.js", () => ({
+  loadRenderableHeadCi: vi.fn(async () => ({
+    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+    version: 0,
+  })),
+  enqueueCiProjectionIfVersionMoved: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -64,7 +68,7 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
-import { buildCiSummaryForSurface } from "../src/review/ci/analyzeCi.js";
+import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
 import {
   getProgressCommentOwner,
   getReviewQueuePosition,
@@ -768,10 +772,9 @@ describe("executeAckJob", () => {
   });
 
   it("renders waiting for CI when the ack snapshot sees no checks yet", async () => {
-    vi.mocked(buildCiSummaryForSurface).mockResolvedValueOnce({
-      status: "none",
-      headline: "No CI checks on this head",
-      failures: [],
+    vi.mocked(loadRenderableHeadCi).mockResolvedValueOnce({
+      summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+      version: 0,
     });
     vi.mocked(getWorkItemCore).mockResolvedValueOnce({
       id: "wi-1",

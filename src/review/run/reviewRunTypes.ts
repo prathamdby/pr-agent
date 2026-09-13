@@ -1,4 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -37,6 +38,7 @@ export type ReviewRunParams = {
   readonly workItemId?: string;
   readonly resumedPlacements?: readonly AcceptedPlacement[];
   readonly durability?: FeatureSessionDurability;
+  readonly boss?: PgBoss;
   readonly reviewSource?: WorkSource;
   readonly staleHeadRescheduled?: boolean;
   readonly publishAbortState?: { readonly staleHead?: boolean };

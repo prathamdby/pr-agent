@@ -72,7 +72,7 @@ export function checkRunSnapshotToFact(
     conclusion: run.conclusion,
     url: run.htmlUrl,
     external_id: run.externalId ?? null,
-    app_id: null,
+    app_id: run.appId ?? null,
     check_run_id: run.id,
     observed_at: observedAt,
   };

@@ -7,7 +7,6 @@ import {
   ASK_QUEUE,
   CI_PROJECTION_QUEUE,
   CI_REFRESH_QUEUE,
-  CI_REFRESH_RETRY_ATTEMPT_LIMIT,
   CI_REFRESH_RETRY_DELAY_SECONDS,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
@@ -40,12 +39,6 @@ export function ciRefreshSingletonKey(
   data: Pick<CiRefreshJobData, "owner" | "repo" | "prNumber" | "headSha" | "attempt">,
 ): string {
   return `${data.owner}/${data.repo}#${data.prNumber}:${data.headSha}:${data.attempt}`;
-}
-
-/** Next retain hop, or null when the cap is exhausted. */
-export function nextCiRefreshAttempt(attempt: number): number | null {
-  if (attempt >= CI_REFRESH_RETRY_ATTEMPT_LIMIT) return null;
-  return attempt + 1;
 }
 
 export function jobCorrelation(
@@ -254,15 +247,35 @@ export async function enqueueCiProjectionDebounced(
   return jobId == null ? "already_present" : "enqueued";
 }
 
-/** Delayed retain hop after an active review. Same send options as intake. */
-export async function enqueueCiRefreshRetry(
+/** Same debounce as intake, without a transaction client. Used by the projector and writers. */
+export async function enqueueCiProjectionDebouncedStandalone(
   boss: PgBoss,
-  data: CiRefreshJobData,
+  data: CiProjectionJobData,
 ): Promise<"enqueued" | "already_present"> {
-  return sendBossJobIdempotent(
-    boss,
-    CI_REFRESH_QUEUE,
+  const jobId = await boss.sendDebounced(
+    CI_PROJECTION_QUEUE,
     data,
-    ciRefreshSendOptions(data, { startAfter: CI_REFRESH_RETRY_DELAY_SECONDS }),
+    {
+      priority: 40,
+      group: { id: installationGroupId(data.installationId) },
+    },
+    5,
+    `${data.owner}/${data.repo}:${data.headSha}`,
   );
+  return jobId == null ? "already_present" : "enqueued";
+}
+
+/** Defer one projection until the shared rate-limit circuit closes. */
+export async function enqueueCiProjectionAfter(
+  boss: PgBoss,
+  data: CiProjectionJobData,
+  startAfterSeconds: number,
+): Promise<"enqueued" | "already_present"> {
+  return sendBossJobIdempotent(boss, CI_PROJECTION_QUEUE, data, {
+    startAfter: Math.max(1, startAfterSeconds),
+    singletonKey: `${data.owner}/${data.repo}:${data.headSha}:deferred`,
+    singletonSeconds: Math.max(1, startAfterSeconds),
+    priority: 40,
+    group: { id: installationGroupId(data.installationId) },
+  });
 }

@@ -379,6 +379,9 @@ export async function runOrchestratedPrReview(
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
+    pool: params.durability?.pool,
+    boss: params.boss,
+    installationId: params.durability?.installationId,
     ciAuthor,
     state: summaryState,
     getLedger: publishThread.getLedger,
@@ -687,8 +690,9 @@ export async function runOrchestratedPrReview(
         specialists: snapshotSpecialists(),
       },
       prSurface: setup.prSurface,
-
       hintCommentId: params.progressCommentIdHint,
+      installationId: params.durability?.installationId,
+      boss: params.boss,
     });
   };
 
@@ -754,8 +758,9 @@ export async function runOrchestratedPrReview(
         specialists: snapshotSpecialists(),
       },
       prSurface: setup.prSurface,
-
       hintCommentId: params.progressCommentIdHint,
+      installationId: params.durability?.installationId,
+      boss: params.boss,
     });
   };
 
@@ -874,6 +879,9 @@ export async function runOrchestratedPrReview(
       shouldLinkToSummary: params.shouldLinkToSummary,
       progressCommentIdHint: params.progressCommentIdHint,
       recordPublishStep: params.recordPublishStep,
+      pool: params.durability?.pool,
+      boss: params.boss,
+      installationId: params.durability?.installationId,
       coverage: coverage(state),
       shouldAbortPublish: params.shouldAbortPublish,
       publishAbortState: params.publishAbortState,

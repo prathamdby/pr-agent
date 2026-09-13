@@ -1,5 +1,7 @@
 import { emitWorkSpan, type AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { publishSpanFromContext } from "../../analytics/workSpan.js";
+import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import {
@@ -8,19 +10,17 @@ import {
   reviewSummaryOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
+import {
+  enqueueCiProjectionIfVersionMoved,
+  loadRenderableHeadCi,
+} from "../../agentWork/ciProjection.js";
 import { closeOwnVerdict } from "../../agentWork/closeOwnVerdict.js";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import {
-  REVIEW_CI_SUMMARY_MAX_FAILURES,
-  REVIEW_CI_SUMMARY_WAIT_MS,
-  REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-} from "../../settings/index.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { buildCiSummaryForSurface } from "../ci/analyzeCi.js";
 import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
@@ -62,6 +62,9 @@ export async function publishReviewSummaryOnly(params: {
   readonly progressCommentIdHint?: number | null;
   readonly staleReview?: boolean;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
+  readonly pool?: Pool;
+  readonly boss?: PgBoss;
+  readonly installationId?: number;
   readonly ciAuthor?: CiSummaryAuthor;
   readonly coverage?: ReviewCoverage;
   readonly remainingFinalizationMs?: () => number;
@@ -70,6 +73,7 @@ export async function publishReviewSummaryOnly(params: {
   readonly dedupedFindingCount?: number;
 }): Promise<PublishSummaryOnlyResult> {
   const coverage = params.coverage ?? { kind: "full" };
+  void params.ciAuthor;
   if (coverage.kind === "none") {
     throw new AppError({
       code: "review.summary_coverage_none",
@@ -134,16 +138,12 @@ export async function publishReviewSummaryOnly(params: {
 
   const metricsSnapshot = snapshotReviewRunMetrics();
   const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
-  const ciSummary = await buildCiSummaryForSurface(params.prSurface, {
-    headSha,
-    waitMs: Math.max(
-      0,
-      Math.min(REVIEW_CI_SUMMARY_WAIT_MS, params.remainingFinalizationMs?.() ?? Infinity),
-    ),
-    waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-    maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
-    author: params.ciAuthor,
-  });
+  const ciPool = params.pool ?? summaryCoordination?.pool;
+  const renderedCi =
+    ciPool == null
+      ? { summary: undefined, version: 0 }
+      : await loadRenderableHeadCi(ciPool, owner, repo, headSha);
+  const ciSummary = renderedCi.summary;
   const durationMs = resolveReviewWallClockMs({
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
     endedAtMs: Date.now(),
@@ -156,6 +156,7 @@ export async function publishReviewSummaryOnly(params: {
     staleReview: params.staleReview ?? false,
     cachedDiffIndex: params.cachedDiffIndex,
     ciSummary,
+    ciVersion: renderedCi.version,
     partialCoverageNote,
     runFooter: {
       durationMs,
@@ -249,6 +250,17 @@ export async function publishReviewSummaryOnly(params: {
           mutate: runSummaryUpsert,
         });
   const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
+  if (ciPool != null) {
+    await enqueueCiProjectionIfVersionMoved({
+      boss: params.boss,
+      pool: ciPool,
+      installationId: params.installationId ?? 0,
+      owner,
+      repo,
+      headSha,
+      renderedVersion: renderedCi.version,
+    });
+  }
   const summaryOnlyCount = params.ledger.accepted.filter(
     (accepted) => accepted.kind === "summary_only",
   ).length;

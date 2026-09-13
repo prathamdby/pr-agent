@@ -19,6 +19,14 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   return createReviewCheckRunMock();
 });
 
+vi.mock("../src/agentWork/ciProjection.js", () => ({
+  loadRenderableHeadCi: vi.fn(async () => ({
+    summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+    version: 0,
+  })),
+  enqueueCiProjectionIfVersionMoved: vi.fn(async () => undefined),
+}));
+
 import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
 import * as closeOwnVerdict from "../src/agentWork/closeOwnVerdict.js";
