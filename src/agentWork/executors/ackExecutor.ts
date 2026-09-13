@@ -79,11 +79,15 @@ async function publishAckProgress(
   const prSurface = ackPrSurface(cfg, data, installation);
   const deferredHead = data.progress.headSha === DEFERRED_HEAD_SHA;
   const headSha = deferredHead ? await prSurface.getHeadSha() : data.progress.headSha;
-  const ciSummary = await buildCiSummaryForSurface(prSurface, {
+  const snapshot = await buildCiSummaryForSurface(prSurface, {
     headSha,
     lightweight: true,
     waitMs: 0,
   });
+  const ciSummary =
+    snapshot != null && snapshot.status === "none"
+      ? { status: "pending" as const, headline: "⏳ Waiting for CI", failures: [] }
+      : snapshot;
   let queuePosition: ReviewQueuePosition | null = null;
   if (data.workItemId != null) {
     try {

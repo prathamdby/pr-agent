@@ -217,7 +217,10 @@ export function renderReviewProgressComment(params: {
     ]);
   }
   if (shouldRenderCiSummaryRow(params.ciSummary)) {
-    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(params.ciSummary)]);
+    tableRows.push([
+      renderTableStrong("CI"),
+      renderCiSummaryCell(params.ciSummary, params.headSha),
+    ]);
   }
   if (params.tickState != null) {
     tableRows.push([

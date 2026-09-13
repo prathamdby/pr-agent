@@ -118,7 +118,12 @@ function dispatchGithubEventEffect(
           intakeLog,
         );
         return { kind: "ok" as const };
-      case "check_suite":
+      case "check_suite": {
+        const appId = parsed.data.check_suite.app?.id;
+        if (appId != null && String(appId) === cfg.githubAppId) {
+          yield* scheduler.recordIgnored(headers, "ignored_own_check_suite", intakeLog);
+          return { kind: "ok" as const };
+        }
         yield* handlers.ciRefresh(
           headers,
           toCiRefreshHeadSourceFromCompletedRun({
@@ -129,6 +134,7 @@ function dispatchGithubEventEffect(
           intakeLog,
         );
         return { kind: "ok" as const };
+      }
       default:
         parsed satisfies never;
         recordEvent(intakeLog, "unhandled_parsed_event", { event }, "warn");

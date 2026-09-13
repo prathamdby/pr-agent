@@ -59,6 +59,7 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
+import { buildCiSummaryForSurface } from "../src/review/ci/analyzeCi.js";
 import {
   getProgressCommentOwner,
   getReviewQueuePosition,
@@ -761,5 +762,29 @@ describe("executeAckJob", () => {
       }),
     );
     expect(surfaceBundle.controls.replies.map((reply) => reply.body)).toContain("restarted");
+  });
+
+  it("renders waiting for CI when the ack snapshot sees no checks yet", async () => {
+    vi.mocked(buildCiSummaryForSurface).mockResolvedValueOnce({
+      status: "none",
+      headline: "No CI checks on this head",
+      failures: [],
+    });
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+      id: "wi-1",
+      status: "queued",
+      type: "review",
+    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-1",
+      progress: { lens: "review", headSha: "sha", source: "slash" },
+    });
+
+    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body ?? "";
+    expect(body).toContain("<strong>CI</strong>");
+    expect(body).toContain("Waiting for CI");
+    expect(body).toContain("head=sha");
   });
 });

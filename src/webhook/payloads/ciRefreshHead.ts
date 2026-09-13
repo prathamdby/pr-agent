@@ -16,6 +16,7 @@ export const ciRefreshCompletedRunSchema = v.object({
   status: v.string(),
   conclusion: v.nullable(v.string()),
   pull_requests: v.optional(v.array(ciRefreshPullRequestSchema), []),
+  app: v.optional(v.object({ id: githubSafeIdSchema })),
 });
 
 export type CiRefreshHeadSource = {
