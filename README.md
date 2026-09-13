@@ -113,8 +113,8 @@ Paste the GitHub App private key as one line with `\n` for newlines, or as base6
 <summary>Environment notes</summary>
 
 - `WEBHOOK_SECRET` must match the secret you set on the GitHub App.
-- Compose overrides `ROLE` and `DATABASE_URL` for each service. Web and worker use hostname `postgres` on the compose network. The `DATABASE_URL` in `.env.example` (`localhost:5432`) is for host processes only, and only after you publish Postgres. See [Local development](#local-development).
-- Default HTTP port is `7224` (Compose and `.env.example`). Bare `nub src/index.ts` without `PORT` falls back to `3000`.
+- Compose overrides `ROLE` and `DATABASE_URL` for each service. Web and worker use hostname `postgres` on the compose network. The `DATABASE_URL` in `.env.example` (`localhost:5432`) is for host integration tests and optional host processes. [Local development](#local-development) publishes that port from `docker-compose.dev.yml`. Production Compose does not.
+- Default HTTP port is `7224` (Compose and `.env.example`). Maintainer-local Compose also publishes worker `7225`. Bare `nub src/index.ts` without `PORT` falls back to `3000`.
 - `.env.example` sets `LOG_PRETTY=true` for a laptop. On a public host, set `LOG_PRETTY=false` or drop the line so production defaults apply. Change the default Postgres password if the host is reachable.
 - Full env catalog: [docs/configuration.md](docs/configuration.md). Feature switches: [docs/features.md](docs/features.md).
 
@@ -162,11 +162,11 @@ docker compose up -d --force-recreate pr-agent-web pr-agent-worker
 
 ### 4. Reach the webhook
 
-GitHub must reach `POST /webhooks` on the web service over HTTPS. Localhost is the documented exception. Compose publishes HTTP `7224` only. There is no Caddy, nginx, or certificate in this repo. TLS is operator-owned.
+GitHub must reach `POST /webhooks` on the web service over HTTPS. Localhost is the documented exception. Production Compose publishes HTTP `7224` only. Laptop Caddy is [docker-compose.dev.yml](docker-compose.dev.yml). Production TLS is still operator-owned.
 
 **Production.** Put TLS in front of `pr-agent-web` (Caddy, nginx, a load balancer, your PaaS). Forward to container port `7224`. A Caddy example lives in [docs/operations.md](docs/operations.md#tls-in-front-of-compose).
 
-**Laptop.** Start a tunnel client that forwards to `http://127.0.0.1:7224/webhooks`. A smee channel or Cloudflare hostname with no local client drops every delivery. GitHub can show 200 from the relay while this process sees nothing.
+**Laptop.** Use [Local development](#local-development). Caddy there terminates HTTPS for practice. GitHub still needs a public tunnel. Start a tunnel client that forwards to `http://127.0.0.1:7224/webhooks` or the Caddy web URL. A smee channel or Cloudflare hostname with no local client drops every delivery. GitHub can show 200 from the relay while this process sees nothing.
 
 ```bash
 # smee.io: create a channel, then
@@ -307,32 +307,42 @@ That is his operator setup. The install path above still uses this repo's Compos
 Use this when you are changing the code. For production hosting, use [Installation](#installation).
 
 ```bash
-# Compose postgres is not published to the host. Use a published container for host processes:
-docker run -d --name pr-agent-postgres \
-  -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent \
-  -p 5432:5432 postgres:16-alpine
-
-cp .env.example .env
-# fill a real GitHub App PEM + provider fields
-# DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent
-
-npm install -g --ignore-scripts=false @nubjs/nub@0.7.2
-nub install
-
-PORT=3000 ROLE=web nub src/index.ts
-PORT=3001 ROLE=worker nub src/index.ts
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-`DATABASE_URL` is required for both roles. Nub loads `PORT` from `.env` (`7224`), so each role needs its own port.
+That one file starts Postgres, Caddy, web, and worker. [`dev/mock.env`](dev/mock.env) has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App.
+
+| URL                               | Role                           |
+| --------------------------------- | ------------------------------ |
+| `https://web.localhost/health`    | Web liveness                   |
+| `https://web.localhost/ready`     | Web Postgres ping              |
+| `https://web.localhost/webhooks`  | Durable intake                 |
+| `https://worker.localhost/health` | Worker liveness                |
+| `https://worker.localhost/ready`  | Worker consumers plus Postgres |
+
+```bash
+curl -k https://web.localhost/health
+curl -k https://web.localhost/ready
+curl -k https://worker.localhost/health
+curl -k https://worker.localhost/ready
+```
+
+If `web.localhost` does not resolve, add `127.0.0.1 web.localhost worker.localhost` to `/etc/hosts`, or pass `--resolve web.localhost:443:127.0.0.1` to `curl`.
+
+Caddy uses an internal certificate. GitHub will not trust it. Point smee or Cloudflare Tunnel at `https://web.localhost/webhooks` or `http://127.0.0.1:7224/webhooks`. Do not point a tunnel at the worker.
+
+Published ports bind `127.0.0.1`. Binding `80` and `443` on all interfaces exposes the laptop on the LAN.
+
+If you already run `docker compose up -d postgres` or a published `docker run` Postgres on `5432`, stop that container first. This file reuses the `postgres-data` volume from the repo Compose project. `compose down` keeps that volume.
+
+For live App deliveries, put real GitHub fields in `.env` and start with `PR_AGENT_ENV_FILE=.env docker compose -f docker-compose.dev.yml up -d --build`.
+
+Do not start [docker-compose.yml](docker-compose.yml) at the same time. That file is the self-host path. It has no Caddy and does not publish Postgres.
 
 <details>
 <summary>Tests, Nub pin, and the landing site</summary>
 
-`nub src/index.ts` loads `.env` automatically. Auto-restart: `nub watch src/index.ts`. Tunnel webhooks to `/webhooks` on the web `PORT`. Pin Nub to `0.7.2` (`package.json` `packageManager`, `Dockerfile`, `site/vercel.json`). Compose deploy does not need a host Nub install.
-
-`docker compose up -d postgres` alone does not open host port `5432`. Full `docker compose up` works because web and worker get `DATABASE_URL` rewritten to `@postgres:5432`.
-
-If you previously installed with pnpm or npm at the repo root, delete `node_modules` before the first `nub install` so the virtual store is not mixed (`.pnpm/` vs Nub’s store).
+`docker-compose.dev.yml` publishes Postgres at `localhost:5432`. Integration tests use that URL. Unit tests do not need the database or Caddy.
 
 ```bash
 nub run test
@@ -341,6 +351,10 @@ nub run check:code
 ```
 
 Vitest does not load `.env` for you. Export `DATABASE_URL` in the shell for integration runs. Inventory-only suite that may skip DB cases: `nub run test:integration:inventory`.
+
+Host Nub is optional on this path. Pin it to `0.7.2` when you install it (`package.json` `packageManager`, `Dockerfile`, `site/vercel.json`). Use `nub watch src/index.ts` only if you want to edit TypeScript on the host instead of rebuilding the image. Give the two roles distinct `PORT` values. Do not copy `PORT=7224` onto both terminals.
+
+If you previously installed with pnpm or npm at the repo root, delete `node_modules` before the first `nub install` so the virtual store is not mixed (`.pnpm/` vs Nub’s store).
 
 More scripts and edge cases: [docs/operations.md](docs/operations.md#development), [docs/cursor-cloud.md](docs/cursor-cloud.md).
 

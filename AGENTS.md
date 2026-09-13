@@ -79,22 +79,14 @@ Before calling a behavior change complete, check the surfaces that can carry it:
 Use the smallest stack that exercises the behavior. `DATABASE_URL` is required for both roles.
 
 ```bash
-# Compose postgres is not published to the host. Use a published container:
-docker run -d --name pr-agent-postgres \
-  -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent \
-  -p 5432:5432 postgres:16-alpine
-cp .env.example .env
-# fill a real GitHub App PEM and provider fields
-nub install
-
-# terminal 1
-PORT=3000 ROLE=web nub src/index.ts
-
-# terminal 2
-PORT=3001 ROLE=worker nub src/index.ts
+docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-`docker compose up -d postgres` does not open host port `5432`. Full `docker compose up` rewrites web and worker to `@postgres:5432`. Host processes and `nub run test:integration` need the published `docker run` recipe (or a compose override that adds `ports`). Pin host Nub to `@nubjs/nub@0.7.2` when you install it globally.
+That file starts Postgres (published on `127.0.0.1:5432`), Caddy, web (`7224`), and worker (`7225`). `dev/mock.env` has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App. For live deliveries, fill `.env` and pass `PR_AGENT_ENV_FILE=.env`.
+
+`docker compose up` remains the self-host path. It starts containerized web and worker without Caddy and does not publish Postgres. Do not run both Compose files at once. `docker compose up -d postgres` from the base file still does not open host port `5432`.
+
+Host Nub is optional on the maintainer-local path. Pin it to `@nubjs/nub@0.7.2` when you install it globally. Use `nub watch` only when you want host hot reload instead of an image rebuild.
 
 The web process owns `POST /webhooks` and exposes intake health and readiness probes. The worker owns queue consumers and agent execution, with separate readiness for consumer and Postgres health. Web-only runs accept work but do not publish reviews.
 
