@@ -10,10 +10,22 @@ const HOST_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/gi;
 const WAIT_MS = 90_000;
 const POLL_MS = 2_000;
 
+function composeLogs(bin) {
+  return spawnSync(bin, ["compose", "-f", COMPOSE_FILE, "logs", "--no-color", SERVICE], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
+}
+
 function readLogs() {
-  const result = spawnSync(
-    "docker",
-    ["compose", "-f", COMPOSE_FILE, "logs", "--no-color", SERVICE],
+  let result = composeLogs("docker");
+  const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (result.status === 0 || !/permission denied/i.test(combined)) {
+    return combined;
+  }
+  result = spawnSync(
+    "sudo",
+    ["-n", "docker", "compose", "-f", COMPOSE_FILE, "logs", "--no-color", SERVICE],
     { cwd: REPO_ROOT, encoding: "utf8" },
   );
   return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
