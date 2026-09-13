@@ -1354,6 +1354,18 @@ describe("renderLightweightReviewCompletion", () => {
     expect(body).toContain("Use /review for a full review.");
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 12s ⋅ grok-4.5</sub>");
     expect(body).toContain(REVIEW_SUMMARY_SENTINEL);
+    expect(body).toContain(
+      "<!-- pr-agent:review-meta headSha=abc123def456 lens=review stale=false -->",
+    );
+  });
+
+  it("includes a CI cell when a summary is provided", () => {
+    const body = renderLightweightReviewCompletion(lightweightFooter, {
+      ciSummary: { status: "passing", headline: "All CI is passing", failures: [] },
+      ciVersion: 3,
+    });
+    expect(body).toContain("<!-- pr-agent:ci-summary");
+    expect(body).toContain("All CI is passing");
   });
 });
 

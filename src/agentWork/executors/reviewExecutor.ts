@@ -327,6 +327,7 @@ async function closeStoredReviewVerdict(args: {
 async function runLightweightCompletionOrSkip(args: {
   readonly cfg: Config;
   readonly pool: Pool;
+  readonly boss: PgBoss;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
@@ -339,6 +340,7 @@ async function runLightweightCompletionOrSkip(args: {
   const {
     cfg,
     pool,
+    boss,
     item,
     reviewLens,
     payload,
@@ -396,6 +398,7 @@ async function runLightweightCompletionOrSkip(args: {
     preflight,
     model: cfg.piModel,
     leaseEpoch,
+    boss,
   });
   if (!lightweightResult.handled) {
     return { done: false, prefetchedPrFiles };
@@ -970,6 +973,7 @@ async function runClaimedReview(args: {
   const lightweight = await runLightweightCompletionOrSkip({
     cfg,
     pool,
+    boss,
     item,
     reviewLens,
     payload,

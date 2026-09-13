@@ -20,9 +20,9 @@ Operators may still request a full pass with `/review`.
 
 4. **Truncation guard.** A truncated change set never qualifies for lightweight completion.
 
-5. **Public Markdown contract.** Lightweight completion uses `renderLightweightReviewCompletion` in `reviewRender.ts`, preserving sentinel heading, GitHub alert block, and HTML key-value table formatting.
+5. **Public Markdown contract.** Lightweight completion uses `renderLightweightReviewCompletion` in `reviewRender.ts`, preserving sentinel heading, GitHub alert block, and HTML key-value table formatting. It stamps `review-meta`, may include the CI cell, and publishes through `upsertSummaryCommentWithCreationClaim` at progress revision `7` so a late acknowledgement stub (revision `0`) cannot overwrite the terminal body.
 
-6. **Copy.** Public text: lead note that no deep review run occurred because the change set is documentation-only; table rows for Review, Reason, and Next step (`Use /review for a full review.`).
+6. **Copy.** Public text: lead note that no deep review run occurred because the change set is documentation-only; table rows for Review, Reason, and Next step (`Use /review for a full review`).
 
 ## Current implementation
 

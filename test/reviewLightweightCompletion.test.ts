@@ -4,6 +4,7 @@ import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLight
 import type { AgentWorkItem } from "../src/agentWork/types.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
+import { LIGHTWEIGHT_REVIEW_COMPLETION_LEAD } from "../src/settings/index.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
@@ -15,12 +16,45 @@ vi.mock("../src/review/run/reviewRunMetrics.js", () => ({
   snapshotReviewRunMetrics: vi.fn(() => null),
 }));
 
+vi.mock("../src/agentWork/ciProjection.js", () => ({
+  loadRenderableHeadCi: vi.fn(async () => ({
+    summary: { status: "pending", headline: "CI is pending", failures: [] },
+    version: 1,
+  })),
+  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
+}));
+
+vi.mock("../src/review/publish/summaryCommentUpsert.js", () => ({
+  upsertSummaryCommentWithCreationClaim: vi.fn(async (params) => {
+    const result = await params.prSurface.upsertProgressComment(
+      params.body,
+      params.sentinel,
+      params.hintCommentId != null
+        ? { id: params.hintCommentId, url: "https://example.com/c" }
+        : null,
+    );
+    return result;
+  }),
+}));
+
+vi.mock("../src/agentWork/withOperationIntent.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/withOperationIntent.js")>();
+  return {
+    ...actual,
+    withOperationIntent: vi.fn(async (params: { mutate: () => Promise<unknown> }) =>
+      params.mutate(),
+    ),
+  };
+});
+
 import {
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
 } from "../src/agentWork/repository.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
+import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
+import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
 
 const pool = {} as Pool;
 
@@ -53,6 +87,20 @@ describe("tryLightweightAutoReviewCompletion", () => {
     vi.clearAllMocks();
     vi.mocked(shouldSkipWork).mockResolvedValue(false);
     vi.mocked(snapshotReviewRunMetrics).mockReturnValue(null);
+    vi.mocked(loadRenderableHeadCi).mockResolvedValue({
+      summary: { status: "pending", headline: "CI is pending", failures: [] },
+      version: 1,
+    });
+    vi.mocked(upsertSummaryCommentWithCreationClaim).mockImplementation(async (params) => {
+      const result = await params.prSurface.upsertProgressComment(
+        params.body,
+        params.sentinel,
+        params.hintCommentId != null
+          ? { id: params.hintCommentId, url: "https://example.com/c" }
+          : null,
+      );
+      return result;
+    });
   });
 
   it("does not publish summary when shouldSkipWork is true", async () => {
@@ -81,6 +129,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(
       0,
     );
+    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
@@ -101,10 +150,53 @@ describe("tryLightweightAutoReviewCompletion", () => {
     });
 
     expect(result).toMatchObject({ handled: true, published: true });
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        progressRevision: 7,
+        workItemId: "wi-1",
+        resourceKey: "o/r#1",
+      }),
+    );
     expect(controls.events.some((event) => event.kind === "upsertProgressComment")).toBe(true);
     expect(recordPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ step: "summary_comment" }),
+    );
+    expect(enqueueCiProjectionIfDue).toHaveBeenCalled();
+  });
+
+  it("writes a terminal lightweight body that replaces the queued stub wording", async () => {
+    const { surface, controls } = fakeSurface();
+    controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      `${REVIEW_SUMMARY_SENTINEL}\n\n> [!NOTE]\n> Review queued on the latest commit.\n<!-- pr-agent:progress-revision workItemId=wi-1 value=0 -->`,
+      99,
+    );
+    vi.mocked(getSummaryCommentGithubId).mockResolvedValue(99);
+
+    const result = await tryLightweightAutoReviewCompletion(pool, {
+      item: autoReviewItem({ headSha: "5f93e93419cbd32419388cffd90b88804fe6259c" }),
+      reviewLens: "review",
+      prSurface: surface,
+      model: "grok-4.5",
+      leaseEpoch: 3,
+      preflight: {
+        files: [{ filename: "README.md" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+      },
+    });
+
+    expect(result).toMatchObject({ handled: true, published: true, summaryId: 99 });
+    const upsertArgs = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0];
+    expect(upsertArgs?.progressRevision).toBe(7);
+    expect(upsertArgs?.hintCommentId).toBe(99);
+    expect(upsertArgs?.body).toContain(LIGHTWEIGHT_REVIEW_COMPLETION_LEAD);
+    expect(upsertArgs?.body).not.toContain("Review queued on the latest commit.");
+    expect(upsertArgs?.body).toContain("<!-- pr-agent:ci-summary");
+    expect(upsertArgs?.body).toContain(
+      "<!-- pr-agent:review-meta headSha=5f93e93419cbd32419388cffd90b88804fe6259c lens=review stale=false -->",
     );
   });
 
@@ -186,9 +278,8 @@ describe("tryLightweightAutoReviewCompletion", () => {
       kind: "resolveProgressComment",
       hintCommentId: 55,
     });
-    const upsert = controls.events.find((event) => event.kind === "upsertProgressComment");
-    expect(upsert?.kind === "upsertProgressComment" && upsert.knownExisting).toMatchObject({
-      id: 55,
-    });
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ hintCommentId: 55 }),
+    );
   });
 });
