@@ -15,6 +15,7 @@ import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
+import { prResourceKey } from "../../agentWork/types.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
@@ -66,6 +67,20 @@ import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSum
 import { buildPublishThreadTool } from "./publishThreadTool.js";
 import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
+
+function ownVerdictPublishParams(params: ReviewRunParams): {
+  readonly workItemId?: string;
+  readonly resourceKey: string;
+  readonly leaseEpoch?: number | null;
+} {
+  const coordination = params.recordPublishStep?.summaryCommentCoordination;
+  return {
+    workItemId: coordination?.workItemId ?? params.workItemId ?? params.durability?.workItemId,
+    resourceKey:
+      coordination?.resourceKey ?? prResourceKey(params.owner, params.repo, params.prNumber),
+    leaseEpoch: coordination?.leaseEpoch,
+  };
+}
 
 export type OrchestratedReviewRunParams = ReviewRunParams & {
   readonly timing: ReviewRunTiming;
@@ -380,6 +395,7 @@ export async function runOrchestratedPrReview(
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
     pool: params.durability?.pool,
+    ...ownVerdictPublishParams(params),
     boss: params.boss,
     installationId: params.durability?.installationId,
     ciAuthor,
@@ -880,6 +896,7 @@ export async function runOrchestratedPrReview(
       progressCommentIdHint: params.progressCommentIdHint,
       recordPublishStep: params.recordPublishStep,
       pool: params.durability?.pool,
+      ...ownVerdictPublishParams(params),
       boss: params.boss,
       installationId: params.durability?.installationId,
       coverage: coverage(state),
@@ -1212,6 +1229,7 @@ export async function runOrchestratedPrReview(
     params.cfg.piProvider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
+  const runCoverage = coverage(state);
   return {
     lastAssistant,
     published: summaryState.published,
@@ -1219,5 +1237,11 @@ export async function runOrchestratedPrReview(
     publishStepCount,
     publishSuperseded: state.lifecycle.kind === "stopped",
     ...(lastFailure != null ? { lastFailure } : {}),
+    ...(summaryState.published
+      ? {
+          publishedFindings: ledger.accepted.map((accepted) => accepted.placement.finding),
+          coverage: runCoverage,
+        }
+      : {}),
   };
 }

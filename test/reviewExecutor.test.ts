@@ -849,6 +849,27 @@ describe("executeReviewJob", () => {
     );
   });
 
+  it("closes the own verdict after a published orchestrated review", async () => {
+    mocks.runOrchestratedPrReview.mockResolvedValue({
+      published: true,
+      publishAttempts: 1,
+      publishStepCount: 3,
+      publishSuperseded: false,
+      publishedFindings: [{ severity: "P1" }],
+      coverage: { kind: "full" },
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "failure",
+        summary: "1 finding",
+      }),
+    );
+  });
+
   it("completes an existing check as action_required when publish is exhausted", async () => {
     mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,

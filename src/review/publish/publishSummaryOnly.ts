@@ -63,6 +63,9 @@ export async function publishReviewSummaryOnly(params: {
   readonly staleReview?: boolean;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly pool?: Pool;
+  readonly workItemId?: string;
+  readonly resourceKey?: string;
+  readonly leaseEpoch?: number | null;
   readonly boss?: PgBoss;
   readonly installationId?: number;
   readonly ciAuthor?: CiSummaryAuthor;
@@ -284,18 +287,23 @@ export async function publishReviewSummaryOnly(params: {
   });
 
   const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
-  if (summaryCoordination) {
+  const verdictPool = params.pool ?? summaryCoordination?.pool;
+  const verdictWorkItemId = params.workItemId ?? summaryCoordination?.workItemId;
+  const verdictResourceKey = params.resourceKey ?? summaryCoordination?.resourceKey;
+  const verdictLeaseEpoch =
+    summaryCoordination != null ? summaryCoordination.leaseEpoch : params.leaseEpoch;
+  if (verdictPool != null && verdictWorkItemId != null && verdictResourceKey != null) {
     await closeOwnVerdict({
-      pool: summaryCoordination.pool,
+      pool: verdictPool,
       prSurface: params.prSurface,
       owner,
       repo,
       prNumber,
-      workItemId: summaryCoordination.workItemId,
-      resourceKey: summaryCoordination.resourceKey,
+      workItemId: verdictWorkItemId,
+      resourceKey: verdictResourceKey,
       reviewLens: mode,
       headSha,
-      leaseEpoch: summaryCoordination.leaseEpoch,
+      leaseEpoch: verdictLeaseEpoch,
       commitStatusEnabled: params.cfg.features.commitStatus,
       detailsUrl: targetUrl,
       outcome:

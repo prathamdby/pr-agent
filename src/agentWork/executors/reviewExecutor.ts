@@ -610,6 +610,18 @@ async function handleReviewPublishResult(args: {
       publishAttempts: result.publishAttempts,
       publishStepCount: result.publishStepCount,
     });
+    await closeStoredReviewVerdict({
+      pool,
+      item,
+      reviewLens,
+      prSurface,
+      leaseEpoch,
+      commitStatusEnabled,
+      outcome:
+        result.coverage?.kind === "partial"
+          ? { kind: "partial", note: result.coverage.note }
+          : { kind: "published", findings: result.publishedFindings ?? [] },
+    });
   }
   if (result.published || result.publishSuperseded) {
     return { kind: "completed" };
