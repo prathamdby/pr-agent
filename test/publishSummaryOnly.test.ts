@@ -109,8 +109,6 @@ describe("publishReviewSummaryOnly", () => {
     const payload: ReviewPayload = {
       findings: [first, second],
       size: "S",
-      relevantTests: "yes",
-      securityConcerns: null,
       followUps: [],
     };
     const ledger = createFindingLedger({
@@ -186,8 +184,6 @@ describe("publishReviewSummaryOnly", () => {
       payload: {
         findings: [],
         size: "XS",
-        relevantTests: "no",
-        securityConcerns: null,
         followUps: [],
       },
       ledger: createFindingLedger(),
@@ -227,8 +223,6 @@ describe("publishReviewSummaryOnly", () => {
       payload: {
         findings: [finding(10)],
         size: "S",
-        relevantTests: "partial",
-        securityConcerns: null,
         followUps: [],
       },
       ledger: createFindingLedger(),
@@ -284,8 +278,6 @@ describe("publishReviewSummaryOnly", () => {
       payload: {
         findings: [finding(10)],
         size: "S",
-        relevantTests: "yes",
-        securityConcerns: null,
         followUps: [],
       },
       ledger: createFindingLedger(),
@@ -323,8 +315,6 @@ describe("publishReviewSummaryOnly", () => {
         payload: {
           findings: [],
           size: "XS",
-          relevantTests: "no",
-          securityConcerns: null,
           followUps: [],
         },
         ledger: createFindingLedger(),

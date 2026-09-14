@@ -14,7 +14,7 @@ import {
   createPublishSummaryState,
 } from "../src/review/orchestrator/publishSummaryTool.js";
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
@@ -73,20 +73,11 @@ function accepted(
   };
 }
 
-function summaryInput(ids: readonly string[]) {
+function summaryInput(overrides: { size?: ReviewPayload["size"]; followUps?: string[] } = {}) {
   return {
-    findings: ids.map((findingId, index) => ({
-      findingId,
-      title: `Summary title ${index + 1}`,
-      detail: `Summary detail ${index + 1}.`,
-      fixPrompt: `Summary fix ${index + 1}.`,
-      confidence: 5,
-      category: "performance",
-    })),
     size: "M",
-    relevantTests: "partial",
-    securityConcerns: null,
     followUps: ["Add a regression test."],
+    ...overrides,
   };
 }
 
@@ -152,7 +143,7 @@ describe("buildPublishSummaryTool", () => {
     expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
   });
 
-  it("reconstructs immutable finding placement fields from the live ledger", async () => {
+  it("publishes ledger finding copy verbatim and ignores model-supplied finding fields", async () => {
     let ledger = createFindingLedger();
     const tool = buildTool({ getLedger: () => ledger });
     const first = finding(10);
@@ -163,37 +154,24 @@ describe("buildPublishSummaryTool", () => {
       postedInlineCount: 1,
     });
 
-    const result = await tool.executor(summaryInput(["finding-2", "finding-1"]));
+    const result = await tool.executor({
+      ...summaryInput(),
+      findings: [
+        {
+          findingId: "finding-1",
+          title: "Forged summary title",
+          detail: "Forged summary detail.",
+        },
+      ],
+    });
 
     expect(tool.piTool.name).toBe("publish_summary");
     expect(result).toEqual({ ok: true, summaryCommentId: 91 });
     const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0];
-    expect(call?.payload.findings).toEqual([
-      {
-        severity: "P1",
-        file: "src/a.ts",
-        startLine: 10,
-        endLine: 10,
-        title: "Summary title 2",
-        detail: "Summary detail 2.",
-        fixPrompt: "Summary fix 2.",
-        confidence: 5,
-        category: "performance",
-      },
-      {
-        severity: "P2",
-        file: "src/a.ts",
-        startLine: 20,
-        endLine: 20,
-        title: "Summary title 1",
-        detail: "Summary detail 1.",
-        fixPrompt: "Summary fix 1.",
-        confidence: 5,
-        category: "performance",
-      },
-    ]);
-    expect(call?.ledger.accepted[0]?.placement.finding).toEqual(call?.payload.findings[0]);
-    expect(call?.ledger.accepted[1]?.placement.finding).toEqual(call?.payload.findings[1]);
+    expect(call?.payload.findings).toEqual([first, second]);
+    expect(call?.payload.size).toBe("M");
+    expect(call?.payload.followUps).toEqual(["Add a regression test."]);
+    expect(call?.ledger.accepted).toEqual(ledger.accepted);
   });
 
   it("repairs a bare-string followUps field at the parse seam", async () => {
@@ -205,7 +183,7 @@ describe("buildPublishSummaryTool", () => {
     const tool = buildTool({ getLedger: () => ledger });
 
     const result = await tool.executor({
-      ...summaryInput(["finding-1"]),
+      ...summaryInput(),
       followUps: "Add a regression test.",
     });
 
@@ -214,56 +192,22 @@ describe("buildPublishSummaryTool", () => {
     expect(call?.payload.followUps).toEqual(["Add a regression test."]);
   });
 
-  it.each([
-    ["drops an accepted ID", ["finding-1"]],
-    ["adds an unknown ID", ["finding-1", "finding-2", "finding-3"]],
-    ["duplicates an ID", ["finding-1", "finding-1"]],
-  ])("rejects a summary that %s", async (_name, ids) => {
-    const state = createPublishSummaryState();
-    const ledger = createFindingLedger({
-      accepted: [accepted("finding-1", finding(10)), accepted("finding-2", finding(20))],
-    });
-    const tool = buildTool({ getLedger: () => ledger, state });
-
-    await expect(tool.executor(summaryInput(ids))).rejects.toMatchObject({
-      code: "review.publish_summary_validation_failed",
-    });
-
-    expect(state.lastValidationError).toContain("exactly once");
-    expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
-  });
-
-  it("rejects an unknown ID even when the finding count matches", async () => {
-    const state = createPublishSummaryState();
-    const ledger = createFindingLedger({
-      accepted: [accepted("finding-1", finding(10)), accepted("finding-2", finding(20))],
-    });
-    const tool = buildTool({ getLedger: () => ledger, state });
-
-    await expect(
-      tool.executor(summaryInput(["finding-1", "unknown-finding"])),
-    ).rejects.toMatchObject({ code: "review.publish_summary_validation_failed" });
-    expect(state.lastValidationError).toContain("unknown-finding");
-    expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
-  });
-
   it("stores formatted schema and semantic errors for repair", async () => {
     const state = createPublishSummaryState();
     const ledger = createFindingLedger({ accepted: [accepted("finding-1", finding(10))] });
     const tool = buildTool({ getLedger: () => ledger, state });
 
-    await expect(tool.executor({ findings: [] })).rejects.toMatchObject({
+    await expect(tool.executor({})).rejects.toMatchObject({
       code: "review.publish_summary_validation_failed",
     });
     expect(state.lastValidationError).toContain("publish_summary validation failed:");
 
     await expect(
-      tool.executor({
-        ...summaryInput(["finding-1"]),
-        securityConcerns: "Structured publish failed after 2/3 attempt(s).",
-      }),
+      tool.executor(
+        summaryInput({ followUps: ["Structured publish failed after 2/3 attempt(s)."] }),
+      ),
     ).rejects.toMatchObject({ code: "review.publish_summary_semantic_validation_failed" });
-    expect(state.lastValidationError).toContain("securityConcerns");
+    expect(state.lastValidationError).toContain("followUps[0]");
     expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
   });
 
@@ -272,12 +216,12 @@ describe("buildPublishSummaryTool", () => {
     const ledger = createFindingLedger({ accepted: [accepted("finding-1", finding(10))] });
     const tool = buildTool({ getLedger: () => ledger, state });
 
-    await expect(tool.executor({ findings: [] })).rejects.toMatchObject({
+    await expect(tool.executor({})).rejects.toMatchObject({
       code: "review.publish_summary_validation_failed",
     });
     expect(state.lastValidationError).not.toBeNull();
 
-    const result = await tool.executor(summaryInput(["finding-1"]));
+    const result = await tool.executor(summaryInput());
 
     expect(result).toEqual({ ok: true, summaryCommentId: 91 });
     expect(state.lastValidationError).toBeNull();
@@ -288,7 +232,7 @@ describe("buildPublishSummaryTool", () => {
     const ledger = createFindingLedger();
     const tool = buildTool({ getLedger: () => ledger });
 
-    const result = await tool.executor(summaryInput([]));
+    const result = await tool.executor(summaryInput());
 
     expect(result).toEqual({ ok: true, summaryCommentId: 91 });
     const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0];
@@ -301,8 +245,8 @@ describe("buildPublishSummaryTool", () => {
     const ledger = createFindingLedger({ accepted: [accepted("finding-1", finding(10))] });
     const tool = buildTool({ getLedger: () => ledger, state });
 
-    const first = await tool.executor(summaryInput(["finding-1"]));
-    const duplicate = await tool.executor(summaryInput(["finding-1"]));
+    const first = await tool.executor(summaryInput());
+    const duplicate = await tool.executor(summaryInput());
 
     expect(first).toEqual({ ok: true, summaryCommentId: 91 });
     expect(duplicate).toEqual({ ok: true, duplicate: true });
@@ -318,8 +262,8 @@ describe("buildPublishSummaryTool", () => {
       .mockImplementationOnce(async () => ({ kind: "stopped", reason: "superseded" }))
       .mockImplementationOnce(async () => ({ kind: "published", summaryCommentId: 92 }));
 
-    const stopped = await tool.executor(summaryInput(["finding-1"]));
-    const published = await tool.executor(summaryInput(["finding-1"]));
+    const stopped = await tool.executor(summaryInput());
+    const published = await tool.executor(summaryInput());
 
     expect(stopped).toEqual({ ok: false, reason: "superseded" });
     expect(published).toEqual({ ok: true, summaryCommentId: 92 });
@@ -339,7 +283,7 @@ describe("buildPublishSummaryTool", () => {
       note: "Coverage partial: security specialist failed.",
     };
 
-    await tool.executor(summaryInput(["finding-1"]));
+    await tool.executor(summaryInput());
 
     expect(vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0].coverage).toEqual(coverage);
   });

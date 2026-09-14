@@ -88,11 +88,10 @@ const FINDINGS: Record<ReviewLens, readonly Finding[]> = {
   ],
 };
 
-const SECURITY_ROW: Record<ReviewLens, string> = {
-  review: "None found on this pass",
-  "review-security": "Timing-safe compare gap on webhook verification.",
-  "review-quality": "None found on this pass",
-};
+const FOLLOW_UPS: readonly string[] = [
+  "1. Remove the retry feature flag once metrics confirm the fix",
+  "2. Delete the legacy dispatcher path once the batched dispatcher ships",
+];
 
 type ReviewSummaryMockProps = {
   readonly lens?: ReviewLens;
@@ -117,8 +116,16 @@ export function ReviewSummaryMock({ lens = "review" }: ReviewSummaryMockProps) {
         </div>
       ),
     })),
-    { label: "Relevant tests", value: "partial" },
-    { label: "Security", value: SECURITY_ROW[lens] },
+    {
+      label: "Follow-ups",
+      value: (
+        <div className="space-y-0.5">
+          {FOLLOW_UPS.map((item) => (
+            <p key={item}>{item}</p>
+          ))}
+        </div>
+      ),
+    },
   ];
 
   return (

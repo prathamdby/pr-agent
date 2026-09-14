@@ -7,6 +7,7 @@ import {
   renderLightweightReviewCompletion,
   renderRepeatNoBugsReviewBody,
   renderReviewActionLine,
+  renderFollowUpsCell,
   renderReviewPointerLensMarker,
   renderReviewSummaryComment,
   renderSpecialistReviewBody,
@@ -45,7 +46,6 @@ const ctx = {
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
   return makeReviewPayload({
     size: "M",
-    relevantTests: "partial",
     ...overrides,
   });
 }
@@ -435,17 +435,6 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("<summary>Prompt to fix — P1 · Bug &lt;script&gt;</summary>");
   });
 
-  it("(c) securityConcerns set", () => {
-    const payload = basePayload({
-      securityConcerns: "Webhook secret compared without timing-safe equal.",
-    });
-    const body = renderReviewSummaryComment(payload, {
-      ...ctx,
-      placements: testPlacements(payload.findings),
-    });
-    expect(body).toContain("Webhook secret compared");
-  });
-
   it("opens with the action line inside a NOTE alert", () => {
     const payload = basePayload({
       findings: [
@@ -483,6 +472,86 @@ describe("renderReviewSummaryComment", () => {
     expect(body.indexOf("2 findings block merge")).toBeLessThan(body.indexOf("<table>"));
   });
 
+  it("adds the follow-up count segment to the action line, singular included", () => {
+    const twoPayload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+        {
+          severity: "P2",
+          file: "src/y.ts",
+          startLine: 2,
+          endLine: 2,
+          title: "Nit",
+          detail: "minor",
+          fixPrompt: "Fix the nit.",
+        },
+      ],
+      followUps: ["Remove feat flag X", "Delete legacy table once v2 ships"],
+    });
+    const twoBody = renderReviewSummaryComment(twoPayload, {
+      ...ctx,
+      placements: testPlacements(twoPayload.findings),
+      ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
+    });
+    expect(twoBody).toContain(
+      "2 findings block merge. 2 follow-ups. CI is passing. All specialists ran with full coverage.",
+    );
+
+    const onePayload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+      ],
+      followUps: ["Remove feat flag X"],
+    });
+    const oneBody = renderReviewSummaryComment(onePayload, {
+      ...ctx,
+      placements: testPlacements(onePayload.findings),
+      ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
+    });
+    expect(oneBody).toContain(
+      "1 finding blocks merge. 1 follow-up. CI is passing. All specialists ran with full coverage.",
+    );
+
+    const zeroPayload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+      ],
+    });
+    const zeroBody = renderReviewSummaryComment(zeroPayload, {
+      ...ctx,
+      placements: testPlacements(zeroPayload.findings),
+      ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
+    });
+    expect(zeroBody).toContain(
+      "1 finding blocks merge. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(zeroBody).not.toContain("follow-up");
+  });
+
   it("uses the general summary identity for recognized legacy modes", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
@@ -494,17 +563,44 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
   });
 
-  it("escapes pipes in security and follow-ups table cells", () => {
+  it("keeps pipes in follow-ups table cells inert", () => {
     const payload = basePayload({
-      securityConcerns: "foo | bar",
-      followUps: ["baz | qux"],
+      followUps: ["baz | qux", "wrap <b>me</b>\nhere"],
     });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: testPlacements(payload.findings),
     });
-    expect(body).toContain("foo | bar");
-    expect(body).toContain("baz | qux");
+    expect(body).toContain(
+      "<tr><td><strong>Follow-ups</strong></td><td>1. baz | qux<br>2. wrap &lt;b&gt;me&lt;/b&gt; here</td></tr>",
+    );
+    expect(body.match(/<strong>Follow-ups<\/strong>/g)).toHaveLength(1);
+    expect(renderFollowUpsCell([])).toBe("");
+    expect(renderFollowUpsCell(["one item"])).toBe("1. one item");
+  });
+
+  it("renders the single Follow-ups row after the CI row", () => {
+    const payload = basePayload({
+      followUps: ["Remove feat flag X", "Delete legacy table once v2 ships"],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings),
+      ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
+    });
+    expect(body).toContain("1. Remove feat flag X<br>2. Delete legacy table once v2 ships");
+    expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(
+      body.indexOf("<strong>Follow-ups</strong>"),
+    );
+    expect(body.match(/<strong>Follow-ups<\/strong>/g)).toHaveLength(1);
+  });
+
+  it("omits the Follow-ups row when the list is empty", () => {
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: [],
+    });
+    expect(body).not.toContain("Follow-ups");
   });
 
   it("renders finding text mentioning submitReview without redaction", () => {
@@ -735,6 +831,7 @@ describe("review action line helpers", () => {
     expect(
       renderReviewActionLine({
         findingCount: 0,
+        followUpCount: 0,
         ciStatusText: "CI has not started",
         coverageStatusText: "with full coverage",
       }),
@@ -744,10 +841,44 @@ describe("review action line helpers", () => {
     expect(
       renderReviewActionLine({
         findingCount: 1,
+        followUpCount: 0,
         ciStatusText: "CI is failing",
         coverageStatusText: "except security",
       }),
     ).toBe("1 finding blocks merge. CI is failing. All specialists ran except security.");
+  });
+
+  it("adds the follow-up count segment between findings and CI, singular included", () => {
+    expect(
+      renderReviewActionLine({
+        findingCount: 2,
+        followUpCount: 2,
+        ciStatusText: "CI is passing",
+        coverageStatusText: "with full coverage",
+      }),
+    ).toBe(
+      "2 findings block merge. 2 follow-ups. CI is passing. All specialists ran with full coverage.",
+    );
+    expect(
+      renderReviewActionLine({
+        findingCount: 1,
+        followUpCount: 1,
+        ciStatusText: "CI is failing",
+        coverageStatusText: "except security",
+      }),
+    ).toBe(
+      "1 finding blocks merge. 1 follow-up. CI is failing. All specialists ran except security.",
+    );
+    expect(
+      renderReviewActionLine({
+        findingCount: 0,
+        followUpCount: 3,
+        ciStatusText: "CI has not started",
+        coverageStatusText: "with full coverage",
+      }),
+    ).toBe(
+      "No findings, ready to merge. CI has not started. All specialists ran with full coverage.",
+    );
   });
 });
 
@@ -1151,6 +1282,60 @@ describe("renderAgentFixPrompt", () => {
     expect(prompt).toContain("src/foo.ts:12 — Unexpected any");
     expect(prompt).toContain("Fix the reported lint/format findings locally, then re-push.");
     expect(prompt.endsWith("</ci_summary>")).toBe(true);
+  });
+
+  it("appends numbered follow-ups after findings and before the CI summary", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Bug",
+          detail: "d",
+          fixPrompt: "Fix src/a.ts line 1.",
+        },
+      ],
+      followUps: ["Remove feat flag X", "Delete legacy table once v2 ships"],
+    });
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+      { status: "passing", headline: "✅ All CI is passing", failures: [] },
+    );
+
+    expect(prompt).toContain(
+      "Follow-ups:\n\n1. Remove feat flag X\n2. Delete legacy table once v2 ships",
+    );
+    expect(prompt.indexOf("Fix src/a.ts line 1.")).toBeLessThan(prompt.indexOf("Follow-ups:"));
+    expect(prompt.indexOf("Follow-ups:")).toBeLessThan(
+      prompt.indexOf('<ci_summary untrusted="true">'),
+    );
+  });
+
+  it("omits the follow-ups section when the list is empty", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Bug",
+          detail: "d",
+          fixPrompt: "Fix src/a.ts line 1.",
+        },
+      ],
+    });
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+    );
+
+    expect(prompt).not.toContain("Follow-ups:");
   });
 
   it("escapes triple backticks in CI digest fields inside the accordion fence", () => {

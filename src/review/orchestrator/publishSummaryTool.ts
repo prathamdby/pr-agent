@@ -2,7 +2,6 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError, toAppError } from "../../errors/appError.js";
-import { MAX_REVIEW_PAYLOAD_FINDINGS } from "../../settings/index.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
@@ -13,26 +12,13 @@ import {
 import {
   createReviewPayloadSchema,
   formatReviewValidationError,
-  reviewFindingEntries,
-  type ReviewFinding,
   type ReviewPayload,
 } from "../reviewSchema.js";
-import type { AcceptedPlacement, FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
+import type { FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
-const summaryFindingCopySchema = v.object({
-  findingId: v.pipe(v.string(), v.minLength(1)),
-  title: reviewFindingEntries.title,
-  detail: reviewFindingEntries.detail,
-  fixPrompt: reviewFindingEntries.fixPrompt,
-  confidence: reviewFindingEntries.confidence,
-  category: reviewFindingEntries.category,
-});
-
-const publishSummarySchema = v.object({
-  ...v.omit(createReviewPayloadSchema(), ["findings"]).entries,
-  findings: v.pipe(v.array(summaryFindingCopySchema), v.maxLength(MAX_REVIEW_PAYLOAD_FINDINGS)),
-});
+// Derived, not re-declared: the followUps rule lives in one place.
+const publishSummarySchema = v.pick(createReviewPayloadSchema(), ["size", "followUps"]);
 
 export type PublishSummaryState = {
   published: boolean;
@@ -66,7 +52,6 @@ type PublishSummaryToolParams = Omit<
 };
 
 type SummaryInput = v.InferOutput<typeof publishSummarySchema>;
-type SummaryFindingCopy = v.InferOutput<typeof summaryFindingCopySchema>;
 
 export function createPublishSummaryState(initial?: {
   readonly published?: boolean;
@@ -89,89 +74,13 @@ function throwValidationError(
   throw new AppError({ code, message });
 }
 
-function validateFindingIds(
-  state: PublishSummaryState,
-  ledger: FindingLedger,
-  copies: readonly SummaryFindingCopy[],
-): void {
-  const acceptedIds = ledger.accepted.map((accepted) => accepted.canonicalFingerprint);
-  const suppliedIds = copies.map((copy) => copy.findingId);
-  const acceptedSet = new Set(acceptedIds);
-  const suppliedSet = new Set(suppliedIds);
-  const duplicateAccepted = acceptedIds.filter(
-    (findingId, index) => acceptedIds.indexOf(findingId) !== index,
-  );
-  const duplicateSupplied = suppliedIds.filter(
-    (findingId, index) => suppliedIds.indexOf(findingId) !== index,
-  );
-  const missing = acceptedIds.filter((findingId) => !suppliedSet.has(findingId));
-  const unknown = suppliedIds.filter((findingId) => !acceptedSet.has(findingId));
-
-  if (
-    duplicateAccepted.length === 0 &&
-    duplicateSupplied.length === 0 &&
-    missing.length === 0 &&
-    unknown.length === 0 &&
-    acceptedIds.length === suppliedIds.length
-  ) {
-    return;
-  }
-
-  const details = [
-    duplicateAccepted.length > 0
-      ? `ledger duplicate IDs: ${[...new Set(duplicateAccepted)].join(", ")}`
-      : null,
-    duplicateSupplied.length > 0
-      ? `duplicate IDs: ${[...new Set(duplicateSupplied)].join(", ")}`
-      : null,
-    missing.length > 0 ? `missing IDs: ${[...new Set(missing)].join(", ")}` : null,
-    unknown.length > 0 ? `unknown IDs: ${[...new Set(unknown)].join(", ")}` : null,
-  ].filter((detail) => detail != null);
-  throwValidationError(
-    state,
-    "review.publish_summary_validation_failed",
-    [
-      "publish_summary finding IDs must include every accepted canonicalFingerprint exactly once.",
-      ...details,
-    ].join("\n"),
-  );
-}
-
-function findingFromCopy(accepted: AcceptedPlacement, copy: SummaryFindingCopy): ReviewFinding {
-  const immutable = accepted.placement.finding;
-  return {
-    severity: immutable.severity,
-    file: immutable.file,
-    startLine: immutable.startLine,
-    endLine: immutable.endLine,
-    title: copy.title,
-    detail: copy.detail,
-    ...(copy.fixPrompt == null ? {} : { fixPrompt: copy.fixPrompt }),
-    ...(copy.confidence == null ? {} : { confidence: copy.confidence }),
-    ...(copy.category == null ? {} : { category: copy.category }),
-  };
-}
-
 function reconstructPayload(
   state: PublishSummaryState,
   ledger: FindingLedger,
   input: SummaryInput,
 ): ReviewPayload {
-  validateFindingIds(state, ledger, input.findings);
-  const copiesById = new Map(input.findings.map((copy) => [copy.findingId, copy]));
-  const findings = ledger.accepted.map((accepted) => {
-    const copy = copiesById.get(accepted.canonicalFingerprint);
-    if (!copy) {
-      throw new AppError({
-        code: "review.publish_summary_finding_copy_missing",
-        message: "Validated publish_summary input lost an accepted finding copy",
-        context: { findingId: accepted.canonicalFingerprint },
-      });
-    }
-    return findingFromCopy(accepted, copy);
-  });
-  const { findings: _copies, ...overview } = input;
-  const parsed = v.safeParse(createReviewPayloadSchema(), { ...overview, findings });
+  const findings = ledger.accepted.map((accepted) => accepted.placement.finding);
+  const parsed = v.safeParse(createReviewPayloadSchema(), { ...input, findings });
   if (!parsed.success) {
     throwValidationError(
       state,
@@ -182,29 +91,6 @@ function reconstructPayload(
   return parsed.output;
 }
 
-function ledgerWithFindingCopy(
-  ledger: FindingLedger,
-  findings: readonly ReviewFinding[],
-): FindingLedger {
-  return {
-    ...ledger,
-    accepted: ledger.accepted.map((accepted, index) => {
-      const finding = findings[index];
-      if (!finding) {
-        throw new AppError({
-          code: "review.publish_summary_finding_copy_missing",
-          message: "Validated publish_summary payload lost a ledger finding",
-          context: { findingId: accepted.canonicalFingerprint },
-        });
-      }
-      return {
-        ...accepted,
-        placement: { ...accepted.placement, finding },
-      };
-    }),
-  };
-}
-
 export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   readonly piTool: PiTool;
   readonly executor: (args: Record<string, unknown>) => Promise<PublishSummaryToolResult>;
@@ -213,7 +99,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   const piTool: PiTool = {
     name: "publish_summary",
     description:
-      "Publish the final review summary exactly once. Supply display copy for every accepted finding ID without changing severity or placement. Set size, relevantTests, securityConcerns, and followUps from accepted evidence. The server writes the action line.",
+      "Publish the final review summary exactly once. Set size and followUps; findings publish from accepted placements. The server writes the action line.",
     parameters: toJsonSchema(publishSummarySchema, { errorMode: "ignore" }),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
@@ -256,13 +142,12 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
 
     state.lastValidationError = null;
     const payload = redactReviewPayloadSecrets(candidate);
-    const summaryLedger = ledgerWithFindingCopy(ledger, payload.findings);
     let result: PublishSummaryOnlyResult;
     try {
       result = await publishReviewSummaryOnly({
         ...publishContext,
         payload,
-        ledger: summaryLedger,
+        ledger,
         coverage: getCoverage(),
       });
     } catch (error) {

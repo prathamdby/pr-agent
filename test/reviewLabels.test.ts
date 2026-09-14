@@ -27,7 +27,18 @@ describe("labelsAlreadySynced", () => {
         ["size:S", "Possible security concern"],
         {
           ...basePayload,
-          securityConcerns: "xss",
+          findings: [
+            {
+              severity: "P2",
+              file: "a.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "t",
+              detail: "d",
+              fixPrompt: "fix",
+              category: "security",
+            },
+          ],
         },
         {
           size: true,
@@ -158,6 +169,33 @@ describe("reviewLabelsFromPayload", () => {
         },
       ),
     ).toEqual(["Category: performance"]);
+  });
+
+  it("adds the security label for a security-category finding when enabled", () => {
+    expect(
+      reviewLabelsFromPayload(
+        {
+          ...basePayload,
+          findings: [
+            {
+              severity: "P2",
+              file: "a.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "t",
+              detail: "d",
+              fixPrompt: "fix",
+              category: "security",
+            },
+          ],
+        },
+        {
+          size: false,
+          security: true,
+          category: false,
+        },
+      ),
+    ).toEqual(["Possible security concern"]);
   });
 });
 

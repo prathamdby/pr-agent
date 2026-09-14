@@ -633,8 +633,6 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
     expect(testState.deterministicSummaries[0]).toMatchObject({
       size: "M",
-      relevantTests: "partial",
-      securityConcerns: null,
       followUps: [],
     });
     expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");
@@ -1314,8 +1312,6 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.sessionAborts).toBe(1);
     expect(testState.deterministicSummaries[0]).toMatchObject({
       size: "M",
-      relevantTests: "partial",
-      securityConcerns: null,
       followUps: [],
     });
     expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");

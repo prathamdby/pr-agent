@@ -15,12 +15,7 @@ import {
   type FingerprintedInlinePlacement,
   type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
-import {
-  isInlineSeverity,
-  normalizeReviewPayload,
-  type ReviewFinding,
-  type ReviewPayload,
-} from "../reviewSchema.js";
+import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.js";
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 import type { EvidenceLedger } from "./evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "./evidenceValidator.js";
@@ -57,8 +52,7 @@ export function prepareReviewPayloadForPublish(params: {
 }):
   | { ok: true; prepared: PreparedReviewPayload }
   | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
-  const normalized = normalizeReviewPayload(params.payload);
-  const deduped = dedupeReviewFindings(normalized.findings);
+  const deduped = dedupeReviewFindings(params.payload.findings);
   const minConfidence = params.reviewMinConfidence ?? 1;
   const confidenceFiltered = deduped.filter(
     (finding) => finding.confidence == null || finding.confidence >= minConfidence,
@@ -74,8 +68,8 @@ export function prepareReviewPayloadForPublish(params: {
           isPathInCheckout: params.isPathInCheckout,
         }).accepted
       : severityFiltered;
-  const candidate = { ...normalized, findings: evidenceFiltered };
-  const dedupedCount = normalized.findings.length - deduped.length;
+  const candidate = { ...params.payload, findings: evidenceFiltered };
+  const dedupedCount = params.payload.findings.length - deduped.length;
 
   const validation = validateReviewPayload({
     payload: candidate,

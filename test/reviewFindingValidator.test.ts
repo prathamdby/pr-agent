@@ -7,24 +7,11 @@ import {
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 describe("validateReviewPayload", () => {
-  it("rejects internal failure phrasing on gate fields", () => {
-    const result = validateReviewPayload({
-      payload: makeReviewPayload({
-        securityConcerns: "Structured publish failed after 3/3 attempt(s). Check server logs.",
-      }),
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toMatch(/securityConcerns/);
-      expect(result.anchorFailures).toEqual([]);
-    }
-  });
-
   it("accepts gate text mentioning structured publish without failure wording", () => {
     expect(
       validateReviewPayload({
         payload: makeReviewPayload({
-          securityConcerns: "This PR improves structured publish reliability and adds metrics.",
+          followUps: ["This PR improves structured publish reliability and adds metrics."],
         }),
       }).ok,
     ).toBe(true);
@@ -376,17 +363,5 @@ describe("validateReviewPayload", () => {
         cachedDiffIndex: index,
       }).ok,
     ).toBe(false);
-  });
-
-  it("rejects internal failure phrasing in securityConcerns", () => {
-    const result = validateReviewPayload({
-      payload: makeReviewPayload({
-        securityConcerns: "Structured publish failed after 2/3 attempt(s).",
-      }),
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.message).toContain("securityConcerns");
-    }
   });
 });

@@ -21,13 +21,12 @@ export const orchestratorSystemPrompt = [
   [
     "## Review gates",
     "",
-    "The server writes the summary action line from finding count, CI, and specialist coverage.",
+    "The server writes the summary action line from finding count, follow-up count, CI, and specialist coverage.",
     "Do not write a PR overview or a coverage note.",
     "",
-    "- securityConcerns: null when none; otherwise one or two short STE100 sentences naming the risk.",
     "- size: XS | S | M | L | XL | XXL for the scale of the change set, not code quality.",
-    "- relevantTests: yes | no | partial from the accepted evidence only.",
-    "- followUps: short STE100 lines for deferred non-blocking work; empty when none.",
+    "- followUps: work this pull request's author explicitly deferred — a TODO the diff introduces, a migration staged for a later pull request, a temporary flag to remove. One line each, plain text only: no markdown, HTML, pipes, backticks, or line breaks. Empty when the author deferred nothing.",
+    "- Set category to security on every finding that names a security risk; the security label depends on it.",
   ].join("\n"),
 ].join("\n\n");
 

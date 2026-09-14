@@ -2,7 +2,6 @@ import * as v from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import {
-  coerceReviewPayloadInput,
   createReviewPayloadSchema,
   formatReviewValidationError,
   isCheckFailingSeverity,
@@ -102,8 +101,6 @@ describe("severity helpers", () => {
         },
       ],
       size: "XS",
-      relevantTests: "no",
-      securityConcerns: null,
       followUps: [],
     });
     expect(parsed.success).toBe(false);
@@ -131,8 +128,6 @@ describe("selectInlineFindings", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
       findings,
       size: "M",
-      relevantTests: "partial",
-      securityConcerns: null,
       followUps: [],
     });
     expect(parsed.success).toBe(true);
@@ -147,8 +142,6 @@ describe("selectInlineFindings", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
       findings,
       size: "M",
-      relevantTests: "partial",
-      securityConcerns: null,
       followUps: [],
     });
     expect(parsed.success).toBe(false);
@@ -172,8 +165,6 @@ describe("reviewPayloadSchema", () => {
         },
       ],
       size: "S",
-      relevantTests: "partial",
-      securityConcerns: null,
       followUps: [],
     });
 
@@ -189,8 +180,6 @@ describe("reviewPayloadSchema", () => {
       const parsed = v.safeParse(reviewPayloadSchema, {
         findings: [{ ...makeFinding("P1", "bad confidence"), confidence }],
         size: "S",
-        relevantTests: "partial",
-        securityConcerns: null,
         followUps: [],
       });
       expect(parsed.success).toBe(false);
@@ -204,83 +193,9 @@ describe("reviewPayloadSchema", () => {
         },
       ],
       size: "S",
-      relevantTests: "partial",
-      securityConcerns: null,
       followUps: [],
     });
     expect(oversized.success).toBe(false);
-  });
-});
-
-describe("coerceReviewPayloadInput", () => {
-  it("maps CRITICAL severity alias to P0", () => {
-    const { value, coerced } = coerceReviewPayloadInput({
-      findings: [
-        {
-          severity: "CRITICAL",
-          file: "a.ts",
-          startLine: "10",
-          endLine: "10",
-          title: "t",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-      ],
-      size: "xl",
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    });
-    expect(coerced).toBe(true);
-    const parsed = v.safeParse(reviewPayloadSchema, value);
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      expect(parsed.output.findings[0]?.severity).toBe("P0");
-      expect(parsed.output.findings[0]?.startLine).toBe(10);
-      expect(parsed.output.size).toBe("XL");
-    }
-  });
-
-  it("preserves finding reference when no finding field changes", () => {
-    const finding = {
-      severity: "P1",
-      file: "a.ts",
-      startLine: 10,
-      endLine: 10,
-      title: "t",
-      detail: "d",
-      fixPrompt: "fix",
-    };
-    const { value } = coerceReviewPayloadInput({
-      findings: [finding],
-      size: "S",
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    });
-    const out = value as { findings: unknown[] };
-    expect(out.findings[0]).toBe(finding);
-  });
-
-  it("trims securityConcerns only when whitespace changes the value", () => {
-    const trimmed = coerceReviewPayloadInput({
-      findings: [],
-      size: "XS",
-      relevantTests: "no",
-      securityConcerns: "  timing issue  ",
-      followUps: [],
-    });
-    expect((trimmed.value as { securityConcerns: string }).securityConcerns).toBe("timing issue");
-    expect(trimmed.coerced).toBe(true);
-
-    const alreadyTrimmed = coerceReviewPayloadInput({
-      findings: [],
-      size: "XS",
-      relevantTests: "no",
-      securityConcerns: "plain",
-      followUps: [],
-    });
-    expect((alreadyTrimmed.value as { securityConcerns: string }).securityConcerns).toBe("plain");
   });
 });
 
@@ -294,8 +209,6 @@ describe("reviewFinding leftover violatedRule", () => {
         },
       ],
       size: "S",
-      relevantTests: "no",
-      securityConcerns: null,
       followUps: [],
     });
     expect(parsed.success).toBe(true);
@@ -327,8 +240,6 @@ describe("reviewFinding category", () => {
           },
         ],
         size: "S",
-        relevantTests: "no",
-        securityConcerns: null,
         followUps: [],
       }).success,
     ).toBe(true);
@@ -347,8 +258,6 @@ describe("reviewFinding category", () => {
           },
         ],
         size: "S",
-        relevantTests: "no",
-        securityConcerns: null,
         followUps: [],
       }).success,
     ).toBe(true);
@@ -368,8 +277,6 @@ describe("reviewFinding category", () => {
           },
         ],
         size: "S",
-        relevantTests: "no",
-        securityConcerns: null,
         followUps: [],
       }).success,
     ).toBe(false);
@@ -380,8 +287,6 @@ describe("reviewPayload unknown fields", () => {
   const baseInput = {
     findings: [],
     size: "S",
-    relevantTests: "no" as const,
-    securityConcerns: null,
     followUps: [] as string[],
   };
 

@@ -46,6 +46,10 @@ export function reviewSizeLabel(payload: ReviewPayload): string {
   return `${LABEL_REVIEW_SIZE_PREFIX}${payload.size}`;
 }
 
+function hasSecurityCategory(payload: ReviewPayload): boolean {
+  return payload.findings.some((finding) => finding.category === "security");
+}
+
 export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,
@@ -59,7 +63,7 @@ export function labelsAlreadySynced(
     if (currentSizeLabels.length !== 1 || currentSizeLabels[0] !== sizeLabel) return false;
   }
   if (opts.security) {
-    const wantsSecurity = payload.securityConcerns != null;
+    const wantsSecurity = hasSecurityCategory(payload);
     if (currentLabels.includes(LABEL_SECURITY_CONCERN) !== wantsSecurity) return false;
   }
   if (opts.category) {
@@ -78,7 +82,7 @@ export function reviewLabelsFromPayload(
   if (opts.size) {
     labels.push(reviewSizeLabel(payload));
   }
-  if (opts.security && payload.securityConcerns != null) {
+  if (opts.security && hasSecurityCategory(payload)) {
     labels.push(LABEL_SECURITY_CONCERN);
   }
   if (opts.category) {

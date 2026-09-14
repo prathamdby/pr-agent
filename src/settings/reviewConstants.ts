@@ -84,7 +84,6 @@ export const REVIEW_FINDING_FOOTNOTE_SUMMARY_P3 = "Included in Fix all findings 
 export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
 export const REVIEW_POINTER_NOTE_LEAD =
   "Full review is in the PR conversation. Expand below to copy fixes for your coding agent.";
-export const REVIEW_SECURITY_DEFAULT = "None found on this pass";
 export const REVIEW_PROGRESS_SOURCE_AUTO = "Pull request update";
 export const REVIEW_PROGRESS_SOURCE_SLASH = "Slash command";
 
@@ -148,7 +147,6 @@ export const MAX_PRIOR_INLINE_FEEDBACK_THREADS = 20;
 export const MAX_PRIOR_INLINE_REPLY_CHARS = 500;
 export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
 export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
-export const REVIEW_SECURITY_CONCERNS_MAX_CHARS = 4000;
 export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
 
 export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
@@ -222,7 +220,7 @@ export const REVIEW_SEVERITY_RANK = {
 } as const;
 
 export const VALIDATION_REPAIR_ROUNDS = 3;
-export const PUBLISH_RECOVERY_ROUNDS = 4;
+export const PUBLISH_RECOVERY_ROUNDS = 2;
 
 /** Review harness: anchor menu block header (untrusted user content). */
 export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";

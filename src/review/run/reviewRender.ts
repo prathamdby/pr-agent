@@ -22,7 +22,6 @@ import {
   REVIEW_FINDINGS_NONE,
   REVIEW_OVERVIEW_ALERT,
   REVIEW_POINTER_BODY,
-  REVIEW_SECURITY_DEFAULT,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
@@ -294,6 +293,14 @@ export function renderAgentFixPrompt(
     "",
     blocks.join("\n\n"),
   ];
+  if (payload.followUps.length > 0) {
+    lines.push(
+      "",
+      "Follow-ups:",
+      "",
+      payload.followUps.map((item, index) => `${index + 1}. ${item}`).join("\n"),
+    );
+  }
   if (shouldRenderCiSummaryRow(ciSummary)) {
     lines.push(
       "",
@@ -378,10 +385,15 @@ export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): 
 
 export function renderReviewActionLine(input: {
   findingCount: number;
+  followUpCount: number;
   ciStatusText: string;
   coverageStatusText: string;
 }): string {
-  return `${formatFindingCountClause(input.findingCount)}. ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
+  const followUpSegment =
+    input.findingCount > 0 && input.followUpCount > 0
+      ? ` ${formatFollowUpCountClause(input.followUpCount)}.`
+      : "";
+  return `${formatFindingCountClause(input.findingCount)}.${followUpSegment} ${input.ciStatusText}. All specialists ran ${input.coverageStatusText}.`;
 }
 
 function formatFindingCountClause(count: number): string {
@@ -389,6 +401,17 @@ function formatFindingCountClause(count: number): string {
   if (count === 0) return "No findings, ready to merge";
   if (count === 1) return "1 finding blocks merge";
   return `${count} findings block merge`;
+}
+
+function formatFollowUpCountClause(count: number): string {
+  return count === 1 ? "1 follow-up" : `${count} follow-ups`;
+}
+
+/** Server-rendered numbered list for the Follow-ups gate cell.
+ *  Each item goes through the plain-cell escape every cell already uses;
+ *  returns "" when the list is empty. No other normalization exists. */
+export function renderFollowUpsCell(items: readonly string[]): string {
+  return items.map((item, index) => `${index + 1}. ${escapeTablePlainCell(item)}`).join("<br>");
 }
 
 function formatFailedSpecialistNames(failed: readonly string[]): string {
@@ -430,6 +453,7 @@ function buildReviewSummaryBody(
     ),
     ciStatusText: formatReviewActionLineCiStatus(ctx.ciSummary),
     coverageStatusText: formatReviewCoverageStatus(coverage),
+    followUpCount: payload.followUps.length,
   });
 
   const rows: string[] = [];
@@ -476,14 +500,6 @@ function buildReviewSummaryBody(
     }
   }
 
-  tableRows.push([renderTableStrong("Relevant tests"), escapeTableHtml(payload.relevantTests)]);
-  tableRows.push([
-    renderTableStrong("Security"),
-    payload.securityConcerns != null
-      ? escapeTablePlainCell(payload.securityConcerns)
-      : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
-  ]);
-
   if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
     tableRows.push([
       renderTableStrong("CI"),
@@ -491,8 +507,8 @@ function buildReviewSummaryBody(
     ]);
   }
 
-  for (const item of payload.followUps) {
-    tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);
+  if (payload.followUps.length > 0) {
+    tableRows.push([renderTableStrong("Follow-ups"), renderFollowUpsCell(payload.followUps)]);
   }
 
   rows.push(renderKeyValueTable(tableRows));

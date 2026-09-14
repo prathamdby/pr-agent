@@ -18,13 +18,7 @@ type PromptSurface = {
 };
 
 const SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
-const REVIEW_PAYLOAD_FIELDS = [
-  "findings",
-  "size",
-  "relevantTests",
-  "securityConcerns",
-  "followUps",
-] as const;
+const REVIEW_PAYLOAD_FIELDS = ["findings", "size", "followUps"] as const;
 const LOCAL_WORKSPACE_TOOL_NAMES = [
   "getWorkspaceBlame",
   "getWorkspaceDiff",

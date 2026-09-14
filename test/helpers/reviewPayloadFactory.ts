@@ -3,8 +3,6 @@ import type { ReviewPayload } from "../../src/review/reviewSchema.js";
 const DEFAULT_REVIEW_PAYLOAD: ReviewPayload = {
   findings: [],
   size: "S",
-  relevantTests: "no",
-  securityConcerns: null,
   followUps: [],
 };
 

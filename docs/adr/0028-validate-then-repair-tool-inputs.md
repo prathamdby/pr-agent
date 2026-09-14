@@ -1,5 +1,11 @@
 # ADR 0028 — Validate then repair tool inputs
 
+> **Changelog:** 2026-09-14, the `submitReview` domain coercion
+> (`coerceReviewPayloadInput`) and its seam were deleted as orphaned dead code;
+> the generic validate-then-repair seam is unchanged. `publish_summary` now
+> derives its schema from `createReviewPayloadSchema` via `v.pick`
+> ([ADR 0037](0037-inherit-summary-copy-from-ledger.md)).
+
 ## Status
 
 Accepted.

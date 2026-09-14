@@ -28,7 +28,7 @@ import {
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.js";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
-import type { ReviewPayload } from "../reviewSchema.js";
+import { reviewPayloadFromFindings } from "../reviewSchema.js";
 import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.js";
 import {
   initReviewRunMetrics,
@@ -227,18 +227,6 @@ function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]
       return exhaustive;
     }
   }
-}
-
-function deterministicPayload(params: {
-  readonly findings: ReviewPayload["findings"];
-}): ReviewPayload {
-  return {
-    findings: [...params.findings],
-    size: "M",
-    relevantTests: "partial",
-    securityConcerns: null,
-    followUps: [],
-  };
 }
 
 export async function runOrchestratedPrReview(
@@ -866,9 +854,9 @@ export async function runOrchestratedPrReview(
 
   const publishDeterministicSummary = async (): Promise<void> => {
     const ledger = publishThread.getLedger();
-    const payload = deterministicPayload({
-      findings: ledger.accepted.map((accepted) => accepted.placement.finding),
-    });
+    const payload = reviewPayloadFromFindings(
+      ledger.accepted.map((accepted) => accepted.placement.finding),
+    );
 
     publishAttempts += 1;
     const result = await publishReviewSummaryOnly({
