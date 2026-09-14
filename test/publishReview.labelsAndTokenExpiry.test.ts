@@ -70,7 +70,7 @@ describe("publishReview labels and token expiry", () => {
         ...baseParams.cfg,
         features: { ...baseParams.cfg.features, reviewLabels: "size+security" as const },
       },
-      payload: { ...payload, size: "S", securityConcerns: null },
+      payload: { ...payload, size: "S" },
     });
 
     expect(harness.setLabels).toHaveBeenCalledWith(["size:S"]);

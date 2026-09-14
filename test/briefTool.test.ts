@@ -430,7 +430,14 @@ describe("orchestrator prompts", () => {
   it("documents STE100 and gate fields in the orchestrator system prompt", () => {
     expect(orchestratorSystemPrompt).toContain("## Writing style (ASD-STE100)");
     expect(orchestratorSystemPrompt).toContain("## Review gates");
-    expect(orchestratorSystemPrompt).toContain("securityConcerns");
+    expect(orchestratorSystemPrompt).toContain(
+      "Set category to security on every finding that names a security risk",
+    );
+    expect(orchestratorSystemPrompt).toContain(
+      "work this pull request's author explicitly deferred",
+    );
+    expect(orchestratorSystemPrompt).not.toContain("securityConcerns");
+    expect(orchestratorSystemPrompt).not.toContain("relevantTests");
     expect(orchestratorSystemPrompt).not.toContain("prCharacter");
     expect(orchestratorSystemPrompt).not.toContain("## Review overview");
   });

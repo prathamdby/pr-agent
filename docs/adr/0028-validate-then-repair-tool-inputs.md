@@ -1,5 +1,11 @@
 # ADR 0028 — Validate then repair tool inputs
 
+> **Changelog:** 2026-09-14, the `submitReview` domain coercion
+> (`coerceReviewPayloadInput`) and its seam were deleted as orphaned dead code;
+> the generic validate-then-repair seam is unchanged. `publish_summary` now
+> derives its schema from `createReviewPayloadSchema` via `v.pick`
+> ([ADR 0037](0037-inherit-summary-copy-from-ledger.md)).
+
 ## Status
 
 Accepted.
@@ -14,7 +20,7 @@ The four failure shapes above are mechanical and deterministic. Fixing them per 
 
 1. **One validate-then-repair seam.** `src/agent/tools/parseToolInput.ts` exports `parseToolInput(schema, input, options)`: strict `v.safeParse` first; only on failure, clone the input and apply repairs at the failing dot paths; re-parse exactly once; return the parsed value or a formatted issue list. Valid input is never cloned or mutated.
 2. **Exactly four ordered repairs.** `null_optional_dropped`, `stringified_json_array`, `object_wrapped_as_array`, `string_wrapped_as_array`. Ordering matters: a stringified array parses to the real array (rule 2) and is never re-wrapped by rule 4. Each repair is decided from the schema node at the failing path (valibot `wrapped` / `item` / `entries` / `pipe` shapes), not guessed from the value. `null_optional_dropped` fires only when the parent is an object, so a `null` nested inside an array stays put.
-3. **Domain coercions run after validation failure.** `submitReview` tries the strict schema first and runs `coerceReviewPayloadInput` only when that fails, then the generic repairs. Valid payloads pass through untouched, and the `coercions` metric counts only submissions that actually needed a domain rule. `submitDescription` keeps its existing coerce-first order; its coercions are part of its accepted-input contract and are out of scope here.
+3. **Domain coercions run after validation failure.** Superseded on 2026-09-14: `submitReview` and its `coerceReviewPayloadInput` domain coercion were removed, so the strict schema plus the generic `parseToolInput` repairs is the sole gate. The original decision read: `submitReview` tries the strict schema first and runs `coerceReviewPayloadInput` only when that fails, then the generic repairs. Valid payloads passed through untouched, and the `coercions` metric counted only submissions that actually needed a domain rule. `submitDescription` keeps its existing coerce-first order; its coercions are part of its accepted-input contract and are out of scope here.
 4. **Shared across every tool surface.** The workspace executor seams (`defineWorkspaceTool`, `context7Tools`) and every structured-output submit tool (specialist brief, specialist report, publish thread, publish summary, submitReview, submitDescription, submitTriage, submitVerification) parse through the same helper. The generic `object_wrapped_as_array` rule covers the old `findings_object_to_array` domain coercion, which is deleted.
 5. **Telemetry, not retries.** A repaired call logs `tool_input_repaired` with the tool name and the applied repair kinds, and bumps `toolInputRepairs` (keyed `${tool}:${repair}`) on the `review_run_completed` metrics snapshot. Repairs never loop: a still-invalid payload returns the formatted issue list to the model for a normal repair round.
 

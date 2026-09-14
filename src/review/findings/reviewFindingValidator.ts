@@ -7,7 +7,7 @@ import type {
   CommentableRightLineRanges,
 } from "../placement/reviewDiffIndex.js";
 
-/** Overview/followUp leakage — reject before publish (repair loop), not substring scrub. */
+/** Follow-up leakage — reject before publish (repair loop), not substring scrub. */
 const INTERNAL_FAILURE_PHRASING: RegExp[] = [
   /\bstructured publish\b.*\bfailed\b/is,
   /\b\d+\/\d+ attempt\(s\)\b/i,
@@ -92,7 +92,7 @@ function formatAnchorFailureRepairMessage(failures: readonly AnchorFailure[]): s
       );
     }
   }
-  lines.push("Fix all listed findings and call submitReview again with a complete ReviewPayload.");
+  lines.push("Fix all listed findings and call publish_summary again with corrected findings.");
   return lines.join("\n");
 }
 
@@ -101,18 +101,6 @@ export function validateReviewPayload(params: {
   cachedDiffIndex?: CachedPrDiffIndex;
   enforceInlineAnchorValidation?: boolean;
 }): ReviewPayloadValidationResult {
-  const overviewFields: Array<[string, string | null | undefined]> = [
-    ["securityConcerns", params.payload.securityConcerns],
-  ];
-  for (const [name, value] of overviewFields) {
-    if (value != null && containsInternalFailurePhrasing(value)) {
-      return {
-        ok: false,
-        message: `${name} contains banned public-output phrasing`,
-        anchorFailures: [],
-      };
-    }
-  }
   for (const [index, item] of params.payload.followUps.entries()) {
     if (containsInternalFailurePhrasing(item)) {
       return {

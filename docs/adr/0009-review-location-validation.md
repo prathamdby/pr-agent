@@ -1,6 +1,6 @@
 # ADR 0009 — Cached diff validation and best-effort inline publish
 
-> **Changelog:** §6 revised 2026-05-25, narrowed **Public-output sanitizer** after false-positive whole-field redaction on normal review prose (see PR #38). 2026-09-05, §1 names the workspace ingest path and §5 names `MAX_THREAD_PUBLISH_CALLS` after unused `MAX_REVIEW_PUBLISH_CALLS` was removed. 2026-09-14, §6 drops `prCharacter` from overview-field validation after the summary action line replaced LLM overview prose ([ADR 0003](0003-structured-review-output.md)).
+> **Changelog:** §6 revised 2026-05-25, narrowed **Public-output sanitizer** after false-positive whole-field redaction on normal review prose (see PR #38). 2026-09-05, §1 names the workspace ingest path and §5 names `MAX_THREAD_PUBLISH_CALLS` after unused `MAX_REVIEW_PUBLISH_CALLS` was removed. 2026-09-14, §6 drops `prCharacter` from overview-field validation after the summary action line replaced LLM overview prose ([ADR 0003](0003-structured-review-output.md)). 2026-09-14, §6 drops `securityConcerns` after the gate field was removed from the review payload ([ADR 0003](0003-structured-review-output.md)).
 
 ## Status
 
@@ -22,7 +22,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 5. **Publish execution budget** — Cap incremental inline GitHub review batches with `MAX_THREAD_PUBLISH_CALLS` (default 8), separate from model recovery phases. The older `MAX_REVIEW_PUBLISH_CALLS` cap on `submitReview` was unused after orchestrated publish landed and is gone.
 
-6. **Public-output sanitizer** — At the pre-publish boundary (`prepareReviewPayloadForPublish`), replace credential- and assignment-shaped substrings in PR-visible review text with `[redacted]` (shared `BOT_SECRET_PATTERNS` via `redactOutboundSecrets`). Do not whole-field redact code-review vocabulary (`submitReview`, `GitHub API`, etc.). Internal failure phrasing on gate fields (`securityConcerns`, `followUps`) is rejected by **Review payload** validation (repair loop), not silently redacted. Finding fields are not checked for internal phrasing. The summary action line is server-built and is not an LLM overview field.
+6. **Public-output sanitizer** — At the pre-publish boundary (`prepareReviewPayloadForPublish`), replace credential- and assignment-shaped substrings in PR-visible review text with `[redacted]` (shared `BOT_SECRET_PATTERNS` via `redactOutboundSecrets`). Do not whole-field redact code-review vocabulary (`submitReview`, `GitHub API`, etc.). Internal failure phrasing on gate fields (`followUps`) is rejected by **Review payload** validation (repair loop), not silently redacted. Finding fields are not checked for internal phrasing. The summary action line is server-built and is not an LLM overview field.
 
 ## Consequences
 

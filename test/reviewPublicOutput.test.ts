@@ -48,8 +48,6 @@ describe("reviewPublicOutput", () => {
         },
       ],
       size: "S",
-      relevantTests: "no",
-      securityConcerns: null,
       followUps: [],
     };
 

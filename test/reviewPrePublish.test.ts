@@ -66,13 +66,13 @@ describe("prepareReviewPayloadForPublish", () => {
 
   it("rejects gate text with internal failure phrasing instead of redacting", () => {
     const payload = makeReviewPayload({
-      securityConcerns: "Structured publish failed after 3/3 attempt(s). Check server logs.",
+      followUps: ["Structured publish failed after 3/3 attempt(s). Check server logs."],
     });
 
     const result = prepareReviewPayloadForPublish({ payload });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toMatch(/securityConcerns/);
+    expect(result.error).toMatch(/followUps\[0\]/);
   });
 
   it("scrubs secret assignments in prepared payload", () => {

@@ -17,7 +17,8 @@ import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
 } from "../findings/findingPipeline.js";
-import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
+import type { ReviewFinding, ReviewPublishContext } from "../reviewSchema.js";
+import { reviewPayloadFromFindings } from "../reviewSchema.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
 import type { RecordPublishStepWithCoordination } from "./summaryCommentUpsert.js";
@@ -100,16 +101,6 @@ export type FindingBatchContext = {
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
   readonly crossPrSuppressionFingerprints?: readonly string[];
 };
-
-function batchPayload(findings: readonly ReviewFinding[]): ReviewPayload {
-  return {
-    findings: [...findings],
-    size: "M",
-    relevantTests: "no",
-    securityConcerns: null,
-    followUps: [],
-  };
-}
 
 function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta {
   return {
@@ -196,7 +187,7 @@ export async function publishFindingBatch(
   context: FindingBatchContext,
 ): Promise<FindingBatchResult> {
   const prepared = prepareReviewPayloadForPublish({
-    payload: batchPayload(batch),
+    payload: reviewPayloadFromFindings(batch),
     cachedDiffIndex: context.cachedDiffIndex,
     enforceInlineAnchorValidation: false,
     evidenceLedger: context.evidenceLedger,

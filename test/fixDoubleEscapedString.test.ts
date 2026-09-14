@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { fixDoubleEscapedString } from "../src/agent/tools/fixDoubleEscapedString.js";
-import { coerceReviewPayloadInput } from "../src/review/reviewSchema.js";
 
 describe("fixDoubleEscapedString", () => {
   it("unwraps a single JSON-level newline escape", () => {
@@ -105,30 +104,5 @@ describe("fixDoubleEscapedString", () => {
       text: "plain text",
       fixed: false,
     });
-  });
-});
-
-describe("coerceReviewPayloadInput double escape", () => {
-  it("coerces double-escaped finding detail", () => {
-    const { value, coercions } = coerceReviewPayloadInput({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Bug",
-          detail: String.raw`first\nsecond`,
-          fixPrompt: "Fix it",
-        },
-      ],
-      size: "S",
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    });
-    const finding = (value as { findings: Array<{ detail: string }> }).findings[0];
-    expect(finding?.detail).toBe("first\nsecond");
-    expect(coercions).toContain("finding_detail_double_escape");
   });
 });

@@ -874,8 +874,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         payload: {
           findings: [],
           size: "XS",
-          relevantTests: "no",
-          securityConcerns: null,
           followUps: [],
         },
         ledger: createFindingLedger(),

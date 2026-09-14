@@ -7,12 +7,10 @@ import {
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
-  REVIEW_SECURITY_CONCERNS_MAX_CHARS,
   REVIEW_SIZES,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
-import { fixDoubleEscapedString } from "../agent/tools/fixDoubleEscapedString.js";
 
 export { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
@@ -60,10 +58,6 @@ export function createReviewPayloadSchema() {
   return v.object({
     findings: v.pipe(v.array(reviewFindingSchema), v.maxLength(MAX_REVIEW_PAYLOAD_FINDINGS)),
     size: v.picklist(REVIEW_SIZES),
-    relevantTests: v.picklist(["yes", "no", "partial"]),
-    securityConcerns: v.nullable(
-      v.pipe(v.string(), v.maxLength(REVIEW_SECURITY_CONCERNS_MAX_CHARS)),
-    ),
     followUps: v.pipe(
       v.array(v.pipe(v.string(), v.maxLength(REVIEW_FOLLOW_UP_MAX_CHARS))),
       v.maxLength(MAX_REVIEW_FOLLOW_UPS),
@@ -83,246 +77,6 @@ export type ReviewPublishContext = {
   headSha: string;
   hasDescriptionReviewMap: boolean;
 };
-
-const SEVERITY_ALIAS: Record<string, ReviewFinding["severity"]> = {
-  CRITICAL: "P0",
-  HIGH: "P1",
-  MEDIUM: "P2",
-  LOW: "P3",
-  P0: "P0",
-  P1: "P1",
-  P2: "P2",
-  P3: "P3",
-  "1": "P0",
-  "2": "P1",
-  "3": "P2",
-  "4": "P3",
-};
-
-const SEVERITY_INTEGER_MAP: Record<number, ReviewFinding["severity"]> = {
-  0: "P0",
-  1: "P0",
-  2: "P1",
-  3: "P2",
-  4: "P3",
-};
-
-function coercePositiveInt(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  if (typeof value === "string" && value.trim() !== "") {
-    const trimmed = value.trim();
-    if (!/^\d+$/.test(trimmed)) return undefined;
-    const n = Number(trimmed);
-    if (Number.isSafeInteger(n)) return n;
-  }
-  return undefined;
-}
-
-function stripWholeStringCodeFence(value: string): {
-  text: string;
-  stripped: boolean;
-} {
-  const trimmed = value.trim();
-  const fenceMatch = /^```(?:\w+)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
-  if (!fenceMatch) return { text: value, stripped: false };
-  return { text: fenceMatch[1].trim(), stripped: true };
-}
-
-function coerceReviewTextField(
-  raw: string,
-  coercionPrefix: string,
-  coercions: string[],
-): { text: string; changed: boolean } {
-  const { text: unescaped, fixed: doubleEscaped } = fixDoubleEscapedString(raw);
-  const { text, stripped } = stripWholeStringCodeFence(unescaped);
-  const trimmed = text.trim();
-  if (doubleEscaped) coercions.push(`${coercionPrefix}_double_escape`);
-  if (stripped) coercions.push(`${coercionPrefix}_fence_strip`);
-  else if (trimmed !== raw) coercions.push(`${coercionPrefix}_trim`);
-  return {
-    text: trimmed,
-    changed: doubleEscaped || stripped || trimmed !== raw,
-  };
-}
-
-function coerceSeverity(value: unknown): ReviewFinding["severity"] | undefined {
-  if (typeof value === "number" && Number.isInteger(value)) {
-    return SEVERITY_INTEGER_MAP[value];
-  }
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  const direct = SEVERITY_ALIAS[trimmed.toUpperCase()];
-  if (direct) return direct;
-  const pMatch = /^P([0-3])\b/i.exec(trimmed);
-  if (pMatch) return `P${pMatch[1]}` as ReviewFinding["severity"];
-  const wordMatch = /^(CRITICAL|HIGH|MEDIUM|LOW)\b/i.exec(trimmed);
-  if (wordMatch) return SEVERITY_ALIAS[wordMatch[1].toUpperCase()];
-  return undefined;
-}
-
-function unwrapPayloadEnvelope(raw: unknown): {
-  value: unknown;
-  coercions: string[];
-} {
-  if (typeof raw !== "object" || raw == null) return { value: raw, coercions: [] };
-  const obj = raw as Record<string, unknown>;
-  for (const key of ["review", "payload", "result", "data"] as const) {
-    const nested = obj[key];
-    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      const nestedObj = nested as Record<string, unknown>;
-      if ("findings" in nestedObj) {
-        return { value: nested, coercions: [`unwrap_${key}`] };
-      }
-    }
-  }
-  return { value: raw, coercions: [] };
-}
-
-function coerceFinding(raw: unknown, coercions: string[]): unknown {
-  if (typeof raw !== "object" || raw == null) return raw;
-  const r = raw as Record<string, unknown>;
-  let mutated = false;
-  let f: Record<string, unknown> = r;
-
-  const touch = (): void => {
-    if (!mutated) {
-      f = { ...r };
-      mutated = true;
-    }
-  };
-
-  if ("line" in r && !("startLine" in r)) {
-    const n = coercePositiveInt(r.line);
-    if (n != null && n > 0) {
-      touch();
-      f.startLine = n;
-      f.endLine = n;
-      coercions.push("finding_line_to_start_end");
-    }
-  }
-
-  if ("lines" in r && Array.isArray(r.lines) && r.lines.length >= 1) {
-    const start = coercePositiveInt(r.lines[0]);
-    const end = r.lines.length >= 2 ? coercePositiveInt(r.lines[1]) : start;
-    if (start != null && start > 0 && end != null && end > 0) {
-      touch();
-      f.startLine = start;
-      f.endLine = end;
-      coercions.push("finding_lines_array_to_start_end");
-    }
-  }
-
-  if ("severity" in r) {
-    const coerced = coerceSeverity(r.severity);
-    if (coerced && coerced !== r.severity) {
-      touch();
-      f.severity = coerced;
-      coercions.push("finding_severity_alias");
-    }
-  }
-  if ("startLine" in r) {
-    const n = coercePositiveInt(r.startLine);
-    if (n != null && n > 0 && n !== r.startLine) {
-      touch();
-      f.startLine = n;
-      coercions.push("finding_startLine_number");
-    }
-  }
-  if ("endLine" in r) {
-    const n = coercePositiveInt(r.endLine);
-    if (n != null && n > 0 && n !== r.endLine) {
-      touch();
-      f.endLine = n;
-      coercions.push("finding_endLine_number");
-    }
-  }
-  if ("confidence" in r) {
-    const n = coercePositiveInt(r.confidence);
-    if (n != null && n >= 1 && n <= 5 && n !== r.confidence) {
-      touch();
-      f.confidence = n;
-      coercions.push("finding_confidence_number");
-    }
-  }
-  for (const field of ["file", "title"] as const) {
-    if (field in r && typeof r[field] === "string") {
-      const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
-      if (changed) {
-        touch();
-        f[field] = text;
-      }
-    }
-  }
-  for (const field of ["detail", "fixPrompt"] as const) {
-    if (field in r && typeof r[field] === "string") {
-      const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
-      if (changed) {
-        touch();
-        f[field] = text;
-      }
-    }
-  }
-  if ("fixPrompt" in r && typeof r.fixPrompt === "string") {
-    const rawFix = (mutated ? f.fixPrompt : r.fixPrompt) as string;
-    if (rawFix.trim().length === 0) {
-      touch();
-      delete f.fixPrompt;
-      coercions.push("finding_fixPrompt_empty_removed");
-    }
-  }
-  return mutated ? f : raw;
-}
-
-export function coerceReviewPayloadInput(raw: unknown): {
-  value: unknown;
-  coerced: boolean;
-  coercions: string[];
-} {
-  const coercions: string[] = [];
-  const unwrapped = unwrapPayloadEnvelope(raw);
-  coercions.push(...unwrapped.coercions);
-
-  if (typeof unwrapped.value !== "object" || unwrapped.value == null) {
-    return { value: unwrapped.value, coerced: coercions.length > 0, coercions };
-  }
-
-  const input = { ...(unwrapped.value as Record<string, unknown>) };
-
-  if ("size" in input && typeof input.size === "string") {
-    const normalized = input.size.trim().toUpperCase();
-    if (normalized !== input.size) {
-      input.size = normalized;
-      coercions.push("size_token_case");
-    }
-  }
-  if ("securityConcerns" in input && typeof input.securityConcerns === "string") {
-    const { text, changed } = coerceReviewTextField(
-      input.securityConcerns,
-      "securityConcerns",
-      coercions,
-    );
-    if (changed) {
-      input.securityConcerns = text;
-    }
-  }
-  if (Array.isArray(input.followUps)) {
-    input.followUps = input.followUps.map((item) => {
-      if (typeof item !== "string") return item;
-      const { text, changed } = coerceReviewTextField(item, "followUp", coercions);
-      return changed ? text : item;
-    });
-  }
-  if (Array.isArray(input.findings)) {
-    input.findings = input.findings.map((item) => coerceFinding(item, coercions));
-  } else if (typeof input.findings === "object" && input.findings != null) {
-    // A single finding object still needs its domain coercions here; the
-    // generic object_wrapped_as_array repair does the wrapping afterwards.
-    // Coercing only the array form left shape-plus-domain errors unparseable.
-    input.findings = coerceFinding(input.findings, coercions);
-  }
-
-  return { value: input, coerced: coercions.length > 0, coercions };
-}
 
 const BASE_TYPE_ISSUE_TYPES = new Set([
   "string",
@@ -367,7 +121,7 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    `Required top-level fields: findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
+    `Required top-level fields: findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
   lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
   const firstIssue = issues[0];
@@ -397,10 +151,16 @@ export function reviewEventForFindings(findings: ReviewFinding[]): "REQUEST_CHAN
     : "COMMENT";
 }
 
-export function normalizeReviewPayload(raw: ReviewPayload): ReviewPayload {
-  const security =
-    raw.securityConcerns == null || raw.securityConcerns.trim().length === 0
-      ? null
-      : raw.securityConcerns.trim();
-  return { ...raw, securityConcerns: security };
+/** A payload whose findings are given and whose gates are neutral:
+ *  size M, no follow-ups. Used for the per-batch pointer payload
+ *  (publishFindingBatch) and the terminal deterministic fallback
+ *  (orchestratorRun publishDeterministicSummary). */
+export function reviewPayloadFromFindings(
+  findings: readonly ReviewPayload["findings"][number][],
+): ReviewPayload {
+  return {
+    findings: [...findings],
+    size: "M",
+    followUps: [],
+  };
 }
