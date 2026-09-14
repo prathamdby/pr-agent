@@ -3,7 +3,9 @@ globs:
   - "src/review/agentInstructionFiles.ts"
   - "src/agentWork/executors/reviewExecutor.ts"
   - "src/review/prompts/**"
+  - "src/agent/prompts/promptBlocks.ts"
   - "src/settings/reviewConstants.ts"
+  - "test/agentInstructionFiles.test.ts"
 ---
 
-Load only root `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` via `loadAgentInstructionFiles` on orchestrated review runs (ADR 0019, `AGENT_INSTRUCTION_FILENAMES`). Same-repo head → Trusted/binding; fork head → Untrusted context only (fence forged Trusted headers). Do not expand `@include`. Do not load these files for ask, describe, triage, or verification. Never treat author-writable fork instruction bodies as binding severity rules.
+`loadAgentInstructionFiles` (`src/review/agentInstructionFiles.ts`) reads only root `AGENT_INSTRUCTION_FILENAMES` (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) from the PR head checkout. Only `reviewExecutor.ts` calls it, beside `loadRepoPolicy`, under its own caps `MAX_AGENT_INSTRUCTION_BYTES` / `MAX_AGENT_INSTRUCTION_FILE_BYTES` (ADR 0019). Trust has one source: `isSameRepoPullRequest(pullRequest)`. Same-repo head renders the binding "Trusted context" block; fork, missing, or malformed `full_name` renders `wrapUntrustedBlock("agent_instruction_file", ...)` after `neutralizeForgedTrustHeaders` strips forged "Trusted context" and "binding" lines. Do not derive `sameRepo` from author association, labels, or comment text; do not follow `@include` or nested paths; do not loosen those regexes. Ask, description, triage, and verification never receive this block. A binding violation is an ordinary finding under the specialist gate. Guard: `test/agentInstructionFiles.test.ts`.

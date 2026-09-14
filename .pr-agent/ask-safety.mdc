@@ -3,6 +3,11 @@ globs:
   - "src/agent/ask/**"
   - "src/agentWork/executors/askExecutor.ts"
   - "src/agentWork/intake/askIntake.ts"
+  - "src/agentWork/askQuota.ts"
+  - "src/commands/parseAskQuestion.ts"
+  - "src/commands/parseBotMention.ts"
+  - "src/settings/askConstants.ts"
+  - "src/settings/askQuotaConstants.ts"
 ---
 
-Ask is explain-only: do not change finding severity, dismiss findings, or mutate review summaries (ADR 0005/0007). Keep ask defenses always on: `bot_meta` short-circuit without LLM; untrusted framing for question/anchors; `buildAskGithubTools` force owner/repo/PR and sensitive-path gate; `sanitizeAskAnswerText` / `redactOutboundSecrets` before post. Do not widen ask tools to unscoped GitHub or skip outbound redaction.
+Ask explains PR code and nothing else (ADR 0007, ADR 0031). Keep every gate in `src/agent/ask/`: `classifyAskQuestionIntent` returns `bot_meta` and `askRun.ts` answers `ASK_META_REFUSAL` before any model session; `createAskPathGate` admits a `SENSITIVE_PATH_PATTERNS` path only when it is a PR-changed file or the code anchor; `buildAskRunSetup` exposes the workspace only via `hideWorkspaceToolsBehindCodeMode(buildLocalWorkspaceTools(...))`, so ask has no GitHub read tool; `sanitizeAskAnswerText` runs `redactOutboundSecrets` before posting. `askUserContent.ts` wraps `user_question`, `thread_transcript`, `code_anchor`, and `ci_state` with `wrapUntrustedBlock`. Intake calls `admitAsk` before the row insert. Ask is unleased: `askExecutor.ts` proves delivery only from a completed `ask_reply` publish record or `findExistingAskReplyComment`, and `outcome_unknown` is not delivery. Do not add severity changes, dismissals, or summary edits to ask. Guard: `test/askExecutor.test.ts`.

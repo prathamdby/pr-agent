@@ -4,8 +4,10 @@ globs:
   - "src/review/**"
   - "src/agent/**"
   - "src/prWorkspace/**"
+  - "src/effect/**"
+  - "src/github/**"
   - "test/prSurfaceImportGraph.test.ts"
   - "test/prSurface.seam.test.ts"
 ---
 
-Feature and worker code must use `createPrSurface` / `PrSurface` from `src/github/prSurface.ts` for PR-surface GitHub I/O. Do not import `prSurfaceImpl.ts`, do not call `installationOctokit` outside `src/github/`, and do not thread installation tokens through executor or publish signatures. `gitCredentialAuth()` on `PrSurface` is the sole credential escape hatch for git checkout. CI guard: `test/prSurfaceImportGraph.test.ts` (ADR 0026).
+All GitHub REST I/O for a pull request goes through `createPrSurface` / `PrSurface` in `src/github/prSurface.ts` (ADR 0026). Outside `src/github/` (plus `src/prWorkspace/` for checkout credentials) there is no `@octokit/*` import, no `installationOctokit` reference, and no exported signature carrying `token: string`, `expiresAtTs`, or `tokenExpiresAtTs`; `test/prSurfaceImportGraph.test.ts` scans every `src/` file for exactly those. Work items store `installationId`, and the worker mints the token inside the seam at execution time. `gitCredentialAuth()` is the only credential escape, used for clone and push. Leased executors receive the epoch-aware surface so each method in `PR_SURFACE_MUTATION_METHODS` runs inside the operation-intent boundary and recovers through `recoverPrSurfaceMutation.ts`; never import `prSurfaceImpl.ts` from feature or worker code. Fake with `createFakePrSurface` (`src/github/fakePrSurface.ts`); do not mock Octokit in feature tests.

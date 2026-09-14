@@ -2,7 +2,9 @@
 globs:
   - "site/**"
   - "package.json"
+  - "nub.jsonc"
+  - "nub.lock"
   - "scripts/check-production-dependency-graph.mjs"
 ---
 
-`site/` is a separate landing package (`pr-agent-landing`); Vercel deploys use Nub via [`site/vercel.json`](../site/vercel.json) (`npm install -g @nubjs/nub@…` then `nub ci --filter pr-agent-landing...`). Do not pull React, Vite, Next, or other frontend frameworks into the backend production dependency graph. Backend stays on Nub; do not contaminate prod deps (`check:prod-deps` must stay green).
+`site/` is the workspace package `pr-agent-landing` (`site/package.json`). Vercel builds it from `site/vercel.json`: `npm install -g @nubjs/nub@0.7.2`, then `nub ci --filter pr-agent-landing...`, then `nub --node run build`. The backend package `pr-agent` never depends on it or its stack: `scripts/check-production-dependency-graph.mjs` (`nub run check:prod-deps`) walks `nub list --prod --filter pr-agent` and fails on `express`, `hono`, `next`, `react`, or `vite` under the `evlog` branch. React, Vite, and TanStack stay in `site/package.json`; the root `package.json` keeps `site` under `workspaces` and adds no frontend dependency. `src/` never imports from `site/`, and `site/lib/` never imports from `src/`; agent-facing copy is duplicated on purpose in `site/lib/llmsKnowledge.ts` and `site/lib/content.ts`, and `site/public/llms.txt` must equal `renderLlmsTxt()`. `lint:backend` ignores `site/`; `test/settingsInventory.test.ts` requires a `nub.lock` importer per workspace.

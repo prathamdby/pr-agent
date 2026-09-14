@@ -1,1 +1,8 @@
-Flag new magic numbers or default strings outside `src/settings/`. Knob changes must update the matching checklist in the same PR: feature → `featureModes` / `envKeys` / `config` / `.env.example` / `docs/features.md`; env → `envKeys` / `defaults` / `config` / `.env.example` / `docs/configuration.md`; code constant → `*Constants.ts` + `docs/configuration.md`. Import constants via `src/settings/index.js`. Import `Config` from `config.ts` only at runtime entry points — never invent parallel defaults in feature modules.
+---
+globs:
+  - "src/**/*.ts"
+  - ".env.example"
+  - "docs/configuration.md"
+---
+
+Every tunable has one home, catalogued in `docs/configuration.md`. Env-backed knob: name in `ENV` (`src/settings/envKeys.ts`), default in `src/settings/defaults.ts`, parse in `loadConfig` (`src/config.ts`), a line in `.env.example`, a row in `docs/configuration.md`; `test/settingsInventory.test.ts` fails when `.env.example` and `ENV` drift. Code constant: a `src/settings/` constants module such as `reviewConstants.ts`, re-exported by `constants.ts`, plus a row under Code constants. Import through `../settings/index.js`. Take `Config` only at runtime entry points (`src/index.ts`, `src/worker.ts`) and pass values down. Flag a new literal timeout, byte cap, count, queue name, marker string, or user-facing sentence sitting in a feature module; compare `CODE_MODE_*`, `TRIAGE_*`, `VERIFICATION_STUB_MARKER`. Flag a `process.env` read outside `src/config.ts`, `codeModeConstants.ts`, `modelsJsonCatalog.ts`, `evlog.ts`, and `NODE_ENV` test guards, and any default duplicating `defaults.ts`.

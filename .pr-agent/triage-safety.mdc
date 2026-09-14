@@ -3,6 +3,8 @@ globs:
   - "src/agent/triage/**"
   - "src/prWorkspace/writablePrCheckout.ts"
   - "src/agentWork/executors/triageExecutor.ts"
+  - "src/agentWork/threadActionCheckpoint.ts"
+  - "src/settings/triageConstants.ts"
 ---
 
-Triage run: same-repo only (forks report-only); never force-push, rebase, or amend; push-or-nothing before resolving `fixed` threads; dismissed requires maintainer reply evidence; resolve completed threads (`fixed` after push, `already-resolved`, `dismissed`); leave `skipped` open; use `git commit -n` (hooks off); keep sensitive-path / message / size validation server-side (ADR 0013, ADR 0029). The writable workspace search applies the same normalized sensitive/control-path policy as direct reads and writes, resolves symlink targets before filtering, and omits blocked paths plus matching text. Writable PR checkout must stay isolated from the shared PR repository view cache.
+Triage alone writes code (ADR 0013). Every write passes `assertTriageWritablePath` in `src/agent/triage/triageWritePolicy.ts`: edits stay on finding-implicated paths, creates match `TRIAGE_SAFE_NEW_FILE_PATTERNS`, and `TRIAGE_CONTROL_PATH_PATTERNS` plus `SENSITIVE_PATH_PATTERNS` are denied before the symlink check. Git runs inside `withWritablePrCheckout` (`src/prWorkspace/writablePrCheckout.ts`): `core.hooksPath=/dev/null`, `commit -n`, a staged diff capped by `TRIAGE_MAX_COMMIT_DIFF_LINES`, and a plain `push origin HEAD:refs/heads/<headRef>`; a rejected push becomes `StaleHeadPushError`, never a force, rebase, or amend. Fork heads publish `TRIAGE_FORK_PR_NOTICE` and push nothing. `/triage all` needs a completed preview on the same head (`TRIAGE_BULK_REQUIRES_PREVIEW`, `TRIAGE_BULK_PREVIEW_STALE`, ADR 0032). Fixed threads resolve only after the push succeeds, through thread-action publish records (ADR 0029). Guards: `test/triageWritePolicy.test.ts`, `test/triageExecutor.test.ts`.

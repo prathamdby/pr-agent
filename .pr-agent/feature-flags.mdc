@@ -1,11 +1,15 @@
 ---
 globs:
-  - "src/settings/**"
+  - "src/settings/featureModes.ts"
+  - "src/settings/envKeys.ts"
+  - "src/settings/slashConstants.ts"
   - "src/config.ts"
+  - "src/agentWork/intake/**"
+  - "src/effect/services/webhookHandlers.ts"
   - ".env.example"
   - "docs/features.md"
-  - "docs/configuration.md"
   - "test/settingsInventory.test.ts"
+  - "test/featureConfig.test.ts"
 ---
 
-User-facing capability changes must use `FEATURE_*` only. Do not reintroduce removed `ENABLE_*`, `*_AUTO_ACTIONS`, or `DESCRIPTION_GENERATE_TITLE` (no aliases). Keep each feature's allowed modes; `FEATURE_REVIEW` has no `off`. Invalid modes must fail startup, never silently disable. Every `FEATURE_*` key must stay documented in `docs/features.md` and covered by `test/settingsInventory.test.ts`.
+The eight `FEATURE_*` keys in `ENV` (`src/settings/envKeys.ts`) are the only user-facing capability switches. Allowed modes live in `src/settings/featureModes.ts`: `REVIEW_FEATURE_MODES` has no `off`, `COMMAND_FEATURE_MODES` (ask, triage) has no `auto`, and `FEATURE_COMMIT_STATUS` / `FEATURE_TITLE_REWRITE` are strict booleans. `loadConfig` reads them with `readEnum` / `readStrictBoolean`, which throw `config.invalid_enum`, so a typo crashes startup instead of silently disabling. Auto triggers are fixed in `AUTO_TRIGGER_ACTIONS`; do not add env knobs for them. A new feature or mode changes `Features`, `featureModes.ts`, `ENV`, `config.ts`, `.env.example`, and `docs/features.md` in one PR; `test/settingsInventory.test.ts` pins the `FEATURE_*` count at 8 and the total `ENV` count, and `test/featureConfig.test.ts` covers rejection. Do not gate behaviour on a non-`FEATURE_*` env, read `process.env` in a feature module, or reintroduce `ENABLE_*` or `*_AUTO_ACTIONS` names.

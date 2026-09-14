@@ -2,7 +2,11 @@
 globs:
   - "src/agentWork/**"
   - "src/review/publish/**"
-  - "src/agent/**/publish*.ts"
+  - "src/review/placement/reviewInlinePublish.ts"
+  - "src/github/prSurfaceMutation.ts"
+  - "src/github/recoverPrSurfaceMutation.ts"
+  - "src/agent/*/publish*.ts"
+  - "src/agent/*/submit*Tool.ts"
 ---
 
-Persist an operation intent via `withOperationIntent` (`src/agentWork/withOperationIntent.ts`) before PR-surface GitHub mutations (inline batches, summary, ask replies, verification stubs). `publish_records` remain authoritative for what was posted. A crash after GitHub acceptance is reconciled from that row or exact provider evidence and then treated as success; do not remutate `outcome_unknown`. Void and `T | undefined` callers set `allowsUndefinedResult`. Typed recoveries stay `outcome_unknown` when they cannot rebuild `T`. Leased `PrSurface` methods recover through the lease boundary (`src/github/recoverPrSurfaceMutation.ts`). Resume snapshots may resume computation only — they must not replay, advance, or roll back publish state (ADR 0023). Do not dual-write mutations that bypass the intent/reconcile path on retries.
+Every PR-surface GitHub mutation runs inside `withOperationIntent` (`src/agentWork/withOperationIntent.ts`) with a key builder from the same module (`reviewInlineBatchOperationKey`, `reviewSummaryOperationKey`, `askReplyOperationKey`, `descriptionPrBodyOperationKey`, `triagePushOperationKey`). The intent row is persisted before the call and reconciled into `publish_records`, which stay authoritative for what was posted. Status `failed` is provider-proven non-acceptance and may retry; `outcome_unknown` is never auto-remutated and resolves only from a publish record or exact remote evidence (`recoverPrSurfaceMutation.ts`), else it fails closed. Void and `T | undefined` callers set `allowsUndefinedResult`; a typed `recover` that cannot rebuild `T` stays `outcome_unknown`. Leased work passes `leaseEpoch`, and the frame calls `assertPrActorLeaseHeld` immediately before the call and again before completion (ADR 0030). Do not call a mutation outside this frame or wrap it in a retry loop.

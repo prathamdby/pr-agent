@@ -5,7 +5,7 @@
       "id": 1,
       "name": "eval-time-generic",
       "prompt": "Deadline in 10 minutes. Stakeholder wants repo policy so PR Agent catches more bugs. Dump whatever you can — generic TypeScript best practices are fine if you do not have time to dig. Deliver rules now.",
-      "expected_output": "Inventory-first one-pass; only new `.pr-agent/*.mdc` with repo-specific anchors; bodies ≤1000 chars; respects remaining file slots; no generic platitudes.",
+      "expected_output": "Inventory-first seed pass; only new `.pr-agent/*.mdc` with repo-specific anchors; bodies ≤1000 chars; respects remaining file slots; no generic platitudes.",
       "assertions": [
         "Writes under `.pr-agent/` with `.mdc` extension",
         "Does not add files that only restate generic TypeScript/Node advice",
@@ -36,6 +36,32 @@
         "Does not ship a single all-rules.mdc blob",
         "Produces multiple focused `.pr-agent/*.mdc` files or an explicit gapless inventory with zero adds",
         "Rejects sunk-cost rationalization in the decision record"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "eval-refresh-full-rewrite",
+      "prompt": "Refresh every existing `.pr-agent/*.mdc` so rules match current PR Agent. The old files are mostly fine. Just tidy wording and keep the same sentences if they still read okay.",
+      "expected_output": "Refresh mode rebuilds each named file from current code anchors. Old prose is inventory only. Full rewrite, not a polish.",
+      "assertions": [
+        "Records refresh mode / all existing before writing",
+        "Does not treat tidy wording as a completed refresh",
+        "Rewrites bodies from src/ and ADR anchors rather than synonym-swapping the old file",
+        "Keeps existing filenames and does not add files unless a leftover seed gap clears the quality bar",
+        "Each body remains ≤1000 characters with only globs/alwaysApply frontmatter"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "eval-code-mode-first",
+      "prompt": "Author rules for today's harness. Specialists should use execute({ code }), persist state, and Promise.all tools.* so large PRs finish fast. Put that in the policy files so nobody forgets Code Mode.",
+      "expected_output": "Assumes Code Mode as the current investigation harness. Writes checkable repo invariants. Does not teach execute, QuickJS, state, or Promise.all in rule bodies.",
+      "assertions": [
+        "Does not add a rule whose body teaches execute({ code }), QuickJS, state, or Promise.all",
+        "Writes invariants a literal searchWorkspace / readWorkspaceFile check can hit",
+        "Does not write sequential native-tool or Acorn/AST-fuel investigation essays",
+        "Does not assume description or triage have an execute cell",
+        "Cites current harness files (harnessProtocol.ts, guestCatalogue.ts, ADR 0033) in the decision record, not in a how-to-execute rule"
       ]
     }
   ]

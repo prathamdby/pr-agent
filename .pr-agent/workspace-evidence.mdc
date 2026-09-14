@@ -1,9 +1,11 @@
 ---
 globs:
   - "src/review/**"
+  - "src/agent/codemode/**"
+  - "src/agent/execution/**"
+  - "src/agent/tools/**"
   - "src/prWorkspace/**"
   - "src/codeIndex/**"
-  - "src/agent/tools/**"
 ---
 
-Local PR workspace at the reviewed `headSha` is the sole publishable code authority (ADR 0024). Findings that cite a path/line range must pass `assertFindingsHaveEvidence` against the work-item `EvidenceLedger` (`src/review/findings/evidenceValidator.ts`) before inline or summary publish. Code index / FTS / symbol-index hits are navigation hints only — never publish authority without a following workspace read. Sparse checkout coverage must not be treated as full-repo certainty.
+The local PR workspace at the reviewed `headSha` is the only code a finding may cite (ADR 0024). Before publish, `assertFindingsHaveEvidence` (`src/review/findings/evidenceValidator.ts`) keeps a finding only when the work-item `EvidenceLedger` `covers` its path and line range at that `headSha`; others are rejected as `no_evidence` or, for paths outside a `sparse` `CheckoutCoverage`, `sparse_path_no_evidence`. The ledger (`src/review/findings/evidenceLedger.ts`) is fed by `recordMarshalledEvidence` in `src/agent/execution/marshal.ts` from the marshalled result of `tools.readWorkspaceFile` (minus `clampedLines`) and `tools.getWorkspaceDiff` (right-side ranges), never from the raw host read. `searchWorkspace`, `searchCodeIndex`, and `resolveSymbol` record nothing, so their hits locate code but cannot back a citation; read the range first. A result with `truncation` set or a refused path cannot prove a symbol is absent. Guard: `test/evidenceValidator.test.ts`.

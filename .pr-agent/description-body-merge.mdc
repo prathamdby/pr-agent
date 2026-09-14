@@ -2,6 +2,7 @@
 globs:
   - "src/agent/description/**"
   - "src/agentWork/executors/descriptionExecutor.ts"
+  - "src/settings/descriptionConstants.ts"
 ---
 
-Description publish must merge only the marker-wrapped agent block via `mergeDescriptionIntoPrBody` (`descriptionBodyMerge.ts`); never overwrite user-authored body outside `<!-- PR_AGENT_DESCRIPTION_BEGIN -->` / `<!-- PR_AGENT_DESCRIPTION_END -->`. Writing policy is server-owned (`descriptionWritingPolicy.ts`): body scale and map mode come from workspace size stats; map mode `omit` strips the map and `read_first` caps at five files — enforce on `submitDescription` (`resolveDescriptionMapMode` / `enforceDescriptionMapPayload`), do not trust the model alone. Title rewrite stays behind `FEATURE_TITLE_REWRITE`.
+A description publish rewrites only the agent block. `mergeDescriptionIntoPrBody` (`src/agent/description/descriptionBodyMerge.ts`) replaces the region between `<!-- PR_AGENT_DESCRIPTION_BEGIN -->` and `<!-- PR_AGENT_DESCRIPTION_END -->` and keeps `extractUserAuthoredPrBody` intact; the write runs under `withOperationIntent` (`descriptionPrBodyOperationKey`). Size is server-owned: `resolveDescriptionWritingPolicy` derives body scale `S`/`M`/`L` and map mode `omit`/`read_first` from `fileCount`, `totalChanges`, and truncation. `submitDescriptionTool.ts` enforces at submit, not by prompt: `enforceDescriptionMapPayload` strips the map on `omit` and caps five files on `read_first`; `enforceDescriptionVisualPayload` accepts flat `visuals[]` only and routes Mermaid through `sanitizeMermaidDiagram` (ADR 0036); `enforceDescriptionTitle` shapes the title, and the title write is gated by `cfg.features.titleRewrite` (`FEATURE_TITLE_REWRITE`). Do not add a second body writer.
