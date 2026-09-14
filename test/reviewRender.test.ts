@@ -1315,6 +1315,19 @@ describe("renderAgentFixPrompt", () => {
     );
   });
 
+  it("escapes code fences in follow-up fix-prompt lines", () => {
+    const payload = basePayload({
+      followUps: ["Remove flag X```after the fence"],
+    });
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+    );
+
+    expect(prompt).toContain("1. Remove flag X\\`\\`\\`after the fence");
+  });
+
   it("omits the follow-ups section when the list is empty", () => {
     const payload = basePayload({
       findings: [

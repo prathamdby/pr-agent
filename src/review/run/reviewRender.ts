@@ -298,7 +298,9 @@ export function renderAgentFixPrompt(
       "",
       "Follow-ups:",
       "",
-      payload.followUps.map((item, index) => `${index + 1}. ${item}`).join("\n"),
+      payload.followUps
+        .map((item, index) => `${index + 1}. ${escapeCodeFenceBreakers(item)}`)
+        .join("\n"),
     );
   }
   if (shouldRenderCiSummaryRow(ciSummary)) {
