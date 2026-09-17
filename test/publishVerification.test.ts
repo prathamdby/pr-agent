@@ -11,6 +11,7 @@ import {
   editReviewCommentEvents,
 } from "./helpers/publishPrSurface.js";
 import { recordPublishStep } from "../src/agentWork/repository.js";
+import { isEffectiveVerificationSignalTransition } from "../src/agentWork/prHeadCiState.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +46,23 @@ import {
   clearVerificationFailureSignal,
   publishVerificationFailure,
 } from "../src/agent/verification/publishVerificationFailure.js";
+
+describe("verification failure projection transitions", () => {
+  it("does not advance a new head when clearing a failure from an old head", () => {
+    expect(
+      isEffectiveVerificationSignalTransition(
+        { active: true, headSha: "old-head" },
+        { active: false, headSha: "new-head" },
+      ),
+    ).toBe(false);
+    expect(
+      isEffectiveVerificationSignalTransition(
+        { active: true, headSha: "same-head" },
+        { active: false, headSha: "same-head" },
+      ),
+    ).toBe(true);
+  });
+});
 
 const thread = {
   rootCommentId: 1,

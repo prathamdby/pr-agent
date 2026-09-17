@@ -438,7 +438,7 @@ export function isEffectiveVerificationSignalTransition(
     if (!wasActive) return true;
     return prior?.headSha !== next.headSha;
   }
-  return wasActive;
+  return wasActive && prior?.headSha === next.headSha;
 }
 
 /**
