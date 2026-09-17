@@ -115,8 +115,10 @@ describe("buildDescriptionUserContent", () => {
     );
     expect(content).toContain(`at most ${DESCRIPTION_BODY_L_MAX_WORDS_PER_BULLET} words`);
     expect(content).toContain("how key modules or paths interact");
-    expect(content).toContain("Follow the M rule");
+    expect(content).toContain("one view per distinct helpful proved category");
+    expect(content).toContain("leaves a boundary unclear");
     expect(content).toContain("contract, data path, or module boundary");
+    expect(content).not.toContain("Follow the M rule");
     expect(content).not.toContain("Emit every proved visual");
     expect(content).not.toContain("prefer mermaid");
   });

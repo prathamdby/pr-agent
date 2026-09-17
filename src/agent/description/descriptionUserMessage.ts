@@ -21,7 +21,7 @@ function visualsHardRule(policy: DescriptionWritingPolicy): string {
       ? "Emit the smallest useful set; stop at one or two views once the proved shape is clear."
       : policy.bodyScale === "M"
         ? "Emit one view per distinct helpful proved category; add a second view only when the first leaves a boundary unclear."
-        : "Follow the M rule, then add views when one fence leaves a contract, data path, or module boundary unclear.";
+        : "Emit one view per distinct helpful proved category; add a second view only when the first leaves a boundary unclear; then add further views when one fence leaves a contract, data path, or module boundary unclear.";
   return `Hard rule (visuals): lean on visuals[]. ${tierHint} Omit visuals only when the inspected diff has no sketchable shape.`;
 }
 
