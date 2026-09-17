@@ -5,12 +5,12 @@ import { technicalDepthRule, type DescriptionWritingPolicy } from "./description
 function formatDescriptionBodyHardRule(policy: DescriptionWritingPolicy): string {
   return [
     `Hard rule (body scale: ${policy.bodyScale}):`,
-    `Write ${policy.bulletMin}–${policy.bulletMax} short markdown bullets as captions only.`,
+    `Write ${policy.bulletMin}–${policy.bulletMax} short markdown bullets as theme summaries.`,
     `Each bullet is one short sentence of at most ${policy.maxWordsPerBullet} words.`,
     technicalDepthRule(policy.technicalDepth),
     "Ground every bullet in the diff. Do not invent behaviour.",
-    "Prefer the low end of the bullet range. Put substance in visuals[], not long prose.",
-    "Do not narrate a flow, tree, or delta in bullets when a visual can show it.",
+    "Prefer the low end of the bullet range. Put structural shape in visuals[], not long prose.",
+    "Do not narrate a flow, tree, contract, or module interaction in bullets when a visual already shows it.",
     visualsHardRule(policy),
   ].join(" ");
 }
@@ -18,11 +18,11 @@ function formatDescriptionBodyHardRule(policy: DescriptionWritingPolicy): string
 function visualsHardRule(policy: DescriptionWritingPolicy): string {
   const tierHint =
     policy.bodyScale === "S"
-      ? "Emit visuals[] for each theme with a proved shape; prefer mermaid, diff, or call_tree over extra bullets."
+      ? "Emit the smallest useful set; stop at one or two views once the proved shape is clear."
       : policy.bodyScale === "M"
-        ? "Emit visuals[] for every proved shape; prefer mermaid, diff, call_tree, and component_tree when the diff shows them."
-        : "Emit every proved visual a stranger needs at a glance; use multiple views when one fence leaves a boundary unclear.";
-  return `Hard rule (visuals): lean on visuals[]. ${tierHint} Omit visuals only when the diff has no sketchable shape.`;
+        ? "Emit one view per distinct helpful proved category; add a second view only when the first leaves a boundary unclear."
+        : "Follow the M rule, then add views when one fence leaves a contract, data path, or module boundary unclear.";
+  return `Hard rule (visuals): lean on visuals[]. ${tierHint} Omit visuals only when the inspected diff has no sketchable shape.`;
 }
 
 function mapHardRule(policy: DescriptionWritingPolicy): string {

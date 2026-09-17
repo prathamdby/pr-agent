@@ -105,7 +105,7 @@ export function formatDescriptionVisualValidationError(
     "visuals validation failed:",
     ...lines,
     "",
-    "Fix each visual or omit visuals entirely.",
+    "Repair the reported visuals. Omit visuals only when the inspected diff has no sketchable shape.",
   ].join("\n");
 }
 

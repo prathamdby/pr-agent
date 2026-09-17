@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   coerceDescriptionPayloadInput,
+  DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
   descriptionPayloadSchema,
 } from "../src/agent/description/descriptionSchema.js";
 
@@ -13,6 +14,20 @@ describe("descriptionSchema", () => {
       description: "- Validate cookie\n- Reject expired tokens",
     });
     expect(parsed.success).toBe(true);
+  });
+
+  it("accepts the shared base example with a valid visual and no map-specific prFiles", () => {
+    const parsed = v.safeParse(descriptionPayloadSchema, DESCRIPTION_PAYLOAD_BASE_EXAMPLE);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.output.visuals).toEqual([
+        {
+          kind: "call_tree",
+          content: "handleRequest\n  validateSession\n  next",
+        },
+      ]);
+      expect(parsed.output.prFiles).toBeUndefined();
+    }
   });
 
   it("coerces snake_case and pr_files envelope", () => {

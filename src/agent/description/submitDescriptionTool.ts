@@ -12,7 +12,7 @@ import {
 import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
-  DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
+  DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
 } from "./descriptionSchema.js";
 import { parseToolInput } from "../tools/parseToolInput.js";
 import {
@@ -52,7 +52,7 @@ const SUBMIT_DESCRIPTION_DESCRIPTION = [
   "Submit the completed PR description exactly once.",
   "Pass a DescriptionPayload object matching the schema.",
   "This merges generated content into the pull request body under the PR Agent description header.",
-  `Minimal valid example: ${JSON.stringify(DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE)}`,
+  `Shape-only example (active map hard rule decides prFiles): ${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE)}`,
 ].join(" ");
 
 const SUBMIT_DESCRIPTION_PARAMETERS = toJsonSchema(descriptionPayloadSchema, {

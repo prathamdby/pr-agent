@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
 import {
   operationIntentMarker,
   runInOperationIntentFrame,
@@ -62,7 +62,7 @@ describe("PrSurface lease mutation boundary", () => {
         () =>
           surface.publishDescription(
             { features: makeTestConfig().features },
-            DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
+            DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
           ),
       ],
     ];

@@ -10,7 +10,7 @@ import {
 import { logInfo } from "../../evlog.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "./descriptionSchema.js";
 import {
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
@@ -77,7 +77,7 @@ export async function runFullPrDescription(params: {
           [
             validationError,
             "Fix the payload and call submitDescription again with a complete DescriptionPayload.",
-            `Minimal valid example:\n${JSON.stringify(DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
+            `Shape-only example (active map hard rule decides prFiles):\n${JSON.stringify(DESCRIPTION_PAYLOAD_BASE_EXAMPLE, null, 2)}`,
           ].join("\n\n"),
         );
       },
