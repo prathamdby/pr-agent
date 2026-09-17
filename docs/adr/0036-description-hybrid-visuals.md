@@ -5,9 +5,11 @@ render only safe fences. Nested theme trees overfit large models. Freeform
 markdown fences are hard to sanitize. The submit contract is markdown
 `description` plus flat `visuals[]` entries (`kind` + `content`) drawn
 from the make-pr / show-me view menu. The server validates and renders.
-Prompt guidance treats visuals as the primary surface and steers the model
-to prefer sketches over long bullets; omitting `visuals` remains schema-valid
-when the diff has no sketchable shape. `changesDiagram` is not a field.
+Prompt guidance follows make-pr's smallest-useful-view procedure inside that
+flat typed list: select only proved sketches that improve comprehension,
+prefer `diff` for existing shapes, and keep visuals optional when the
+inspected diff has no sketchable shape. HTML artifacts remain out of schema.
+`changesDiagram` is not a field.
 
 ## Status
 

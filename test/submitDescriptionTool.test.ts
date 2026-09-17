@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
+import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../src/agent/description/descriptionSchema.js";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
@@ -124,7 +124,7 @@ describe("submitDescription tool", () => {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
     });
-    const result = await executor({ ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE });
+    const result = await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
 
     expect(result).toEqual({
       ok: true,
@@ -145,16 +145,33 @@ describe("submitDescription tool", () => {
 
   it("publishes without operation-intent persistence when context is omitted", async () => {
     const { executor } = buildTool();
-    await executor({ ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE });
+    await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
 
     expect(publishDescriptionToPullRequest).toHaveBeenCalledTimes(1);
     expect(persistOperationIntent).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
   });
 
+  it("publishes the shared base example and keeps its legal visual", async () => {
+    const { executor } = buildTool(undefined, { mapMode: "omit" });
+    await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
+
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    expect(published.payload.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
+    expect(published.payload.prFiles).toBeUndefined();
+  });
+
   it("strips prFiles on omit mode before publish", async () => {
     const { executor } = buildTool(undefined, { mapMode: "omit" });
-    await executor({ ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE });
+    await executor({
+      ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
+      prFiles: [
+        {
+          filename: "src/auth/session.ts",
+          changesTitle: "Auth boundary is the highest-risk surface in this PR",
+        },
+      ],
+    });
 
     expect(publishDescriptionToPullRequest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -165,13 +182,14 @@ describe("submitDescription tool", () => {
     );
     const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
     expect(published.payload.prFiles).toBeUndefined();
+    expect(published.payload.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
   });
 
   it("repairs a single-object prFiles payload at the parse seam", async () => {
     const { executor } = buildTool();
 
     await executor({
-      ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
+      ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
       prFiles: { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
     });
 
@@ -184,7 +202,7 @@ describe("submitDescription tool", () => {
   it("enforces title rules before publish", async () => {
     const { executor } = buildTool();
     await executor({
-      ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
+      ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
       title: "feat: add user session validation.",
     });
 

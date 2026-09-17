@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
+import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
 import { assertPromptCostWithinBudget, stableJson, type PromptCost } from "./helpers/promptCost.js";
@@ -139,6 +140,12 @@ function promptSurfaces(): PromptSurface[] {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
       budget: { bytes: 18_000, characters: 18_000, estimatedTokens: 4_500 },
+    },
+    {
+      name: "description system prompt",
+      content: descriptionSystemPrompt,
+      // Prompt-surface visuals guidance; keep tight to discourage kind-menu duplication.
+      budget: { bytes: 8_700, characters: 8_700, estimatedTokens: 2_200 },
     },
     {
       name: "local workspace tool definitions",

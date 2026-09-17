@@ -50,15 +50,16 @@ export type DescriptionVisual = v.InferOutput<typeof descriptionVisualSchema>;
 export type DescriptionPayload = v.InferOutput<typeof descriptionPayloadSchema>;
 export type DescriptionPrFile = v.InferOutput<typeof descriptionFileSchema>;
 
-export const DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE: DescriptionPayload = {
+/** Shape-only example for tool/repair prompts. Active map hard rule decides `prFiles`. */
+export const DESCRIPTION_PAYLOAD_BASE_EXAMPLE: DescriptionPayload = {
   title: "Add user session validation",
   type: ["Enhancement"],
   description:
     "- The change validates the user session on each request.\n- It adds a middleware hook at the auth boundary.",
-  prFiles: [
+  visuals: [
     {
-      filename: "src/auth/session.ts",
-      changesTitle: "Auth boundary is the highest-risk surface in this PR",
+      kind: "call_tree",
+      content: "handleRequest\n  validateSession\n  next",
     },
   ],
 };

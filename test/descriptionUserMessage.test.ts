@@ -53,7 +53,7 @@ describe("buildDescriptionUserContent", () => {
     expect(content).not.toContain("Additional instruction");
   });
 
-  it("injects S body scale and omit map hard rules for small changes", () => {
+  it("injects S body scale, omit map, and quantity-only visuals hard rule", () => {
     const content = buildDescriptionUserContent(baseDescriptionParams());
     expect(content).toContain("Body scale: S");
     expect(content).toContain("Map mode: omit");
@@ -67,10 +67,17 @@ describe("buildDescriptionUserContent", () => {
     expect(content).toContain("Hard rule (title):");
     expect(content).toContain("Hard rule (visuals):");
     expect(content).toContain("lean on visuals[]");
-    expect(content).toContain("visuals[]");
+    expect(content).toContain("smallest useful set");
+    expect(content).toContain("stop at one or two views");
+    expect(content).not.toContain("prefer mermaid");
+    expect(content).not.toContain("call_tree");
+    expect(content).not.toContain("component_tree");
+    expect(content).toContain(
+      "Do not narrate a flow, tree, contract, or module interaction in bullets when a visual already shows it.",
+    );
   });
 
-  it("injects M body scale and read_first map hard rules", () => {
+  it("injects distinct M quantity text without a kind list", () => {
     const content = buildDescriptionUserContent(
       baseDescriptionParams(undefined, {
         fileCount: 12,
@@ -87,9 +94,13 @@ describe("buildDescriptionUserContent", () => {
     expect(content).toContain(`at most ${DESCRIPTION_BODY_M_MAX_WORDS_PER_BULLET} words`);
     expect(content).toContain("emit prFiles with 1–5 entries only");
     expect(content).toContain("notable risks or contracts");
+    expect(content).toContain("one view per distinct helpful proved category");
+    expect(content).toContain("leaves a boundary unclear");
+    expect(content).not.toContain("prefer mermaid");
+    expect(content).not.toContain("Emit visuals[] for every proved shape");
   });
 
-  it("injects L body scale for large changes", () => {
+  it("injects distinct L quantity text without a kind list", () => {
     const content = buildDescriptionUserContent(
       baseDescriptionParams(undefined, {
         fileCount: 40,
@@ -104,5 +115,24 @@ describe("buildDescriptionUserContent", () => {
     );
     expect(content).toContain(`at most ${DESCRIPTION_BODY_L_MAX_WORDS_PER_BULLET} words`);
     expect(content).toContain("how key modules or paths interact");
+    expect(content).toContain("one view per distinct helpful proved category");
+    expect(content).toContain("leaves a boundary unclear");
+    expect(content).toContain("contract, data path, or module boundary");
+    expect(content).not.toContain("Follow the M rule");
+    expect(content).not.toContain("Emit every proved visual");
+    expect(content).not.toContain("prefer mermaid");
+  });
+
+  it("surfaces truncation context for bounded investigation", () => {
+    const truncated = buildDescriptionUserContent(
+      baseDescriptionParams(undefined, {
+        fileCount: 2,
+        totalChanges: 40,
+        truncated: true,
+      }),
+    );
+    const complete = buildDescriptionUserContent(baseDescriptionParams());
+    expect(truncated).toContain("Change set truncated: yes");
+    expect(complete).toContain("Change set truncated: no");
   });
 });
