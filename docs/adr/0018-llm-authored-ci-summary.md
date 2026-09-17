@@ -32,7 +32,7 @@ Constraints that still hold:
 
 ## Amendment
 
-The CI marker carries `head=<sha>`. Preserve drops the prior row when the marker head is missing or differs from the next review-meta head. Ack renders `none` as `Waiting for CI` on the stub. Own-app `check_suite` deliveries are ignored at intake.
+The CI marker carries `head=<sha>`, `v=<version>`, and `fmt=<projection-format>`. Preserve drops the prior row when the marker head is missing or differs from the next review-meta head. Missing or unseeded heads render as `Waiting for CI`. A complete seeded empty snapshot renders `none` / "No CI checks on this head" on the visible gate and "No CI checks ran on this head" on the completed action line; the agent-fix prompt still omits `none`. Own-app `check_suite` deliveries are ignored at intake.
 
 ## Consequences
 

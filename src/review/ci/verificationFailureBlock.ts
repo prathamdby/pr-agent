@@ -6,7 +6,7 @@ import {
 
 const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 const CI_SUMMARY_CELL_RE =
-  /<!--\s*pr-agent:ci-summary(?:\s+head=[^\s]+)?(?:\s+v=\d+)?\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
+  /<!--\s*pr-agent:ci-summary((?:\s+\w+=[^\s]+)*)\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
 
 export type VerificationFailureSurface = "ci_cell" | "stub_line";
 

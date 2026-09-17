@@ -647,9 +647,10 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     });
 
     const latest = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    const projected = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(latest).not.toBeNull();
-    expect(parseCiSummaryMarkerVersion(latest?.body ?? "")).toBe(row?.version);
-    expect(latest?.body).toContain(`v=${row?.version}`);
+    expect(parseCiSummaryMarkerVersion(latest?.body ?? "")).toBe(projected?.version);
+    expect(latest?.body).toContain(`v=${projected?.version}`);
     expect(latest?.body).toContain(`head=${headSha}`);
   });
 
@@ -706,7 +707,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await executeCiProjectionJob(cfg, pool, boss, job, options);
     expect(calls).toHaveLength(1);
     const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    expect(afterFirst?.version).toBe(1);
+    // Fact write was v=1; first seed advances once more. Authored cache must not bump again.
+    expect(afterFirst?.version).toBe(2);
+    expect(afterFirst?.seededAt).not.toBeNull();
     const authored = parseCiAuthoredCache(afterFirst?.authored);
     expect(authored?.headline).toBe("❌ authored lint");
     expect(authored?.factsHash).toBe(hashCiFacts(afterFirst?.checks ?? {}));
@@ -714,12 +717,12 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await executeCiProjectionJob(cfg, pool, boss, job, options);
     expect(calls).toHaveLength(1);
     const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    expect(afterSecond?.version).toBe(1);
+    expect(afterSecond?.version).toBe(2);
     expect(parseCiAuthoredCache(afterSecond?.authored)?.factsHash).toBe(authored?.factsHash);
 
     const latest = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
     expect(latest?.body).toContain("authored lint");
-    expect(latest?.body).toContain("v=1");
+    expect(latest?.body).toContain("v=2");
   });
 
   it("patches a triage rollup marker after a push whose work-item head is older", async () => {
@@ -777,8 +780,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       },
     );
 
+    const seeded = await loadPrHeadCiState(pool, OWNER, REPO, newHead);
     const latest = fake.controls.getProgressComment(TRIAGE_SUMMARY_SENTINEL);
-    expect(latest?.body).toContain(renderCiRollupMarker(newHead, 1, "failing"));
+    expect(latest?.body).toContain(renderCiRollupMarker(newHead, seeded?.version ?? 0, "failing"));
     expect(latest?.body).not.toContain(renderCiRollupMarker(newHead, 0, "none"));
   });
 
@@ -955,10 +959,18 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(afterHeadB?.body).toContain(`head=${headB}`);
     expect(afterHeadB?.body).not.toContain(`head=${headA}`);
 
+    await pool.query(
+      `UPDATE pr_head_ci_state
+          SET projection_repair_pending = true
+        WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+      [OWNER, REPO, headA],
+    );
     await projectHead(headA);
     const afterOldProjection = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
     expect(afterOldProjection?.body).toContain(`head=${headB}`);
     expect(afterOldProjection?.body).not.toContain(`head=${headA}`);
+    const repairedOldHead = await loadPrHeadCiState(pool, OWNER, REPO, headA);
+    expect(repairedOldHead?.projectionRepairPending).toBe(false);
 
     await applyCiStateIntake(
       boss,
@@ -982,10 +994,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(rowB?.version).toBeGreaterThanOrEqual(2);
 
     await projectHead(headB);
+    const projectedB = await loadPrHeadCiState(pool, OWNER, REPO, headB);
     const afterNewProjection = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
     expect(afterNewProjection?.body).toContain(`head=${headB}`);
-    expect(parseCiSummaryMarkerVersion(afterNewProjection?.body ?? "")).toBe(rowB?.version);
-    expect(afterNewProjection?.body).toContain(`v=${rowB?.version}`);
+    expect(parseCiSummaryMarkerVersion(afterNewProjection?.body ?? "")).toBe(projectedB?.version);
+    expect(afterNewProjection?.body).toContain(`v=${projectedB?.version}`);
   });
 
   it("renders an incomplete seed as unavailable on the cell and the rollup", async () => {
@@ -1106,8 +1119,12 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const stored = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(stored?.prNumbers).toEqual(expect.arrayContaining([PR_NUMBER, secondPr]));
-    expect(fakeFirst.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toContain("v=1");
-    expect(fakeSecond.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toContain("v=1");
+    expect(fakeFirst.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toContain(
+      `v=${stored?.version}`,
+    );
+    expect(fakeSecond.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toContain(
+      `v=${stored?.version}`,
+    );
   });
 
   it("closes a started check after the review fails", async () => {
@@ -1296,6 +1313,309 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     const afterSeed = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(afterSeed?.seededAt).not.toBeNull();
     expect(afterSeed?.rollup).toBe("passing");
+    expect(afterSeed?.version).toBe(1);
+  });
+
+  it("seeds an empty head as none, advances version, and repairs waiting comments", async () => {
+    const headSha = "bb".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      [
+        REVIEW_SUMMARY_SENTINEL,
+        "",
+        "> [!NOTE]",
+        "> No findings, ready to merge. CI is pending. All specialists ran with full coverage.",
+        "",
+        `<table><tr><td><strong>CI</strong></td><td>${renderCiSummaryCell(
+          { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
+          headSha,
+          0,
+        )}</td></tr></table>`,
+        "",
+        `<!-- pr-agent:review-meta headSha=${headSha} lens=review stale=false -->`,
+        `<!-- pr-agent:progress-revision workItemId=${workItemId} value=1 -->`,
+      ].join("\n"),
+      501,
+    );
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(row?.seededAt).not.toBeNull();
+    expect(row?.rollup).toBe("none");
+    expect(row?.version).toBe(1);
+    const claim = await loadRenderableHeadCi(pool, OWNER, REPO, headSha);
+    expect(claim.summary.status).toBe("none");
+    expect(claim.summary.headline).toBe("No CI checks on this head");
+
+    const latest = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(latest?.body).toContain("No CI checks on this head");
+    expect(latest?.body).toContain("No CI checks ran on this head");
+    expect(latest?.body).not.toContain("Waiting for CI");
+    expect(latest?.body).not.toContain("CI is pending");
+    expect(parseCiSummaryMarkerVersion(latest?.body ?? "")).toBe(1);
+
+    const again = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+    const afterRepeat = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterRepeat?.version).toBe(again?.version);
+  });
+
+  it("advances version on first seed even when pre-seed facts are identical", async () => {
+    const headSha = "cc".repeat(20);
+    await insertReviewWorkItem(headSha);
+    await applyCiStateIntake(
+      boss,
+      pool,
+      headers("check_run", `ci-preseed-${randomUUID().slice(0, 8)}`),
+      {
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+        fact: ciStateFact({
+          name: "lint",
+          conclusion: "success",
+          observed_at: "2026-09-13T00:00:01.000Z",
+        }),
+      },
+      intakeLog(),
+    );
+    const before = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(before?.seededAt).toBeNull();
+    expect(before?.version).toBe(1);
+
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        {
+          id: 9,
+          name: "lint",
+          status: "completed",
+          conclusion: "success",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const after = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(after?.seededAt).not.toBeNull();
+    expect(after?.version).toBe((before?.version ?? 0) + 1);
+  });
+
+  it("bumps projection revision when verification activates or clears", async () => {
+    const headSha = "dd".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
+       VALUES ($1, $2, $3, '{}'::jsonb, 'none', 2, now())`,
+      [OWNER, REPO, headSha],
+    );
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(headSha, 2, workItemId),
+      601,
+    );
+
+    const { publishVerificationFailure, clearVerificationFailureSignal } =
+      await import("../../src/agent/verification/publishVerificationFailure.js");
+    await publishVerificationFailure({
+      pool,
+      workItemId,
+      resourceKey: `${OWNER}/${REPO}#${PR_NUMBER}`,
+      prSurface: fake.surface,
+      headSha,
+      leaseEpoch: null,
+      boss,
+      installationId: 9001,
+    });
+    const afterActivate = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterActivate?.version).toBe(3);
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+    const withFailure = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(withFailure?.body).toContain("Verification did not complete");
+
+    await publishVerificationFailure({
+      pool,
+      workItemId,
+      resourceKey: `${OWNER}/${REPO}#${PR_NUMBER}`,
+      prSurface: fake.surface,
+      headSha,
+      leaseEpoch: null,
+      boss,
+      installationId: 9001,
+    });
+    const afterDuplicate = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterDuplicate?.version).toBe(3);
+
+    await clearVerificationFailureSignal({
+      pool,
+      workItemId,
+      resourceKey: `${OWNER}/${REPO}#${PR_NUMBER}`,
+      prSurface: fake.surface,
+      headSha,
+      leaseEpoch: null,
+      boss,
+      installationId: 9001,
+    });
+    const afterClear = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterClear?.version).toBe(4);
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+    const cleared = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(cleared?.body).not.toContain("Verification did not complete");
+  });
+
+  it("keeps projection_repair_pending when a comment edit fails, then clears after success", async () => {
+    const headSha = "ee".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    await pool.query(
+      `INSERT INTO pr_head_ci_state
+         (owner, repo, head_sha, checks, rollup, version, seeded_at, projection_repair_pending)
+       VALUES ($1, $2, $3, '{}'::jsonb, 'none', 1, now(), true)`,
+      [OWNER, REPO, headSha],
+    );
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      [
+        REVIEW_SUMMARY_SENTINEL,
+        "",
+        "> [!NOTE]",
+        "> No findings, ready to merge. CI is pending. All specialists ran with full coverage.",
+        "",
+        `<table><tr><td><strong>CI</strong></td><td><!-- pr-agent:ci-summary head=${headSha} v=1 -->⏳ Waiting for CI<!-- /pr-agent:ci-summary --></td></tr></table>`,
+        "",
+        `<!-- pr-agent:review-meta headSha=${headSha} lens=review stale=false -->`,
+        `<!-- pr-agent:progress-revision workItemId=${workItemId} value=1 -->`,
+      ].join("\n"),
+      701,
+    );
+
+    let failEdit = true;
+    const surface = {
+      ...fake.surface,
+      editComment: async (commentId: number, body: string) => {
+        if (failEdit) throw new Error("github edit failed");
+        return fake.surface.editComment(commentId, body);
+      },
+    };
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => surface, author: stubCiAuthor([]) },
+    );
+    const stillPending = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(stillPending?.projectionRepairPending).toBe(true);
+
+    failEdit = false;
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => surface, author: stubCiAuthor([]) },
+    );
+    const cleared = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(cleared?.projectionRepairPending).toBe(false);
+    const body = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
+    expect(body).toContain("No CI checks on this head");
+    expect(body).toContain(`fmt=`);
   });
 
   it("lists a failed review whose recorded check is still open", async () => {

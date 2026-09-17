@@ -96,7 +96,7 @@ exports[`renderReviewSummaryComment > drops finding rows from the tail when comp
 "## PR Agent Review
 
 > [!NOTE]
-> 12 findings block merge. CI has not started. All specialists ran with full coverage.
+> 12 findings block merge. <!-- pr-agent:ci-action fmt=1 -->CI has not started<!-- /pr-agent:ci-action -->. All specialists ran with full coverage.
 
 <table>
 <tbody>

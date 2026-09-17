@@ -58,7 +58,7 @@ describe("renderReviewSummaryComment", () => {
     });
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain(
-      "No findings, ready to merge. CI has not started. All specialists ran with full coverage.",
+      "No findings, ready to merge. <!-- pr-agent:ci-action fmt=1 -->CI has not started<!-- /pr-agent:ci-action -->. All specialists ran with full coverage.",
     );
     expect(body).toContain("[!NOTE]");
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
@@ -465,7 +465,7 @@ describe("renderReviewSummaryComment", () => {
       coverage: { kind: "partial", failed: ["quality"] },
     });
     expect(body).toContain(
-      "2 findings block merge. CI is passing. All specialists ran except quality.",
+      "2 findings block merge. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran except quality.",
     );
     expect(body).toContain("[!NOTE]");
     expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("<table>"));
@@ -502,7 +502,7 @@ describe("renderReviewSummaryComment", () => {
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(twoBody).toContain(
-      "2 findings block merge. 2 follow-ups. CI is passing. All specialists ran with full coverage.",
+      "2 findings block merge. 2 follow-ups. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran with full coverage.",
     );
 
     const onePayload = basePayload({
@@ -525,7 +525,7 @@ describe("renderReviewSummaryComment", () => {
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(oneBody).toContain(
-      "1 finding blocks merge. 1 follow-up. CI is passing. All specialists ran with full coverage.",
+      "1 finding blocks merge. 1 follow-up. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran with full coverage.",
     );
 
     const zeroPayload = basePayload({
@@ -547,7 +547,7 @@ describe("renderReviewSummaryComment", () => {
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(zeroBody).toContain(
-      "1 finding blocks merge. CI is passing. All specialists ran with full coverage.",
+      "1 finding blocks merge. <!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->. All specialists ran with full coverage.",
     );
     expect(zeroBody).not.toContain("follow-up");
   });
@@ -1436,6 +1436,27 @@ describe("renderAgentFixPrompt", () => {
     );
     expect(prompt).not.toContain("No CI checks on this head");
     expect(prompt).not.toContain("ci_summary");
+  });
+
+  it("renders no-CI table and action copy while omitting none from the agent fix prompt", () => {
+    const payload = basePayload();
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings),
+      ciSummary: { status: "none", headline: "No CI checks on this head", failures: [] },
+    });
+    expect(body).toContain("No CI checks on this head");
+    expect(body).toContain(
+      "<!-- pr-agent:ci-action fmt=1 -->No CI checks ran on this head<!-- /pr-agent:ci-action -->",
+    );
+    expect(body).toContain("<strong>CI</strong>");
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+      { status: "none", headline: "No CI checks on this head", failures: [] },
+    );
+    expect(prompt).not.toContain("No CI checks on this head");
   });
 });
 

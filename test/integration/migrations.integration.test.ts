@@ -44,6 +44,7 @@ const EXPECTED_MIGRATIONS = [
   "028_triage_preview_step.sql",
   "029_ask_quota_execution_receipts.sql",
   "030_pr_head_ci_state.sql",
+  "031_projection_repair_pending.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
@@ -272,6 +273,16 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(clause).toContain("ci_cell");
     expect(clause).toContain("commit_status");
     expect(clause).toContain("verification_failure");
+
+    const repairCol = await pool.query<{ column_name: string; column_default: string | null }>(
+      `SELECT column_name, column_default
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'pr_head_ci_state'
+          AND column_name = 'projection_repair_pending'`,
+    );
+    expect(repairCol.rows).toHaveLength(1);
+    expect(repairCol.rows[0]?.column_default).toContain("false");
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {
