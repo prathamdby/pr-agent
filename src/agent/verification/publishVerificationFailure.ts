@@ -5,8 +5,16 @@ import type { PrConversationComment } from "../../github/prSurfaceTypes.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
-import { enqueueCiProjectionDebouncedStandalone } from "../../agentWork/intake/queueing.js";
-import { recordPublishStep } from "../../agentWork/repository.js";
+import { enqueueCiProjectionDebounced } from "../../agentWork/intake/queueing.js";
+import {
+  advancePrHeadCiRevisionForVerificationSignal,
+  isEffectiveVerificationSignalTransition,
+  type VerificationSignalPrior,
+} from "../../agentWork/prHeadCiState.js";
+import {
+  getLatestCompletedPublishStepDetail,
+  recordPublishStep,
+} from "../../agentWork/repository.js";
 import {
   clearVerificationFailureSignalFromLedger,
   loadVerificationThreadLedger,
@@ -29,8 +37,8 @@ type PublishVerificationFailureParams = {
   readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly leaseEpoch: number | null;
-  readonly boss?: PgBoss;
-  readonly installationId?: number;
+  readonly boss: PgBoss;
+  readonly installationId: number;
 };
 
 function isReviewSummaryBody(body: string): boolean {
@@ -67,30 +75,73 @@ async function persistLedger(
   });
 }
 
-async function enqueueProjection(params: PublishVerificationFailureParams): Promise<void> {
-  if (params.boss == null || params.installationId == null || params.installationId <= 0) return;
-  const job: CiProjectionJobData = {
-    kind: "ci_projection",
-    installationId: params.installationId,
-    owner: params.prSurface.owner,
-    repo: params.prSurface.repo,
-    headSha: params.headSha,
+function priorFromDetail(detail: Record<string, unknown> | null): VerificationSignalPrior | null {
+  if (detail == null) return null;
+  const headSha = typeof detail.headSha === "string" ? detail.headSha : null;
+  return {
+    active: detail.active !== false && headSha != null,
+    headSha,
   };
-  await enqueueCiProjectionDebouncedStandalone(params.boss, job);
+}
+
+async function writeVerificationSignal(
+  params: PublishVerificationFailureParams,
+  active: boolean,
+): Promise<void> {
+  if (params.installationId <= 0) {
+    throw new Error("verification failure projection requires a positive installationId");
+  }
+  const client = await params.pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `verification-failure:${params.resourceKey}`,
+    ]);
+    const priorDetail = await getLatestCompletedPublishStepDetail(
+      client,
+      params.resourceKey,
+      VERIFICATION_PUBLISH_LENS,
+      "verification_failure",
+    );
+    const effective = isEffectiveVerificationSignalTransition(priorFromDetail(priorDetail), {
+      active,
+      headSha: params.headSha,
+    });
+    await advancePrHeadCiRevisionForVerificationSignal(client, {
+      owner: params.prSurface.owner,
+      repo: params.prSurface.repo,
+      headSha: params.headSha,
+      effective,
+    });
+    await recordPublishStep(client, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: VERIFICATION_PUBLISH_LENS,
+      step: "verification_failure",
+      leaseEpoch: params.leaseEpoch,
+      detail: { headSha: params.headSha, active },
+    });
+    const job: CiProjectionJobData = {
+      kind: "ci_projection",
+      installationId: params.installationId,
+      owner: params.prSurface.owner,
+      repo: params.prSurface.repo,
+      headSha: params.headSha,
+    };
+    await enqueueCiProjectionDebounced(params.boss, client, job);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function publishVerificationFailure(
   params: PublishVerificationFailureParams,
 ): Promise<VerificationFailureSignal> {
-  await recordPublishStep(params.pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    reviewLens: VERIFICATION_PUBLISH_LENS,
-    step: "verification_failure",
-    leaseEpoch: params.leaseEpoch,
-    detail: { headSha: params.headSha, active: true },
-  });
-  await enqueueProjection(params);
+  await writeVerificationSignal(params, true);
 
   const comments = await botOwnedComments(params.prSurface);
   const headReview = findHeadReviewComment(comments, params.headSha);
@@ -109,15 +160,7 @@ export async function publishVerificationFailure(
 export async function clearVerificationFailureSignal(
   params: PublishVerificationFailureParams,
 ): Promise<void> {
-  await recordPublishStep(params.pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    reviewLens: VERIFICATION_PUBLISH_LENS,
-    step: "verification_failure",
-    leaseEpoch: params.leaseEpoch,
-    detail: { headSha: params.headSha, active: false },
-  });
-  await enqueueProjection(params);
+  await writeVerificationSignal(params, false);
   const ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,
   });

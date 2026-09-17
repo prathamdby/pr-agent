@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CI_PROJECTION_FORMAT,
   CI_SUMMARY_CELL_END,
   CI_SUMMARY_CELL_START,
   commentBodyHasCiSummaryCell,
@@ -7,12 +8,19 @@ import {
   parseCiSummaryMarkerHead,
   parseCiSummaryMarkerVersion,
   renderCiSummaryCell,
+  shouldIncludeCiInAgentFixPrompt,
   shouldRenderCiSummaryRow,
 } from "../src/review/ci/renderCiSummary.js";
-import { replaceCiSummaryCellIfNewer } from "../src/review/ci/ciSummaryCell.js";
+import {
+  applyCiProjectionBodyUpdate,
+  parseCiSummaryMarker,
+  replaceCiSummaryCellIfNewer,
+  renderCiActionPhrase,
+} from "../src/review/ci/ciSummaryCell.js";
 import type { CiSummary } from "../src/review/ci/ciSummaryTypes.js";
 import { renderVerificationFailureBlock } from "../src/review/ci/verificationFailureBlock.js";
 import { VERIFICATION_FAILURE_TEXT } from "../src/settings/index.js";
+import { formatReviewActionLineCiStatus } from "../src/review/ci/ciActionPhrase.js";
 
 describe("renderCiSummary", () => {
   it("formats failing CI fields as plain text for the agent fix prompt", () => {
@@ -107,7 +115,7 @@ describe("renderCiSummary", () => {
     expect(shouldRenderCiSummaryRow(summary)).toBe(true);
   });
 
-  it("renders unavailable permission rows and omits none", () => {
+  it("renders unavailable permission rows and includes seeded none", () => {
     expect(
       shouldRenderCiSummaryRow({
         status: "unavailable",
@@ -115,7 +123,10 @@ describe("renderCiSummary", () => {
         failures: [],
       }),
     ).toBe(true);
-    expect(shouldRenderCiSummaryRow({ status: "none", headline: "x", failures: [] })).toBe(false);
+    expect(shouldRenderCiSummaryRow({ status: "none", headline: "x", failures: [] })).toBe(true);
+    expect(shouldIncludeCiInAgentFixPrompt({ status: "none", headline: "x", failures: [] })).toBe(
+      false,
+    );
     expect(shouldRenderCiSummaryRow(null)).toBe(false);
   });
 
@@ -185,7 +196,7 @@ describe("renderCiSummary", () => {
     expect(html).not.toContain("href=");
   });
 
-  it("stamps head and version into the CI marker", () => {
+  it("stamps head, version, and format into the CI marker", () => {
     const head = "d".repeat(40);
     const cell = renderCiSummaryCell(
       { status: "passing", headline: "✅ All CI is passing", failures: [] },
@@ -194,9 +205,13 @@ describe("renderCiSummary", () => {
     );
     expect(cell).toContain(`head=${head}`);
     expect(cell).toContain("v=3");
-    expect(cell.startsWith(`<!-- pr-agent:ci-summary head=${head} v=3 -->`)).toBe(true);
+    expect(cell).toContain(`fmt=${CI_PROJECTION_FORMAT}`);
+    expect(
+      cell.startsWith(`<!-- pr-agent:ci-summary head=${head} v=3 fmt=${CI_PROJECTION_FORMAT} -->`),
+    ).toBe(true);
     expect(parseCiSummaryMarkerHead(cell)).toBe(head);
     expect(parseCiSummaryMarkerVersion(cell)).toBe(3);
+    expect(parseCiSummaryMarker(cell)?.format).toBe(CI_PROJECTION_FORMAT);
     expect(
       parseCiSummaryMarkerHead(
         renderCiSummaryCell({ status: "passing", headline: "x", failures: [] }),
@@ -254,7 +269,7 @@ describe("renderCiSummary", () => {
     expect(replaceCiSummaryCellIfNewer(body, next, newHead, 2)).toBeNull();
   });
 
-  it("keeps a verification failure block when the CI cell is replaced", () => {
+  it("does not preserve an old verification failure block unless the next cell includes it", () => {
     const head = "g".repeat(40);
     const failure = renderVerificationFailureBlock();
     const original = [
@@ -269,8 +284,80 @@ describe("renderCiSummary", () => {
     );
     const patched = replaceCiSummaryCellIfNewer(original, next, head, 1);
     expect(patched).toContain("All CI is passing");
-    expect(patched).toContain(VERIFICATION_FAILURE_TEXT);
+    expect(patched).not.toContain(VERIFICATION_FAILURE_TEXT);
     expect(patched).not.toContain("still running");
+
+    const withFailure = replaceCiSummaryCellIfNewer(
+      original,
+      `${next.slice(0, -CI_SUMMARY_CELL_END.length)}${failure}${CI_SUMMARY_CELL_END}`,
+      head,
+      1,
+    );
+    expect(withFailure).toContain(VERIFICATION_FAILURE_TEXT);
+  });
+
+  it("upgrades equal-revision legacy markers once and rejects lower revisions", () => {
+    const head = "h".repeat(40);
+    const legacyCell = `<!-- pr-agent:ci-summary head=${head} v=2 -->⏳ Waiting for CI<!-- /pr-agent:ci-summary -->`;
+    const body = [
+      "## PR Agent Review",
+      "",
+      "> [!NOTE]",
+      "> No findings, ready to merge. CI is pending. All specialists ran with full coverage.",
+      "",
+      `| CI | ${legacyCell} |`,
+      "",
+      `Identical text elsewhere: CI is pending`,
+    ].join("\n");
+    const next = renderCiSummaryCell(
+      { status: "none", headline: "No CI checks on this head", failures: [] },
+      head,
+      2,
+    );
+    const phrase = formatReviewActionLineCiStatus({
+      status: "none",
+      headline: "No CI checks on this head",
+      failures: [],
+    });
+    const upgraded = applyCiProjectionBodyUpdate(body, next, head, 2, { actionPhrase: phrase });
+    expect(upgraded?.kind).toBe("updated");
+    expect(upgraded?.body).toContain("No CI checks on this head");
+    expect(upgraded?.body).toContain(renderCiActionPhrase(phrase));
+    expect(upgraded?.body).not.toContain("⏳ Waiting for CI");
+    expect(upgraded?.body).toContain("Identical text elsewhere: CI is pending");
+
+    const current = applyCiProjectionBodyUpdate(upgraded!.body, next, head, 2, {
+      actionPhrase: phrase,
+    });
+    expect(current?.kind).toBe("current");
+
+    expect(
+      applyCiProjectionBodyUpdate(upgraded!.body, next, head, 1, { actionPhrase: phrase }),
+    ).toBeNull();
+  });
+
+  it("updates cell and action phrase together on a greater revision", () => {
+    const head = "i".repeat(40);
+    const body = [
+      "## PR Agent Review",
+      "",
+      "> [!NOTE]",
+      `> No findings, ready to merge. ${renderCiActionPhrase("CI is pending")}. All specialists ran with full coverage.`,
+      "",
+      `| CI | ${renderCiSummaryCell({ status: "pending", headline: "⏳ Waiting for CI", failures: [] }, head, 1)} |`,
+    ].join("\n");
+    const next = renderCiSummaryCell(
+      { status: "none", headline: "No CI checks on this head", failures: [] },
+      head,
+      2,
+    );
+    const patched = replaceCiSummaryCellIfNewer(body, next, head, 2, {
+      actionPhrase: "No CI checks ran on this head",
+    });
+    expect(patched).toContain("No CI checks on this head");
+    expect(patched).toContain(renderCiActionPhrase("No CI checks ran on this head"));
+    expect(patched).not.toContain("Waiting for CI");
+    expect(patched).not.toContain(">No findings, ready to merge. CI is pending.");
   });
 
   it("returns null when CI cell markers are missing", () => {

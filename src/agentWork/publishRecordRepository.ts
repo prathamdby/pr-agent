@@ -47,7 +47,7 @@ type SharedPublishStep = Exclude<PublishStep, "ask_reply" | "check_run">;
 type AskPublishStep = Extract<PublishStep, "ask_reply">;
 
 export async function getLatestCompletedPublishStepDetail(
-  pool: Pool,
+  pool: Pool | PoolClient,
   resourceKey: string,
   reviewLens: PublishLens,
   step: PublishStep,

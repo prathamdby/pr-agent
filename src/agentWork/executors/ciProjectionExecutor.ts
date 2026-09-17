@@ -15,19 +15,19 @@ import {
   injectVerificationFailureIntoCiCell,
   renderVerificationFailureBlock,
 } from "../../review/ci/verificationFailureBlock.js";
-import { replaceCiSummaryCellIfNewer } from "../../review/ci/ciSummaryCell.js";
+import {
+  applyCiProjectionBodyUpdate,
+  decideCiProjectionBodyUpdate,
+} from "../../review/ci/ciSummaryCell.js";
 import {
   renderCiRollupMarker,
   replaceCiRollupMarkerIfNewer,
 } from "../../review/ci/ciRollupMarker.js";
 import type { CiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
-import {
-  ciSummaryFromFacts,
-  headCiFactsAreComplete,
-  waitingCiSummary,
-} from "../../review/ci/ciFromHeadState.js";
+import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFromHeadState.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
+import { formatReviewActionLineCiStatus } from "../../review/ci/ciActionPhrase.js";
 import { parseProgressRevisionState } from "../../review/run/progressComment.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
@@ -48,6 +48,7 @@ import {
 } from "../intake/queueing.js";
 import {
   asPrNumbers,
+  clearProjectionRepairPending,
   headCiNeedsSeed,
   listPrNumbersForHeadFromWorkItems,
   listTerminalReviewsForHead,
@@ -73,6 +74,8 @@ import { prResourceKey, type CiProjectionJobData } from "../types.js";
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
 export type CiProjectionSurfaceFactory = (prNumber: number) => Promise<PrSurface>;
+
+export type CiProjectionPrResult = "current" | "updated" | "retry" | "irrelevant";
 
 async function resolvePrNumbers(params: {
   readonly pool: Pool;
@@ -174,18 +177,18 @@ function renderProjectedCell(row: PrHeadCiStateRow, injectFailure: boolean): str
   const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
     checkRunsComplete: headCiFactsAreComplete(row.rollup),
   });
-  if (!shouldRenderCiSummaryRow(rendered.summary) && row.version === 0) {
-    const waiting = waitingCiSummary(row.version);
-    let cell = renderCiSummaryCell(waiting.summary, row.headSha, waiting.version);
-    if (injectFailure)
-      cell = injectVerificationFailureIntoCiCell(cell, renderVerificationFailureBlock());
-    return cell;
-  }
   if (!shouldRenderCiSummaryRow(rendered.summary)) return null;
   let cell = renderCiSummaryCell(rendered.summary, row.headSha, rendered.version);
   if (injectFailure)
     cell = injectVerificationFailureIntoCiCell(cell, renderVerificationFailureBlock());
   return cell;
+}
+
+function projectedActionPhrase(row: PrHeadCiStateRow): string {
+  const rendered = ciSummaryFromFacts(row.checks, row.version, row.authored, {
+    checkRunsComplete: headCiFactsAreComplete(row.rollup),
+  });
+  return formatReviewActionLineCiStatus(rendered.summary);
 }
 
 async function patchTriageRollupComments(params: {
@@ -197,11 +200,12 @@ async function patchTriageRollupComments(params: {
   readonly headSha: string;
   readonly version: number;
   readonly rollup: PrHeadCiStateRow["rollup"];
-}): Promise<void> {
+}): Promise<"updated" | "current" | "retry"> {
   const nextMarker = renderCiRollupMarker(params.headSha, params.version, params.rollup);
   const targets = params.comments.filter((comment) =>
     comment.body.startsWith(TRIAGE_SUMMARY_SENTINEL),
   );
+  let updated = false;
   for (const comment of targets) {
     const writeBody = replaceCiRollupMarkerIfNewer(
       comment.body,
@@ -212,6 +216,7 @@ async function patchTriageRollupComments(params: {
     if (writeBody == null) continue;
     try {
       await params.prSurface.editComment(comment.id, writeBody);
+      updated = true;
     } catch (error) {
       logWarn("ci_projection_triage_rollup_failed", {
         owner: params.owner,
@@ -220,8 +225,10 @@ async function patchTriageRollupComments(params: {
         commentId: comment.id,
         message: error instanceof Error ? error.message : String(error),
       });
+      return "retry";
     }
   }
+  return updated ? "updated" : "current";
 }
 
 function findHeadSummaryComments(
@@ -235,6 +242,14 @@ function findHeadSummaryComments(
   });
 }
 
+function aggregatePrResults(results: readonly CiProjectionPrResult[]): CiProjectionPrResult {
+  if (results.some((result) => result === "retry")) return "retry";
+  if (results.some((result) => result === "updated")) return "updated";
+  if (results.length > 0 && results.every((result) => result === "irrelevant")) return "irrelevant";
+  if (results.some((result) => result === "current")) return "current";
+  return "irrelevant";
+}
+
 async function projectOnePr(params: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -243,7 +258,7 @@ async function projectOnePr(params: {
   readonly row: PrHeadCiStateRow;
   readonly prNumber: number;
   readonly prSurface: PrSurface;
-}): Promise<"reenqueue" | "done"> {
+}): Promise<CiProjectionPrResult> {
   const resourceKey = prResourceKey(params.data.owner, params.data.repo, params.prNumber);
   const newest = await newestHeadShaForResource(params.pool, resourceKey);
   const staleHead = newest != null && newest !== params.data.headSha;
@@ -275,6 +290,7 @@ async function projectOnePr(params: {
     params.data.headSha,
   );
   const nextCell = staleHead ? null : renderProjectedCell(params.row, injectFailure);
+  const actionPhrase = staleHead ? null : projectedActionPhrase(params.row);
 
   let comments: readonly PrConversationComment[];
   try {
@@ -286,10 +302,10 @@ async function projectOnePr(params: {
       pr: params.prNumber,
       message: error instanceof Error ? error.message : String(error),
     });
-    return "done";
+    return "retry";
   }
 
-  await patchTriageRollupComments({
+  const triageResult = await patchTriageRollupComments({
     comments,
     prSurface: params.prSurface,
     owner: params.data.owner,
@@ -299,19 +315,43 @@ async function projectOnePr(params: {
     version: params.row.version,
     rollup: params.row.rollup,
   });
+  if (triageResult === "retry") return "retry";
 
-  if (nextCell == null) return "done";
+  if (nextCell == null) {
+    return staleHead ? "irrelevant" : triageResult === "updated" ? "updated" : "current";
+  }
 
   const targets = findHeadSummaryComments(comments, params.data.headSha);
+  if (targets.length === 0) {
+    return triageResult === "updated" ? "updated" : "current";
+  }
+
+  let sawUpdate = triageResult === "updated";
+  let sawCurrent = triageResult === "current";
   for (const comment of targets) {
+    const decision = decideCiProjectionBodyUpdate(
+      comment.body,
+      params.data.headSha,
+      params.row.version,
+    );
+    if (decision.kind === "reject") continue;
+    if (decision.kind === "current") {
+      sawCurrent = true;
+      continue;
+    }
+
     const firstRevision = parseProgressRevisionState(comment.body);
-    const patched = replaceCiSummaryCellIfNewer(
+    const firstApply = applyCiProjectionBodyUpdate(
       comment.body,
       nextCell,
       params.data.headSha,
       params.row.version,
+      { actionPhrase },
     );
-    if (patched == null) continue;
+    if (firstApply == null || firstApply.kind === "current") {
+      sawCurrent = true;
+      continue;
+    }
 
     let latest: PrConversationComment | undefined;
     try {
@@ -325,7 +365,7 @@ async function projectOnePr(params: {
         commentId: comment.id,
         message: error instanceof Error ? error.message : String(error),
       });
-      return "reenqueue";
+      return "retry";
     }
     if (latest == null) continue;
     const secondRevision = parseProgressRevisionState(latest.body);
@@ -339,19 +379,23 @@ async function projectOnePr(params: {
         pr: params.prNumber,
         commentId: comment.id,
       });
-      return "reenqueue";
+      return "retry";
     }
 
-    const writeBody = replaceCiSummaryCellIfNewer(
+    const writeApply = applyCiProjectionBodyUpdate(
       latest.body,
       nextCell,
       params.data.headSha,
       params.row.version,
+      { actionPhrase },
     );
-    if (writeBody == null) continue;
+    if (writeApply == null || writeApply.kind === "current") {
+      sawCurrent = true;
+      continue;
+    }
 
     try {
-      await params.prSurface.editComment(comment.id, writeBody);
+      await params.prSurface.editComment(comment.id, writeApply.body);
     } catch (error) {
       logWarn("ci_projection_edit_failed", {
         owner: params.data.owner,
@@ -360,9 +404,10 @@ async function projectOnePr(params: {
         commentId: comment.id,
         message: error instanceof Error ? error.message : String(error),
       });
-      continue;
+      return "retry";
     }
 
+    sawUpdate = true;
     const owner = await getProgressCommentOwner(params.pool, resourceKey, "review");
     if (owner != null) {
       await recordPublishStep(params.pool, {
@@ -387,7 +432,10 @@ async function projectOnePr(params: {
       version: params.row.version,
     });
   }
-  return "done";
+
+  if (sawUpdate) return "updated";
+  if (sawCurrent) return "current";
+  return "irrelevant";
 }
 
 /**
@@ -511,26 +559,52 @@ export async function executeCiProjectionJob(
       headSha: data.headSha,
       version: row.version,
     });
+    if (row.projectionRepairPending) {
+      logWarn("ci_projection_repair_unreachable", {
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+        reason: "no_prs",
+      });
+      await clearProjectionRepairPending(pool, data.owner, data.repo, data.headSha);
+    }
     return;
   }
 
-  let reenqueue = false;
+  const prResults: CiProjectionPrResult[] = [];
   for (const prNumber of prNumbers) {
     const prSurface = await createSurface(prNumber);
-    const result = await projectOnePr({
-      cfg,
-      pool,
-      boss,
-      data,
-      row,
-      prNumber,
-      prSurface,
-    });
-    if (result === "reenqueue") reenqueue = true;
+    prResults.push(
+      await projectOnePr({
+        cfg,
+        pool,
+        boss,
+        data,
+        row,
+        prNumber,
+        prSurface,
+      }),
+    );
   }
 
+  const aggregate = aggregatePrResults(prResults);
   const latest = await loadPrHeadCiState(pool, data.owner, data.repo, data.headSha);
-  if (reenqueue || (latest != null && latest.version > row.version)) {
+  const versionMoved = latest != null && latest.version > row.version;
+  if (aggregate === "retry" || versionMoved) {
     await enqueueCiProjectionDebouncedStandalone(boss, data);
+    return;
+  }
+
+  if (
+    latest?.projectionRepairPending === true &&
+    (aggregate === "current" || aggregate === "updated" || aggregate === "irrelevant")
+  ) {
+    await clearProjectionRepairPending(pool, data.owner, data.repo, data.headSha);
+    logDebug("ci_projection_repair_cleared", {
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      result: aggregate,
+    });
   }
 }

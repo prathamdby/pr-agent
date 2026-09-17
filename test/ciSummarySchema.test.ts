@@ -223,7 +223,17 @@ describe("ciSummarySchema", () => {
     expect(ignored.summary.status).toBe("passing");
     expect(ignored.summary.headline).toContain("All CI is passing");
 
-    expect(ciSummaryFromFacts({}, 0).summary).toEqual(WAITING_FOR_CI_SUMMARY);
+    expect(ciSummaryFromFacts({}, 0).summary).toEqual({
+      status: "none",
+      headline: "No CI checks on this head",
+      failures: [],
+    });
+  });
+
+  it("keeps incomplete empty listings unavailable while complete empty is none", () => {
+    expect(ciSummaryFromFacts({}, 1).summary.status).toBe("none");
+    expect(ciSummaryFromFacts({}, 1).summary.headline).toBe("No CI checks on this head");
+    expect(WAITING_FOR_CI_SUMMARY.status).toBe("pending");
   });
 
   it("renders an incomplete listing as unavailable instead of waiting or passing", () => {

@@ -29,6 +29,7 @@ export type PrHeadCiStateRow = {
   readonly prNumbers: unknown;
   readonly truncated: boolean;
   readonly seededAt: Date | null;
+  readonly projectionRepairPending: boolean;
   readonly firstSeenAt: Date;
   readonly updatedAt: Date;
 };
@@ -149,6 +150,7 @@ type LoadedCiStateRow = {
   readonly pr_numbers: unknown;
   readonly truncated: boolean;
   readonly seeded_at: Date | null;
+  readonly projection_repair_pending: boolean;
   readonly first_seen_at: Date;
   readonly updated_at: Date;
 };
@@ -161,7 +163,7 @@ export async function loadPrHeadCiState(
 ): Promise<PrHeadCiStateRow | null> {
   const result = await db.query<LoadedCiStateRow>(
     `SELECT owner, repo, head_sha, checks, rollup, version, authored, pr_numbers,
-            truncated, seeded_at, first_seen_at, updated_at
+            truncated, seeded_at, projection_repair_pending, first_seen_at, updated_at
        FROM pr_head_ci_state
       WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
     [owner, repo, headSha],
@@ -339,7 +341,7 @@ export async function seedPrHeadCiStateFromSnapshot(
     );
     const locked = await client.query<LoadedCiStateRow>(
       `SELECT owner, repo, head_sha, checks, rollup, version, authored, pr_numbers,
-              truncated, seeded_at, first_seen_at, updated_at
+              truncated, seeded_at, projection_repair_pending, first_seen_at, updated_at
          FROM pr_head_ci_state
         WHERE owner = $1 AND repo = $2 AND head_sha = $3
         FOR UPDATE`,
@@ -356,7 +358,6 @@ export async function seedPrHeadCiStateFromSnapshot(
     }
     let checks = asCheckMap(row.checks);
     let truncated = row.truncated;
-    let acceptedAny = false;
     for (const fact of snapshotFacts(input.checkRuns, input.legacyStatuses, {
       githubAppId: input.githubAppId,
     })) {
@@ -364,15 +365,14 @@ export async function seedPrHeadCiStateFromSnapshot(
       if (!merged.accepted) continue;
       checks = merged.checks;
       truncated = truncated || merged.truncated;
-      acceptedAny = true;
     }
     previousRollup = asRollup(row.rollup);
     let rollup = classifySnapshot(Object.values(checks));
     if (input.checkRunsComplete === false && (rollup === "none" || rollup === "passing")) {
       rollup = "unknown";
     }
-    const nextVersion =
-      acceptedAny || rollup !== previousRollup ? Number(row.version) + 1 : Number(row.version);
+    // First seed always advances the projection revision once, even when facts are identical.
+    const nextVersion = Number(row.version) + 1;
     await client.query(
       `UPDATE pr_head_ci_state
           SET checks = $4::jsonb,
@@ -418,9 +418,135 @@ function mapLoadedRow(row: LoadedCiStateRow): PrHeadCiStateRow {
     prNumbers: row.pr_numbers,
     truncated: row.truncated,
     seededAt: row.seeded_at,
+    projectionRepairPending: row.projection_repair_pending === true,
     firstSeenAt: row.first_seen_at,
     updatedAt: row.updated_at,
   };
+}
+
+export type VerificationSignalPrior = {
+  readonly active: boolean;
+  readonly headSha: string | null;
+};
+
+export function isEffectiveVerificationSignalTransition(
+  prior: VerificationSignalPrior | null,
+  next: { readonly active: boolean; readonly headSha: string },
+): boolean {
+  const wasActive = prior?.active === true;
+  if (next.active) {
+    if (!wasActive) return true;
+    return prior?.headSha !== next.headSha;
+  }
+  return wasActive;
+}
+
+/**
+ * Lock the head row and advance `version` when a verification signal effectively changes.
+ * Call inside an open transaction with the same `PoolClient`.
+ */
+export async function advancePrHeadCiRevisionForVerificationSignal(
+  client: PoolClient,
+  input: {
+    readonly owner: string;
+    readonly repo: string;
+    readonly headSha: string;
+    readonly effective: boolean;
+  },
+): Promise<{ readonly version: number; readonly bumped: boolean }> {
+  await client.query(
+    `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version)
+     VALUES ($1, $2, $3, '{}'::jsonb, 'none', 0)
+     ON CONFLICT (owner, repo, head_sha) DO NOTHING`,
+    [input.owner, input.repo, input.headSha],
+  );
+  const locked = await client.query<{ version: string | number }>(
+    `SELECT version
+       FROM pr_head_ci_state
+      WHERE owner = $1 AND repo = $2 AND head_sha = $3
+      FOR UPDATE`,
+    [input.owner, input.repo, input.headSha],
+  );
+  const row = locked.rows[0];
+  if (row == null) {
+    throw new Error("pr_head_ci_state lock missed after verification revision insert");
+  }
+  const currentVersion = Number(row.version);
+  if (!input.effective) {
+    return { version: currentVersion, bumped: false };
+  }
+  const nextVersion = currentVersion + 1;
+  await client.query(
+    `UPDATE pr_head_ci_state
+        SET version = $4,
+            updated_at = now()
+      WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+    [input.owner, input.repo, input.headSha, nextVersion],
+  );
+  return { version: nextVersion, bumped: true };
+}
+
+export type ProjectionRepairCandidate = {
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly version: number;
+  readonly installationId: number | null;
+};
+
+export async function listProjectionRepairPendingHeads(
+  pool: Pool,
+  limit: number,
+): Promise<readonly ProjectionRepairCandidate[]> {
+  const result = await pool.query<{
+    owner: string;
+    repo: string;
+    head_sha: string;
+    version: string | number;
+    installation_id: string | number | null;
+  }>(
+    `SELECT s.owner, s.repo, s.head_sha, s.version,
+            (
+              SELECT w.installation_id
+                FROM agent_work_items w
+               WHERE w.owner = s.owner
+                 AND w.repo = s.repo
+                 AND w.head_sha = s.head_sha
+               ORDER BY w.created_at DESC
+               LIMIT 1
+            ) AS installation_id
+       FROM pr_head_ci_state s
+      WHERE s.projection_repair_pending = true
+      ORDER BY s.updated_at ASC
+      LIMIT $1::int`,
+    [limit],
+  );
+  return result.rows.map((row) => ({
+    owner: row.owner,
+    repo: row.repo,
+    headSha: row.head_sha,
+    version: Number(row.version),
+    installationId:
+      row.installation_id == null || Number(row.installation_id) <= 0
+        ? null
+        : Number(row.installation_id),
+  }));
+}
+
+export async function clearProjectionRepairPending(
+  pool: Pool | PoolClient,
+  owner: string,
+  repo: string,
+  headSha: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE pr_head_ci_state
+        SET projection_repair_pending = false,
+            updated_at = now()
+      WHERE owner = $1 AND repo = $2 AND head_sha = $3
+        AND projection_repair_pending = true`,
+    [owner, repo, headSha],
+  );
 }
 
 export async function deleteExpiredPrHeadCiState(

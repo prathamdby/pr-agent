@@ -14,7 +14,22 @@ import { recordPublishStep } from "../src/agentWork/repository.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: vi.fn().mockResolvedValue(undefined),
+  getLatestCompletedPublishStepDetail: vi.fn().mockResolvedValue(null),
 }));
+
+vi.mock("../src/agentWork/intake/queueing.js", () => ({
+  enqueueCiProjectionDebounced: vi.fn().mockResolvedValue("enqueued"),
+}));
+
+vi.mock("../src/agentWork/prHeadCiState.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prHeadCiState.js")>();
+  return {
+    ...actual,
+    advancePrHeadCiRevisionForVerificationSignal: vi
+      .fn()
+      .mockResolvedValue({ version: 1, bumped: true }),
+  };
+});
 
 vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
@@ -56,8 +71,13 @@ const thirdThread = {
 } satisfies BotFindingThread;
 
 function pool(detail?: unknown): Pool {
+  const client = {
+    query: vi.fn(async () => ({ rows: [] })),
+    release: vi.fn(),
+  };
   return {
     query: vi.fn(async () => ({ rows: detail === undefined ? [] : [{ detail }] })),
+    connect: vi.fn(async () => client),
   } as unknown as Pool;
 }
 
@@ -784,11 +804,13 @@ describe("publishVerificationFailure", () => {
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
       leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
     });
 
     expect(signal).toEqual({ headSha: HEAD_SHA, commentId: 88, surface: "ci_cell" });
     expect(recordPublishStep).toHaveBeenCalledWith(
-      params.pool,
+      expect.anything(),
       expect.objectContaining({
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
@@ -818,6 +840,8 @@ describe("publishVerificationFailure", () => {
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
       leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
     });
 
     expect(signal).toEqual({ headSha: HEAD_SHA, commentId: 77, surface: "ci_cell" });
@@ -837,6 +861,8 @@ describe("publishVerificationFailure", () => {
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
       leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
     });
 
     expect(signal).toEqual({ headSha: HEAD_SHA, commentId: 0, surface: "ci_cell" });
@@ -862,10 +888,12 @@ describe("publishVerificationFailure", () => {
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
       leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
     });
 
     expect(recordPublishStep).toHaveBeenCalledWith(
-      params.pool,
+      expect.anything(),
       expect.objectContaining({
         step: "verification_failure",
         detail: { headSha: HEAD_SHA, active: false },
@@ -892,6 +920,8 @@ describe("publishVerificationFailure", () => {
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
       leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
     });
     await publishVerificationFailure({
       pool: params.pool,
@@ -900,6 +930,8 @@ describe("publishVerificationFailure", () => {
       prSurface: params.prSurface,
       headSha: HEAD_SHA,
       leaseEpoch: 1,
+      boss: {} as import("pg-boss").PgBoss,
+      installationId: 1,
     });
 
     const failureWrites = vi

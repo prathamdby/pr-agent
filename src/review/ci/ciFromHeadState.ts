@@ -25,9 +25,6 @@ export function ciSummaryFromFacts(
   options?: { readonly checkRunsComplete?: boolean },
 ): RenderableHeadCi {
   const facts = summarizeCiFacts(checks, options);
-  if (facts.status === "none") {
-    return { summary: WAITING_FOR_CI_SUMMARY, version };
-  }
   const cache = parseCiAuthoredCache(authored);
   if (facts.status === "failing" && cache != null && cache.factsHash === hashCiFacts(checks)) {
     return {

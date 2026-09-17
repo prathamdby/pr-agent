@@ -5,12 +5,14 @@ import {
   renderTableLink,
 } from "../../github/markdownFormat.js";
 import type { CiFailureDetail, CiSummary } from "./ciSummaryTypes.js";
+import { CI_PROJECTION_FORMAT } from "./ciSummaryCell.js";
 
-/** HTML comment markers for surgical CI-cell refresh (ADR 0018). */
+/** HTML comment markers for surgical CI-cell refresh (ADR 0018 / 0035). */
 export const CI_SUMMARY_CELL_START = "<!-- pr-agent:ci-summary -->";
 export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 
 export {
+  CI_PROJECTION_FORMAT,
   commentBodyHasCiSummaryCell,
   parseCiSummaryMarker,
   parseCiSummaryMarkerHead,
@@ -81,16 +83,17 @@ export function renderCiSummaryCell(
   if (headSha != null && headSha.length > 0) {
     start =
       version != null
-        ? `<!-- pr-agent:ci-summary head=${headSha} v=${version} -->`
-        : `<!-- pr-agent:ci-summary head=${headSha} -->`;
+        ? `<!-- pr-agent:ci-summary head=${headSha} v=${version} fmt=${CI_PROJECTION_FORMAT} -->`
+        : `<!-- pr-agent:ci-summary head=${headSha} fmt=${CI_PROJECTION_FORMAT} -->`;
   }
   return `${start}${inner}${CI_SUMMARY_CELL_END}`;
 }
 
 export type RenderableCiSummary = CiSummary & {
-  readonly status: "passing" | "failing" | "pending" | "unavailable";
+  readonly status: "passing" | "failing" | "pending" | "unavailable" | "none";
 };
 
+/** Visible gate predicate: progress and completed summary tables. */
 export function shouldRenderCiSummaryRow(
   summary: CiSummary | null | undefined,
 ): summary is RenderableCiSummary {
@@ -99,6 +102,14 @@ export function shouldRenderCiSummaryRow(
     summary.status === "passing" ||
     summary.status === "failing" ||
     summary.status === "pending" ||
-    summary.status === "unavailable"
+    summary.status === "unavailable" ||
+    summary.status === "none"
   );
+}
+
+/** Agent-fix prompt omits seeded-empty `none` digests. */
+export function shouldIncludeCiInAgentFixPrompt(
+  summary: CiSummary | null | undefined,
+): summary is Exclude<RenderableCiSummary, { status: "none" }> {
+  return shouldRenderCiSummaryRow(summary) && summary.status !== "none";
 }

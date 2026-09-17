@@ -129,6 +129,7 @@ describe("triage work completed", () => {
         prNumbers: [],
         truncated: false,
         seededAt: null,
+        projectionRepairPending: false,
         firstSeenAt: new Date(),
         updatedAt: new Date(),
       }),

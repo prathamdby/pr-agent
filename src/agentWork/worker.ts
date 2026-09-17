@@ -49,6 +49,7 @@ import {
   WORKER_CONSUMER_QUEUES,
 } from "./workerHealth.js";
 import { reconcileLostRunningWork } from "./lostRunningWork.js";
+import { scanProjectionRepairPending } from "./projectionRepair.js";
 
 const AGENT_QUEUE_STATS_QUEUES = [
   ACK_QUEUE,
@@ -284,6 +285,22 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               await cleanupStaleLocalPrWorkspaces();
             } catch (e) {
               logWarn("local_pr_workspace_sweep_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
+            try {
+              const repair = await scanProjectionRepairPending({ boss, pool });
+              if (repair.pendingScanned > 0 || repair.enqueued > 0 || repair.unreachable > 0) {
+                logDebug("ci_projection_repair_scan", {
+                  pendingScanned: repair.pendingScanned,
+                  enqueued: repair.enqueued,
+                  unreachable: repair.unreachable,
+                  skippedNoInstallation: repair.skippedNoInstallation,
+                });
+              }
+            } catch (e) {
+              logWarn("ci_projection_repair_scan_failed", {
                 message: e instanceof Error ? e.message : String(e),
                 ...errorLogFields(e),
               });

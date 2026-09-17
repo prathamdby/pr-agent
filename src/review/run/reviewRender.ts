@@ -42,8 +42,13 @@ import {
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import {
+  formatReviewActionLineCiStatus,
+  renderReviewActionLineCiStatus,
+} from "../ci/ciActionPhrase.js";
+import {
   formatCiSummaryPlainText,
   renderCiSummaryCell,
+  shouldIncludeCiInAgentFixPrompt,
   shouldRenderCiSummaryRow,
 } from "../ci/renderCiSummary.js";
 
@@ -303,7 +308,7 @@ export function renderAgentFixPrompt(
         .join("\n"),
     );
   }
-  if (shouldRenderCiSummaryRow(ciSummary)) {
+  if (shouldIncludeCiInAgentFixPrompt(ciSummary)) {
     lines.push(
       "",
       escapeCodeFenceBreakers(
@@ -385,6 +390,8 @@ export function formatReviewCoverageStatus(coverage: ReviewActionLineCoverage): 
   return `except ${names}`;
 }
 
+export { formatReviewActionLineCiStatus };
+
 export function renderReviewActionLine(input: {
   findingCount: number;
   followUpCount: number;
@@ -423,21 +430,6 @@ function formatFailedSpecialistNames(failed: readonly string[]): string {
   return `${failed.slice(0, -1).join(", ")}, and ${failed[failed.length - 1]}`;
 }
 
-function formatReviewActionLineCiStatus(summary: CiSummary | null | undefined): string {
-  switch (summary?.status) {
-    case "passing":
-      return "CI is passing";
-    case "failing":
-      return "CI is failing";
-    case "pending":
-      return "CI is pending";
-    case "unavailable":
-      return "CI is unavailable";
-    default:
-      return "CI has not started";
-  }
-}
-
 /** Expects `ctx.placements` pre-sorted by severity, file, and line. */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
@@ -453,7 +445,7 @@ function buildReviewSummaryBody(
     findingCount: countReviewFindingsForActionLine(
       ctx.placements.map((placement) => placement.finding),
     ),
-    ciStatusText: formatReviewActionLineCiStatus(ctx.ciSummary),
+    ciStatusText: renderReviewActionLineCiStatus(ctx.ciSummary),
     coverageStatusText: formatReviewCoverageStatus(coverage),
     followUpCount: payload.followUps.length,
   });

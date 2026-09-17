@@ -10,6 +10,8 @@ export const RETENTION_QUEUE = "agent-work-retention";
 export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
 /** Rows deleted per batch in the retention sweep (each batch is its own transaction). */
 export const RETENTION_DELETE_BATCH_SIZE = 5_000;
+/** Heads scanned per diagnostics tick for one-time legacy CI projection repair. */
+export const CI_PROJECTION_REPAIR_BATCH_SIZE = 25;
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
