@@ -49,11 +49,12 @@ import {
 import {
   asPrNumbers,
   clearProjectionRepairPending,
-  headCiNeedsSeed,
+  headCiListingPhase,
   listPrNumbersForHeadFromWorkItems,
   listTerminalReviewsForHead,
   loadPrHeadCiState,
   newestHeadShaForResource,
+  refreshPrHeadCiFromGithubSnapshot,
   seedPrHeadCiStateFromSnapshot,
   storePrNumbersForHead,
   type PrHeadCiStateRow,
@@ -72,6 +73,9 @@ import {
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
+
+/** Same floor as circuit deferral; keeps pending-refresh retry job-local, not a sweeper. */
+const PENDING_CI_REFRESH_RETRY_SECONDS = 5;
 
 export type CiProjectionSurfaceFactory = (prNumber: number) => Promise<PrSurface>;
 
@@ -438,9 +442,93 @@ async function projectOnePr(params: {
   return "irrelevant";
 }
 
+function captureListingRollupChange(
+  data: CiProjectionJobData,
+  previousRollup: PrHeadCiStateRow["rollup"],
+  row: PrHeadCiStateRow,
+): void {
+  if (previousRollup === row.rollup) return;
+  captureCiStateChanged({
+    installationId: data.installationId,
+    owner: data.owner,
+    repo: data.repo,
+    headSha: data.headSha,
+    fromRollup: previousRollup,
+    toRollup: row.rollup,
+    version: row.version,
+  });
+}
+
+/**
+ * One Checks listing per job. Seeds an unseeded head or pending-refreshes a
+ * seeded pending/unknown head. Terminal non-unknown heads do not list.
+ */
+async function applyGithubCiListingIfNeeded(params: {
+  readonly cfg: Config;
+  readonly pool: Pool;
+  readonly boss: PgBoss;
+  readonly data: CiProjectionJobData;
+  readonly row: PrHeadCiStateRow | null;
+  readonly prNumbers: readonly number[];
+  readonly probeSurface: PrSurface;
+  readonly createSurface: CiProjectionSurfaceFactory;
+}): Promise<PrHeadCiStateRow | null> {
+  const phase = headCiListingPhase(params.row);
+  if (phase === "none") return params.row;
+
+  const surface =
+    params.prNumbers.length > 0
+      ? await params.createSurface(params.prNumbers[0] ?? 0)
+      : params.probeSurface;
+  let snapshot: Awaited<ReturnType<PrSurface["getCiStatus"]>>;
+  try {
+    snapshot = await surface.getCiStatus(params.data.headSha);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (phase === "seed") {
+      logWarn("ci_projection_seed_failed", {
+        owner: params.data.owner,
+        repo: params.data.repo,
+        headSha: params.data.headSha,
+        message,
+      });
+      return null;
+    }
+    logWarn("ci_projection_pending_refresh_failed", {
+      owner: params.data.owner,
+      repo: params.data.repo,
+      headSha: params.data.headSha,
+      message,
+    });
+    await enqueueCiProjectionAfter(params.boss, params.data, PENDING_CI_REFRESH_RETRY_SECONDS);
+    return params.row;
+  }
+
+  const listing = {
+    owner: params.data.owner,
+    repo: params.data.repo,
+    headSha: params.data.headSha,
+    checkRuns: snapshot.checkRuns,
+    legacyStatuses: snapshot.legacyStatuses,
+    githubAppId: params.cfg.githubAppId,
+    checkRunsComplete: snapshot.checkRunsComplete,
+  };
+
+  if (phase === "seed") {
+    const seeded = await seedPrHeadCiStateFromSnapshot(params.pool, listing);
+    captureListingRollupChange(params.data, seeded.previousRollup, seeded.row);
+    return seeded.row;
+  }
+
+  const refreshed = await refreshPrHeadCiFromGithubSnapshot(params.pool, listing);
+  captureListingRollupChange(params.data, refreshed.previousRollup, refreshed.row);
+  return refreshed.row;
+}
+
 /**
  * Renders `pr_head_ci_state` onto every review summary for the head.
- * Seeds when `seeded_at` is null with one `getCiStatus` read. Unleased writer.
+ * One `getCiStatus` read per job seeds or pending-refreshes, then patches.
+ * Unleased writer.
  */
 export async function executeCiProjectionJob(
   cfg: Config,
@@ -494,43 +582,16 @@ export async function executeCiProjectionJob(
     await storePrNumbersForHead(pool, data.owner, data.repo, data.headSha, prNumbers);
   }
 
-  if (headCiNeedsSeed(row)) {
-    const seedSurface = await createSurface(prNumbers[0] ?? 0);
-    let snapshot: Awaited<ReturnType<PrSurface["getCiStatus"]>>;
-    try {
-      snapshot = await seedSurface.getCiStatus(data.headSha);
-    } catch (error) {
-      logWarn("ci_projection_seed_failed", {
-        owner: data.owner,
-        repo: data.repo,
-        headSha: data.headSha,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return;
-    }
-    const seeded = await seedPrHeadCiStateFromSnapshot(pool, {
-      owner: data.owner,
-      repo: data.repo,
-      headSha: data.headSha,
-      checkRuns: snapshot.checkRuns,
-      legacyStatuses: snapshot.legacyStatuses,
-      githubAppId: cfg.githubAppId,
-      checkRunsComplete: snapshot.checkRunsComplete,
-    });
-    row = seeded.row;
-    if (seeded.previousRollup !== row.rollup) {
-      captureCiStateChanged({
-        installationId: data.installationId,
-        owner: data.owner,
-        repo: data.repo,
-        headSha: data.headSha,
-        fromRollup: seeded.previousRollup,
-        toRollup: row.rollup,
-        version: row.version,
-      });
-    }
-  }
-
+  row = await applyGithubCiListingIfNeeded({
+    cfg,
+    pool,
+    boss,
+    data,
+    row,
+    prNumbers,
+    probeSurface,
+    createSurface,
+  });
   if (row == null) return;
 
   try {

@@ -1,3 +1,4 @@
+import { OWN_COMMIT_STATUS_CONTEXT } from "../../settings/reviewConstants.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "./ciSummaryTypes.js";
 
 export type CiFactSource = "check_run" | "status";
@@ -159,4 +160,132 @@ export function applyCiCheckFact(
     delete next[evict];
   }
   return { checks: next, accepted: true, truncated };
+}
+
+export function coerceRollupForIncompleteListing(
+  rollup: CiRollup,
+  checkRunsComplete: boolean | undefined,
+): CiRollup {
+  if (checkRunsComplete === false && (rollup === "none" || rollup === "passing")) {
+    return "unknown";
+  }
+  return rollup;
+}
+
+export function isMaterialCiFactChange(
+  previous: CiCheckFact | undefined,
+  next: CiCheckFact,
+): boolean {
+  if (previous == null) return true;
+  return (
+    previous.status !== next.status ||
+    previous.conclusion !== next.conclusion ||
+    previous.check_run_id !== next.check_run_id
+  );
+}
+
+export function pickSnapshotFactForName(
+  facts: readonly CiCheckFact[],
+  stored: CiCheckFact | undefined,
+): CiCheckFact | undefined {
+  if (facts.length === 0) return undefined;
+  if (stored?.check_run_id != null && isCheckFactPending(stored)) {
+    const match = facts.find((fact) => fact.check_run_id === stored.check_run_id);
+    if (match != null) return match;
+  }
+  return facts[facts.length - 1];
+}
+
+export type GithubSnapshotObservation = "epoch" | "github";
+
+export function buildCiFactsFromGithubSnapshot(
+  checkRuns: readonly CiCheckRunSnapshot[],
+  legacyStatuses: readonly CiLegacyStatus[],
+  identity: OwnCheckIdentity,
+  observation: GithubSnapshotObservation,
+): CiCheckFact[] {
+  const facts: CiCheckFact[] = [];
+  for (const run of checkRuns) {
+    const observedAt =
+      observation === "github"
+        ? observedAtFromGithub(run.completedAt, run.startedAt)
+        : SNAPSHOT_OBSERVED_AT;
+    const fact = checkRunSnapshotToFact(run, observedAt);
+    if (isOwnCiCheck(identity, fact)) continue;
+    facts.push(fact);
+  }
+  for (const status of legacyStatuses) {
+    if (status.context === OWN_COMMIT_STATUS_CONTEXT) continue;
+    const observedAt =
+      observation === "github"
+        ? observedAtFromGithub(status.updatedAt, status.createdAt)
+        : SNAPSHOT_OBSERVED_AT;
+    facts.push(legacyStatusToFact(status, observedAt));
+  }
+  return facts;
+}
+
+export type GithubSnapshotMergeMode = "initial-seed" | "pending-refresh";
+
+export function mergeGithubSnapshotIntoChecks(input: {
+  readonly stored: Readonly<Record<string, CiCheckFact>>;
+  readonly storedTruncated: boolean;
+  readonly checkRuns: readonly CiCheckRunSnapshot[];
+  readonly legacyStatuses: readonly CiLegacyStatus[];
+  readonly identity: OwnCheckIdentity;
+  readonly checkRunsComplete?: boolean;
+  readonly maxChecks: number;
+  readonly mode: GithubSnapshotMergeMode;
+}): {
+  readonly checks: Record<string, CiCheckFact>;
+  readonly truncated: boolean;
+  readonly rollup: CiRollup;
+  readonly materialChange: boolean;
+} {
+  const facts = buildCiFactsFromGithubSnapshot(
+    input.checkRuns,
+    input.legacyStatuses,
+    input.identity,
+    input.mode === "pending-refresh" ? "github" : "epoch",
+  );
+  let checks = { ...input.stored };
+  let truncated = input.storedTruncated;
+  let materialChange = false;
+
+  if (input.mode === "initial-seed") {
+    for (const fact of facts) {
+      const merged = applyCiCheckFact(checks, fact, input.maxChecks);
+      if (!merged.accepted) continue;
+      checks = merged.checks;
+      truncated = truncated || merged.truncated;
+    }
+  } else {
+    const factsByName = new Map<string, CiCheckFact[]>();
+    for (const fact of facts) {
+      const list = factsByName.get(fact.name) ?? [];
+      list.push(fact);
+      factsByName.set(fact.name, list);
+    }
+    for (const [name, nameFacts] of factsByName) {
+      const incoming = pickSnapshotFactForName(nameFacts, input.stored[name]);
+      if (incoming == null) continue;
+      const existing = checks[name];
+      if (existing != null && existing.source !== incoming.source) continue;
+      const merged = applyCiCheckFact(checks, incoming, input.maxChecks);
+      if (!merged.accepted) continue;
+      if (isMaterialCiFactChange(existing, incoming)) materialChange = true;
+      checks = merged.checks;
+      truncated = truncated || merged.truncated;
+    }
+  }
+
+  return {
+    checks,
+    truncated,
+    rollup: coerceRollupForIncompleteListing(
+      classifySnapshot(Object.values(checks)),
+      input.checkRunsComplete,
+    ),
+    materialChange,
+  };
 }
