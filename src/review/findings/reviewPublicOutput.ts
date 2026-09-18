@@ -9,6 +9,8 @@ export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayloa
   return {
     ...payload,
     followUps: payload.followUps.map((item) => redactReviewText(item)),
+    mergeability: redactReviewText(payload.mergeability),
+    blastRadius: redactReviewText(payload.blastRadius),
     findings: payload.findings.map((finding) => ({
       ...finding,
       title: redactReviewText(finding.title),

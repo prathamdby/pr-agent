@@ -117,6 +117,14 @@ export function ReviewSummaryMock({ lens = "review" }: ReviewSummaryMockProps) {
       ),
     })),
     {
+      label: "Mergeability",
+      value: "Two-way: trivial to revert; only error-message rendering.",
+    },
+    {
+      label: "Blast Radius",
+      value: "Localized: stream error text only; no API, schema, or control-flow change.",
+    },
+    {
       label: "Follow-ups",
       value: (
         <div className="space-y-0.5">

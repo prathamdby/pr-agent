@@ -7,12 +7,18 @@ import {
   isCheckFailingSeverity,
   isInlineSeverity,
   reviewEventForFindings,
+  reviewPayloadFromFindings,
   reviewPayloadSchema,
   REVIEW_SUMMARY_SENTINEL,
   selectInlineFindings,
 } from "../src/review/reviewSchema.js";
-import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings/index.js";
+import {
+  REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
+  REVIEW_GATE_PROSE_MAX_CHARS,
+  REVIEW_GATE_PROSE_UNASSESSED,
+} from "../src/settings/index.js";
 import type { ReviewFinding, ReviewMode } from "../src/review/reviewSchema.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 function makeFinding(severity: ReviewFinding["severity"], title: string): ReviewFinding {
   return {
@@ -89,20 +95,22 @@ describe("severity helpers", () => {
   });
 
   it("requires fixPrompt for P3 findings", () => {
-    const parsed = v.safeParse(reviewPayloadSchema, {
-      findings: [
-        {
-          severity: "P3",
-          file: "x.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Nit",
-          detail: "minor",
-        },
-      ],
-      size: "XS",
-      followUps: [],
-    });
+    const parsed = v.safeParse(
+      reviewPayloadSchema,
+      makeReviewPayload({
+        findings: [
+          {
+            severity: "P3",
+            file: "x.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Nit",
+            detail: "minor",
+          },
+        ],
+        size: "XS",
+      }),
+    );
     expect(parsed.success).toBe(false);
   });
 });
@@ -125,11 +133,7 @@ describe("selectInlineFindings", () => {
 
   it("accepts more than eight findings", () => {
     const findings = Array.from({ length: 12 }, (_, i) => makeFinding("P2", `bug-${i}`));
-    const parsed = v.safeParse(reviewPayloadSchema, {
-      findings,
-      size: "M",
-      followUps: [],
-    });
+    const parsed = v.safeParse(reviewPayloadSchema, makeReviewPayload({ findings, size: "M" }));
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.output.findings).toHaveLength(12);
@@ -139,34 +143,31 @@ describe("selectInlineFindings", () => {
 
   it("rejects payloads above the soft findings ceiling", () => {
     const findings = Array.from({ length: 129 }, (_, i) => makeFinding("P2", `bug-${i}`));
-    const parsed = v.safeParse(reviewPayloadSchema, {
-      findings,
-      size: "M",
-      followUps: [],
-    });
+    const parsed = v.safeParse(reviewPayloadSchema, makeReviewPayload({ findings, size: "M" }));
     expect(parsed.success).toBe(false);
   });
 });
 
 describe("reviewPayloadSchema", () => {
   it("accepts optional suggestedCode and confidence fields", () => {
-    const parsed = v.safeParse(reviewPayloadSchema, {
-      findings: [
-        {
-          severity: "P1",
-          file: "a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Replace guard",
-          detail: "The guard allows an invalid state.",
-          fixPrompt: "Replace the condition with the positive guard.",
-          suggestedCode: "if (!ok) return;",
-          confidence: 4,
-        },
-      ],
-      size: "S",
-      followUps: [],
-    });
+    const parsed = v.safeParse(
+      reviewPayloadSchema,
+      makeReviewPayload({
+        findings: [
+          {
+            severity: "P1",
+            file: "a.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Replace guard",
+            detail: "The guard allows an invalid state.",
+            fixPrompt: "Replace the condition with the positive guard.",
+            suggestedCode: "if (!ok) return;",
+            confidence: 4,
+          },
+        ],
+      }),
+    );
 
     expect(parsed.success).toBe(true);
     if (parsed.success) {
@@ -177,24 +178,26 @@ describe("reviewPayloadSchema", () => {
 
   it("rejects invalid confidence and oversized suggestedCode", () => {
     for (const confidence of [0, 6]) {
-      const parsed = v.safeParse(reviewPayloadSchema, {
-        findings: [{ ...makeFinding("P1", "bad confidence"), confidence }],
-        size: "S",
-        followUps: [],
-      });
+      const parsed = v.safeParse(
+        reviewPayloadSchema,
+        makeReviewPayload({
+          findings: [{ ...makeFinding("P1", "bad confidence"), confidence }],
+        }),
+      );
       expect(parsed.success).toBe(false);
     }
 
-    const oversized = v.safeParse(reviewPayloadSchema, {
-      findings: [
-        {
-          ...makeFinding("P1", "large suggestion"),
-          suggestedCode: "x".repeat(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS + 1),
-        },
-      ],
-      size: "S",
-      followUps: [],
-    });
+    const oversized = v.safeParse(
+      reviewPayloadSchema,
+      makeReviewPayload({
+        findings: [
+          {
+            ...makeFinding("P1", "large suggestion"),
+            suggestedCode: "x".repeat(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS + 1),
+          },
+        ],
+      }),
+    );
     expect(oversized.success).toBe(false);
   });
 });
@@ -202,14 +205,13 @@ describe("reviewPayloadSchema", () => {
 describe("reviewFinding leftover violatedRule", () => {
   it("drops leftover violatedRule and still accepts the payload", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
+      ...makeReviewPayload(),
       findings: [
         {
           ...makeFinding("P2", "ordinary bug"),
           violatedRule: ".pr-agent/testing.mdc",
         },
       ],
-      size: "S",
-      followUps: [],
     });
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
@@ -226,44 +228,47 @@ describe("reviewFinding leftover violatedRule", () => {
 describe("reviewFinding category", () => {
   it("accepts optional category enum and legacy payloads without category", () => {
     expect(
-      v.safeParse(reviewPayloadSchema, {
-        findings: [
-          {
-            severity: "P2",
-            file: "src/a.ts",
-            startLine: 1,
-            endLine: 1,
-            title: "Missing await",
-            detail: "Promise not awaited.",
-            fixPrompt: "Await the promise.",
-            category: "bug",
-          },
-        ],
-        size: "S",
-        followUps: [],
-      }).success,
+      v.safeParse(
+        reviewPayloadSchema,
+        makeReviewPayload({
+          findings: [
+            {
+              severity: "P2",
+              file: "src/a.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "Missing await",
+              detail: "Promise not awaited.",
+              fixPrompt: "Await the promise.",
+              category: "bug",
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(true);
+
+    expect(
+      v.safeParse(
+        reviewPayloadSchema,
+        makeReviewPayload({
+          findings: [
+            {
+              severity: "P2",
+              file: "src/a.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "Missing await",
+              detail: "Promise not awaited.",
+              fixPrompt: "Await the promise.",
+            },
+          ],
+        }),
+      ).success,
     ).toBe(true);
 
     expect(
       v.safeParse(reviewPayloadSchema, {
-        findings: [
-          {
-            severity: "P2",
-            file: "src/a.ts",
-            startLine: 1,
-            endLine: 1,
-            title: "Missing await",
-            detail: "Promise not awaited.",
-            fixPrompt: "Await the promise.",
-          },
-        ],
-        size: "S",
-        followUps: [],
-      }).success,
-    ).toBe(true);
-
-    expect(
-      v.safeParse(reviewPayloadSchema, {
+        ...makeReviewPayload(),
         findings: [
           {
             severity: "P2",
@@ -276,23 +281,15 @@ describe("reviewFinding category", () => {
             category: "maintainability",
           },
         ],
-        size: "S",
-        followUps: [],
       }).success,
     ).toBe(false);
   });
 });
 
 describe("reviewPayload unknown fields", () => {
-  const baseInput = {
-    findings: [],
-    size: "S",
-    followUps: [] as string[],
-  };
-
   it("strips legacy mergeVerdict from parsed payload", () => {
     const parsed = v.safeParse(reviewPayloadSchema, {
-      ...baseInput,
+      ...makeReviewPayload(),
       mergeVerdict: { score: 4, rationale: "Minor issues only on this pass." },
     });
     expect(parsed.success).toBe(true);
@@ -312,7 +309,7 @@ describe("reviewPayload unknown fields", () => {
       true,
     ]) {
       const parsed = v.safeParse(reviewPayloadSchema, {
-        ...baseInput,
+        ...makeReviewPayload(),
         mergeVerdict: bad,
       });
       expect(parsed.success).toBe(true);
@@ -331,9 +328,50 @@ describe("formatReviewValidationError", () => {
       const formatted = formatReviewValidationError(parsed.issues);
       expect(formatted.message).toContain("ReviewPayload validation failed:");
       expect(formatted.message).toContain("findings");
+      expect(formatted.message).toContain("mergeability");
+      expect(formatted.message).toContain("blastRadius");
       expect(formatted.paths).toContain("findings");
       expect(formatted.failureKind).toBeTruthy();
     }
+  });
+});
+
+describe("review gate prose fields", () => {
+  it("accepts mergeability and blastRadius within the length caps", () => {
+    const payload = makeReviewPayload({
+      mergeability: "Two-way: trivial to revert.",
+      blastRadius: "Localized: stream error text only.",
+    });
+    const parsed = v.safeParse(reviewPayloadSchema, payload);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.output.mergeability).toBe(payload.mergeability);
+    expect(parsed.output.blastRadius).toBe(payload.blastRadius);
+  });
+
+  it("rejects oversized mergeability and blastRadius", () => {
+    expect(
+      v.safeParse(
+        reviewPayloadSchema,
+        makeReviewPayload({ mergeability: "x".repeat(REVIEW_GATE_PROSE_MAX_CHARS + 1) }),
+      ).success,
+    ).toBe(false);
+    expect(
+      v.safeParse(
+        reviewPayloadSchema,
+        makeReviewPayload({ blastRadius: "x".repeat(REVIEW_GATE_PROSE_MAX_CHARS + 1) }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it("degrades missing synthesis gates to unassessed copy", () => {
+    expect(reviewPayloadFromFindings([])).toEqual({
+      findings: [],
+      size: "M",
+      followUps: [],
+      mergeability: REVIEW_GATE_PROSE_UNASSESSED,
+      blastRadius: REVIEW_GATE_PROSE_UNASSESSED,
+    });
   });
 });
 

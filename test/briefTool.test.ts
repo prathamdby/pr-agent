@@ -436,6 +436,13 @@ describe("orchestrator prompts", () => {
     expect(orchestratorSystemPrompt).toContain(
       "work this pull request's author explicitly deferred",
     );
+    expect(orchestratorSystemPrompt).toContain(
+      "mergeability: required. One plain-text line on reversibility",
+    );
+    expect(orchestratorSystemPrompt).toContain(
+      "blastRadius: required. One plain-text line on impact if the change is wrong",
+    );
+    expect(orchestratorSystemPrompt).toContain("Not a merge recommendation.");
     expect(orchestratorSystemPrompt).not.toContain("securityConcerns");
     expect(orchestratorSystemPrompt).not.toContain("relevantTests");
     expect(orchestratorSystemPrompt).not.toContain("prCharacter");

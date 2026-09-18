@@ -26,6 +26,7 @@ import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
 import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
 import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
+import { makeReviewPayload } from "../helpers/reviewPayloadFactory.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
 import { renderReviewProgressComment } from "../../src/review/run/progressComment.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -875,11 +876,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
           hasDescriptionReviewMap: false,
         },
         prSurface: fake.surface,
-        payload: {
-          findings: [],
-          size: "XS",
-          followUps: [],
-        },
+        payload: makeReviewPayload({ size: "XS" }),
         ledger: createFindingLedger(),
         pool,
         workItemId,

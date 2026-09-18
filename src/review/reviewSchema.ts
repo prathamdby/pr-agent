@@ -7,6 +7,8 @@ import {
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
+  REVIEW_GATE_PROSE_MAX_CHARS,
+  REVIEW_GATE_PROSE_UNASSESSED,
   REVIEW_SIZES,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
@@ -54,6 +56,18 @@ export const reviewFindingSchema = v.pipe(
   ),
 );
 
+/** Synthesis-authored gates on `publish_summary`. Finding copy stays ledger-owned. */
+export const REVIEW_PUBLISH_SUMMARY_FIELDS = [
+  "size",
+  "followUps",
+  "mergeability",
+  "blastRadius",
+] as const;
+
+export const REVIEW_GATE_PROSE_FIELDS = ["mergeability", "blastRadius"] as const;
+
+const reviewGateProseSchema = v.pipe(v.string(), v.maxLength(REVIEW_GATE_PROSE_MAX_CHARS));
+
 export function createReviewPayloadSchema() {
   return v.object({
     findings: v.pipe(v.array(reviewFindingSchema), v.maxLength(MAX_REVIEW_PAYLOAD_FINDINGS)),
@@ -62,6 +76,8 @@ export function createReviewPayloadSchema() {
       v.array(v.pipe(v.string(), v.maxLength(REVIEW_FOLLOW_UP_MAX_CHARS))),
       v.maxLength(MAX_REVIEW_FOLLOW_UPS),
     ),
+    mergeability: reviewGateProseSchema,
+    blastRadius: reviewGateProseSchema,
   });
 }
 
@@ -121,7 +137,7 @@ export function formatReviewValidationError(issues: readonly v.GenericIssue[]): 
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    `Required top-level fields: findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
+    `Required top-level fields: findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), size (${REVIEW_SIZES.join("|")}), followUps (max ${MAX_REVIEW_FOLLOW_UPS}), mergeability (max ${REVIEW_GATE_PROSE_MAX_CHARS}), blastRadius (max ${REVIEW_GATE_PROSE_MAX_CHARS}).`,
   );
   lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
   const firstIssue = issues[0];
@@ -152,9 +168,9 @@ export function reviewEventForFindings(findings: ReviewFinding[]): "REQUEST_CHAN
 }
 
 /** A payload whose findings are given and whose gates are neutral:
- *  size M, no follow-ups. Used for the per-batch pointer payload
- *  (publishFindingBatch) and the terminal deterministic fallback
- *  (orchestratorRun publishDeterministicSummary). */
+ *  size M, no follow-ups, Mergeability/Blast Radius unassessed.
+ *  Used for the per-batch pointer payload (publishFindingBatch) and the
+ *  terminal deterministic fallback (orchestratorRun publishDeterministicSummary). */
 export function reviewPayloadFromFindings(
   findings: readonly ReviewPayload["findings"][number][],
 ): ReviewPayload {
@@ -162,5 +178,7 @@ export function reviewPayloadFromFindings(
     findings: [...findings],
     size: "M",
     followUps: [],
+    mergeability: REVIEW_GATE_PROSE_UNASSESSED,
+    blastRadius: REVIEW_GATE_PROSE_UNASSESSED,
   };
 }

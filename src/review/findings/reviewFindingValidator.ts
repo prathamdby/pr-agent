@@ -1,6 +1,5 @@
 import { REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../../settings/index.js";
-import type { ReviewPayload } from "../reviewSchema.js";
-import { isInlineSeverity } from "../reviewSchema.js";
+import { isInlineSeverity, REVIEW_GATE_PROSE_FIELDS, type ReviewPayload } from "../reviewSchema.js";
 import { planInlinePlacements, type InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import type {
   CachedPrDiffIndex,
@@ -19,6 +18,27 @@ const INTERNAL_FAILURE_PHRASING: RegExp[] = [
 
 function containsInternalFailurePhrasing(text: string): boolean {
   return INTERNAL_FAILURE_PHRASING.some((pattern) => pattern.test(text));
+}
+
+const GATE_PLAIN_TEXT_FORBIDDEN = /[`|<>]/;
+
+function validateGateProseField(
+  field: (typeof REVIEW_GATE_PROSE_FIELDS)[number],
+  value: string,
+): string | null {
+  if (value.trim().length === 0) {
+    return `${field} must be one non-empty line`;
+  }
+  if (value.includes("\n") || value.includes("\r")) {
+    return `${field} must be a single line`;
+  }
+  if (GATE_PLAIN_TEXT_FORBIDDEN.test(value)) {
+    return `${field} must be plain text without markdown, HTML, pipes, or backticks`;
+  }
+  if (containsInternalFailurePhrasing(value)) {
+    return `${field} contains banned public-output phrasing`;
+  }
+  return null;
 }
 
 export type AnchorFailure = {
@@ -106,6 +126,17 @@ export function validateReviewPayload(params: {
       return {
         ok: false,
         message: `followUps[${index}] contains banned public-output phrasing`,
+        anchorFailures: [],
+      };
+    }
+  }
+
+  for (const field of REVIEW_GATE_PROSE_FIELDS) {
+    const gateError = validateGateProseField(field, params.payload[field]);
+    if (gateError) {
+      return {
+        ok: false,
+        message: gateError,
         anchorFailures: [],
       };
     }

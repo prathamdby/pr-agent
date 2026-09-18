@@ -4,6 +4,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
 } from "../src/review/placement/reviewDiffIndex.js";
+import { REVIEW_GATE_PROSE_FIELDS } from "../src/review/reviewSchema.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 describe("validateReviewPayload", () => {
@@ -26,6 +27,50 @@ describe("validateReviewPayload", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.message).toMatch(/followUps\[0\]/);
+    }
+  });
+
+  it("accepts required gate prose on the happy path", () => {
+    expect(
+      validateReviewPayload({
+        payload: makeReviewPayload({
+          mergeability: "Two-way: trivial to revert; only error-message rendering.",
+          blastRadius: "Localized: stream error text only; no API or schema change.",
+        }),
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects blank, multiline, markup, and banned gate prose", () => {
+    for (const field of REVIEW_GATE_PROSE_FIELDS) {
+      for (const [value, message] of [
+        ["", `${field} must be one non-empty line`],
+        ["   ", `${field} must be one non-empty line`],
+        ["\t", `${field} must be one non-empty line`],
+        ["Two-way.\nHard to undo.", `${field} must be a single line`],
+        ["Two-way.\rHard to undo.", `${field} must be a single line`],
+        [
+          "Uses `code` ticks.",
+          `${field} must be plain text without markdown, HTML, pipes, or backticks`,
+        ],
+        ["A | B", `${field} must be plain text without markdown, HTML, pipes, or backticks`],
+        [
+          "wrap <b>me</b>",
+          `${field} must be plain text without markdown, HTML, pipes, or backticks`,
+        ],
+        [
+          "Structured publish failed after 2/3 attempt(s).",
+          `${field} contains banned public-output phrasing`,
+        ],
+      ] as const) {
+        const result = validateReviewPayload({
+          payload: makeReviewPayload({ [field]: value }),
+        });
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.message).toBe(message);
+        }
+      }
     }
   });
 

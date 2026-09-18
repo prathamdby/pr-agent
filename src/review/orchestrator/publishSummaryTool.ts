@@ -12,13 +12,14 @@ import {
 import {
   createReviewPayloadSchema,
   formatReviewValidationError,
+  REVIEW_PUBLISH_SUMMARY_FIELDS,
   type ReviewPayload,
 } from "../reviewSchema.js";
 import type { FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
-// Derived, not re-declared: the followUps rule lives in one place.
-const publishSummarySchema = v.pick(createReviewPayloadSchema(), ["size", "followUps"]);
+// Derived from the payload schema: synthesis authors these gates; findings stay ledger-owned.
+const publishSummarySchema = v.pick(createReviewPayloadSchema(), REVIEW_PUBLISH_SUMMARY_FIELDS);
 
 export type PublishSummaryState = {
   published: boolean;
@@ -99,7 +100,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   const piTool: PiTool = {
     name: "publish_summary",
     description:
-      "Publish the final review summary exactly once. Set size and followUps; findings publish from accepted placements. The server writes the action line.",
+      "Publish the final review summary exactly once. Set size, followUps, mergeability, and blastRadius; findings publish from accepted placements. The server writes the action line.",
     parameters: toJsonSchema(publishSummarySchema, { errorMode: "ignore" }),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {

@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
-import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
+import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 function configuredSummarySurface() {
@@ -106,11 +107,9 @@ describe("publishReviewSummaryOnly", () => {
   it("links placements to comments from every inline review batch", async () => {
     const first = finding(10);
     const second = finding(20);
-    const payload: ReviewPayload = {
+    const payload = makeReviewPayload({
       findings: [first, second],
-      size: "S",
-      followUps: [],
-    };
+    });
     const ledger = createFindingLedger({
       accepted: [
         {
@@ -181,11 +180,7 @@ describe("publishReviewSummaryOnly", () => {
         hasDescriptionReviewMap: false,
       },
       prSurface: bundle.surface,
-      payload: {
-        findings: [],
-        size: "XS",
-        followUps: [],
-      },
+      payload: makeReviewPayload({ size: "XS" }),
       ledger: createFindingLedger(),
       shouldAbortPublish: async () => true,
       publishAbortState: { staleHead: true },
@@ -220,11 +215,7 @@ describe("publishReviewSummaryOnly", () => {
         hasDescriptionReviewMap: false,
       },
       prSurface: surface,
-      payload: {
-        findings: [finding(10)],
-        size: "S",
-        followUps: [],
-      },
+      payload: makeReviewPayload({ findings: [finding(10)] }),
       ledger: createFindingLedger(),
       recordPublishStep,
       coverage: {
@@ -275,11 +266,7 @@ describe("publishReviewSummaryOnly", () => {
         hasDescriptionReviewMap: false,
       },
       prSurface: surface,
-      payload: {
-        findings: [finding(10)],
-        size: "S",
-        followUps: [],
-      },
+      payload: makeReviewPayload({ findings: [finding(10)] }),
       ledger: createFindingLedger(),
       pool,
       workItemId: "wi-1",
@@ -312,11 +299,7 @@ describe("publishReviewSummaryOnly", () => {
           hasDescriptionReviewMap: false,
         },
         prSurface: bundle.surface,
-        payload: {
-          findings: [],
-          size: "XS",
-          followUps: [],
-        },
+        payload: makeReviewPayload({ size: "XS" }),
         ledger: createFindingLedger(),
         coverage: {
           kind: "none",

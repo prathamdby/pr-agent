@@ -17,7 +17,10 @@ import type { Pool } from "pg";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
-import { ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
+import {
+  ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+  REVIEW_GATE_PROSE_UNASSESSED,
+} from "../src/settings/index.js";
 import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
 import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
 import * as evlog from "../src/evlog.js";
@@ -634,6 +637,8 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.deterministicSummaries[0]).toMatchObject({
       size: "M",
       followUps: [],
+      mergeability: REVIEW_GATE_PROSE_UNASSESSED,
+      blastRadius: REVIEW_GATE_PROSE_UNASSESSED,
     });
     expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");
   });
@@ -1313,6 +1318,8 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.deterministicSummaries[0]).toMatchObject({
       size: "M",
       followUps: [],
+      mergeability: REVIEW_GATE_PROSE_UNASSESSED,
+      blastRadius: REVIEW_GATE_PROSE_UNASSESSED,
     });
     expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");
   });
