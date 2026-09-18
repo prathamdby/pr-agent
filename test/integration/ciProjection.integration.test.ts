@@ -1988,6 +1988,46 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(afterSecond?.version).toBe(afterFirst?.version);
   });
 
+  it("persists a complete listing that only lifts unknown rollup to none", async () => {
+    const headSha = "fa".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    await insertSeededHead(headSha, {}, "unknown", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(headSha, 1, workItemId),
+      91,
+    );
+    const job = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const options = { createSurface: async () => fake.surface, author: stubCiAuthor([]) };
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterFirst?.rollup).toBe("none");
+    expect(afterFirst?.version).toBe(2);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+    const review = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+    expect(review?.body).toContain("No CI checks on this head");
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+    const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterSecond?.rollup).toBe("none");
+    expect(afterSecond?.version).toBe(2);
+  });
+
   it("leaves the row unchanged and re-enqueues when pending-refresh getCiStatus throws", async () => {
     const headSha = "f6".repeat(20);
     const workItemId = await insertReviewWorkItem(headSha);

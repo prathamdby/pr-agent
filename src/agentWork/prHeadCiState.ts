@@ -434,14 +434,19 @@ export async function refreshPrHeadCiFromGithubSnapshot(
     previousRollup = asRollup(row.rollup);
     const merged = mergeLockedGithubSnapshot(row, input, "pending-refresh");
     materialChange = merged.materialChange;
-    if (!materialChange) {
+    const rollupChanged = merged.rollup !== previousRollup;
+    const truncatedChanged = merged.truncated !== row.truncated;
+    if (!materialChange && !rollupChanged && !truncatedChanged) {
       await client.query("COMMIT");
       return {
         row: mapLoadedRow(row),
         previousRollup,
       };
     }
-    const nextVersion = Number(row.version) + 1;
+    // Rollup-only unknown→none/passing must persist so later jobs stop listing.
+    // Version still advances when rollup changes because that is rendered CI.
+    const nextVersion =
+      materialChange || rollupChanged ? Number(row.version) + 1 : Number(row.version);
     await client.query(
       `UPDATE pr_head_ci_state
           SET checks = $4::jsonb,
