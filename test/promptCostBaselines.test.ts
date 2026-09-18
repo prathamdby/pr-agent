@@ -7,7 +7,10 @@ import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
 import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
-import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
+import {
+  createReviewPayloadSchema,
+  REVIEW_PUBLISH_SUMMARY_FIELDS,
+} from "../src/review/reviewSchema.js";
 import { assertPromptCostWithinBudget, stableJson, type PromptCost } from "./helpers/promptCost.js";
 import { isRecord } from "../src/util/typeGuards.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
@@ -19,7 +22,7 @@ type PromptSurface = {
 };
 
 const SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
-const REVIEW_PAYLOAD_FIELDS = ["findings", "size", "followUps"] as const;
+const REVIEW_PAYLOAD_FIELDS = ["findings", ...REVIEW_PUBLISH_SUMMARY_FIELDS] as const;
 const LOCAL_WORKSPACE_TOOL_NAMES = [
   "getWorkspaceBlame",
   "getWorkspaceDiff",

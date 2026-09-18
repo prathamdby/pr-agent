@@ -10,6 +10,13 @@
 > table. `publish_summary` now takes `size` and `followUps`, and finding copy
 > renders verbatim from the ledger's accepted placements; see
 > [ADR 0037](0037-inherit-summary-copy-from-ledger.md).
+>
+> 2026-09-19, the summary table gained Mergeability and Blast Radius rows
+> above Follow-ups. Both are synthesis-authored informational prose
+> (reversibility and impact if wrong), not a merge recommendation. See
+> [ADR 0022](0022-remove-merge-verdict.md). `publish_summary` takes `size`,
+> `followUps`, `mergeability`, and `blastRadius`; finding copy remains
+> ledger-owned ([ADR 0037](0037-inherit-summary-copy-from-ledger.md)).
 
 ## Status
 
@@ -27,7 +34,7 @@ The review agent previously instructed the model to submit a GitHub pull request
 ## Decision
 
 1. **`ReviewPayload`** (Valibot) is the validated summary contract for a review run. Incremental inline batches use `publish_thread`; the summary publisher consumes `ReviewPayload` via `submitReview` / `publish_summary` ([ADR 0020](0020-orchestrated-review.md), [ADR 0027](0027-replace-zod-with-valibot.md)).
-2. **Server-side renderers** (`reviewRender.ts`) produce inline thread bodies (P0–P3, with `Prompt to fix` accordion), the **review pointer body** (per-specialist Files-tab pull request review header: NOTE linking to the **review progress comment** plus a specialist tagline; no Fix All accordion), and the **review summary comment** (sentinel `## PR Agent Review`, server-built action line inside a `[!NOTE]` alert, then a unified table: size, finding rows keyed by severity, CI when rendered, and one numbered Follow-ups row; aggregate **agent fix prompt** accordion below the table; hidden **stale review metadata** HTML comment). The action line names finding count (every P0–P3 table row), CI status, and specialist coverage. It is not model-authored. `ReviewPayload` has no overview field. Finding rows for inline-posted severities list title, location, and a footnote only; **detail text appears in the summary table only for summary-only placements**. P3 is inline-eligible so `/triage` can fix it; review check runs still fail only for P0–P2 (see [ADR 0021](0021-p3-inline-triage.md)).
+2. **Server-side renderers** (`reviewRender.ts`) produce inline thread bodies (P0–P3, with `Prompt to fix` accordion), the **review pointer body** (per-specialist Files-tab pull request review header: NOTE linking to the **review progress comment** plus a specialist tagline; no Fix All accordion), and the **review summary comment** (sentinel `## PR Agent Review`, server-built action line inside a `[!NOTE]` alert, then a unified table: size, finding rows keyed by severity, CI when rendered, Mergeability, Blast Radius, and one numbered Follow-ups row; aggregate **agent fix prompt** accordion below the table; hidden **stale review metadata** HTML comment). Mergeability and Blast Radius are informational reversibility and impact lines, not a merge recommendation. The action line names finding count (every P0–P3 table row), CI status, and specialist coverage. It is not model-authored. `ReviewPayload` has no overview field. Finding rows for inline-posted severities list title, location, and a footnote only; **detail text appears in the summary table only for summary-only placements**. P3 is inline-eligible so `/triage` can fix it; review check runs still fail only for P0–P2 (see [ADR 0021](0021-p3-inline-triage.md)).
 3. **Publish** uses `publish_thread` and `publish_summary` through `PrSurface` ([`publish/publishFindingBatch.ts`](../../src/review/publish/publishFindingBatch.ts), [`publish/publishSummaryOnly.ts`](../../src/review/publish/publishSummaryOnly.ts), [`orchestrator/publishSummaryTool.ts`](../../src/review/orchestrator/publishSummaryTool.ts)). Feature code must not construct raw Octokit clients.
 4. **Phase 3:** summary comment upsert by sentinel; optional idempotent labels (`size:<XS-XXL>`, `Possible security concern`) behind config flags.
 5. **Strict bugs only** — no suggestions/improvements framing; `fixPrompt` is for coding agents, not human refactor advice.

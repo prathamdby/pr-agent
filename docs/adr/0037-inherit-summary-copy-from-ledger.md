@@ -25,7 +25,8 @@ persist that copy through the untouched `reviewFindingSchema`.
 
 ## Decision
 
-`publish_summary` takes only `size` and `followUps`. Finding copy renders
+`publish_summary` takes `size`, `followUps`, `mergeability`, and `blastRadius`.
+Finding `title`/`detail`/`fixPrompt` remain ledger-only. Finding copy renders
 verbatim from the ledger's accepted placements: the judgment phase's
 `publish_thread` text is the display copy, and the summary and inline threads
 cannot diverge. `summaryFindingCopySchema`, `validateFindingIds`,
@@ -34,7 +35,7 @@ cannot diverge. `summaryFindingCopySchema`, `validateFindingIds`,
 ## Consequences
 
 - The ID-copy validation failure class cannot occur, and the synthesis turn
-  emits two gate fields instead of a full finding manifest. The synthesis
+  emits four gate fields instead of a full finding manifest. The synthesis
   input (the accepted-placements embedding) is unchanged.
 - The model has no last-pass authority over PR-facing finding prose after
   judgment. Revisions to wording happen during judgment, via `publish_thread`.

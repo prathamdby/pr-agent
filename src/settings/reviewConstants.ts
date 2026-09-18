@@ -148,6 +148,10 @@ export const MAX_PRIOR_INLINE_REPLY_CHARS = 500;
 export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
 export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
 export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
+/** Shared cap for synthesis-authored Mergeability and Blast Radius lines. */
+export const REVIEW_GATE_PROSE_MAX_CHARS = 280;
+/** Deterministic fallback when synthesis does not author gate prose. */
+export const REVIEW_GATE_PROSE_UNASSESSED = "Not assessed.";
 
 export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
 export const REVIEW_SUMMARY_COMPACTION_NOTE =

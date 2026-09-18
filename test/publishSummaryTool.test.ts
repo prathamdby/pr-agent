@@ -14,7 +14,12 @@ import {
   createPublishSummaryState,
 } from "../src/review/orchestrator/publishSummaryTool.js";
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
-import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
+import {
+  REVIEW_PUBLISH_SUMMARY_FIELDS,
+  type ReviewFinding,
+  type ReviewPayload,
+} from "../src/review/reviewSchema.js";
+import { REVIEW_GATE_PROSE_MAX_CHARS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
@@ -73,10 +78,14 @@ function accepted(
   };
 }
 
-function summaryInput(overrides: { size?: ReviewPayload["size"]; followUps?: string[] } = {}) {
+function summaryInput(
+  overrides: Partial<Pick<ReviewPayload, (typeof REVIEW_PUBLISH_SUMMARY_FIELDS)[number]>> = {},
+) {
   return {
     size: "M",
     followUps: ["Add a regression test."],
+    mergeability: "Two-way: trivial to revert; only error-message rendering.",
+    blastRadius: "Localized: stream error text only; no API or schema change.",
     ...overrides,
   };
 }
@@ -171,6 +180,12 @@ describe("buildPublishSummaryTool", () => {
     expect(call?.payload.findings).toEqual([first, second]);
     expect(call?.payload.size).toBe("M");
     expect(call?.payload.followUps).toEqual(["Add a regression test."]);
+    expect(call?.payload.mergeability).toBe(
+      "Two-way: trivial to revert; only error-message rendering.",
+    );
+    expect(call?.payload.blastRadius).toBe(
+      "Localized: stream error text only; no API or schema change.",
+    );
     expect(call?.ledger.accepted).toEqual(ledger.accepted);
   });
 
@@ -209,6 +224,17 @@ describe("buildPublishSummaryTool", () => {
     ).rejects.toMatchObject({ code: "review.publish_summary_semantic_validation_failed" });
     expect(state.lastValidationError).toContain("followUps[0]");
     expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
+
+    await expect(tool.executor(summaryInput({ mergeability: "   " }))).rejects.toMatchObject({
+      code: "review.publish_summary_semantic_validation_failed",
+    });
+    expect(state.lastValidationError).toContain("mergeability must be one non-empty line");
+
+    await expect(
+      tool.executor(summaryInput({ mergeability: "x".repeat(REVIEW_GATE_PROSE_MAX_CHARS + 1) })),
+    ).rejects.toMatchObject({ code: "review.publish_summary_validation_failed" });
+    expect(state.lastValidationError).toContain("mergeability");
+    expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
   });
 
   it("clears the validation error when a repaired call succeeds", async () => {
@@ -220,6 +246,23 @@ describe("buildPublishSummaryTool", () => {
       code: "review.publish_summary_validation_failed",
     });
     expect(state.lastValidationError).not.toBeNull();
+
+    const result = await tool.executor(summaryInput());
+
+    expect(result).toEqual({ ok: true, summaryCommentId: 91 });
+    expect(state.lastValidationError).toBeNull();
+    expect(publishReviewSummaryOnly).toHaveBeenCalledTimes(1);
+  });
+
+  it("repairs invalid mergeability after a semantic failure", async () => {
+    const state = createPublishSummaryState();
+    const ledger = createFindingLedger({ accepted: [accepted("finding-1", finding(10))] });
+    const tool = buildTool({ getLedger: () => ledger, state });
+
+    await expect(tool.executor(summaryInput({ mergeability: "\n" }))).rejects.toMatchObject({
+      code: "review.publish_summary_semantic_validation_failed",
+    });
+    expect(state.lastValidationError).toContain("mergeability");
 
     const result = await tool.executor(summaryInput());
 

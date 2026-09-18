@@ -9,12 +9,13 @@ import {
   ingestListPullRequestFilesResult,
 } from "../src/review/placement/reviewDiffIndex.js";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
-import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
+import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import {
   createTestEvidenceLedger,
   seedEvidenceForFinding,
   seedEvidenceForFindings,
 } from "./helpers/evidenceTestHelpers.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -25,15 +26,6 @@ function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
     title: "Issue",
     detail: "Details.",
     fixPrompt: "Fix it.",
-    ...overrides,
-  };
-}
-
-function payload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
-  return {
-    findings: [],
-    size: "S",
-    followUps: [],
     ...overrides,
   };
 }
@@ -54,7 +46,7 @@ describe("findingPipeline", () => {
     });
 
     const result = prepareReviewPayloadForPublish({
-      payload: payload({
+      payload: makeReviewPayload({
         findings: [finding({ startLine: 99, endLine: 99, confidence: 1 })],
       }),
       reviewMinConfidence: 3,
@@ -73,7 +65,7 @@ describe("findingPipeline", () => {
     const weaker = finding({ severity: "P2", title: "Same issue" });
 
     const result = prepareReviewPayloadForPublish({
-      payload: payload({ findings: [weaker, stronger] }),
+      payload: makeReviewPayload({ findings: [weaker, stronger] }),
     });
 
     expect(result.ok).toBe(true);
@@ -90,7 +82,7 @@ describe("findingPipeline", () => {
     });
 
     const result = prepareReviewPayloadForPublish({
-      payload: payload({ findings: [secretFinding] }),
+      payload: makeReviewPayload({ findings: [secretFinding] }),
     });
 
     expect(result.ok).toBe(true);
@@ -105,7 +97,7 @@ describe("findingPipeline", () => {
     const kept = finding({ title: "Keep critical", startLine: 3, severity: "P0" });
 
     const result = prepareFindingsForPublish({
-      payload: payload({ findings: [suppressed, capped, kept] }),
+      payload: makeReviewPayload({ findings: [suppressed, capped, kept] }),
       inlinePlacements: [placement(suppressed), placement(capped), placement(kept)],
       storedInlineFingerprints: [fingerprintFinding(suppressed, "review")],
       maxInlineComments: 1,
@@ -140,7 +132,7 @@ describe("findingPipeline", () => {
 
   it("returns empty planned and placements when there are no findings", () => {
     const result = prepareFindingsForPublish({
-      payload: payload({ findings: [] }),
+      payload: makeReviewPayload({ findings: [] }),
     });
 
     expect(result.planned).toEqual([]);
@@ -163,7 +155,7 @@ describe("findingPipeline", () => {
     const unresolved = finding({ title: "Unresolved", startLine: 99, endLine: 99 });
 
     const result = prepareFindingsForPublish({
-      payload: payload({ findings: [anchored, unresolved] }),
+      payload: makeReviewPayload({ findings: [anchored, unresolved] }),
       cachedDiffIndex: index,
     });
 
@@ -195,7 +187,7 @@ describe("findingPipeline", () => {
     const fp = fingerprintFinding(item, "review");
 
     const result = prepareFindingsForPublish({
-      payload: payload({ findings: [item] }),
+      payload: makeReviewPayload({ findings: [item] }),
       inlinePlacements: [placement(item)],
       crossPrSuppressionFingerprints: [],
       storedInlineFingerprints: [],
@@ -213,7 +205,7 @@ describe("findingPipeline", () => {
     const fp = fingerprintFinding(item, "review");
 
     const result = prepareFindingsForPublish({
-      payload: payload({ findings: [item] }),
+      payload: makeReviewPayload({ findings: [item] }),
       inlinePlacements: [placement(item)],
       crossPrSuppressionFingerprints: [fp],
       storedInlineFingerprints: [],
@@ -234,7 +226,7 @@ describe("findingPipeline", () => {
     const evidenceLedger = createTestEvidenceLedger();
     seedEvidenceForFinding(evidenceLedger, item);
     const result = prepareFindingsForPublish({
-      payload: payload({ findings: [item] }),
+      payload: makeReviewPayload({ findings: [item] }),
       inlinePlacements: [placement(item)],
     });
 
@@ -252,7 +244,7 @@ describe("findingPipeline", () => {
     seedEvidenceForFinding(evidenceLedger, evidenced);
 
     const result = prepareReviewPayloadForPublish({
-      payload: payload({ findings: [evidenced, unevidenced] }),
+      payload: makeReviewPayload({ findings: [evidenced, unevidenced] }),
       evidenceLedger,
       headSha: evidenceLedger.headSha,
     });
@@ -268,7 +260,7 @@ describe("findingPipeline", () => {
     seedEvidenceForFindings(evidenceLedger, items);
 
     const result = prepareReviewPayloadForPublish({
-      payload: payload({ findings: items }),
+      payload: makeReviewPayload({ findings: items }),
       evidenceLedger,
       headSha: evidenceLedger.headSha,
     });
@@ -281,7 +273,7 @@ describe("findingPipeline", () => {
   it("keeps a valid payload when leftover unknown finding keys are already absent", () => {
     const item = finding({ title: "Fork policy" });
     const result = prepareReviewPayloadForPublish({
-      payload: payload({ findings: [item] }),
+      payload: makeReviewPayload({ findings: [item] }),
     });
 
     expect(result.ok).toBe(true);

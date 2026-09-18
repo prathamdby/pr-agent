@@ -20,6 +20,7 @@ import {
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
+  REVIEW_GATE_PROSE_UNASSESSED,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
@@ -65,6 +66,9 @@ describe("renderReviewSummaryComment", () => {
     expect(body).not.toContain("| | |");
     expect(body).toContain("<table>");
     expect(body).toContain(REVIEW_FINDINGS_NONE);
+    expect(body).toContain("<strong>Mergeability</strong>");
+    expect(body).toContain(REVIEW_GATE_PROSE_UNASSESSED);
+    expect(body).toContain("<strong>Blast Radius</strong>");
     expect(body).not.toContain("_No findings._");
     expect(body).not.toContain("### Findings");
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
@@ -579,8 +583,10 @@ describe("renderReviewSummaryComment", () => {
     expect(renderFollowUpsCell(["one item"])).toBe("1. one item");
   });
 
-  it("renders the single Follow-ups row after the CI row", () => {
+  it("renders Mergeability and Blast Radius between CI and Follow-ups", () => {
     const payload = basePayload({
+      mergeability: "Two-way: trivial to revert; only error-message rendering.",
+      blastRadius: "Localized: stream error text only; no API or schema change.",
       followUps: ["Remove feat flag X", "Delete legacy table once v2 ships"],
     });
     const body = renderReviewSummaryComment(payload, {
@@ -589,10 +595,25 @@ describe("renderReviewSummaryComment", () => {
       ciSummary: { status: "passing", headline: "✅ All CI is passing", failures: [] },
     });
     expect(body).toContain("1. Remove feat flag X<br>2. Delete legacy table once v2 ships");
+    expect(body).toContain(
+      "<tr><td><strong>Mergeability</strong></td><td>Two-way: trivial to revert; only error-message rendering.</td></tr>",
+    );
+    expect(body).toContain(
+      "<tr><td><strong>Blast Radius</strong></td><td>Localized: stream error text only; no API or schema change.</td></tr>",
+    );
     expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(
+      body.indexOf("<strong>Mergeability</strong>"),
+    );
+    expect(body.indexOf("<strong>Mergeability</strong>")).toBeLessThan(
+      body.indexOf("<strong>Blast Radius</strong>"),
+    );
+    expect(body.indexOf("<strong>Blast Radius</strong>")).toBeLessThan(
       body.indexOf("<strong>Follow-ups</strong>"),
     );
     expect(body.match(/<strong>Follow-ups<\/strong>/g)).toHaveLength(1);
+    expect(body).not.toContain(AGENT_FIX_PROMPT_ACCORDION_SUMMARY);
+    expect(body.slice(0, body.indexOf("<table>"))).not.toContain("Mergeability");
+    expect(body.slice(0, body.indexOf("<table>"))).not.toContain("Blast Radius");
   });
 
   it("omits the Follow-ups row when the list is empty", () => {
@@ -601,6 +622,8 @@ describe("renderReviewSummaryComment", () => {
       placements: [],
     });
     expect(body).not.toContain("Follow-ups");
+    expect(body).toContain("<strong>Mergeability</strong>");
+    expect(body).toContain("<strong>Blast Radius</strong>");
   });
 
   it("renders finding text mentioning submitReview without redaction", () => {
@@ -1313,6 +1336,9 @@ describe("renderAgentFixPrompt", () => {
     expect(prompt.indexOf("Follow-ups:")).toBeLessThan(
       prompt.indexOf('<ci_summary untrusted="true">'),
     );
+    expect(prompt).not.toContain("Mergeability");
+    expect(prompt).not.toContain("Blast Radius");
+    expect(prompt).not.toContain(REVIEW_GATE_PROSE_UNASSESSED);
   });
 
   it("escapes code fences in follow-up fix-prompt lines", () => {

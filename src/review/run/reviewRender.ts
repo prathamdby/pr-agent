@@ -501,6 +501,9 @@ function buildReviewSummaryBody(
     ]);
   }
 
+  tableRows.push([renderTableStrong("Mergeability"), escapeTablePlainCell(payload.mergeability)]);
+  tableRows.push([renderTableStrong("Blast Radius"), escapeTablePlainCell(payload.blastRadius)]);
+
   if (payload.followUps.length > 0) {
     tableRows.push([renderTableStrong("Follow-ups"), renderFollowUpsCell(payload.followUps)]);
   }

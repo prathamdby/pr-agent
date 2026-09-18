@@ -26,6 +26,8 @@ export const orchestratorSystemPrompt = [
     "",
     "- size: XS | S | M | L | XL | XXL for the scale of the change set, not code quality.",
     "- followUps: work this pull request's author explicitly deferred — a TODO the diff introduces, a migration staged for a later pull request, a temporary flag to remove. One line each, plain text only: no markdown, HTML, pipes, backticks, or line breaks. Empty when the author deferred nothing.",
+    "- mergeability: required. One plain-text line on reversibility (easy revert vs expensive or hard to undo). Lead with the stance, then the why. Not a merge recommendation. Not a restatement of findings. Same plain-text rules as followUps.",
+    "- blastRadius: required. One plain-text line on impact if the change is wrong (how far damage spreads). Lead with the stance, then the why. Same plain-text rules as followUps.",
     "- Set category to security on every finding that names a security risk; the security label depends on it.",
   ].join("\n"),
 ].join("\n\n");

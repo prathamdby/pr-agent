@@ -3,7 +3,7 @@ import {
   redactReviewPayloadSecrets,
   redactReviewText,
 } from "../src/review/findings/reviewPublicOutput.js";
-import type { ReviewPayload } from "../src/review/reviewSchema.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 describe("reviewPublicOutput", () => {
   it("leaves PR #38-shaped finding text mentioning submitReview unchanged", () => {
@@ -34,7 +34,7 @@ describe("reviewPublicOutput", () => {
   });
 
   it("scrubs secrets across payload fields in redactReviewPayloadSecrets", () => {
-    const payload: ReviewPayload = {
+    const payload = makeReviewPayload({
       findings: [
         {
           severity: "P1",
@@ -47,9 +47,9 @@ describe("reviewPublicOutput", () => {
           suggestedCode: 'const token = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz";',
         },
       ],
-      size: "S",
-      followUps: [],
-    };
+      mergeability: "Uses OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz in notes.",
+      blastRadius: "Set DATABASE_URL=postgres://user:pass@host/db in the example.",
+    });
 
     const redacted = redactReviewPayloadSecrets(payload);
     expect(redacted.findings[0]?.detail).toContain("[redacted]");
@@ -57,5 +57,9 @@ describe("reviewPublicOutput", () => {
     expect(redacted.findings[0]?.suggestedCode).toContain("[redacted]");
     expect(redacted.findings[0]?.suggestedCode).not.toContain("sk-");
     expect(redacted.findings[0]).not.toHaveProperty("violatedRule");
+    expect(redacted.mergeability).toContain("[redacted]");
+    expect(redacted.mergeability).not.toContain("sk-");
+    expect(redacted.blastRadius).toContain("[redacted]");
+    expect(redacted.blastRadius).not.toContain("postgres://");
   });
 });
