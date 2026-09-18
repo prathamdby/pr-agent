@@ -19,7 +19,8 @@ import { recordPublishStep, recordReviewCheckRun } from "../../src/agentWork/rep
 import type { QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
 import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
 import { hashCiFacts, parseCiAuthoredCache } from "../../src/review/ci/ciAuthoredCache.js";
-import type { CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
+import { observedAtFromGithub, type CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
+import type { CiCheckRunSnapshot } from "../../src/review/ci/ciSummaryTypes.js";
 import { renderCiRollupMarker } from "../../src/review/ci/ciRollupMarker.js";
 import { parseCiSummaryMarkerVersion } from "../../src/review/ci/ciSummaryCell.js";
 import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
@@ -116,20 +117,52 @@ function stubCiAuthor(calls: unknown[]): CiSummaryAuthor {
   };
 }
 
-function reviewCommentBody(headSha: string, version: number, workItemId: string): string {
+function reviewCommentBody(
+  headSha: string,
+  version: number,
+  workItemId: string,
+  options?: { readonly actionPhrase?: string },
+): string {
   const cell = renderCiSummaryCell(
     { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     headSha,
     version,
   );
+  const action =
+    options?.actionPhrase == null
+      ? []
+      : [
+          "> [!NOTE]",
+          `> No findings, ready to merge. <!-- pr-agent:ci-action fmt=1 -->${options.actionPhrase}<!-- /pr-agent:ci-action -->. All specialists ran with full coverage.`,
+          "",
+        ];
   return [
     REVIEW_SUMMARY_SENTINEL,
     "",
+    ...action,
     `<table><tr><td><strong>CI</strong></td><td>${cell}</td></tr></table>`,
     "",
     `<!-- pr-agent:review-meta headSha=${headSha} lens=review stale=false -->`,
     `<!-- pr-agent:progress-revision workItemId=${workItemId} value=1 -->`,
   ].join("\n");
+}
+
+function checkRunSnapshot(
+  overrides: Partial<CiCheckRunSnapshot> & Pick<CiCheckRunSnapshot, "id" | "name">,
+): CiCheckRunSnapshot {
+  return {
+    status: "completed",
+    conclusion: "success",
+    htmlUrl: null,
+    outputTitle: null,
+    outputSummary: null,
+    outputText: null,
+    ...overrides,
+  };
+}
+
+function getCiStatusCount(events: readonly { readonly kind: string }[]): number {
+  return events.filter((event) => event.kind === "getCiStatus").length;
 }
 
 describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)", () => {
@@ -160,6 +193,19 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
   });
+
+  async function insertSeededHead(
+    headSha: string,
+    checks: Record<string, CiCheckFact>,
+    rollup: string,
+    version: number,
+  ): Promise<void> {
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, seeded_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, now())`,
+      [OWNER, REPO, headSha, JSON.stringify(checks), rollup, version],
+    );
+  }
 
   async function insertReviewWorkItem(headSha: string): Promise<string> {
     const id = randomUUID();
@@ -707,6 +753,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     await executeCiProjectionJob(cfg, pool, boss, job, options);
     expect(calls).toHaveLength(1);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
     const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     // Fact write was v=1; first seed advances once more. Authored cache must not bump again.
     expect(afterFirst?.version).toBe(2);
@@ -717,6 +764,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     await executeCiProjectionJob(cfg, pool, boss, job, options);
     expect(calls).toHaveLength(1);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
     const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(afterSecond?.version).toBe(2);
     expect(parseCiAuthoredCache(afterSecond?.authored)?.factsHash).toBe(authored?.factsHash);
@@ -1036,28 +1084,31 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       56,
     );
 
-    await executeCiProjectionJob(
-      cfg,
-      pool,
-      boss,
-      {
-        kind: "ci_projection",
-        installationId: 9001,
-        owner: OWNER,
-        repo: REPO,
-        headSha,
-      },
-      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
-    );
+    const job = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const options = { createSurface: async () => fake.surface, author: stubCiAuthor([]) };
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
 
     const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(row?.rollup).toBe("unknown");
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
     const review = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
     expect(review?.body).toContain(REVIEW_CI_SUMMARY_INCOMPLETE);
     expect(review?.body).not.toContain("<!-- pr-agent:ci-rollup");
     expect(review?.body).not.toMatch(/All CI is passing/i);
     const triage = fake.controls.getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(triage?.body).toContain(renderCiRollupMarker(headSha, row?.version ?? 0, "unknown"));
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatusCount(fake.controls.events)).toBe(2);
+    const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterSecond?.rollup).toBe("unknown");
   });
 
   it("projects a second PR after the stored list already held the first", async () => {
@@ -1275,6 +1326,10 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     const afterFail = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(afterFail?.seededAt).toBeNull();
     expect(afterFail?.version).toBe(0);
+    const afterFailJobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
+    expect(afterFailJobs.map((job) => job.data)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ headSha })]),
+    );
 
     fake.controls.setCiStatus(headSha, {
       checkRuns: [
@@ -1632,5 +1687,506 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const open = await listTerminalReviewsWithOpenOwnChecks(pool);
     expect(open.map((item) => item.workItemId)).toContain(workItemId);
+  });
+
+  it("pending-refreshes a sticky pending webhook fact to passing from a completed snapshot", async () => {
+    const headSha = "f1".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    const pending = ciStateFact({
+      name: "GitGuardian",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 105778514181,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    await insertSeededHead(headSha, { GitGuardian: pending }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    const startedAt = "2026-09-13T00:00:01.000Z";
+    const completedAt = "2026-09-13T00:00:10.000Z";
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 105778514181,
+          name: "GitGuardian",
+          startedAt,
+          completedAt,
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(headSha, 1, workItemId, { actionPhrase: "CI is pending" }),
+      801,
+    );
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(row?.rollup).toBe("passing");
+    expect(row?.version).toBe(2);
+    expect(row?.checks.GitGuardian?.status).toBe("completed");
+    expect(row?.checks.GitGuardian?.conclusion).toBe("success");
+    expect(row?.checks.GitGuardian?.observed_at).toBe(observedAtFromGithub(completedAt, startedAt));
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+    const body = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
+    expect(body).not.toMatch(/CI is pending/i);
+    expect(body).not.toMatch(/CI still running/i);
+    expect(body).not.toContain("Waiting for CI");
+    expect(body).toContain("CI is passing");
+  });
+
+  it("pending-refreshes a new failing check while completing a pending fact", async () => {
+    const headSha = "f2".repeat(20);
+    await insertReviewWorkItem(headSha);
+    const pendingA = ciStateFact({
+      name: "lint",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 11,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    await insertSeededHead(headSha, { lint: pendingA }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 11,
+          name: "lint",
+          startedAt: "2026-09-13T00:00:01.000Z",
+          completedAt: "2026-09-13T00:00:10.000Z",
+        }),
+        checkRunSnapshot({
+          id: 12,
+          name: "test",
+          conclusion: "failure",
+          startedAt: "2026-09-13T00:00:01.000Z",
+          completedAt: "2026-09-13T00:00:11.000Z",
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(row?.checks.lint?.status).toBe("completed");
+    expect(row?.checks.test?.conclusion).toBe("failure");
+    expect(row?.rollup).toBe("failing");
+    expect(row?.version).toBe(2);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+  });
+
+  it("keeps an identical pending snapshot revision-neutral and stops listing after terminal", async () => {
+    const headSha = "f3".repeat(20);
+    await insertReviewWorkItem(headSha);
+    const pending = ciStateFact({
+      name: "lint",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 21,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    await insertSeededHead(headSha, { lint: pending }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    const pendingSnapshot = {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 21,
+          name: "lint",
+          status: "in_progress",
+          conclusion: null,
+          startedAt: "2026-09-13T00:00:05.000Z",
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    };
+    fake.controls.setCiStatus(headSha, pendingSnapshot);
+    const job = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const options = { createSurface: async () => fake.surface, author: stubCiAuthor([]) };
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterFirst?.version).toBe(1);
+    expect(afterFirst?.rollup).toBe("pending");
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterSecond?.version).toBe(1);
+    expect(afterSecond?.rollup).toBe("pending");
+    expect(getCiStatusCount(fake.controls.events)).toBe(2);
+
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 21,
+          name: "lint",
+          startedAt: "2026-09-13T00:00:05.000Z",
+          completedAt: "2026-09-13T00:00:20.000Z",
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    const afterComplete = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterComplete?.rollup).toBe("passing");
+    expect(afterComplete?.version).toBe(2);
+    expect(getCiStatusCount(fake.controls.events)).toBe(3);
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    const afterTerminal = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterTerminal?.version).toBe(2);
+    expect(getCiStatusCount(fake.controls.events)).toBe(3);
+  });
+
+  it("skips a cross-source same name and excludes the own check from pending refresh", async () => {
+    const headSha = "f4".repeat(20);
+    await insertReviewWorkItem(headSha);
+    const pending = ciStateFact({
+      name: "lint",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 31,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    await insertSeededHead(headSha, { lint: pending }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 99,
+          name: "PR Agent Review",
+          appId: Number(cfg.githubAppId),
+          startedAt: "2026-09-13T00:00:01.000Z",
+          completedAt: "2026-09-13T00:00:10.000Z",
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [
+        {
+          context: "lint",
+          state: "success",
+          description: null,
+          targetUrl: null,
+        },
+        {
+          context: "pr-agent/review",
+          state: "success",
+          description: null,
+          targetUrl: null,
+        },
+      ],
+    });
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(row?.version).toBe(1);
+    expect(row?.checks.lint?.source).toBe("check_run");
+    expect(row?.checks.lint?.status).toBe("in_progress");
+    expect(row?.checks["PR Agent Review"]).toBeUndefined();
+    expect(row?.checks["pr-agent/review"]).toBeUndefined();
+    expect(row?.rollup).toBe("pending");
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+  });
+
+  it("keeps an incomplete pending-refresh snapshot unknown and still lists later", async () => {
+    const headSha = "f5".repeat(20);
+    await insertReviewWorkItem(headSha);
+    const pending = ciStateFact({
+      name: "lint",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 41,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    await insertSeededHead(headSha, { lint: pending }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 41,
+          name: "lint",
+          startedAt: "2026-09-13T00:00:01.000Z",
+          completedAt: "2026-09-13T00:00:10.000Z",
+        }),
+      ],
+      checkRunsComplete: false,
+      legacyStatuses: [],
+    });
+    const job = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const options = { createSurface: async () => fake.surface, author: stubCiAuthor([]) };
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterFirst?.checks.lint?.status).toBe("completed");
+    expect(afterFirst?.rollup).toBe("unknown");
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatusCount(fake.controls.events)).toBe(2);
+    const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterSecond?.rollup).toBe("unknown");
+    expect(afterSecond?.version).toBe(afterFirst?.version);
+  });
+
+  it("leaves the row unchanged and re-enqueues when pending-refresh getCiStatus throws", async () => {
+    const headSha = "f6".repeat(20);
+    const workItemId = await insertReviewWorkItem(headSha);
+    const pending = ciStateFact({
+      name: "lint",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 51,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    await insertSeededHead(headSha, { lint: pending }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatusError(new Error("github unavailable"));
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(headSha, 1, workItemId, { actionPhrase: "CI is pending" }),
+      806,
+    );
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(row?.version).toBe(1);
+    expect(row?.rollup).toBe("pending");
+    expect(row?.checks.lint?.status).toBe("in_progress");
+    const body = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
+    expect(body).toContain("<!-- pr-agent:ci-summary");
+    expect(body).toContain("CI is pending");
+    const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
+    expect(jobs.length).toBeGreaterThanOrEqual(1);
+    expect(jobs.map((job) => job.data)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ headSha })]),
+    );
+  });
+
+  it("rejects a snapshot older than a concurrent terminal webhook observation", async () => {
+    const headSha = "f7".repeat(20);
+    await insertReviewWorkItem(headSha);
+    const pending = ciStateFact({
+      name: "lint",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 61,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    await insertSeededHead(headSha, { lint: pending }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    const terminal = ciStateFact({
+      name: "lint",
+      status: "completed",
+      conclusion: "success",
+      check_run_id: 61,
+      observed_at: "2026-09-13T00:00:30.000Z",
+    });
+    const surface = {
+      ...fake.surface,
+      getCiStatus: async () => {
+        await pool.query(
+          `UPDATE pr_head_ci_state
+              SET checks = $4::jsonb,
+                  rollup = 'passing'
+            WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+          [OWNER, REPO, headSha, JSON.stringify({ lint: terminal })],
+        );
+        return {
+          checkRuns: [
+            checkRunSnapshot({
+              id: 61,
+              name: "lint",
+              startedAt: "2026-09-13T00:00:01.000Z",
+              completedAt: "2026-09-13T00:00:10.000Z",
+            }),
+          ],
+          checkRunsComplete: true,
+          legacyStatuses: [],
+        };
+      },
+    };
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(row?.version).toBe(1);
+    expect(row?.checks.lint?.status).toBe("completed");
+    expect(row?.checks.lint?.observed_at).toBe("2026-09-13T00:00:30.000Z");
+    expect(row?.rollup).toBe("passing");
+  });
+
+  it("keeps names absent from a pending-refresh snapshot", async () => {
+    const headSha = "f8".repeat(20);
+    await insertReviewWorkItem(headSha);
+    const pending = ciStateFact({
+      name: "lint",
+      status: "in_progress",
+      conclusion: null,
+      check_run_id: 71,
+      observed_at: "2026-09-13T00:00:02.000Z",
+    });
+    const keeper = ciStateFact({
+      name: "keeper",
+      status: "completed",
+      conclusion: "success",
+      check_run_id: 72,
+      observed_at: "2026-09-13T00:00:01.000Z",
+    });
+    await insertSeededHead(headSha, { lint: pending, keeper }, "pending", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [
+        checkRunSnapshot({
+          id: 71,
+          name: "lint",
+          startedAt: "2026-09-13T00:00:01.000Z",
+          completedAt: "2026-09-13T00:00:10.000Z",
+        }),
+      ],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+
+    await executeCiProjectionJob(
+      cfg,
+      pool,
+      boss,
+      {
+        kind: "ci_projection",
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      },
+      { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+    );
+
+    const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(row?.checks.lint?.status).toBe("completed");
+    expect(row?.checks.keeper?.conclusion).toBe("success");
+    expect(row?.checks.keeper?.observed_at).toBe("2026-09-13T00:00:01.000Z");
+    expect(row?.version).toBe(2);
+    expect(getCiStatusCount(fake.controls.events)).toBe(1);
+  });
+
+  it("does not list GitHub again for a seeded none head", async () => {
+    const headSha = "f9".repeat(20);
+    await insertReviewWorkItem(headSha);
+    await insertSeededHead(headSha, {}, "none", 1);
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+    fake.controls.setCiStatus(headSha, {
+      checkRuns: [checkRunSnapshot({ id: 81, name: "late" })],
+      checkRunsComplete: true,
+      legacyStatuses: [],
+    });
+    const job = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const options = { createSurface: async () => fake.surface, author: stubCiAuthor([]) };
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatusCount(fake.controls.events)).toBe(0);
+    const afterFirst = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterFirst?.rollup).toBe("none");
+    expect(afterFirst?.version).toBe(1);
+
+    await executeCiProjectionJob(cfg, pool, boss, job, options);
+    expect(getCiStatusCount(fake.controls.events)).toBe(0);
+    const afterSecond = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    expect(afterSecond?.version).toBe(1);
+    expect(afterSecond?.checks.late).toBeUndefined();
   });
 });

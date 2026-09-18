@@ -44,6 +44,10 @@ export type CiCheckRunSnapshot = {
   readonly outputTitle: string | null;
   readonly outputSummary: string | null;
   readonly outputText: string | null;
+  /** Checks API `started_at`, when returned. Used for pending-refresh `observed_at`. */
+  readonly startedAt?: string | null;
+  /** Checks API `completed_at`, when returned. Used for pending-refresh `observed_at`. */
+  readonly completedAt?: string | null;
 };
 
 export type CiCheckAnnotation = {
@@ -60,4 +64,8 @@ export type CiLegacyStatus = {
   readonly state: string;
   readonly description: string | null;
   readonly targetUrl: string | null;
+  /** Combined-status `updated_at`, when returned. Used for pending-refresh `observed_at`. */
+  readonly updatedAt?: string | null;
+  /** Combined-status `created_at`, when returned. Used for pending-refresh `observed_at`. */
+  readonly createdAt?: string | null;
 };

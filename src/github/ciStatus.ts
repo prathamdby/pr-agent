@@ -57,6 +57,8 @@ export async function listCheckRunsForHead(
         outputTitle: run.output?.title ?? null,
         outputSummary: run.output?.summary ?? null,
         outputText: run.output?.text ?? null,
+        startedAt: run.started_at ?? null,
+        completedAt: run.completed_at ?? null,
       })),
   };
 }
@@ -138,6 +140,8 @@ export async function listLegacyCommitStatusesForHead(
       state: status.state,
       description: status.description ?? null,
       targetUrl: status.target_url ?? null,
+      updatedAt: status.updated_at ?? null,
+      createdAt: status.created_at ?? null,
     }));
   } catch (error) {
     if (isMissingChecksPermissionError(error) || isGithubNotFoundError(error)) return [];

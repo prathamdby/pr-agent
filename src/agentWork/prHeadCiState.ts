@@ -1,20 +1,17 @@
 import type { Pool, PoolClient } from "pg";
 import {
   applyCiCheckFact,
-  checkRunSnapshotToFact,
   classifySnapshot,
-  isOwnCiCheck,
-  legacyStatusToFact,
+  isCheckFactPending,
+  mergeGithubSnapshotIntoChecks,
   type CiCheckFact,
   type CiRollup,
-  type OwnCheckIdentity,
 } from "../review/ci/classifySnapshot.js";
 import type { CiAuthoredCache } from "../review/ci/ciAuthoredCache.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
 import {
   CI_STATE_MAX_CHECKS,
   DEFERRED_HEAD_SHA,
-  OWN_COMMIT_STATUS_CONTEXT,
   RETENTION_DELETE_BATCH_SIZE,
 } from "../settings/index.js";
 
@@ -38,6 +35,17 @@ export function headCiNeedsSeed(row: Pick<PrHeadCiStateRow, "seededAt"> | null):
   return row == null || row.seededAt == null;
 }
 
+export type HeadCiListingPhase = "seed" | "pending-refresh" | "none";
+
+export function headCiListingPhase(
+  row: Pick<PrHeadCiStateRow, "seededAt" | "checks" | "rollup"> | null,
+): HeadCiListingPhase {
+  if (row == null || row.seededAt == null) return "seed";
+  if (row.rollup === "unknown") return "pending-refresh";
+  if (Object.values(row.checks).some(isCheckFactPending)) return "pending-refresh";
+  return "none";
+}
+
 export type ApplyPrHeadCiFactInput = {
   readonly owner: string;
   readonly repo: string;
@@ -53,6 +61,11 @@ export type ApplyPrHeadCiFactResult = {
 };
 
 export type SeedPrHeadCiStateResult = {
+  readonly row: PrHeadCiStateRow;
+  readonly previousRollup: CiRollup;
+};
+
+export type RefreshPrHeadCiStateResult = {
   readonly row: PrHeadCiStateRow;
   readonly previousRollup: CiRollup;
 };
@@ -299,35 +312,36 @@ export async function listTerminalReviewsForHead(
   });
 }
 
-function snapshotFacts(
-  checkRuns: readonly CiCheckRunSnapshot[],
-  legacyStatuses: readonly CiLegacyStatus[],
-  identity: OwnCheckIdentity,
-): CiCheckFact[] {
-  const facts: CiCheckFact[] = [];
-  for (const run of checkRuns) {
-    const fact = checkRunSnapshotToFact(run);
-    if (isOwnCiCheck(identity, fact)) continue;
-    facts.push(fact);
-  }
-  for (const status of legacyStatuses) {
-    if (status.context === OWN_COMMIT_STATUS_CONTEXT) continue;
-    facts.push(legacyStatusToFact(status));
-  }
-  return facts;
+type GithubSnapshotWriteInput = {
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly checkRuns: readonly CiCheckRunSnapshot[];
+  readonly legacyStatuses: readonly CiLegacyStatus[];
+  readonly githubAppId: string;
+  readonly checkRunsComplete?: boolean;
+};
+
+function mergeLockedGithubSnapshot(
+  row: LoadedCiStateRow,
+  input: GithubSnapshotWriteInput,
+  mode: "initial-seed" | "pending-refresh",
+) {
+  return mergeGithubSnapshotIntoChecks({
+    stored: asCheckMap(row.checks),
+    storedTruncated: row.truncated,
+    checkRuns: input.checkRuns,
+    legacyStatuses: input.legacyStatuses,
+    identity: { githubAppId: input.githubAppId },
+    checkRunsComplete: input.checkRunsComplete,
+    maxChecks: CI_STATE_MAX_CHECKS,
+    mode,
+  });
 }
 
 export async function seedPrHeadCiStateFromSnapshot(
   pool: Pool,
-  input: {
-    readonly owner: string;
-    readonly repo: string;
-    readonly headSha: string;
-    readonly checkRuns: readonly CiCheckRunSnapshot[];
-    readonly legacyStatuses: readonly CiLegacyStatus[];
-    readonly githubAppId: string;
-    readonly checkRunsComplete?: boolean;
-  },
+  input: GithubSnapshotWriteInput,
 ): Promise<SeedPrHeadCiStateResult> {
   const client = await pool.connect();
   let previousRollup: CiRollup = "none";
@@ -356,21 +370,8 @@ export async function seedPrHeadCiStateFromSnapshot(
       const mapped = mapLoadedRow(row);
       return { row: mapped, previousRollup: mapped.rollup };
     }
-    let checks = asCheckMap(row.checks);
-    let truncated = row.truncated;
-    for (const fact of snapshotFacts(input.checkRuns, input.legacyStatuses, {
-      githubAppId: input.githubAppId,
-    })) {
-      const merged = applyCiCheckFact(checks, fact, CI_STATE_MAX_CHECKS);
-      if (!merged.accepted) continue;
-      checks = merged.checks;
-      truncated = truncated || merged.truncated;
-    }
+    const merged = mergeLockedGithubSnapshot(row, input, "initial-seed");
     previousRollup = asRollup(row.rollup);
-    let rollup = classifySnapshot(Object.values(checks));
-    if (input.checkRunsComplete === false && (rollup === "none" || rollup === "passing")) {
-      rollup = "unknown";
-    }
     // First seed always advances the projection revision once, even when facts are identical.
     const nextVersion = Number(row.version) + 1;
     await client.query(
@@ -386,10 +387,10 @@ export async function seedPrHeadCiStateFromSnapshot(
         input.owner,
         input.repo,
         input.headSha,
-        JSON.stringify(checks),
-        rollup,
+        JSON.stringify(merged.checks),
+        merged.rollup,
         nextVersion,
-        truncated,
+        merged.truncated,
       ],
     );
     await client.query("COMMIT");
@@ -404,6 +405,73 @@ export async function seedPrHeadCiStateFromSnapshot(
     throw new Error("pr_head_ci_state missing after seed");
   }
   return { row: seeded, previousRollup };
+}
+
+export async function refreshPrHeadCiFromGithubSnapshot(
+  pool: Pool,
+  input: GithubSnapshotWriteInput,
+): Promise<RefreshPrHeadCiStateResult> {
+  const client = await pool.connect();
+  let previousRollup: CiRollup = "none";
+  let materialChange = false;
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query<LoadedCiStateRow>(
+      `SELECT owner, repo, head_sha, checks, rollup, version, authored, pr_numbers,
+              truncated, seeded_at, projection_repair_pending, first_seen_at, updated_at
+         FROM pr_head_ci_state
+        WHERE owner = $1 AND repo = $2 AND head_sha = $3
+        FOR UPDATE`,
+      [input.owner, input.repo, input.headSha],
+    );
+    const row = locked.rows[0];
+    if (row == null) {
+      throw new Error("pr_head_ci_state missing for pending refresh");
+    }
+    if (row.seeded_at == null) {
+      throw new Error("pr_head_ci_state is unseeded for pending refresh");
+    }
+    previousRollup = asRollup(row.rollup);
+    const merged = mergeLockedGithubSnapshot(row, input, "pending-refresh");
+    materialChange = merged.materialChange;
+    if (!materialChange) {
+      await client.query("COMMIT");
+      return {
+        row: mapLoadedRow(row),
+        previousRollup,
+      };
+    }
+    const nextVersion = Number(row.version) + 1;
+    await client.query(
+      `UPDATE pr_head_ci_state
+          SET checks = $4::jsonb,
+              rollup = $5,
+              version = $6,
+              truncated = $7,
+              updated_at = now()
+        WHERE owner = $1 AND repo = $2 AND head_sha = $3`,
+      [
+        input.owner,
+        input.repo,
+        input.headSha,
+        JSON.stringify(merged.checks),
+        merged.rollup,
+        nextVersion,
+        merged.truncated,
+      ],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+  const refreshed = await loadPrHeadCiState(pool, input.owner, input.repo, input.headSha);
+  if (refreshed == null) {
+    throw new Error("pr_head_ci_state missing after pending refresh");
+  }
+  return { row: refreshed, previousRollup };
 }
 
 function mapLoadedRow(row: LoadedCiStateRow): PrHeadCiStateRow {
