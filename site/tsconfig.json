@@ -15,9 +15,10 @@
     "incremental": true,
     "types": ["vite/client"],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "react": ["./node_modules/@types/react"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "vite.config.ts"]
+  "exclude": ["node_modules", "vite.config.ts", ".output", ".nitro"]
 }

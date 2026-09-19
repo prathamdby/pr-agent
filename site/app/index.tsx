@@ -1,16 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Alternatives } from "@/components/alternatives";
+import { Capabilities } from "@/components/capabilities";
+import { Examples } from "@/components/examples";
+import { Faq } from "@/components/faq";
+import { Footer } from "@/components/footer";
 import { Header } from "@/components/header";
 import { Hero } from "@/components/hero";
-import { Features } from "@/components/features";
-import { Capabilities } from "@/components/capabilities";
-import { Gallery } from "@/components/gallery";
-import { Providers } from "@/components/providers";
-import { Pricing } from "@/components/pricing";
-import { Alternatives } from "@/components/alternatives";
-import { Faq } from "@/components/faq";
-import { Quickstart } from "@/components/quickstart";
-import { Footer } from "@/components/footer";
+import { HowItWorks } from "@/components/how-it-works";
+import { Install } from "@/components/install";
 import { JsonLd } from "@/components/json-ld";
+import { Pricing } from "@/components/pricing";
+import { Providers } from "@/components/providers";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -21,16 +21,16 @@ function Home() {
     <>
       <JsonLd />
       <Header />
-      <main id="main-content" className="overflow-x-hidden">
+      <main id="main-content">
         <Hero />
-        <Features />
+        <HowItWorks />
         <Capabilities />
-        <Gallery />
+        <Examples />
         <Pricing />
         <Providers />
         <Alternatives />
         <Faq />
-        <Quickstart />
+        <Install />
       </main>
       <Footer />
     </>

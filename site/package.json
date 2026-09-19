@@ -10,8 +10,10 @@
     "generate:og": "node scripts/generate-og-image.mjs"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@tanstack/react-router": "1.170.33",
     "@tanstack/react-start": "1.168.50",
+    "motion": "^12.23.12",
     "nitro": "3.0.260610-beta",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
