@@ -21,9 +21,9 @@ export function Section({
     <section
       id={id}
       aria-labelledby={labelledBy}
-      className={`${toneClass} px-5 py-20 sm:px-8 md:py-28 ${className}`}
+      className={`${toneClass} py-16 sm:py-20 md:py-28 xl:py-32 ${className}`}
     >
-      <div className="mx-auto w-full max-w-[1200px]">{children}</div>
+      <div className="page-wrap">{children}</div>
     </section>
   );
 }
@@ -38,11 +38,11 @@ type HeadingProps = {
 export function SectionHeading({ id, children, lede }: HeadingProps) {
   return (
     <div className="max-w-[40rem]">
-      <h2 id={id} className="text-3xl font-semibold leading-[1.08] text-fg md:text-[2.75rem]">
+      <h2 id={id} className="text-[length:var(--text-title)] font-semibold leading-[1.08] text-fg">
         {children}
       </h2>
       {lede ? (
-        <p className="mt-4 max-w-[60ch] text-base leading-relaxed text-fg-muted md:text-lg">
+        <p className="mt-4 max-w-[65ch] text-base leading-relaxed text-fg-muted md:text-lg">
           {lede}
         </p>
       ) : null}

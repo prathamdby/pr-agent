@@ -11,9 +11,9 @@ const LINKS = [
 
 export function Footer() {
   return (
-    <footer className="px-5 pb-10 pt-20 sm:px-8 md:pt-28">
-      <div className="mx-auto w-full max-w-[1200px]">
-        <div className="card rounded-panel px-6 py-12 sm:px-12 sm:py-16">
+    <footer className="pb-10 pt-16 sm:pt-20 md:pt-28">
+      <div className="page-wrap">
+        <div className="card rounded-panel px-5 py-10 sm:px-12 sm:py-16">
           <div className="grid items-center gap-8 md:grid-cols-[minmax(0,1fr)_auto]">
             <div>
               <p className="font-display text-3xl font-semibold leading-[1.1] tracking-[-0.02em] text-fg md:text-4xl">
@@ -43,7 +43,7 @@ export function Footer() {
                   href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="link-muted text-fg-muted transition-colors duration-150"
+                  className="link-muted inline-flex min-h-10 items-center text-fg-muted transition-colors duration-150"
                 >
                   {link.label}
                 </a>
@@ -51,7 +51,7 @@ export function Footer() {
                 <a
                   key={link.label}
                   href={link.href}
-                  className="link-muted text-fg-muted transition-colors duration-150"
+                  className="link-muted inline-flex min-h-10 items-center text-fg-muted transition-colors duration-150"
                 >
                   {link.label}
                 </a>
@@ -60,7 +60,7 @@ export function Footer() {
             <a
               href="/llms.txt"
               title={llmsNudgeTitle()}
-              className="link-muted font-mono text-xs text-fg-subtle transition-colors duration-150"
+              className="link-muted inline-flex min-h-10 items-center font-mono text-xs text-fg-subtle transition-colors duration-150"
             >
               llms.txt
             </a>

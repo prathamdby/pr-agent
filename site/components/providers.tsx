@@ -86,7 +86,7 @@ export function Providers() {
 
   return (
     <Section id="providers" labelledBy="providers-heading">
-      <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
+      <div className="grid min-w-0 gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
         <div className="lg:sticky lg:top-24 lg:self-start">
           <SectionHeading id="providers-heading" lede={lede}>
             Change models without retraining your team
@@ -109,7 +109,7 @@ export function Providers() {
         <div
           role="radiogroup"
           aria-label="Model provider"
-          className="grid grid-cols-2 gap-3 sm:grid-cols-3"
+          className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-3"
         >
           {PROVIDERS_LIST.map((provider, index) => {
             const selected = index === active;
@@ -120,7 +120,7 @@ export function Providers() {
                 role="radio"
                 aria-checked={selected}
                 onClick={() => setActive(index)}
-                className={`press relative flex aspect-[4/3] flex-col items-start justify-between rounded-panel p-5 text-left transition-[color] duration-150 ease-out ${
+                className={`press relative flex aspect-[4/3] min-w-0 flex-col items-start justify-between rounded-panel p-4 text-left transition-[color] duration-150 ease-out sm:p-5 ${
                   selected ? "text-fg" : "text-fg-muted hover:text-fg"
                 }`}
               >

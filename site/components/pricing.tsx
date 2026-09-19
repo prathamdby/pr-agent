@@ -8,7 +8,7 @@ export function Pricing() {
       <div className="text-center">
         <p
           aria-hidden="true"
-          className="tabular font-display text-[9rem] font-semibold leading-none tracking-[-0.06em] text-fg sm:text-[13rem] lg:text-[16rem]"
+          className="tabular font-display text-[length:var(--text-price)] font-semibold leading-none tracking-[-0.06em] text-fg"
         >
           $0
         </p>

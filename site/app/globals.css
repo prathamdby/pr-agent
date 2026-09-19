@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* Hover only on devices that can hover. A tap must not leave a sticky hover state. */
+@custom-variant hover {
+  @media (hover: hover) {
+    &:hover {
+      @slot;
+    }
+  }
+}
+
 /* Bricolage Grotesque for display, Geist for body, Geist Mono for code. All OFL, licences in public/fonts/licenses. */
 @font-face {
   font-family: "Geist";
@@ -51,8 +60,13 @@
   --accent-tint: oklch(0.86 0.16 85 / 0.16);
   --blue: #1e69e9;
   --blue-tint: oklch(0.6 0.2 260 / 0.12);
-  --image-outline: oklch(0 0 0 / 0.1);
+  --image-outline: oklch(0 0 0 / 0.08);
   --shadow-color: 220 10% 20%;
+  --page-gutter: clamp(1.25rem, 2.6vw, 3.5rem);
+  --page-max: 72.5rem;
+  --text-display: clamp(2rem, 1.1rem + 4vw, 5.25rem);
+  --text-title: clamp(1.75rem, 1.2rem + 1.6vw, 3.15rem);
+  --text-price: clamp(5rem, 18vw, 16rem);
 
   /* Shadow as border: a 1px ring, subtle lift, ambient depth. Hover deepens each layer. */
   --shadow-border:
@@ -64,6 +78,12 @@
 
   --z-nav: 40;
   --z-skip: 100;
+
+  /* Thin scrollbars. Thumb is mixed from --fg so both colour schemes stay in step. */
+  --scrollbar-size: 0.375rem;
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: color-mix(in oklab, var(--fg) 28%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--fg) 46%, transparent);
 
   /* GitHub Primer colours, used only by the review mock in the hero. */
   --gh-bg: #ffffff;
@@ -100,7 +120,7 @@
     --accent-tint: oklch(0.86 0.16 85 / 0.12);
     --blue: #339bfd;
     --blue-tint: oklch(0.65 0.2 260 / 0.16);
-    --image-outline: oklch(1 0 0 / 0.1);
+    --image-outline: oklch(1 0 0 / 0.08);
     --shadow-color: 220 20% 0%;
 
     /* Layered depth is invisible on dark surfaces, so one white ring. */
@@ -121,6 +141,24 @@
     --gh-attention: #d29922;
     --gh-done: #ab7df8;
     --gh-chrome: #2a2a2e;
+  }
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --page-max: 80rem;
+  }
+}
+
+@media (min-width: 1920px) {
+  :root {
+    --page-max: 90rem;
+  }
+}
+
+@media (min-width: 2560px) {
+  :root {
+    --page-max: 100rem;
   }
 }
 
@@ -220,6 +258,60 @@
       scroll-behavior: smooth;
     }
   }
+
+  /*
+    Every scrollable surface, including the viewport. Firefox uses scrollbar-width /
+    scrollbar-color. Chromium and Safari use the webkit pseudo-elements. Track stays
+    transparent so the thumb sits on the surface behind it.
+  */
+  *,
+  *::before,
+  *::after {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  *::-webkit-scrollbar,
+  *::before::-webkit-scrollbar,
+  *::after::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  *::-webkit-scrollbar-track,
+  *::before::-webkit-scrollbar-track,
+  *::after::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  *::-webkit-scrollbar-thumb,
+  *::before::-webkit-scrollbar-thumb,
+  *::after::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-button,
+  *::before::-webkit-scrollbar-button,
+  *::after::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  *::-webkit-scrollbar-corner,
+  *::before::-webkit-scrollbar-corner,
+  *::after::-webkit-scrollbar-corner {
+    background: var(--scrollbar-track);
+  }
+
+  @media (hover: hover) {
+    *::-webkit-scrollbar-thumb:hover,
+    *::before::-webkit-scrollbar-thumb:hover,
+    *::after::-webkit-scrollbar-thumb:hover {
+      background-color: var(--scrollbar-thumb-hover);
+    }
+  }
 }
 
 @layer components {
@@ -281,15 +373,23 @@
       0 24px 48px -24px hsl(var(--shadow-color) / 0.45);
   }
 
-  /* Scale on press. Exactly 0.96; colour changes carry their own transition utilities. */
+  /* Shared page column. Gutter and max width grow from phone to 4K. */
+  .page-wrap {
+    width: 100%;
+    max-width: var(--page-max);
+    margin-inline: auto;
+    padding-inline: var(--page-gutter);
+  }
+
+  /* Scale on press. Colour changes carry their own transition utilities. */
   .press {
     transition-property: scale;
-    transition-duration: 150ms;
+    transition-duration: 200ms;
     transition-timing-function: ease-out;
   }
 
   .press:active:not(:disabled) {
-    scale: 0.96;
+    scale: 0.97;
   }
 
   .glass {
@@ -303,21 +403,6 @@
       background: var(--color-canvas);
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
-    }
-  }
-
-  /* Mobile menu: fades and drops in on open, closes instantly. */
-  .menu-sheet {
-    opacity: 1;
-    translate: 0 0;
-    transition:
-      opacity 200ms ease-out,
-      translate 200ms ease-out,
-      display 200ms allow-discrete;
-
-    @starting-style {
-      opacity: 0;
-      translate: 0 -8px;
     }
   }
 

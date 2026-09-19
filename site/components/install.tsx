@@ -55,8 +55,8 @@ export function Install() {
                 <dd
                   className={
                     field.mono
-                      ? "font-mono text-[13px] text-accent-ink"
-                      : "text-sm leading-relaxed text-fg"
+                      ? "min-w-0 font-mono text-[13px] text-accent-ink [overflow-wrap:anywhere]"
+                      : "min-w-0 text-sm leading-relaxed text-fg"
                   }
                 >
                   {field.value}

@@ -6,7 +6,7 @@ import { FEATURES } from "@/lib/content";
 export function HowItWorks() {
   return (
     <Section id="how-it-works" labelledBy="how-it-works-heading">
-      <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
+      <div className="grid min-w-0 gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
         <div className="lg:sticky lg:top-24 lg:self-start">
           <SectionHeading
             id="how-it-works-heading"

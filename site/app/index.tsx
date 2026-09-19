@@ -21,7 +21,7 @@ function Home() {
     <>
       <JsonLd />
       <Header />
-      <main id="main-content">
+      <main id="main-content" className="min-w-0 overflow-x-clip">
         <Hero />
         <HowItWorks />
         <Capabilities />

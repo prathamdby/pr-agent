@@ -20,23 +20,24 @@ function NavLink({
   label,
   external = false,
   onClick,
+  className = "",
 }: {
   readonly href: string;
   readonly label: string;
   readonly external?: boolean;
   readonly onClick?: () => void;
+  readonly className?: string;
 }) {
-  const className =
-    "link-muted rounded-control px-3 py-2 text-sm font-medium text-fg-muted transition-colors duration-150";
+  const classes = `link-muted inline-flex min-h-10 items-center rounded-control px-3 text-sm font-medium text-fg-muted transition-colors duration-150 ${className}`;
   if (external) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+      <a href={href} target="_blank" rel="noopener noreferrer" className={classes}>
         {label}
       </a>
     );
   }
   return (
-    <a href={href} className={className} onClick={onClick}>
+    <a href={href} className={classes} onClick={onClick}>
       {label}
     </a>
   );
@@ -61,7 +62,7 @@ export function Header() {
 
   return (
     <header className="glass sticky top-0 z-(--z-nav) border-b border-line">
-      <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-4 px-5 sm:px-8">
+      <div className="page-wrap flex h-16 items-center justify-between gap-4">
         <Link
           to="/"
           className="flex min-w-0 items-center gap-2.5 rounded-control"
@@ -100,7 +101,7 @@ export function Header() {
 
         <button
           type="button"
-          className="press grid size-10 place-items-center rounded-control text-fg lg:hidden"
+          className="press grid size-11 place-items-center rounded-control text-fg lg:hidden"
           aria-expanded={open}
           aria-controls={menuId}
           aria-label={open ? "Close menu" : "Open menu"}
@@ -115,23 +116,28 @@ export function Header() {
       <div
         id={menuId}
         hidden={!open}
-        className="menu-sheet border-t border-line bg-canvas px-5 pb-5 pt-2 lg:hidden"
+        className="border-t border-line bg-canvas px-(--page-gutter) pb-5 pt-2 lg:hidden"
       >
         <nav aria-label="Primary, mobile" className="flex flex-col">
           {NAV.map((item) => (
-            <NavLink key={item.label} {...item} onClick={() => setOpen(false)} />
+            <NavLink
+              key={item.label}
+              {...item}
+              onClick={() => setOpen(false)}
+              className="min-h-11"
+            />
           ))}
           <a
             href={REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="link-muted rounded-control px-3 py-2 text-sm font-medium text-fg-muted"
+            className="link-muted inline-flex min-h-11 items-center rounded-control px-3 text-sm font-medium text-fg-muted"
           >
             GitHub
           </a>
         </nav>
-        <div className="mt-3 px-3">
-          <ButtonLink href="#install" className="w-full justify-center">
+        <div className="mt-3" onClick={() => setOpen(false)}>
+          <ButtonLink href="#install" className="min-h-11 w-full justify-center">
             Deploy
           </ButtonLink>
         </div>

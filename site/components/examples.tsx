@@ -42,7 +42,7 @@ const EXAMPLES: readonly Example[] = [
   },
 ];
 
-/** Each command's output, rendered in GitHub markup inside one fixed-height frame. */
+/** Each command's output, rendered in GitHub markup. The panel stretches to the tab list. */
 export function Examples() {
   const [active, setActive] = useState(0);
   const reduce = useReducedMotion();
@@ -69,12 +69,21 @@ export function Examples() {
         What lands on the pull request
       </SectionHeading>
 
-      <div className="card mt-12 grid overflow-hidden rounded-panel lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)]">
+      <ul className="mt-10 grid gap-3 md:hidden">
+        {EXAMPLES.map((example) => (
+          <li key={example.command} className="card rounded-panel p-4">
+            <code className="text-[13px] font-medium text-accent-ink">{example.command}</code>
+            <p className="mt-1 text-base font-semibold">{example.title}</p>
+            <p className="mt-1 text-sm leading-relaxed text-fg-muted">{example.detail}</p>
+          </li>
+        ))}
+      </ul>
+
+      <div className="card mt-12 hidden min-w-0 overflow-hidden rounded-panel md:grid lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:items-stretch">
         <div
           role="tablist"
           aria-label="Example outputs"
-          aria-orientation="vertical"
-          className="flex gap-1 overflow-x-auto border-b border-line p-3 lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-r"
+          className="grid grid-cols-2 gap-1 border-b border-line p-3 lg:flex lg:flex-col lg:border-b-0 lg:border-r"
           onKeyDown={onKeyDown}
         >
           {EXAMPLES.map((example, index) => {
@@ -89,7 +98,7 @@ export function Examples() {
                 aria-controls={`${baseId}-panel`}
                 tabIndex={selected ? 0 : -1}
                 onClick={() => setActive(index)}
-                className={`press relative shrink-0 rounded-[12px] p-4 text-left transition-[color] duration-150 ease-out ${
+                className={`press relative min-h-16 rounded-[12px] p-4 text-left transition-[color] duration-150 ease-out ${
                   selected ? "text-fg" : "text-fg-muted hover:text-fg"
                 }`}
               >
@@ -117,12 +126,13 @@ export function Examples() {
           role="tabpanel"
           id={`${baseId}-panel`}
           aria-labelledby={`${baseId}-tab-${active}`}
-          className="h-[34rem] min-w-0 overflow-y-auto p-5 text-[13px] leading-[1.5] sm:p-8"
+          className="min-h-0 min-w-0 overflow-x-clip overflow-y-auto p-8 text-[13px] leading-[1.5] lg:h-full"
           style={{ background: "var(--gh-canvas)", color: "var(--gh-fg)" }}
         >
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={current.command}
+              className="overflow-clip"
               initial={reduce ? false : { opacity: 0, y: 12, filter: "blur(4px)" }}
               animate={{
                 opacity: 1,
@@ -135,14 +145,13 @@ export function Examples() {
                   ? undefined
                   : {
                       opacity: 0,
-                      y: -12,
+                      y: -4,
                       filter: "blur(4px)",
                       transition: { duration: 0.15, ease: "easeOut" },
                     }
               }
             >
               {current.render()}
-              <p className="mt-4 text-sm text-fg-muted lg:hidden">{current.detail}</p>
             </motion.div>
           </AnimatePresence>
         </div>

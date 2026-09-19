@@ -31,6 +31,29 @@ const CRITERIA: readonly Criterion[] = [
   },
 ];
 
+function ToolMark({
+  index,
+  tool,
+  stacked = false,
+}: {
+  readonly index: number;
+  readonly tool: string;
+  readonly stacked?: boolean;
+}) {
+  return (
+    <span
+      className={`inline-flex min-w-0 ${stacked ? "flex-col items-center gap-1.5" : "items-center gap-2"}`}
+    >
+      {index === 0 ? (
+        <img src="/logo.png" alt="" width={20} height={20} className="size-5 rounded-[5px]" />
+      ) : (
+        <BrandMark slug={MARKS[index] ?? ""} />
+      )}
+      <span className={`min-w-0 ${stacked ? "text-center" : ""}`}>{tool}</span>
+    </span>
+  );
+}
+
 function Cell({ score }: { readonly score: Score }) {
   if (score === "yes") {
     return (
@@ -66,33 +89,41 @@ export function Alternatives() {
         Pick PR Agent when hosted review is the problem
       </SectionHeading>
 
-      <div className="mt-12 overflow-x-auto">
-        <table className="scorecard w-full min-w-[56rem] border-collapse text-left text-sm">
+      <ul className="mt-10 space-y-4 xl:hidden">
+        {CRITERIA.map((row) => (
+          <li key={row.label} className="card rounded-panel p-4 sm:p-5">
+            <p className="font-semibold text-fg">{row.label}</p>
+            <ul className="mt-3 divide-y divide-line">
+              {TOOLS.map((tool, index) => (
+                <li
+                  key={tool}
+                  className="flex items-center justify-between gap-3 py-2.5 first:pt-0 last:pb-0"
+                >
+                  <span className={`min-w-0 ${index === 0 ? "text-fg" : "text-fg-muted"}`}>
+                    <ToolMark index={index} tool={tool} />
+                  </span>
+                  <Cell score={row.scores[index] ?? "no"} />
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-12 hidden min-w-0 xl:block">
+        <table className="scorecard w-full border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-line-strong">
-              <th scope="col" className="w-[30%] py-3 pr-4 text-[12px] font-medium text-fg-subtle">
+              <th scope="col" className="w-[26%] py-3 pr-4 text-[12px] font-medium text-fg-subtle">
                 Criteria
               </th>
               {TOOLS.map((tool, index) => (
                 <th
                   key={tool}
                   scope="col"
-                  className={`py-3 px-2 text-center text-[15px] font-semibold ${index === 0 ? "text-fg" : "text-fg-muted"}`}
+                  className={`px-2 py-3 text-center text-[15px] font-semibold ${index === 0 ? "text-fg" : "text-fg-muted"}`}
                 >
-                  <span className="inline-flex items-center gap-2">
-                    {index === 0 ? (
-                      <img
-                        src="/logo.png"
-                        alt=""
-                        width={20}
-                        height={20}
-                        className="size-5 rounded-[5px]"
-                      />
-                    ) : (
-                      <BrandMark slug={MARKS[index] ?? ""} />
-                    )}
-                    {tool}
-                  </span>
+                  <ToolMark index={index} tool={tool} stacked />
                 </th>
               ))}
             </tr>

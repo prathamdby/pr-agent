@@ -1,4 +1,5 @@
 import { GithubWindow } from "@/components/gh/github-window";
+import { GithubPhoneMock } from "@/components/gh/phone-mock";
 import { HeroDither } from "@/components/hero/hero-dither";
 import { InstallCommand } from "@/components/hero/install-command";
 import { GithubMark } from "@/components/ui/github-mark";
@@ -13,19 +14,19 @@ import { REPO_URL } from "@/lib/site";
 */
 export function Hero() {
   return (
-    <section aria-labelledby="hero-heading" className="px-5 sm:px-8">
-      <div className="relative isolate mx-auto mb-20 mt-12 w-full max-w-[1200px] lg:mb-28 lg:mt-16">
+    <section aria-labelledby="hero-heading" className="overflow-x-clip">
+      <div className="page-wrap relative isolate mb-16 mt-10 min-w-0 sm:mb-20 lg:mb-28 lg:mt-16">
         <HeroDither offsetX={-90} />
 
-        <div className="relative z-[2] flex flex-col gap-12 lg:gap-14">
+        <div className="relative z-[2] flex min-w-0 flex-col gap-10 lg:gap-14">
           <Reveal
             onMount
-            className="flex flex-col items-start gap-6 lg:flex-row lg:items-center lg:justify-between"
+            className="flex min-w-0 flex-col items-start gap-6 lg:flex-row lg:items-center lg:justify-between"
           >
-            <RevealItem>
+            <RevealItem className="min-w-0">
               <h1
                 id="hero-heading"
-                className="max-w-[14ch] text-[2.75rem] font-semibold leading-[1.02] tracking-[-0.03em] text-fg sm:text-6xl lg:text-7xl"
+                className="max-w-[min(14ch,100%)] text-[length:var(--text-display)] font-semibold leading-[1.02] tracking-[-0.03em] text-fg"
               >
                 <span className="sr-only">{HERO_HEADING}</span>
                 <span aria-hidden="true">
@@ -34,21 +35,21 @@ export function Hero() {
                 </span>
               </h1>
             </RevealItem>
-            <RevealItem className="flex shrink-0 flex-col items-start lg:items-end">
+            <RevealItem className="flex min-w-0 max-w-full shrink-0 flex-col items-start lg:items-end">
               <InstallCommand command={INSTALL_COMMAND} />
-              <div className="mt-4 flex items-center gap-5 lg:justify-end">
+              <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 lg:justify-end">
                 <a
                   href={REPO_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="link-muted flex items-center gap-1.5 font-mono text-[13px] text-fg-muted transition-colors duration-150"
+                  className="link-muted flex min-h-10 items-center gap-1.5 font-mono text-[13px] text-fg-muted transition-colors duration-150"
                 >
                   <GithubMark className="size-3.5" />
                   GitHub
                 </a>
                 <a
                   href="#install"
-                  className="link-muted flex items-center gap-1.5 font-mono text-[13px] text-fg-muted transition-colors duration-150"
+                  className="link-muted flex min-h-10 items-center gap-1.5 font-mono text-[13px] text-fg-muted transition-colors duration-150"
                 >
                   Installation
                 </a>
@@ -56,9 +57,12 @@ export function Hero() {
             </RevealItem>
           </Reveal>
 
-          <Reveal onMount>
-            <RevealItem>
-              <GithubWindow />
+          <Reveal onMount className="min-w-0">
+            <RevealItem className="min-w-0">
+              <GithubPhoneMock />
+              <div className="hidden min-w-0 md:block">
+                <GithubWindow />
+              </div>
             </RevealItem>
           </Reveal>
         </div>

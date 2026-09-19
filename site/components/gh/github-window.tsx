@@ -39,7 +39,12 @@ const REPLY: Record<Command, () => ReactNode> = {
 type Posted = { readonly id: number; readonly command: Command; readonly text: string };
 
 type Tab = "Conversation" | "Commits" | "Checks" | "Files changed";
-const TABS: readonly Tab[] = ["Conversation", "Commits", "Checks", "Files changed"];
+const TABS: readonly { readonly id: Tab; readonly short: string }[] = [
+  { id: "Conversation", short: "Conversation" },
+  { id: "Commits", short: "Commits" },
+  { id: "Checks", short: "Checks" },
+  { id: "Files changed", short: "Files" },
+];
 
 function detect(text: string): Command | null {
   const head = text.trim().split(/\s+/)[0]?.toLowerCase();
@@ -174,7 +179,7 @@ export function GithubWindow() {
 
   return (
     <div
-      className="flex aspect-video w-full flex-col overflow-hidden rounded-[12px] text-[13px] leading-[1.5] shadow-[0_0_0_1px_var(--gh-line),0_2px_4px_hsl(var(--shadow-color)/0.1),0_40px_80px_-32px_hsl(var(--shadow-color)/0.6)]"
+      className="flex h-[min(42rem,80dvh)] w-full min-w-0 flex-col overflow-hidden rounded-[12px] text-[13px] leading-[1.5] shadow-[0_0_0_1px_var(--gh-line),0_2px_4px_hsl(var(--shadow-color)/0.1),0_40px_80px_-32px_hsl(var(--shadow-color)/0.6)] lg:aspect-video lg:h-auto xl:min-h-[36rem]"
       style={{ background: "var(--gh-bg)", color: "var(--gh-fg)", fontFamily: "var(--font-sans)" }}
     >
       <div
@@ -187,22 +192,22 @@ export function GithubWindow() {
           <span className="size-3 rounded-full" style={{ background: "#28c840" }} />
         </span>
         <span
-          className="tabular mx-auto flex h-7 w-full min-w-0 max-w-[26rem] items-center justify-center gap-1.5 rounded-[6px] px-3 text-[12px]"
+          className="tabular mx-auto flex h-7 w-full min-w-0 max-w-[26rem] items-center justify-center gap-1.5 rounded-[6px] px-2 text-[11px] sm:px-3 sm:text-[12px]"
           style={{ background: "var(--gh-bg)", border: ghLine, color: "var(--gh-muted)" }}
         >
           <LockIcon weight="fill" className="size-3 shrink-0" />
           <span className="truncate">github.com/acme/billing-service/pull/482</span>
         </span>
-        <span className="w-[3.25rem]" aria-hidden="true" />
+        <span className="hidden w-[3.25rem] sm:block" aria-hidden="true" />
       </div>
 
-      <div className="shrink-0 px-5 pt-4" style={{ borderBottom: ghLine }}>
+      <div className="shrink-0 px-3 pt-3 sm:px-5 sm:pt-4" style={{ borderBottom: ghLine }}>
         <p className="text-[12px]" style={{ color: "var(--gh-muted)" }}>
           acme / billing-service
         </p>
-        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2 text-[19px] font-semibold leading-tight">
+        <p className="mt-0.5 text-[16px] font-semibold leading-tight sm:text-[19px]">
           Retry webhook dispatch on transient GitHub failures
-          <span className="tabular font-normal" style={{ color: "var(--gh-muted)" }}>
+          <span className="tabular ps-2 font-normal" style={{ color: "var(--gh-muted)" }}>
             #482
           </span>
         </p>
@@ -225,20 +230,27 @@ export function GithubWindow() {
             <GhCode>fix/webhook-retry</GhCode>
           </span>
         </p>
-        <div role="tablist" aria-label="Pull request views" className="mt-3 flex gap-1 text-[12px]">
-          {TABS.map((name) => {
-            const selected = name === tab;
+        <div
+          role="tablist"
+          aria-label="Pull request views"
+          className="mt-3 flex flex-wrap gap-1 text-[12px]"
+        >
+          {TABS.map((item) => {
+            const selected = item.id === tab;
             return (
               <button
-                key={name}
+                key={item.id}
                 type="button"
                 role="tab"
                 aria-selected={selected}
-                onClick={() => setTab(name)}
-                className="relative rounded-t-[6px] px-2.5 pb-2 pt-1 transition-[color,background-color] duration-150 ease-out"
+                onClick={() => setTab(item.id)}
+                className="relative min-h-10 rounded-t-[6px] px-2 pb-2 pt-1 transition-[color,background-color] duration-150 ease-out sm:px-2.5"
                 style={{ color: selected ? "var(--gh-fg)" : "var(--gh-muted)" }}
               >
-                <span className={selected ? "font-semibold" : undefined}>{name}</span>
+                <span className={selected ? "font-semibold" : undefined}>
+                  <span className="sm:hidden">{item.short}</span>
+                  <span className="hidden sm:inline">{item.id}</span>
+                </span>
                 {selected ? (
                   <motion.span
                     layoutId={reduce ? undefined : "gh-tab"}
@@ -257,7 +269,7 @@ export function GithubWindow() {
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="h-full overflow-y-auto px-5 py-4"
+          className="h-full overflow-x-clip overflow-y-auto px-3 py-4 sm:px-5"
           style={{ background: "var(--gh-canvas)" }}
         >
           {tab === "Conversation" ? (
@@ -305,7 +317,7 @@ export function GithubWindow() {
                         key={item.command}
                         type="button"
                         onClick={() => post(item.prompt)}
-                        className="press rounded-[6px] px-3 py-1.5 font-mono text-[12px] transition-[background-color,color] duration-150 ease-out hover:bg-[var(--gh-subtle)]"
+                        className="press min-h-10 rounded-[6px] px-3 py-1.5 font-mono text-[12px] transition-[background-color,color] duration-150 ease-out hover:bg-[var(--gh-subtle)]"
                         style={{ border: ghLine, color: "var(--gh-fg)" }}
                       >
                         {item.command}
@@ -328,7 +340,7 @@ export function GithubWindow() {
           type="button"
           onClick={scrollDown}
           aria-label="Scroll the pull request"
-          className="press absolute bottom-3 left-1/2 grid size-9 -translate-x-1/2 place-items-center rounded-full transition-[opacity,scale] duration-150 ease-out"
+          className="press absolute bottom-3 left-1/2 grid size-11 -translate-x-1/2 place-items-center rounded-full transition-[opacity,scale] duration-150 ease-out"
           style={{
             background: "var(--gh-bg)",
             color: "var(--gh-fg)",

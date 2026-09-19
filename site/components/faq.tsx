@@ -14,7 +14,7 @@ export function Faq() {
         <div className="divide-y divide-line border-y border-line">
           {FAQ_ITEMS.map((item) => (
             <details key={item.question} className="group">
-              <summary className="flex cursor-pointer items-center justify-between gap-6 py-5 text-left text-base font-medium text-fg [&::-webkit-details-marker]:hidden">
+              <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-5 text-left text-base font-medium text-fg sm:gap-6 [&::-webkit-details-marker]:hidden">
                 {item.question}
                 <CaretDownIcon className="disclosure-icon size-4 shrink-0 text-fg-subtle" />
               </summary>

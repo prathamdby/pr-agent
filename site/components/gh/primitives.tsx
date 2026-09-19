@@ -10,7 +10,7 @@ export const ghLine = "1px solid var(--gh-line)";
 export function GhCode({ children }: { readonly children: ReactNode }) {
   return (
     <code
-      className="rounded-[4px] px-[0.35em] py-[0.1em] font-mono text-[0.92em]"
+      className="rounded-[4px] px-[0.35em] py-[0.1em] font-mono text-[0.92em] [overflow-wrap:anywhere]"
       style={{ background: "var(--gh-code)" }}
     >
       {children}
@@ -56,7 +56,7 @@ export function GhNote({ children }: { readonly children: ReactNode }) {
 
 export function GhTable({ children }: { readonly children: ReactNode }) {
   return (
-    <table className="w-full border-collapse" style={{ border: ghLine }}>
+    <table className="w-full table-fixed border-collapse" style={{ border: ghLine }}>
       <tbody>{children}</tbody>
     </table>
   );
@@ -75,12 +75,12 @@ export function GhRow({
     <tr style={{ borderBottom: last ? undefined : ghLine }}>
       <th
         scope="row"
-        className="w-[7.5em] whitespace-nowrap px-3 py-2 text-left align-top font-semibold"
+        className="w-[28%] px-2 py-2 text-left align-top font-semibold sm:w-[7.5em] sm:px-3"
         style={{ borderRight: ghLine }}
       >
         {label}
       </th>
-      <td className="px-3 py-2 align-top">{children}</td>
+      <td className="min-w-0 px-2 py-2 align-top break-words sm:px-3">{children}</td>
     </tr>
   );
 }
@@ -96,23 +96,23 @@ type GhCommentProps = {
 /** A timeline comment: avatar outside, header strip, body. */
 export function GhComment({ author, bot = false, when, avatar, children }: GhCommentProps) {
   return (
-    <div className="flex gap-3">
+    <div className="flex min-w-0 gap-3">
       <span className="hidden size-10 shrink-0 sm:block">{avatar}</span>
       <div
         className="min-w-0 flex-1 rounded-[6px]"
         style={{ background: "var(--gh-bg)", border: ghLine }}
       >
         <div
-          className="flex items-center gap-2 rounded-t-[6px] px-4 py-2"
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-t-[6px] px-3 py-2 sm:px-4"
           style={{ background: "var(--gh-subtle)", borderBottom: ghLine }}
         >
-          <span className="whitespace-nowrap font-semibold">{author}</span>
+          <span className="font-semibold">{author}</span>
           {bot ? <GhLabel>Bot</GhLabel> : null}
-          <span className="truncate" style={{ color: "var(--gh-muted)" }}>
+          <span className="min-w-0" style={{ color: "var(--gh-muted)" }}>
             commented {when}
           </span>
         </div>
-        <div className="space-y-3 px-4 py-3">{children}</div>
+        <div className="space-y-3 px-3 py-3 sm:px-4">{children}</div>
       </div>
     </div>
   );

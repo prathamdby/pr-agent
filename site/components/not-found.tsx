@@ -10,10 +10,7 @@ import { REPO_URL } from "@/lib/site";
  */
 export function NotFound() {
   return (
-    <main
-      id="main-content"
-      className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col justify-center px-5 py-24 sm:px-8"
-    >
+    <main id="main-content" className="page-wrap flex min-h-dvh flex-col justify-center py-24">
       <p className="font-mono text-sm font-medium text-accent-ink">404</p>
       <h1 className="mt-3 text-4xl font-semibold leading-[1.05] text-fg md:text-5xl">
         This page does not exist

@@ -38,9 +38,10 @@ export function InstallCommand({ command }: InstallCommandProps) {
       type="button"
       onClick={copy}
       aria-label={copied ? "Copied install command" : "Copy install command"}
-      className="press group mt-7 flex h-12 items-center gap-3 rounded-control bg-surface ps-5 pe-[18px] shadow-border transition-[box-shadow] duration-150 ease-out hover:shadow-border-hover sm:mt-8"
+      title={command}
+      className="press group mt-0 flex min-h-12 w-full max-w-full items-center gap-3 rounded-control bg-surface py-2.5 ps-4 pe-3.5 shadow-border transition-[box-shadow] duration-150 ease-out hover:shadow-border-hover sm:w-auto sm:ps-5 sm:pe-[18px]"
     >
-      <span className="whitespace-nowrap font-mono text-sm text-fg-muted">
+      <span className="min-w-0 text-left font-mono text-[13px] leading-snug text-fg-muted sm:text-sm">
         <span className="text-accent-ink">$</span> {command}
       </span>
       <IconSwap

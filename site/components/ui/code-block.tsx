@@ -40,7 +40,7 @@ export function CodeBlock({ code, label }: CodeBlockProps) {
         type="button"
         onClick={copy}
         aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
-        className="press absolute right-2 top-2 grid size-9 place-items-center rounded-[4px] text-fg-subtle transition-[background-color,color] duration-150 ease-out hover:bg-surface hover:text-fg"
+        className="press absolute right-2 top-2 grid size-10 place-items-center rounded-[6px] text-fg-subtle transition-[background-color,color] duration-150 ease-out hover:bg-surface hover:text-fg"
       >
         <IconSwap state={copied ? "copied" : "idle"}>
           {copied ? (

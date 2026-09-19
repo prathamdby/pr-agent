@@ -12,9 +12,8 @@ import { Section, SectionHeading } from "@/components/ui/section";
 import { CAPABILITIES } from "@/lib/content";
 
 /*
-  Six capabilities, six cells, two rows of four columns. Each row mixes one double-width cell
-  with single cells so the grid has rhythm. Two cells carry a tint so the grid is not six
-  identical white tiles. Below `md` the grid collapses to one column.
+  Six capabilities. Phone is one column, tablet is two, wide screens are four with a
+  double-width cell on each row so the grid has rhythm.
 */
 const ICONS: readonly Icon[] = [
   MagnifyingGlassIcon,
@@ -25,7 +24,7 @@ const ICONS: readonly Icon[] = [
   LightningIcon,
 ];
 
-const CELLS = ["md:col-span-2", "", "", "", "md:col-span-2", ""] as const;
+const CELLS = ["xl:col-span-2", "", "", "", "xl:col-span-2", ""] as const;
 
 function commandFrom(trigger: string): string | null {
   return trigger.match(/\/[a-z-]+/)?.[0] ?? null;
@@ -41,7 +40,7 @@ export function Capabilities() {
         What your team gets back in GitHub
       </SectionHeading>
 
-      <Reveal as="ul" className="mt-12 grid gap-4 md:grid-cols-4">
+      <Reveal as="ul" className="mt-10 grid gap-4 sm:grid-cols-2 sm:mt-12 xl:grid-cols-4">
         {CAPABILITIES.map((cap, index) => {
           const Glyph = ICONS[index] ?? LightningIcon;
           const command = commandFrom(cap.trigger);
@@ -49,7 +48,7 @@ export function Capabilities() {
             <RevealItem
               key={cap.title}
               as="li"
-              className={`card flex min-h-[14rem] flex-col rounded-panel p-6 ${CELLS[index] ?? ""}`}
+              className={`card flex min-h-[12rem] flex-col rounded-panel p-5 sm:min-h-[14rem] sm:p-6 ${CELLS[index] ?? ""}`}
             >
               <div className="flex items-center justify-between gap-3">
                 <Glyph weight="duotone" className="size-6 text-blue" />
