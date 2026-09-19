@@ -1,3 +1,4 @@
+import { ButtonLink } from "@/components/ui/button";
 import { AGENT_RESOURCES } from "@/lib/agentResources";
 import { REPO_URL } from "@/lib/site";
 
@@ -11,46 +12,44 @@ export function NotFound() {
   return (
     <main
       id="main-content"
-      className="mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center px-4 py-24 sm:px-6"
+      className="mx-auto flex min-h-dvh w-full max-w-[1200px] flex-col justify-center px-5 py-24 sm:px-8"
     >
-      <p
-        aria-hidden="true"
-        className="font-display text-[clamp(4.5rem,14vw,9rem)] leading-[0.85] tracking-[-0.03em] text-ink/[0.18]"
-      >
-        404
-      </p>
-      <h1 className="mt-6 font-display text-[clamp(2.1rem,4.2vw,3.25rem)] leading-[1.05] tracking-[-0.02em] text-ink">
+      <p className="font-mono text-sm font-medium text-accent-ink">404</p>
+      <h1 className="mt-3 text-4xl font-semibold leading-[1.05] text-fg md:text-5xl">
         This page does not exist
       </h1>
-      <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
+      <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-fg-muted md:text-lg">
         The PR Agent site is one landing page plus a few machine-readable files. Everything it
         publishes is listed here.
       </p>
+      <div className="mt-8">
+        <ButtonLink href="/">Go to the landing page</ButtonLink>
+      </div>
 
-      <ul className="surface-inset edge-self mt-10 divide-y divide-edge rounded-md">
+      <ul className="mt-12 divide-y divide-line rounded-panel bg-surface shadow-border">
         {AGENT_RESOURCES.map((resource) => (
           <li
             key={resource.path}
-            className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-4 sm:px-5"
+            className="grid gap-1 px-5 py-3.5 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4"
           >
             <a
               href={resource.path}
-              className="shrink-0 font-mono text-sm text-bolt transition-colors hover:text-ink"
+              className="link-muted font-mono text-[13px] font-medium text-accent-ink transition-colors duration-150"
             >
               {resource.path}
             </a>
-            <span className="text-sm leading-relaxed text-ink-mute">{resource.description}</span>
+            <span className="text-sm leading-relaxed text-fg-muted">{resource.description}</span>
           </li>
         ))}
       </ul>
 
-      <p className="mt-8 text-sm leading-relaxed text-ink-mute">
+      <p className="mt-8 text-sm leading-relaxed text-fg-muted">
         Deployment docs and source live in the repository:{" "}
         <a
           href={REPO_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-ink-soft underline decoration-edge-strong transition-colors hover:text-ink"
+          className="font-medium text-fg underline decoration-line-strong hover:decoration-fg"
         >
           github.com/prathamdby/pr-agent
         </a>

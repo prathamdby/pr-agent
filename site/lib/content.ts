@@ -21,12 +21,15 @@ export const HERO_SUPPORT =
 
 export const HERO_CTA_NOTE = "MIT licensed. Hosting and AI usage on you.";
 
+/** Clone step of the README install path, in GitHub CLI form so it fits the hero column. */
+export const INSTALL_COMMAND = "gh repo clone prathamdby/pr-agent";
+
 export const FEATURES: FeatureItem[] = [
   {
     title: "Deploy once on servers you control",
     detail:
       "Install PR Agent beside the rest of your stack. Your GitHub credentials and AI keys stay in your account, not a vendor dashboard.",
-    cue: "Your servers · your keys",
+    cue: "Your servers, your keys",
     summary: "Self-hosted AI PR reviews",
   },
   {
@@ -47,7 +50,7 @@ export const FEATURES: FeatureItem[] = [
     title: "Feedback shows up on the pull request",
     detail:
       "Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, or mention the App bot. Replies stay in the same thread.",
-    cue: "/review · /describe · /ask · /triage",
+    cue: "/review, /describe, /ask, /triage",
     summary: "Reviews and replies posted in the pull request",
   },
   {
@@ -230,7 +233,7 @@ export const ALTERNATIVE_ROWS: AlternativeRow[] = [
 export const QUICKSTART_HEADING = "Installation";
 
 export const QUICKSTART_INTRO =
-  "Three steps from a fresh machine to a review on a real pull request. You need Docker, a GitHub App, and one AI provider key. GitHub must reach your host over HTTPS, or you run a tunnel on a laptop. A VPS panel such as Dokploy or Coolify can supply the domain and the certificate.";
+  "Three steps. You need Docker, a GitHub App, and one AI provider key. Your server needs a public HTTPS address so GitHub can reach it.";
 
 type QuickstartStep = {
   n: string;
@@ -242,17 +245,17 @@ export const QUICKSTART_STEPS: readonly [QuickstartStep, QuickstartStep, Quickst
   {
     n: "01",
     title: "Create a GitHub app",
-    body: "Register the app, generate a private key, then install it on the test repo. Creating the app is not enough. If you pick only selected repositories, include that repo.",
+    body: "Register the App in your GitHub settings, download its private key, then install it on the repository you want reviewed.",
   },
   {
     n: "02",
     title: "Fill .env and start the stack",
-    body: "Copy the example env. Paste the generated App private key as one line, the webhook secret, and a provider key. Then start PR Agent with Compose. The example key is not a real key.",
+    body: "Copy the example env file, paste in your App key, webhook secret, and AI provider key, then start PR Agent with Docker Compose.",
   },
   {
     n: "03",
     title: "Open a PR and comment /help",
-    body: "Open a pull request on an installed repo. Comment /help as a repo owner, member, or collaborator. Other accounts get no reply even though GitHub accepted the webhook.",
+    body: "Open a pull request on that repository and comment /help. PR Agent replies with the commands it understands.",
   },
 ];
 

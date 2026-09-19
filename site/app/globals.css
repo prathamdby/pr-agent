@@ -1,83 +1,191 @@
 @import "tailwindcss";
 
+/* Bricolage Grotesque for display, Geist for body, Geist Mono for code. All OFL, licences in public/fonts/licenses. */
 @font-face {
-  font-family: "Gambarino";
-  src: url("/fonts/Gambarino-Regular.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Geist";
+  src: url("/fonts/geist-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/fonts/bricolage-grotesque-latin-wght-normal.woff2") format("woff2");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/geist-mono-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 
 /*
-  Palette sampled from site/assets/logo-source.png:
-  sky #339bfd, royal #1e69e9, bolt #fdb631, white marks.
-  Page surfaces deepen the royal blue (not slate-indigo).
-*/
-@theme {
-  --font-display: "Gambarino", ui-serif, Georgia, serif;
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  Semantic palette. Primitives never reach components; every surface, text, line, and accent
+  role has one token and both colour schemes define all of them.
 
-  --color-navy: #0a1630;
-  --color-navy-raised: #101f3d;
-  --color-navy-panel: #162850;
-  --color-navy-inset: #0d1a36;
-  --color-ink: #f2f6fc;
-  --color-ink-soft: #c8d5ec;
-  --color-ink-mute: #8fa3c4;
-  --color-ink-faint: #5e7399;
-  --color-sky: #339bfd;
-  --color-royal: #1e69e9;
-  --color-bolt: #fdb631;
-  --color-bolt-deep: #e09a1a;
-  --color-edge: color-mix(in srgb, var(--color-ink) 12%, transparent);
-  --color-edge-strong: color-mix(in srgb, var(--color-ink) 22%, transparent);
+  The accent is the bolt amber from the logo. It is the only accent on the page.
+
+  Z-index scale: --z-nav (sticky header), --z-skip (skip link). Nothing else sets z-index.
+  Radius scale: interactive 10px, panels 16px, nested elements concentric (outer = inner + gap).
+*/
+:root {
+  color-scheme: light;
+
+  --canvas: #fafaf7;
+  --surface: #ffffff;
+  --well: #f0f0ec;
+  --fg: #101114;
+  --fg-muted: #4a4d57;
+  --fg-subtle: #6e7280;
+  --line: oklch(0 0 0 / 0.08);
+  --line-strong: oklch(0 0 0 / 0.14);
+  --accent: #fdb631;
+  --accent-fg: #1c1503;
+  --accent-ink: #8a5a00;
+  --accent-tint: oklch(0.86 0.16 85 / 0.16);
+  --blue: #1e69e9;
+  --blue-tint: oklch(0.6 0.2 260 / 0.12);
+  --image-outline: oklch(0 0 0 / 0.1);
+  --shadow-color: 220 10% 20%;
+
+  /* Shadow as border: a 1px ring, subtle lift, ambient depth. Hover deepens each layer. */
+  --shadow-border:
+    0 0 0 1px oklch(0 0 0 / 0.06), 0 1px 2px -1px oklch(0 0 0 / 0.06),
+    0 2px 4px 0 oklch(0 0 0 / 0.04);
+  --shadow-border-hover:
+    0 0 0 1px oklch(0 0 0 / 0.08), 0 1px 2px -1px oklch(0 0 0 / 0.08),
+    0 2px 4px 0 oklch(0 0 0 / 0.06);
+
+  --z-nav: 40;
+  --z-skip: 100;
+
+  /* GitHub Primer colours, used only by the review mock in the hero. */
+  --gh-bg: #ffffff;
+  --gh-fg: #1f2328;
+  --gh-muted: #59636e;
+  --gh-line: #d1d9e0;
+  --gh-subtle: #f6f8fa;
+  --gh-link: #0969da;
+  --gh-note: #0969da;
+  --gh-code: rgb(175 184 193 / 0.2);
+  --gh-canvas: #f6f8fa;
+  --gh-accent: #0969da;
+  --gh-success: #1a7f37;
+  --gh-attention: #9a6700;
+  --gh-done: #8250df;
+  --gh-chrome: #e8e8e8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --canvas: #000000;
+    --surface: #0c0c0e;
+    --well: #151517;
+    --fg: #f5f5f7;
+    --fg-muted: #b3b5bd;
+    --fg-subtle: #858894;
+    --line: oklch(1 0 0 / 0.1);
+    --line-strong: oklch(1 0 0 / 0.18);
+    --accent: #fdb631;
+    --accent-fg: #1a1404;
+    --accent-ink: #ffcd5c;
+    --accent-tint: oklch(0.86 0.16 85 / 0.12);
+    --blue: #339bfd;
+    --blue-tint: oklch(0.65 0.2 260 / 0.16);
+    --image-outline: oklch(1 0 0 / 0.1);
+    --shadow-color: 220 20% 0%;
+
+    /* Layered depth is invisible on dark surfaces, so one white ring. */
+    --shadow-border: 0 0 0 1px oklch(1 0 0 / 0.08);
+    --shadow-border-hover: 0 0 0 1px oklch(1 0 0 / 0.13);
+
+    --gh-bg: #0d1117;
+    --gh-fg: #f0f6fc;
+    --gh-muted: #9198a1;
+    --gh-line: #3d444d;
+    --gh-subtle: #151b23;
+    --gh-link: #4493f8;
+    --gh-note: #4493f8;
+    --gh-code: rgb(101 108 118 / 0.3);
+    --gh-canvas: #000000;
+    --gh-accent: #4493f8;
+    --gh-success: #3fb950;
+    --gh-attention: #d29922;
+    --gh-done: #ab7df8;
+    --gh-chrome: #2a2a2e;
+  }
+}
+
+@theme inline {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-display: "Bricolage Grotesque", "Geist", ui-sans-serif, system-ui, sans-serif;
+
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-well: var(--well);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-tint: var(--accent-tint);
+  --color-blue: var(--blue);
+  --color-blue-tint: var(--blue-tint);
+
+  --radius-control: 10px;
+  --radius-panel: 16px;
+
+  --shadow-border: var(--shadow-border);
+  --shadow-border-hover: var(--shadow-border-hover);
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-swap: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @layer base {
   html {
     font-family: var(--font-sans);
-    background: var(--color-navy);
-    color: var(--color-ink);
+    background: var(--color-canvas);
+    color: var(--color-fg);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    scroll-behavior: smooth;
-  }
-
-  .skip-link {
-    position: absolute;
-    left: 1rem;
-    top: 1rem;
-    z-index: 100;
-    padding: 0.5rem 0.75rem;
-    background: var(--color-navy-raised);
-    color: var(--color-ink);
-    border: 1px solid var(--color-edge-strong);
-    border-radius: 0.25rem;
-    transform: translateY(-200%);
-    transition: transform 0.15s ease;
-  }
-
-  .skip-link:focus {
-    transform: translateY(0);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-behavior: auto;
-    }
+    text-underline-position: from-font;
+    text-decoration-skip-ink: auto;
+    overflow-wrap: break-word;
   }
 
   body {
-    min-height: 100vh;
-    background: var(--color-navy);
-    color: var(--color-ink);
+    min-height: 100dvh;
+    background: var(--color-canvas);
+    color: var(--color-fg);
   }
 
-  ::selection {
-    background: color-mix(in srgb, var(--color-sky) 40%, transparent);
-    color: var(--color-ink);
+  [id] {
+    scroll-margin-top: 5rem;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+    letter-spacing: -0.02em;
+  }
+
+  p {
+    text-wrap: pretty;
   }
 
   a {
@@ -88,79 +196,204 @@
   pre,
   kbd {
     font-family: var(--font-mono);
+    font-variant-ligatures: none;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-accent-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  img {
+    outline: 1px solid var(--image-outline);
+    outline-offset: -1px;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+}
+
+@layer components {
+  .skip-link {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: var(--z-skip);
+    padding: 0.5rem 0.875rem;
+    border-radius: var(--radius-control);
+    background: var(--color-fg);
+    color: var(--color-canvas);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transform: translateY(calc(-100% - 1.5rem));
+    transition: transform 150ms var(--ease-out-quint);
+  }
+
+  .skip-link:focus-visible {
+    transform: translateY(0);
+  }
+
+  /* Layered shadow instead of a border. Tinted to the canvas hue. */
+  .elevated {
+    background: var(--color-surface);
+    box-shadow:
+      0 0 0 1px var(--color-line),
+      0 1px 2px hsl(var(--shadow-color) / 0.08),
+      0 8px 24px -12px hsl(var(--shadow-color) / 0.25);
+  }
+
+  /* Raised card: surface, ring, lift. Hover lifts a step further. */
+  .card {
+    background: var(--color-surface);
+    box-shadow:
+      0 0 0 1px var(--color-line),
+      0 1px 2px hsl(var(--shadow-color) / 0.06),
+      0 12px 32px -16px hsl(var(--shadow-color) / 0.35);
+    transition-property: box-shadow, translate;
+    transition-duration: 200ms;
+    transition-timing-function: var(--ease-out-quint);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .card:hover {
+      box-shadow:
+        0 0 0 1px var(--color-line-strong),
+        0 2px 4px hsl(var(--shadow-color) / 0.08),
+        0 24px 48px -20px hsl(var(--shadow-color) / 0.45);
+      translate: 0 -2px;
+    }
+  }
+
+  .elevated-strong {
+    background: var(--color-surface);
+    box-shadow:
+      0 0 0 1px var(--color-line-strong),
+      0 2px 4px hsl(var(--shadow-color) / 0.1),
+      0 24px 48px -24px hsl(var(--shadow-color) / 0.45);
+  }
+
+  /* Scale on press. Exactly 0.96; colour changes carry their own transition utilities. */
+  .press {
+    transition-property: scale;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+
+  .press:active:not(:disabled) {
+    scale: 0.96;
+  }
+
+  .glass {
+    background: color-mix(in srgb, var(--color-canvas) 78%, transparent);
+    backdrop-filter: blur(12px) saturate(1.3);
+    -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      background: var(--color-canvas);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
+
+  /* Mobile menu: fades and drops in on open, closes instantly. */
+  .menu-sheet {
+    opacity: 1;
+    translate: 0 0;
+    transition:
+      opacity 200ms ease-out,
+      translate 200ms ease-out,
+      display 200ms allow-discrete;
+
+    @starting-style {
+      opacity: 0;
+      translate: 0 -8px;
+    }
+  }
+
+  /* Scorecard: row highlight on hover, PR Agent column tinted. Colour is never the only cue. */
+  .scorecard tbody tr {
+    transition: background-color 100ms ease-out;
+  }
+
+  .scorecard td[data-self] {
+    background: var(--color-blue-tint);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .scorecard tbody tr:hover {
+      background: var(--color-well);
+    }
+  }
+
+  details > summary {
+    list-style: none;
+  }
+
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  details .disclosure-icon {
+    transition: rotate 200ms var(--ease-out-quint);
+  }
+
+  details[open] .disclosure-icon {
+    rotate: 180deg;
+  }
+
+  @media (hover: hover) {
+    .link-muted:hover {
+      color: var(--color-fg);
+    }
   }
 }
 
 @layer utilities {
-  .font-display {
-    font-family: var(--font-display);
-  }
-
-  .surface-panel {
-    background: var(--color-navy-panel);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--color-ink) 10%, transparent),
-      0 1px 0 color-mix(in srgb, #000 40%, transparent);
-  }
-
-  .surface-inset {
-    background: var(--color-navy-inset);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, #000 50%, transparent);
-  }
-
-  .edge-self {
-    border: 1px solid var(--color-edge);
-  }
-
-  .chamfer {
-    clip-path: polygon(
-      0 8px,
-      8px 0,
-      calc(100% - 8px) 0,
-      100% 8px,
-      100% calc(100% - 8px),
-      calc(100% - 8px) 100%,
-      8px 100%,
-      0 calc(100% - 8px)
-    );
-  }
-
-  .grain::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.04;
-    mix-blend-mode: soft-light;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    z-index: 0;
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-@keyframes diff-drift {
+@keyframes marquee {
   from {
     transform: translate3d(0, 0, 0);
   }
   to {
-    transform: translate3d(-48px, -64px, 0);
-  }
-}
-
-@keyframes nav-settle {
-  from {
-    transform: translate3d(0, -8px, 0);
-  }
-  to {
-    transform: translate3d(0, 0, 0);
+    transform: translate3d(-50%, 0, 0);
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .animate-diff-drift {
-    animation: diff-drift 48s linear infinite;
+  .marquee-track {
+    animation: marquee 40s linear infinite;
+    will-change: transform;
   }
 
-  .animate-nav-settle {
-    animation: nav-settle 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  @media (hover: hover) {
+    .marquee:hover .marquee-track {
+      animation-play-state: paused;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    flex-wrap: wrap;
+    width: auto;
+  }
+
+  .marquee-track > [aria-hidden="true"] {
+    display: none;
   }
 }

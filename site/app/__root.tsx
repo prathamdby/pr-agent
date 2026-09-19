@@ -1,5 +1,7 @@
+import { IconContext } from "@phosphor-icons/react";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { NotFound } from "@/components/not-found";
+import { DisableThemeTransitions } from "@/components/ui/disable-theme-transitions";
 import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE, resourceUrl } from "@/lib/agentResources";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
@@ -89,6 +91,13 @@ export const Route = createRootRoute({
     ],
     links: [
       {
+        rel: "preload",
+        href: "/fonts/geist-latin-wght-normal.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
         rel: "stylesheet",
         href: appCss,
       },
@@ -135,11 +144,14 @@ function RootLayout() {
         />
         <script defer src="/_vercel/insights/script.js" />
       </head>
-      <body className="bg-navy text-ink min-h-screen overflow-x-hidden">
+      <body className="min-h-dvh overflow-x-hidden bg-canvas text-fg">
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>
-        <Outlet />
+        <DisableThemeTransitions />
+        <IconContext.Provider value={{ weight: "bold", "aria-hidden": true }}>
+          <Outlet />
+        </IconContext.Provider>
         <Scripts />
       </body>
     </html>
