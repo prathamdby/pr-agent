@@ -287,7 +287,7 @@ Verification:
 1. Recreate the worker so it picks up the catalog and env.
 2. Worker boot passes without a `models_json` or selection error.
 3. Open a small test PR and comment `/ask` as an allowed association. An answer proves the provider serves requests.
-4. `provider.model_not_found` means the `api` shape fell through to a builtin default; check `api` and the model `id`.
+4. `provider.model_not_found` means the provider and model pair was not found; check the spelling of `PI_PROVIDER` and `PI_MODEL` against the catalog.
 
 ---
 
