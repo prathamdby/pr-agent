@@ -58,7 +58,14 @@ function asAssistantMessage(message: AgentMessage | undefined): AssistantMessage
 function convertToLlm(messages: AgentMessage[]): Message[] {
   const converted: Message[] = [];
   for (const message of messages) {
-    if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
+    // System messages carry the session prompt (and later tool declarations)
+    // since pi-agent-core moved the prompt out of AgentContext into the transcript.
+    if (
+      message.role === "system" ||
+      message.role === "user" ||
+      message.role === "assistant" ||
+      message.role === "toolResult"
+    ) {
       converted.push(message);
     }
   }
@@ -137,7 +144,11 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   let structuredState: AuthoritativeStructuredState = params.structuredState;
   const emit = createSanitizedEventSink(params.eventSink);
   const sessionAbort = new AbortController();
-  const sessionMessages: AgentMessage[] = [];
+  // pi-agent-core no longer takes a separate systemPrompt on AgentContext: the
+  // prompt travels as the leading system message of the transcript instead.
+  const sessionMessages: AgentMessage[] = [
+    { role: "system", content: params.systemPrompt, timestamp: Date.now() },
+  ];
   const sessionCacheId = sessionCacheIdFromIdentity(
     cacheIdentityFromAssignment(params.role, params.primary, params.specialistId),
   );
@@ -245,7 +256,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         modelSupportedLevels: getSupportedThinkingLevels(model),
       });
       const context: AgentContext = {
-        systemPrompt: params.systemPrompt,
         messages: sessionMessages,
         tools,
       };

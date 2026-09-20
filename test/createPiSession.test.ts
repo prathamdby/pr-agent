@@ -108,6 +108,7 @@ import {
 } from "../src/agent/runtime/piSession.js";
 import { toCoreTool } from "../src/agent/runtime/coreTools.js";
 import { createSessionStreamFn } from "../src/agent/runtime/sessionStream.js";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import type { Config } from "../src/config.js";
 
 const cfg = makeTestConfig({
@@ -697,7 +698,7 @@ describe("createPiSession terminal provider outcomes", () => {
     });
     await runnerSession.send("first", ASK_SEND_OPTS);
     await runnerSession.send("second", ASK_SEND_OPTS);
-    expect(rolesAtLoopStart[1]).toEqual(["user", "assistant", "toolResult", "assistant"]);
+    expect(rolesAtLoopStart[1]).toEqual(["system", "user", "assistant", "toolResult", "assistant"]);
   });
 
   it("inserts each send prompt after prior assistant turns", async () => {
@@ -722,8 +723,62 @@ describe("createPiSession terminal provider outcomes", () => {
     await runnerSession.send("first", ASK_SEND_OPTS);
     await runnerSession.send("second", ASK_SEND_OPTS);
     await runnerSession.send("third", ASK_SEND_OPTS);
-    expect(rolesAtLoopStart[1]).toEqual(["user", "assistant"]);
-    expect(rolesAtLoopStart[2]).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(rolesAtLoopStart[1]).toEqual(["system", "user", "assistant"]);
+    expect(rolesAtLoopStart[2]).toEqual(["system", "user", "assistant", "user", "assistant"]);
+  });
+
+  it("seeds the system prompt as the leading system message", async () => {
+    let seen: Array<{ role: string; content?: unknown }> | undefined;
+    runAgentLoop.mockImplementation(async (_prompts, context, _config, emit: LoopEmit) => {
+      seen = (context as { messages: Array<{ role: string; content?: unknown }> }).messages;
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistant("ok", { stopReason: "stop" }),
+      });
+      return [];
+    });
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    await runnerSession.send("question", ASK_SEND_OPTS);
+    expect(seen?.[0]).toMatchObject({ role: "system", content: "test" });
+  });
+
+  it("keeps the system prompt when converting the transcript for the provider", async () => {
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistant("ok", { stopReason: "stop" }),
+      });
+      return [];
+    });
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    await runnerSession.send("question", ASK_SEND_OPTS);
+    const config = runAgentLoop.mock.calls.at(-1)?.[2] as {
+      convertToLlm: (messages: never) => Array<{ role: string }>;
+    };
+    const converted = config.convertToLlm([
+      { role: "system", content: "sys", timestamp: Date.now() },
+      { role: "user", content: "hi", timestamp: Date.now() },
+      makeAssistant("answer", { stopReason: "stop" }),
+      makeToolResult("c1", "readFile"),
+    ] as never);
+    expect(converted.map((message) => message.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "toolResult",
+    ]);
   });
 
   it("resets provider error state between successive sends", async () => {
@@ -912,7 +967,7 @@ describe("createPiSession prompt cache identity", () => {
     });
     await streamFn(
       { id: "m", provider: "openai", api: "openai-responses" } as never,
-      { messages: [] },
+      normalizeContext({ messages: [] }),
       { maxTokens: 7, cacheRetention: "long" },
     );
     expect(getLastOptions()).toMatchObject({

@@ -8,7 +8,7 @@ import {
   type AgentMessage,
   type StreamFn,
 } from "@earendil-works/pi-agent-core";
-import { contentText, type Api, type Model } from "@earendil-works/pi-ai";
+import { contentText, normalizeContext, type Api, type Model } from "@earendil-works/pi-ai";
 
 export const COMPACTION_CUSTOM_INSTRUCTIONS =
   "Preserve the user's task, current phase, accepted findings, pending questions, and artifact references.";
@@ -116,7 +116,7 @@ async function summarizeMessages(
   try {
     const stream = await streamFn(
       model,
-      {
+      normalizeContext({
         systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
         messages: [
           {
@@ -125,7 +125,7 @@ async function summarizeMessages(
             timestamp: Date.now(),
           },
         ],
-      },
+      }),
       { maxTokens, cacheRetention: "none", signal },
     );
     const response = await stream.result();
@@ -145,10 +145,22 @@ export async function compactAgentMessages(params: {
   readonly streamFn: StreamFn;
   readonly signal?: AbortSignal;
 }): Promise<AgentMessage[] | undefined> {
-  const cut = findSafeCutIndex(params.messages, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens);
+  // Leading system messages carry the session prompt. Compaction summarizes
+  // conversation only, so keep them out of the summarized region and re-prepend
+  // them verbatim; otherwise an overflow compact would drop the system prompt.
+  const leadingSystem: AgentMessage[] = [];
+  let restStart = 0;
+  while (restStart < params.messages.length && params.messages[restStart]?.role === "system") {
+    const systemMessage = params.messages[restStart];
+    if (!systemMessage) break;
+    leadingSystem.push(systemMessage);
+    restStart += 1;
+  }
+  const rest = params.messages.slice(restStart);
+  const cut = findSafeCutIndex(rest, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens);
   if (cut <= 0) return undefined;
-  const summarized = params.messages.slice(0, cut);
-  const retained = params.messages.slice(cut);
+  const summarized = rest.slice(0, cut);
+  const retained = rest.slice(cut);
   const summary = await summarizeMessages(summarized, params.model, params.streamFn, params.signal);
   if (!summary) return undefined;
   const summaryMessage: AgentMessage = {
@@ -156,7 +168,7 @@ export async function compactAgentMessages(params: {
     content: `${COMPACTION_SUMMARY_PREFIX}${summary}${COMPACTION_SUMMARY_SUFFIX}`,
     timestamp: Date.now(),
   };
-  return [summaryMessage, ...retained];
+  return [...leadingSystem, summaryMessage, ...retained];
 }
 
 export async function compactIfNeeded(params: {
