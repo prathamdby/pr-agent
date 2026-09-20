@@ -149,6 +149,12 @@ Loaded by `loadConfig()` into a redaction-safe map and never logged. Set the sec
 
 Point `PI_PROVIDER` at a `models.json` key to use an OpenAI-compatible proxy or a local server. Copy [`models.json.example`](../models.json.example) and keep the file operator-side. Never commit a real API key.
 
+Pi reference (upstream `earendil-works/pi`):
+
+- Custom models and catalog format, with Ollama and proxy examples: [packages/coding-agent/docs/models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md).
+- Built-in provider catalog code: [packages/ai](https://github.com/earendil-works/pi/tree/main/packages/ai).
+- Provider extensions (`registerProvider`, OAuth flows): [packages/coding-agent/docs/custom-provider.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/custom-provider.md). Those are code extensions, not catalog entries, so they do not apply to the `models.json` below.
+
 Base provider fields (parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)):
 
 | Field        | Required | Notes                                                                                                                              |
@@ -161,9 +167,94 @@ Base provider fields (parsed in [`src/settings/modelsJsonCatalog.ts`](../src/set
 | `compat`     | No       | `supportsDeveloperRole` and `supportsReasoningEffort` flags                                                                        |
 | `models`     | Yes      | Non-empty array; see model fields below                                                                                            |
 
-Model fields: `id` is the only required field. Defaults fill the rest: `name` is the id, `reasoning` is `false`, `input` is `["text"]`, `contextWindow` is `128000`, `maxTokens` is `16384`, and `cost` is zeros. `cost` is USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`); use `0` only for free local models.
+Model fields (every entry is an object; `models` must be a non-empty array):
 
-Provider `api` selects the request shape. Known values include `openai-completions`, `openai-responses`, `anthropic-messages`, `google-generative-ai`, `azure-openai-responses`, `openai-codex-responses`, `mistral-conversations`, `bedrock-converse-stream`, `google-vertex`, and `pi-messages`.
+| Field           | Type                    | Default    | Notes                                                            |
+| --------------- | ----------------------- | ---------- | ---------------------------------------------------------------- |
+| `id`            | non-empty string        | required   | Model id sent to the server                                      |
+| `name`          | non-empty string        | the `id`   | Display name only                                                |
+| `reasoning`     | boolean                 | `false`    | Set `true` for reasoning-capable models so thinking levels apply |
+| `input`         | `["text"]` / image list | `["text"]` | Non-empty array of `text` and `image`                            |
+| `contextWindow` | positive number         | `128000`   | Context window in tokens                                         |
+| `maxTokens`     | positive number         | `16384`    | Max output tokens per request                                    |
+| `cost`          | cost object             | all zeros  | USD per 1M tokens; use `0` only for free local models            |
+
+`cost` shape: `{ "input": 0.15, "output": 0.6, "cacheRead": 0.075, "cacheWrite": 0.1875 }`. Each rate is a non-negative number; missing entries default to `0`. Billed proxies need real rates or cache accounting stays silently free.
+
+`compat` shape: `{ "supportsDeveloperRole": false, "supportsReasoningEffort": false }`. Both are optional booleans. Some OpenAI-compatible servers (Ollama, vLLM, SGLang) do not understand the `developer` role or `reasoning_effort`; set the flags to `false` so Pi sends a `system` message and skips the effort parameter instead.
+
+`headers` shape: a flat object of string values, for example `{ "X-Project": "reviews" }`. Values are literal; only `apiKey` expands `$VAR` / `${VAR}`.
+
+Provider `api` selects the request shape. Known values include `openai-completions`, `openai-responses`, `anthropic-messages`, `google-generative-ai`, `azure-openai-responses`, `openai-codex-responses`, `mistral-conversations`, `bedrock-converse-stream`, `google-vertex`, and `pi-messages`. PR Agent accepts any non-empty string here; the Pi runtime decides support when the first session starts.
+
+Local server (Ollama). Only `id` is required per model, and the key is a dummy because Ollama ignores it:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false },
+      "models": [{ "id": "llama3.1:8b" }, { "id": "qwen2.5-coder:7b" }]
+    }
+  }
+}
+```
+
+```bash
+PI_PROVIDER=ollama
+PI_MODEL=qwen2.5-coder:7b
+```
+
+Fully specified model (billed proxy with real rates and image input):
+
+```json
+{
+  "providers": {
+    "my-proxy": {
+      "baseUrl": "https://llm.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$MY_PROXY_API_KEY",
+      "authHeader": true,
+      "headers": { "X-Project": "reviews" },
+      "models": [
+        {
+          "id": "internal-model",
+          "name": "Internal Model",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 128000,
+          "maxTokens": 16384,
+          "cost": { "input": 0.15, "output": 0.6, "cacheRead": 0.075, "cacheWrite": 0.1875 }
+        }
+      ]
+    }
+  }
+}
+```
+
+Anthropic-compatible endpoint. Same fields, different `api` shape:
+
+```json
+{
+  "providers": {
+    "anthropic-gateway": {
+      "baseUrl": "https://gateway.example.com/anthropic",
+      "api": "anthropic-messages",
+      "apiKey": "${GATEWAY_API_KEY}",
+      "models": [{ "id": "gateway-model", "contextWindow": 200000, "maxTokens": 8192 }]
+    }
+  }
+}
+```
+
+```bash
+PI_PROVIDER=anthropic-gateway
+PI_MODEL=gateway-model
+GATEWAY_API_KEY=secret
+```
 
 Minimal example (OpenAI-compatible proxy):
 
@@ -189,7 +280,7 @@ PI_MODEL=internal-model
 MY_PROXY_API_KEY=secret
 ```
 
-Strict-subset notes. PR Agent parses a subset of the Pi catalog, and unknown fields throw (`unknown field <section>.<key>`). `oauth`, `modelOverrides`, `thinkingLevelMap`, `samplingParams`, and `promptCache` are not accepted; drop them from the file (model thinking level stays on `PI_THINKING_CEILING`). `apiKey` templates are whole-value only: `$VAR` or `${VAR}`. Inline mixing and shell execution are not supported. The **worker** validates the selection at boot; **web** keeps the env strings without catalog validation. Deliver the file with one of the three paths above (build-context copy, runtime mount on both services, or `MODELS_JSON_PATH`).
+Strict-subset notes. PR Agent parses a subset of the Pi catalog, and unknown fields throw (`unknown field <section>.<key>`). `oauth`, `modelOverrides`, `thinkingLevelMap`, `samplingParams`, and `promptCache` are not accepted; drop them from the file (model thinking level stays on `PI_THINKING_CEILING`). `api` and `baseUrl` live on the provider only; per-model overrides are not accepted. `apiKey` templates are whole-value only: `$VAR` or `${VAR}`. Inline mixing and shell execution are not supported. The **worker** validates the selection at boot; **web** keeps the env strings without catalog validation. Deliver the file with one of the three paths above (build-context copy, runtime mount on both services, or `MODELS_JSON_PATH`).
 
 Verification:
 
