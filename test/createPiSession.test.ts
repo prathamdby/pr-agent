@@ -748,6 +748,39 @@ describe("createPiSession terminal provider outcomes", () => {
     expect(seen?.[0]).toMatchObject({ role: "system", content: "test" });
   });
 
+  it("keeps the system prompt when converting the transcript for the provider", async () => {
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistant("ok", { stopReason: "stop" }),
+      });
+      return [];
+    });
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    await runnerSession.send("question", ASK_SEND_OPTS);
+    const config = runAgentLoop.mock.calls.at(-1)?.[2] as {
+      convertToLlm: (messages: never) => Array<{ role: string }>;
+    };
+    const converted = config.convertToLlm([
+      { role: "system", content: "sys", timestamp: Date.now() },
+      { role: "user", content: "hi", timestamp: Date.now() },
+      makeAssistant("answer", { stopReason: "stop" }),
+      makeToolResult("c1", "readFile"),
+    ] as never);
+    expect(converted.map((message) => message.role)).toEqual([
+      "system",
+      "user",
+      "assistant",
+      "toolResult",
+    ]);
+  });
+
   it("resets provider error state between successive sends", async () => {
     let sendCount = 0;
     runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {

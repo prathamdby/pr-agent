@@ -14,6 +14,7 @@ vi.mock("@earendil-works/pi-agent-core", async (importOriginal) => {
 
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
 import { compactionPolicyForRole } from "../src/agent/runtime/compactionPolicy.js";
+import { compactAgentMessages } from "../src/agent/runtime/transcriptCompaction.js";
 import type { AgentSessionRole } from "../src/agent/runtime/types.js";
 
 describe("compactionPolicyForRole", () => {
@@ -77,5 +78,87 @@ describe("createFeaturePiSession compaction by role", () => {
   it("passes prepareNextTurn for ask", async () => {
     const ask = await sendForRole("ask");
     expect(typeof ask.prepareNextTurn).toBe("function");
+  });
+});
+
+describe("compactAgentMessages overflow", () => {
+  it("keeps the system prompt and normalizes the summary request", async () => {
+    let captured:
+      | {
+          context: { messages: Array<{ role: string }> };
+          options: { cacheRetention?: string };
+        }
+      | undefined;
+    const streamFn = (async (
+      _model: never,
+      context: { messages: Array<{ role: string }> },
+      options: { cacheRetention?: string },
+    ) => {
+      captured = { context, options };
+      return {
+        result: async () => ({
+          stopReason: "stop" as const,
+          content: [{ type: "text" as const, text: "SUMMARY" }],
+        }),
+      };
+    }) as never;
+    const big = "x".repeat(30000);
+    const messages = [
+      { role: "system", content: "session prompt", timestamp: Date.now() },
+      ...[0, 1, 2].map((index) => ({
+        role: "user",
+        content: `q${index} ${big}`,
+        timestamp: Date.now(),
+      })),
+    ] as never;
+    const model = { maxTokens: 100000, contextWindow: 200000 } as never;
+    const compacted = await compactAgentMessages({ messages, model, streamFn });
+    expect(compacted?.[0]).toMatchObject({ role: "system", content: "session prompt" });
+    const summaryMessage = compacted?.[1] as { content?: unknown } | undefined;
+    expect(compacted?.[1]).toMatchObject({ role: "user" });
+    expect(String(summaryMessage?.content)).toContain("SUMMARY");
+    expect(captured?.options?.cacheRetention).toBe("none");
+    expect(captured?.context?.messages[0]).toMatchObject({ role: "system" });
+  });
+});
+
+describe("compactAgentMessages overflow", () => {
+  it("keeps the leading system prompt and normalizes the summary request", async () => {
+    let captured:
+      | {
+          context: { messages: Array<{ role: string }> };
+          options: { cacheRetention?: string };
+        }
+      | undefined;
+    const streamFn = (async (
+      _model: never,
+      context: { messages: Array<{ role: string }> },
+      options: { cacheRetention?: string },
+    ) => {
+      captured = { context, options };
+      return {
+        result: async () => ({
+          stopReason: "stop" as const,
+          content: [{ type: "text" as const, text: "SUMMARY" }],
+        }),
+      };
+    }) as never;
+    const big = "x".repeat(30000);
+    const messages = [
+      { role: "system", content: "session prompt", timestamp: Date.now() },
+      ...[0, 1, 2].map((index) => ({
+        role: "user",
+        content: `q${index} ${big}`,
+        timestamp: Date.now(),
+      })),
+    ] as never;
+    const model = { maxTokens: 100000, contextWindow: 200000 } as never;
+    const compacted = await compactAgentMessages({ messages, model, streamFn });
+    expect(compacted?.[0]).toMatchObject({ role: "system", content: "session prompt" });
+    expect(compacted?.[1]).toMatchObject({ role: "user" });
+    const summaryContent = (compacted?.[1] as { content?: unknown } | undefined)?.content;
+    expect(String(summaryContent)).toContain("SUMMARY");
+    expect(captured?.options?.cacheRetention).toBe("none");
+    expect(captured?.context?.messages[0]).toMatchObject({ role: "system" });
   });
 });
