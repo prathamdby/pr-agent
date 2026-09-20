@@ -145,6 +145,59 @@ Loaded by `loadConfig()` into a redaction-safe map and never logged. Set the sec
 | `ANTHROPIC_API_KEY`            | Anthropic provider                                                                                            |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google provider. If empty, pi-ai also reads `GEMINI_API_KEY` from the process environment. Either name works. |
 
+### Custom model providers
+
+Point `PI_PROVIDER` at a `models.json` key to use an OpenAI-compatible proxy or a local server. Copy [`models.json.example`](../models.json.example) and keep the file operator-side. Never commit a real API key.
+
+Base provider fields (parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)):
+
+| Field        | Required | Notes                                                                                                                              |
+| ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`    | Yes      | Server URL, for example `https://llm.example.com/v1` or `http://localhost:11434/v1`                                                |
+| `api`        | Yes      | Request shape; see known values below                                                                                              |
+| `apiKey`     | Yes      | Plain value, a dummy like `ollama` for keyless local servers, or a whole-value `$VAR` / `${VAR}` template resolved from worker env |
+| `authHeader` | No       | Set `true` when the server expects the key as an `Authorization` header                                                            |
+| `headers`    | No       | Extra per-request headers                                                                                                          |
+| `compat`     | No       | `supportsDeveloperRole` and `supportsReasoningEffort` flags                                                                        |
+| `models`     | Yes      | Non-empty array; see model fields below                                                                                            |
+
+Model fields: `id` is the only required field. Defaults fill the rest: `name` is the id, `reasoning` is `false`, `input` is `["text"]`, `contextWindow` is `128000`, `maxTokens` is `16384`, and `cost` is zeros. `cost` is USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`); use `0` only for free local models.
+
+Provider `api` selects the request shape. Known values include `openai-completions`, `openai-responses`, `anthropic-messages`, `google-generative-ai`, `azure-openai-responses`, `openai-codex-responses`, `mistral-conversations`, `bedrock-converse-stream`, `google-vertex`, and `pi-messages`.
+
+Minimal example (OpenAI-compatible proxy):
+
+```json
+{
+  "providers": {
+    "my-proxy": {
+      "baseUrl": "https://llm.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "$MY_PROXY_API_KEY",
+      "authHeader": true,
+      "models": [{ "id": "internal-model", "contextWindow": 128000, "maxTokens": 16384 }]
+    }
+  }
+}
+```
+
+Required env next to the catalog:
+
+```bash
+PI_PROVIDER=my-proxy
+PI_MODEL=internal-model
+MY_PROXY_API_KEY=secret
+```
+
+Strict-subset notes. PR Agent parses a subset of the Pi catalog, and unknown fields throw (`unknown field <section>.<key>`). `oauth`, `modelOverrides`, `thinkingLevelMap`, `samplingParams`, and `promptCache` are not accepted; drop them from the file (model thinking level stays on `PI_THINKING_CEILING`). `apiKey` templates are whole-value only: `$VAR` or `${VAR}`. Inline mixing and shell execution are not supported. The **worker** validates the selection at boot; **web** keeps the env strings without catalog validation. Deliver the file with one of the three paths above (build-context copy, runtime mount on both services, or `MODELS_JSON_PATH`).
+
+Verification:
+
+1. Recreate the worker so it picks up the catalog and env.
+2. Worker boot passes without a `models_json` or selection error.
+3. Open a small test PR and comment `/ask` as an allowed association. An answer proves the provider serves requests.
+4. `provider.model_not_found` means the `api` shape fell through to a builtin default; check `api` and the model `id`.
+
 ---
 
 Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). A retry disposition decides whether a failed attempt may return to that budget; escalation owns what a retry does. See [ADR 0034](adr/0034-escalated-retries.md).
