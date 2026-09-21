@@ -276,12 +276,18 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         maxRetries: params.cfg.piProviderRetryMax,
         maxRetryDelayMs: params.cfg.piProviderMaxRetryDelayMs,
         ...(thinking === "off" ? {} : { reasoning: thinking }),
-        shouldStopAfterTurn: ({ toolResults }) => {
-          if (opts.maxToolRounds == null) return false;
-          return (
+        // Core calls finishTurn before it emits turn_end, so the turn_end handler has not
+        // counted this round yet; count it here so the budget matches the handler's view.
+        finishTurn: ({ toolResults }) => {
+          if (opts.maxToolRounds == null) return undefined;
+          const roundsAfterThisTurn = sessionToolTurnCount + 1;
+          if (
             toolBudgetStopped ||
-            (toolResults.length > 0 && sessionToolTurnCount >= opts.maxToolRounds)
-          );
+            (toolResults.length > 0 && roundsAfterThisTurn >= opts.maxToolRounds)
+          ) {
+            return { action: "end" };
+          }
+          return undefined;
         },
         beforeToolCall: async ({ assistantMessage, toolCall }) => {
           const calls = assistantMessage.content.filter((part) => part.type === "toolCall");
