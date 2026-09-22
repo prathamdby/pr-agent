@@ -30,7 +30,7 @@ export const FEATURES: FeatureItem[] = [
     summary: "Self-hosted AI PR reviews",
   },
   {
-    title: "Someone opens a pull request",
+    title: "A pull request opens on your project",
     detail:
       "PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.",
     cue: "Starts when a pull request opens",
@@ -59,7 +59,10 @@ export const FEATURES: FeatureItem[] = [
   },
 ];
 
+export type CapabilityId = "review" | "describe" | "ask" | "verify" | "triage" | "docs-only";
+
 type CapabilityItem = {
+  id: CapabilityId;
   title: string;
   trigger: string;
   detail: string;
@@ -67,34 +70,40 @@ type CapabilityItem = {
 
 export const CAPABILITIES: CapabilityItem[] = [
   {
+    id: "review",
     title: "Catch basics before a human opens the change",
     trigger: "Runs when a pull request opens, or when you comment /review",
     detail: "Comments land next to the lines that need attention.",
   },
   {
+    id: "describe",
     title: "Turn a blank PR body into a readable summary",
     trigger: "Runs when a pull request opens, or when you comment /describe",
     detail:
       "Summary bullets and optional visual sketches go into the PR body when the diff proves them.",
   },
   {
+    id: "ask",
     title: "Ask code questions without leaving GitHub",
     trigger: "Comment /ask … or mention the GitHub App bot with your question",
     detail: "The word @bot only matches if you named the App that. /ask does not need a mention.",
   },
   {
+    id: "verify",
     title: "Recheck open findings after each push",
     trigger: "Runs after each new push when that option is left on, or when you comment /verify",
     detail:
       "The default setting uses tokens on every push. Switch it to on-demand if the bill is too high.",
   },
   {
+    id: "triage",
     title: "Revisit earlier findings on the pull request",
     trigger: "Comment /triage, or /triage preview then /triage all, on the pull request",
     detail:
       "Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.",
   },
   {
+    id: "docs-only",
     title: "Skip AI review when the PR is only docs",
     trigger: "Runs automatically on small documentation-only changes",
     detail: "Docs-only pull requests take a lighter path instead of a full review.",
@@ -111,19 +120,17 @@ export const PRICING_PLANS: PricingPlan[] = [
   {
     title: "Software is free",
     price: "$0 from PR Agent",
-    detail: "No credit card. No per-seat fee. Open source under MIT.",
+    detail: "No credit card, no per-seat fee, and the whole thing is open source under MIT.",
   },
   {
     title: "You pay your own vendors",
     price: "Hosting and AI usage only",
-    detail:
-      "Cover your server, database, and model bills. Add more developers without raising your PR Agent bill.",
+    detail: "You cover the server, database, and model bills. Extra developers cost nothing.",
   },
   {
     title: "You own the full stack",
     price: "Your security rules apply",
-    detail:
-      "Run it inside your network, choose your AI provider, and keep review traffic under your policies.",
+    detail: "Run it inside your network, pick your provider, and keep traffic under your rules.",
   },
 ];
 
@@ -154,7 +161,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Is PR Agent a self-hosted alternative to CodeRabbit?",
     answer:
-      "Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit's hosted product, PR Agent runs on your servers with your credentials and your AI keys.",
+      "Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.",
   },
   {
     question: "How does PR Agent compare to Greptile?",
@@ -193,7 +200,11 @@ export const FAQ_ITEMS: FaqItem[] = [
   },
 ];
 
+/** One id per compared tool. Marks in `components/brand-logos.tsx` are keyed by it. */
+export type AlternativeId = "pr-agent" | "coderabbit" | "greptile" | "cursor" | "macroscope";
+
 type AlternativeRow = {
+  id: AlternativeId;
   name: string;
   deployment: string;
   differentiator: string;
@@ -201,36 +212,138 @@ type AlternativeRow = {
 
 export const ALTERNATIVE_ROWS: AlternativeRow[] = [
   {
+    id: "pr-agent",
     name: "PR Agent",
     deployment: "Self-hosted, MIT-licensed",
     differentiator: "You run the reviewer, hold the model keys, and choose the model provider.",
   },
   {
+    id: "coderabbit",
     name: "CodeRabbit",
     deployment: "Cloud SaaS (self-host enterprise)",
     differentiator: "Hosted reviewer with subscription pricing and a managed data path.",
   },
   {
+    id: "greptile",
     name: "Greptile",
     deployment: "Cloud SaaS (self-host option)",
     differentiator: "Managed full-repo indexing for cross-file context.",
   },
   {
+    id: "cursor",
     name: "Cursor Bugbot",
     deployment: "Cloud (Cursor ecosystem)",
     differentiator: "Bug-focused review tied to the Cursor ecosystem.",
   },
   {
+    id: "macroscope",
     name: "Macroscope",
     deployment: "Cloud SaaS",
     differentiator: "Hosted GitHub PR review with a managed pipeline.",
   },
 ];
 
+export type ComparisonMark = "yes" | "partial" | "no";
+
+type ComparisonCriterion = {
+  readonly label: string;
+  /** One mark per compared tool. Adding a tool to `ALTERNATIVE_ROWS` forces a mark here. */
+  readonly marks: Readonly<Record<AlternativeId, ComparisonMark>>;
+};
+
+/**
+ * Feature matrix behind the comparison table. Vendor claims come from each product's public
+ * pages; a hosted reviewer with a self-host tier counts as partial for the ownership rows.
+ */
+export const COMPARISON_CRITERIA: readonly ComparisonCriterion[] = [
+  {
+    label: "Runs on your servers",
+    marks: {
+      "pr-agent": "yes",
+      coderabbit: "partial",
+      greptile: "partial",
+      cursor: "no",
+      macroscope: "no",
+    },
+  },
+  {
+    label: "Open source, MIT",
+    marks: { "pr-agent": "yes", coderabbit: "no", greptile: "no", cursor: "no", macroscope: "no" },
+  },
+  {
+    label: "No per-seat fee",
+    marks: { "pr-agent": "yes", coderabbit: "no", greptile: "no", cursor: "no", macroscope: "yes" },
+  },
+  {
+    label: "Bring your own model keys",
+    marks: { "pr-agent": "yes", coderabbit: "no", greptile: "no", cursor: "no", macroscope: "no" },
+  },
+  {
+    label: "Choose the model provider",
+    marks: { "pr-agent": "yes", coderabbit: "no", greptile: "no", cursor: "no", macroscope: "no" },
+  },
+  {
+    label: "Review data stays in your account",
+    marks: {
+      "pr-agent": "yes",
+      coderabbit: "partial",
+      greptile: "partial",
+      cursor: "no",
+      macroscope: "no",
+    },
+  },
+  {
+    label: "Reviews GitHub pull requests",
+    marks: {
+      "pr-agent": "yes",
+      coderabbit: "yes",
+      greptile: "yes",
+      cursor: "yes",
+      macroscope: "yes",
+    },
+  },
+  {
+    label: "Whole-repository index",
+    marks: {
+      "pr-agent": "partial",
+      coderabbit: "yes",
+      greptile: "yes",
+      cursor: "partial",
+      macroscope: "yes",
+    },
+  },
+  {
+    label: "PR description, ask, and fix commands",
+    marks: {
+      "pr-agent": "yes",
+      coderabbit: "yes",
+      greptile: "partial",
+      cursor: "no",
+      macroscope: "partial",
+    },
+  },
+];
+
+/** Plain-text form of a mark for the markdown page and llms.txt. */
+export function comparisonMarkLabel(mark: ComparisonMark): string {
+  switch (mark) {
+    case "yes":
+      return "Yes";
+    case "partial":
+      return "Partial";
+    case "no":
+      return "No";
+    default: {
+      const _exhaustive: never = mark;
+      return _exhaustive;
+    }
+  }
+}
+
 export const QUICKSTART_HEADING = "Installation";
 
 export const QUICKSTART_INTRO =
-  "Three steps from a fresh machine to a review on a real pull request. You need Docker, a GitHub App, and one AI provider key. GitHub must reach your host over HTTPS, or you run a tunnel on a laptop. A VPS panel such as Dokploy or Coolify can supply the domain and the certificate.";
+  "You need Docker, a GitHub App, and one AI provider key. GitHub must reach your host over HTTPS.";
 
 type QuickstartStep = {
   n: string;
@@ -294,7 +407,8 @@ export const SLASH_COMMANDS = [
 ] as const;
 
 export const COMPOSE_SNIPPET = `cp .env.example .env
-# Fill a real one-line GitHub App PEM, WEBHOOK_SECRET, and your provider key
+# Fill a real one-line GitHub App PEM, WEBHOOK_SECRET,
+# and your provider key
 docker compose build
 docker compose up -d`;
 

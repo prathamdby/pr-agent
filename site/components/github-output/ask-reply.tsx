@@ -1,23 +1,28 @@
-import { OutputFrame } from "@/components/github-output/primitives";
+import { GhComment, GhLabel } from "@/components/github-output/primitives";
 
-/** PR-conversation ask reply from `formatAskReply` (Question / Answer chrome). */
+/** Pull request conversation reply from `formatAskReply`: Question, then Answer. */
 export function AskReplyMock() {
   return (
-    <OutputFrame surface="PR conversation reply">
-      <div className="space-y-3 text-xs leading-relaxed sm:text-sm">
-        <p className="text-ink-soft">
-          <span className="font-semibold text-ink">Question:</span> Why is the retry wrapper needed
+    <GhComment surface="Pull request conversation reply" frame="window">
+      <div className="space-y-3 text-[13px] leading-relaxed">
+        <p className="text-text-secondary">
+          <span className="font-semibold text-text">Question:</span> Why is the retry wrapper needed
           around the webhook dispatcher?
         </p>
         <div>
-          <p className="font-semibold text-ink">Answer:</p>
-          <p className="mt-1.5 text-ink-mute">
+          <GhLabel>Answer:</GhLabel>
+          <p className="mt-1.5 text-text-secondary">
             Transient GitHub 502s were dropping webhook deliveries before durable intake completed.
             The retry wrapper keeps the delivery alive long enough for the Postgres write and
             acknowledgement reaction to finish, then the worker picks up the agent work item.
           </p>
+          <p className="mt-2 text-text-secondary">
+            Without it, a delivery that failed on the first attempt was gone for good. GitHub does
+            not redeliver on its own, so the pull request stayed quiet even though the webhook had
+            been accepted.
+          </p>
         </div>
       </div>
-    </OutputFrame>
+    </GhComment>
   );
 }

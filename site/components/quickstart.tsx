@@ -1,4 +1,8 @@
-import { Section } from "@/components/section";
+import type { ReactNode } from "react";
+import { ButtonLink } from "@/components/button";
+import { CodeBlock } from "@/components/code-block";
+import { ArrowUpRight } from "@/components/icons";
+import { Section, SectionHeading } from "@/components/section";
 import {
   APP_FIELDS,
   COMPOSE_SNIPPET,
@@ -12,118 +16,108 @@ import { DOCS_URL } from "@/lib/site";
 
 const [STEP_ONE, STEP_TWO, STEP_THREE] = QUICKSTART_STEPS;
 
-function StepNumber({ n }: { readonly n: string }) {
-  return (
-    <p
-      aria-hidden="true"
-      className="font-display text-[clamp(2.5rem,5vw,3.5rem)] leading-none tracking-[-0.03em] text-sky/45"
-    >
-      {n}
-    </p>
-  );
-}
+type StepProps = {
+  readonly n: string;
+  readonly title: string;
+  readonly body: string;
+  readonly children: ReactNode;
+};
 
-function CodeBlock({ children }: { readonly children: string }) {
+function Step({ n, title, body, children }: StepProps) {
   return (
-    <pre className="surface-inset edge-self mt-5 overflow-x-auto rounded-md p-4 text-sm leading-relaxed text-ink-soft sm:p-5">
-      <code>{children}</code>
-    </pre>
+    <li className="grid gap-6 rounded-lg bg-surface p-6 shadow-card sm:p-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-12">
+      <div>
+        <p className="tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold whitespace-nowrap text-accent-text">
+          Step {n}
+        </p>
+        <h3 className="mt-4 text-xl font-medium tracking-[-0.015em] text-text">{title}</h3>
+        <p className="mt-3 text-[15px] leading-relaxed text-text-secondary">{body}</p>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </li>
   );
 }
 
 export function Quickstart() {
   return (
-    <Section id="usage" labelledBy="usage-heading" raised>
-      <header className="max-w-2xl">
-        <h2
-          id="usage-heading"
-          className="font-display text-[clamp(2.1rem,4.2vw,3.25rem)] leading-[1.05] tracking-[-0.02em] text-ink"
-        >
-          {QUICKSTART_HEADING}
-        </h2>
-        <p className="mt-4 text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
-          {QUICKSTART_INTRO}
-        </p>
-      </header>
+    <Section id="usage" labelledBy="usage-heading">
+      <SectionHeading
+        id="usage-heading"
+        eyebrow={QUICKSTART_HEADING}
+        title="Three steps from a fresh machine to a review"
+        description={QUICKSTART_INTRO}
+        action={
+          <ButtonLink
+            href={DOCS_URL}
+            external
+            variant="secondary"
+            trailingIcon={<ArrowUpRight className="size-4 text-text-tertiary" />}
+          >
+            Open the README
+          </ButtonLink>
+        }
+      />
 
-      <ol className="mt-12 border-t border-edge">
-        <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
-          <StepNumber n={STEP_ONE.n} />
-          <div className="min-w-0 max-w-2xl">
-            <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
-              {STEP_ONE.title}
-            </h3>
-            <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-              {STEP_ONE.body}
-            </p>
-            <dl className="mt-6 space-y-4">
-              {APP_FIELDS.map((field) => (
-                <div key={field.label}>
-                  <dt className="text-xs font-medium text-ink-faint">{field.label}</dt>
-                  <dd
-                    className={
-                      field.mono
-                        ? "mt-1 font-mono text-sm text-bolt"
-                        : "mt-1 text-sm leading-relaxed text-ink-soft"
-                    }
-                  >
-                    {field.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            <p className="mt-5 text-sm leading-relaxed text-ink-faint">
-              Full steps are in{" "}
-              <a
-                href={DOCS_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-ink-soft underline decoration-edge-strong hover:text-ink"
+      <ol className="mt-10 space-y-4 sm:mt-12">
+        <Step n={STEP_ONE.n} title={STEP_ONE.title} body={STEP_ONE.body}>
+          <dl className="divide-y divide-line rounded-md bg-surface-raised px-5 shadow-ring">
+            {APP_FIELDS.map((field) => (
+              <div
+                key={field.label}
+                className="grid gap-1 py-4 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-4"
               >
-                README Installation
-              </a>
-              .
-            </p>
-          </div>
-        </li>
-
-        <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
-          <StepNumber n={STEP_TWO.n} />
-          <div className="min-w-0 max-w-2xl">
-            <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
-              {STEP_TWO.title}
-            </h3>
-            <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-              {STEP_TWO.body}
-            </p>
-            <CodeBlock>{COMPOSE_SNIPPET}</CodeBlock>
-            <p className="mt-6 text-xs font-medium text-ink-faint">Minimum keys to set</p>
-            <CodeBlock>{ENV_SNIPPET}</CodeBlock>
-          </div>
-        </li>
-
-        <li className="grid gap-3 py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
-          <StepNumber n={STEP_THREE.n} />
-          <div className="min-w-0 max-w-2xl">
-            <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
-              {STEP_THREE.title}
-            </h3>
-            <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-              {STEP_THREE.body}
-            </p>
-            <ul className="surface-inset edge-self mt-5 divide-y divide-edge rounded-md">
-              {SLASH_COMMANDS.map((item) => (
-                <li
-                  key={item.cmd}
-                  className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-4 sm:px-5"
+                <dt className="text-xs font-medium text-text-tertiary sm:pt-0.5">{field.label}</dt>
+                <dd
+                  className={
+                    field.mono
+                      ? "font-mono text-sm break-words text-accent-text"
+                      : "text-sm leading-relaxed text-text-secondary"
+                  }
                 >
-                  <code className="shrink-0 font-mono text-sm text-bolt">{item.cmd}</code>
-                  <span className="text-sm leading-relaxed text-ink-mute">{item.tip}</span>
-                </li>
-              ))}
-            </ul>
+                  {field.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-4 text-sm text-text-tertiary">
+            Full steps are in{" "}
+            <a
+              href={DOCS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-text-secondary underline decoration-line transition-colors duration-150 hover:text-text"
+            >
+              README Installation
+            </a>
+            .
+          </p>
+        </Step>
+
+        <Step n={STEP_TWO.n} title={STEP_TWO.title} body={STEP_TWO.body}>
+          <div className="space-y-4">
+            <CodeBlock label="Terminal" code={COMPOSE_SNIPPET} language="bash" />
+            <div>
+              <p className="mb-2 text-xs font-medium text-text-tertiary">Minimum keys to set</p>
+              <CodeBlock label=".env" code={ENV_SNIPPET} language="dotenv" />
+            </div>
           </div>
-        </li>
+        </Step>
+
+        <Step n={STEP_THREE.n} title={STEP_THREE.title} body={STEP_THREE.body}>
+          <ul className="divide-y divide-line rounded-md bg-surface-raised px-5 shadow-ring">
+            {SLASH_COMMANDS.map((item) => (
+              <li
+                key={item.cmd}
+                className="flex flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:gap-4"
+              >
+                <code className="shrink-0 font-mono text-sm text-accent-text">{item.cmd}</code>
+                <span className="text-sm leading-relaxed text-pretty text-text-secondary">
+                  {item.tip}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Step>
       </ol>
     </Section>
   );

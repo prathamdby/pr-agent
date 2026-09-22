@@ -1,103 +1,85 @@
-import { DiffField } from "@/components/diff-field";
-import { OutboundArrow } from "@/components/icons";
-import { ReviewArtifact } from "@/components/review-artifact";
+import { ButtonLink } from "@/components/button";
+import { CopyButton } from "@/components/copy-button";
+import { ArrowUpRight, ChevronRight, Star } from "@/components/icons";
+import { PrWindow } from "@/components/pr-window";
+import { ClaudeMark, GeminiMark, OpenAiMark } from "@/components/provider-logos";
+import { renderSetupPrompt } from "@/lib/agentResources";
 import { HERO_CTA_NOTE, HERO_HEADING, HERO_SUPPORT } from "@/lib/content";
-import { DOCS_URL } from "@/lib/site";
-import { PRODUCT_NAME } from "@/lib/seo";
+import { REPO_URL } from "@/lib/site";
 
-const heroCopyClassName =
-  "max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft";
+/*
+  The shared heading reads "PR Agent: AI PR reviews on your own servers" so the markdown page and
+  search results carry the name. On screen the name is in the header already, so only the tagline
+  is visible and the brand stays in the heading for assistive tech.
+*/
+const SEPARATOR = ": ";
+const SPLIT = HERO_HEADING.indexOf(SEPARATOR);
+const HERO_BRAND = HERO_HEADING.slice(0, SPLIT);
+const HERO_TAGLINE = HERO_HEADING.slice(SPLIT + SEPARATOR.length);
 
-function HeroCopy() {
+const SETUP_PROMPT = renderSetupPrompt();
+
+/** Three marks stand in for "any AI tool" on the copy-prompt button. */
+function AssistantMarks() {
   return (
-    <>
-      <p className={heroCopyClassName} aria-hidden="true">
-        AI PR reviews on <span className="text-bolt">your own servers</span>
-      </p>
-      <p className="mt-3 max-w-[42ch] text-sm leading-relaxed text-ink-mute sm:text-base">
-        {HERO_SUPPORT}
-      </p>
-    </>
-  );
-}
-
-function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
-  return (
-    <div className={align === "end" ? "text-right" : undefined}>
-      <a
-        href={DOCS_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="group inline-flex items-center gap-2 rounded-md bg-ink px-5 py-3 text-sm font-medium text-navy transition-colors hover:bg-bolt hover:text-navy"
-      >
-        Deploy from the README
-        <OutboundArrow className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-      </a>
-      <p className="mt-3 text-xs text-ink-faint">{HERO_CTA_NOTE}</p>
-    </div>
+    <span className="flex items-center gap-1 text-text-secondary" aria-hidden="true">
+      <OpenAiMark className="size-3.5" />
+      <ClaudeMark className="size-3.5" />
+      <GeminiMark className="size-3.5" />
+    </span>
   );
 }
 
 export function Hero() {
   return (
-    <section aria-labelledby="hero-heading" className="grain relative overflow-x-hidden">
-      <h1 id="hero-heading" className="sr-only">
-        {HERO_HEADING}
-      </h1>
-      <DiffField />
-
-      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-10 pt-28 sm:px-6 sm:pb-12 sm:pt-32 md:pb-14 lg:hidden">
-        <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] md:gap-8">
-          <p className="min-w-0 font-display text-[clamp(3.25rem,14vw,5.5rem)] leading-[0.85] tracking-[-0.03em] text-ink md:text-[clamp(3.5rem,7vw,5.5rem)]">
-            {PRODUCT_NAME}
-          </p>
-          <div className="min-w-0 w-full max-w-sm max-h-[14rem] overflow-hidden md:max-h-none md:max-w-none">
-            <div
-              className="[mask-image:linear-gradient(to_bottom,black_0%,black_70%,transparent_100%)]"
-              style={{
-                WebkitMaskImage:
-                  "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)",
-              }}
+    <section aria-labelledby="hero-heading" className="pt-10 pb-16 sm:pt-16 lg:pt-20 lg:pb-20">
+      <div className="container-x grid items-center gap-12 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-10">
+        <div className="max-w-xl">
+          <div className="motion-safe:animate-rise">
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-[13px] whitespace-nowrap text-text-secondary shadow-soft transition-[color,scale] duration-[150ms,200ms] ease-out hover:text-text active:scale-[0.97] motion-reduce:transition-none"
             >
-              <ReviewArtifact />
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-8 border-t border-edge pt-7 md:mt-10 md:grid md:grid-cols-[minmax(0,1.4fr)_auto] md:items-end md:gap-8 md:pt-8">
-          <div className="min-w-0">
-            <HeroCopy />
-          </div>
-          <div className="mt-6 min-w-0 md:mt-0 md:justify-self-end md:text-right">
-            <HeroCta />
-          </div>
-        </div>
-      </div>
-
-      <div className="relative z-10 mx-auto hidden min-h-[100svh] w-full max-w-6xl flex-col px-6 pb-16 pt-32 lg:flex">
-        <div className="relative min-h-[22rem] flex-1">
-          <p className="relative z-20 max-w-[10ch] font-display text-[clamp(4.5rem,10vw,9rem)] leading-[0.85] tracking-[-0.03em] text-ink">
-            {PRODUCT_NAME}
-          </p>
-          <div className="absolute bottom-2 right-0 z-10 w-[min(44%,24rem)]">
-            <div
-              className="[mask-image:linear-gradient(to_bottom,black_0%,black_72%,transparent_100%)]"
-              style={{
-                WebkitMaskImage:
-                  "linear-gradient(to bottom, black 0%, black 72%, transparent 100%)",
-              }}
+              <span className="grid size-5 place-items-center rounded-full bg-accent-soft text-accent-text">
+                <Star className="size-3" />
+              </span>
+              Star PR Agent on GitHub
+              <ArrowUpRight className="size-3.5 text-text-tertiary" />
+            </a>
+            <h1
+              id="hero-heading"
+              className="mt-6 text-[clamp(2.5rem,5.6vw,4.25rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text"
             >
-              <ReviewArtifact />
+              <span className="sr-only">{HERO_BRAND}: </span>
+              {HERO_TAGLINE}
+            </h1>
+          </div>
+
+          <div className="motion-safe:animate-rise motion-safe:[animation-delay:90ms]">
+            <p className="mt-6 max-w-[46ch] text-base leading-relaxed text-text-secondary sm:text-lg">
+              {HERO_SUPPORT}
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <ButtonLink href="#usage" trailingIcon={<ChevronRight className="size-4" />}>
+                Deploy yourself
+              </ButtonLink>
+              <CopyButton
+                text={SETUP_PROMPT}
+                label="Copy prompt"
+                variant="secondary"
+                iconAfter
+                prefix={<AssistantMarks />}
+              />
             </div>
+            <p className="mt-4 text-[13px] text-text-tertiary">{HERO_CTA_NOTE}</p>
           </div>
         </div>
 
-        <div className="mt-auto grid grid-cols-[minmax(0,1.4fr)_auto] items-end gap-8 border-t border-edge pt-8">
-          <div className="min-w-0">
-            <HeroCopy />
-          </div>
-          <div className="min-w-0 justify-self-end">
-            <HeroCta align="end" />
+        <div className="wash wash-grid aspect-[4/3] w-full rounded-xl shadow-soft motion-safe:animate-rise motion-safe:[animation-delay:180ms] sm:aspect-[5/4] lg:aspect-auto lg:h-[36rem]">
+          <div className="absolute inset-x-5 top-5 sm:inset-x-8 sm:top-8 lg:top-12 lg:right-auto lg:left-12 lg:w-[34rem]">
+            <PrWindow />
           </div>
         </div>
       </div>

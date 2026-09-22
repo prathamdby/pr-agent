@@ -4,6 +4,7 @@ import {
   ALTERNATIVE_ROWS,
   APP_FIELDS,
   CAPABILITIES,
+  COMPARISON_CRITERIA,
   COMPOSE_SNIPPET,
   ENV_SNIPPET,
   FAQ_ITEMS,
@@ -19,6 +20,7 @@ import {
   QUICKSTART_INTRO,
   QUICKSTART_STEPS,
   SLASH_COMMANDS,
+  comparisonMarkLabel,
   pickSnippet,
 } from "./content.js";
 import { sanitizeQueryRaw } from "./llmsKnowledge.js";
@@ -39,11 +41,23 @@ function fence(language: string, body: string): string {
 }
 
 function alternativesTable(): string {
-  return bullets([
-    "| Tool | Deployment | Difference |",
-    "| --- | --- | --- |",
-    ...ALTERNATIVE_ROWS.map((row) => `| ${row.name} | ${row.deployment} | ${row.differentiator} |`),
-  ]);
+  return block(
+    bullets([
+      "| Tool | Deployment | Difference |",
+      "| --- | --- | --- |",
+      ...ALTERNATIVE_ROWS.map(
+        (row) => `| ${row.name} | ${row.deployment} | ${row.differentiator} |`,
+      ),
+    ]),
+    bullets([
+      `| Criteria | ${ALTERNATIVE_ROWS.map((row) => row.name).join(" | ")} |`,
+      `| --- | ${ALTERNATIVE_ROWS.map(() => "---").join(" | ")} |`,
+      ...COMPARISON_CRITERIA.map(
+        (criterion) =>
+          `| ${criterion.label} | ${ALTERNATIVE_ROWS.map((row) => comparisonMarkLabel(criterion.marks[row.id])).join(" | ")} |`,
+      ),
+    ]),
+  );
 }
 
 function quickstartSteps(): string {

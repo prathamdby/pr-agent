@@ -1,6 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { NotFound } from "@/components/not-found";
 import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE, resourceUrl } from "@/lib/agentResources";
+import { HERO_HEADING } from "@/lib/content";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
 import appCss from "./globals.css?url";
@@ -25,6 +26,10 @@ export const Route = createRootRoute({
       {
         name: "application-name",
         content: PRODUCT_NAME,
+      },
+      {
+        name: "theme-color",
+        content: "#ffffff",
       },
       {
         name: "robots",
@@ -68,7 +73,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:image:alt",
-        content: `${PRODUCT_NAME} - AI PR reviews on your own servers`,
+        content: HERO_HEADING,
       },
       {
         name: "twitter:card",
@@ -88,6 +93,13 @@ export const Route = createRootRoute({
       },
     ],
     links: [
+      {
+        rel: "preload",
+        href: "/fonts/Geist-Variable.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
       {
         rel: "stylesheet",
         href: appCss,
@@ -135,11 +147,13 @@ function RootLayout() {
         />
         <script defer src="/_vercel/insights/script.js" />
       </head>
-      <body className="bg-navy text-ink min-h-screen overflow-x-hidden">
+      <body className="min-h-svh bg-bg text-text">
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>
-        <Outlet />
+        <div className="page-frame">
+          <Outlet />
+        </div>
         <Scripts />
       </body>
     </html>
