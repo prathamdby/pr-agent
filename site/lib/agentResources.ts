@@ -70,7 +70,7 @@ const KNOWLEDGE_QUERY_JSON: AgentResource = {
   inSitemap: false,
 };
 
-const OPENAPI_DOCUMENT: AgentResource = {
+export const OPENAPI_DOCUMENT: AgentResource = {
   path: "/openapi.json",
   title: "PR Agent site OpenAPI description",
   mediaType: "application/json",
@@ -171,4 +171,32 @@ export const DOC_LINKS: readonly DocLink[] = [
 
 export function renderDocLinks(): string {
   return DOC_LINKS.map((doc) => `- [${doc.title}](${doc.url}): ${doc.description}`).join("\n");
+}
+
+/** The resources an assistant should read before helping someone install PR Agent, in reading order. */
+const SETUP_PROMPT_RESOURCES: readonly AgentResource[] = [
+  LLMS_TXT_PROFILE,
+  AGENT_INSTRUCTIONS,
+  LANDING_PAGE_MARKDOWN,
+  KNOWLEDGE_QUERY_TEXT,
+  OPENAPI_DOCUMENT,
+];
+
+/**
+ * Prompt behind the hero's "Copy prompt" button: paste it into any AI tool and that tool has every
+ * machine-readable surface this site publishes, plus the job it is being asked to do.
+ */
+export function renderSetupPrompt(): string {
+  const links = SETUP_PROMPT_RESOURCES.map(
+    (resource) => `- ${resource.title}: ${resourceUrl(resource)}`,
+  );
+  return [
+    "I want to set up PR Agent, a self-hosted GitHub App that reviews pull requests with AI. It is MIT licensed, runs on my own servers with my own model keys, and has no per-seat fee.",
+    "",
+    "Read these before you answer, and fetch them again whenever you need a detail:",
+    ...links,
+    `- Source and README: ${REPO_URL}`,
+    "",
+    "Then help me: explain what PR Agent does in a few sentences, ask which model provider and host I plan to use, and walk me through creating the GitHub App, filling .env, and starting the stack with Docker Compose. Answer my follow-up questions from those resources rather than from memory.",
+  ].join("\n");
 }

@@ -32,7 +32,7 @@ Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.p
 
 ## Landing site
 
-The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot.
+The marketing site (`site/`, package `pr-agent-landing`) is a separate workspace package. It is not required to run the bot. Its visual system, tokens, and component recipes are documented in [`site/DESIGN.md`](../site/DESIGN.md); read it before changing the page's look.
 
 Agent-facing copy lives in [`site/lib/llmsKnowledge.ts`](../site/lib/llmsKnowledge.ts). The human page stays a short overview, but its App event list, permissions, and `/triage` tips must match [README.md](../README.md) and that profile. Agents read `/llms.txt`, `GET /llms?query=`, and `GET /llms/json?query=`.
 

@@ -2,11 +2,13 @@ import { renderDocLinks, renderResourceLinks } from "./agentResources.js";
 import {
   ALTERNATIVE_ROWS,
   CAPABILITIES,
+  COMPARISON_CRITERIA,
   FAQ_ITEMS,
   FEATURES,
   FETCH_MARKDOWN_LANGUAGES,
   PRICING_PLANS,
   PROVIDERS,
+  comparisonMarkLabel,
 } from "./content.js";
 import { DOCS_URL, LICENSE_URL, REPO_URL } from "./site.js";
 
@@ -290,10 +292,25 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
   {
     id: "alternatives",
     title: "Compared to hosted reviewers",
-    terms: ["alternative", "coderabbit", "greptile", "bugbot", "macroscope", "compare", "vs"],
-    body: lines(
-      ALTERNATIVE_ROWS.map((row) => `${row.name}: ${row.deployment}. ${row.differentiator}`),
-    ),
+    terms: [
+      "alternative",
+      "coderabbit",
+      "greptile",
+      "bugbot",
+      "macroscope",
+      "compare",
+      "comparison",
+      "matrix",
+      "vs",
+    ],
+    body: lines([
+      ...ALTERNATIVE_ROWS.map((row) => `${row.name}: ${row.deployment}. ${row.differentiator}`),
+      "Feature matrix. Each criterion lists every tool with Yes, Partial, or No:",
+      ...COMPARISON_CRITERIA.map(
+        (criterion) =>
+          `- ${criterion.label}: ${ALTERNATIVE_ROWS.map((row) => `${row.name} ${comparisonMarkLabel(criterion.marks[row.id])}`).join(", ")}`,
+      ),
+    ]),
   },
   {
     id: "faq",

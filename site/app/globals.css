@@ -1,86 +1,189 @@
 @import "tailwindcss";
 
 @font-face {
-  font-family: "Gambarino";
-  src: url("/fonts/Gambarino-Regular.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Geist";
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
 
 /*
-  Palette sampled from site/assets/logo-source.png:
-  sky #339bfd, royal #1e69e9, bolt #fdb631, white marks.
-  Page surfaces deepen the royal blue (not slate-indigo).
+  Primitives. Raw values only. Nothing outside the @theme block below reads them, so components
+  can only reach a colour through the purpose it serves.
+  Blues are sampled from site/assets/logo-source.png: sky #339bfd, royal #1e69e9.
 */
-@theme {
-  --font-display: "Gambarino", ui-serif, Georgia, serif;
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+:root {
+  --palette-white: #ffffff;
+  --palette-gray-50: #f6f7f9;
+  --palette-gray-100: #eef0f3;
+  --palette-gray-200: #e3e6eb;
+  --palette-gray-500: #7f8a9c;
+  --palette-gray-700: #4a5568;
+  --palette-gray-950: #0f1522;
+  --palette-blue-50: #edf5ff;
+  --palette-blue-100: #d9eafe;
+  --palette-blue-200: #b9dcfc;
+  --palette-blue-500: #339bfd;
+  --palette-blue-600: #1e69e9;
+  --palette-blue-700: #1858cc;
+  --palette-green-100: #dcf7e3;
+  --palette-green-700: #1a7f37;
+  --palette-red-100: #ffe9e6;
+  --palette-red-700: #c9262f;
+  --palette-amber-100: #fff1cf;
+  --palette-amber-700: #9a6700;
+}
 
-  --color-navy: #0a1630;
-  --color-navy-raised: #101f3d;
-  --color-navy-panel: #162850;
-  --color-navy-inset: #0d1a36;
-  --color-ink: #f2f6fc;
-  --color-ink-soft: #c8d5ec;
-  --color-ink-mute: #8fa3c4;
-  --color-ink-faint: #5e7399;
-  --color-sky: #339bfd;
-  --color-royal: #1e69e9;
-  --color-bolt: #fdb631;
-  --color-bolt-deep: #e09a1a;
-  --color-edge: color-mix(in srgb, var(--color-ink) 12%, transparent);
-  --color-edge-strong: color-mix(in srgb, var(--color-ink) 22%, transparent);
+@theme {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Drop the stock palette so only the semantic tokens below become utilities. */
+  --color-*: initial;
+
+  /* Surfaces */
+  --color-bg: var(--palette-gray-50);
+  --color-surface: var(--palette-white);
+  --color-surface-raised: var(--palette-gray-50);
+  --color-surface-hover: var(--palette-gray-100);
+  --color-line: var(--palette-gray-200);
+
+  /* Text */
+  --color-text: var(--palette-gray-950);
+  --color-text-secondary: var(--palette-gray-700);
+  --color-text-tertiary: var(--palette-gray-500);
+
+  /* Brand accent */
+  --color-accent-solid: var(--palette-blue-600);
+  --color-accent-hover: var(--palette-blue-700);
+  --color-accent-text: var(--palette-blue-700);
+  --color-accent-soft: var(--palette-blue-50);
+  --color-accent-bright: var(--palette-blue-500);
+  --color-on-accent: var(--palette-white);
+
+  /* Blue wash behind product mock-ups and the closing banner */
+  --color-wash-strong: var(--palette-blue-200);
+  --color-wash-soft: var(--palette-blue-50);
+  --color-wash-mid: var(--palette-blue-100);
+
+  /* Status colours inside the GitHub mock-ups; each is paired with an icon or label */
+  --color-success: var(--palette-green-700);
+  --color-success-soft: var(--palette-green-100);
+  --color-danger: var(--palette-red-700);
+  --color-danger-soft: var(--palette-red-100);
+  --color-warning: var(--palette-amber-700);
+  --color-warning-soft: var(--palette-amber-100);
+
+  --color-focus: var(--palette-blue-500);
+
+  /*
+    Radii compose concentrically: an element nested with 4px of padding steps down one size
+    (xl 20 → lg 16 → md 12 → sm 8), and one with 2px of padding steps sm 8 → xs 6.
+  */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+
+  /*
+    Depth comes from layered shadows. Each layer doubles its distance at a low alpha, so the edge
+    stays crisp while the falloff is long and soft, the way light from above actually behaves. The
+    first layer is a hairline that stands in for a border.
+  */
+  --shadow-ring: 0 0 0 1px rgb(15 21 34 / 0.07);
+  --shadow-soft:
+    0 0 0 1px rgb(15 21 34 / 0.05), 0 1px 1px rgb(15 21 34 / 0.03), 0 2px 2px rgb(15 21 34 / 0.03),
+    0 4px 4px rgb(15 21 34 / 0.03), 0 8px 8px rgb(15 21 34 / 0.03);
+  --shadow-card:
+    0 0 0 1px rgb(15 21 34 / 0.05), 0 1px 1px rgb(15 21 34 / 0.03), 0 2px 2px rgb(15 21 34 / 0.03),
+    0 4px 4px rgb(15 21 34 / 0.03), 0 8px 8px rgb(15 21 34 / 0.03),
+    0 16px 16px rgb(15 21 34 / 0.03), 0 32px 32px rgb(15 21 34 / 0.03);
+  --shadow-float:
+    0 0 0 1px rgb(15 21 34 / 0.05), 0 1px 1px rgb(15 21 34 / 0.03), 0 2px 2px rgb(15 21 34 / 0.03),
+    0 4px 4px rgb(15 21 34 / 0.03), 0 8px 8px rgb(15 21 34 / 0.03),
+    0 16px 16px rgb(15 21 34 / 0.04), 0 32px 32px rgb(15 21 34 / 0.04),
+    0 64px 64px rgb(30 105 233 / 0.06);
+  --shadow-tab:
+    0 0 0 1px rgb(15 21 34 / 0.04), 0 1px 1px rgb(15 21 34 / 0.04), 0 2px 2px rgb(15 21 34 / 0.04),
+    0 4px 4px rgb(15 21 34 / 0.04), 0 8px 8px rgb(15 21 34 / 0.04);
+  --shadow-button: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 1px 2px rgb(15 21 34 / 0.12);
+  --shadow-header:
+    0 1px 0 rgb(15 21 34 / 0.05), 0 2px 2px rgb(15 21 34 / 0.02), 0 4px 4px rgb(15 21 34 / 0.02),
+    0 8px 8px rgb(15 21 34 / 0.02), 0 16px 16px rgb(15 21 34 / 0.02);
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+
+  --animate-rise: rise 700ms var(--ease-out-quart) both;
+  --animate-panel-in: panel-in 240ms var(--ease-out-quart) both;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      translate: 0 14px;
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+      filter: blur(0);
+    }
+  }
+
+  @keyframes panel-in {
+    from {
+      opacity: 0;
+      translate: 0 6px;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
 }
 
 @layer base {
   html {
     font-family: var(--font-sans);
-    background: var(--color-navy);
-    color: var(--color-ink);
+    background: var(--color-bg);
+    color: var(--color-text);
+    color-scheme: light;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-underline-position: from-font;
+    interpolate-size: allow-keywords;
     scroll-behavior: smooth;
   }
 
-  .skip-link {
-    position: absolute;
-    left: 1rem;
-    top: 1rem;
-    z-index: 100;
-    padding: 0.5rem 0.75rem;
-    background: var(--color-navy-raised);
-    color: var(--color-ink);
-    border: 1px solid var(--color-edge-strong);
-    border-radius: 0.25rem;
-    transform: translateY(-200%);
-    transition: transform 0.15s ease;
-  }
-
-  .skip-link:focus {
-    transform: translateY(0);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    html {
-      scroll-behavior: auto;
-    }
-  }
-
   body {
-    min-height: 100vh;
-    background: var(--color-navy);
-    color: var(--color-ink);
+    min-height: 100svh;
+    background: var(--color-bg);
+    color: var(--color-text);
   }
 
-  ::selection {
-    background: color-mix(in srgb, var(--color-sky) 40%, transparent);
-    color: var(--color-ink);
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+    overflow-wrap: break-word;
   }
 
   a {
+    text-decoration-skip-ink: auto;
     text-underline-offset: 3px;
   }
 
@@ -89,78 +192,398 @@
   kbd {
     font-family: var(--font-mono);
   }
+
+  img {
+    outline: 1px solid rgb(0 0 0 / 0.08);
+    outline-offset: -1px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent-bright) 24%, transparent);
+    color: var(--color-text);
+  }
+
+  .skip-link {
+    position: fixed;
+    left: 1rem;
+    top: 1rem;
+    z-index: 100;
+    padding: 0.625rem 0.875rem;
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-card);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transform: translateY(-200%);
+    transition: transform 150ms ease;
+  }
+
+  .skip-link:focus-visible {
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
 }
 
-@layer utilities {
-  .font-display {
-    font-family: var(--font-display);
+@layer components {
+  /*
+    The page sits on a white sheet over the grey backdrop. It runs from the top edge, so the sticky
+    header has nothing to fight, to the very bottom, where the footer wordmark meets the fold.
+  */
+  .page-frame {
+    position: relative;
+    min-height: 100svh;
+    background: var(--color-surface);
   }
 
-  .surface-panel {
-    background: var(--color-navy-panel);
-    box-shadow:
-      inset 0 1px 0 color-mix(in srgb, var(--color-ink) 10%, transparent),
-      0 1px 0 color-mix(in srgb, #000 40%, transparent);
+  @media (min-width: 84rem) {
+    .page-frame {
+      max-width: 84rem;
+      margin: 0 auto;
+      box-shadow: var(--shadow-card);
+    }
   }
 
-  .surface-inset {
-    background: var(--color-navy-inset);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, #000 50%, transparent);
+  /* Shared button chassis. Variants add colours through utilities. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2.5rem;
+    padding-inline: 1rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    transition-property: background-color, color, box-shadow, scale;
+    transition-duration: 150ms, 150ms, 150ms, 200ms;
+    transition-timing-function: ease, ease, ease, ease-out;
   }
 
-  .edge-self {
-    border: 1px solid var(--color-edge);
+  .btn:active {
+    scale: 0.97;
   }
 
-  .chamfer {
-    clip-path: polygon(
-      0 8px,
-      8px 0,
-      calc(100% - 8px) 0,
-      100% 8px,
-      100% calc(100% - 8px),
-      calc(100% - 8px) 100%,
-      8px 100%,
-      0 calc(100% - 8px)
+  /* An icon on the right needs less padding on that side to look centred. */
+  .btn-trailing {
+    padding-inline: 1rem 0.75rem;
+  }
+
+  .btn-leading {
+    padding-inline: 0.75rem 1rem;
+  }
+
+  .btn-primary {
+    background: var(--color-accent-solid);
+    color: var(--color-on-accent);
+    box-shadow: var(--shadow-button);
+  }
+
+  .btn-secondary {
+    background: var(--color-surface);
+    color: var(--color-text);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-text-secondary);
+  }
+
+  @media (hover: hover) {
+    .btn-primary:hover {
+      background: var(--color-accent-hover);
+    }
+
+    .btn-secondary:hover {
+      background: var(--color-surface-hover);
+    }
+
+    .btn-ghost:hover {
+      background: var(--color-surface-hover);
+      color: var(--color-text);
+    }
+  }
+
+  /*
+    Soft blue wash used behind product mock-ups. The grid and cloud textures are pseudo-elements
+    kept under every child by the isolated stacking context, so they can be combined freely.
+  */
+  .wash {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    background: linear-gradient(
+      145deg in oklab,
+      var(--color-wash-strong) 0%,
+      var(--color-wash-mid) 48%,
+      var(--color-wash-soft) 100%
     );
   }
 
-  .grain::before {
+  .wash-grid::before {
     content: "";
     position: absolute;
     inset: 0;
+    z-index: -1;
     pointer-events: none;
-    opacity: 0.04;
-    mix-blend-mode: soft-light;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    z-index: 0;
+    background-image:
+      linear-gradient(to right, rgb(255 255 255 / 0.55) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(255 255 255 / 0.55) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 90%);
+  }
+
+  .wash-clouds::after {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    z-index: -1;
+    pointer-events: none;
+    /* A bank of puffs along the bottom edge on both sides, unequal so it reads as weather. */
+    background-image:
+      radial-gradient(ellipse 34% 26% at 18% 82%, rgb(255 255 255 / 0.95), transparent 70%),
+      radial-gradient(ellipse 20% 16% at 36% 92%, rgb(255 255 255 / 0.9), transparent 70%),
+      radial-gradient(ellipse 30% 24% at 80% 86%, rgb(255 255 255 / 0.92), transparent 70%),
+      radial-gradient(ellipse 16% 13% at 93% 70%, rgb(255 255 255 / 0.85), transparent 70%),
+      radial-gradient(ellipse 26% 20% at 86% 20%, rgb(255 255 255 / 0.8), transparent 70%),
+      radial-gradient(ellipse 14% 11% at 10% 16%, rgb(255 255 255 / 0.75), transparent 70%);
+    filter: blur(12px);
+  }
+
+  /* Shell of a mock-up window. */
+  .window {
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-float);
+    will-change: transform;
+  }
+
+  /*
+    Tab strip and panel share one shell, so the strip reads as the top of the card rather than a
+    separate control. Radii step down concentrically: shell, then tab and panel one padding in,
+    then the media well one panel padding further in.
+  */
+  .tabs-shell {
+    --tabs-radius: var(--radius-2xl);
+    --tabs-pad: 8px;
+    --tabs-panel-pad: 6px;
+    padding: var(--tabs-pad);
+    border-radius: var(--tabs-radius);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-card);
+  }
+
+  .tabs-tab {
+    border-radius: calc(var(--tabs-radius) - var(--tabs-pad));
+  }
+
+  .tabs-panel {
+    margin-top: var(--tabs-pad);
+    padding: var(--tabs-panel-pad);
+    border-radius: calc(var(--tabs-radius) - var(--tabs-pad));
+    background: var(--color-surface);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .tabs-media {
+    border-radius: calc(var(--tabs-radius) - var(--tabs-pad) - var(--tabs-panel-pad));
+  }
+
+  /* Native disclosure with the marker removed so the icon on the right can carry the state. */
+  .disclosure > summary {
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .disclosure > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .disclosure-icon {
+    transition: rotate 200ms var(--ease-out-quart);
+  }
+
+  .disclosure[open] .disclosure-icon {
+    rotate: 45deg;
+  }
+
+  /* The mobile menu opens instantly and only animates on the way out. */
+  .menu-panel {
+    transition-property: opacity, translate, filter, display;
+    transition-duration: 160ms;
+    transition-timing-function: ease-out;
+    transition-behavior: allow-discrete;
+  }
+
+  .menu-panel[data-open="false"] {
+    display: none;
+    opacity: 0;
+    translate: 0 -4px;
+    filter: blur(4px);
+  }
+
+  .menu-panel[data-open="true"] {
+    display: block;
+    opacity: 1;
+    translate: 0 0;
+    filter: blur(0);
+
+    @starting-style {
+      opacity: 1;
+      translate: 0 0;
+      filter: blur(0);
+    }
+  }
+
+  /* Cross-fade for a swapped icon: the new one grows in while the old one shrinks away. */
+  .swap {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+  }
+
+  .swap > * {
+    grid-area: 1 / 1;
+    transition-property: opacity, scale, filter;
+    transition-duration: 200ms;
+    transition-timing-function: var(--ease-out-quart);
+  }
+
+  .swap > [data-shown="false"] {
+    opacity: 0;
+    scale: 0.25;
+    filter: blur(4px);
+  }
+
+  .swap > [data-shown="true"] {
+    opacity: 1;
+    scale: 1;
+    filter: blur(0);
+  }
+
+  /*
+    Brand wordmark that closes the page. The letters are filled with the same sky as the hero
+    wash, blue at the cap tops fading to white with cloud puffs, and the clip box shows only the
+    top half of the word so it reads as rising from the fold.
+  */
+  .wordmark-clip {
+    /*
+      Geist 500 at line-height 1: cap tops sit 0.145em below the line box and caps are 0.71em
+      tall (measured with canvas TextMetrics). The clip starts just above the caps and shows
+      most of them, cut a little above the baseline.
+    */
+    --wordmark-size: clamp(4.5rem, 17.5vw, 14rem);
+    --wordmark-cap-top: 0.145em;
+    --wordmark-cap-height: 0.71em;
+    height: calc(var(--wordmark-size) * 0.6);
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .wordmark-sky {
+    display: block;
+    translate: 0 -0.125em;
+    font-size: var(--wordmark-size);
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: -0.05em;
+    text-align: center;
+    white-space: nowrap;
+    color: transparent;
+    background-image:
+      radial-gradient(ellipse 18% 22% at 14% 42%, rgb(255 255 255 / 0.95), transparent 70%),
+      radial-gradient(ellipse 14% 18% at 34% 60%, rgb(255 255 255 / 0.9), transparent 70%),
+      radial-gradient(ellipse 20% 24% at 58% 50%, rgb(255 255 255 / 0.9), transparent 70%),
+      radial-gradient(ellipse 12% 16% at 78% 36%, rgb(255 255 255 / 0.85), transparent 70%),
+      radial-gradient(ellipse 16% 20% at 92% 58%, rgb(255 255 255 / 0.85), transparent 70%),
+      linear-gradient(
+        to bottom in oklab,
+        var(--color-accent-bright) 14%,
+        color-mix(in oklab, var(--color-accent-bright) 55%, var(--color-wash-strong)) 46%,
+        var(--color-wash-strong) 72%,
+        var(--color-wash-mid) 84%
+      );
+    -webkit-background-clip: text;
+    background-clip: text;
   }
 }
 
-@keyframes diff-drift {
-  from {
-    transform: translate3d(0, 0, 0);
+@layer utilities {
+  .container-x {
+    width: 100%;
+    max-width: 72rem;
+    margin-inline: auto;
+    padding-inline: 1.25rem;
   }
-  to {
-    transform: translate3d(-48px, -64px, 0);
-  }
-}
 
-@keyframes nav-settle {
-  from {
-    transform: translate3d(0, -8px, 0);
+  @media (min-width: 40rem) {
+    .container-x {
+      padding-inline: 2rem;
+    }
   }
-  to {
-    transform: translate3d(0, 0, 0);
+
+  @media (min-width: 64rem) {
+    .container-x {
+      padding-inline: 3rem;
+    }
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  /* Scrollable without the scrollbar chrome. Pair with a fade so the overflow is still signalled. */
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .animate-diff-drift {
-    animation: diff-drift 48s linear infinite;
+  .disclosure::details-content {
+    block-size: 0;
+    overflow: clip;
+    transition:
+      block-size 240ms var(--ease-out-quart),
+      content-visibility 240ms allow-discrete;
   }
 
-  .animate-nav-settle {
-    animation: nav-settle 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  .disclosure[open]::details-content {
+    block-size: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .disclosure-icon,
+  .menu-panel,
+  .swap > * {
+    transition-duration: 0ms;
   }
 }

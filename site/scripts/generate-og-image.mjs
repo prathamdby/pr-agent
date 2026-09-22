@@ -2,53 +2,58 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import sharp from "sharp";
 
+/*
+  Social card in the site's light theme. Colours mirror the semantic tokens in app/globals.css.
+  Text renders with whatever sans-serif fontconfig resolves; Geist is named first so a machine
+  with it installed matches the page exactly.
+*/
 const publicDir = join(import.meta.dirname, "..", "public");
 const logoPath = join(import.meta.dirname, "..", "assets", "logo-source.png");
 const outPath = join(publicDir, "og-image.png");
 
 const width = 1200;
 const height = 630;
-const logoTargetHeight = 160;
-const logoPaddingLeft = 86;
-const textGap = 56;
+const logoSize = 132;
+const paddingLeft = 96;
+
+const sans = "Geist, Inter, 'DejaVu Sans', ui-sans-serif, system-ui, sans-serif";
 
 const background = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <radialGradient id="wash" cx="78%" cy="18%" r="55%">
-        <stop offset="0%" stop-color="#162850"/>
-        <stop offset="100%" stop-color="#0a1630"/>
+      <linearGradient id="wash" x1="0" y1="1" x2="1" y2="0">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="55%" stop-color="#ffffff"/>
+        <stop offset="100%" stop-color="#d9eafe"/>
+      </linearGradient>
+      <pattern id="grid" width="36" height="36" patternUnits="userSpaceOnUse">
+        <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#1e69e9" stroke-opacity="0.07" stroke-width="1"/>
+      </pattern>
+      <radialGradient id="fade" cx="82%" cy="18%" r="70%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="1"/>
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
       </radialGradient>
     </defs>
-    <rect width="${width}" height="${height}" fill="#0a1630"/>
     <rect width="${width}" height="${height}" fill="url(#wash)"/>
-    <g fill="#5e7399" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" opacity="0.45">
-      <text x="72" y="72">+</text><text x="140" y="96">/</text><text x="210" y="64">-</text>
-      <text x="980" y="540">#</text><text x="1040" y="568">{</text><text x="1100" y="520">}</text>
-      <text x="860" y="88">*</text><text x="920" y="120">~</text><text x="80" y="560">&gt;</text>
-    </g>
+    <rect width="${width}" height="${height}" fill="url(#grid)"/>
+    <rect width="${width}" height="${height}" fill="url(#fade)" opacity="0.55"/>
   </svg>`,
 );
 
-const logoMeta = await sharp(readFileSync(logoPath)).metadata();
-const logoAspect = (logoMeta.width ?? 1) / (logoMeta.height ?? 1);
-const logoHeight = logoTargetHeight;
-const logoWidth = Math.round(logoHeight * logoAspect);
+const logo = await sharp(readFileSync(logoPath)).resize(logoSize, logoSize).png().toBuffer();
 
-const logo = await sharp(readFileSync(logoPath)).resize(logoWidth, logoHeight).png().toBuffer();
-
-const logoLeft = logoPaddingLeft;
-const logoTop = Math.round((height - logoHeight) / 2);
-const textLeft = logoLeft + logoWidth + textGap;
+const logoLeft = paddingLeft;
+const logoTop = 118;
+const textLeft = paddingLeft;
 
 const textOverlay = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textLeft}" y="236" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="400" fill="#f2f6fc">PR Agent</text>
-    <text x="${textLeft}" y="310" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="34" font-weight="500" fill="#c8d5ec">AI reviews pull requests</text>
-    <text x="${textLeft}" y="358" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="34" font-weight="500" fill="#fdb631">on your own servers</text>
-    <rect x="${textLeft}" y="410" width="248" height="52" fill="#f2f6fc"/>
-    <text x="${textLeft + 28}" y="444" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#0a1630">No per-seat fee</text>
-    <text x="${textLeft}" y="512" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="500" fill="#8fa3c4">MIT licensed · Docker Compose · BYO model keys</text>
+    <text x="${textLeft + logoSize + 28}" y="${logoTop + 82}" font-family="${sans}" font-size="44" font-weight="600" fill="#0f1522" letter-spacing="-1">PR Agent</text>
+    <text x="${textLeft}" y="352" font-family="${sans}" font-size="66" font-weight="500" fill="#0f1522" letter-spacing="-2.4">AI PR reviews</text>
+    <text x="${textLeft}" y="428" font-family="${sans}" font-size="66" font-weight="500" fill="#0f1522" letter-spacing="-2.4">on your own servers</text>
+    <rect x="${textLeft}" y="478" width="222" height="48" rx="24" fill="#1e69e9"/>
+    <text x="${textLeft + 111}" y="510" text-anchor="middle" font-family="${sans}" font-size="21" font-weight="500" fill="#ffffff">No per-seat fee</text>
+    <text x="${textLeft + 246}" y="510" font-family="${sans}" font-size="21" font-weight="400" fill="#4a5568">MIT licensed · Docker Compose · Bring your own model keys</text>
   </svg>`,
 );
 

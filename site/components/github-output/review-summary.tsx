@@ -1,26 +1,12 @@
 import {
   GhCode,
+  GhComment,
   GhDetails,
   GhKvTable,
   GhNote,
-  OutputFrame,
+  GhPre,
+  GhTitle,
 } from "@/components/github-output/primitives";
-
-export type ReviewLens = "review" | "review-security" | "review-quality";
-
-const SENTINEL: Record<ReviewLens, string> = {
-  review: "PR Agent Review",
-  "review-security": "PR Agent Security Review",
-  "review-quality": "PR Agent Quality Review",
-};
-
-const OVERVIEW: Record<ReviewLens, string> = {
-  review:
-    "Adds a retry wrapper around the webhook dispatcher so transient GitHub failures do not drop deliveries.",
-  "review-security":
-    "Security pass on webhook intake and publish paths for auth and secret-handling risks.",
-  "review-quality": "Maintainability pass on settings routing and publish helpers.",
-};
 
 type Finding = {
   readonly severity: string;
@@ -31,62 +17,24 @@ type Finding = {
   readonly marker: "On the diff" | "Summary only";
 };
 
-const FINDINGS: Record<ReviewLens, readonly Finding[]> = {
-  review: [
-    {
-      severity: "P1",
-      confidence: "c4",
-      title: "Webhook ack can race the durable write",
-      file: "src/webhooks/intake.ts",
-      lines: "lines 148-152",
-      marker: "On the diff",
-    },
-    {
-      severity: "P2",
-      confidence: "c3",
-      title: "Summary edit ignores stale head guard",
-      file: "src/review/publish.ts",
-      lines: "line 91",
-      marker: "Summary only",
-    },
-  ],
-  "review-security": [
-    {
-      severity: "P1",
-      confidence: "c4",
-      title: "Webhook secret compared with a non-constant-time check",
-      file: "src/webhooks/verify.ts",
-      lines: "lines 36-41",
-      marker: "On the diff",
-    },
-    {
-      severity: "P2",
-      confidence: "c3",
-      title: "Error path may echo provider response bodies",
-      file: "src/agent/providerErrors.ts",
-      lines: "lines 88-94",
-      marker: "Summary only",
-    },
-  ],
-  "review-quality": [
-    {
-      severity: "P2",
-      confidence: "c3",
-      title: "Settings read duplicated across three call sites",
-      file: "src/settings/runtime.ts",
-      lines: "lines 44-61",
-      marker: "On the diff",
-    },
-    {
-      severity: "P3",
-      confidence: "c2",
-      title: "Publish helper mixes formatting and I/O",
-      file: "src/review/publish/publishSummaryOnly.ts",
-      lines: "lines 210-240",
-      marker: "Summary only",
-    },
-  ],
-};
+const FINDINGS: readonly Finding[] = [
+  {
+    severity: "P1",
+    confidence: "c4",
+    title: "Webhook ack can race the durable write",
+    file: "src/webhooks/intake.ts",
+    lines: "lines 148–152",
+    marker: "On the diff",
+  },
+  {
+    severity: "P2",
+    confidence: "c3",
+    title: "Summary edit ignores stale head guard",
+    file: "src/review/publish.ts",
+    lines: "line 91",
+    marker: "Summary only",
+  },
+];
 
 const FOLLOW_UPS: readonly string[] = [
   "1. Remove the retry feature flag once metrics confirm the fix",
@@ -94,23 +42,21 @@ const FOLLOW_UPS: readonly string[] = [
 ];
 
 type ReviewSummaryMockProps = {
-  readonly lens?: ReviewLens;
+  /** Drop the trailing rows so the comment fits a cropped preview. */
+  readonly compact?: boolean;
+  readonly frame?: "inline" | "window";
 };
 
-export function ReviewSummaryMock({ lens = "review" }: ReviewSummaryMockProps) {
-  const findings = FINDINGS[lens];
-
+/** Mirrors the `## PR Agent Review` summary comment. */
+export function ReviewSummaryMock({ compact = false, frame = "inline" }: ReviewSummaryMockProps) {
   const rows = [
-    {
-      label: "Size",
-      value: <GhCode>M</GhCode>,
-    },
-    ...findings.map((finding) => ({
+    { label: "Size", value: <GhCode>M</GhCode> },
+    ...FINDINGS.map((finding) => ({
       label: `${finding.severity} · ${finding.confidence}`,
       value: (
         <div className="space-y-0.5">
-          <p className="font-semibold text-ink-soft">{finding.title}</p>
-          <p className="text-[11px] italic text-ink-faint">
+          <p className="font-medium text-text">{finding.title}</p>
+          <p className="text-[11px] text-text-tertiary italic">
             {finding.marker} · <GhCode>{finding.file}</GhCode> · {finding.lines}
           </p>
         </div>
@@ -120,31 +66,39 @@ export function ReviewSummaryMock({ lens = "review" }: ReviewSummaryMockProps) {
       label: "Mergeability",
       value: "Two-way: trivial to revert; only error-message rendering.",
     },
-    {
-      label: "Blast Radius",
-      value: "Localized: stream error text only; no API, schema, or control-flow change.",
-    },
-    {
-      label: "Follow-ups",
-      value: (
-        <div className="space-y-0.5">
-          {FOLLOW_UPS.map((item) => (
-            <p key={item}>{item}</p>
-          ))}
-        </div>
-      ),
-    },
+    ...(compact
+      ? []
+      : [
+          {
+            label: "Blast radius",
+            value: "Localized: stream error text only; no API, schema, or control-flow change.",
+          },
+          {
+            label: "Follow-ups",
+            value: (
+              <div className="space-y-0.5">
+                {FOLLOW_UPS.map((item) => (
+                  <p key={item}>{item}</p>
+                ))}
+              </div>
+            ),
+          },
+        ]),
   ];
 
   return (
-    <OutputFrame title={SENTINEL[lens]} surface="PR conversation comment">
-      <GhNote>{OVERVIEW[lens]}</GhNote>
+    <GhComment surface="Pull request conversation" frame={frame}>
+      <GhTitle>PR Agent Review</GhTitle>
+      <GhNote>
+        Adds a retry wrapper around the webhook dispatcher so transient GitHub failures do not drop
+        deliveries.
+      </GhNote>
       <GhKvTable rows={rows} />
-      <GhDetails summary="Prompt to fix">
-        <pre className="font-mono text-[11px] leading-relaxed text-ink-soft">
-          <code>Verify each finding against current code. Fix only still-valid issues.</code>
-        </pre>
-      </GhDetails>
-    </OutputFrame>
+      {compact ? null : (
+        <GhDetails summary="Prompt to fix">
+          <GhPre>Verify each finding against current code. Fix only still-valid issues.</GhPre>
+        </GhDetails>
+      )}
+    </GhComment>
   );
 }

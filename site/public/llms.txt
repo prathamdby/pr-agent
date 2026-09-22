@@ -123,9 +123,9 @@ Web does not create installation tokens or post to the PR. Workers do that.
 
 ## Pricing
 
-Software is free. $0 from PR Agent. No credit card. No per-seat fee. Open source under MIT.
-You pay your own vendors. Hosting and AI usage only. Cover your server, database, and model bills. Add more developers without raising your PR Agent bill.
-You own the full stack. Your security rules apply. Run it inside your network, choose your AI provider, and keep review traffic under your policies.
+Software is free. $0 from PR Agent. No credit card, no per-seat fee, and the whole thing is open source under MIT.
+You pay your own vendors. Hosting and AI usage only. You cover the server, database, and model bills. Extra developers cost nothing.
+You own the full stack. Your security rules apply. Run it inside your network, pick your provider, and keep traffic under your rules.
 
 ## Model providers
 
@@ -145,13 +145,23 @@ CodeRabbit: Cloud SaaS (self-host enterprise). Hosted reviewer with subscription
 Greptile: Cloud SaaS (self-host option). Managed full-repo indexing for cross-file context.
 Cursor Bugbot: Cloud (Cursor ecosystem). Bug-focused review tied to the Cursor ecosystem.
 Macroscope: Cloud SaaS. Hosted GitHub PR review with a managed pipeline.
+Feature matrix. Each criterion lists every tool with Yes, Partial, or No:
+- Runs on your servers: PR Agent Yes, CodeRabbit Partial, Greptile Partial, Cursor Bugbot No, Macroscope No
+- Open source, MIT: PR Agent Yes, CodeRabbit No, Greptile No, Cursor Bugbot No, Macroscope No
+- No per-seat fee: PR Agent Yes, CodeRabbit No, Greptile No, Cursor Bugbot No, Macroscope Yes
+- Bring your own model keys: PR Agent Yes, CodeRabbit No, Greptile No, Cursor Bugbot No, Macroscope No
+- Choose the model provider: PR Agent Yes, CodeRabbit No, Greptile No, Cursor Bugbot No, Macroscope No
+- Review data stays in your account: PR Agent Yes, CodeRabbit Partial, Greptile Partial, Cursor Bugbot No, Macroscope No
+- Reviews GitHub pull requests: PR Agent Yes, CodeRabbit Yes, Greptile Yes, Cursor Bugbot Yes, Macroscope Yes
+- Whole-repository index: PR Agent Partial, CodeRabbit Yes, Greptile Yes, Cursor Bugbot Partial, Macroscope Yes
+- PR description, ask, and fix commands: PR Agent Yes, CodeRabbit Yes, Greptile Partial, Cursor Bugbot No, Macroscope Partial
 
 ## FAQ
 
 Q: What is PR Agent?
 A: PR Agent is open-source software that reviews GitHub pull requests on servers you run. You deploy it once, connect GitHub and an AI provider, and it posts reviews, summaries, and answers back on the pull request.
 Q: Is PR Agent a self-hosted alternative to CodeRabbit?
-A: Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit's hosted product, PR Agent runs on your servers with your credentials and your AI keys.
+A: Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.
 Q: How does PR Agent compare to Greptile?
 A: Greptile is a cloud reviewer that indexes whole repositories. PR Agent is self-hosted and looks at each pull request from the branch and what changed. Pick it when you want to run the reviewer and choose the model provider, not another managed subscription.
 Q: Does PR Agent replace Cursor Bugbot?

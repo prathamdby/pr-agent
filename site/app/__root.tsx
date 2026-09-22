@@ -27,6 +27,10 @@ export const Route = createRootRoute({
         content: PRODUCT_NAME,
       },
       {
+        name: "theme-color",
+        content: "#ffffff",
+      },
+      {
         name: "robots",
         content: "index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1",
       },
@@ -89,6 +93,13 @@ export const Route = createRootRoute({
     ],
     links: [
       {
+        rel: "preload",
+        href: "/fonts/Geist-Variable.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
         rel: "stylesheet",
         href: appCss,
       },
@@ -135,11 +146,13 @@ function RootLayout() {
         />
         <script defer src="/_vercel/insights/script.js" />
       </head>
-      <body className="bg-navy text-ink min-h-screen overflow-x-hidden">
+      <body className="min-h-svh bg-bg text-text">
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>
-        <Outlet />
+        <div className="page-frame">
+          <Outlet />
+        </div>
         <Scripts />
       </body>
     </html>

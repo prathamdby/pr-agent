@@ -1,33 +1,32 @@
-import { Section } from "@/components/section";
-import { PROVIDERS } from "@/lib/content";
+import { PROVIDER_MARKS } from "@/components/provider-logos";
 
+/** Provider strip under the hero. Marks only: the keys and the bill stay with you. */
 export function Providers() {
   return (
-    <Section id="providers" labelledBy="providers-heading">
-      <h2
-        id="providers-heading"
-        className="max-w-[18ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
-      >
-        Change models without retraining your team
-      </h2>
-
-      <ul className="mt-12 grid gap-10 sm:grid-cols-2">
-        {PROVIDERS.map((provider) => (
-          <li key={provider.name} className="min-w-0">
-            <h3 className="font-display text-2xl text-ink">{provider.name}</h3>
-            <p className="mt-3 text-sm leading-relaxed text-ink-mute">{provider.detail}</p>
-          </li>
-        ))}
-      </ul>
-
-      <p className="mt-10 max-w-xl text-sm text-ink-faint">
-        Switch from GPT to Claude to DeepSeek by changing a setting. Your GitHub workflow stays the
-        same. See{" "}
-        <a href="#usage" className="text-ink-soft underline decoration-edge-strong hover:text-ink">
-          Docker Compose setup
-        </a>{" "}
-        or the repo README.
-      </p>
-    </Section>
+    <section id="providers" aria-labelledby="providers-heading" className="scroll-mt-25">
+      <div className="container-x">
+        <div className="flex flex-col gap-6 border-y border-line py-7 lg:flex-row lg:items-center lg:gap-12">
+          <div className="max-w-sm shrink-0">
+            <h2 id="providers-heading" className="text-sm font-medium text-text">
+              Bring your own model keys
+            </h2>
+            <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">
+              Switch providers by changing one setting. Your GitHub workflow stays the same.
+            </p>
+          </div>
+          <ul
+            className="flex flex-wrap items-center gap-x-9 gap-y-4 text-text-tertiary lg:ml-auto"
+            aria-label="Supported model providers"
+          >
+            {PROVIDER_MARKS.map((Mark) => (
+              <li key={Mark.name} className="flex items-center">
+                <Mark className="size-6" />
+              </li>
+            ))}
+            <li className="text-[13px]">and more</li>
+          </ul>
+        </div>
+      </div>
+    </section>
   );
 }

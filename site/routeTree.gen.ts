@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './app/__root'
 import { Route as IndexRouteImport } from './app/index'
 import { Route as AgentsDotmdRouteImport } from './app/agents[.]md'
 import { Route as IndexDotmdRouteImport } from './app/index[.]md'
+import { Route as OgRouteImport } from './app/og'
 import { Route as OpenapiDotjsonRouteImport } from './app/openapi[.]json'
 import { Route as RobotsDottxtRouteImport } from './app/robots[.]txt'
 import { Route as SitemapDotxmlRouteImport } from './app/sitemap[.]xml'
@@ -31,6 +32,11 @@ const AgentsDotmdRoute = AgentsDotmdRouteImport.update({
 const IndexDotmdRoute = IndexDotmdRouteImport.update({
   id: '/index.md',
   path: '/index.md',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OgRoute = OgRouteImport.update({
+  id: '/og',
+  path: '/og',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OpenapiDotjsonRoute = OpenapiDotjsonRouteImport.update({
@@ -63,6 +69,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agents.md': typeof AgentsDotmdRoute
   '/index.md': typeof IndexDotmdRoute
+  '/og': typeof OgRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agents.md': typeof AgentsDotmdRoute
   '/index.md': typeof IndexDotmdRoute
+  '/og': typeof OgRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/agents.md': typeof AgentsDotmdRoute
   '/index.md': typeof IndexDotmdRoute
+  '/og': typeof OgRoute
   '/openapi.json': typeof OpenapiDotjsonRoute
   '/robots.txt': typeof RobotsDottxtRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents.md'
     | '/index.md'
+    | '/og'
     | '/openapi.json'
     | '/robots.txt'
     | '/sitemap.xml'
@@ -106,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents.md'
     | '/index.md'
+    | '/og'
     | '/openapi.json'
     | '/robots.txt'
     | '/sitemap.xml'
@@ -116,6 +127,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents.md'
     | '/index.md'
+    | '/og'
     | '/openapi.json'
     | '/robots.txt'
     | '/sitemap.xml'
@@ -127,6 +139,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentsDotmdRoute: typeof AgentsDotmdRoute
   IndexDotmdRoute: typeof IndexDotmdRoute
+  OgRoute: typeof OgRoute
   OpenapiDotjsonRoute: typeof OpenapiDotjsonRoute
   RobotsDottxtRoute: typeof RobotsDottxtRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
@@ -155,6 +168,13 @@ declare module '@tanstack/react-router' {
       path: '/index.md'
       fullPath: '/index.md'
       preLoaderRoute: typeof IndexDotmdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/og': {
+      id: '/og'
+      path: '/og'
+      fullPath: '/og'
+      preLoaderRoute: typeof OgRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/openapi.json': {
@@ -199,6 +219,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentsDotmdRoute: AgentsDotmdRoute,
   IndexDotmdRoute: IndexDotmdRoute,
+  OgRoute: OgRoute,
   OpenapiDotjsonRoute: OpenapiDotjsonRoute,
   RobotsDottxtRoute: RobotsDottxtRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,

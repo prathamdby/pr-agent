@@ -1,80 +1,144 @@
 import { Link } from "@tanstack/react-router";
-import { OutboundArrow } from "@/components/icons";
-import { DOCS_URL, REPO_URL } from "@/lib/site";
+import { useEffect, useRef, useState } from "react";
+import { ButtonLink } from "@/components/button";
+import { ArrowUpRight, ChevronRight, GitHubMark, Menu, X } from "@/components/icons";
 import { PRODUCT_NAME } from "@/lib/seo";
+import { REPO_URL } from "@/lib/site";
 
+/** Absolute hashes so the same header works from the 404 page. */
 const NAV = [
-  { href: "#examples", label: "examples", external: false, hideBelow: "lg" as const },
-  { href: "#pricing", label: "pricing", external: false, hideBelow: "lg" as const },
-  { href: DOCS_URL, label: "docs", external: true, hideBelow: "md" as const },
-  { href: REPO_URL, label: "github", external: true, hideBelow: "md" as const },
+  { href: "/#features", label: "How it works" },
+  { href: "/#examples", label: "Examples" },
+  { href: "/#pricing", label: "Pricing" },
+  { href: "/#faq", label: "FAQ" },
 ] as const;
 
-function navVisibility(hideBelow: "md" | "lg"): string {
-  switch (hideBelow) {
-    case "md":
-      return "hidden md:inline";
-    case "lg":
-      return "hidden lg:inline";
-    default: {
-      const _exhaustive: never = hideBelow;
-      return _exhaustive;
-    }
-  }
-}
-
 export function Header() {
-  return (
-    <header className="animate-nav-settle absolute inset-x-0 top-0 z-40 px-4 pt-5 sm:px-6">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
-        <Link
-          to="/"
-          className="group flex min-w-0 items-center gap-2.5 text-ink"
-          aria-label={`${PRODUCT_NAME} home`}
-        >
-          <img
-            src="/logo.png"
-            alt=""
-            width={28}
-            height={28}
-            className="h-7 w-7 shrink-0 rounded-md"
-          />
-          <span className="truncate font-display text-lg tracking-wide text-ink transition-colors group-hover:text-bolt">
-            {PRODUCT_NAME}
-          </span>
-        </Link>
+  const [open, setOpen] = useState(false);
+  const [stuck, setStuck] = useState(false);
+  const sentinel = useRef<HTMLDivElement>(null);
 
-        <nav
-          className="surface-panel edge-self flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-sm"
-          aria-label="Primary navigation"
+  // A hairline above the header leaves the viewport the moment the header sticks.
+  useEffect(() => {
+    const node = sentinel.current;
+    if (node === null) {
+      return undefined;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry !== undefined) {
+        setStuck(!entry.isIntersecting);
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const close = () => setOpen(false);
+
+  return (
+    <>
+      <div
+        ref={sentinel}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px"
+      />
+      <header
+        data-stuck={stuck}
+        className="sticky top-0 z-40 bg-surface/85 backdrop-blur-md transition-[box-shadow] duration-200 data-[stuck=true]:shadow-header"
+      >
+        <div className="container-x flex h-16 items-center justify-between gap-4">
+          <Link
+            to="/"
+            className="flex min-w-0 items-center gap-2.5 rounded-sm text-text"
+            aria-label={`${PRODUCT_NAME} home`}
+          >
+            <img
+              src="/logo.png"
+              alt=""
+              width={28}
+              height={28}
+              className="size-7 shrink-0 rounded-sm outline-none"
+            />
+            <span className="truncate text-[15px] font-semibold tracking-[-0.01em]">
+              {PRODUCT_NAME}
+            </span>
+          </Link>
+
+          <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
+            {NAV.map((item) => (
+              <a key={item.href} href={item.href} className="btn btn-ghost h-9 px-3 font-normal">
+                {item.label}
+              </a>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-ghost btn-leading hidden h-9 font-normal sm:inline-flex"
+            >
+              <GitHubMark className="size-4" />
+              <span>GitHub</span>
+            </a>
+            <ButtonLink
+              href="/#usage"
+              className="h-9"
+              trailingIcon={<ChevronRight className="size-4" />}
+            >
+              Deploy
+            </ButtonLink>
+            <button
+              type="button"
+              className="btn btn-ghost size-9 px-0 md:hidden"
+              aria-expanded={open}
+              aria-controls="mobile-menu"
+              aria-label={open ? "Close menu" : "Open menu"}
+              onClick={() => setOpen((value) => !value)}
+            >
+              <span className="swap size-5" aria-hidden="true">
+                <span data-shown={!open} className="grid place-items-center">
+                  <Menu className="size-5" />
+                </span>
+                <span data-shown={open} className="grid place-items-center">
+                  <X className="size-5" />
+                </span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="mobile-menu"
+          data-open={open}
+          className="menu-panel border-t border-line md:hidden"
         >
-          {NAV.map((item) => {
-            const className = `${navVisibility(item.hideBelow)} rounded-md px-2 py-1.5 text-ink-mute transition-colors hover:text-ink`;
-            return item.external ? (
+          <nav aria-label="Primary, mobile" className="container-x flex flex-col py-3">
+            {NAV.map((item) => (
               <a
-                key={item.label}
+                key={item.href}
                 href={item.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={className}
+                onClick={close}
+                className="flex h-11 items-center rounded-sm px-3 text-[15px] text-text hover:bg-surface-hover"
               >
                 {item.label}
               </a>
-            ) : (
-              <a key={item.label} href={item.href} className={className}>
-                {item.label}
-              </a>
-            );
-          })}
-          <a
-            href="#usage"
-            className="group inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-sm text-navy transition-colors hover:bg-bolt"
-          >
-            deploy
-            <OutboundArrow className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </a>
-        </nav>
-      </div>
-    </header>
+            ))}
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={close}
+              className="flex h-11 items-center gap-2 rounded-sm px-3 text-[15px] text-text hover:bg-surface-hover"
+            >
+              <GitHubMark className="size-4" />
+              GitHub
+              <ArrowUpRight className="size-3.5 text-text-tertiary" />
+            </a>
+          </nav>
+        </div>
+      </header>
+    </>
   );
 }
