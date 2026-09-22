@@ -3,12 +3,13 @@
 <img src="assets/pr-agent-banner.webp" alt="PR Agent. Review pull requests on machines you own." width="100%">
 
 <p>
-  <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/DeepWiki-Ask-7B2CBF?style=for-the-badge" alt="Ask DeepWiki"></a>
-  <a href="https://context7.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/Context7-Ask-4B0082?style=for-the-badge" alt="Ask Context7"></a>
-  <a href="https://opencode.ai/go?ref=AHE1W13AS7"><img src="https://img.shields.io/badge/OpenCode-Go-2563EB?style=for-the-badge" alt="OpenCode Go"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge" alt="License: MIT"></a>
-  <a href="#documentation"><img src="https://img.shields.io/badge/Documentation-README-EAB308?style=for-the-badge" alt="Documentation"></a>
-  <a href="#installation"><img src="https://img.shields.io/badge/Node-22+-EA580C?style=for-the-badge" alt="Node 22+"></a>
+  <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="assets/badges/deepwiki.png" alt="Ask DeepWiki" height="48"></a>
+  <a href="https://context7.com/prathamdby/pr-agent"><img src="assets/badges/context7.png" alt="Ask Context7" height="48"></a>
+  <a href="https://opencode.ai/go?ref=AHE1W13AS7"><img src="assets/badges/opencode.png" alt="OpenCode Go" height="48"></a>
+  <br>
+  <a href="LICENSE"><img src="assets/badges/license.png" alt="MIT license" height="48"></a>
+  <a href="#documentation"><img src="assets/badges/docs.png" alt="Documentation" height="48"></a>
+  <a href="#installation"><img src="assets/badges/node.png" alt="Node 22+" height="48"></a>
 </p>
 
 </div>
