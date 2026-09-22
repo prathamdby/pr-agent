@@ -44,7 +44,7 @@ export function Pricing() {
             >
               {/*
                 Grey shell: the wash graphic is inset at the top and the copy sits in the shell's
-                footer. In the three-up row the middle card flips, copy on top, so the row alternates.
+                footer. The middle card flips, copy on top, so the cards alternate.
               */}
               <div
                 className={`wash ${art.texture} flex aspect-[4/3] flex-col items-center justify-center gap-5 rounded-md shadow-soft`}
@@ -59,9 +59,7 @@ export function Pricing() {
                   {plan.price}
                 </span>
               </div>
-              <div
-                className={`flex-1 px-3 pt-4 pb-3 ${flipped ? "md:order-first md:pt-3 md:pb-4" : ""}`}
-              >
+              <div className={`flex-1 px-3 ${flipped ? "order-first pt-3 pb-4" : "pt-4 pb-3"}`}>
                 <h3 className="text-[17px] leading-snug font-medium text-text">{plan.title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-text-secondary">{plan.detail}</p>
               </div>

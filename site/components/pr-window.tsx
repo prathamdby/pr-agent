@@ -42,14 +42,14 @@ export function PrWindow() {
             <GhCode>pd/settings-knobs</GhCode>
           </span>
         </p>
-        <ul className="mt-3 flex flex-wrap gap-x-5 border-b border-line text-text-secondary">
+        <ul className="scrollbar-none mt-3 flex gap-x-5 overflow-x-auto text-text-secondary shadow-[inset_0_-1px_0_var(--color-line)]">
           {TABS.map((tab) => (
             <li
               key={tab.label}
               className={
                 tab.active
-                  ? "-mb-px flex items-center gap-1.5 border-b-2 border-accent-solid pb-2 font-medium text-text"
-                  : "flex items-center gap-1.5 pb-2"
+                  ? "flex shrink-0 items-center gap-1.5 border-b-2 border-accent-solid pb-2 font-medium whitespace-nowrap text-text"
+                  : "flex shrink-0 items-center gap-1.5 pb-2 whitespace-nowrap"
               }
             >
               {tab.label}
