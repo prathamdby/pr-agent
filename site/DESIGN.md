@@ -226,7 +226,7 @@ Rules that go with the table:
 - Status colours only appear inside the GitHub mock-ups and the copy confirmation, and each is paired with an icon or label (`XCircle` with `text-danger`, `CheckCircle` with `text-success`, a pill with its word).
 - `::selection` is `color-mix(in srgb, var(--color-accent-bright) 24%, transparent)` with `text` on top.
 - `bg-surface/85` with `backdrop-blur-md` is the only translucent surface (the sticky header).
-- The social card in `site/scripts/generate-og-image.mjs` mirrors these values by hand (`#ffffff`, `#d9eafe`, `#1e69e9` at 7% for the grid, `#0f1522`, `#4a5568`). Regenerate it with `nub run site:generate-og` when a token changes.
+- The social card in `site/scripts/generate-og-image.mjs` redraws the hero and the `PrWindow` mock as SVG with these values copied by hand, and sets Geist from `site/assets/fonts/` because librsvg cannot read the page's woff2. Regenerate it with `nub run site:generate-og` when a token, the hero copy, or the mock changes.
 
 ## Radii
 
@@ -686,6 +686,7 @@ Run these before calling a site change done. They are the checks the maintainer 
 | `site/lib/pageMarkdown.ts`            | Markdown twin of the page and the 404                                                        |
 | `site/lib/llmsKnowledge.ts`           | `renderLlmsTxt` and the agent profile                                                        |
 | `site/assets/logo-source.png`         | Source of the two accent blues and the social card logo                                      |
-| `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens                                                            |
+| `site/scripts/generate-og-image.mjs`  | Social card, hand-mirrored tokens and hero layout                                            |
+| `site/assets/fonts/`                  | Geist and Geist Mono variable `ttf` for the social card, plus licence                        |
 | `site/public/fonts/`                  | Geist and Geist Mono `woff2` plus licence                                                    |
 | `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                                  |
