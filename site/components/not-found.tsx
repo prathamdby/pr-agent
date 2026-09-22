@@ -50,7 +50,7 @@ export function NotFound() {
               >
                 <a
                   href={resource.path}
-                  className="shrink-0 font-mono text-sm text-accent-text transition-colors duration-150 hover:text-text sm:w-40"
+                  className="hit-area shrink-0 rounded-xs font-mono text-sm text-accent-text transition-colors duration-150 hover:text-text sm:w-40"
                 >
                   {resource.path}
                 </a>

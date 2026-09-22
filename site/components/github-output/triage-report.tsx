@@ -11,7 +11,6 @@ type TriageRow = {
   readonly path: string;
   readonly line: number;
   readonly verdict: ReactNode;
-  readonly threadUrl: string;
 };
 
 const ROWS: readonly TriageRow[] = [
@@ -25,7 +24,6 @@ const ROWS: readonly TriageRow[] = [
         Fixed <GhCode>a1b2c3d</GhCode>
       </>
     ),
-    threadUrl: "https://github.com/example/pr-agent/pull/1#discussion_r101",
   },
   {
     severity: "P2",
@@ -33,7 +31,6 @@ const ROWS: readonly TriageRow[] = [
     path: "src/review/publish.ts",
     line: 91,
     verdict: "Already resolved",
-    threadUrl: "https://github.com/example/pr-agent/pull/1#discussion_r102",
   },
   {
     severity: "P2",
@@ -41,7 +38,6 @@ const ROWS: readonly TriageRow[] = [
     path: "src/webhooks/intake.ts",
     line: 162,
     verdict: "Dismissed",
-    threadUrl: "https://github.com/example/pr-agent/pull/1#discussion_r103",
   },
 ];
 
@@ -79,10 +75,9 @@ function GhGfmTable({ rows }: { readonly rows: readonly TriageRow[] }) {
               <GhCode>{row.path}</GhCode> L{row.line}
             </td>
             <td className="py-1.5 pr-2 whitespace-nowrap text-text-secondary">{row.verdict}</td>
+            {/* Styled as GitHub's link, but inert: a mock has no real thread to open. */}
             <td className="py-1.5">
-              <a href={row.threadUrl} className="text-accent-text underline decoration-line">
-                thread
-              </a>
+              <span className="text-accent-text underline decoration-line">thread</span>
             </td>
           </tr>
         ))}

@@ -34,7 +34,7 @@ function Scribble({ className }: { readonly className?: string }) {
 export function CtaBanner() {
   return (
     <section aria-labelledby="cta-heading" className="pt-4">
-      <div className="wash wash-grid wash-clouds py-12 text-center sm:py-16">
+      <div className="wash wash-grid wash-grid-fade wash-clouds py-12 text-center sm:py-16">
         <div className="container-x">
           <div
             aria-hidden="true"

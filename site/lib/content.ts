@@ -30,7 +30,7 @@ export const FEATURES: FeatureItem[] = [
     summary: "Self-hosted AI PR reviews",
   },
   {
-    title: "Someone opens a pull request",
+    title: "A pull request opens on your project",
     detail:
       "PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.",
     cue: "Starts when a pull request opens",

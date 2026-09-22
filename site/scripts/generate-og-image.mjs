@@ -39,7 +39,7 @@ const color = {
   line: "#e3e6eb",
   text: "#0f1522",
   textSecondary: "#4a5568",
-  textTertiary: "#7f8a9c",
+  textTertiary: "#687286",
   accentSolid: "#1e69e9",
   accentText: "#1858cc",
   washStrong: "#b9dcfc",

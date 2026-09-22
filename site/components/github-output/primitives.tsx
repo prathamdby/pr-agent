@@ -101,8 +101,8 @@ export function GhDetails({
 }) {
   return (
     <details className="disclosure group">
-      <summary className="inline-flex items-center gap-1.5 text-text-secondary">
-        <ChevronRight className="size-3.5 transition-transform duration-200 group-open:rotate-90" />
+      <summary className="hit-area inline-flex items-center gap-1.5 text-text-secondary">
+        <ChevronRight className="size-3.5 transition-transform duration-200 ease-out-quart group-open:rotate-90 motion-reduce:transition-none" />
         {summary}
       </summary>
       <div className="mt-2 text-text-secondary">{children}</div>

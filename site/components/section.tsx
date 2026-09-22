@@ -13,7 +13,7 @@ export function Section({ id, labelledBy, className, children }: SectionProps) {
     <section
       id={id}
       aria-labelledby={labelledBy}
-      className={`scroll-mt-25 py-16 sm:py-20 lg:py-24 ${className ?? ""}`}
+      className={`scroll-mt-5 py-16 sm:py-20 lg:py-24 ${className ?? ""}`}
     >
       <div className="container-x">{children}</div>
     </section>

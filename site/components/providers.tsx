@@ -3,7 +3,7 @@ import { PROVIDER_MARKS } from "@/components/provider-logos";
 /** Provider strip under the hero. Marks only: the keys and the bill stay with you. */
 export function Providers() {
   return (
-    <section id="providers" aria-labelledby="providers-heading" className="scroll-mt-25">
+    <section id="providers" aria-labelledby="providers-heading" className="scroll-mt-5">
       <div className="container-x">
         <div className="flex flex-col gap-6 border-y border-line py-7 lg:flex-row lg:items-center lg:gap-12">
           <div className="max-w-sm shrink-0">
@@ -19,7 +19,7 @@ export function Providers() {
             aria-label="Supported model providers"
           >
             {PROVIDER_MARKS.map((Mark) => (
-              <li key={Mark.name} className="flex items-center">
+              <li key={Mark.label} className="flex items-center">
                 <Mark className="size-6" />
               </li>
             ))}

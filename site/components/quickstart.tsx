@@ -27,7 +27,7 @@ function Step({ n, title, body, children }: StepProps) {
   return (
     <li className="grid gap-6 rounded-lg bg-surface p-6 shadow-card sm:p-8 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:gap-12">
       <div>
-        <p className="tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold text-accent-text">
+        <p className="tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold whitespace-nowrap text-accent-text">
           Step {n}
         </p>
         <h3 className="mt-4 text-xl font-medium tracking-[-0.015em] text-text">{title}</h3>
@@ -111,7 +111,9 @@ export function Quickstart() {
                 className="flex flex-col gap-1 py-3 sm:flex-row sm:items-baseline sm:gap-4"
               >
                 <code className="shrink-0 font-mono text-sm text-accent-text">{item.cmd}</code>
-                <span className="text-sm leading-relaxed text-text-secondary">{item.tip}</span>
+                <span className="text-sm leading-relaxed text-pretty text-text-secondary">
+                  {item.tip}
+                </span>
               </li>
             ))}
           </ul>

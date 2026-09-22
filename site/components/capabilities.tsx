@@ -176,7 +176,8 @@ const VERDICTS: readonly Verdict[] = [
 function TriageVerdicts() {
   return (
     <div className="wash wash-grid flex items-center rounded-md p-4 sm:p-5" aria-hidden="true">
-      <div className="window w-full overflow-hidden text-xs leading-snug text-text">
+      {/* The wash padding exceeds its 12px radius, so the window steps down a size to stay concentric. */}
+      <div className="window w-full overflow-hidden rounded-sm text-xs leading-snug text-text">
         <div className="border-b border-line bg-surface-raised px-3 py-2 font-semibold">
           PR Agent Triage
         </div>

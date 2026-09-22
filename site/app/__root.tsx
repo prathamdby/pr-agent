@@ -1,6 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { NotFound } from "@/components/not-found";
 import { LANDING_PAGE_MARKDOWN, LLMS_TXT_PROFILE, resourceUrl } from "@/lib/agentResources";
+import { HERO_HEADING } from "@/lib/content";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
 import appCss from "./globals.css?url";
@@ -72,7 +73,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:image:alt",
-        content: `${PRODUCT_NAME} - AI PR reviews on your own servers`,
+        content: HERO_HEADING,
       },
       {
         name: "twitter:card",

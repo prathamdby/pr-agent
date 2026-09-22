@@ -50,12 +50,12 @@ These rules are followed without exception. They are grouped the way the site ap
 ### Animation
 
 - Animate from the trigger. The mobile menu drops out of the header (`translate: 0 -4px` to `0 0`); the copied check grows out of the copy icon (`.swap`).
-- Frequently used menus open instantly and only animate on close. `.menu-panel` uses `@starting-style` to skip the entrance and transitions `opacity, translate, filter, display` on the way out.
+- Frequently used menus open instantly and only animate on close. `.menu-panel` uses `@starting-style` to skip the entrance and transitions `opacity, translate, filter, display` on the way out. Escape closes it and returns focus to the menu button. Following a menu link (or the header “Deploy” button) while it is open sets `data-instant="true"` and closes it inside `flushSync`, with no exit: the panel sits in the header’s flow, so a fade-out would still be taking up space when the browser measures the anchor, and the scroll would land a full menu height past it.
 - Exits are subtler than entrances and end in a 4px blur: `.menu-panel[data-open="false"]` and `.swap > [data-shown="false"]` both finish at `filter: blur(4px)`.
 - Name the transition properties. Never `transition: all`. `.btn` lists `background-color, color, box-shadow, scale`.
-- Buttons scale on press: `.btn:active { scale: 0.97 }` with `scale 200ms ease-out`. The accepted range is 0.95–0.98.
+- Buttons scale on press: `.btn:active { scale: 0.97 }` with `scale 200ms ease-out`. The accepted range is 0.95–0.98. The hero pill link, which is button-shaped, does the same with `active:scale-[0.97]`.
 - Icon swaps cross-fade: the new icon goes `scale 0.25` to `1` and `blur 4px` to `0` while the old one shrinks away (`.swap`).
-- Transitions for interactions, keyframes for one-offs. `.btn`, `.swap`, `.menu-panel`, and `.disclosure` transition; `rise` and `panel-in` are keyframes.
+- Transitions for interactions, keyframes for one-offs. `.btn`, `.swap`, `.menu-panel`, and `.disclosure` transition; `rise` and `panel-in` are keyframes. `panel-in` only plays when a tab is picked with the pointer: on page load and while arrowing through the strip the panel switches instantly, because keyboard-driven actions should not animate.
 - Disable transitions while switching themes. There is one theme today. If a second arrives, zero `transition-duration` for the frame the switch happens in.
 - `will-change: transform` on anything that jitters by 1–2px during motion: `.window`.
 - Stagger entrances in small groups. The hero runs `motion-safe:animate-rise` at 0ms, 90ms, and 180ms for its three blocks.
@@ -66,7 +66,7 @@ These rules are followed without exception. They are grouped the way the site ap
 
 - Only `woff2`, self-hosted: `/fonts/Geist-Variable.woff2` and `/fonts/GeistMono-Variable.woff2`.
 - `font-variant-numeric: tabular-nums` on counters, prices, and tables: the `.tabular` utility on step numbers, `$0`, `#284`, tab counts, and the copyright line.
-- Long text stays at 60–75 characters per line. Descriptions cap at `max-w-[46ch]` to `max-w-[58ch]`.
+- Long text stays at 60–75 characters per line. Descriptions cap at `max-w-[46ch]` to `max-w-[58ch]`. `ch` is the width of a zero, wider than Geist’s average letter, so check real lines: FAQ answers at `max-w-[52ch]` run about 70 characters.
 - `text-wrap: balance` on `h1`, `h2`, `h3`; `text-wrap: pretty` on `p`. Both set in `@layer base`.
 - `overflow-wrap: break-word` on paragraphs; `white-space: nowrap` on labels that must not break (`.btn`, `GhPill`, `.wordmark-sky`).
 - Font smoothing on the root: `-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale`.
@@ -81,7 +81,7 @@ These rules are followed without exception. They are grouped the way the site ap
 - Components use semantic tokens only, never primitives. `--palette-*` is read only inside `@theme`.
 - Tokens are named by purpose (`surface-raised`, `text-tertiary`, `wash-strong`), not by hue.
 - `accent` is reserved for the brand blue. Status colours have their own tokens.
-- Contrast is measured against the real background. `text-tertiary` (`#7f8a9c`) is for small labels on `surface` or `surface-raised`, never for body copy.
+- Contrast is measured against the real background. `text-tertiary` (`#687286`) clears 4.5:1 on both `surface` (4.8:1) and `surface-raised` (4.5:1), so small labels and muted detail stay readable. Do not lighten it; anything paler fails on `surface-raised`.
 - A dark theme, if ever added, is a separate palette behind one switch mechanism, not per-component overrides.
 - Gradients interpolate `in oklab`: `.wash` and `.wordmark-sky`.
 
@@ -94,17 +94,19 @@ These rules are followed without exception. They are grouped the way the site ap
 - Every `<img>` has `alt`. The logo beside the product name uses `alt=""` because the name carries the meaning.
 - Labels are visible. The page has no inputs; if one arrives, no placeholder-only labels.
 - Never block paste, keep submit enabled. Not exercised today. Keep it that way if a form arrives.
-- Hit areas are at least 24px, preferably 40–44px: `.btn` is 40px tall, header buttons 36px, mobile menu links and tabs 44px, footer links `min-h-8`.
+- Hit areas are at least 24px, preferably 40–44px: `.btn` is 40px tall, header buttons 36px, mobile menu links and tabs 44px, footer links `min-h-8`. Small text links that cannot grow without moving the layout (the footer legal bar, the 404 resource paths, the `GhDetails` summary in mocks) take `.hit-area`, a `::after` that reaches 4px above and below and 6px to each side. Keep that inset under half the gap to the next target.
+- `.btn` sets `cursor: pointer` (Tailwind v4 resets buttons to the default cursor) and `user-select: none`, and `html` clears `-webkit-tap-highlight-color` so the press scale is the only tap feedback.
+- Mock links are inert. The triage mock’s `thread` cells are styled like GitHub links but render as `span`, because a mock has no real thread to open.
 - `pointer-events: none` on decoration: rails, the scribble, the header sentinel, wash textures, the wordmark.
 - Hover styles only inside `@media (hover: hover)` in `globals.css`. Tailwind v4’s `hover:` variant is already gated the same way.
 - `prefers-reduced-motion` is honoured: keyframe entrances are `motion-safe:`, the `.disclosure` height animation is inside `no-preference`, and `reduce` zeroes the `.btn`, `.disclosure-icon`, `.menu-panel`, and `.swap` transitions and turns smooth scrolling off.
-- `role="status"` for quiet confirmations (`CopyButton`); `role="alert"` only for something that needs attention now.
+- `role="status"` for quiet confirmations (`CopyButton`, where the region is a sibling of the button so the confirmation never joins the button’s accessible name); `role="alert"` only for something that needs attention now.
 - Never colour alone. Every comparison mark and pill pairs its colour with an icon or text.
 - The skip link is the first focusable element in `<body>`.
 
 ### Layout
 
-- `scroll-margin-top` on anchor targets: `scroll-mt-25` (100px) on every section the header links to.
+- `html { scroll-padding-top: 80px }` clears the 64px sticky header for anything scrolled into view, including keyboard focus, so a focused control is never hidden under the header. Anchor targets add `scroll-mt-5` (20px) on top, so a section lands 100px down.
 - Group spacing is at least twice item spacing: cards `gap-4` inside sections that start at `mt-10 sm:mt-12`; footer links `gap-1` under headings at `mt-3` inside columns at `gap-10`.
 
 ### Writing
@@ -174,7 +176,7 @@ Raw values live in `:root` as `--palette-*`. Nothing outside the `@theme` block 
 | `--palette-gray-50`   | `#f6f7f9` | `bg`, `surface-raised`              |
 | `--palette-gray-100`  | `#eef0f3` | `surface-hover`                     |
 | `--palette-gray-200`  | `#e3e6eb` | `line`                              |
-| `--palette-gray-500`  | `#7f8a9c` | `text-tertiary`                     |
+| `--palette-gray-500`  | `#687286` | `text-tertiary`                     |
 | `--palette-gray-700`  | `#4a5568` | `text-secondary`                    |
 | `--palette-gray-950`  | `#0f1522` | `text`, and the shadow ink          |
 | `--palette-blue-50`   | `#edf5ff` | `accent-soft`, `wash-soft`          |
@@ -294,15 +296,15 @@ Recipes, all in `globals.css`:
 - **Disclosures.** `.disclosure-icon` transitions `rotate 200ms`; `.disclosure[open] .disclosure-icon { rotate: 45deg }` turns the plus into a cross. Under `prefers-reduced-motion: no-preference`, `.disclosure::details-content` transitions `block-size 240ms` and `content-visibility 240ms allow-discrete`, which relies on `interpolate-size: allow-keywords` on `html`.
 - **Sticky header.** `transition-[box-shadow] duration-200` and `data-[stuck=true]:shadow-header`.
 - **Hovers.** `transition-colors duration-150` on links; the `.btn` variants change background inside `@media (hover: hover)`.
-- **Skip link.** `transition: transform 150ms ease` from `translateY(-200%)` to `0` on `:focus-visible`.
-- **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .disclosure-icon, .menu-panel, .swap > * { transition-duration: 0ms }`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
+- **Skip link.** `transition: transform 150ms var(--ease-out-quart)` from `translateY(-200%)` to `0` on `:focus-visible`.
+- **Reduced motion.** `html { scroll-behavior: auto }`, and `.btn, .skip-link, .disclosure-icon, .menu-panel, .swap > * { transition-duration: 0ms }`. Utility transitions that move something (the hero pill press, the `GhDetails` chevron) add `motion-reduce:transition-none`. Keyframe entrances are applied with the `motion-safe:` variant, so they never run for readers who asked for less motion.
 
 ## Layout
 
 - **Container.** `.container-x`: `max-width: 72rem`, `padding-inline` `1.25rem`, then `2rem` from `40rem`, then `3rem` from `64rem`.
 - **Breakpoints.** Tailwind defaults: `sm` 40rem, `md` 48rem, `lg` 64rem. The only custom query is `min-width: 84rem` for `.page-frame`.
-- **Section rhythm.** `Section` renders `scroll-mt-25 py-16 sm:py-20 lg:py-24` around a `.container-x`. Content under a `SectionHeading` starts at `mt-10 sm:mt-12`.
-- **Anchors.** Every section the header or footer links to is a `Section` with `scroll-mt-25` (100px), which clears the 64px header with room to spare. The providers strip sets `scroll-mt-25` by hand because it is not a `Section`.
+- **Section rhythm.** `Section` renders `scroll-mt-5 py-16 sm:py-20 lg:py-24` around a `.container-x`. Content under a `SectionHeading` starts at `mt-10 sm:mt-12`.
+- **Anchors.** Every section the header or footer links to is a `Section` with `scroll-mt-5` (20px). Added to the root `scroll-padding-top` of 80px, a section lands 100px down, clearing the 64px header with room to spare. The providers strip sets `scroll-mt-5` by hand because it is not a `Section`.
 - **Sticky header.** `sticky top-0 z-40 bg-surface/85 backdrop-blur-md`, 64px tall. A 1px sentinel above it (`absolute inset-x-0 top-0 h-px`) feeds an `IntersectionObserver`; when the sentinel leaves the viewport the header gets `data-stuck="true"` and `shadow-header`.
 - **Sticky side columns.** Features and FAQ pin their copy column at `lg:sticky lg:top-28 lg:self-start` (112px, under the header).
 - **Grid ratios.** Hero `lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)]`; features and footer `5fr` / `7fr`; FAQ `4fr` / `8fr`; pricing `7fr` / `5fr`; tab panel `9fr` / `11fr`; quickstart step `2fr` / `3fr`. Always `minmax(0, …)` so long code or paths cannot widen a column.
@@ -360,7 +362,7 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 `site/components/section.tsx` owns the page band and its heading block.
 
 ```tsx
-<section id={id} aria-labelledby={labelledBy} className="scroll-mt-25 py-16 sm:py-20 lg:py-24">
+<section id={id} aria-labelledby={labelledBy} className="scroll-mt-5 py-16 sm:py-20 lg:py-24">
   <div className="container-x">{children}</div>
 </section>
 ```
@@ -376,13 +378,13 @@ The hero pairs the primary link with a secondary `CopyButton` whose `prefix` is 
 - **Icon tile**: `grid size-10 shrink-0 place-items-center rounded-sm bg-accent-soft text-accent-text` holding a `size-5` icon. The features timeline uses the white variant, `grid size-11 place-items-center rounded-sm bg-surface text-accent-text shadow-soft`, joined by a `w-px bg-line` spine.
 - **Command chip**: `rounded-xs bg-surface-raised px-2 py-1 font-mono text-xs font-medium text-accent-text shadow-ring`; the “Automatic” chip is the same with `text-text-secondary`. Inside the tab panel the chip is `rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text`.
 - **Step pill**: `tabular inline-flex h-7 items-center rounded-full bg-accent-soft px-2.5 text-xs font-semibold text-accent-text`.
-- **Hero pill link**: `inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-[13px] text-text-secondary shadow-soft` with a `size-5 rounded-full bg-accent-soft text-accent-text` badge holding a `Star size-3`, the label “Star PR Agent on GitHub”, and an `ArrowUpRight size-3.5 text-text-tertiary` because it leaves the site (`REPO_URL`, new tab).
+- **Hero pill link**: `inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-[13px] whitespace-nowrap text-text-secondary shadow-soft`, pressing to `scale 0.97`, with a `size-5 rounded-full bg-accent-soft text-accent-text` badge holding a `Star size-3`, the label “Star PR Agent on GitHub”, and an `ArrowUpRight size-3.5 text-text-tertiary` because it leaves the site (`REPO_URL`, new tab).
 - **Well** (a list inside a card): `divide-y divide-line rounded-md bg-surface-raised px-5 shadow-ring`.
 - **Feature cue**: `inline-flex max-w-full items-center rounded-xs bg-surface-raised px-2 py-1 font-mono text-xs text-text-secondary shadow-ring`.
 
 ### CodeBlock and CopyButton
 
-`site/components/code-block.tsx` is a `figure` with `rounded-md bg-surface-raised p-1.5 shadow-ring`. The `figcaption` is `pt-0.5 pr-0.5 pb-1.5 pl-2` with a `Terminal` icon, the label, and a ghost `CopyButton`. The `pre` is `overflow-x-auto rounded-xs bg-surface p-4 text-[13px] leading-relaxed shadow-soft`. Highlighting is minimal and by hand: in `bash`, a `#` line is `block whitespace-pre-wrap text-text-tertiary` (comments may wrap) and every other line keeps its first word in `text-accent-text` and never wraps (the block scrolls instead); in `dotenv`, the key is `text-accent-text`, `=` is `text-text-tertiary`, the value `text-text-secondary`.
+`site/components/code-block.tsx` is a `figure` with `rounded-md bg-surface-raised p-1.5 shadow-ring`. The `figcaption` is `pt-0.5 pr-0.5 pb-1.5 pl-2` with a `Terminal` icon, the label, and a ghost `CopyButton` whose `target` is `` `${label} snippet` ``, so two “Copy” buttons in one step read as “Copy Terminal snippet” and “Copy .env snippet” to a screen reader. The `pre` is `overflow-x-auto rounded-xs bg-surface p-4 text-[13px] leading-relaxed shadow-soft`. Highlighting is minimal and by hand: in `bash`, a `#` line is `block whitespace-pre-wrap text-text-tertiary` (comments may wrap) and every other line keeps its first word in `text-accent-text` and never wraps (the block scrolls instead); in `dotenv`, the key is `text-accent-text`, `=` is `text-text-tertiary`, the value `text-text-secondary`.
 
 `site/components/copy-button.tsx` confirms with an icon swap and a label change, so the state never rests on colour alone:
 
@@ -398,25 +400,27 @@ const icon = (
   </span>
 );
 
-<button type="button" onClick={copy} className={chassis} aria-live="off">
-  {prefix}
-  {iconAfter ? null : icon}
-  <span className="grid">
-    <span className={copied ? "invisible col-start-1 row-start-1" : "col-start-1 row-start-1"}>
-      {label}
+<>
+  <button type="button" onClick={copy} className={chassis}>
+    {prefix}
+    {iconAfter ? null : icon}
+    <span className="grid">
+      <span className={copied ? "invisible col-start-1 row-start-1" : "col-start-1 row-start-1"}>
+        {label}
+      </span>
+      <span className={copied ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}>
+        Copied
+      </span>
     </span>
-    <span className={copied ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}>
-      Copied
-    </span>
-  </span>
-  {iconAfter ? icon : null}
+    {iconAfter ? icon : null}
+  </button>
   <span role="status" className="sr-only">
     {copied ? "Copied to clipboard" : ""}
   </span>
-</button>;
+</>;
 ```
 
-Both labels occupy the same grid cell, so the button keeps the width of the longer one and the swap never shifts layout. The `role="status"` region repeats the confirmation for screen readers; the button itself is `aria-live="off"`. State resets after 1800ms. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost btn-leading h-7 gap-1.5 rounded-xs px-2 text-xs` (code blocks), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-[13px]` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter` (the hero). `prefix` renders before the label.
+Both labels occupy the same grid cell, so the button keeps the width of the longer one and the swap never shifts layout. The `role="status"` region beside the button repeats the confirmation for screen readers. State is a timestamp and resets 1800ms after the latest copy, so copying again restarts the window. A denied clipboard write is swallowed because the text stays visible and selectable beside the button. Chassis per variant: `ghost` is `btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs` (code blocks, icon side one step tighter), `primary` is `btn btn-primary btn-leading h-9 rounded-xs text-[13px]` (the CTA command box), `secondary` is `btn btn-secondary btn-trailing` with `iconAfter`, or `btn btn-secondary px-3` when a `prefix` puts marks on the leading side too (the hero). `prefix` renders before the label.
 
 ### GitHub output primitives
 
@@ -465,7 +469,7 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
 - Shell: `tabs-shell mt-10 sm:mt-12` (`--shadow-card`, `bg-surface-raised`, 8px padding).
 - Strip: `role="tablist"` in `grid grid-cols-2 gap-1 sm:grid-cols-4`. Selected tab is `btn tabs-tab h-11 bg-surface text-[15px] text-text shadow-tab`; the rest are `btn btn-ghost tabs-tab h-11 text-[15px] font-normal`. Roving `tabIndex` (`0` on the selected tab, `-1` elsewhere) with ArrowLeft, ArrowRight, Home, and End handled on the list.
 - Panel: `tabs-panel grid gap-1.5 lg:h-[39rem] lg:grid-cols-[minmax(0,9fr)_minmax(0,11fr)] lg:overflow-hidden`. The height is fixed at `lg` so switching tabs never moves the page.
-- Copy column: `flex flex-col p-5 motion-safe:animate-panel-in sm:p-8 lg:p-10` with the command chip, the `h3`, the description, a `divide-y divide-line` bullet list, and a `mt-auto pt-8` button so the CTA sits on the same baseline in every tab.
+- Copy column: `flex flex-col p-5 sm:p-8 lg:p-10`, plus `motion-safe:animate-panel-in` after a pointer pick, with the command chip, the `h3`, the description, a `divide-y divide-line` bullet list, and a `mt-auto pt-8` button so the CTA sits on the same baseline in every tab.
 - Preview: `wash wash-clouds tabs-media p-4 sm:p-6 lg:p-8`, then a frame at `h-[24rem] [mask-image:linear-gradient(to_bottom,black_78%,transparent_100%)] sm:h-[27rem] lg:absolute lg:inset-8 lg:h-auto`. At `lg` the preview is taken out of flow, so its content can never stretch the row. Inside it, `role="region"` with `aria-label="{tab} example output"` and `tabIndex={0}` is `scrollbar-none h-full overflow-y-auto overscroll-contain rounded-md focus-visible:outline-offset-[-3px]`: long outputs scroll behind the bottom fade with no visible scrollbar.
 - Every panel is rendered and toggled with `hidden`, so each keeps its scroll position and the DOM order matches the strip.
 
@@ -475,7 +479,7 @@ Pill tones: `success` is `bg-success-soft text-success`, `danger` is `bg-danger-
 
 - **Review and verify “loop” card** (`sm:row-span-2`): a `grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4`. A dashed `Rail` (an `absolute left-0 w-10` span with an SVG `line` at `x=20.5`, `strokeDasharray="3 3"`, `text-line`) runs from under the review tile through an 18px info dot (`size-[18px] rounded-full bg-accent-solid text-on-accent` with `Info size-3.5`) beside the 12px subtext “Then, after every push” (`text-xs text-text-tertiary`, both in an `h-20` row), then behind the verify tile, where a `viewBox="0 0 56 160"` path `M20.5 0V126a16 16 0 0 0 16 16H52` bends with a 16px corner into the verify copy. The tiles sit at `relative z-10` so the rail passes behind them. A wrapper span takes the insets because an absolutely positioned SVG keeps its intrinsic height instead of stretching.
 - **Describe and ask cards**: the plain `Card` recipe with an icon tile top-left and a command chip top-right.
-- **Triage card** (`sm:col-span-2`): `md:grid-cols-2 md:gap-8`, copy on the left and a small verdict mock on the right, `wash wash-grid flex items-center rounded-md p-4 sm:p-5` around a `.window` with a `PR Agent Triage` header and four `GhPill` verdicts (`success`, `accent`, `neutral`, `warning`). It is `aria-hidden` decoration and stays vertically centred.
+- **Triage card** (`sm:col-span-2`): `md:grid-cols-2 md:gap-8`, copy on the left and a small verdict mock on the right, `wash wash-grid flex items-center rounded-md p-4 sm:p-5` around a `.window rounded-sm` (the padding exceeds the wash radius, so the window steps down a size) with a `PR Agent Triage` header and four `GhPill` verdicts (`success`, `accent`, `neutral`, `warning`). It is `aria-hidden` decoration and stays vertically centred.
 
 ### Comparison matrix
 
@@ -488,7 +492,7 @@ Marks always pair an icon with text: “yes” is `Check size-[18px] text-accent
 
 ### FAQ
 
-`site/components/faq.tsx` uses native `<details name="faq">` so only one answer is open at a time, with the first open by default. Each item is `disclosure group border-b border-line last:border-b-0` inside a `rounded-lg bg-surface px-5 shadow-card sm:px-6` card. The summary is `flex items-center justify-between gap-6 py-5 text-[15px] font-medium text-text` with the `h3` inside it; the marker is removed and a `size-8 rounded-full text-text-tertiary` circle carries a `Plus disclosure-icon size-4` that rotates to a cross and gains `group-open:bg-surface-raised group-open:text-text`. Answers are `pb-5 text-[15px] leading-relaxed text-text-secondary`.
+`site/components/faq.tsx` uses native `<details name="faq">` so only one answer is open at a time, with the first open by default. Each item is `disclosure group border-b border-line last:border-b-0` inside a `rounded-lg bg-surface px-5 shadow-card sm:px-6` card. The summary is `group/summary flex items-center justify-between gap-6 py-5 text-[15px] font-medium text-text` with the `h3` inside it; the marker is removed and a `size-8 rounded-full text-text-tertiary` circle carries a `Plus disclosure-icon size-4` that rotates to a cross and gains `group-open:bg-surface-raised group-open:text-text`; hovering the question darkens the icon with `group-hover/summary:text-text`. Answers are `max-w-[52ch] pb-5 text-[15px] leading-relaxed text-text-secondary`.
 
 ### Header and mobile menu
 
@@ -496,7 +500,7 @@ Marks always pair an icon with text: “yes” is `Check size-[18px] text-accent
 
 ### Footer and wordmark
 
-`site/components/footer.tsx` sits straight on the CTA band, with no divider, and holds the logo and a `max-w-xs text-sm` blurb on the left, three link columns (`Product`, `Documentation`, `For agents`) on the right, a `text-[13px] text-text-tertiary` legal bar, and the wordmark. Links are `inline-flex min-h-8 items-center text-sm text-text-secondary transition-colors duration-150 hover:text-text`; agent file links add `font-mono text-[13px]`.
+`site/components/footer.tsx` sits straight on the CTA band, with no divider, and holds the logo and a `max-w-xs text-sm` blurb on the left, three link columns (`Product`, `Documentation`, `For agents`) on the right, a `text-[13px] text-text-tertiary` legal bar, and the wordmark. Links are `inline-flex min-h-8 items-center rounded-xs text-sm text-text-secondary transition-colors duration-150 hover:text-text`; agent file links add `font-mono text-[13px]`. Legal bar links are `hit-area rounded-xs`, so their focus ring is rounded and their target reaches 24px.
 
 The wordmark is the page’s closing note:
 
@@ -528,7 +532,7 @@ The metrics are measured, not guessed: with Geist 500 at `line-height: 1`, cap t
 
 The hero (`site/components/hero.tsx`) is `pt-10 pb-16 sm:pt-16 lg:pt-20 lg:pb-20`, a `grid items-center gap-12 lg:grid-cols-[minmax(0,10fr)_minmax(0,11fr)] lg:gap-10`. Copy on the left in three staggered `motion-safe:animate-rise` groups: the star-the-repo pill link, the `h1` with the brand in a `sr-only` span, then the support paragraph, the two buttons and the `HERO_CTA_NOTE` line. The primary button (“Deploy yourself”) links to `#usage`; the secondary one (“Copy prompt”) is a `CopyButton` fronted by three provider marks that copies `renderSetupPrompt()` from `site/lib/agentResources.ts`: what PR Agent is, every machine-readable URL from the resource registry, the repository, and the job the assistant is asked to do. On the right a `wash wash-grid aspect-[4/3] w-full rounded-xl shadow-soft sm:aspect-[5/4] lg:aspect-auto lg:h-[36rem]` card with the `PrWindow` (`w-full`) pinned at `absolute inset-x-5 top-5 sm:inset-x-8 sm:top-8 lg:top-12 lg:right-auto lg:left-12 lg:w-[34rem]`, so it fills the card below `lg` and is cropped by the card’s `overflow: hidden`.
 
-The CTA banner (`site/components/cta-banner.tsx`) is a full-bleed band inside the sheet, `wash wash-grid wash-clouds py-12 text-center sm:py-16`, with a `container-x` inside it, no rounded corners and no shadow. An overlay `linear-gradient(to bottom, transparent 55%, var(--color-surface) 100%)` fades its lower half into the page, so the command box and its shadow float over white and the footer, which follows it directly, reads as one surface. It holds exactly three things: the heading with the word “reviewer” in `text-accent-text italic` underlined by a hand-drawn `Scribble` SVG in `text-accent-bright` (`vectorEffect="non-scaling-stroke"`, `preserveAspectRatio="none"`), one `max-w-[46ch]` sentence, and the clone command box (`rounded-md bg-surface p-1.5 shadow-card` with a `truncate` `code` carrying `title` and a primary `CopyButton`). Do not add anything to it.
+The CTA banner (`site/components/cta-banner.tsx`) is a full-bleed band inside the sheet, `wash wash-grid wash-grid-fade wash-clouds py-12 text-center sm:py-16`, with a `container-x` inside it, no rounded corners and no shadow. `wash-grid-fade` intersects the grid's radial mask with `linear-gradient(to bottom, black 20%, transparent 60%)`, so the grid sits behind the heading and is gone before the command box. An overlay `linear-gradient(to bottom, transparent 55%, var(--color-surface) 100%)` fades its lower half into the page, so the command box and its shadow float over white and the footer, which follows it directly, reads as one surface. It holds exactly three things: the heading with the word “reviewer” in `text-accent-text italic` underlined by a hand-drawn `Scribble` SVG in `text-accent-bright` (`vectorEffect="non-scaling-stroke"`, `preserveAspectRatio="none"`), one `max-w-[46ch]` sentence, and the clone command box (`rounded-md bg-surface p-1.5 shadow-card` with a `truncate` `code` carrying `title` and a primary `CopyButton`). Do not add anything to it.
 
 ### 404
 
@@ -561,7 +565,7 @@ The only hand-drawn SVGs on the page are illustration, not icons: the dashed rai
 
 ### Provider marks
 
-`site/components/provider-logos.tsx` holds OpenAI, Claude, Gemini, DeepSeek, Grok, and Moonshot AI from thesvg.org (`https://thesvg.org/icons/<slug>/mono.svg`, or `light.svg`/`default.svg` when the catalogue has no mono variant; the Gemini sparkle is the mask shape of its colour file). Each is reduced to `currentColor` geometry with `role="img"` and an `aria-label`, because here the mark is the content. Every viewBox is a square centred on the mark’s ink, measured with `getBBox` in a headless browser, so all six share one box and one optical centre; the heavy Grok slash gets a slightly larger box and the thin DeepSeek whale a slightly smaller one so they read the same size as the rest. The strip (`site/components/providers.tsx`) renders them at `size-6` in `text-text-tertiary` with `gap-x-9 gap-y-4`, flat, monochrome, with no tile behind them, followed by “and more”. The hero’s copy-prompt button reuses `OpenAiMark`, `ClaudeMark`, and `GeminiMark` at `size-3.5`. To add a provider: fetch the mark, measure its ink, generate the centred square viewBox, keep the fill `currentColor`.
+`site/components/provider-logos.tsx` holds OpenAI, Claude, Gemini, DeepSeek, Grok, and Moonshot AI from thesvg.org (`https://thesvg.org/icons/<slug>/mono.svg`, or `light.svg`/`default.svg` when the catalogue has no mono variant; the Gemini sparkle is the mask shape of its colour file). Each is reduced to `currentColor` geometry with `role="img"` and an `aria-label`, because here the mark is the content. Every mark component also carries that name as `label`, which the strip uses as its React key; every factory-made component is named `Mark`, so `Mark.name` would collide. Every viewBox is a square centred on the mark’s ink, measured with `getBBox` in a headless browser, so all six share one box and one optical centre; the heavy Grok slash gets a slightly larger box and the thin DeepSeek whale a slightly smaller one so they read the same size as the rest. The strip (`site/components/providers.tsx`) renders them at `size-6` in `text-text-tertiary` with `gap-x-9 gap-y-4`, flat, monochrome, with no tile behind them, followed by “and more”. The hero’s copy-prompt button reuses `OpenAiMark`, `ClaudeMark`, and `GeminiMark` at `size-3.5`. To add a provider: fetch the mark, measure its ink, generate the centred square viewBox, keep the fill `currentColor`.
 
 ## Content and voice
 

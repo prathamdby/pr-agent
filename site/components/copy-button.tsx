@@ -9,6 +9,8 @@ type CopyButtonProps = {
   readonly iconAfter?: boolean;
   /** Decoration before the label, such as a row of small marks. */
   readonly prefix?: ReactNode;
+  /** Screen-reader-only words after the label, so repeated "Copy" buttons stay distinguishable. */
+  readonly target?: string;
 };
 
 /**
@@ -21,21 +23,24 @@ export function CopyButton({
   variant = "ghost",
   iconAfter = false,
   prefix,
+  target,
 }: CopyButtonProps) {
-  const [copied, setCopied] = useState(false);
+  // A timestamp rather than a flag, so copying again restarts the confirmation window.
+  const [copiedAt, setCopiedAt] = useState<number | null>(null);
+  const copied = copiedAt !== null;
 
   useEffect(() => {
-    if (!copied) {
+    if (copiedAt === null) {
       return undefined;
     }
-    const timer = setTimeout(() => setCopied(false), 1800);
+    const timer = setTimeout(() => setCopiedAt(null), 1800);
     return () => clearTimeout(timer);
-  }, [copied]);
+  }, [copiedAt]);
 
   const copy = () => {
     navigator.clipboard
       .writeText(text)
-      .then(() => setCopied(true))
+      .then(() => setCopiedAt(Date.now()))
       .catch(() => {
         // Clipboard access can be denied. The text stays visible and selectable beside the button.
       });
@@ -43,8 +48,9 @@ export function CopyButton({
 
   const chassis = {
     primary: "btn btn-primary btn-leading h-9 rounded-xs text-[13px]",
-    secondary: "btn btn-secondary btn-trailing",
-    ghost: "btn btn-ghost btn-leading h-7 gap-1.5 rounded-xs px-2 text-xs",
+    // Marks before the label and the icon after it: both sides take the tighter icon padding.
+    secondary: prefix ? "btn btn-secondary px-3" : "btn btn-secondary btn-trailing",
+    ghost: "btn btn-ghost h-7 gap-1.5 rounded-xs pr-2 pl-1.5 text-xs",
   }[variant];
 
   // The swap state sits on wrapper spans: the icon component does not forward data attributes.
@@ -59,22 +65,33 @@ export function CopyButton({
     </span>
   );
 
+  const targetText = target ? <span className="sr-only"> {target}</span> : null;
+
+  // The status region sits beside the button so the confirmation never joins the button's name.
   return (
-    <button type="button" onClick={copy} className={chassis} aria-live="off">
-      {prefix}
-      {iconAfter ? null : icon}
-      <span className="grid">
-        <span className={copied ? "invisible col-start-1 row-start-1" : "col-start-1 row-start-1"}>
-          {label}
+    <>
+      <button type="button" onClick={copy} className={chassis}>
+        {prefix}
+        {iconAfter ? null : icon}
+        <span className="grid">
+          <span
+            className={copied ? "invisible col-start-1 row-start-1" : "col-start-1 row-start-1"}
+          >
+            {label}
+            {targetText}
+          </span>
+          <span
+            className={copied ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}
+          >
+            Copied
+            {targetText}
+          </span>
         </span>
-        <span className={copied ? "col-start-1 row-start-1" : "invisible col-start-1 row-start-1"}>
-          Copied
-        </span>
-      </span>
-      {iconAfter ? icon : null}
+        {iconAfter ? icon : null}
+      </button>
       <span role="status" className="sr-only">
         {copied ? "Copied to clipboard" : ""}
       </span>
-    </button>
+    </>
   );
 }

@@ -48,7 +48,7 @@ export function Pricing() {
                 >
                   <Icon className="size-9" />
                 </span>
-                <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium text-accent-text shadow-soft">
+                <span className="rounded-full bg-surface px-3 py-1 text-xs font-medium whitespace-nowrap text-accent-text shadow-soft">
                   {plan.price}
                 </span>
               </div>

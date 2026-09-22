@@ -26,7 +26,7 @@
   --palette-gray-50: #f6f7f9;
   --palette-gray-100: #eef0f3;
   --palette-gray-200: #e3e6eb;
-  --palette-gray-500: #7f8a9c;
+  --palette-gray-500: #687286;
   --palette-gray-700: #4a5568;
   --palette-gray-950: #0f1522;
   --palette-blue-50: #edf5ff;
@@ -163,6 +163,10 @@
     text-underline-position: from-font;
     interpolate-size: allow-keywords;
     scroll-behavior: smooth;
+    /* Clears the 64px sticky header, so focus scrolled into view is never hidden under it. */
+    scroll-padding-top: 80px;
+    /* The press scale is the tap feedback; the grey mobile tap flash would double it. */
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
@@ -221,7 +225,7 @@
     font-size: 0.875rem;
     font-weight: 500;
     transform: translateY(-200%);
-    transition: transform 150ms ease;
+    transition: transform 150ms var(--ease-out-quart);
   }
 
   .skip-link:focus-visible {
@@ -268,6 +272,9 @@
     line-height: 1;
     white-space: nowrap;
     text-decoration: none;
+    /* Tailwind v4 resets buttons to the default cursor; links and buttons should feel the same. */
+    cursor: pointer;
+    user-select: none;
     transition-property: background-color, color, box-shadow, scale;
     transition-duration: 150ms, 150ms, 150ms, 200ms;
     transition-timing-function: ease, ease, ease, ease-out;
@@ -345,6 +352,14 @@
       linear-gradient(to bottom, rgb(255 255 255 / 0.55) 1px, transparent 1px);
     background-size: 28px 28px;
     mask-image: radial-gradient(ellipse at 50% 40%, black 30%, transparent 90%);
+  }
+
+  /* Closing banner: the grid also fades out top to bottom and is gone a little past halfway. */
+  .wash-grid-fade::before {
+    mask-image:
+      radial-gradient(ellipse at 50% 40%, black 30%, transparent 90%),
+      linear-gradient(to bottom, black 20%, transparent 60%);
+    mask-composite: intersect;
   }
 
   .wash-clouds::after {
@@ -449,6 +464,14 @@
     }
   }
 
+  /*
+    Following a menu link closes the panel with no exit: the panel sits in the header's flow, so
+    while it faded out the anchor scroll would land a full menu height past its target.
+  */
+  .menu-panel[data-instant="true"] {
+    transition: none;
+  }
+
   /* Cross-fade for a swapped icon: the new one grows in while the old one shrinks away. */
   .swap {
     position: relative;
@@ -547,6 +570,20 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /*
+    Grows a small text link's hit area to at least 24px tall without moving anything. The inset
+    stays under half the smallest gap next to these links, so neighbouring targets never overlap.
+  */
+  .hit-area {
+    position: relative;
+  }
+
+  .hit-area::after {
+    content: "";
+    position: absolute;
+    inset: -4px -6px;
+  }
+
   .text-balance {
     text-wrap: balance;
   }
@@ -581,6 +618,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .btn,
+  .skip-link,
   .disclosure-icon,
   .menu-panel,
   .swap > * {

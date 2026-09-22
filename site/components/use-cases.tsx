@@ -99,6 +99,8 @@ function CaseMock({ kind }: { readonly kind: CaseKind }) {
 
 export function UseCases() {
   const [active, setActive] = useState<CaseKind>("review");
+  // Only a pointer pick animates the panel in. Page load and arrow-key browsing switch instantly.
+  const [animate, setAnimate] = useState(false);
   const baseId = useId();
   const tabs = useRef(new Map<CaseKind, HTMLButtonElement>());
 
@@ -123,6 +125,7 @@ export function UseCases() {
     }
     event.preventDefault();
     const target = CASES[next];
+    setAnimate(false);
     setActive(target.kind);
     tabs.current.get(target.kind)?.focus();
   };
@@ -161,7 +164,10 @@ export function UseCases() {
                     tabs.current.set(item.kind, node);
                   }
                 }}
-                onClick={() => setActive(item.kind)}
+                onClick={() => {
+                  setAnimate(!selected);
+                  setActive(item.kind);
+                }}
                 className={
                   selected
                     ? "btn tabs-tab h-11 bg-surface text-[15px] text-text shadow-tab"
@@ -183,7 +189,9 @@ export function UseCases() {
             hidden={item.kind !== active}
             className="tabs-panel grid gap-1.5 lg:h-[39rem] lg:grid-cols-[minmax(0,9fr)_minmax(0,11fr)] lg:overflow-hidden"
           >
-            <div className="flex flex-col p-5 motion-safe:animate-panel-in sm:p-8 lg:p-10">
+            <div
+              className={`flex flex-col p-5 sm:p-8 lg:p-10 ${animate ? "motion-safe:animate-panel-in" : ""}`}
+            >
               <code className="inline-flex w-fit rounded-xs bg-accent-soft px-2 py-1 font-mono text-xs font-medium text-accent-text">
                 {item.command}
               </code>
@@ -197,7 +205,7 @@ export function UseCases() {
                 {item.bullets.map((bullet) => (
                   <li
                     key={bullet}
-                    className="flex items-start gap-3 py-3 text-[15px] leading-snug text-text"
+                    className="flex items-start gap-3 py-3 text-[15px] leading-snug text-pretty text-text"
                   >
                     <span
                       aria-hidden="true"

@@ -12,7 +12,7 @@ type LogoProps = {
  * whale a slightly smaller one so they read the same size as the rest.
  */
 function mark(label: string, viewBox: string, children: ReactNode) {
-  return function Mark({ className }: LogoProps) {
+  function Mark({ className }: LogoProps) {
     return (
       <svg
         viewBox={viewBox}
@@ -24,7 +24,8 @@ function mark(label: string, viewBox: string, children: ReactNode) {
         {children}
       </svg>
     );
-  };
+  }
+  return Object.assign(Mark, { label });
 }
 
 export const OpenAiMark = mark(

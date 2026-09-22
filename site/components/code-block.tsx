@@ -60,7 +60,7 @@ export function CodeBlock({ label, code, language }: CodeBlockProps) {
           <Terminal className="size-3.5" />
           {label}
         </span>
-        <CopyButton text={code} />
+        <CopyButton text={code} target={`${label} snippet`} />
       </figcaption>
       <pre className="overflow-x-auto rounded-xs bg-surface p-4 text-[13px] leading-relaxed shadow-soft">
         <code>{highlight(code, language)}</code>

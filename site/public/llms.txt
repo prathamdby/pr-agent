@@ -74,7 +74,7 @@ Landing-page capability copy:
 - Skip AI review when the PR is only docs. Runs automatically on small documentation-only changes. Docs-only pull requests take a lighter path instead of a full review.
 Landing-page review flow copy:
 - Deploy once on servers you control: Install PR Agent beside the rest of your stack. Your GitHub credentials and AI keys stay in your account, not a vendor dashboard.
-- Someone opens a pull request: PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.
+- A pull request opens on your project: PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.
 - It reads what actually changed: PR Agent looks at the branch and the changes, then hunts for bugs and correctness issues. When risky APIs show up, it also checks for security problems.
 - Feedback shows up on the pull request: Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, or mention the App bot. Replies stay in the same thread.
 - Honest limits when the change is huge: Docs-only pull requests can take a lighter path. Very large changes may get a partial review, and PR Agent says what it could not cover instead of faking completeness.

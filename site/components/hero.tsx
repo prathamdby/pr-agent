@@ -40,7 +40,7 @@ export function Hero() {
               href={REPO_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-[13px] text-text-secondary shadow-soft transition-colors duration-150 hover:text-text"
+              className="inline-flex h-8 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 text-[13px] whitespace-nowrap text-text-secondary shadow-soft transition-[color,scale] duration-[150ms,200ms] ease-out hover:text-text active:scale-[0.97] motion-reduce:transition-none"
             >
               <span className="grid size-5 place-items-center rounded-full bg-accent-soft text-accent-text">
                 <Star className="size-3" />

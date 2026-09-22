@@ -23,7 +23,7 @@ const AGENT_FILES = AGENT_RESOURCES.filter(
 );
 
 const linkClassName =
-  "inline-flex min-h-8 items-center text-sm text-text-secondary transition-colors duration-150 hover:text-text";
+  "inline-flex min-h-8 items-center rounded-xs text-sm text-text-secondary transition-colors duration-150 hover:text-text";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -107,7 +107,7 @@ export function Footer() {
                 href={LICENSE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="transition-colors duration-150 hover:text-text"
+                className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
               >
                 License
               </a>
@@ -117,7 +117,7 @@ export function Footer() {
                 href={REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="transition-colors duration-150 hover:text-text"
+                className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
               >
                 GitHub
               </a>
@@ -126,7 +126,7 @@ export function Footer() {
               <a
                 href="/llms.txt"
                 title={llmsNudgeTitle()}
-                className="transition-colors duration-150 hover:text-text"
+                className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
               >
                 llms.txt
               </a>

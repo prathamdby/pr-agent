@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { ButtonLink } from "@/components/button";
 import { ArrowUpRight, ChevronRight, GitHubMark, Menu, X } from "@/components/icons";
 import { PRODUCT_NAME } from "@/lib/seo";
@@ -15,8 +16,10 @@ const NAV = [
 
 export function Header() {
   const [open, setOpen] = useState(false);
+  const [instant, setInstant] = useState(false);
   const [stuck, setStuck] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
 
   // A hairline above the header leaves the viewport the moment the header sticks.
   useEffect(() => {
@@ -33,7 +36,35 @@ export function Header() {
     return () => observer.disconnect();
   }, []);
 
-  const close = () => setOpen(false);
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
+  // The panel must be gone before the browser measures the anchor it is about to scroll to.
+  const closeForNavigation = () => {
+    if (!open) {
+      return;
+    }
+    flushSync(() => {
+      setInstant(true);
+      setOpen(false);
+    });
+  };
+
+  const toggle = () => {
+    setInstant(false);
+    setOpen((value) => !value);
+  };
 
   return (
     <>
@@ -86,16 +117,18 @@ export function Header() {
               href="/#usage"
               className="h-9"
               trailingIcon={<ChevronRight className="size-4" />}
+              onClick={closeForNavigation}
             >
               Deploy
             </ButtonLink>
             <button
+              ref={menuButton}
               type="button"
               className="btn btn-ghost size-9 px-0 md:hidden"
               aria-expanded={open}
               aria-controls="mobile-menu"
               aria-label={open ? "Close menu" : "Open menu"}
-              onClick={() => setOpen((value) => !value)}
+              onClick={toggle}
             >
               <span className="swap size-5" aria-hidden="true">
                 <span data-shown={!open} className="grid place-items-center">
@@ -112,6 +145,7 @@ export function Header() {
         <div
           id="mobile-menu"
           data-open={open}
+          data-instant={instant}
           className="menu-panel border-t border-line md:hidden"
         >
           <nav aria-label="Primary, mobile" className="container-x flex flex-col py-3">
@@ -119,7 +153,7 @@ export function Header() {
               <a
                 key={item.href}
                 href={item.href}
-                onClick={close}
+                onClick={closeForNavigation}
                 className="flex h-11 items-center rounded-sm px-3 text-[15px] text-text hover:bg-surface-hover"
               >
                 {item.label}
@@ -129,7 +163,7 @@ export function Header() {
               href={REPO_URL}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={close}
+              onClick={() => setOpen(false)}
               className="flex h-11 items-center gap-2 rounded-sm px-3 text-[15px] text-text hover:bg-surface-hover"
             >
               <GitHubMark className="size-4" />

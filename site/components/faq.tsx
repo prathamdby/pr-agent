@@ -41,16 +41,18 @@ export function Faq() {
               open={index === 0}
               className="disclosure group border-b border-line last:border-b-0"
             >
-              <summary className="flex items-center justify-between gap-6 py-5 text-[15px] font-medium text-text">
+              <summary className="group/summary flex items-center justify-between gap-6 py-5 text-[15px] font-medium text-text">
                 <h3 className="font-medium">{item.question}</h3>
                 <span
                   aria-hidden="true"
-                  className="grid size-8 shrink-0 place-items-center rounded-full text-text-tertiary transition-colors duration-150 group-open:bg-surface-raised group-open:text-text"
+                  className="grid size-8 shrink-0 place-items-center rounded-full text-text-tertiary transition-colors duration-150 group-open:bg-surface-raised group-open:text-text group-hover/summary:text-text"
                 >
                   <Plus className="disclosure-icon size-4" />
                 </span>
               </summary>
-              <p className="pb-5 text-[15px] leading-relaxed text-text-secondary">{item.answer}</p>
+              <p className="max-w-[52ch] pb-5 text-[15px] leading-relaxed text-text-secondary">
+                {item.answer}
+              </p>
             </details>
           ))}
         </div>
