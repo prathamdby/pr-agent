@@ -1,10 +1,6 @@
 <div align="center">
 
-<img src="assets/pr-agent-wordmark.png" alt="PR Agent" width="100%">
-
-# PR Agent
-
-Review pull requests on machines you own.
+<img src="assets/pr-agent-banner.webp" alt="PR Agent. Review pull requests on machines you own." width="100%">
 
 <p>
   <a href="https://deepwiki.com/prathamdby/pr-agent"><img src="https://img.shields.io/badge/DeepWiki-Ask-7B2CBF?style=for-the-badge" alt="Ask DeepWiki"></a>
