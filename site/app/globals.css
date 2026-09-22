@@ -41,6 +41,16 @@
   --palette-red-700: #c9262f;
   --palette-amber-100: #fff1cf;
   --palette-amber-700: #9a6700;
+
+  /* Shadow inks as bare channels, so each shadow layer sets its own alpha. */
+  --palette-ink-neutral: 15 21 34;
+  --palette-ink-wash: 14 42 78;
+
+  /*
+    A shadow takes the hue of the surface it falls on. Neutral by default; the `.wash` rules in
+    the base layer switch it to a deep wash blue for objects sitting directly on a wash.
+  */
+  --shadow-ink: var(--palette-ink-neutral);
 }
 
 @theme {
@@ -100,27 +110,38 @@
     Depth comes from layered shadows. Each layer doubles its distance at a low alpha, so the edge
     stays crisp while the falloff is long and soft, the way light from above actually behaves. The
     first layer is a hairline that stands in for a border.
+
+    Apply these through the `shadow-*` utilities (or `@apply` in a component class), never
+    `var(--shadow-*)`: a custom property resolves `--shadow-ink` on `:root`, so the wash ink
+    would never reach it.
   */
-  --shadow-ring: 0 0 0 1px rgb(15 21 34 / 0.07);
+  --shadow-ring: 0 0 0 1px rgb(var(--shadow-ink) / 0.07);
   --shadow-soft:
-    0 0 0 1px rgb(15 21 34 / 0.05), 0 1px 1px rgb(15 21 34 / 0.03), 0 2px 2px rgb(15 21 34 / 0.03),
-    0 4px 4px rgb(15 21 34 / 0.03), 0 8px 8px rgb(15 21 34 / 0.03);
+    0 0 0 1px rgb(var(--shadow-ink) / 0.05), 0 1px 1px rgb(var(--shadow-ink) / 0.03),
+    0 2px 2px rgb(var(--shadow-ink) / 0.03), 0 4px 4px rgb(var(--shadow-ink) / 0.03),
+    0 8px 8px rgb(var(--shadow-ink) / 0.03);
   --shadow-card:
-    0 0 0 1px rgb(15 21 34 / 0.05), 0 1px 1px rgb(15 21 34 / 0.03), 0 2px 2px rgb(15 21 34 / 0.03),
-    0 4px 4px rgb(15 21 34 / 0.03), 0 8px 8px rgb(15 21 34 / 0.03),
-    0 16px 16px rgb(15 21 34 / 0.03), 0 32px 32px rgb(15 21 34 / 0.03);
+    0 0 0 1px rgb(var(--shadow-ink) / 0.05), 0 1px 1px rgb(var(--shadow-ink) / 0.03),
+    0 2px 2px rgb(var(--shadow-ink) / 0.03), 0 4px 4px rgb(var(--shadow-ink) / 0.03),
+    0 8px 8px rgb(var(--shadow-ink) / 0.03), 0 16px 16px rgb(var(--shadow-ink) / 0.03),
+    0 32px 32px rgb(var(--shadow-ink) / 0.03);
   --shadow-float:
-    0 0 0 1px rgb(15 21 34 / 0.05), 0 1px 1px rgb(15 21 34 / 0.03), 0 2px 2px rgb(15 21 34 / 0.03),
-    0 4px 4px rgb(15 21 34 / 0.03), 0 8px 8px rgb(15 21 34 / 0.03),
-    0 16px 16px rgb(15 21 34 / 0.04), 0 32px 32px rgb(15 21 34 / 0.04),
-    0 64px 64px rgb(30 105 233 / 0.06);
-  --shadow-tab:
-    0 0 0 1px rgb(15 21 34 / 0.04), 0 1px 1px rgb(15 21 34 / 0.04), 0 2px 2px rgb(15 21 34 / 0.04),
-    0 4px 4px rgb(15 21 34 / 0.04), 0 8px 8px rgb(15 21 34 / 0.04);
-  --shadow-button: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 1px 2px rgb(15 21 34 / 0.12);
+    0 0 0 1px rgb(var(--shadow-ink) / 0.05), 0 1px 1px rgb(var(--shadow-ink) / 0.03),
+    0 2px 2px rgb(var(--shadow-ink) / 0.03), 0 4px 4px rgb(var(--shadow-ink) / 0.03),
+    0 8px 8px rgb(var(--shadow-ink) / 0.03), 0 16px 16px rgb(var(--shadow-ink) / 0.04),
+    0 32px 32px rgb(var(--shadow-ink) / 0.04), 0 64px 64px rgb(30 105 233 / 0.06);
+  /*
+    `--shadow-soft` under a solid fill, so a primary button sits at the same height as the
+    secondary beside it. The inset line is the lit top edge.
+  */
+  --shadow-button:
+    inset 0 1px 0 rgb(255 255 255 / 0.16), 0 0 0 1px rgb(var(--shadow-ink) / 0.05),
+    0 1px 1px rgb(var(--shadow-ink) / 0.03), 0 2px 2px rgb(var(--shadow-ink) / 0.03),
+    0 4px 4px rgb(var(--shadow-ink) / 0.03), 0 8px 8px rgb(var(--shadow-ink) / 0.03);
   --shadow-header:
-    0 1px 0 rgb(15 21 34 / 0.05), 0 2px 2px rgb(15 21 34 / 0.02), 0 4px 4px rgb(15 21 34 / 0.02),
-    0 8px 8px rgb(15 21 34 / 0.02), 0 16px 16px rgb(15 21 34 / 0.02);
+    0 1px 0 rgb(var(--shadow-ink) / 0.05), 0 2px 2px rgb(var(--shadow-ink) / 0.02),
+    0 4px 4px rgb(var(--shadow-ink) / 0.02), 0 8px 8px rgb(var(--shadow-ink) / 0.02),
+    0 16px 16px rgb(var(--shadow-ink) / 0.02);
 
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
 
@@ -167,6 +188,19 @@
     scroll-padding-top: 80px;
     /* The press scale is the tap feedback; the grey mobile tap flash would double it. */
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /*
+    Objects on a wash cast wash-blue shadows; a grey shadow on blue reads as dirt. The wash's own
+    shadow falls on the page, so only descendants switch, and anything inside a white surface
+    that sits on the wash falls back to neutral.
+  */
+  .wash * {
+    --shadow-ink: var(--palette-ink-wash);
+  }
+
+  .wash :is(.window, .bg-surface) * {
+    --shadow-ink: var(--palette-ink-neutral);
   }
 
   body {
@@ -221,7 +255,7 @@
     background: var(--color-surface);
     color: var(--color-text);
     border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-card);
+    @apply shadow-card;
     font-size: 0.875rem;
     font-weight: 500;
     transform: translateY(-200%);
@@ -254,7 +288,7 @@
     .page-frame {
       max-width: 84rem;
       margin: 0 auto;
-      box-shadow: var(--shadow-card);
+      @apply shadow-card;
     }
   }
 
@@ -296,13 +330,13 @@
   .btn-primary {
     background: var(--color-accent-solid);
     color: var(--color-on-accent);
-    box-shadow: var(--shadow-button);
+    @apply shadow-button;
   }
 
   .btn-secondary {
     background: var(--color-surface);
     color: var(--color-text);
-    box-shadow: var(--shadow-soft);
+    @apply shadow-soft;
   }
 
   .btn-ghost {
@@ -383,7 +417,7 @@
   .window {
     background: var(--color-surface);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-float);
+    @apply shadow-float;
     will-change: transform;
   }
 
@@ -399,7 +433,7 @@
     padding: var(--tabs-pad);
     border-radius: var(--tabs-radius);
     background: var(--color-surface-raised);
-    box-shadow: var(--shadow-card);
+    @apply shadow-card;
   }
 
   .tabs-tab {
@@ -411,7 +445,7 @@
     padding: var(--tabs-panel-pad);
     border-radius: calc(var(--tabs-radius) - var(--tabs-pad));
     background: var(--color-surface);
-    box-shadow: var(--shadow-soft);
+    @apply shadow-soft;
   }
 
   .tabs-media {
@@ -496,6 +530,34 @@
     opacity: 1;
     scale: 1;
     filter: blur(0);
+  }
+
+  /*
+    The accented word in the CTA heading, filled with the same cloudy sky as `.wordmark-sky`.
+    The wordmark's sky fades to `wash-mid`, which vanishes on the wash behind this heading, so
+    this one runs sky to royal to deep blue and its clouds are faint enough that the palest
+    letter pixels stay near 3:1 on the wash. The inline padding gives
+    the italic overhang room inside the clipped background; the negative margin keeps the
+    word's spacing unchanged.
+  */
+  .accent-word {
+    padding-inline: 0.04em 0.1em;
+    margin-inline: -0.04em -0.1em;
+    color: transparent;
+    background-image:
+      radial-gradient(ellipse 18% 30% at 14% 38%, rgb(255 255 255 / 0.22), transparent 70%),
+      radial-gradient(ellipse 14% 26% at 36% 62%, rgb(255 255 255 / 0.2), transparent 70%),
+      radial-gradient(ellipse 20% 32% at 60% 44%, rgb(255 255 255 / 0.22), transparent 70%),
+      radial-gradient(ellipse 12% 24% at 80% 34%, rgb(255 255 255 / 0.18), transparent 70%),
+      radial-gradient(ellipse 16% 28% at 94% 60%, rgb(255 255 255 / 0.18), transparent 70%),
+      linear-gradient(
+        to bottom in oklab,
+        var(--color-accent-bright) 0%,
+        var(--color-accent-solid) 45%,
+        var(--color-accent-text) 90%
+      );
+    -webkit-background-clip: text;
+    background-clip: text;
   }
 
   /*

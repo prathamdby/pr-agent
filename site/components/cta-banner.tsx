@@ -3,7 +3,7 @@ import { REPO_URL } from "@/lib/site";
 
 const CLONE_COMMAND = `git clone ${REPO_URL}`;
 
-/** Hand-drawn underline: one quick stroke and a shorter second pass, stretched under the word. */
+/** Hand-drawn underline: one quick stroke, stretched under the word. */
 function Scribble({ className }: { readonly className?: string }) {
   return (
     <svg
@@ -19,12 +19,6 @@ function Scribble({ className }: { readonly className?: string }) {
       <path
         d="M4 14C44 4 90 20 130 10S206 4 236 12"
         strokeWidth="4"
-        vectorEffect="non-scaling-stroke"
-      />
-      <path
-        d="M70 19C110 13 150 21 196 15"
-        strokeWidth="3"
-        opacity="0.55"
         vectorEffect="non-scaling-stroke"
       />
     </svg>
@@ -46,9 +40,9 @@ export function CtaBanner() {
               className="text-[clamp(2.25rem,5vw,3.75rem)] font-medium leading-[1.04] tracking-[-0.035em] text-text"
             >
               Run the{" "}
-              <span className="relative inline-block text-accent-text italic">
+              <span className="accent-word relative inline-block italic">
                 reviewer
-                <Scribble className="absolute -bottom-1.5 left-0 h-3 w-full text-accent-bright sm:-bottom-2 sm:h-4" />
+                <Scribble className="absolute -bottom-1.5 left-0 h-3 w-full text-accent-solid sm:-bottom-2 sm:h-4" />
               </span>{" "}
               yourself
             </h2>

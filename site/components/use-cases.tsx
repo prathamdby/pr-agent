@@ -170,7 +170,7 @@ export function UseCases() {
                 }}
                 className={
                   selected
-                    ? "btn tabs-tab h-11 bg-surface text-[15px] text-text shadow-tab"
+                    ? "btn tabs-tab h-11 bg-surface text-[15px] text-text shadow-soft"
                     : "btn btn-ghost tabs-tab h-11 text-[15px] font-normal"
                 }
               >

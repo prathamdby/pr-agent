@@ -1,7 +1,14 @@
+import { GitHubMark, LinkedInMark, XMark } from "@/components/icons";
 import { AGENT_RESOURCES, DOC_LINKS } from "@/lib/agentResources";
 import { llmsNudgeTitle } from "@/lib/llmsKnowledge";
-import { LICENSE_URL, REPO_URL } from "@/lib/site";
+import { LICENSE_URL, LINKEDIN_URL, REPO_URL, X_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
+
+const SOCIAL_LINKS = [
+  { href: REPO_URL, label: `${PRODUCT_NAME} on GitHub`, Icon: GitHubMark },
+  { href: X_URL, label: "Pratham on X", Icon: XMark },
+  { href: LINKEDIN_URL, label: "Pratham on LinkedIn", Icon: LinkedInMark },
+] as const;
 
 const PRODUCT_LINKS = [
   { href: "/#features", label: "How it works" },
@@ -31,7 +38,7 @@ export function Footer() {
     <footer>
       <div className="container-x pt-16 pb-6 sm:pt-20">
         <div className="grid gap-12 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-20">
-          <div>
+          <div className="flex flex-col items-start">
             <a href="/" className="inline-flex items-center gap-2.5 rounded-sm text-text">
               <img
                 src="/logo.png"
@@ -46,6 +53,23 @@ export function Footer() {
               AI pull request reviews on servers you run. MIT licensed, no per-seat fee, your GitHub
               credentials and model keys stay with you.
             </p>
+            {/* From lg the column stretches to the link columns, so mt-auto lines the row up with their last link. */}
+            <ul className="mt-auto flex items-center gap-2 pt-6">
+              {SOCIAL_LINKS.map(({ href, label, Icon }) => (
+                <li key={href}>
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={label}
+                    title={label}
+                    className="grid size-10 place-items-center rounded-sm bg-surface-raised text-text-secondary shadow-ring transition-[color,background-color,scale] duration-[150ms,150ms,200ms] ease-out hover:bg-surface-hover hover:text-text active:scale-[0.97] motion-reduce:transition-none"
+                  >
+                    <Icon className="size-[18px]" />
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
 
           <div className="grid gap-10 sm:grid-cols-3">

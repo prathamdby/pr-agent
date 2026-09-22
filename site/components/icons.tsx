@@ -13,8 +13,10 @@ import {
   GithubIcon,
   HelpCircleIcon,
   InformationCircleIcon,
+  Linkedin02Icon,
   Menu01Icon,
   MinusSignIcon,
+  NewTwitterIcon,
   NoteEditIcon,
   PlusSignIcon,
   RefreshIcon,
@@ -62,6 +64,8 @@ export const Copy = fromGlyph(Copy01Icon);
 export const Menu = fromGlyph(Menu01Icon);
 export const X = fromGlyph(Cancel01Icon);
 export const GitHubMark = fromGlyph(GithubIcon);
+export const XMark = fromGlyph(NewTwitterIcon);
+export const LinkedInMark = fromGlyph(Linkedin02Icon);
 export const Terminal = fromGlyph(TerminalIcon);
 export const Server = fromGlyph(ServerStack01Icon);
 export const PullRequest = fromGlyph(GitPullRequestIcon);

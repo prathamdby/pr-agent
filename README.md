@@ -259,6 +259,15 @@ If webhooks return 200 but the PR stays quiet, check the worker logs, the provid
       <img src="site/public/screenshots/ask.example.webp" alt="PR Agent answer on a pull request" width="100%" />
     </td>
   </tr>
+  <tr>
+    <td width="36%" valign="middle">
+      <h3>Triage the findings</h3>
+      <p>Revisits earlier findings, fixes what it can, and pushes the commit. Each finding gets a verdict. Dismissed ones come with policy suggestions for your repo.</p>
+    </td>
+    <td width="64%">
+      <img src="site/public/screenshots/triage.example.webp" alt="PR Agent triage report with a verdict for each finding" width="100%" />
+    </td>
+  </tr>
 </table>
 
 ## Recommended hosts

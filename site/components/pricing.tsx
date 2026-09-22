@@ -36,9 +36,16 @@ export function Pricing() {
         {PRICING_PLANS.map((plan, index) => {
           const art = PLAN_ART[index % PLAN_ART.length];
           const Icon = art.icon;
+          const flipped = index % 2 === 1;
           return (
-            <li key={plan.title} className="rounded-xl bg-surface-raised p-2 shadow-ring">
-              {/* Grey shell: the wash graphic is inset at the top, the copy sits in the shell's footer. */}
+            <li
+              key={plan.title}
+              className="flex flex-col rounded-xl bg-surface-raised p-2 shadow-ring"
+            >
+              {/*
+                Grey shell: the wash graphic is inset at the top and the copy sits in the shell's
+                footer. In the three-up row the middle card flips, copy on top, so the row alternates.
+              */}
               <div
                 className={`wash ${art.texture} flex aspect-[4/3] flex-col items-center justify-center gap-5 rounded-md shadow-soft`}
               >
@@ -52,7 +59,9 @@ export function Pricing() {
                   {plan.price}
                 </span>
               </div>
-              <div className="px-3 pt-4 pb-3">
+              <div
+                className={`flex-1 px-3 pt-4 pb-3 ${flipped ? "md:order-first md:pt-3 md:pb-4" : ""}`}
+              >
                 <h3 className="text-[17px] leading-snug font-medium text-text">{plan.title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-text-secondary">{plan.detail}</p>
               </div>

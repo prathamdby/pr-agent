@@ -25,3 +25,5 @@ export const SITE_ORIGIN = resolveSiteOrigin();
 export const REPO_URL = "https://github.com/prathamdby/pr-agent";
 export const DOCS_URL = `${REPO_URL}#installation`;
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;
+export const X_URL = "https://x.com/prathamdby";
+export const LINKEDIN_URL = "https://www.linkedin.com/in/prathamdby";

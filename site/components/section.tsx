@@ -7,15 +7,17 @@ type SectionProps = {
   readonly children: ReactNode;
 };
 
-/** Page band with the shared horizontal container and room under the sticky header for anchors. */
+/**
+ * Page band with the shared horizontal container. The anchor id sits on the container, not the
+ * padded band, so every section's first line lands the same distance under the sticky header at
+ * every breakpoint.
+ */
 export function Section({ id, labelledBy, className, children }: SectionProps) {
   return (
-    <section
-      id={id}
-      aria-labelledby={labelledBy}
-      className={`scroll-mt-5 py-16 sm:py-20 lg:py-24 ${className ?? ""}`}
-    >
-      <div className="container-x">{children}</div>
+    <section aria-labelledby={labelledBy} className={`py-16 sm:py-20 lg:py-24 ${className ?? ""}`}>
+      <div id={id} className="container-x scroll-mt-5">
+        {children}
+      </div>
     </section>
   );
 }
