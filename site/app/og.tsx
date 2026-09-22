@@ -19,7 +19,7 @@ const POINTS = ["MIT licensed", "No per-seat fee", "Your own model keys"] as con
 
 function OgCard() {
   return (
-    <div className="relative h-[630px] w-[1200px] overflow-hidden bg-surface text-text">
+    <div className="relative z-[200] h-[630px] w-[1200px] overflow-hidden bg-surface text-text">
       <div className="relative z-10 flex h-full w-[600px] flex-col justify-center pl-16">
         <div className="flex items-center gap-3">
           <img
@@ -51,7 +51,7 @@ function OgCard() {
       </div>
 
       <div className="wash wash-grid wash-clouds absolute top-10 -right-14 -bottom-16 left-[640px] rounded-xl shadow-soft">
-        <div className="absolute top-10 left-10 w-[640px]">
+        <div className="absolute top-10 left-10 w-[560px]">
           <PrWindow />
         </div>
       </div>
