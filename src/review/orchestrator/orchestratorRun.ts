@@ -23,6 +23,7 @@ import {
   MAX_TOOL_ROUNDS,
   ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
   PUBLISH_RECOVERY_ROUNDS,
+  SUBMIT_ONLY_MAX_TOOL_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
 } from "../../settings/index.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
@@ -938,6 +939,7 @@ export async function runOrchestratedPrReview(
               validationError,
               "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
             ].join("\n\n"),
+            { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
           );
           if (repair.kind === "sent") lastText = repair.text;
           else state.judgment = "degraded";
@@ -1115,7 +1117,9 @@ export async function runOrchestratedPrReview(
           return outcome ? [outcome] : [];
         }),
       });
-      const synthesis = await sendWithRetry("synthesis", synthesisPrompt);
+      const synthesis = await sendWithRetry("synthesis", synthesisPrompt, {
+        maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+      });
       if (synthesis.kind === "sent") lastText = synthesis.text;
       else state.judgment = "degraded";
       await applyPublishStop();
@@ -1134,6 +1138,7 @@ export async function runOrchestratedPrReview(
             const repair = await sendWithRetry(
               "synthesis",
               [validationError, "Fix the summary and call publish_summary now."].join("\n\n"),
+              { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
             );
             if (repair.kind === "sent") lastText = repair.text;
             else state.judgment = "degraded";
@@ -1147,6 +1152,7 @@ export async function runOrchestratedPrReview(
         const recovery = await sendWithRetry(
           "synthesis",
           "Call publish_summary now with the complete final review. Do not reply with prose only.",
+          { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
         );
         if (recovery.kind === "sent") lastText = recovery.text;
         else state.judgment = "degraded";

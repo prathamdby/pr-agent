@@ -456,6 +456,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `SESSION_TURN_RETRY_BASE_DELAY_MS`       | 250 — base delay before the first turn retry; doubles on each later retry                               |
 | `SESSION_OVERFLOW_COMPACT_MAX`           | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal        |
 | `VALIDATION_REPAIR_ROUNDS`               | 3                                                                                                       |
+| `SUBMIT_ONLY_MAX_TOOL_ROUNDS`            | 2 per submit-only turn (repair, synthesis, summary recovery); not scaled by escalation                  |
 | `PUBLISH_RECOVERY_ROUNDS`                | 2 summary recovery sends                                                                                |
 | `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                                                                       |
 | `ReviewValidationFailureKind`            | Validation failure metric categories                                                                    |

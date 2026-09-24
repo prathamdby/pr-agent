@@ -4,6 +4,7 @@ import type { PiSession } from "../src/agent/runtime/types.js";
 import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { renderBriefMessage } from "../src/review/orchestrator/briefTool.js";
 import { specialistSystemPrompt } from "../src/review/orchestrator/prompts/specialistPersonas.js";
+import { SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
 
@@ -356,6 +357,24 @@ describe("runSpecialist", () => {
     expect(runnerMocks.sessions.every((session) => session.send.mock.calls.length === 4)).toBe(
       true,
     );
+    const repairOptions = runnerMocks.sessions[0]?.send.mock.calls.slice(1).map((call) => call[1]);
+    expect(repairOptions).toEqual([
+      {
+        maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+        phase: "specialist",
+        checkpointId: "specialist:specialist",
+      },
+      {
+        maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+        phase: "specialist",
+        checkpointId: "specialist:specialist",
+      },
+      {
+        maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+        phase: "specialist",
+        checkpointId: "specialist:specialist",
+      },
+    ]);
   });
 
   it("aborts the active session before disposal when the deadline expires", async () => {

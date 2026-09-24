@@ -20,6 +20,7 @@ import { createFakePrSurface } from "../src/github/prSurface.js";
 import {
   ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
   REVIEW_GATE_PROSE_UNASSESSED,
+  SUBMIT_ONLY_MAX_TOOL_ROUNDS,
 } from "../src/settings/index.js";
 import { ORCHESTRATOR_RECON_INSTRUCTION } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
 import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
@@ -570,6 +571,13 @@ describe("runOrchestratedPrReview", () => {
     expect(judgmentIndex).toBeGreaterThanOrEqual(0);
     expect(testState.sentSendOptions[reconIndex]?.maxToolRounds).toBe(48);
     expect(testState.sentSendOptions[judgmentIndex]?.maxToolRounds).toBe(8);
+    const synthesisIndex = testState.sentPrompts.findIndex((prompt) =>
+      prompt.includes("Synthesize the final"),
+    );
+    expect(synthesisIndex).toBeGreaterThanOrEqual(0);
+    expect(testState.sentSendOptions[synthesisIndex]?.maxToolRounds).toBe(
+      SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+    );
     expect(testState.specialistEscalations).toEqual([
       escalation,
       escalation,
