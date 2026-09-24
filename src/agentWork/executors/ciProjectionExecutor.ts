@@ -70,6 +70,7 @@ import {
   getProgressCommentOwner,
   recordPublishStep,
 } from "../repository.js";
+import { getWorkItemCore } from "../workItemStateRepository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
@@ -246,6 +247,43 @@ function findHeadSummaryComments(
   });
 }
 
+/**
+ * Latest summary comment when its review ran on another head. Its gate may move
+ * to `headSha` only after that run is terminal and GitHub reports `headSha` as
+ * the PR head; review meta and footer keep the reviewed head.
+ */
+async function findSupersededSummaryComment(params: {
+  readonly pool: Pool;
+  readonly prSurface: PrSurface;
+  readonly comments: readonly PrConversationComment[];
+  readonly headSha: string;
+}): Promise<PrConversationComment | "retry" | null> {
+  const latest = params.comments
+    .filter((comment) => SUMMARY_SENTINELS.some((sentinel) => comment.body.startsWith(sentinel)))
+    .at(-1);
+  if (latest == null) return null;
+  const meta = parseReviewMetaFromCommentBody(latest.body);
+  if (meta == null || meta.headSha === params.headSha) return null;
+
+  const workItemId = parseProgressRevisionState(latest.body)?.workItemId;
+  if (workItemId == null) return null;
+  const owner = await getWorkItemCore(params.pool, workItemId);
+  if (owner == null || asTerminalOwnCheckStatus(owner.status) == null) return null;
+
+  let prHead: string;
+  try {
+    prHead = await params.prSurface.getHeadSha();
+  } catch (error) {
+    logWarn("ci_projection_pr_head_failed", {
+      headSha: params.headSha,
+      commentId: latest.id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return "retry";
+  }
+  return prHead === params.headSha ? latest : null;
+}
+
 function aggregatePrResults(results: readonly CiProjectionPrResult[]): CiProjectionPrResult {
   if (results.some((result) => result === "retry")) return "retry";
   if (results.some((result) => result === "updated")) return "updated";
@@ -293,8 +331,8 @@ async function projectOnePr(params: {
     resourceKey,
     params.data.headSha,
   );
-  const nextCell = staleHead ? null : renderProjectedCell(params.row, injectFailure);
-  const actionPhrase = staleHead ? null : projectedActionPhrase(params.row);
+  const nextCell = renderProjectedCell(params.row, injectFailure);
+  const actionPhrase = projectedActionPhrase(params.row);
 
   let comments: readonly PrConversationComment[];
   try {
@@ -321,13 +359,28 @@ async function projectOnePr(params: {
   });
   if (triageResult === "retry") return "retry";
 
-  if (nextCell == null) {
-    return staleHead ? "irrelevant" : triageResult === "updated" ? "updated" : "current";
-  }
+  const noGateResult = staleHead
+    ? "irrelevant"
+    : triageResult === "updated"
+      ? "updated"
+      : "current";
+  if (nextCell == null) return noGateResult;
 
-  const targets = findHeadSummaryComments(comments, params.data.headSha);
+  // Work items lag a push that plans no review, so a stale-looking head may
+  // still be the PR head; GitHub decides before a gate crosses heads.
+  let targets = staleHead ? [] : findHeadSummaryComments(comments, params.data.headSha);
+  let supersededHead = false;
   if (targets.length === 0) {
-    return triageResult === "updated" ? "updated" : "current";
+    const superseded = await findSupersededSummaryComment({
+      pool: params.pool,
+      prSurface: params.prSurface,
+      comments,
+      headSha: params.data.headSha,
+    });
+    if (superseded === "retry") return "retry";
+    if (superseded == null) return noGateResult;
+    targets = [superseded];
+    supersededHead = true;
   }
 
   let sawUpdate = triageResult === "updated";
@@ -337,6 +390,7 @@ async function projectOnePr(params: {
       comment.body,
       params.data.headSha,
       params.row.version,
+      { supersededHead },
     );
     if (decision.kind === "reject") continue;
     if (decision.kind === "current") {
@@ -350,7 +404,7 @@ async function projectOnePr(params: {
       nextCell,
       params.data.headSha,
       params.row.version,
-      { actionPhrase },
+      { actionPhrase, supersededHead },
     );
     if (firstApply == null || firstApply.kind === "current") {
       sawCurrent = true;
@@ -391,7 +445,7 @@ async function projectOnePr(params: {
       nextCell,
       params.data.headSha,
       params.row.version,
-      { actionPhrase },
+      { actionPhrase, supersededHead },
     );
     if (writeApply == null || writeApply.kind === "current") {
       sawCurrent = true;

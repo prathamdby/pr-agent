@@ -1046,6 +1046,61 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(afterNewProjection?.body).toContain(`v=${projectedB?.version}`);
   });
 
+  it("moves a completed review gate to a pushed head that planned no review", async () => {
+    const reviewedHead = "a3".repeat(20);
+    const pushedHead = "83".repeat(20);
+    const workId = await insertReviewWorkItem(reviewedHead);
+    await insertSeededHead(
+      reviewedHead,
+      { lint: ciStateFact({ status: "in_progress", conclusion: null }) },
+      "pending",
+      1,
+    );
+    await insertSeededHead(
+      pushedHead,
+      { lint: ciStateFact({ conclusion: "success" }) },
+      "passing",
+      2,
+    );
+
+    const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+    fake.controls.setPullsForHead(reviewedHead, [{ number: PR_NUMBER }]);
+    fake.controls.setPullsForHead(pushedHead, [{ number: PR_NUMBER }]);
+    fake.controls.setHeadSha(pushedHead);
+    fake.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      reviewCommentBody(reviewedHead, 1, workId, { actionPhrase: "CI is pending" }),
+      93,
+    );
+    const projectHead = (headSha: string) =>
+      executeCiProjectionJob(
+        cfg,
+        pool,
+        boss,
+        { kind: "ci_projection", installationId: 9001, owner: OWNER, repo: REPO, headSha },
+        { createSurface: async () => fake.surface, author: stubCiAuthor([]) },
+      );
+
+    await projectHead(pushedHead);
+    const whileRunning = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
+    expect(whileRunning).toContain(`head=${reviewedHead}`);
+
+    await pool.query(
+      `UPDATE agent_work_items SET status = 'completed', completed_at = now() WHERE id = $1`,
+      [workId],
+    );
+    await projectHead(pushedHead);
+    const advanced = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
+    expect(advanced).toContain(`head=${pushedHead}`);
+    expect(parseCiSummaryMarkerVersion(advanced)).toBe(2);
+    expect(advanced).toContain("-->CI is passing<!--");
+    expect(advanced).not.toContain("CI is pending");
+    expect(advanced).toContain(`review-meta headSha=${reviewedHead}`);
+
+    await projectHead(reviewedHead);
+    expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toBe(advanced);
+  });
+
   it("renders an incomplete seed as unavailable on the cell and the rollup", async () => {
     const headSha = "55".repeat(20);
     const workItemId = await insertReviewWorkItem(headSha);
