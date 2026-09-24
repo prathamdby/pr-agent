@@ -319,7 +319,7 @@ async function runAttempt(
               validationError,
               "Fix the report and call submit_findings_report now. Do not use any other tools.",
             ].join("\n\n"),
-            (activeSession, prompt) => send(activeSession, prompt),
+            send,
           );
           if (!state.report && !state.validationError) {
             state.validationError = MISSING_REPORT_ERROR;

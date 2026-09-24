@@ -490,20 +490,90 @@ describe("buildContext7Tools — executors", () => {
     }
   });
 
-  it("caps oversized JSON resolve responses with truncation metadata", async () => {
+  it("keeps a fitting JSON body unchanged and drops whole results when over budget", async () => {
+    const fitting = { results: [{ id: "/facebook/react", title: "React" }] };
+    const entries = [
+      { id: "/a/one", title: "one" },
+      { id: "/a/two", title: "two" },
+      { id: "/a/three", title: "three" },
+    ];
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(fitting))
+      .mockResolvedValueOnce(jsonResponse({ results: entries, note: "keep" }))
+      .mockResolvedValueOnce(jsonResponse({ docs: "x".repeat(10_000) }))
+      .mockResolvedValueOnce(jsonResponse({ results: [], blob: "z".repeat(10_000) }))
       .mockResolvedValueOnce(
-        jsonResponse({ results: [{ id: "/x/y", title: "y".repeat(10_000) }] }),
+        jsonResponse({
+          results: [{ id: "/a/nested", note: "ctx7sk-nested-secret" }],
+          "ctx7sk-nested-secret": { inner: "ctx7sk-nested-secret" },
+        }),
       );
 
     try {
-      const { executors } = buildContext7Tools({ apiKey: "", maxResponseBytes: 500 });
-      const out = await executors.resolveLibraryId({ libraryName: "y" });
+      const { executors, piTools } = buildContext7Tools({
+        apiKey: "",
+        maxResponseBytes: 10_000,
+      });
+      const fittingOut = await executors.resolveLibraryId({ libraryName: "react" });
+      expect(fittingOut.content).toBe(JSON.stringify(fitting));
+      expect(JSON.parse(fittingOut.content)).toEqual(fitting);
+      expect(fittingOut.omittedResults).toBeUndefined();
+      expect(fittingOut.truncated).toBe(false);
 
-      expect(out.truncated).toBe(true);
-      expect(out.returnedBytes).toBeLessThanOrEqual(500);
-      expect(out.truncationReason).toBe("response byte budget exceeded");
+      const { executors: tight } = buildContext7Tools({ apiKey: "", maxResponseBytes: 80 });
+      const dropped = await tight.resolveLibraryId({ libraryName: "react" });
+      const parsed = JSON.parse(dropped.content) as { results: unknown[]; note: string };
+      expect(parsed.note).toBe("keep");
+      expect(parsed.results.length).toBeGreaterThan(0);
+      expect(parsed.results.length).toBeLessThan(entries.length);
+      expect(dropped.omittedResults).toBe(entries.length - parsed.results.length);
+      expect(dropped.returnedBytes).toBeLessThanOrEqual(80);
+      expect(dropped.content).toBe(
+        JSON.stringify({ note: "keep", results: entries.slice(0, parsed.results.length) }),
+      );
+
+      await expect(tight.resolveLibraryId({ libraryName: "react" })).rejects.toMatchObject({
+        code: "context7.response_too_large",
+      });
+      await expect(tight.resolveLibraryId({ libraryName: "react" })).rejects.toMatchObject({
+        code: "context7.response_too_large",
+      });
+
+      const { executors: keyed } = buildContext7Tools({
+        apiKey: "ctx7sk-nested-secret",
+        maxResponseBytes: 10_000,
+      });
+      const redacted = await keyed.resolveLibraryId({ libraryName: "react" });
+      expect(JSON.parse(redacted.content)).toEqual({
+        results: [{ id: "/a/nested", note: "[redacted]" }],
+        "[redacted]": { inner: "[redacted]" },
+      });
+      expect(redacted.content).not.toContain("ctx7sk-nested-secret");
+
+      const resolve = piTools.find((tool) => tool.name === "resolveLibraryId");
+      expect(resolve?.description).toContain("omittedResults");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("keeps an untrusted __proto__ key in redacted Context7 JSON", async () => {
+    const payload = '{"results":[{"id":"/a/p"}],"__proto__":{"admin":true}}';
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(payload, { headers: { "content-type": "application/json" } }),
+      );
+
+    try {
+      const { executors } = buildContext7Tools({ apiKey: "", maxResponseBytes: 10_000 });
+      const out = await executors.resolveLibraryId({ libraryName: "react" });
+      const parsed = JSON.parse(out.content) as { results: unknown[] };
+      expect(Object.getOwnPropertyDescriptor(parsed, "__proto__")?.value).toEqual({
+        admin: true,
+      });
+      expect(parsed.results).toEqual([{ id: "/a/p" }]);
     } finally {
       fetchSpy.mockRestore();
     }

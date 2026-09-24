@@ -125,7 +125,7 @@ async function createPiRunnerSession(params: {
   systemPrompt: string;
   tools: readonly PiTool[];
   executors: Record<string, AgentRunnerToolExecutor>;
-  eventSink?: (event: { kind: string; failureCode?: string }) => void;
+  eventSink?: (event: { kind: string; failureCode?: string; end?: string }) => void;
   role?: "ask" | "orchestrator" | "specialist";
   specialistId?: string;
 }) {
@@ -311,6 +311,7 @@ describe("createPiSession.send", () => {
     });
     const result = await runnerSession.send("question", ASK_SEND_OPTS);
     expect(result.text).toBe("End-user summary and testing checklist.");
+    expect(result.end).toBe("completed");
     expect(result.prompt).toEqual({
       inputCharacters: "question".length,
       inputBytes: Buffer.byteLength("question", "utf8"),
@@ -387,6 +388,31 @@ describe("createPiSession.send", () => {
     });
     const result = await runnerSession.send("question", { ...ASK_SEND_OPTS, maxToolRounds: 2 });
     expect(result.text).toBe("");
+    expect(result.end).toBe("tool_budget");
+  });
+
+  it("reports output_limit when the final assistant message stops on length", async () => {
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit: LoopEmit) => {
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistant("Partial answer that was cut", { stopReason: "length" }),
+      });
+      return [];
+    });
+    const events: Array<{ kind: string; end?: string }> = [];
+    const runnerSession = await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+      eventSink: (event) => events.push(event),
+    });
+    const result = await runnerSession.send("question", ASK_SEND_OPTS);
+    expect(result).toMatchObject({ text: "Partial answer that was cut", end: "output_limit" });
+    expect(events.find((event) => event.kind === "completion")).toMatchObject({
+      end: "output_limit",
+    });
   });
 
   it("returns only text parts from a terminal turn with mixed content", async () => {
@@ -472,6 +498,7 @@ describe("createPiSession.send", () => {
       resolveLoop?.();
       await expect(sendPromise).resolves.toEqual({
         text: "Final answer.",
+        end: "completed",
         prompt: { inputCharacters: 8, inputBytes: 8 },
       });
       expect(setIntervalSpy).toHaveBeenCalledTimes(1);

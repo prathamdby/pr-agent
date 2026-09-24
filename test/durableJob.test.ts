@@ -169,6 +169,7 @@ function defaultMocks() {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     startedAt: new Date("2026-01-01T00:00:05.000Z"),
     attemptCount: 1,
+    resumed: false,
   });
   vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
     acquired: true,
@@ -228,6 +229,7 @@ describe("runDurableWorkItem", () => {
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       startedAt: new Date("2026-01-01T00:00:05.000Z"),
       attemptCount: 1,
+      resumed: false,
     });
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
@@ -949,11 +951,13 @@ describe("runDurableWorkItem", () => {
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:05.000Z"),
         attemptCount: 1,
+        resumed: false,
       })
       .mockResolvedValueOnce({
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:05.000Z"),
         attemptCount: 2,
+        resumed: false,
       });
 
     mockFetchedItem(makeItem());
@@ -997,11 +1001,13 @@ describe("runDurableWorkItem", () => {
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:05.000Z"),
         attemptCount: 1,
+        resumed: false,
       })
       .mockResolvedValueOnce({
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:05.000Z"),
         attemptCount: 2,
+        resumed: false,
       });
     const execute = vi.fn().mockResolvedValue(completedResult());
 
@@ -1028,6 +1034,62 @@ describe("runDurableWorkItem", () => {
       workType: "review",
       leaseEpoch: 2,
     });
+  });
+
+  it("terminalises an over-budget claim before minting a token", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      startedAt: new Date("2026-01-01T00:00:05.000Z"),
+      attemptCount: cfg.queueRetryLimit + 2,
+      resumed: true,
+    });
+    const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn();
+
+    await runReviewWorkItem({ job: makeJob(0, 3), execute, onTerminalFailure });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.updateRunningWorkHeadSha).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ code: "agent_work.attempts_exhausted" }),
+      1,
+    );
+    expect(onTerminalFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wi-1" }),
+      expect.anything(),
+      expect.objectContaining({ code: "agent_work.attempts_exhausted" }),
+      1,
+    );
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_resumed",
+      expect.objectContaining({
+        type: "review",
+        workItemId: "wi-1",
+        attemptCount: cfg.queueRetryLimit + 2,
+      }),
+    );
+  });
+
+  it("stops retrying a transient failure once the durable attempt budget is spent", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      startedAt: new Date("2026-01-01T00:00:05.000Z"),
+      attemptCount: cfg.queueRetryLimit + 1,
+      resumed: true,
+    });
+    const boom = new Error("transient");
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(0, 3), execute });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
   });
 
   it("terminal-fails stale-head replacement exhaustion without durable retry", async () => {
@@ -1549,6 +1611,7 @@ describe("runDurableWorkItem", () => {
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:05.000Z"),
         attemptCount: 1,
+        resumed: false,
       };
     });
     const execute = vi.fn();
@@ -1573,6 +1636,7 @@ describe("runDurableWorkItem", () => {
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:05.000Z"),
         attemptCount: 1,
+        resumed: false,
       };
     });
     const execute = vi.fn();

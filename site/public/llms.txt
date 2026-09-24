@@ -185,6 +185,7 @@ Review, description, ask, triage, verification, and CI-summary text leave your n
 The GitHub App still talks to GitHub. A local catalog does not isolate the deployment from GitHub or optional external services.
 Optional CONTEXT7_API_KEY may call https://context7.com/api for library lookup.
 Structured logs use evlog. LOG_REDACT defaults to true and strips secret-shaped substrings.
+Agent event rows older than 30 days are deleted with the other cleanup. Set AGENT_EVENTS_RETENTION_SECONDS to 0 to keep them.
 /ask applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call.
 
 ## Developer resources

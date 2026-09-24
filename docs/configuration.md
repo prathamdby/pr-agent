@@ -56,7 +56,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Resume snapshot key               | `AGENT_RESUME_SNAPSHOT_KEY`              | empty                    | Base64 32-byte key for encrypted Agent resume snapshots. `loadConfig` only trims. Format is checked at first persist or load (`decodeMasterKey`). A bad string throws `runtime.resume_snapshot_key_invalid` then, not at boot. Empty or whitespace disables snapshots.                                                               |
 | Resume snapshot margin            | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS`   | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                                                                                                                                                                                                            |
 | Agent events enabled              | `AGENT_EVENTS_ENABLED`                   | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                               |
-| Agent events retention            | `AGENT_EVENTS_RETENTION_SECONDS`         | `0`                      | Optional TTL delete for `agent_events` by `recorded_at`; `0` relies on `AGENT_WORK_RETENTION_SECONDS` + `ON DELETE SET NULL` on `work_item_id`                                                                                                                                                                                       |
+| Agent events retention            | `AGENT_EVENTS_RETENTION_SECONDS`         | `2592000`                | TTL delete for `agent_events` by `recorded_at` (30d, same as work retention). `0` keeps rows forever. Work-item deletion still sets `work_item_id` null.                                                                                                                                                                             |
 | Finding history enabled           | `FINDING_HISTORY_ENABLED`                | `true`                   | Persist cross-PR fingerprint outcomes to `repo_finding_history`; fail-soft when disabled or on writer errors. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                                                   |
 | Finding history dismiss threshold | `FINDING_HISTORY_DISMISS_SUPPRESS_AFTER` | `3`                      | After this many dismissals for a fingerprint, suppress new inline threads while `last_outcome` remains `dismissed` (summary-only still allowed); later open/fixed outcomes lift suppression                                                                                                                                          |
 | Finding history lookback          | `FINDING_HISTORY_LOOKBACK_DAYS`          | `180`                    | Ignore `repo_finding_history` rows older than this when loading suppression candidates                                                                                                                                                                                                                                               |
@@ -95,7 +95,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Verification concurrency      | `VERIFICATION_CONCURRENCY`                | `1`                         | pg-boss verification queue workers                                                                                                                                                                                                   |
 | Ack worker concurrency        | `ACK_CONCURRENCY`                         | `2`                         | reactions + progress stub                                                                                                                                                                                                            |
 | Installation group cap        | `INSTALLATION_GROUP_CONCURRENCY`          | `2`                         | pg-boss group policy                                                                                                                                                                                                                 |
-| Queue retry limit             | `QUEUE_RETRY_LIMIT`                       | `3`                         | pg-boss job retries                                                                                                                                                                                                                  |
+| Queue retry limit             | `QUEUE_RETRY_LIMIT`                       | `3`                         | pg-boss job retries per delivery; the durable attempt budget per work item is `QUEUE_RETRY_LIMIT + 1` claims, crash and deploy resumes included                                                                                      |
 | Queue retry delay             | `QUEUE_RETRY_DELAY_SECONDS`               | `30`                        |                                                                                                                                                                                                                                      |
 | Queue retry delay max         | `QUEUE_RETRY_DELAY_MAX_SECONDS`           | `300`                       |                                                                                                                                                                                                                                      |
 | Job expire                    | `QUEUE_EXPIRE_IN_SECONDS`                 | `3600`                      |                                                                                                                                                                                                                                      |
@@ -103,7 +103,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Queue polling interval        | `QUEUE_POLLING_INTERVAL_SECONDS`          | `0.5`                       | pg-boss worker poll interval in seconds; min 0.5                                                                                                                                                                                     |
 | Job retention                 | `QUEUE_RETENTION_SECONDS`                 | `1209600`                   |                                                                                                                                                                                                                                      |
 | Job delete after              | `QUEUE_DELETE_AFTER_SECONDS`              | `604800`                    |                                                                                                                                                                                                                                      |
-| Shutdown drain budget         | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`          | `25`                        | graceful pg-boss stop wait (s) on SIGTERM/SIGINT                                                                                                                                                                                     |
+| Shutdown drain budget         | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`          | `25`                        | graceful pg-boss stop wait (s) on SIGTERM/SIGINT, then in-flight handlers settle before the pool closes                                                                                                                              |
 | Webhook event retention       | `WEBHOOK_EVENTS_RETENTION_SECONDS`        | `2592000`                   | delete webhook_events and associated body-hash replay rows older than this (30d)                                                                                                                                                     |
 | PR actor lease TTL            | `PR_ACTOR_LEASE_TTL_SECONDS`              | `900`                       | lease validity window; a crashed holder's lease becomes stealable after this                                                                                                                                                         |
 | PR actor lease renewal        | `PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS` | `120`                       | holder renewal cadence; must be less than `PR_ACTOR_LEASE_TTL_SECONDS` (startup validation)                                                                                                                                          |
@@ -291,7 +291,7 @@ Verification:
 
 ---
 
-Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). A retry disposition decides whether a failed attempt may return to that budget; escalation owns what a retry does. See [ADR 0034](adr/0034-escalated-retries.md).
+Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). The retry budget is the durable `agent_work_items.attempt_count`: every claim increments it, so crash and deploy resumes count too, and a claim past `QUEUE_RETRY_LIMIT + 1` ends the item as failed (`agent_work.attempts_exhausted`). A retry disposition decides whether a failed attempt may return to that budget; escalation owns what a retry does. See [ADR 0034](adr/0034-escalated-retries.md).
 
 ---
 
@@ -456,6 +456,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `SESSION_TURN_RETRY_BASE_DELAY_MS`       | 250 — base delay before the first turn retry; doubles on each later retry                               |
 | `SESSION_OVERFLOW_COMPACT_MAX`           | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal        |
 | `VALIDATION_REPAIR_ROUNDS`               | 3                                                                                                       |
+| `SUBMIT_ONLY_MAX_TOOL_ROUNDS`            | 2 per submit-only turn (repair, synthesis, summary recovery); not scaled by escalation                  |
 | `PUBLISH_RECOVERY_ROUNDS`                | 2 summary recovery sends                                                                                |
 | `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                                                                       |
 | `ReviewValidationFailureKind`            | Validation failure metric categories                                                                    |
@@ -626,17 +627,20 @@ Source-boundary recognition is linear in each line. File eligibility, content ha
 
 ### Postgres pool
 
-| Symbol                                    | Default | Role                                   |
-| ----------------------------------------- | ------- | -------------------------------------- |
-| `POSTGRES_POOL_MAX`                       | 10      | app pool size                          |
-| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`       |
-| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`    |
-| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                       |
-| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                        |
-| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                  |
-| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay            |
-| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout |
-| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout    |
+| Symbol                                    | Default | Role                                                                  |
+| ----------------------------------------- | ------- | --------------------------------------------------------------------- |
+| `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                         |
+| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`                                      |
+| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`                                   |
+| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                                                      |
+| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                                                       |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                                                 |
+| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay                                           |
+| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout                                |
+| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout                                   |
+| `PG_BOSS_EVENT_LOG_WINDOW_MS`             | 60000   | one pg-boss error/warning log per key per window; repeats are counted |
+| `SHUTDOWN_SETTLE_TIMEOUT_MS`              | 5000    | wait for in-flight queue handlers after pg-boss drain                 |
+| `ANALYTICS_SHUTDOWN_TIMEOUT_MS`           | 5000    | PostHog flush bound during shutdown                                   |
 
 ### Other
 

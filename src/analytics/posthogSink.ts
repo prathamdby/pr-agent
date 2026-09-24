@@ -1,5 +1,6 @@
 import { PostHog, type EventMessage } from "posthog-node";
 import { sanitizePostHogEvent } from "../security/sanitizePostHogEvent.js";
+import { ANALYTICS_SHUTDOWN_TIMEOUT_MS } from "../settings/index.js";
 import type { AnalyticsSink } from "./types.js";
 
 export function createPostHogSink(opts: {
@@ -24,7 +25,7 @@ export function createPostHogSink(opts: {
       client.captureException(error, distinctId, properties);
     },
     shutdown() {
-      return Promise.resolve(client.shutdown());
+      return client.shutdown(ANALYTICS_SHUTDOWN_TIMEOUT_MS);
     },
   };
 }

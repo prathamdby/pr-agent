@@ -373,6 +373,7 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 | Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.                                                               |
 | LLM providers | Review text leaves your network only when the worker calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.                                                              |
 | Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)). |
+| Retention     | Agent event rows older than 30 days are deleted with the other cleanup. Set `AGENT_EVENTS_RETENTION_SECONDS` to `0` to keep them.                                                     |
 
 <details>
 <summary>Context7</summary>

@@ -349,6 +349,7 @@ describe("reviewRunMetrics", () => {
       recordAgentTurnMetrics(
         {
           text: "specialist report",
+          end: "completed",
           usage: {
             estimated: false,
             inputTokens: 8,

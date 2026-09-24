@@ -3,7 +3,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { combineAbortSignals } from "../../agent/providers/interface.js";
+import { combineAbortSignals, type TurnEnd } from "../../agent/providers/interface.js";
 import { isCancelAbortError } from "../../agent/providers/providerErrors.js";
 import {
   resolveAgentEventsContext,
@@ -23,6 +23,7 @@ import {
   MAX_TOOL_ROUNDS,
   ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
   PUBLISH_RECOVERY_ROUNDS,
+  SUBMIT_ONLY_MAX_TOOL_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
 } from "../../settings/index.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
@@ -90,8 +91,13 @@ export type OrchestratedReviewRunParams = ReviewRunParams & {
 };
 
 type SendResult =
-  | { readonly kind: "sent"; readonly text: string }
+  | { readonly kind: "sent"; readonly text: string; readonly end: TurnEnd }
   | { readonly kind: "failed"; readonly error: AppError };
+
+type JudgmentDegradeCause =
+  | { readonly reason: "judgment_failed"; readonly error: unknown }
+  | { readonly reason: "judgment_unpublished"; readonly turnEnd: TurnEnd }
+  | { readonly reason: "judgment_unavailable" };
 
 type DeadlineResult<T> =
   | { readonly kind: "settled"; readonly value: T }
@@ -619,7 +625,7 @@ export async function runOrchestratedPrReview(
           return exhaustive;
         }
         recordAgentTurnMetrics(send.value);
-        return { kind: "sent", text: send.value.text };
+        return { kind: "sent", text: send.value.text, end: send.value.end };
       } catch (error) {
         const appError = toAppError(error, {
           code: "review.orchestrator_send_failed",
@@ -816,7 +822,7 @@ export async function runOrchestratedPrReview(
 
   const degradeReport = async (
     outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
-    error?: unknown,
+    cause: JudgmentDegradeCause,
   ): Promise<void> => {
     state.judgment = "degraded";
     if (agentEvents) {
@@ -827,11 +833,12 @@ export async function runOrchestratedPrReview(
         submittedCount,
         acceptedCount: 0,
         rejectedCount: submittedCount,
-        degraded: true,
+        degradedReason: cause.reason,
+        ...(cause.reason === "judgment_unpublished" ? { turnEnd: cause.turnEnd } : {}),
       });
     }
-    if (error !== undefined) {
-      const appError = toAppError(error, {
+    if (cause.reason === "judgment_failed") {
+      const appError = toAppError(cause.error, {
         code: "review.orchestrator_report_handler_failed",
         context: { specialist: outcome.specialist },
       });
@@ -932,6 +939,7 @@ export async function runOrchestratedPrReview(
               validationError,
               "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
             ].join("\n\n"),
+            { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
           );
           if (repair.kind === "sent") lastText = repair.text;
           else state.judgment = "degraded";
@@ -1005,7 +1013,7 @@ export async function runOrchestratedPrReview(
             if (outcome.kind !== "report") return;
             const judgmentSession = session;
             if (state.judgment === "degraded" || sessionRetired || !judgmentSession) {
-              await degradeReport(outcome);
+              await degradeReport(outcome, { reason: "judgment_unavailable" });
               return;
             }
 
@@ -1019,11 +1027,31 @@ export async function runOrchestratedPrReview(
               ),
             });
             if (judgment.kind === "failed") {
-              await degradeReport(outcome, judgment.error);
+              await degradeReport(outcome, { reason: "judgment_failed", error: judgment.error });
               return;
             }
             lastText = judgment.text;
             if (await applyPublishStop()) return;
+            // The judgment prompt requires one publish_thread call (zero findings is valid),
+            // so an unchanged call count means the turn ended without deciding this report.
+            if (
+              outcome.report.findings.length > 0 &&
+              publishThread.getLedger().threadCallCount === ledgerBefore.threadCallCount
+            ) {
+              logWarn("review_judgment_unpublished", {
+                owner: params.owner,
+                repo: params.repo,
+                pr: params.prNumber,
+                specialist: outcome.specialist,
+                findings: outcome.report.findings.length,
+                turnEnd: judgment.end,
+              });
+              await degradeReport(outcome, {
+                reason: "judgment_unpublished",
+                turnEnd: judgment.end,
+              });
+              return;
+            }
             state.specialists[outcome.specialist] = specialistDonePhase(
               ledgerBefore,
               publishThread.getLedger(),
@@ -1033,7 +1061,7 @@ export async function runOrchestratedPrReview(
           } catch (error) {
             await recordOutcome(outcome);
             if (outcome.kind === "report") {
-              await degradeReport(outcome, error);
+              await degradeReport(outcome, { reason: "judgment_failed", error });
               return;
             }
             throw error;
@@ -1045,7 +1073,9 @@ export async function runOrchestratedPrReview(
         for (const outcome of outcomes) {
           if (state.outcomes[outcome.specialist] != null) continue;
           await recordOutcome(outcome);
-          if (outcome.kind === "report") await degradeReport(outcome);
+          if (outcome.kind === "report") {
+            await degradeReport(outcome, { reason: "judgment_unavailable" });
+          }
         }
       }
     }
@@ -1087,7 +1117,9 @@ export async function runOrchestratedPrReview(
           return outcome ? [outcome] : [];
         }),
       });
-      const synthesis = await sendWithRetry("synthesis", synthesisPrompt);
+      const synthesis = await sendWithRetry("synthesis", synthesisPrompt, {
+        maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+      });
       if (synthesis.kind === "sent") lastText = synthesis.text;
       else state.judgment = "degraded";
       await applyPublishStop();
@@ -1106,6 +1138,7 @@ export async function runOrchestratedPrReview(
             const repair = await sendWithRetry(
               "synthesis",
               [validationError, "Fix the summary and call publish_summary now."].join("\n\n"),
+              { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
             );
             if (repair.kind === "sent") lastText = repair.text;
             else state.judgment = "degraded";
@@ -1119,6 +1152,7 @@ export async function runOrchestratedPrReview(
         const recovery = await sendWithRetry(
           "synthesis",
           "Call publish_summary now with the complete final review. Do not reply with prose only.",
+          { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
         );
         if (recovery.kind === "sent") lastText = recovery.text;
         else state.judgment = "degraded";

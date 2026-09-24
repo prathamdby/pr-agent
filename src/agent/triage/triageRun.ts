@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TriageScope } from "../../agentWork/types.js";
 import type { Config } from "../../config.js";
-import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
+import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import {
   runStructuredAgentLoop,
   runValidationRepairLoop,
@@ -70,10 +70,15 @@ export async function runFullPrTriage(params: {
     hostSignal: params.signal,
   });
   let lastText = "";
+  // Finalize rounds may still call commitFix, so they keep the full triage budget.
   const sendFinalizeRound = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, prompt, {
-      maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_TRIAGE, params.escalation),
-    });
+    (
+      await session.send(prompt, {
+        maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS_TRIAGE, params.escalation),
+        phase: "triage",
+        checkpointId: "triage:triage",
+      })
+    ).text;
 
   const runValidationRepair = async () => {
     await runValidationRepairLoop({

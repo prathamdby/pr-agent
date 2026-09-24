@@ -140,6 +140,7 @@ describe("analytics facade", () => {
     await analytics.initAnalytics({ projectToken: "token", host: "" });
     await analytics.shutdownAnalytics();
     expect(mockPostHog.instances[0]?.shutdown).toHaveBeenCalledTimes(1);
+    expect(mockPostHog.instances[0]?.shutdown).toHaveBeenCalledWith(5_000);
 
     vi.resetModules();
     mockPostHog.instances.length = 0;

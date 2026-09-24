@@ -1,5 +1,6 @@
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
+import { ASK_TRUNCATED_NOTICE } from "../../settings/index.js";
 
 /** Prevent model output lines from being parsed as slash commands by GitHub. */
 export function sanitizeAskAnswerText(text: string): string {
@@ -14,8 +15,10 @@ export function formatAskReply(params: {
   question: string;
   answer: string;
   replyTarget: ReplyTarget;
+  truncated?: boolean;
 }): string {
-  const answer = sanitizeAskAnswerText(params.answer);
+  const sanitized = sanitizeAskAnswerText(params.answer);
+  const answer = params.truncated ? `${sanitized}\n\n${ASK_TRUNCATED_NOTICE}` : sanitized;
   if (params.replyTarget.kind === "inlineReviewThread") {
     return answer;
   }

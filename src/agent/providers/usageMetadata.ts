@@ -16,8 +16,15 @@ export type AgentRunnerPromptMetadata = {
   readonly inputBytes: number;
 };
 
+/**
+ * How a send ended. `output_limit` means the final assistant message hit the
+ * provider's output cap; `tool_budget` means `maxToolRounds` stopped the loop.
+ */
+export type TurnEnd = "completed" | "output_limit" | "tool_budget";
+
 export type AgentRunnerTurn = {
   readonly text: string;
+  readonly end: TurnEnd;
   readonly usage?: AgentRunnerUsageMetadata;
   readonly prompt?: AgentRunnerPromptMetadata;
 };

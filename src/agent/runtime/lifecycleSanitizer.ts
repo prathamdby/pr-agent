@@ -1,6 +1,7 @@
 import { logWarn } from "../../evlog.js";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
 import { isPlainObject } from "../../util/typeGuards.js";
+import type { TurnEnd } from "../providers/usageMetadata.js";
 import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
 
@@ -27,6 +28,8 @@ const SESSION_PHASES = new Set<AgentSessionPhase>([
   "verification",
   "ci_summary",
 ]);
+
+const TURN_ENDS = new Set<TurnEnd>(["completed", "output_limit", "tool_budget"]);
 
 const FORBIDDEN_KEY_RE =
   /prompt|message|text|reasoning|content|argument|result|payload|token|secret|key|authorization|cookie|body|diff|patch|errorMessage|stack|cause/i;
@@ -171,6 +174,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
       return { kind, role: typedRole, provider, model, reason };
     }
     case "completion": {
+      const end = asString(raw.end);
       return {
         kind,
         role: typedRole,
@@ -179,6 +183,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         provider,
         model,
         ok: true,
+        ...(end && TURN_ENDS.has(end as TurnEnd) ? { end: end as TurnEnd } : {}),
         ...tokenAndDurationFields(raw),
       };
     }

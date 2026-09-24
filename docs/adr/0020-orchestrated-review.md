@@ -70,7 +70,10 @@ If all four specialists fail, the worker publishes a failure notice and no
 summary table. If the orchestrator judgment session fails twice, accepted
 reports flow through deterministic finding publication and the summary is
 rendered from the server-owned run state with a judgment-degraded note. A
-thread-publish budget exhaustion downgrades later findings to summary-only rows;
+judgment turn that returns without calling `publish_thread` for a non-empty
+report (tool budget, output limit, or prose only) takes the same degradation
+path, and its decision event records `degradedReason: "judgment_unpublished"`
+with the turn end. A thread-publish budget exhaustion downgrades later findings to summary-only rows;
 they are never silently dropped.
 
 Every non-idempotent GitHub publish is guarded by a durable operation intent.

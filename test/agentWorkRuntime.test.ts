@@ -66,11 +66,12 @@ describe("agent work runtime teardown", () => {
 
   it("releases the pool after the boss drain when Boss is provided before Pool", async () => {
     runtimeMocks.trace.length = 0;
-    const { AgentWorkBossLive, AgentWorkPoolLive } = await import("../src/agentWork/runtime.js");
+    const { AgentWorkBossLive, AgentWorkExecutionsLive, AgentWorkPoolLive } =
+      await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig({ role: "worker" });
 
     const Worker = Context.GenericTag<"Worker", void>("Worker");
-    // Same provide order as worker.ts: Boss then Pool → pool.end last.
+    // Same provide order as worker.ts: Boss, executions, then Pool → pool.end last.
     const workerLive = Layer.scoped(
       Worker,
       Effect.acquireRelease(
@@ -82,7 +83,11 @@ describe("agent work runtime teardown", () => {
             runtimeMocks.trace.push("worker.stop");
           }),
       ),
-    ).pipe(Layer.provide(AgentWorkBossLive(cfg)), Layer.provide(AgentWorkPoolLive(cfg)));
+    ).pipe(
+      Layer.provide(AgentWorkBossLive(cfg)),
+      Layer.provide(AgentWorkExecutionsLive),
+      Layer.provide(AgentWorkPoolLive(cfg)),
+    );
 
     await Effect.runPromise(Effect.scoped(Layer.build(workerLive)));
 

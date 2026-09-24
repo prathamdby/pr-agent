@@ -6,6 +6,7 @@ import {
   ASK_FAILURE_MESSAGE,
   ASK_META_REFUSAL,
   ASK_RETRY_NUDGE,
+  ASK_SHORTEN_NUDGE,
   CONTEXT7_RESPONSE_BYTES,
   MAX_ASK_FINALIZE_ROUNDS,
   MAX_ASK_TOOL_ROUNDS,
@@ -140,30 +141,36 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
         (await loadAskCiState(params.pool, params.owner, params.repo, params.headSha));
       const firstTurn = await session.send(buildAskUserContent({ ...params, ciState }), sendOpts);
       usage = mergeExactUsage(usage, firstTurn.usage);
-      let lastText = firstTurn.text.trim();
+      // Keep the last non-empty answer so an empty retry never replaces a cut one.
+      let answer = { text: firstTurn.text.trim(), end: firstTurn.end };
 
-      if (!lastText && MAX_ASK_FINALIZE_ROUNDS > 0) {
-        for (let round = 0; round < MAX_ASK_FINALIZE_ROUNDS && !lastText; round++) {
-          const finalizeTurn = await session.send(ASK_RETRY_NUDGE, {
-            phase: "ask",
-            checkpointId: "ask:ask",
-            // Keep tool definitions registered for cache prefixes; forbid tool turns.
-            maxToolRounds: 0,
-          });
-          usage = mergeExactUsage(usage, finalizeTurn.usage);
-          lastText = finalizeTurn.text.trim();
-        }
+      for (
+        let round = 0;
+        round < MAX_ASK_FINALIZE_ROUNDS && (!answer.text || answer.end === "output_limit");
+        round++
+      ) {
+        const finalizeTurn = await session.send(answer.text ? ASK_SHORTEN_NUDGE : ASK_RETRY_NUDGE, {
+          phase: "ask",
+          checkpointId: "ask:ask",
+          // Keep tool definitions registered for cache prefixes; forbid tool turns.
+          maxToolRounds: 0,
+        });
+        usage = mergeExactUsage(usage, finalizeTurn.usage);
+        const text = finalizeTurn.text.trim();
+        if (text) answer = { text, end: finalizeTurn.end };
       }
 
       const answerText = formatAskReply({
         question,
-        answer: lastText.length > 0 ? lastText : ASK_FAILURE_MESSAGE,
+        answer: answer.text.length > 0 ? answer.text : ASK_FAILURE_MESSAGE,
         replyTarget,
+        truncated: answer.text.length > 0 && answer.end === "output_limit",
       });
 
       logInfo("ask_run_completed", {
         provider: cfg.piProvider,
-        hasAnswer: lastText.length > 0,
+        hasAnswer: answer.text.length > 0,
+        answerEnd: answer.end,
         metaRefusal: false,
         rateLimitCircuitOpened: circuit.isOpen(),
       });

@@ -17,6 +17,7 @@ We added a Context7 documentation-lookup tool to the agent's tool set (`src/agen
 - We lose the SDK's 5-retry exponential backoff (`packages/sdk/src/client.ts:39-42`). A transient Context7 failure surfaces to the LLM as an `isError: true` `toolResult` on the first try, and the model can retry on a later turn.
 - Context7 remains a documentation-verification tool, not a general outbound channel. Agents must not send raw source, prompts, comments, credentials, or tool output; rejected requests fail before URL construction and contain no rejected value in their errors.
 - The Context7 REST contract is now a private dependency of this repo. If `/v2/libs/search` or `/v2/context` change shape, the tool breaks before the SDK would.
+- JSON results are truncated structurally by dropping whole `results` entries, never by cutting strings. `omittedResults` reports how many entries were dropped. An over-budget body with no droppable results fails with `context7.response_too_large`.
 
 ## Reversal
 

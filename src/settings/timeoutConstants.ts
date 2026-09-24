@@ -17,3 +17,7 @@ export const GITHUB_WEBHOOK_RESPONSE_MARGIN_MS = 2_000;
 
 /** Wall-clock budget (ms) for the /ready Postgres ping. */
 export const HEALTH_DB_PING_TIMEOUT_MS = 2_000;
+/** How long shutdown waits for in-flight queue handlers after pg-boss drain. */
+export const SHUTDOWN_SETTLE_TIMEOUT_MS = 5_000;
+/** Bound for the PostHog client flush during process shutdown. */
+export const ANALYTICS_SHUTDOWN_TIMEOUT_MS = 5_000;

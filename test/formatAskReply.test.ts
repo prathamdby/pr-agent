@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatAskReply, sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.js";
+import { ASK_TRUNCATED_NOTICE } from "../src/settings/index.js";
 
 describe("formatAskReply", () => {
   it("returns plain answer for inline review threads", () => {
@@ -14,6 +15,23 @@ describe("formatAskReply", () => {
     });
     expect(body).toBe("It is a hydration-safe hook.");
     expect(body).not.toContain("**Question:**");
+  });
+
+  it("appends the truncation notice after a blank line for every reply target", () => {
+    const inline = formatAskReply({
+      question: "what is this?",
+      answer: "It is a hydration",
+      replyTarget: { kind: "inlineReviewThread", prNumber: 1, inReplyToCommentId: 99 },
+      truncated: true,
+    });
+    expect(inline).toBe(`It is a hydration\n\n${ASK_TRUNCATED_NOTICE}`);
+    const conversation = formatAskReply({
+      question: "what is this?",
+      answer: "It is a hydration",
+      replyTarget: { kind: "prConversation", prNumber: 1 },
+      truncated: true,
+    });
+    expect(conversation.endsWith(`It is a hydration\n\n${ASK_TRUNCATED_NOTICE}`)).toBe(true);
   });
 
   it("wraps question and answer on PR conversation", () => {

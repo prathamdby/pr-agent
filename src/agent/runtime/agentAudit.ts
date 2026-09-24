@@ -1,3 +1,4 @@
+import type { TurnEnd } from "../providers/usageMetadata.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 
 export type AgentAuditRecord = {
@@ -16,6 +17,7 @@ export type AgentAuditRecord = {
   readonly reason?: string;
   readonly attempt?: number;
   readonly outcome?: string;
+  readonly end?: TurnEnd;
   readonly durationMs?: number;
   readonly admittedHostCalls?: number;
   readonly completedHostCalls?: number;
@@ -75,6 +77,7 @@ export function agentAuditRecordFromLifecycleEvent(
         ...(event.phase ? { phase: event.phase } : {}),
         ...(event.checkpointId ? { checkpointId: event.checkpointId } : {}),
         ok: true,
+        ...(event.end ? { end: event.end } : {}),
         ...(event.durationMs != null ? { durationMs: event.durationMs } : {}),
       };
     case "failure":

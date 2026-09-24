@@ -1,5 +1,5 @@
 import { AppError } from "../../errors/appError.js";
-import type { AgentRunnerTurn } from "../providers/interface.js";
+import type { AgentRunnerTurn, TurnEnd } from "../providers/interface.js";
 import { promptMetadataFromText } from "../providers/usageMetadata.js";
 import type {
   AgentLifecycleEvent,
@@ -8,11 +8,13 @@ import type {
   PiSessionSendOptions,
 } from "./types.js";
 
+type FakePiSessionReply = string | { readonly text: string; readonly end: TurnEnd };
+
 export type FakePiSessionScript = (ctx: {
   readonly prompt: string;
   readonly opts: PiSessionSendOptions;
   readonly emit: (event: AgentLifecycleEvent) => void;
-}) => Promise<string> | string;
+}) => Promise<FakePiSessionReply> | FakePiSessionReply;
 
 export type FakePiSessionControls = {
   readonly events: AgentLifecycleEvent[];
@@ -73,9 +75,12 @@ export function createFakePiSession(
         provider: params.primary.provider,
         model: params.primary.model,
       });
-      const text = await script({ prompt, opts, emit });
+      const reply = await script({ prompt, opts, emit });
+      const { text, end }: { text: string; end: TurnEnd } =
+        typeof reply === "string" ? { text: reply, end: "completed" } : reply;
       const turn: AgentRunnerTurn = {
         text,
+        end,
         prompt: promptMetadataFromText(prompt),
       };
       emit({
@@ -86,6 +91,7 @@ export function createFakePiSession(
         provider: params.primary.provider,
         model: params.primary.model,
         ok: true,
+        end,
       });
       return turn;
     },

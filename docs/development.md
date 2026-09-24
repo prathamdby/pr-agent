@@ -48,6 +48,10 @@ Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Fiel
 
 Long investigator prompt blocks stay in prompt modules. Correctness uses `src/review/prompts/reviewSystemPrompt.ts`. Security, quality, and tests personas live under `src/agent/prompts/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; its high-signal bug-pattern list remains supporting recognition. Code Mode roles also include a generated guest-capability catalogue from `src/agent/codemode/guestCatalogue.ts` in the stable prefix. That list is the installed `tools.*` set for that role, not the bug-pattern list. Description and triage keep native workspace tools and do not receive `execute`. CI summary and bound-policy judgment are no-tool JSON turns.
 
+## Tool-round budgets
+
+Every `session.send` that can call tools passes `maxToolRounds`. Investigation turns use their role budget (`MAX_TOOL_ROUNDS`, `MAX_TOOL_ROUNDS_TRIAGE`, and so on), which escalated retries scale. A turn whose only job is to call a submit tool is a submit-only turn and uses `SUBMIT_ONLY_MAX_TOOL_ROUNDS` (one submit plus one in-turn correction). Escalation does not scale it. Send it through `runSubmitOnlyRound`, or pass the constant directly as the orchestrator does for recon repair, synthesis, synthesis repair, and summary recovery. A finalize turn that may still do real work, such as triage `commitFix`, is not submit-only and keeps its role budget. The returned turn's `end` is `tool_budget` when the budget stopped the loop.
+
 ## Runtime topology diagram
 
 When a change alters **runtime topology**, update the Mermaid diagram in [AGENTS.md](../AGENTS.md) How it works in the same PR. Binding rule: [`.pr-agent/topology-diagram.mdc`](../.pr-agent/topology-diagram.mdc).
