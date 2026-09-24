@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
+import { logWarn } from "../evlog.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
 import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
@@ -118,10 +119,23 @@ export async function runRetention(
   };
 }
 
+let warnedAgentEventsRetentionDisabled = false;
+
 export async function ensureRetentionSchedule(
   boss: PgBoss,
-  cfg: Pick<Config, "retentionEnabled" | "retentionCron">,
+  cfg: Pick<
+    Config,
+    "retentionEnabled" | "retentionCron" | "agentEventsEnabled" | "agentEventsRetentionSeconds"
+  >,
 ): Promise<void> {
+  if (
+    cfg.agentEventsEnabled &&
+    cfg.agentEventsRetentionSeconds <= 0 &&
+    !warnedAgentEventsRetentionDisabled
+  ) {
+    warnedAgentEventsRetentionDisabled = true;
+    logWarn("agent_events_retention_disabled");
+  }
   await boss.createQueue(RETENTION_QUEUE, { policy: "standard" });
   if (cfg.retentionEnabled) {
     await boss.schedule(RETENTION_QUEUE, cfg.retentionCron);

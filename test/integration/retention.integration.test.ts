@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
 import { runRetention } from "../../src/agentWork/retention.js";
+import { DEFAULT_AGENT_EVENTS_RETENTION_SECONDS } from "../../src/settings/index.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const RETENTION = {
@@ -31,6 +32,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM agent_events WHERE event_kind = $1", [EVENT]);
   });
 
   async function insertWorkItem(
@@ -161,5 +163,51 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     expect(heads).not.toContain("orphan-aged");
     expect(heads).toContain("h");
     expect(heads).toContain("fresh");
+  });
+
+  it("deletes agent_events older than the default retention and keeps them when retention is 0", async () => {
+    const agedId = randomUUID();
+    const freshId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_events (id, event_kind, recorded_at)
+       VALUES ($1, $3, $4), ($2, $3, $5)`,
+      [agedId, freshId, EVENT, daysAgo(31), daysAgo(1)],
+    );
+
+    const deleted = await runRetention(pool, {
+      ...RETENTION,
+      agentEventsRetentionSeconds: DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+    });
+    expect(deleted.agentEventsDeleted).toBeGreaterThanOrEqual(1);
+
+    const { rows } = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_events WHERE event_kind = $1",
+      [EVENT],
+    );
+    const ids = rows.map((row) => row.id);
+    expect(ids).not.toContain(agedId);
+    expect(ids).toContain(freshId);
+
+    const keptId = randomUUID();
+    await pool.query(`INSERT INTO agent_events (id, event_kind, recorded_at) VALUES ($1, $2, $3)`, [
+      keptId,
+      EVENT,
+      daysAgo(31),
+    ]);
+    await runRetention(pool, RETENTION);
+    const kept = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_events WHERE event_kind = $1",
+      [EVENT],
+    );
+    expect(kept.rows.map((row) => row.id)).toContain(keptId);
+  });
+
+  it("applies the agent_events recorded_at index", async () => {
+    const { rows } = await pool.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname = 'agent_events_recorded_at_idx'`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.indexdef).toContain("(recorded_at)");
   });
 });

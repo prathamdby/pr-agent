@@ -45,6 +45,7 @@ const EXPECTED_MIGRATIONS = [
   "029_ask_quota_execution_receipts.sql",
   "030_pr_head_ci_state.sql",
   "031_projection_repair_pending.sql",
+  "032_agent_events_recorded_at_index.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
