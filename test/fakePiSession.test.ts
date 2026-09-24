@@ -37,7 +37,7 @@ describe("createFakePiSession", () => {
       checkpointId: "cp-1",
       maxToolRounds: 3,
     });
-    expect(turn.text).toBe("ok");
+    expect(turn).toMatchObject({ text: "ok", end: "completed" });
     expect(controls.sends).toHaveLength(1);
     expect(controls.sends[0]?.opts.checkpointId).toBe("cp-1");
     expect(controls.events.some((event) => event.kind === "turn")).toBe(true);
@@ -49,6 +49,18 @@ describe("createFakePiSession", () => {
     await expect(
       session.send("again", { phase: "specialist", checkpointId: "cp-1" }),
     ).rejects.toThrow(/disposed|aborted/);
+  });
+
+  it("passes a scripted turn end through the turn and completion event", async () => {
+    const { session, controls } = createFakePiSession(baseParams(), async () => ({
+      text: "cut",
+      end: "output_limit" as const,
+    }));
+    const turn = await session.send("hello", { phase: "specialist", checkpointId: "cp-1" });
+    expect(turn).toMatchObject({ text: "cut", end: "output_limit" });
+    expect(controls.events.find((event) => event.kind === "completion")).toMatchObject({
+      end: "output_limit",
+    });
   });
 
   it("keeps the primary model assignment fixed across sends", async () => {

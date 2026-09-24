@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentRunnerTurn } from "../src/agent/providers/interface.js";
 import type { PiSession } from "../src/agent/runtime/types.js";
 import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { renderBriefMessage } from "../src/review/orchestrator/briefTool.js";
@@ -90,7 +91,7 @@ describe("runSpecialist", () => {
       if (behavior.kind === "pending_create") {
         const session: TestSession = {
           role: "specialist",
-          send: vi.fn(async () => ({ text: "" })),
+          send: vi.fn(async () => ({ text: "", end: "completed" as const })),
           abort: vi.fn(async () => undefined),
           dispose: vi.fn(async () => undefined),
         };
@@ -108,18 +109,18 @@ describe("runSpecialist", () => {
         send: vi.fn(async () => {
           if (behavior.kind === "error") throw behavior.error;
           if (behavior.kind === "pending_send") {
-            return new Promise<{ readonly text: string }>((resolve) => {
-              setTimeout(() => resolve({ text: "" }), behavior.settleAfterMs);
+            return new Promise<AgentRunnerTurn>((resolve) => {
+              setTimeout(() => resolve({ text: "", end: "completed" }), behavior.settleAfterMs);
             });
           }
           if (behavior.kind === "pending") {
-            return new Promise<{ readonly text: string }>((_, reject) => {
+            return new Promise<AgentRunnerTurn>((_, reject) => {
               rejectPending = reject;
             });
           }
-          if (behavior.kind === "no_report") return { text: "" };
+          if (behavior.kind === "no_report") return { text: "", end: "completed" as const };
           await params.executors.submit_findings_report(behavior.report);
-          return { text: "" };
+          return { text: "", end: "completed" as const };
         }),
         abort,
         dispose: vi.fn(async () => undefined),

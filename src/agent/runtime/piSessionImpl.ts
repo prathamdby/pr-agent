@@ -31,6 +31,7 @@ import {
   exactUsageFromProviderUsage,
   mergeExactUsage,
   promptMetadataFromText,
+  type TurnEnd,
 } from "../providers/usageMetadata.js";
 import { toCoreTools } from "./coreTools.js";
 import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
@@ -549,6 +550,11 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         }
         const promptMeta = promptMetadataFromText(prompt);
         const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : undefined;
+        const end: TurnEnd = toolBudgetStopped
+          ? "tool_budget"
+          : lastAssistant(sessionMessages)?.stopReason === "length"
+            ? "output_limit"
+            : "completed";
         emit({
           kind: "completion",
           role: params.role,
@@ -557,6 +563,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           provider: params.primary.provider,
           model: params.primary.model,
           ok: true,
+          end,
           ...(durationMs != null ? { durationMs } : {}),
           ...(aggregatedUsage != null
             ? {
@@ -566,8 +573,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             : {}),
         });
         return aggregatedUsage
-          ? { text: finalText, prompt: promptMeta, usage: aggregatedUsage }
-          : { text: finalText, prompt: promptMeta };
+          ? { text: finalText, end, prompt: promptMeta, usage: aggregatedUsage }
+          : { text: finalText, end, prompt: promptMeta };
       } catch (error) {
         const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : undefined;
         emit({

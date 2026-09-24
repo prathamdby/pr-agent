@@ -163,6 +163,7 @@ describe("sanitizeAgentLifecycleEvent", () => {
         provider: "openai",
         model: "gpt-4o-mini",
         ok: true,
+        end: "output_limit",
         durationMs: 1200,
         inputTokens: 40,
         outputTokens: 12,
@@ -175,6 +176,7 @@ describe("sanitizeAgentLifecycleEvent", () => {
       provider: "openai",
       model: "gpt-4o-mini",
       ok: true,
+      end: "output_limit",
       durationMs: 1200,
       inputTokens: 40,
       outputTokens: 12,
@@ -348,10 +350,17 @@ describe("durable lifecycle span sink", () => {
       provider: "openai",
       model: "gpt-4o-mini",
       ok: true,
+      end: "tool_budget",
       durationMs: 800,
       inputTokens: 12,
       outputTokens: 4,
     });
+    expect(analyticsMocks.appendAgentEvents).toHaveBeenCalledWith(expect.anything(), [
+      expect.objectContaining({
+        eventKind: "completion",
+        detail: expect.objectContaining({ end: "tool_budget" }),
+      }),
+    ]);
     expect(analyticsMocks.captureEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "$ai_generation",

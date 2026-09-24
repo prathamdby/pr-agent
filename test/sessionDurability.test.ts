@@ -56,7 +56,12 @@ function fakeSession(
   const session: PiSession = {
     role,
     primary: overrides.primary ?? { provider: "openai", model: "gpt-4o-mini" },
-    send: vi.fn(async () => ({ text: "ok", toolCalls: [], usage: undefined })),
+    send: vi.fn(async () => ({
+      text: "ok",
+      end: "completed" as const,
+      toolCalls: [],
+      usage: undefined,
+    })),
     abort: vi.fn(async () => undefined),
     dispose: vi.fn(async () => undefined),
     getStructuredState: () => structuredState,

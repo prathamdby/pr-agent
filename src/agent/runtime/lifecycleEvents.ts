@@ -1,3 +1,4 @@
+import type { TurnEnd } from "../providers/usageMetadata.js";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
 
 export type AgentLifecycleTurnEvent = {
@@ -65,6 +66,7 @@ export type AgentLifecycleCompletionEvent = {
   readonly provider: string;
   readonly model: string;
   readonly ok: true;
+  readonly end?: TurnEnd;
   readonly durationMs?: number;
   readonly inputTokens?: number;
   readonly outputTokens?: number;

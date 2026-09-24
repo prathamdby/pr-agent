@@ -45,6 +45,7 @@ export function lifecycleAuditToInsertRow(
   if (record.failureDomain != null) detail.failureDomain = record.failureDomain;
   if (record.errorKind != null) detail.errorKind = record.errorKind;
   if (record.outcome != null) detail.outcome = record.outcome;
+  if (record.end != null) detail.end = record.end;
   if (record.durationMs != null) detail.durationMs = record.durationMs;
   if (record.admittedHostCalls != null) detail.admittedHostCalls = record.admittedHostCalls;
   if (record.completedHostCalls != null) detail.completedHostCalls = record.completedHostCalls;

@@ -465,7 +465,7 @@ describe("runOrchestratedPrReview", () => {
             const delay = testState.sendDelay;
             testState.sendDelay = null;
             await new Promise<void>((resolve) => setTimeout(resolve, delay.ms));
-            return { text: "late" };
+            return { text: "late", end: "completed" as const };
           }
           if (prompt.includes("Inspect this pull request")) {
             if (testState.reconSubmitsBrief)
@@ -496,7 +496,7 @@ describe("runOrchestratedPrReview", () => {
               await executors.publish_summary?.({});
             }
           }
-          return { text: "ok" };
+          return { text: "ok", end: "completed" as const };
         }),
         abort: vi.fn(async () => {
           testState.sessionAborts += 1;
