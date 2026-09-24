@@ -3,3 +3,6 @@ export const MAX_LOG_MESSAGE_LEN = 2_000;
 export const MAX_LOG_REDACTION_SCAN_LEN = MAX_LOG_MESSAGE_LEN * 4;
 
 export const LOG_MAX_WIDE_EVENTS = 128;
+
+/** One pg-boss error or warning per key per window is logged; repeats in the window are counted. */
+export const PG_BOSS_EVENT_LOG_WINDOW_MS = 60_000;

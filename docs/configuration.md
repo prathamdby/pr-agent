@@ -627,17 +627,18 @@ Source-boundary recognition is linear in each line. File eligibility, content ha
 
 ### Postgres pool
 
-| Symbol                                    | Default | Role                                   |
-| ----------------------------------------- | ------- | -------------------------------------- |
-| `POSTGRES_POOL_MAX`                       | 10      | app pool size                          |
-| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`       |
-| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`    |
-| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                       |
-| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                        |
-| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                  |
-| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay            |
-| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout |
-| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout    |
+| Symbol                                    | Default | Role                                                                  |
+| ----------------------------------------- | ------- | --------------------------------------------------------------------- |
+| `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                         |
+| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`                                      |
+| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`                                   |
+| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                                                      |
+| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                                                       |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                                                 |
+| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay                                           |
+| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout                                |
+| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout                                   |
+| `PG_BOSS_EVENT_LOG_WINDOW_MS`             | 60000   | one pg-boss error/warning log per key per window; repeats are counted |
 
 ### Other
 

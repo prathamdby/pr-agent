@@ -3,6 +3,7 @@ import type { Config } from "../config.js";
 import { logDebug, logWarn, logError } from "../evlog.js";
 import {
   ACK_DEAD_LETTER_QUEUE,
+  PG_BOSS_EVENT_LOG_WINDOW_MS,
   ACK_QUEUE,
   ASK_DEAD_LETTER_QUEUE,
   ASK_QUEUE,
@@ -64,10 +65,46 @@ export function bossConstructorOptions(cfg: BossConfig): ConstructorOptions {
   };
 }
 
+/**
+ * Repeat gate for pg-boss events. The first occurrence of a key in a window is
+ * reported and returns the repeat count from the previous window; later
+ * occurrences in the same window return null. A Postgres restart can emit the
+ * same socket error on every connection in the pool, so repeats are counted
+ * instead of logged.
+ */
+export function createPgBossEventGate(
+  windowMs: number,
+): (key: string, now?: number) => number | null {
+  const windows = new Map<string, { windowStart: number; repeats: number }>();
+  return (key, now = Date.now()) => {
+    const window = windows.get(key);
+    if (window == null || now - window.windowStart >= windowMs) {
+      const previousRepeats = window?.repeats ?? 0;
+      windows.set(key, { windowStart: now, repeats: 0 });
+      return previousRepeats;
+    }
+    window.repeats += 1;
+    return null;
+  };
+}
+
+function pgBossEventKey(error: { message: string; code?: unknown }): string {
+  return typeof error.code === "string" && error.code.length > 0 ? error.code : error.message;
+}
+
 export async function createStartedBoss(cfg: BossConfig): Promise<PgBoss> {
   const boss = new PgBoss(bossConstructorOptions(cfg));
-  boss.on("error", (error) => logError("pg_boss_error", { message: error.message }));
-  boss.on("warning", (warning) => logWarn("pg_boss_warning", { message: warning.message }));
+  const eventGate = createPgBossEventGate(PG_BOSS_EVENT_LOG_WINDOW_MS);
+  boss.on("error", (error) => {
+    const suppressedRepeats = eventGate(pgBossEventKey(error));
+    if (suppressedRepeats == null) return;
+    logError("pg_boss_error", { message: error.message, suppressedRepeats });
+  });
+  boss.on("warning", (warning) => {
+    const suppressedRepeats = eventGate(pgBossEventKey(warning));
+    if (suppressedRepeats == null) return;
+    logWarn("pg_boss_warning", { message: warning.message, suppressedRepeats });
+  });
   await boss.start();
   return boss;
 }

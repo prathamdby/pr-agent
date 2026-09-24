@@ -10,6 +10,7 @@ vi.mock("../src/evlog.js", () => ({
 import { logError, logWarn } from "../src/evlog.js";
 import {
   bossConstructorOptions,
+  createPgBossEventGate,
   ensureAgentQueues,
   retireLeftoverCiRefreshQueues,
 } from "../src/agentWork/boss.js";
@@ -49,6 +50,21 @@ describe("bossConstructorOptions", () => {
       supervise: false,
       max: 4,
     });
+  });
+});
+
+describe("createPgBossEventGate", () => {
+  it("reports the first occurrence per key and counts repeats until the window rolls", () => {
+    const gate = createPgBossEventGate(60_000);
+
+    expect(gate("ECONNRESET", 0)).toBe(0);
+    expect(gate("ECONNRESET", 1_000)).toBeNull();
+    expect(gate("ECONNRESET", 59_000)).toBeNull();
+    expect(gate("other", 59_000)).toBe(0);
+
+    expect(gate("ECONNRESET", 60_000)).toBe(2);
+    expect(gate("ECONNRESET", 61_000)).toBeNull();
+    expect(gate("ECONNRESET", 120_000)).toBe(1);
   });
 });
 
