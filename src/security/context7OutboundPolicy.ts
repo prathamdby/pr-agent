@@ -143,9 +143,14 @@ export function redactContext7Json(value: unknown, apiKey: string): unknown {
   if (typeof value === "string") return redactContext7Response(value, apiKey);
   if (Array.isArray(value)) return value.map((entry) => redactContext7Json(entry, apiKey));
   if (value !== null && typeof value === "object") {
-    const redacted: Record<string, unknown> = {};
+    const redacted: Record<string, unknown> = Object.create(null);
     for (const [key, entry] of Object.entries(value)) {
-      redacted[redactContext7Response(key, apiKey)] = redactContext7Json(entry, apiKey);
+      Object.defineProperty(redacted, redactContext7Response(key, apiKey), {
+        value: redactContext7Json(entry, apiKey),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return redacted;
   }

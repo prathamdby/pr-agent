@@ -98,9 +98,34 @@ export function fitContext7Json(
       message: "Context7 JSON response exceeds the byte budget and has no results array to drop",
     });
   }
-  const { results, ...rest } = value;
+  const { results } = value;
+  const rest: Record<string, unknown> = Object.create(null);
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "results") continue;
+    Object.defineProperty(rest, key, {
+      value: entry,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   const fits = (count: number): string | undefined => {
-    const content = JSON.stringify({ ...rest, results: results.slice(0, count) });
+    const body: Record<string, unknown> = Object.create(null);
+    for (const [key, entry] of Object.entries(rest)) {
+      Object.defineProperty(body, key, {
+        value: entry,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    Object.defineProperty(body, "results", {
+      value: results.slice(0, count),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    const content = JSON.stringify(body);
     return Buffer.byteLength(content, "utf8") <= maxBytes ? content : undefined;
   };
   if (fits(0) === undefined) {

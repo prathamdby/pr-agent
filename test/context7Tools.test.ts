@@ -558,6 +558,27 @@ describe("buildContext7Tools — executors", () => {
     }
   });
 
+  it("keeps an untrusted __proto__ key in redacted Context7 JSON", async () => {
+    const payload = '{"results":[{"id":"/a/p"}],"__proto__":{"admin":true}}';
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(payload, { headers: { "content-type": "application/json" } }),
+      );
+
+    try {
+      const { executors } = buildContext7Tools({ apiKey: "", maxResponseBytes: 10_000 });
+      const out = await executors.resolveLibraryId({ libraryName: "react" });
+      const parsed = JSON.parse(out.content) as { results: unknown[] };
+      expect(Object.getOwnPropertyDescriptor(parsed, "__proto__")?.value).toEqual({
+        admin: true,
+      });
+      expect(parsed.results).toEqual([{ id: "/a/p" }]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("throws with status + body detail on non-2xx", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
