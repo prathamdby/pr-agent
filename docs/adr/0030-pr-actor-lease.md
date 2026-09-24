@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQueueSlot` bullet no longer holds). Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
+Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQueueSlot` bullet no longer holds). Amended: the watchdog hop chain is bounded by the durable attempt budget ([ADR 0034](0034-escalated-retries.md)); re-execution ends after `QUEUE_RETRY_LIMIT + 1` claims. Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 
@@ -16,7 +16,7 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 
 3. **Fencing moves to the lease epoch.** `markWork*`, `updateRunningWorkHeadSha`, `withOperationIntent`, and `recordPublishStep` fence on `(work_item_id, lease_epoch)` against `pr_actor_leases` instead of `agent_work_items.execution_epoch`. The `execution_epoch` column remains in the schema but is no longer read or written. Ask work items are unleased and pass a null fencing token; their safety continues to come from publish-record idempotency.
 
-4. **Queues go back to `standard`.** All work queues use the pg-boss `standard` policy. Every delivery that cannot acquire the lease — whether the holder is a different work item or this item's own crashed execution — completes as a no-op after arming one throttled redelivery (`singletonKey` = work item id, `singletonSeconds`/`startAfter`: `PR_ACTOR_LEASE_DEFER_SECONDS`, `singletonNextSlot` so a re-arm is never swallowed by the firing copy's retained row). The chain re-checks the lease every defer interval until it frees or lapses, which makes it both the queued-behind path and the dead-holder watchdog: crash recovery is bounded by `PR_ACTOR_LEASE_TTL_SECONDS` plus one hop, independent of pg-boss job expiry.
+4. **Queues go back to `standard`.** All work queues use the pg-boss `standard` policy. Every delivery that cannot acquire the lease — whether the holder is a different work item or this item's own crashed execution — completes as a no-op after arming one throttled redelivery (`singletonKey` = work item id, `singletonSeconds`/`startAfter`: `PR_ACTOR_LEASE_DEFER_SECONDS`, `singletonNextSlot` so a re-arm is never swallowed by the firing copy's retained row). The chain re-checks the lease every defer interval until it frees or lapses, which makes it both the queued-behind path and the dead-holder watchdog: crash recovery is bounded by `PR_ACTOR_LEASE_TTL_SECONDS` plus one hop, independent of pg-boss job expiry. The durable attempt-budget check runs after the lease is acquired, not before arming a hop: a live holder and a dead holder cannot be told apart before acquisition.
 
 5. **Intake stops repairing the queue.** Slash `/cancel`, `/review force`, close cancel, and stale-head reschedule terminalize work items and request cooperative cancellation exactly as before, but no longer find, cancel, or delete pg-boss jobs. Review cancel also clears any `pr_actor_leases` holder whose `work_item_id` is one of the cancelled rows, so a force replacement can acquire immediately instead of waiting for cooperative release or TTL. The slot-release module, the singleton-key helpers, the stranded-work reaper, and the blocked-keys diagnostics are deleted.
 
@@ -34,7 +34,7 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 
 ## Consequences
 
-- Crash recovery no longer needs a reaper: the watchdog deferral chain keeps re-checking until the dead holder's lease lapses, then steals it with a fresh epoch and re-executes the still-`running` item.
+- Crash recovery no longer needs a reaper: the watchdog deferral chain keeps re-checking until the dead holder's lease lapses, then steals it with a fresh epoch and re-executes the still-`running` item. Re-execution is bounded: a work item whose claims exceed `QUEUE_RETRY_LIMIT + 1` ends as `failed` with the failure notice, so a crash-looping pull request cannot re-run forever.
 - Queue state can never block intake, because intake never inspects it; a terminal work item's leftover job no-ops at execution.
 - Cutover is not safe with mixed old and new workers: old workers fence on queue policy while new workers fence on the lease. Drain only when an existing deployment still has fifo workers. A first install creates `standard` queues and has nothing to drain. See [docs/operations.md](../operations.md). The policy flip itself is carried by migration 023, not by hand.
 - The slot world's `review_queued_stale` diagnostic is replaced by a lease-aware `agent_work_queued_stale` warn that fires when a leased-type item sits queued past `STALE_QUEUED_WORK_GRACE_SECONDS` with no live lease row and no live pg-boss job. A waiter behind worker or group concurrency still has a `created` job and is not a dead chain. Lease health is otherwise observable through `pr_actor_lease_unavailable`, `pr_actor_lease_lost`, `pr_actor_lease_renewal_failed`, and `agent_work.lease_watchdog_arm_failed`.

@@ -85,6 +85,7 @@ export function mockWorkClaim(overrides: Partial<WorkClaim> = {}): WorkClaim {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     startedAt: new Date("2026-01-01T00:00:05.000Z"),
     attemptCount: 1,
+    resumed: false,
     ...overrides,
   };
 }

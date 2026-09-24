@@ -219,10 +219,14 @@ export type WorkClaim = {
   readonly createdAt: Date;
   readonly startedAt: Date;
   readonly attemptCount: number;
+  /** The row was already `running`: a crash, deploy, or lease-hop resume. */
+  readonly resumed: boolean;
 };
 
 /**
  * Claim queued work or resume a redelivered job while the row is still running.
+ * Every claim counts as an attempt, resumes included, so `attempt_count` is the one
+ * durable retry budget across pg-boss retries and lease hop jobs.
  * Admission is owned by the PR actor lease, not the claim: a re-claimed row still
  * needs the lease before any durable write.
  */
@@ -231,20 +235,22 @@ export async function claimWorkForExecution(pool: Pool, id: string): Promise<Wor
     created_at: Date;
     started_at: Date;
     attempt_count: number;
+    resumed: boolean;
   }>(
     pool,
-    `UPDATE agent_work_items
-	    SET status = 'running',
-	        started_at = COALESCE(started_at, now()),
-        attempt_count = CASE
-          WHEN status = 'queued' THEN attempt_count + 1
-          ELSE attempt_count
-        END,
-        updated_at = now()
-	  WHERE id = $1
-	    AND status IN ('queued', 'running')
-	    AND cancel_requested_at IS NULL
-    RETURNING created_at, started_at, attempt_count`,
+    `WITH prior AS (
+       SELECT id, status FROM agent_work_items WHERE id = $1 FOR UPDATE
+     )
+     UPDATE agent_work_items w
+        SET status = 'running',
+            started_at = COALESCE(w.started_at, now()),
+            attempt_count = w.attempt_count + 1,
+            updated_at = now()
+       FROM prior
+      WHERE w.id = prior.id
+        AND w.status IN ('queued', 'running')
+        AND w.cancel_requested_at IS NULL
+    RETURNING w.created_at, w.started_at, w.attempt_count, prior.status = 'running' AS resumed`,
     [id],
   );
   if (!row) return null;
@@ -252,6 +258,7 @@ export async function claimWorkForExecution(pool: Pool, id: string): Promise<Wor
     createdAt: row.created_at,
     startedAt: row.started_at,
     attemptCount: row.attempt_count,
+    resumed: row.resumed,
   };
 }
 

@@ -104,6 +104,7 @@ describe("durableJob analytics forwarding", () => {
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       startedAt: new Date("2026-01-01T00:00:05.000Z"),
       attemptCount: 1,
+      resumed: false,
     });
     vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
     vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);

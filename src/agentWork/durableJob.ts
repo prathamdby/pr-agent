@@ -60,6 +60,7 @@ import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
 import {
   escalationForAttempt,
+  maxAttempts,
   retryDispositionFor,
   type EscalationPlan,
   type RetryDisposition,
@@ -629,6 +630,14 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     workClaim = claimed;
     enterExecutingPhase(phaseState);
+    if (claimed.resumed) {
+      logInfo("agent_work_resumed", {
+        type: spec.type,
+        workItemId: core.id,
+        resourceKey: core.resourceKey,
+        attemptCount: claimed.attemptCount,
+      });
+    }
 
     const rawPayload = await getWorkItemPayload(spec.pool, core.id);
     if (rawPayload === undefined) {
@@ -904,13 +913,16 @@ export async function runDurableWorkItem<T extends WorkType>(
       const message = error instanceof Error ? error.message : String(error);
       const disposition = retryDispositionFor(error);
       const attemptCount = workClaim?.attemptCount ?? item.attemptCount;
-      const pgBossBudgetRemains = spec.job.retryCount < spec.job.retryLimit;
+      // pg-boss retryCount restarts on every lease hop job, so the durable attempt count
+      // is the budget that actually bounds re-execution.
+      const budgetRemains =
+        attemptCount < maxAttempts(spec.cfg) && spec.job.retryCount < spec.job.retryLimit;
       // Deterministic failures get exactly one escalated replay: after that attempt the
-      // work item is terminal even when pg-boss still has budget.
+      // work item is terminal even when budget remains.
       const mayRetry =
         disposition === "transient"
-          ? pgBossBudgetRemains
-          : disposition === "deterministic" && attemptCount === 1 && pgBossBudgetRemains;
+          ? budgetRemains
+          : disposition === "deterministic" && attemptCount === 1 && budgetRemains;
       if (mayRetry) {
         await markRetryingOrCancel(error, message, disposition, attemptCount);
         return;
@@ -970,6 +982,18 @@ export async function runDurableWorkItem<T extends WorkType>(
           leaseEpoch,
         });
         return;
+      }
+      // Checked after the lease is held: before that, a live holder and a dead one look alike.
+      if (claimed.attemptCount > maxAttempts(spec.cfg)) {
+        throw new AppError({
+          code: "agent_work.attempts_exhausted",
+          message: `Work item ${item.id} exhausted its ${maxAttempts(spec.cfg)} attempts`,
+          context: {
+            workItemId: item.id,
+            attemptCount: claimed.attemptCount,
+            maxAttempts: maxAttempts(spec.cfg),
+          },
+        });
       }
       seededInstallation = await mintInstallationToken(spec.cfg, item.installationId);
       const execution = await prepareDurableExecution(seededInstallation, claimed);

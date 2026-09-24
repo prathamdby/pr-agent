@@ -204,6 +204,7 @@ function mockDurableExecution(
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         startedAt: new Date("2026-01-01T00:00:10.000Z"),
         attemptCount: 1,
+        resumed: false,
       },
       escalation,
     });
