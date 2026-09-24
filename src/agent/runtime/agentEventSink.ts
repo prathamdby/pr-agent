@@ -9,6 +9,7 @@ import {
 } from "../../analytics/workSpan.js";
 import type { AgentEventInsertRow } from "../../agentWork/agentEventsRepository.js";
 import { safeAppendAgentEvents } from "../../agentWork/agentEventsRepository.js";
+import type { TurnEnd } from "../providers/usageMetadata.js";
 import type { AgentAuditRecord } from "./agentAudit.js";
 import { agentAuditRecordFromLifecycleEvent } from "./agentAudit.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
@@ -79,7 +80,8 @@ export function decisionEventRow(
     readonly submittedCount: number;
     readonly acceptedCount: number;
     readonly rejectedCount: number;
-    readonly degraded?: boolean;
+    readonly degradedReason?: "judgment_failed" | "judgment_unpublished" | "judgment_unavailable";
+    readonly turnEnd?: TurnEnd;
   },
 ): AgentEventInsertRow {
   const detail: Record<string, unknown> = {
@@ -88,7 +90,8 @@ export function decisionEventRow(
     acceptedCount: params.acceptedCount,
     rejectedCount: params.rejectedCount,
   };
-  if (params.degraded === true) detail.degraded = true;
+  if (params.degradedReason != null) detail.degradedReason = params.degradedReason;
+  if (params.turnEnd != null) detail.turnEnd = params.turnEnd;
 
   return {
     ...baseInsertRow(context),

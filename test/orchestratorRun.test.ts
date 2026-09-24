@@ -53,6 +53,8 @@ const testState = vi.hoisted(() => ({
   sessionDisposals: 0,
   judgmentFailuresRemaining: 0,
   judgmentExecutorFailuresRemaining: 0,
+  judgmentSkipsPublishRemaining: 0,
+  decisionEvents: [] as Array<Record<string, unknown>>,
   lastSessionToolNames: [] as string[],
   reconSubmitsBrief: true,
   submittedBrief: null as Record<string, unknown> | null,
@@ -240,6 +242,19 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
   createFeaturePiSession: runner.createSession,
 }));
 
+vi.mock("../src/agent/runtime/agentEventSink.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agent/runtime/agentEventSink.js")>();
+  return {
+    ...actual,
+    emitWorkSpan: vi.fn(),
+    safeEmitDecisionEvent: vi.fn(
+      (_context: unknown, _cfg: unknown, row: Record<string, unknown>) => {
+        testState.decisionEvents.push(row);
+      },
+    ),
+  };
+});
+
 import {
   runOrchestratedPrReview,
   type OrchestratedReviewRunParams,
@@ -417,6 +432,8 @@ describe("runOrchestratedPrReview", () => {
     testState.sessionDisposals = 0;
     testState.judgmentFailuresRemaining = 0;
     testState.judgmentExecutorFailuresRemaining = 0;
+    testState.judgmentSkipsPublishRemaining = 0;
+    testState.decisionEvents.length = 0;
     testState.lastSessionToolNames = [];
     testState.reconSubmitsBrief = true;
     testState.submittedBrief = null;
@@ -481,6 +498,10 @@ describe("runOrchestratedPrReview", () => {
             if (testState.judgmentExecutorFailuresRemaining > 0) {
               testState.judgmentExecutorFailuresRemaining -= 1;
               throw new Error("publish_thread failed");
+            }
+            if (testState.judgmentSkipsPublishRemaining > 0) {
+              testState.judgmentSkipsPublishRemaining -= 1;
+              return { text: "", end: "tool_budget" as const };
             }
             await sessionParams.refreshBeforeTool?.("publish_thread");
             const source = testState.activeSource;
@@ -1322,6 +1343,40 @@ describe("runOrchestratedPrReview", () => {
       blastRadius: REVIEW_GATE_PROSE_UNASSESSED,
     });
     expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");
+  });
+
+  it("publishes a report directly when the judgment turn ends without publish_thread", async () => {
+    testState.judgmentSkipsPublishRemaining = 1;
+    const run = runOrchestratedPrReview({
+      ...params(),
+      cfg: makeTestConfig({ agentEventsEnabled: true }),
+      durability: {
+        pool: Object.create(null) as Pool,
+        workItemId: "wi-1",
+        installationId: 1,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+      },
+    });
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.publishOrder).toEqual(["correctness", "summary"]);
+    expect(testState.deterministicSummaries).toHaveLength(1);
+    expect(testState.ledger?.accepted.map((item) => item.source)).toEqual(["correctness"]);
+    expect(testState.decisionEvents).toEqual([
+      expect.objectContaining({
+        specialist: "correctness",
+        submittedCount: 1,
+        degradedReason: "judgment_unpublished",
+        turnEnd: "tool_budget",
+      }),
+    ]);
   });
 
   it("preserves a report when judgment publish_thread throws", async () => {
