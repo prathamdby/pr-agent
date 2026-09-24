@@ -5,11 +5,25 @@ import type { Config } from "../config.js";
 import { runMigrations } from "../db/migrations.js";
 import { createPgPool } from "../db/postgres.js";
 import { shutdownAnalytics } from "../analytics/index.js";
+import { SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
+import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
 
 export class AgentWorkPool extends Context.Tag("AgentWorkPool")<AgentWorkPool, Pool>() {}
 export class AgentWorkBoss extends Context.Tag("AgentWorkBoss")<AgentWorkBoss, PgBoss>() {}
+export class AgentWorkExecutions extends Context.Tag("AgentWorkExecutions")<
+  AgentWorkExecutions,
+  ExecutionTracker
+>() {}
+
+export const AgentWorkExecutionsLive = Layer.scoped(
+  AgentWorkExecutions,
+  Effect.acquireRelease(
+    Effect.sync(() => createExecutionTracker()),
+    (tracker) => Effect.promise(() => tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS)),
+  ),
+);
 
 export const AgentWorkPoolLive = (cfg: Config) =>
   Layer.scoped(

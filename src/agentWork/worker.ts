@@ -1,7 +1,15 @@
 import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
-import { AgentWorkBoss, AgentWorkBossLive, AgentWorkPool, AgentWorkPoolLive } from "./runtime.js";
+import type { ExecutionTracker } from "./executionTracker.js";
+import {
+  AgentWorkBoss,
+  AgentWorkBossLive,
+  AgentWorkExecutions,
+  AgentWorkExecutionsLive,
+  AgentWorkPool,
+  AgentWorkPoolLive,
+} from "./runtime.js";
 import type { Config } from "../config.js";
 import { errorLogFields } from "../errors/appError.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
@@ -100,13 +108,14 @@ function workerJobMeta(
 
 function registerPlainQueue<T>(
   boss: PgBoss,
+  executions: ExecutionTracker,
   queue: string,
   options: Parameters<PgBoss["work"]>[1],
   dispatch: (job: Job<T>) => Promise<void>,
 ): Promise<unknown> {
   return boss.work<T>(queue, options, async ([job]) => {
-    await runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
-      dispatch(job),
+    await executions.track(() =>
+      runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () => dispatch(job)),
     );
   });
 }
@@ -115,14 +124,17 @@ type MetadataWorkOptions = WorkOptions & { includeMetadata: true };
 
 function registerMetadataQueue<T>(
   boss: PgBoss,
+  executions: ExecutionTracker,
   queue: string,
   options: Omit<WorkOptions, "includeMetadata">,
   dispatch: (job: JobWithMetadata<T>) => Promise<void>,
 ): Promise<unknown> {
   const workOptions = { ...options, includeMetadata: true } satisfies MetadataWorkOptions;
   return boss.work<T>(queue, workOptions, async ([job]) => {
-    await runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
-      dispatch(job as JobWithMetadata<T>),
+    await executions.track(() =>
+      runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
+        dispatch(job as JobWithMetadata<T>),
+      ),
     );
   });
 }
@@ -142,7 +154,12 @@ export async function stopWorkerConsumers(boss: PgBoss): Promise<void> {
   await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q, { wait: false })));
 }
 
-export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
+export const AgentWorkerLive = (
+  cfg: Config,
+  pool: Pool,
+  boss: PgBoss,
+  executions: ExecutionTracker,
+) =>
   Layer.scopedDiscard(
     Effect.acquireRelease(
       Effect.tryPromise({
@@ -161,6 +178,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           await Promise.all([
             registerPlainQueue<AckJobData>(
               boss,
+              executions,
               ACK_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeAckJob(cfg, pool, job.data, boss),
@@ -169,6 +187,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             }),
             registerPlainQueue<CiProjectionJobData>(
               boss,
+              executions,
               CI_PROJECTION_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeCiProjectionJob(cfg, pool, boss, job.data),
@@ -177,6 +196,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             }),
             registerMetadataQueue<ReviewJobData>(
               boss,
+              executions,
               REVIEW_QUEUE,
               {
                 localConcurrency: cfg.reviewConcurrency,
@@ -188,6 +208,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             }),
             registerMetadataQueue<AskJobData>(
               boss,
+              executions,
               ASK_QUEUE,
               { localConcurrency: cfg.askConcurrency, ...durableQueueOptions },
               (job) => executeAskJob(cfg, pool, boss, job),
@@ -196,6 +217,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             }),
             registerMetadataQueue<DescriptionJobData>(
               boss,
+              executions,
               DESCRIPTION_QUEUE,
               {
                 localConcurrency: cfg.descriptionConcurrency,
@@ -207,6 +229,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             }),
             registerMetadataQueue<TriageJobData>(
               boss,
+              executions,
               TRIAGE_QUEUE,
               {
                 localConcurrency: cfg.triageConcurrency,
@@ -218,6 +241,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             }),
             registerMetadataQueue<VerificationJobData>(
               boss,
+              executions,
               VERIFICATION_QUEUE,
               {
                 localConcurrency: cfg.verificationConcurrency,
@@ -227,22 +251,29 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             ).then(() => {
               registeredQueues.add(VERIFICATION_QUEUE);
             }),
-            registerPlainQueue(boss, RETENTION_QUEUE, retentionQueueWorkOptions(), async () => {
-              try {
-                const result = await runRetention(pool, cfg);
-                logInfo("retention_cleanup", result);
-              } catch (e) {
-                logError("retention_cleanup_failed", {
-                  message: e instanceof Error ? e.message : String(e),
-                  ...errorLogFields(e),
-                });
-                throw e;
-              }
-            }).then(() => {
+            registerPlainQueue(
+              boss,
+              executions,
+              RETENTION_QUEUE,
+              retentionQueueWorkOptions(),
+              async () => {
+                try {
+                  const result = await runRetention(pool, cfg);
+                  logInfo("retention_cleanup", result);
+                } catch (e) {
+                  logError("retention_cleanup_failed", {
+                    message: e instanceof Error ? e.message : String(e),
+                    ...errorLogFields(e),
+                  });
+                  throw e;
+                }
+              },
+            ).then(() => {
               registeredQueues.add(RETENTION_QUEUE);
             }),
             registerPlainQueue<CodeIndexBuildJobData>(
               boss,
+              executions,
               CODE_INDEX_BUILD_QUEUE,
               { localConcurrency: CODE_INDEX_BUILD_CONCURRENCY, ...fastQueueOptions },
               (job) => executeCodeIndexBuildJob(cfg, pool, job.data),
@@ -345,14 +376,20 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 
 /**
  * Worker role: full queue consumers for agent work items.
- * Provide Boss before Pool so finalizers run worker → boss drain → pool.end;
- * a draining handler can still record its outcome while the Pool is alive.
+ * Provide Boss, then executions, then Pool so finalizers run
+ * worker → boss drain → handler settle → pool.end.
+ * A draining handler can still record its outcome while the Pool is alive.
  */
 export const agentWorkWorkerLive = (cfg: Config) =>
   Layer.scopedDiscard(
     Effect.gen(function* () {
       const pool = yield* AgentWorkPool;
       const boss = yield* AgentWorkBoss;
-      yield* Layer.launch(AgentWorkerLive(cfg, pool, boss));
+      const executions = yield* AgentWorkExecutions;
+      yield* Layer.launch(AgentWorkerLive(cfg, pool, boss, executions));
     }),
-  ).pipe(Layer.provide(AgentWorkBossLive(cfg)), Layer.provide(AgentWorkPoolLive(cfg)));
+  ).pipe(
+    Layer.provide(AgentWorkBossLive(cfg)),
+    Layer.provide(AgentWorkExecutionsLive),
+    Layer.provide(AgentWorkPoolLive(cfg)),
+  );
