@@ -8,7 +8,12 @@ export function createExecutionTracker(): ExecutionTracker {
 
   return {
     track<T>(run: () => Promise<T>): Promise<T> {
-      const promise = run();
+      let promise: Promise<T>;
+      try {
+        promise = run();
+      } catch (error) {
+        promise = Promise.reject(error);
+      }
       const settled = promise.then(
         () => undefined,
         () => undefined,
@@ -20,22 +25,28 @@ export function createExecutionTracker(): ExecutionTracker {
       return promise;
     },
     async settle(timeoutMs: number): Promise<void> {
-      if (inFlight.size === 0) {
-        return;
-      }
-      const snapshot = [...inFlight];
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        await Promise.race([
-          Promise.allSettled(snapshot).then(() => undefined),
-          new Promise<void>((resolve) => {
-            timer = setTimeout(resolve, timeoutMs);
-          }),
-        ]);
-      } finally {
-        if (timer !== undefined) {
-          clearTimeout(timer);
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        if (inFlight.size === 0) return;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return;
+        const pending = [...inFlight];
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let timedOut = false;
+        try {
+          await Promise.race([
+            Promise.allSettled(pending).then(() => undefined),
+            new Promise<void>((resolve) => {
+              timer = setTimeout(() => {
+                timedOut = true;
+                resolve();
+              }, remaining);
+            }),
+          ]);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
         }
+        if (timedOut) return;
       }
     },
   };

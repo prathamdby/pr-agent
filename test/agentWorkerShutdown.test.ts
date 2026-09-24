@@ -172,6 +172,44 @@ describe("in-flight handler settle", () => {
     releaseHandler();
   }, 15_000);
 
+  it("keeps waiting for handlers tracked after settle reads the set", async () => {
+    const tracker = createExecutionTracker();
+    let releaseFirst: () => void = () => undefined;
+    const first = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    void tracker.track(() => first);
+
+    const settling = tracker.settle(400);
+    await Promise.resolve();
+    let releaseSecond: () => void = () => undefined;
+    const second = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    void tracker.track(() => second);
+    releaseFirst();
+
+    const raced = await Promise.race([
+      settling.then(() => "settled" as const),
+      new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 30)),
+    ]);
+    expect(raced).toBe("waiting");
+    releaseSecond();
+    await settling;
+    await second;
+  });
+
+  it("turns a synchronous track failure into a rejected promise", async () => {
+    const tracker = createExecutionTracker();
+    const tracked = tracker.track(() => {
+      throw new Error("sync");
+    });
+    await expect(tracked).rejects.toThrow("sync");
+    const started = Date.now();
+    await tracker.settle(5_000);
+    expect(Date.now() - started).toBeLessThan(50);
+  });
+
   it("resolves settle immediately when nothing is in flight and stops at the timeout", async () => {
     const tracker = createExecutionTracker();
     const started = Date.now();
