@@ -16,6 +16,7 @@ import {
   CONTEXT7_LIBRARY_ID_PATTERN,
   CONTEXT7_LIBRARY_NAME_PATTERN,
   prepareContext7OutboundText,
+  redactContext7Json,
   redactContext7Response,
 } from "../../security/context7OutboundPolicy.js";
 import { capTextOutput } from "./toolOutputBudget.js";
@@ -67,7 +68,63 @@ export type Context7ToolResponse = {
   readonly truncated: boolean;
   readonly returnedBytes: number;
   readonly truncationReason?: string;
+  readonly omittedResults?: number;
 };
+
+type Context7Body = { kind: "json"; value: unknown } | { kind: "text"; text: string };
+
+type Context7ResultsBody = { results: unknown[] } & Record<string, unknown>;
+
+function isContext7ResultsBody(value: unknown): value is Context7ResultsBody {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Array.isArray((value as { results?: unknown }).results)
+  );
+}
+
+export function fitContext7Json(
+  value: unknown,
+  maxBytes: number,
+): { content: string; omittedResults: number } {
+  const full = JSON.stringify(value);
+  if (Buffer.byteLength(full, "utf8") <= maxBytes) {
+    return { content: full, omittedResults: 0 };
+  }
+  if (!isContext7ResultsBody(value)) {
+    throw new AppError({
+      code: "context7.response_too_large",
+      message: "Context7 JSON response exceeds the byte budget and has no results array to drop",
+    });
+  }
+  const { results, ...rest } = value;
+  const fits = (count: number): string | undefined => {
+    const content = JSON.stringify({ ...rest, results: results.slice(0, count) });
+    return Buffer.byteLength(content, "utf8") <= maxBytes ? content : undefined;
+  };
+  if (fits(0) === undefined) {
+    throw new AppError({
+      code: "context7.response_too_large",
+      message: "Context7 JSON response exceeds the byte budget even with no results",
+    });
+  }
+  let low = 0;
+  let high = results.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (fits(mid) !== undefined) low = mid;
+    else high = mid - 1;
+  }
+  const content = fits(low);
+  if (content === undefined) {
+    throw new AppError({
+      code: "context7.response_too_large",
+      message: "Context7 JSON response exceeds the byte budget even with no results",
+    });
+  }
+  return { content, omittedResults: results.length - low };
+}
 
 type ReviewTool = {
   readonly description: string;
@@ -106,7 +163,7 @@ async function context7Get(
   endpoint: Context7Endpoint,
   params: Readonly<Record<string, string>>,
   apiKey: string,
-): Promise<string> {
+): Promise<Context7Body> {
   const url = context7Url(endpoint, params);
   const res = await fetch(url, {
     method: "GET",
@@ -140,11 +197,9 @@ async function context7Get(
   const contentType = res.headers.get("content-type") ?? "";
   if (contentType.toLowerCase().includes("application/json")) {
     const body: unknown = await res.json();
-    // Compact serialization: identical content, ~40% fewer bytes/tokens
-    // than indented output on structured result lists.
-    return redactContext7Response(JSON.stringify(body), apiKey);
+    return { kind: "json", value: redactContext7Json(body, apiKey) };
   }
-  return redactContext7Response(await res.text(), apiKey);
+  return { kind: "text", text: redactContext7Response(await res.text(), apiKey) };
 }
 
 function capContext7Response(text: string, maxResponseBytes: number): Context7ToolResponse {
@@ -157,10 +212,21 @@ function capContext7Response(text: string, maxResponseBytes: number): Context7To
   };
 }
 
+function presentContext7Body(body: Context7Body, maxResponseBytes: number): Context7ToolResponse {
+  if (body.kind === "text") return capContext7Response(body.text, maxResponseBytes);
+  const fitted = fitContext7Json(body.value, maxResponseBytes);
+  return {
+    content: fitted.content,
+    truncated: fitted.omittedResults > 0,
+    returnedBytes: Buffer.byteLength(fitted.content, "utf8"),
+    ...(fitted.omittedResults > 0 ? { omittedResults: fitted.omittedResults } : {}),
+  };
+}
+
 const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
   resolveLibraryId: {
     description:
-      "Resolve a short third-party library identifier (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the query when truncated.",
+      "Resolve a short third-party library identifier (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known. Never send source, prompts, comments, credentials, URLs, or tool output. Responses are capped; narrow the query when truncated. omittedResults counts dropped JSON result entries.",
     schema: resolveLibraryIdSchema,
     run: async ({ libraryName, query }, apiKey, maxResponseBytes) => {
       const safeLibraryName = assertContext7LibraryName(libraryName);
@@ -173,7 +239,7 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
         },
         apiKey,
       );
-      return capContext7Response(text, maxResponseBytes);
+      return presentContext7Body(text, maxResponseBytes);
     },
   },
   getLibraryDocs: {
@@ -189,7 +255,7 @@ const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
       };
       if (safeTopic) params.query = safeTopic;
       const text = await context7Get("/v2/context", params, apiKey);
-      return capContext7Response(text, maxResponseBytes);
+      return presentContext7Body(text, maxResponseBytes);
     },
   },
 };

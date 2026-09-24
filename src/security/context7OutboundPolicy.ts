@@ -137,3 +137,17 @@ export function redactContext7Response(text: string, apiKey: string): string {
     normalizedApiKey.length > 0 ? text.split(normalizedApiKey).join("[redacted]") : text;
   return redactOutboundSecrets(withoutApiKey);
 }
+
+/** Deep-clone JSON and redact the API key from every string key and string value. */
+export function redactContext7Json(value: unknown, apiKey: string): unknown {
+  if (typeof value === "string") return redactContext7Response(value, apiKey);
+  if (Array.isArray(value)) return value.map((entry) => redactContext7Json(entry, apiKey));
+  if (value !== null && typeof value === "object") {
+    const redacted: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      redacted[redactContext7Response(key, apiKey)] = redactContext7Json(entry, apiKey);
+    }
+    return redacted;
+  }
+  return value;
+}
