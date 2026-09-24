@@ -35,6 +35,9 @@ Notes:
   spends tokens on every `synchronize` push.
 - Ask mentions match the App bot login (`{slug}[bot]`), not the literal string
   `@bot`.
+- An ask answer cut off by the model's output limit is retried as a shorter
+  answer without tools, at most twice. If the answer is still cut, the reply
+  ends with a notice that it may be incomplete.
 - `FEATURE_REVIEW_LABELS=off` stops size and security labels only. Category
   labels still sync.
 - `FEATURE_COMMIT_STATUS` and the `PR Agent Review` check run share one writer

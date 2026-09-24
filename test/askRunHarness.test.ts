@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Pool } from "pg";
-import { ASK_FAILURE_MESSAGE } from "../src/settings/index.js";
+import {
+  ASK_FAILURE_MESSAGE,
+  ASK_RETRY_NUDGE,
+  ASK_SHORTEN_NUDGE,
+  ASK_TRUNCATED_NOTICE,
+} from "../src/settings/index.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
@@ -89,6 +94,34 @@ describe("runAskRun finalize", () => {
 
     expect(sendMock).toHaveBeenCalledTimes(3);
     expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
+  });
+
+  it("retries a cut answer with a shorten nudge and posts the complete retry", async () => {
+    sendMock
+      .mockResolvedValueOnce({ text: "Long answer that was cut", end: "output_limit" })
+      .mockResolvedValueOnce({ text: "Short complete answer.", end: "completed" });
+
+    const result = await runAskRun(askParams);
+
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(sendMock.mock.calls[1]?.[0]).toBe(ASK_SHORTEN_NUDGE);
+    expect(result.answer).toContain("Short complete answer.");
+    expect(result.answer).not.toContain(ASK_TRUNCATED_NOTICE);
+  });
+
+  it("keeps the last cut answer and marks it when every retry is cut or empty", async () => {
+    sendMock
+      .mockResolvedValueOnce({ text: "", end: "tool_budget" })
+      .mockResolvedValueOnce({ text: "Cut answer", end: "output_limit" })
+      .mockResolvedValueOnce({ text: "", end: "completed" });
+
+    const result = await runAskRun(askParams);
+
+    expect(sendMock).toHaveBeenCalledTimes(3);
+    expect(sendMock.mock.calls[1]?.[0]).toBe(ASK_RETRY_NUDGE);
+    expect(sendMock.mock.calls[2]?.[0]).toBe(ASK_SHORTEN_NUDGE);
+    expect(result.answer).toContain(`Cut answer\n\n${ASK_TRUNCATED_NOTICE}`);
+    expect(result.answer).not.toContain(ASK_FAILURE_MESSAGE);
   });
 
   it("builds the shared Context7 tools with the ask configuration", async () => {

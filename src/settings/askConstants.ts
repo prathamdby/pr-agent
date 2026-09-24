@@ -1,6 +1,12 @@
 export const ASK_RETRY_NUDGE =
   "Answer the question now in plain text based on your investigation above. Do not call more tools unless absolutely required to fix a factual gap.";
 
+export const ASK_SHORTEN_NUDGE =
+  "Your last answer hit the output limit and was cut off. Answer again in full, but more concisely. Do not call tools.";
+
+export const ASK_TRUNCATED_NOTICE =
+  "_This answer hit the model's output limit and may be incomplete._";
+
 export const ASK_FAILURE_MESSAGE =
   "I could not put together a confident answer from the PR and repo tools available. Try rephrasing the question, narrowing it to a file or symbol, or run `/review` for a full pass.";
 
