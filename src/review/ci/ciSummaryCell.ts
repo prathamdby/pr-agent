@@ -23,6 +23,11 @@ export type CiSummaryMarker = {
   readonly format: number;
 };
 
+export type CiProjectionBodyOptions = {
+  /** Caller confirmed `headSha` is the PR head, so a marker on another head is superseded. */
+  readonly supersededHead?: boolean;
+};
+
 export type CiProjectionBodyDecision =
   | { readonly kind: "reject" }
   | { readonly kind: "current" }
@@ -80,10 +85,13 @@ export function decideCiProjectionBodyUpdate(
   body: string,
   headSha: string,
   version: number,
+  options?: CiProjectionBodyOptions,
 ): CiProjectionBodyDecision {
   const marker = parseCiSummaryMarker(body);
   if (marker == null) return { kind: "reject" };
-  if (marker.head != null && marker.head !== headSha) return { kind: "reject" };
+  if (marker.head != null && marker.head !== headSha) {
+    return options?.supersededHead === true ? { kind: "update" } : { kind: "reject" };
+  }
   if (marker.version > version) return { kind: "reject" };
   if (marker.version < version) return { kind: "update" };
   if (marker.format < CI_PROJECTION_FORMAT) return { kind: "update" };
@@ -158,17 +166,17 @@ export type ApplyCiProjectionBodyResult = {
 
 /**
  * Replaces the marked CI cell (and optional completed-review action phrase) when
- * head matches and the next revision/format is allowed. The supplied `nextCell`
- * is authoritative for verification-failure injection.
+ * head matches (or the marker head is superseded) and the next revision/format is
+ * allowed. The supplied `nextCell` is authoritative for verification-failure injection.
  */
 export function applyCiProjectionBodyUpdate(
   body: string,
   nextCell: string,
   headSha: string,
   version: number,
-  options?: { readonly actionPhrase?: string | null },
+  options?: CiProjectionBodyOptions & { readonly actionPhrase?: string | null },
 ): ApplyCiProjectionBodyResult | null {
-  const decision = decideCiProjectionBodyUpdate(body, headSha, version);
+  const decision = decideCiProjectionBodyUpdate(body, headSha, version, options);
   if (decision.kind === "reject") return null;
   if (decision.kind === "current") return { body, kind: "current" };
 
