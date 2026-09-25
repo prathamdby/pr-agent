@@ -550,6 +550,7 @@ describe("runOrchestratedPrReview", () => {
       piFallbackModel: "claude-sonnet-4",
     });
     const escalation = escalationForAttempt(2, cfg);
+    testState.judgmentBySource.set("correctness", [finding("correctness")]);
     const run = runOrchestratedPrReview({ ...params(), cfg, escalation });
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     testState.outcomes.get("security")?.resolve(empty("security"));
@@ -625,7 +626,7 @@ describe("runOrchestratedPrReview", () => {
     expect(baselineCreate?.attemptModel).toBeUndefined();
   });
 
-  it("retires an escalated attempt for durable recovery instead of restarting in-run", async () => {
+  it("keeps an escalated attempt alive for per-report degrade instead of restarting in-run", async () => {
     runner.createSession.mockClear();
     testState.judgmentFailuresRemaining = 2;
     const cfg = makeTestConfig({
@@ -646,7 +647,8 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    expect(testState.sessionAborts).toBe(1);
+    // Per-report degrade keeps the session alive: no retire on judgment_failed.
+    expect(testState.sessionAborts).toBe(0);
     expect(runner.createSession).toHaveBeenCalledTimes(1);
     expect(runner.createSession.mock.calls[0]?.[0]?.attemptModel).toEqual({
       provider: "anthropic",
@@ -1147,6 +1149,7 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("marks failed specialist coverage partial without running judgment", async () => {
+    testState.judgmentBySource.set("correctness", [finding("correctness")]);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("security")?.resolve(failed("security"));
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
@@ -1332,8 +1335,9 @@ describe("runOrchestratedPrReview", () => {
     }
   });
 
-  it("degrades current and later reports after two judgment send failures", async () => {
+  it("degrades one report without retiring and still judges the next", async () => {
     testState.judgmentFailuresRemaining = 2;
+    testState.judgmentBySource.set("security", [finding("security")]);
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
@@ -1342,20 +1346,25 @@ describe("runOrchestratedPrReview", () => {
     testState.outcomes.get("quality")?.resolve(empty("quality"));
     testState.outcomes.get("tests")?.resolve(empty("tests"));
 
-    await expect(run).resolves.toMatchObject({ published: true });
+    const result = await run;
+    expect(result).toMatchObject({ published: true, publishAttempts: 0 });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    expect(testState.sessionAborts).toBe(1);
-    expect(testState.deterministicSummaries[0]).toMatchObject({
-      size: "M",
-      followUps: [],
-      mergeability: REVIEW_GATE_PROSE_UNASSESSED,
-      blastRadius: REVIEW_GATE_PROSE_UNASSESSED,
-    });
-    expect(testState.deterministicSummaries[0]).not.toHaveProperty("prCharacter");
+    // First degrade no longer retires the session.
+    expect(testState.sessionAborts).toBe(0);
+    // Later report still gets model judgment turns (2 failed attempts + 1 success).
+    expect(testState.judgmentPrompts).toHaveLength(3);
+    // Synthesis runs on the partial ledger even though the run degraded;
+    // deterministic salvage success must not trip publish_retry.
+    expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
+      true,
+    );
+    expect(testState.deterministicSummaries).toHaveLength(0);
   });
 
   it("publishes a report directly when the judgment turn ends without publish_thread", async () => {
     testState.judgmentSkipsPublishRemaining = 1;
+    testState.judgmentBySource.set("security", [finding("security")]);
+    testState.synthesisPublishesSummary = false;
     const run = runOrchestratedPrReview({
       ...params(),
       cfg: makeTestConfig({ agentEventsEnabled: true }),
@@ -1370,14 +1379,20 @@ describe("runOrchestratedPrReview", () => {
     });
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
-    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("security")?.resolve(report("security"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness", "security"]));
     testState.outcomes.get("quality")?.resolve(empty("quality"));
     testState.outcomes.get("tests")?.resolve(empty("tests"));
 
-    await expect(run).resolves.toMatchObject({ published: true });
-    expect(testState.publishOrder).toEqual(["correctness", "summary"]);
-    expect(testState.deterministicSummaries).toHaveLength(1);
-    expect(testState.ledger?.accepted.map((item) => item.source)).toEqual(["correctness"]);
+    const result = await run;
+    expect(result).toMatchObject({ published: true, publishAttempts: 0 });
+    expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
+    // First degrade keeps the session alive for the next model judgment turn.
+    expect(testState.sessionAborts).toBe(0);
+    expect(testState.judgmentPrompts).toHaveLength(2);
+    expect(testState.ledger?.accepted.map((item) => item.source).toSorted()).toEqual(
+      ["correctness", "security"].toSorted(),
+    );
     expect(testState.decisionEvents).toEqual([
       expect.objectContaining({
         specialist: "correctness",
@@ -1386,6 +1401,11 @@ describe("runOrchestratedPrReview", () => {
         turnEnd: "tool_budget",
       }),
     ]);
+    // Degraded run with accepted placements runs synthesis before deterministic fallback.
+    expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
+      true,
+    );
+    expect(testState.deterministicSummaries).toHaveLength(1);
   });
 
   it("preserves a report when judgment publish_thread throws", async () => {
@@ -1407,6 +1427,7 @@ describe("runOrchestratedPrReview", () => {
 
   it("preserves a report when the run gate throws during outcome handling", async () => {
     let gateChecks = 0;
+    testState.judgmentBySource.set("security", [finding("security")]);
     const run = runOrchestratedPrReview(
       paramsWithGate(async () => {
         gateChecks += 1;
@@ -1421,9 +1442,17 @@ describe("runOrchestratedPrReview", () => {
     testState.outcomes.get("quality")?.resolve(empty("quality"));
     testState.outcomes.get("tests")?.resolve(empty("tests"));
 
-    await expect(run).resolves.toMatchObject({ published: true });
+    const result = await run;
+    expect(result).toMatchObject({ published: true, publishAttempts: 0 });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    expect(testState.deterministicSummaries[0]?.findings).toHaveLength(2);
+    // Per-report degrade keeps the session alive; later reports still get judgment.
+    expect(testState.sessionAborts).toBe(0);
+    // Both reports preserved on the ledger; synthesis runs before any deterministic fallback.
+    expect(testState.ledger?.accepted).toHaveLength(2);
+    expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
+      true,
+    );
+    expect(testState.deterministicSummaries).toHaveLength(0);
   });
 
   it("aborts and joins every provider promise when superseded during the pump", async () => {

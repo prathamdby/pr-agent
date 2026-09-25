@@ -540,7 +540,7 @@ export async function runOrchestratedPrReview(
   const sendWithRetry = async (
     phase: "recon" | "judgment" | "synthesis",
     prompt: string,
-    options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs">,
+    options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs" | "reservedTerminalTool">,
   ): Promise<SendResult> => {
     phaseRef.current = phase;
     let firstError: AppError | null = null;
@@ -659,7 +659,9 @@ export async function runOrchestratedPrReview(
         context: { phase },
       });
 
-    await retireSession();
+    // Per-report degrade keeps the session alive for remaining judgment turns
+    // and synthesis. Retire only via cancel/deadline paths above; a failed
+    // judgment turn degrades that report without killing the session.
     const failure = classifyFailure(terminalError, { phase });
     recordClassifiedFailure(failure);
     return {
@@ -804,9 +806,16 @@ export async function runOrchestratedPrReview(
     publishThread.setSource(outcome.specialist);
     const ledgerBefore = publishThread.getLedger();
 
-    publishAttempts += 1;
-    const result = await publishThread.executor({ findings: outcome.report.findings });
+    let result: Awaited<ReturnType<typeof publishThread.executor>>;
+    try {
+      result = await publishThread.executor({ findings: outcome.report.findings });
+    } catch (error) {
+      // Real publish breakage only. Successful salvage must not trip publish_retry.
+      publishAttempts += 1;
+      throw error;
+    }
     if (result.kind === "wrong_phase") {
+      publishAttempts += 1;
       throw new AppError({
         code: result.code,
         message: result.error,
@@ -852,7 +861,12 @@ export async function runOrchestratedPrReview(
         ...errorLogFields(appError),
       });
     }
-    await retireSession();
+    // Per-report degrade: keep the session alive for remaining specialists and
+    // synthesis. Retire only when the session is genuinely dead (unavailable).
+    // Cancel/deadline paths already retired via stopFromGateResult/deadline handling.
+    if (cause.reason === "judgment_unavailable") {
+      await retireSession();
+    }
     try {
       await publishReportDeterministically(outcome);
     } catch (publishError) {
@@ -870,29 +884,35 @@ export async function runOrchestratedPrReview(
       ledger.accepted.map((accepted) => accepted.placement.finding),
     );
 
-    publishAttempts += 1;
-    const result = await publishReviewSummaryOnly({
-      cfg: params.cfg,
-      agentEvents: agentEvents ?? undefined,
-      ctx: publishCtx,
-      prSurface: setup.prSurface,
+    let result: Awaited<ReturnType<typeof publishReviewSummaryOnly>>;
+    try {
+      result = await publishReviewSummaryOnly({
+        cfg: params.cfg,
+        agentEvents: agentEvents ?? undefined,
+        ctx: publishCtx,
+        prSurface: setup.prSurface,
 
-      remainingFinalizationMs: params.timing.remainingTotalMs,
-      payload,
-      ledger,
-      mode: reviewMode,
-      cachedDiffIndex: setup.cachedDiffIndex,
-      shouldLinkToSummary: params.shouldLinkToSummary,
-      progressCommentIdHint: params.progressCommentIdHint,
-      recordPublishStep: params.recordPublishStep,
-      pool: params.durability?.pool,
-      ...ownVerdictPublishParams(params),
-      boss: params.boss,
-      installationId: params.durability?.installationId,
-      coverage: coverage(state),
-      shouldAbortPublish: params.shouldAbortPublish,
-      publishAbortState: params.publishAbortState,
-    });
+        remainingFinalizationMs: params.timing.remainingTotalMs,
+        payload,
+        ledger,
+        mode: reviewMode,
+        cachedDiffIndex: setup.cachedDiffIndex,
+        shouldLinkToSummary: params.shouldLinkToSummary,
+        progressCommentIdHint: params.progressCommentIdHint,
+        recordPublishStep: params.recordPublishStep,
+        pool: params.durability?.pool,
+        ...ownVerdictPublishParams(params),
+        boss: params.boss,
+        installationId: params.durability?.installationId,
+        coverage: coverage(state),
+        shouldAbortPublish: params.shouldAbortPublish,
+        publishAbortState: params.publishAbortState,
+      });
+    } catch (error) {
+      // Real publish breakage only. Successful salvage must not trip publish_retry.
+      publishAttempts += 1;
+      throw error;
+    }
     if (result.kind === "stopped") {
       state.lifecycle = { kind: "stopped", reason: result.reason };
       return;
@@ -1017,7 +1037,11 @@ export async function runOrchestratedPrReview(
             await recordOutcome(outcome);
             if (outcome.kind !== "report") return;
             const judgmentSession = session;
-            if (state.judgment === "degraded" || sessionRetired || !judgmentSession) {
+            // Per-report degrade: a prior crowded report must not cascade into
+            // judgment_unavailable for the rest. Unavailable is only for a
+            // genuinely dead session (creation failed, retired for
+            // cancel/deadline).
+            if (sessionRetired || !judgmentSession) {
               await degradeReport(outcome, { reason: "judgment_unavailable" });
               return;
             }
@@ -1033,6 +1057,7 @@ export async function runOrchestratedPrReview(
                   ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
                   params.escalation,
                 ),
+                reservedTerminalTool: "publish_thread",
               },
             );
             if (judgment.kind === "failed") {
@@ -1083,7 +1108,20 @@ export async function runOrchestratedPrReview(
           if (state.outcomes[outcome.specialist] != null) continue;
           await recordOutcome(outcome);
           if (outcome.kind === "report") {
-            await degradeReport(outcome, { reason: "judgment_unavailable" });
+            // Unavailable only for a genuinely dead session; otherwise this is a
+            // missed judgment turn that degrades per-report without retiring.
+            if (sessionRetired || !session) {
+              await degradeReport(outcome, { reason: "judgment_unavailable" });
+            } else {
+              await degradeReport(outcome, {
+                reason: "judgment_failed",
+                error: new AppError({
+                  code: "review.orchestrator_outcome_unhandled",
+                  message: "Specialist outcome missed judgment pump",
+                  context: { specialist: outcome.specialist },
+                }),
+              });
+            }
           }
         }
       }
@@ -1113,10 +1151,14 @@ export async function runOrchestratedPrReview(
     } else if (state.failedSpecialists.length === SPECIALIST_IDS.length) {
       await publishFailureNotice();
       state.lifecycle = { kind: "complete" };
-    } else if (state.judgment === "degraded" || sessionRetired || !session) {
-      await publishDeterministicSummary();
-      markCompleteUnlessStopped();
-    } else {
+    } else if (
+      !sessionRetired &&
+      session != null &&
+      publishThread.getLedger().accepted.length > 0
+    ) {
+      // Synthesis runs on the accepted ledger whenever anything was accepted
+      // and the session is alive — even on degraded runs. Deterministic publish
+      // stays as the final fallback when synthesis fails or never lands.
       publishStepCount += 1;
       const synthesisPrompt = renderSynthesisTurn({
         acceptedFindings: publishThread.getLedger().accepted,
@@ -1173,9 +1215,11 @@ export async function runOrchestratedPrReview(
       } else if (summaryState.published) {
         state.summary = { kind: "published" };
       } else {
-        // Model/session stayed healthy but never landed publish_summary after recovery.
-        // Salvage accepted findings the same way as the degraded path instead of a hard fail.
-        if (state.judgment !== "degraded" && !sessionRetired) {
+        // Synthesis was attempted on a live session but never landed
+        // publish_summary after recovery. Salvage accepted findings
+        // deterministically as the final fallback (success must not trip
+        // publish_retry; only a real throw increments publishAttempts).
+        if (!sessionRetired) {
           const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
           logWarn("review_synthesis_publish_salvage", {
             owner: params.owner,
@@ -1189,6 +1233,11 @@ export async function runOrchestratedPrReview(
         }
         await publishDeterministicSummary();
       }
+      markCompleteUnlessStopped();
+    } else {
+      // Nothing accepted to synthesize, or the session is dead: deterministic
+      // fallback directly without spending a synthesis turn.
+      await publishDeterministicSummary();
       markCompleteUnlessStopped();
     }
   } catch (error) {
