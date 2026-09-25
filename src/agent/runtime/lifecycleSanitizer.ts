@@ -111,7 +111,7 @@ function tokenAndDurationFields(raw: Record<string, unknown>): {
 export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent | null {
   if (!isPlainObject(raw)) return null;
   for (const key of Object.keys(raw)) {
-    if (TOKEN_COUNT_KEYS[key]) continue;
+    if (Object.hasOwn(TOKEN_COUNT_KEYS, key)) continue;
     if (FORBIDDEN_KEY_RE.test(key)) return null;
   }
 

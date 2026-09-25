@@ -195,6 +195,28 @@ describe("sanitizeAgentLifecycleEvent", () => {
       }),
     ).toBeNull();
   });
+
+  it("ignores inherited allowlist names without leaking them and still rejects credentials", () => {
+    const valid = {
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "orchestrator:recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      end: "output_limit",
+      durationMs: 1200,
+      inputTokens: 40,
+      outputTokens: 12,
+    };
+    for (const key of ["toString", "constructor", "__proto__"] as const) {
+      const raw: Record<string, unknown> = { ...valid, [key]: "smuggled" };
+      expect(Object.hasOwn(raw, key)).toBe(true);
+      expect(sanitizeAgentLifecycleEvent(raw)).toEqual(valid);
+    }
+    expect(sanitizeAgentLifecycleEvent({ ...valid, token: "sk-live" })).toBeNull();
+  });
 });
 
 describe("agentAuditRecordFromLifecycleEvent", () => {

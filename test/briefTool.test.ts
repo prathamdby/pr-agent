@@ -424,7 +424,14 @@ describe("orchestrator prompts", () => {
       ...finding,
       detail: "The changed path retries the absent value without a guard.",
     } as const;
-    type SlimFinding = typeof finding | typeof nearMiss;
+    type SlimFinding = {
+      readonly severity: "P2";
+      readonly file: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly title: string;
+      readonly detail: string;
+    };
     const toOutcome = (findings: readonly SlimFinding[]) => ({
       kind: "report" as const,
       specialist: "correctness" as const,
@@ -472,6 +479,19 @@ describe("orchestrator prompts", () => {
     expect(mixedPrompt).toContain('"findingId"');
     expect(mixedPrompt).not.toContain("dereferences an absent value");
     expect(mixedPrompt).toContain("retries the absent value without a guard");
+
+    const sameSubstanceDifferentLine = {
+      ...finding,
+      startLine: 60,
+      endLine: 60,
+    } as const;
+    const relocatedOutcome = toOutcome([sameSubstanceDifferentLine]);
+    const relocatedPrompt = renderJudgmentTurn(relocatedOutcome, postedLedger);
+
+    expect(relocatedPrompt).not.toContain("already accepted");
+    expect(relocatedPrompt).not.toContain('"findingId"');
+    expect(relocatedPrompt).toContain("dereferences an absent value");
+    expect(relocatedPrompt).toContain(JSON.stringify(relocatedOutcome.report, null, 2));
 
     const resumedLedger = createFindingLedger({
       accepted: [

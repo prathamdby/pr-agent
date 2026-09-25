@@ -282,6 +282,55 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("disposeSpillFiles keeps failed paths for retry instead of losing them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const body = `${"x".repeat(200)}\n`.repeat(2_000);
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/large-a.ts": body,
+        "src/large-b.ts": body,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/large-a.ts", "src/large-b.ts"]);
+      const { executors, disposeSpillFiles } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 1_000_000 }),
+        headSha: "deadbeef",
+        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+      });
+      const outA = (await executors.readWorkspaceFile?.({ path: "src/large-a.ts" })) as {
+        spilled: boolean;
+        spillPath: string;
+      };
+      const outB = (await executors.readWorkspaceFile?.({ path: "src/large-b.ts" })) as {
+        spilled: boolean;
+        spillPath: string;
+      };
+      expect(outA.spilled).toBe(true);
+      expect(outB.spilled).toBe(true);
+
+      // Sabotage one spill: a non-empty directory at the spill path makes
+      // rm(force:true) reject with ERR_FS_EISDIR while keeping the path live.
+      await rm(outA.spillPath, { force: true });
+      await mkdir(outA.spillPath);
+      await writeFile(join(outA.spillPath, "child.txt"), "blocked");
+
+      // Must resolve (teardown swallows rejections) and still delete the good spill.
+      await disposeSpillFiles();
+      await expect(access(outB.spillPath)).rejects.toThrow();
+      await expect(access(outA.spillPath)).resolves.toBeUndefined();
+
+      // Clear the obstacle and plant a fresh spill file at the re-queued path:
+      // the second dispose must delete it, proving the failure was re-queued.
+      await rm(outA.spillPath, { recursive: true, force: true });
+      await writeFile(outA.spillPath, "retry me");
+      await disposeSpillFiles();
+      await expect(access(outA.spillPath)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("readWorkspaceFile clamps a minified mega-line instead of letting it eat the budget", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

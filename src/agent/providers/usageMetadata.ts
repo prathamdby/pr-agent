@@ -55,8 +55,8 @@ export function exactUsageFromProviderUsage(usage: Usage): AgentRunnerUsageMetad
     estimated: false,
     inputTokens: usage.input,
     outputTokens: usage.output,
-    cacheReadTokens: usage.cacheRead,
-    cacheWriteTokens: usage.cacheWrite,
+    ...(usage.cacheRead != null ? { cacheReadTokens: usage.cacheRead } : {}),
+    ...(usage.cacheWrite != null ? { cacheWriteTokens: usage.cacheWrite } : {}),
     ...(usage.cacheWrite1h != null ? { cacheWrite1hTokens: usage.cacheWrite1h } : {}),
     totalTokens: usage.totalTokens,
   };
@@ -73,13 +73,15 @@ export function mergeExactUsage(
 ): AgentRunnerUsageMetadata | undefined {
   if (!left) return right;
   if (!right) return left;
+  const cacheReadTokens = mergeOptionalCount(left.cacheReadTokens, right.cacheReadTokens);
+  const cacheWriteTokens = mergeOptionalCount(left.cacheWriteTokens, right.cacheWriteTokens);
   const cacheWrite1hTokens = mergeOptionalCount(left.cacheWrite1hTokens, right.cacheWrite1hTokens);
   return {
     estimated: false,
     inputTokens: mergeOptionalCount(left.inputTokens, right.inputTokens),
     outputTokens: mergeOptionalCount(left.outputTokens, right.outputTokens),
-    cacheReadTokens: mergeOptionalCount(left.cacheReadTokens, right.cacheReadTokens),
-    cacheWriteTokens: mergeOptionalCount(left.cacheWriteTokens, right.cacheWriteTokens),
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
     ...(cacheWrite1hTokens !== undefined ? { cacheWrite1hTokens } : {}),
     totalTokens: mergeOptionalCount(left.totalTokens, right.totalTokens),
   };

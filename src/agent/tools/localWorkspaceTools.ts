@@ -516,7 +516,12 @@ export function buildLocalWorkspaceTools(
     ),
     disposeSpillFiles: async () => {
       const paths = spillPaths.splice(0, spillPaths.length);
-      await Promise.all(paths.map((spillPath) => disposeSpillFile(spillPath)));
+      const outcomes = await Promise.allSettled(
+        paths.map((spillPath) => disposeSpillFile(spillPath)),
+      );
+      for (const [index, outcome] of outcomes.entries()) {
+        if (outcome.status === "rejected") spillPaths.push(paths[index]);
+      }
     },
   };
 }
