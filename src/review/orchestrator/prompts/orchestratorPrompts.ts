@@ -96,9 +96,9 @@ export function renderJudgmentTurn(outcome: ReportOutcome, ledger: FindingLedger
 }
 
 /**
- * Findings already accepted in this run (matched by ledger fingerprint, with
- * an exact file/lines/title fallback) slim to references; undecided findings
- * keep their original object references so their bytes are unchanged.
+ * Findings already accepted in this run (matched by ledger fingerprint only)
+ * slim to references; undecided findings keep their original object
+ * references so their bytes are unchanged.
  */
 function slimAcceptedFindings(
   outcome: ReportOutcome,
@@ -115,7 +115,8 @@ function slimAcceptedFindings(
   let count = 0;
   const slimmed: readonly (ReviewFinding | AcceptedFindingSlimReference)[] = findings.map(
     (finding) => {
-      const findingId = acceptedFindingIdFor(finding, acceptedIds, ledger.accepted);
+      const findingId =
+        fingerprintCandidates(finding).find((candidate) => acceptedIds.has(candidate)) ?? null;
       if (findingId == null) return finding;
       count += 1;
       return {
@@ -129,23 +130,6 @@ function slimAcceptedFindings(
   );
   if (count === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
   return { json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2), count };
-}
-
-function acceptedFindingIdFor(
-  finding: ReviewFinding,
-  acceptedIds: ReadonlySet<string>,
-  accepted: readonly AcceptedPlacement[],
-): string | null {
-  const match = fingerprintCandidates(finding).find((candidate) => acceptedIds.has(candidate));
-  if (match !== undefined) return match;
-  const exact = accepted.find(
-    (placement) =>
-      placement.placement.finding.file === finding.file &&
-      placement.placement.finding.startLine === finding.startLine &&
-      placement.placement.finding.endLine === finding.endLine &&
-      placement.placement.finding.title === finding.title,
-  );
-  return exact?.canonicalFingerprint ?? null;
 }
 
 export function renderSynthesisTurn(params: {

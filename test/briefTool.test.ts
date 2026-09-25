@@ -420,34 +420,92 @@ describe("orchestrator prompts", () => {
       title: "Handle the missing value",
       detail: "The changed path dereferences an absent value.",
     } as const;
-    const outcome = {
-      kind: "report",
-      specialist: "correctness",
+    const nearMiss = {
+      ...finding,
+      detail: "The changed path retries the absent value without a guard.",
+    } as const;
+    type SlimFinding = typeof finding | typeof nearMiss;
+    const toOutcome = (findings: readonly SlimFinding[]) => ({
+      kind: "report" as const,
+      specialist: "correctness" as const,
       durationMs: 1,
-      report: { status: "findings", findings: [{ ...finding }] },
-    } satisfies Extract<SpecialistOutcome, { readonly kind: "report" }>;
+      report: { status: "findings" as const, findings: findings.map((entry) => ({ ...entry })) },
+    });
     const [candidate] = fingerprintCandidates({ ...finding });
-    const ledger = createFindingLedger({
+    const canonical = candidate ?? "fp";
+    const placementFor = (entry: SlimFinding) => ({
+      finding: { ...entry },
+      inlineLine: 4,
+      inlinePosted: true,
+    });
+    const postedLedger = createFindingLedger({
       accepted: [
         {
           kind: "posted",
           source: "correctness",
-          placement: {
-            finding: { ...finding },
-            inlineLine: 4,
-            inlinePosted: true,
-          },
-          canonicalFingerprint: candidate ?? "fp",
+          placement: placementFor(finding),
+          canonicalFingerprint: canonical,
           reviewId: 1,
         },
       ],
     });
 
-    const prompt = renderJudgmentTurn(outcome, ledger);
+    const hitOutcome = toOutcome([finding]);
+    const hitPrompt = renderJudgmentTurn(hitOutcome, postedLedger);
 
-    expect(prompt).toContain("already accepted");
-    expect(prompt).toContain("findingId");
-    expect(prompt).not.toContain("dereferences an absent value");
+    expect(hitPrompt).toContain("already accepted");
+    expect(hitPrompt).toContain('"findingId"');
+    expect(hitPrompt).toContain(canonical);
+    expect(hitPrompt).not.toContain("dereferences an absent value");
+
+    const missOutcome = toOutcome([nearMiss]);
+    const missPrompt = renderJudgmentTurn(missOutcome, postedLedger);
+
+    expect(missPrompt).not.toContain("already accepted");
+    expect(missPrompt).not.toContain('"findingId"');
+    expect(missPrompt).toContain("retries the absent value without a guard");
+    expect(missPrompt).toContain(JSON.stringify(missOutcome.report, null, 2));
+
+    const mixedPrompt = renderJudgmentTurn(toOutcome([finding, nearMiss]), postedLedger);
+
+    expect(mixedPrompt).toContain("already accepted");
+    expect(mixedPrompt).toContain('"findingId"');
+    expect(mixedPrompt).not.toContain("dereferences an absent value");
+    expect(mixedPrompt).toContain("retries the absent value without a guard");
+
+    const resumedLedger = createFindingLedger({
+      accepted: [
+        {
+          kind: "resumed",
+          source: "correctness",
+          placement: placementFor(finding),
+          canonicalFingerprint: canonical,
+          reviewId: 2,
+        },
+      ],
+    });
+    const resumedPrompt = renderJudgmentTurn(hitOutcome, resumedLedger);
+
+    expect(resumedPrompt).toContain("already accepted");
+    expect(resumedPrompt).not.toContain("dereferences an absent value");
+
+    const summaryLedger = createFindingLedger({
+      accepted: [
+        {
+          kind: "summary_only",
+          source: "correctness",
+          placement: placementFor(finding),
+          canonicalFingerprint: canonical,
+          reason: "cap",
+        },
+      ],
+    });
+    const summaryPrompt = renderJudgmentTurn(hitOutcome, summaryLedger);
+
+    expect(summaryPrompt).not.toContain("already accepted");
+    expect(summaryPrompt).not.toContain('"findingId"');
+    expect(summaryPrompt).toContain("dereferences an absent value");
+    expect(summaryPrompt).toContain(JSON.stringify(hitOutcome.report, null, 2));
   });
 
   it("binds synthesis to accepted placements and partial coverage", () => {

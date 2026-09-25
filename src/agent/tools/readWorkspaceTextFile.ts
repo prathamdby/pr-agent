@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -129,12 +129,23 @@ export type BudgetedWorkspaceTextFileRead =
   | (FileReadOutput & { readonly refused?: undefined });
 
 /**
+ * Spill gate key: only a cut by the response byte budget overflows. A
+ * line-window cut alone ("line window limit exceeded") is a satisfied
+ * evidence read, so it must return inline and record evidence normally.
+ */
+const RESPONSE_BYTE_BUDGET_TRUNCATION_REASON = "response byte budget exceeded";
+
+/**
  * The one budgeted read path every feature shares: stat-level refusal, then
  * the binary sniff, then the response budget with its per-line clamp, line
  * windows, and precomputed resume offsets. Reads whose full size is strictly
- * over the spill threshold AND whose budgeted read truncated spill the full
- * text to a session file and carry a tail inline. The 1MB-style file-size
- * refusal stays the outer ceiling; the response budget is the inner one.
+ * over the spill threshold AND whose budgeted read was cut by the response
+ * byte budget (truncationReason "response byte budget exceeded") spill the
+ * full text to a session file and carry a tail inline. A line-window cut
+ * alone ("line window limit exceeded") is a satisfied evidence read, not
+ * overflow, so it returns inline and records evidence normally. The 1MB-style
+ * file-size refusal stays the outer ceiling; the response budget is the inner
+ * one.
  */
 export async function readBudgetedWorkspaceTextFile(
   fullPath: string,
@@ -159,7 +170,12 @@ export async function readBudgetedWorkspaceTextFile(
     ...readOutput,
     ...(note ? { note } : {}),
   };
-  if (budgeted.refused || !budgeted.truncated || opts.spillScope === undefined) {
+  if (
+    budgeted.refused ||
+    !budgeted.truncated ||
+    budgeted.truncationReason !== RESPONSE_BYTE_BUDGET_TRUNCATION_REASON ||
+    opts.spillScope === undefined
+  ) {
     return budgeted;
   }
   if (!shouldSpillToFile(budgeted.size, LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES)) {
@@ -238,4 +254,28 @@ export async function spillTextToSessionFile(
     truncated: true,
     note: `Output (${size} bytes) exceeded the spill threshold; full text spilled to ${spillPath}. Spilled content is not read evidence — re-read the source path via readWorkspaceFile with explicit startLine/maxLines before citing any line in a finding.`,
   };
+}
+
+/**
+ * Filename prefix for every read-spill file (see spillTextToSessionFile).
+ * Exported so a future tmp sweeper can recognize owned spill files without
+ * tracking them globally; spillTextToSessionFile itself keeps building the
+ * name inline (TailFix owns that body).
+ */
+export const READ_SPILL_FILENAME_PREFIX = "pr-agent-read-spill-";
+
+/**
+ * Best-effort cleanup for one spill file. Unlinks only paths whose basename
+ * carries the spill prefix, so a stray caller path can never delete an
+ * unrelated file; missing files are fine. Future run-release wiring point:
+ * whoever owns the tool-call lifecycle collects `spillPath` from spilled
+ * envelopes and calls this at release (workspace release/sweep owners live
+ * elsewhere, so this helper tracks nothing global).
+ */
+export async function disposeSpillFile(spillPath: string): Promise<void> {
+  const base = spillPath.split(/[\\/]/).pop() ?? "";
+  if (!base.startsWith(READ_SPILL_FILENAME_PREFIX)) {
+    return;
+  }
+  await rm(spillPath, { force: true });
 }

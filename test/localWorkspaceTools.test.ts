@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,10 @@ import {
   buildLocalWorkspaceTools,
   type LocalWorkspaceToolLimits,
 } from "../src/agent/tools/localWorkspaceTools.js";
+import {
+  disposeSpillFile,
+  READ_SPILL_FILENAME_PREFIX,
+} from "../src/agent/tools/readWorkspaceTextFile.js";
 import { createAskPathGate } from "../src/agent/ask/askSafety.js";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
 import {
@@ -190,8 +194,11 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
       const { executors } = buildLocalWorkspaceTools(workspace, {
         limits: testLimits({ maxFileBytes: 1_000_000 }),
+        evidenceLedger,
+        headSha: "deadbeef",
         spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
       });
       const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
@@ -208,6 +215,68 @@ describe("local workspace tools", () => {
       expect(out.size).toBeGreaterThan(256_000);
       expect(out.tail.length).toBeGreaterThan(0);
       expect(out.note).toContain("not read evidence");
+      // Spilled content is not read evidence: the ledger must stay empty even
+      // though the tool ran against a ledger-backed workspace.
+      expect(evidenceLedger.snapshot()).toHaveLength(0);
+      // Spill filenames carry the owned prefix so a future tmp sweeper can
+      // recognize them; disposeSpillFile removes exactly this file.
+      expect(basename(out.spillPath).startsWith(READ_SPILL_FILENAME_PREFIX)).toBe(true);
+      await disposeSpillFile(out.spillPath);
+      await expect(access(out.spillPath)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile returns a fitting line window inline with evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const body = `${"y".repeat(200)}\n`.repeat(2_000);
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/large.ts": body,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 1_000_000 }),
+        evidenceLedger,
+        headSha: "deadbeef",
+        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+      });
+      const out = (await executors.readWorkspaceFile?.({
+        path: "src/large.ts",
+        startLine: 10,
+        maxLines: 5,
+      })) as {
+        spilled?: boolean;
+        content: string;
+        startLine: number;
+        endLine: number;
+        truncated: boolean;
+      };
+
+      expect(out.spilled).toBeUndefined();
+      expect(out.truncated).toBe(true);
+      expect(out.startLine).toBe(10);
+      expect(out.endLine).toBe(14);
+      expect(out.content.length).toBeGreaterThan(0);
+      expect(evidenceLedger.covers("src/large.ts", 10, 14)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("disposeSpillFile ignores non-spill paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const keepPath = join(root, "keep.txt");
+      await writeFile(keepPath, "do not delete");
+      await disposeSpillFile(keepPath);
+      await disposeSpillFile(join(root, "missing.txt"));
+      const content = await readFile(keepPath, "utf8");
+      expect(content).toBe("do not delete");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
