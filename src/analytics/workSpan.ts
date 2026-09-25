@@ -33,6 +33,10 @@ export type LlmWorkSpan = WorkSpanBase & {
   readonly model: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWrite1hTokens?: number;
+  readonly totalTokens?: number;
   readonly phase: string;
   readonly sessionRole?: string;
 };
@@ -85,6 +89,14 @@ export function projectWorkSpanToPostHog(span: WorkSpan): {
           $ai_provider: span.provider,
           ...(span.inputTokens != null ? { $ai_input_tokens: span.inputTokens } : {}),
           ...(span.outputTokens != null ? { $ai_output_tokens: span.outputTokens } : {}),
+          ...(span.cacheReadTokens != null ? { $ai_cache_read_tokens: span.cacheReadTokens } : {}),
+          ...(span.cacheWriteTokens != null
+            ? { $ai_cache_write_tokens: span.cacheWriteTokens }
+            : {}),
+          ...(span.cacheWrite1hTokens != null
+            ? { $ai_cache_write_1h_tokens: span.cacheWrite1hTokens }
+            : {}),
+          ...(span.totalTokens != null ? { $ai_total_tokens: span.totalTokens } : {}),
           phase: span.phase,
           ...(span.sessionRole != null ? { session_role: span.sessionRole } : {}),
         },
@@ -144,6 +156,12 @@ export function projectWorkSpanToAgentEventRow(
           ...detail,
           ...(span.inputTokens != null ? { inputTokens: span.inputTokens } : {}),
           ...(span.outputTokens != null ? { outputTokens: span.outputTokens } : {}),
+          ...(span.cacheReadTokens != null ? { cacheReadTokens: span.cacheReadTokens } : {}),
+          ...(span.cacheWriteTokens != null ? { cacheWriteTokens: span.cacheWriteTokens } : {}),
+          ...(span.cacheWrite1hTokens != null
+            ? { cacheWrite1hTokens: span.cacheWrite1hTokens }
+            : {}),
+          ...(span.totalTokens != null ? { totalTokens: span.totalTokens } : {}),
         },
       };
     case "publish_span":
@@ -197,6 +215,10 @@ export function llmSpanFromSession(input: {
   readonly model: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWrite1hTokens?: number;
+  readonly totalTokens?: number;
   readonly latencyMs: number;
   readonly isError: boolean;
   readonly parentSpanId?: string | null;
@@ -219,6 +241,10 @@ export function llmSpanFromSession(input: {
     model: input.model,
     ...(input.inputTokens != null ? { inputTokens: input.inputTokens } : {}),
     ...(input.outputTokens != null ? { outputTokens: input.outputTokens } : {}),
+    ...(input.cacheReadTokens != null ? { cacheReadTokens: input.cacheReadTokens } : {}),
+    ...(input.cacheWriteTokens != null ? { cacheWriteTokens: input.cacheWriteTokens } : {}),
+    ...(input.cacheWrite1hTokens != null ? { cacheWrite1hTokens: input.cacheWrite1hTokens } : {}),
+    ...(input.totalTokens != null ? { totalTokens: input.totalTokens } : {}),
     phase: input.phase,
     ...(input.sessionRole != null ? { sessionRole: input.sessionRole } : {}),
   };

@@ -256,6 +256,11 @@ export async function runOrchestratedPrReview(
     workspace: params.workspace,
     pool: params.durability?.pool,
     codeIndexSnapshotId: params.codeIndexSnapshotId,
+    ...(params.workItemId != null || params.durability?.workItemId != null
+      ? {
+          workItemId: (params.workItemId ?? params.durability?.workItemId) as string,
+        }
+      : {}),
   });
   const publishCtx = {
     owner: params.owner,
@@ -1020,12 +1025,16 @@ export async function runOrchestratedPrReview(
             publishThread.setSource(outcome.specialist);
             const ledgerBefore = publishThread.getLedger();
             publishStepCount += 1;
-            const judgment = await sendWithRetry("judgment", renderJudgmentTurn(outcome), {
-              maxToolRounds: escalatedToolRounds(
-                ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
-                params.escalation,
-              ),
-            });
+            const judgment = await sendWithRetry(
+              "judgment",
+              renderJudgmentTurn(outcome, ledgerBefore),
+              {
+                maxToolRounds: escalatedToolRounds(
+                  ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+                  params.escalation,
+                ),
+              },
+            );
             if (judgment.kind === "failed") {
               await degradeReport(outcome, { reason: "judgment_failed", error: judgment.error });
               return;
@@ -1195,6 +1204,7 @@ export async function runOrchestratedPrReview(
       await settleBefore(disposePromise, params.timing.returnByMs);
       void disposePromise.catch(() => undefined);
     }
+    await setup.disposeSpillFiles().catch(() => undefined);
   }
 
   const specialistOutcomes: Record<string, number> = {};

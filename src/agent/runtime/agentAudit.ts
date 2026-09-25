@@ -19,6 +19,12 @@ export type AgentAuditRecord = {
   readonly outcome?: string;
   readonly end?: TurnEnd;
   readonly durationMs?: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWrite1hTokens?: number;
+  readonly totalTokens?: number;
   readonly admittedHostCalls?: number;
   readonly completedHostCalls?: number;
   readonly transferredBytes?: number;
@@ -68,6 +74,14 @@ export function agentAuditRecordFromLifecycleEvent(
       return {
         ...base,
         ...(event.phase ? { phase: event.phase } : {}),
+        ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
+        ...(event.outputTokens != null ? { outputTokens: event.outputTokens } : {}),
+        ...(event.cacheReadTokens != null ? { cacheReadTokens: event.cacheReadTokens } : {}),
+        ...(event.cacheWriteTokens != null ? { cacheWriteTokens: event.cacheWriteTokens } : {}),
+        ...(event.cacheWrite1hTokens != null
+          ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
+          : {}),
+        ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
       };
     case "cancellation":
       return { ...base, reason: event.reason };
@@ -79,6 +93,14 @@ export function agentAuditRecordFromLifecycleEvent(
         ok: true,
         ...(event.end ? { end: event.end } : {}),
         ...(event.durationMs != null ? { durationMs: event.durationMs } : {}),
+        ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
+        ...(event.outputTokens != null ? { outputTokens: event.outputTokens } : {}),
+        ...(event.cacheReadTokens != null ? { cacheReadTokens: event.cacheReadTokens } : {}),
+        ...(event.cacheWriteTokens != null ? { cacheWriteTokens: event.cacheWriteTokens } : {}),
+        ...(event.cacheWrite1hTokens != null
+          ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
+          : {}),
+        ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
       };
     case "failure":
       return {
@@ -90,6 +112,14 @@ export function agentAuditRecordFromLifecycleEvent(
         ...(event.failureDomain ? { failureDomain: event.failureDomain } : {}),
         ...(event.errorKind ? { errorKind: event.errorKind } : {}),
         ...(event.durationMs != null ? { durationMs: event.durationMs } : {}),
+        ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
+        ...(event.outputTokens != null ? { outputTokens: event.outputTokens } : {}),
+        ...(event.cacheReadTokens != null ? { cacheReadTokens: event.cacheReadTokens } : {}),
+        ...(event.cacheWriteTokens != null ? { cacheWriteTokens: event.cacheWriteTokens } : {}),
+        ...(event.cacheWrite1hTokens != null
+          ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
+          : {}),
+        ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
       };
     case "execution":
       return {

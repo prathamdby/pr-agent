@@ -26,3 +26,12 @@ export const LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY = 16;
 export const LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS = 5;
 /** Min bigram-Dice similarity (lowercase basenames, same directory) for a suggestion. */
 export const LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY = 0.6;
+/**
+ * Read spill gate for oversized read outputs (token efficiency). Reads whose
+ * full size is strictly over this threshold AND whose budgeted read truncated
+ * spill the full text to a session file and carry a tail inline. Set above
+ * the read response budget so only genuinely oversized reads spill.
+ */
+export const LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES = 256_000;
+/** Tail bytes carried inline in a spill envelope; the rest lives in the spill file. */
+export const LOCAL_WORKSPACE_READ_SPILL_TAIL_BYTES = 8_000;

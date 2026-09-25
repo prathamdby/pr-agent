@@ -13,7 +13,9 @@ import {
   renderSynthesisTurn,
 } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
 import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
+import { fingerprintCandidates } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
+  createFindingLedger,
   SPECIALIST_IDS,
   type SpecialistOutcome,
 } from "../src/review/orchestrator/orchestratorTypes.js";
@@ -384,7 +386,7 @@ describe("orchestrator prompts", () => {
       },
     } satisfies Extract<SpecialistOutcome, { readonly kind: "report" }>;
 
-    const prompt = renderJudgmentTurn(outcome);
+    const prompt = renderJudgmentTurn(outcome, createFindingLedger());
 
     expect(prompt).toContain("publish_thread` exactly once");
     expect(prompt).toContain("same-file overlap hints");
@@ -407,6 +409,123 @@ describe("orchestrator prompts", () => {
     expect(orchestratorSystemPrompt).toContain("publish_thread");
     expect(orchestratorSystemPrompt).toContain("publish_summary");
     expect(orchestratorSystemPrompt).not.toContain("Silence is a successful result");
+  });
+
+  it("slims already-accepted findings in the judgment envelope", () => {
+    const finding = {
+      severity: "P2",
+      file: "src/example.ts",
+      startLine: 4,
+      endLine: 4,
+      title: "Handle the missing value",
+      detail: "The changed path dereferences an absent value.",
+    } as const;
+    const nearMiss = {
+      ...finding,
+      detail: "The changed path retries the absent value without a guard.",
+    } as const;
+    type SlimFinding = {
+      readonly severity: "P2";
+      readonly file: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly title: string;
+      readonly detail: string;
+    };
+    const toOutcome = (findings: readonly SlimFinding[]) => ({
+      kind: "report" as const,
+      specialist: "correctness" as const,
+      durationMs: 1,
+      report: { status: "findings" as const, findings: findings.map((entry) => ({ ...entry })) },
+    });
+    const [candidate] = fingerprintCandidates({ ...finding });
+    const canonical = candidate ?? "fp";
+    const placementFor = (entry: SlimFinding) => ({
+      finding: { ...entry },
+      inlineLine: 4,
+      inlinePosted: true,
+    });
+    const postedLedger = createFindingLedger({
+      accepted: [
+        {
+          kind: "posted",
+          source: "correctness",
+          placement: placementFor(finding),
+          canonicalFingerprint: canonical,
+          reviewId: 1,
+        },
+      ],
+    });
+
+    const hitOutcome = toOutcome([finding]);
+    const hitPrompt = renderJudgmentTurn(hitOutcome, postedLedger);
+
+    expect(hitPrompt).toContain("already accepted");
+    expect(hitPrompt).toContain('"findingId"');
+    expect(hitPrompt).toContain(canonical);
+    expect(hitPrompt).not.toContain("dereferences an absent value");
+
+    const missOutcome = toOutcome([nearMiss]);
+    const missPrompt = renderJudgmentTurn(missOutcome, postedLedger);
+
+    expect(missPrompt).not.toContain("already accepted");
+    expect(missPrompt).not.toContain('"findingId"');
+    expect(missPrompt).toContain("retries the absent value without a guard");
+    expect(missPrompt).toContain(JSON.stringify(missOutcome.report, null, 2));
+
+    const mixedPrompt = renderJudgmentTurn(toOutcome([finding, nearMiss]), postedLedger);
+
+    expect(mixedPrompt).toContain("already accepted");
+    expect(mixedPrompt).toContain('"findingId"');
+    expect(mixedPrompt).not.toContain("dereferences an absent value");
+    expect(mixedPrompt).toContain("retries the absent value without a guard");
+
+    const sameSubstanceDifferentLine = {
+      ...finding,
+      startLine: 60,
+      endLine: 60,
+    } as const;
+    const relocatedOutcome = toOutcome([sameSubstanceDifferentLine]);
+    const relocatedPrompt = renderJudgmentTurn(relocatedOutcome, postedLedger);
+
+    expect(relocatedPrompt).not.toContain("already accepted");
+    expect(relocatedPrompt).not.toContain('"findingId"');
+    expect(relocatedPrompt).toContain("dereferences an absent value");
+    expect(relocatedPrompt).toContain(JSON.stringify(relocatedOutcome.report, null, 2));
+
+    const resumedLedger = createFindingLedger({
+      accepted: [
+        {
+          kind: "resumed",
+          source: "correctness",
+          placement: placementFor(finding),
+          canonicalFingerprint: canonical,
+          reviewId: 2,
+        },
+      ],
+    });
+    const resumedPrompt = renderJudgmentTurn(hitOutcome, resumedLedger);
+
+    expect(resumedPrompt).toContain("already accepted");
+    expect(resumedPrompt).not.toContain("dereferences an absent value");
+
+    const summaryLedger = createFindingLedger({
+      accepted: [
+        {
+          kind: "summary_only",
+          source: "correctness",
+          placement: placementFor(finding),
+          canonicalFingerprint: canonical,
+          reason: "cap",
+        },
+      ],
+    });
+    const summaryPrompt = renderJudgmentTurn(hitOutcome, summaryLedger);
+
+    expect(summaryPrompt).not.toContain("already accepted");
+    expect(summaryPrompt).not.toContain('"findingId"');
+    expect(summaryPrompt).toContain("dereferences an absent value");
+    expect(summaryPrompt).toContain(JSON.stringify(hitOutcome.report, null, 2));
   });
 
   it("binds synthesis to accepted placements and partial coverage", () => {

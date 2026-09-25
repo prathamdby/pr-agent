@@ -30,11 +30,13 @@ vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
 
 import {
   createDurableLifecycleEventSink,
+  lifecycleAuditToInsertRow,
   safeEmitPublishEvent,
   type AgentEventsContext,
 } from "../src/agent/runtime/agentEventSink.js";
 import {
   llmSpanFromSession,
+  projectWorkSpanToAgentEventRow,
   projectWorkSpanToPostHog,
   publishSpanFromContext,
 } from "../src/analytics/workSpan.js";
@@ -192,6 +194,28 @@ describe("sanitizeAgentLifecycleEvent", () => {
         ok: false,
       }),
     ).toBeNull();
+  });
+
+  it("ignores inherited allowlist names without leaking them and still rejects credentials", () => {
+    const valid = {
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "orchestrator:recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      end: "output_limit",
+      durationMs: 1200,
+      inputTokens: 40,
+      outputTokens: 12,
+    };
+    for (const key of ["toString", "constructor", "__proto__"] as const) {
+      const raw: Record<string, unknown> = { ...valid, [key]: "smuggled" };
+      expect(Object.hasOwn(raw, key)).toBe(true);
+      expect(sanitizeAgentLifecycleEvent(raw)).toEqual(valid);
+    }
+    expect(sanitizeAgentLifecycleEvent({ ...valid, token: "sk-live" })).toBeNull();
   });
 });
 
@@ -399,5 +423,204 @@ describe("durable lifecycle span sink", () => {
     expect(rows?.[0]?.detail.spanId).toBe(captured.properties.$ai_span_id);
     expect(rows?.[0]?.detail.parentSpanId).toBe("wi-span");
     expect(rows?.[0]?.detail.latencyMs).toBe(250);
+  });
+});
+
+describe("cache token telemetry round-trip", () => {
+  beforeEach(() => {
+    analyticsMocks.captureEvent.mockClear();
+    analyticsMocks.appendAgentEvents.mockClear();
+  });
+  const cacheTokens = {
+    inputTokens: 100,
+    outputTokens: 20,
+    cacheReadTokens: 800,
+    cacheWriteTokens: 50,
+    cacheWrite1hTokens: 10,
+    totalTokens: 980,
+  };
+
+  it("keeps cache fields on completion and failure events while rejecting credential keys", () => {
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "completion",
+        role: "orchestrator",
+        phase: "recon",
+        checkpointId: "orchestrator:recon",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        ok: true,
+        end: "completed",
+        durationMs: 1200,
+        ...cacheTokens,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        kind: "completion",
+        ...cacheTokens,
+      }),
+    );
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "failure",
+        role: "specialist",
+        phase: "specialist",
+        checkpointId: "cp-cache",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        ok: false,
+        failureCode: "provider.timeout",
+        durationMs: 900,
+        ...cacheTokens,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        kind: "failure",
+        ...cacheTokens,
+      }),
+    );
+    expect(
+      sanitizeAgentLifecycleEvent({
+        kind: "completion",
+        role: "orchestrator",
+        phase: "recon",
+        checkpointId: "orchestrator:recon",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        ok: true,
+        durationMs: 1200,
+        ...cacheTokens,
+        apiKey: "sk-live",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps cache fields on usage events and audit records", () => {
+    const event = sanitizeAgentLifecycleEvent({
+      kind: "usage",
+      role: "orchestrator",
+      phase: "recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ...cacheTokens,
+    });
+    expect(event).toEqual(
+      expect.objectContaining({
+        kind: "usage",
+        ...cacheTokens,
+      }),
+    );
+    expect(event?.kind === "usage" ? agentAuditRecordFromLifecycleEvent(event) : null).toEqual(
+      expect.objectContaining(cacheTokens),
+    );
+    const completion = sanitizeAgentLifecycleEvent({
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "orchestrator:recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      end: "completed",
+      durationMs: 1200,
+      ...cacheTokens,
+    });
+    expect(
+      completion?.kind === "completion" ? agentAuditRecordFromLifecycleEvent(completion) : null,
+    ).toEqual(expect.objectContaining(cacheTokens));
+  });
+
+  it("carries cache fields from audit rows into agent_events.detail", () => {
+    const completion = sanitizeAgentLifecycleEvent({
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "orchestrator:recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      end: "completed",
+      durationMs: 1200,
+      ...cacheTokens,
+    });
+    if (completion?.kind !== "completion") throw new Error("expected a completion event");
+    const record = agentAuditRecordFromLifecycleEvent(completion);
+    const rowContext: AgentEventsContext = {
+      pool: {} as AgentEventsContext["pool"],
+      ...spanContext,
+    };
+    const row = lifecycleAuditToInsertRow(rowContext, record, completion.role);
+    expect(row.detail).toEqual(expect.objectContaining(cacheTokens));
+  });
+
+  it("projects cache fields to matching Postgres rows and PostHog props", () => {
+    const span = llmSpanFromSession({
+      context: spanContext,
+      phase: "recon",
+      sessionRole: "orchestrator",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      latencyMs: 1500,
+      isError: false,
+      ...cacheTokens,
+    });
+    const row = projectWorkSpanToAgentEventRow(spanContext, span);
+    expect(row.detail).toEqual(expect.objectContaining(cacheTokens));
+    expect(projectWorkSpanToPostHog(span).properties).toEqual(
+      expect.objectContaining({
+        $ai_input_tokens: 100,
+        $ai_output_tokens: 20,
+        $ai_cache_read_tokens: 800,
+        $ai_cache_write_tokens: 50,
+        $ai_cache_write_1h_tokens: 10,
+        $ai_total_tokens: 980,
+      }),
+    );
+  });
+
+  it("emits cache fields through the durable sink to both Postgres and PostHog", () => {
+    const sinkContext: AgentEventsContext = {
+      pool: {} as AgentEventsContext["pool"],
+      ...spanContext,
+    };
+    const sink = createDurableLifecycleEventSink(sinkContext, { agentEventsEnabled: true });
+    const completion = sanitizeAgentLifecycleEvent({
+      kind: "completion",
+      role: "orchestrator",
+      phase: "recon",
+      checkpointId: "orchestrator:recon",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      ok: true,
+      end: "completed",
+      durationMs: 1200,
+      ...cacheTokens,
+    });
+    if (!completion) throw new Error("expected a sanitized completion event");
+    sink(completion);
+    expect(analyticsMocks.appendAgentEvents).toHaveBeenCalledTimes(2);
+    expect(analyticsMocks.appendAgentEvents).toHaveBeenNthCalledWith(1, expect.anything(), [
+      expect.objectContaining({
+        eventKind: "completion",
+        detail: expect.objectContaining(cacheTokens),
+      }),
+    ]);
+    expect(analyticsMocks.appendAgentEvents).toHaveBeenNthCalledWith(2, expect.anything(), [
+      expect.objectContaining({
+        eventKind: "generation",
+        detail: expect.objectContaining(cacheTokens),
+      }),
+    ]);
+    expect(analyticsMocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "$ai_generation",
+        properties: expect.objectContaining({
+          $ai_cache_read_tokens: 800,
+          $ai_cache_write_tokens: 50,
+          $ai_cache_write_1h_tokens: 10,
+          $ai_total_tokens: 980,
+        }),
+      }),
+    );
   });
 });

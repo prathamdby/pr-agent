@@ -1,4 +1,12 @@
-import type { AcceptedPlacement, SpecialistId, SpecialistOutcome } from "../orchestratorTypes.js";
+import type {
+  AcceptedFindingSlimReference,
+  AcceptedPlacement,
+  FindingLedger,
+  SpecialistId,
+  SpecialistOutcome,
+} from "../orchestratorTypes.js";
+import type { ReviewFinding } from "../../reviewSchema.js";
+import { fingerprintCandidates } from "../../findings/reviewFindingFingerprint.js";
 import { orchestratorHarness } from "../../../agent/prompts/harnessProtocol.js";
 import { ste100WritingGuidance } from "../../../agent/prompts/ste100Guidance.js";
 import { wrapUntrustedEvidence } from "../../../agent/prompts/promptBlocks.js";
@@ -60,7 +68,8 @@ export const ORCHESTRATOR_RECON_INSTRUCTION = [
   "Call `submit_specialist_brief` exactly once with the complete brief. Do not publish findings or a review summary during reconnaissance.",
 ].join("\n\n");
 
-export function renderJudgmentTurn(outcome: ReportOutcome): string {
+export function renderJudgmentTurn(outcome: ReportOutcome, ledger: FindingLedger): string {
+  const slimmed = slimAcceptedFindings(outcome, ledger);
   return [
     `Judge the ${outcome.specialist} specialist report below.`,
     causalPublicationContract,
@@ -73,12 +82,67 @@ export function renderJudgmentTurn(outcome: ReportOutcome): string {
     "Verify every candidate finding against your reconnaissance and the reviewed checkout. Drop anything unreachable, incorrectly anchored, dependent on unread evidence, or outside the reporting gate.",
     "Prefer findings whose file and line range can attach to the PR's changed files so an inline review thread can land. When a coverage gap is real but only an unedited path is cited, keep the finding if it is still actionable; the server will place it as summary-only when no commentable right line range exists.",
     "Compare candidates with the already-published same-file overlap hints returned by earlier `publish_thread` calls. Remove duplicates and near-duplicates before publishing.",
+    ...(slimmed.count > 0
+      ? [
+          "Entries below shaped as slim references ({findingId, file, startLine, endLine, title}) were already accepted from earlier `publish_thread` calls in this run. Treat them as published duplicates: do not republish them; judge only the full findings, which still carry the detail, trigger, and lines needed for independent re-verification.",
+        ]
+      : []),
     "Call `publish_thread` exactly once with every worthy remaining finding. One call with zero findings is valid when none survive judgment. Do not publish a summary in this turn.",
     "",
     "<specialist_report>",
-    wrapUntrustedEvidence("specialist_report", JSON.stringify(outcome.report, null, 2)),
+    wrapUntrustedEvidence("specialist_report", slimmed.json),
     "</specialist_report>",
   ].join("\n");
+}
+
+/**
+ * Findings already accepted in this run (matched by ledger fingerprint only)
+ * slim to references; undecided findings keep their original object
+ * references so their bytes are unchanged.
+ */
+function slimAcceptedFindings(
+  outcome: ReportOutcome,
+  ledger: FindingLedger,
+): { readonly json: string; readonly count: number } {
+  const findings = outcome.report.findings;
+  if (findings.length === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
+  const acceptedByFingerprint = new Map<string, AcceptedPlacement[]>();
+  for (const placement of ledger.accepted) {
+    if (placement.kind === "posted" || placement.kind === "resumed") {
+      const existing = acceptedByFingerprint.get(placement.canonicalFingerprint);
+      if (existing) {
+        existing.push(placement);
+      } else {
+        acceptedByFingerprint.set(placement.canonicalFingerprint, [placement]);
+      }
+    }
+  }
+  let count = 0;
+  const slimmed: readonly (ReviewFinding | AcceptedFindingSlimReference)[] = findings.map(
+    (finding) => {
+      const findingId =
+        fingerprintCandidates(finding).find((candidate) =>
+          acceptedByFingerprint
+            .get(candidate)
+            ?.some(
+              (placement) =>
+                placement.placement.finding.file === finding.file &&
+                placement.placement.finding.startLine === finding.startLine,
+            ),
+        ) ?? null;
+      if (findingId == null) return finding;
+      count += 1;
+      return {
+        findingId,
+        file: finding.file,
+        startLine: finding.startLine,
+        endLine: finding.endLine,
+        title: finding.title,
+      };
+    },
+  );
+  if (count === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
+  return { json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2), count };
 }
 
 export function renderSynthesisTurn(params: {

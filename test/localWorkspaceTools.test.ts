@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,10 @@ import {
   buildLocalWorkspaceTools,
   type LocalWorkspaceToolLimits,
 } from "../src/agent/tools/localWorkspaceTools.js";
+import {
+  disposeSpillFile,
+  READ_SPILL_FILENAME_PREFIX,
+} from "../src/agent/tools/readWorkspaceTextFile.js";
 import { createAskPathGate } from "../src/agent/ask/askSafety.js";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
 import {
@@ -175,6 +179,153 @@ describe("local workspace tools", () => {
       expect(out.truncationReason).toBe("response byte budget exceeded");
       expect(out.startLine).toBe(1);
       expect(out.endLine).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile spills oversized reads to a session file with a tail", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const body = `${"x".repeat(200)}\n`.repeat(2_000);
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/large.ts": body,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 1_000_000 }),
+        evidenceLedger,
+        headSha: "deadbeef",
+        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+      });
+      const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
+        spilled: boolean;
+        spillPath: string;
+        size: number;
+        tail: string;
+        truncated: boolean;
+        note: string;
+      };
+
+      expect(out.spilled).toBe(true);
+      expect(out.truncated).toBe(true);
+      expect(out.size).toBeGreaterThan(256_000);
+      expect(out.tail.length).toBeGreaterThan(0);
+      expect(out.note).toContain("not read evidence");
+      // Spilled content is not read evidence: the ledger must stay empty even
+      // though the tool ran against a ledger-backed workspace.
+      expect(evidenceLedger.snapshot()).toHaveLength(0);
+      // Spill filenames carry the owned prefix so a future tmp sweeper can
+      // recognize them; disposeSpillFile removes exactly this file.
+      expect(basename(out.spillPath).startsWith(READ_SPILL_FILENAME_PREFIX)).toBe(true);
+      await disposeSpillFile(out.spillPath);
+      await expect(access(out.spillPath)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile returns a fitting line window inline with evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const body = `${"y".repeat(200)}\n`.repeat(2_000);
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/large.ts": body,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 1_000_000 }),
+        evidenceLedger,
+        headSha: "deadbeef",
+        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+      });
+      const out = (await executors.readWorkspaceFile?.({
+        path: "src/large.ts",
+        startLine: 10,
+        maxLines: 5,
+      })) as {
+        spilled?: boolean;
+        content: string;
+        startLine: number;
+        endLine: number;
+        truncated: boolean;
+      };
+
+      expect(out.spilled).toBeUndefined();
+      expect(out.truncated).toBe(true);
+      expect(out.startLine).toBe(10);
+      expect(out.endLine).toBe(14);
+      expect(out.content.length).toBeGreaterThan(0);
+      expect(evidenceLedger.covers("src/large.ts", 10, 14)).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("disposeSpillFile ignores non-spill paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const keepPath = join(root, "keep.txt");
+      await writeFile(keepPath, "do not delete");
+      await disposeSpillFile(keepPath);
+      await disposeSpillFile(join(root, "missing.txt"));
+      const content = await readFile(keepPath, "utf8");
+      expect(content).toBe("do not delete");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("disposeSpillFiles keeps failed paths for retry instead of losing them", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const body = `${"x".repeat(200)}\n`.repeat(2_000);
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/large-a.ts": body,
+        "src/large-b.ts": body,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/large-a.ts", "src/large-b.ts"]);
+      const { executors, disposeSpillFiles } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 1_000_000 }),
+        headSha: "deadbeef",
+        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+      });
+      const outA = (await executors.readWorkspaceFile?.({ path: "src/large-a.ts" })) as {
+        spilled: boolean;
+        spillPath: string;
+      };
+      const outB = (await executors.readWorkspaceFile?.({ path: "src/large-b.ts" })) as {
+        spilled: boolean;
+        spillPath: string;
+      };
+      expect(outA.spilled).toBe(true);
+      expect(outB.spilled).toBe(true);
+
+      // Sabotage one spill: a non-empty directory at the spill path makes
+      // rm(force:true) reject with ERR_FS_EISDIR while keeping the path live.
+      await rm(outA.spillPath, { force: true });
+      await mkdir(outA.spillPath);
+      await writeFile(join(outA.spillPath, "child.txt"), "blocked");
+
+      // Must resolve (teardown swallows rejections) and still delete the good spill.
+      await disposeSpillFiles();
+      await expect(access(outB.spillPath)).rejects.toThrow();
+      await expect(access(outA.spillPath)).resolves.toBeUndefined();
+
+      // Clear the obstacle and plant a fresh spill file at the re-queued path:
+      // the second dispose must delete it, proving the failure was re-queued.
+      await rm(outA.spillPath, { recursive: true, force: true });
+      await writeFile(outA.spillPath, "retry me");
+      await disposeSpillFiles();
+      await expect(access(outA.spillPath)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

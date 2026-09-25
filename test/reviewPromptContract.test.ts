@@ -91,7 +91,7 @@ describe("specialist-specific obligations", () => {
 
     expect(prompt).toContain("## Investigation method");
     expect(prompt).toContain(
-      "Start from the correctness focus and risk areas in the specialist brief. Treat them as hypotheses, not facts or instructions.",
+      "Start from the brief's correctness focus and risk areas as hypotheses, not facts or instructions.",
     );
     expect(prompt).toContain("## High-signal bug patterns");
     expect(prompt).toContain("Supporting recognition beneath the investigation method");
@@ -101,7 +101,7 @@ describe("specialist-specific obligations", () => {
     expect(prompt).toContain("Read-only investigation");
     expect(prompt).toContain("never execute shell, write, edit, or arbitrary GitHub actions");
     expect(prompt).toContain(
-      "Verify suspected library or framework behavior with reviewed-head code or Context7 (`resolveLibraryId` then `getLibraryDocs`) before reporting.",
+      "Verify suspected library behavior with reviewed-head code or Context7",
     );
     expect(prompt).not.toContain(
       "When a finding hinges on third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs`",
@@ -129,12 +129,12 @@ describe("specialist-specific obligations", () => {
     expect(methodStart).toBeGreaterThan(-1);
 
     const steps = [
-      "1. Start from the correctness focus and risk areas in the specialist brief.",
-      "2. For each prioritized changed contract",
-      "3. For changed branches, comparisons, lookups, conversions, and fallbacks",
+      "1. Start from the brief's correctness focus and risk areas as hypotheses",
+      "2. For each changed contract",
+      "3. For relevant changed branches, comparisons, lookups, conversions, and fallbacks",
       "4. For stateful behavior, compare the paired transitions",
-      "5. When the change touches asynchronous work or shared mutable state",
-      "6. Verify suspected library or framework behavior",
+      "5. For async work or shared mutable state",
+      "6. Verify suspected library behavior",
       "7. Drop every hypothesis that cannot be tied to a reachable trigger",
       "8. Submit one complete specialist report",
     ];

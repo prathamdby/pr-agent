@@ -3,6 +3,18 @@ import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js"
 import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
+/**
+ * Accepted findings already published from earlier `publish_thread` calls in
+ * the same run slim to `{findingId, file, startLine, endLine, title}` in the
+ * judgment envelope; undecided findings always keep full JSON.
+ */
+export type AcceptedFindingSlimReference = {
+  readonly findingId: string;
+  readonly file: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly title: string;
+};
 export const SPECIALIST_IDS = ["correctness", "security", "quality", "tests"] as const;
 export type SpecialistId = (typeof SPECIALIST_IDS)[number];
 export type FindingSource = SpecialistId | "review";

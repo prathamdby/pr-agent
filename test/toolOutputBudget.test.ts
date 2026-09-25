@@ -1,6 +1,16 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { readTextWithOutputBudget } from "../src/agent/tools/toolOutputBudget.js";
 import { LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS } from "../src/settings/index.js";
+import {
+  readTextWithOutputBudget,
+  shouldSpillToFile,
+} from "../src/agent/tools/toolOutputBudget.js";
+import {
+  readBudgetedWorkspaceTextFile,
+  spillTextToSessionFile,
+} from "../src/agent/tools/readWorkspaceTextFile.js";
 
 const OVER_LIMIT = LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS + 1;
 
@@ -120,5 +130,178 @@ describe("readTextWithOutputBudget", () => {
     const out = readTextWithOutputBudget(text, 128_000);
     expect(out.truncated).toBe(false);
     expect(out.content).toBe(`[line 1 clamped: 500000 characters elided]\nafter\n`);
+  });
+});
+
+describe("shouldSpillToFile", () => {
+  it.each([
+    { bytes: 100, threshold: 100, expected: false, name: "equal stays inline" },
+    { bytes: 101, threshold: 100, expected: true, name: "one over spills" },
+    { bytes: 0, threshold: 0, expected: false, name: "zero threshold never spills on empty" },
+    { bytes: 1, threshold: 0, expected: true, name: "any byte spills past a zero threshold" },
+    { bytes: 100, threshold: 99, expected: true, name: "over spills" },
+    { bytes: 99, threshold: 100, expected: false, name: "under stays inline" },
+  ])("$name", ({ bytes, threshold, expected }) => {
+    expect(shouldSpillToFile(bytes, threshold)).toBe(expected);
+  });
+
+  it.each([
+    { bytes: 0, threshold: 100 },
+    { bytes: -1, threshold: 100 },
+    { bytes: 200, threshold: -1 },
+    { bytes: Number.NaN, threshold: 100 },
+    { bytes: 200, threshold: Number.NaN },
+    { bytes: Number.POSITIVE_INFINITY, threshold: 100 },
+    { bytes: 200, threshold: Number.POSITIVE_INFINITY },
+  ])("never spills on non-spillable input %#", ({ bytes, threshold }) => {
+    expect(shouldSpillToFile(bytes, threshold)).toBe(false);
+  });
+});
+
+describe("readBudgetedWorkspaceTextFile spill gate", () => {
+  async function writeTempFile(content: string): Promise<{ dir: string; path: string }> {
+    const dir = await mkdtemp(join(tmpdir(), "tool-output-budget-"));
+    const path = join(dir, "input.txt");
+    await writeFile(path, content, "utf8");
+    return { dir, path };
+  }
+
+  it("returns a non-truncated read inline without spilling", async () => {
+    const { dir, path } = await writeTempFile("hello\n");
+    try {
+      const out = await readBudgetedWorkspaceTextFile(path, {
+        maxFileBytes: 1_000_000,
+        maxResponseBytes: 1_000,
+        spillScope: { workItemId: "wi-1", toolCall: "read" },
+      });
+      expect(out.refused).toBeUndefined();
+      expect(out).toMatchObject({ truncated: false });
+      expect(out).not.toHaveProperty("spilled");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a line-window cut inline without spilling even past the spill threshold", async () => {
+    const body = `${"x".repeat(200)}\n`.repeat(2_000);
+    const { dir, path } = await writeTempFile(body);
+    try {
+      const out = await readBudgetedWorkspaceTextFile(path, {
+        maxFileBytes: 2_000_000,
+        maxResponseBytes: 1_000_000,
+        window: { startLine: 1, maxLines: 2 },
+        spillScope: { workItemId: "wi-1", toolCall: "read" },
+      });
+      expect(out.refused).toBeUndefined();
+      expect("spilled" in out && out.spilled).not.toBe(true);
+      if (!("spilled" in out) && !out.refused) {
+        expect(out.truncated).toBe(true);
+        expect(out.truncationReason).toBe("line window limit exceeded");
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns an over-budget read inline when no spill scope is set", async () => {
+    const body = `${"x".repeat(200)}\n`.repeat(2_000);
+    const { dir, path } = await writeTempFile(body);
+    try {
+      const out = await readBudgetedWorkspaceTextFile(path, {
+        maxFileBytes: 2_000_000,
+        maxResponseBytes: 500,
+      });
+      expect(out.refused).toBeUndefined();
+      expect("spilled" in out && out.spilled).not.toBe(true);
+      if (!("spilled" in out) && !out.refused) {
+        expect(out.truncated).toBe(true);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("spillTextToSessionFile tail", () => {
+  const scope = { workItemId: "wi-tail", toolCall: "read" };
+
+  it("keeps a multibyte emoji tail valid UTF-8 at a mid-sequence cut", async () => {
+    const text = `${"x".repeat(64)}😀é漢${"y".repeat(64)}`;
+    const fullBytes = Buffer.byteLength(text, "utf8");
+    const buf = Buffer.from(text, "utf8");
+    const emojiStart = buf.indexOf(Buffer.from("😀", "utf8"));
+    const tailBytes = buf.length - emojiStart - 2;
+    const out = await spillTextToSessionFile(text, scope, { tailBytes });
+    try {
+      expect(out.tail).not.toContain("�");
+      expect(Buffer.byteLength(out.tail, "utf8")).toBeLessThanOrEqual(tailBytes);
+      expect(out.tail).toBe(
+        buf.subarray(buf.length - Buffer.byteLength(out.tail, "utf8")).toString("utf8"),
+      );
+      expect(out.size).toBe(fullBytes);
+      expect(await readFile(out.spillPath, "utf8")).toBe(text);
+    } finally {
+      await rm(out.spillPath, { force: true });
+    }
+  });
+
+  it("keeps a CJK tail valid UTF-8 at a mid-sequence cut", async () => {
+    const text = `${"a".repeat(64)}漢字テスト${"b".repeat(64)}`;
+    const fullBytes = Buffer.byteLength(text, "utf8");
+    const buf = Buffer.from(text, "utf8");
+    const cjkStart = buf.indexOf(Buffer.from("漢", "utf8"));
+    const tailBytes = buf.length - cjkStart - 1;
+    const out = await spillTextToSessionFile(text, scope, { tailBytes });
+    try {
+      expect(out.tail).not.toContain("�");
+      expect(Buffer.byteLength(out.tail, "utf8")).toBeLessThanOrEqual(tailBytes);
+      expect(out.size).toBe(fullBytes);
+      expect(await readFile(out.spillPath, "utf8")).toBe(text);
+    } finally {
+      await rm(out.spillPath, { force: true });
+    }
+  });
+
+  it("returns the full text when tailBytes exceeds the buffer", async () => {
+    const text = "short spill body\n";
+    const out = await spillTextToSessionFile(text, scope, { tailBytes: 8_000 });
+    try {
+      expect(out.tail).toBe(text);
+      expect(out.size).toBe(Buffer.byteLength(text, "utf8"));
+      expect(out.truncated).toBe(true);
+      expect(out.spilled).toBe(true);
+    } finally {
+      await rm(out.spillPath, { force: true });
+    }
+  });
+
+  it("sanitizes empty scope segments into the spill filename", async () => {
+    const out = await spillTextToSessionFile(
+      "body\n",
+      { workItemId: "", toolCall: "" },
+      { tailBytes: 8_000 },
+    );
+    try {
+      expect(basename(out.spillPath)).toMatch(/^pr-agent-read-spill-call-call-[0-9a-f]{8}\.txt$/);
+      expect(out.path).toBe(out.spillPath);
+      expect(await readFile(out.spillPath, "utf8")).toBe("body\n");
+    } finally {
+      await rm(out.spillPath, { force: true });
+    }
+  });
+
+  it("replaces unsafe scope characters in the spill filename", async () => {
+    const out = await spillTextToSessionFile(
+      "body\n",
+      { workItemId: "wi!!!/1", toolCall: "read file" },
+      { tailBytes: 8_000 },
+    );
+    try {
+      expect(basename(out.spillPath)).toMatch(
+        /^pr-agent-read-spill-wi____1-read_file-[0-9a-f]{8}\.txt$/,
+      );
+    } finally {
+      await rm(out.spillPath, { force: true });
+    }
   });
 });

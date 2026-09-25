@@ -1,0 +1,161 @@
+{
+  "$comment": "Fixed-PR parity set for prompt/token-efficiency rework validation (peer-review Fix #5 + #7). Fixture only: assertions live in promptCostBaselines-adjacent harnesses via loadParityPrSet() in test/helpers/promptCost.ts. Shapes are representative PR profiles, not live PR references.",
+  "version": 1,
+  "passThresholds": {
+    "maxJudgmentUnpublished": 0,
+    "minCitationValidityRate": 1,
+    "maxFindingsDrift": 0
+  },
+  "prs": [
+    {
+      "id": "small-code-change",
+      "shape": "small",
+      "filesChanged": 2,
+      "addedLines": 38,
+      "deletedLines": 6,
+      "docsOnly": false,
+      "fork": false,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "medium-feature",
+      "shape": "medium",
+      "filesChanged": 12,
+      "addedLines": 420,
+      "deletedLines": 90,
+      "docsOnly": false,
+      "fork": false,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "large-refactor",
+      "shape": "large",
+      "filesChanged": 85,
+      "addedLines": 3200,
+      "deletedLines": 2100,
+      "docsOnly": false,
+      "fork": false,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "docs-only",
+      "shape": "docs-only",
+      "filesChanged": 4,
+      "addedLines": 120,
+      "deletedLines": 30,
+      "docsOnly": true,
+      "fork": false,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "fork-small-fix",
+      "shape": "small",
+      "filesChanged": 1,
+      "addedLines": 15,
+      "deletedLines": 3,
+      "docsOnly": false,
+      "fork": true,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "security-patch",
+      "shape": "small",
+      "filesChanged": 3,
+      "addedLines": 60,
+      "deletedLines": 25,
+      "docsOnly": false,
+      "fork": false,
+      "securityTouched": true,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "fork-security-patch",
+      "shape": "medium",
+      "filesChanged": 7,
+      "addedLines": 180,
+      "deletedLines": 60,
+      "docsOnly": false,
+      "fork": true,
+      "securityTouched": true,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "tests-only",
+      "shape": "medium",
+      "filesChanged": 9,
+      "addedLines": 500,
+      "deletedLines": 40,
+      "docsOnly": false,
+      "fork": false,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "large-mixed-docs-code",
+      "shape": "large",
+      "filesChanged": 60,
+      "addedLines": 1800,
+      "deletedLines": 700,
+      "docsOnly": false,
+      "fork": false,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    },
+    {
+      "id": "trivial-single-line",
+      "shape": "small",
+      "filesChanged": 1,
+      "addedLines": 1,
+      "deletedLines": 1,
+      "docsOnly": false,
+      "fork": false,
+      "securityTouched": false,
+      "expectations": {
+        "findingsParity": "equal",
+        "maxJudgmentUnpublished": 0,
+        "citationValidity": "valid"
+      }
+    }
+  ]
+}

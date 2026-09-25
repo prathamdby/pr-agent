@@ -22,7 +22,24 @@ select * from operation_intents order by updated_at desc limit 20;
 select * from agent_resume_snapshots order by updated_at desc limit 20;
 ```
 
-A lease block can leave `agent_work_items.status = 'queued'` with no live job in the first four queries. Inspect `pr_actor_leases` and `operation_intents` before assuming the worker is idle. Ask admission also writes `ask_quota_*` tables.
+Cache-token detail per phase (`completion` audit rows plus `generation` span rows share the same six keys):
+
+```sql
+select phase,
+  count(*) as events,
+  sum((detail->>'inputTokens')::bigint) as input_tokens,
+  sum((detail->>'outputTokens')::bigint) as output_tokens,
+  sum((detail->>'cacheReadTokens')::bigint) as cache_read,
+  sum((detail->>'cacheWriteTokens')::bigint) as cache_write,
+  sum((detail->>'cacheWrite1hTokens')::bigint) as cache_write_1h,
+  sum((detail->>'totalTokens')::bigint) as total_tokens
+from agent_events
+where event_kind in ('completion', 'generation', 'usage')
+group by phase order by phase;
+-- One run: add `and work_item_id = '<uuid>'`. Missing keys are unknown (omitted), not zero.
+```
+
+A lease block can leave `agent_work_items.status = 'queued'` with no live job in the first seven queries. Inspect `pr_actor_leases` and `operation_intents` before assuming the worker is idle. Ask admission also writes `ask_quota_*` tables.
 
 Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age counts), `agent_dead_letter_stats`, and `agent_work_item_age`. Empty queues are not treated as unhealthy.
 

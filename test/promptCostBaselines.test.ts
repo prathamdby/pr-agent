@@ -8,6 +8,17 @@ import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools
 import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import {
+  causalPublicationContract,
+  highStakesTrivialTrapGuidance,
+  securityTripwiresGuidance,
+  proseContractGuidance,
+  priorInlineFeedbackGuidance,
+  agentInstructionFilesGuidance,
+  repoPolicyGuidance,
+  specialistFindingsReportContract,
+  pathAndSizeGuidance,
+} from "../src/review/prompts/reviewPromptBlocks.js";
+import {
   createReviewPayloadSchema,
   REVIEW_PUBLISH_SUMMARY_FIELDS,
 } from "../src/review/reviewSchema.js";
@@ -48,6 +59,30 @@ describe("prompt cost baselines", () => {
     expect(prompt).toContain("Honor each installed `tools.*` rule");
     for (const severity of SEVERITIES) {
       expect(prompt).toContain(severity);
+    }
+  });
+
+  it("keeps the correctness prompt within its budget", () => {
+    const prompt = buildAutomatedSystemPrompt();
+    assertPromptCostWithinBudget({
+      name: "correctness review system prompt",
+      content: prompt,
+      budget: { bytes: 17_200, characters: 17_200, estimatedTokens: 4_300 },
+    });
+    expect(prompt).toContain("<!-- BEGIN_SHARED_METHODOLOGY -->");
+    expect(prompt).toContain("<!-- END_SHARED_METHODOLOGY -->");
+    for (const block of [
+      causalPublicationContract,
+      highStakesTrivialTrapGuidance,
+      securityTripwiresGuidance,
+      proseContractGuidance,
+      priorInlineFeedbackGuidance,
+      agentInstructionFilesGuidance,
+      repoPolicyGuidance,
+      specialistFindingsReportContract,
+      pathAndSizeGuidance,
+    ]) {
+      expect(prompt).toContain(block);
     }
   });
 
@@ -142,7 +177,7 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
-      budget: { bytes: 18_000, characters: 18_000, estimatedTokens: 4_500 },
+      budget: { bytes: 17_200, characters: 17_200, estimatedTokens: 4_300 },
     },
     {
       name: "description system prompt",
