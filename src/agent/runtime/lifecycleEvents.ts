@@ -47,6 +47,9 @@ export type AgentLifecycleUsageEvent = {
   readonly model: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWrite1hTokens?: number;
   readonly totalTokens?: number;
 };
 
@@ -70,6 +73,10 @@ export type AgentLifecycleCompletionEvent = {
   readonly durationMs?: number;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWrite1hTokens?: number;
+  readonly totalTokens?: number;
 };
 
 export type AgentLifecycleFailureEvent = {
@@ -86,6 +93,10 @@ export type AgentLifecycleFailureEvent = {
   readonly durationMs?: number;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWrite1hTokens?: number;
+  readonly totalTokens?: number;
 };
 
 export type AgentLifecycleExecutionEvent = {

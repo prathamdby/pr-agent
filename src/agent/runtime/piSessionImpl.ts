@@ -368,16 +368,26 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             terminalProviderError = undefined;
           }
           if (assistant.usage) {
-            aggregatedUsage = mergeExactUsage(
-              aggregatedUsage,
-              exactUsageFromProviderUsage(assistant.usage),
-            );
+            const turnUsage = exactUsageFromProviderUsage(assistant.usage);
+            aggregatedUsage = mergeExactUsage(aggregatedUsage, turnUsage);
             emit({
               kind: "usage",
               role: params.role,
               phase: opts.phase,
               provider: params.primary.provider,
               model: params.primary.model,
+              ...(turnUsage?.inputTokens != null ? { inputTokens: turnUsage.inputTokens } : {}),
+              ...(turnUsage?.outputTokens != null ? { outputTokens: turnUsage.outputTokens } : {}),
+              ...(turnUsage?.cacheReadTokens != null
+                ? { cacheReadTokens: turnUsage.cacheReadTokens }
+                : {}),
+              ...(turnUsage?.cacheWriteTokens != null
+                ? { cacheWriteTokens: turnUsage.cacheWriteTokens }
+                : {}),
+              ...(turnUsage?.cacheWrite1hTokens != null
+                ? { cacheWrite1hTokens: turnUsage.cacheWrite1hTokens }
+                : {}),
+              ...(turnUsage?.totalTokens != null ? { totalTokens: turnUsage.totalTokens } : {}),
             });
           }
         }
@@ -569,6 +579,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             ? {
                 inputTokens: aggregatedUsage.inputTokens,
                 outputTokens: aggregatedUsage.outputTokens,
+                cacheReadTokens: aggregatedUsage.cacheReadTokens,
+                cacheWriteTokens: aggregatedUsage.cacheWriteTokens,
+                cacheWrite1hTokens: aggregatedUsage.cacheWrite1hTokens,
+                totalTokens: aggregatedUsage.totalTokens,
               }
             : {}),
         });
@@ -591,6 +605,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             ? {
                 inputTokens: aggregatedUsage.inputTokens,
                 outputTokens: aggregatedUsage.outputTokens,
+                cacheReadTokens: aggregatedUsage.cacheReadTokens,
+                cacheWriteTokens: aggregatedUsage.cacheWriteTokens,
+                cacheWrite1hTokens: aggregatedUsage.cacheWrite1hTokens,
+                totalTokens: aggregatedUsage.totalTokens,
               }
             : {}),
         });

@@ -34,8 +34,15 @@ const TURN_ENDS = new Set<TurnEnd>(["completed", "output_limit", "tool_budget"])
 const FORBIDDEN_KEY_RE =
   /prompt|message|text|reasoning|content|argument|result|payload|token|secret|key|authorization|cookie|body|diff|patch|errorMessage|stack|cause/i;
 
-/** Count fields. The forbidden regex matches `token` inside `inputTokens`. */
-const TOKEN_COUNT_KEYS = new Set(["inputTokens", "outputTokens", "totalTokens"]);
+/** Count fields. The forbidden regex matches `token` inside `*Tokens`. */
+const TOKEN_COUNT_KEYS: Record<string, true> = {
+  inputTokens: true,
+  outputTokens: true,
+  cacheReadTokens: true,
+  cacheWriteTokens: true,
+  cacheWrite1hTokens: true,
+  totalTokens: true,
+};
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -74,14 +81,26 @@ function tokenAndDurationFields(raw: Record<string, unknown>): {
   readonly durationMs?: number;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly cacheWrite1hTokens?: number;
+  readonly totalTokens?: number;
 } {
   const durationMs = asFiniteNumber(raw.durationMs);
   const inputTokens = asFiniteNumber(raw.inputTokens);
   const outputTokens = asFiniteNumber(raw.outputTokens);
+  const cacheReadTokens = asFiniteNumber(raw.cacheReadTokens);
+  const cacheWriteTokens = asFiniteNumber(raw.cacheWriteTokens);
+  const cacheWrite1hTokens = asFiniteNumber(raw.cacheWrite1hTokens);
+  const totalTokens = asFiniteNumber(raw.totalTokens);
   return {
     ...(durationMs != null ? { durationMs } : {}),
     ...(inputTokens != null ? { inputTokens } : {}),
     ...(outputTokens != null ? { outputTokens } : {}),
+    ...(cacheReadTokens != null ? { cacheReadTokens } : {}),
+    ...(cacheWriteTokens != null ? { cacheWriteTokens } : {}),
+    ...(cacheWrite1hTokens != null ? { cacheWrite1hTokens } : {}),
+    ...(totalTokens != null ? { totalTokens } : {}),
   };
 }
 
@@ -92,7 +111,7 @@ function tokenAndDurationFields(raw: Record<string, unknown>): {
 export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent | null {
   if (!isPlainObject(raw)) return null;
   for (const key of Object.keys(raw)) {
-    if (TOKEN_COUNT_KEYS.has(key)) continue;
+    if (TOKEN_COUNT_KEYS[key]) continue;
     if (FORBIDDEN_KEY_RE.test(key)) return null;
   }
 
@@ -158,15 +177,7 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
         ...(phase ? { phase } : {}),
         provider,
         model,
-        ...(asFiniteNumber(raw.inputTokens) != null
-          ? { inputTokens: asFiniteNumber(raw.inputTokens) }
-          : {}),
-        ...(asFiniteNumber(raw.outputTokens) != null
-          ? { outputTokens: asFiniteNumber(raw.outputTokens) }
-          : {}),
-        ...(asFiniteNumber(raw.totalTokens) != null
-          ? { totalTokens: asFiniteNumber(raw.totalTokens) }
-          : {}),
+        ...tokenAndDurationFields(raw),
       };
     }
     case "cancellation": {

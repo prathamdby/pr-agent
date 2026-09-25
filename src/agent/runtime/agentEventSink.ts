@@ -48,6 +48,12 @@ export function lifecycleAuditToInsertRow(
   if (record.outcome != null) detail.outcome = record.outcome;
   if (record.end != null) detail.end = record.end;
   if (record.durationMs != null) detail.durationMs = record.durationMs;
+  if (record.inputTokens != null) detail.inputTokens = record.inputTokens;
+  if (record.outputTokens != null) detail.outputTokens = record.outputTokens;
+  if (record.cacheReadTokens != null) detail.cacheReadTokens = record.cacheReadTokens;
+  if (record.cacheWriteTokens != null) detail.cacheWriteTokens = record.cacheWriteTokens;
+  if (record.cacheWrite1hTokens != null) detail.cacheWrite1hTokens = record.cacheWrite1hTokens;
+  if (record.totalTokens != null) detail.totalTokens = record.totalTokens;
   if (record.admittedHostCalls != null) detail.admittedHostCalls = record.admittedHostCalls;
   if (record.completedHostCalls != null) detail.completedHostCalls = record.completedHostCalls;
   if (record.transferredBytes != null) detail.transferredBytes = record.transferredBytes;
@@ -207,6 +213,12 @@ export function createDurableLifecycleEventSink(
         isError: event.kind === "failure",
         ...(event.inputTokens != null ? { inputTokens: event.inputTokens } : {}),
         ...(event.outputTokens != null ? { outputTokens: event.outputTokens } : {}),
+        ...(event.cacheReadTokens != null ? { cacheReadTokens: event.cacheReadTokens } : {}),
+        ...(event.cacheWriteTokens != null ? { cacheWriteTokens: event.cacheWriteTokens } : {}),
+        ...(event.cacheWrite1hTokens != null
+          ? { cacheWrite1hTokens: event.cacheWrite1hTokens }
+          : {}),
+        ...(event.totalTokens != null ? { totalTokens: event.totalTokens } : {}),
         ...(event.kind === "failure" ? { errorReason: event.failureCode } : {}),
       }),
     );
