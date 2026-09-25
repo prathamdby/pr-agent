@@ -282,7 +282,7 @@ describe("local workspace tools", () => {
     }
   });
 
-  it("disposeSpillFiles keeps failed paths for retry instead of losing them", async () => {
+  it("disposeSpillFiles returns failed paths instead of re-queuing them", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
       const body = `${"x".repeat(200)}\n`.repeat(2_000);
@@ -315,17 +315,14 @@ describe("local workspace tools", () => {
       await mkdir(outA.spillPath);
       await writeFile(join(outA.spillPath, "child.txt"), "blocked");
 
-      // Must resolve (teardown swallows rejections) and still delete the good spill.
-      await disposeSpillFiles();
+      // Resolves with the failed path reported; the good spill is still deleted.
+      expect(await disposeSpillFiles()).toEqual([outA.spillPath]);
       await expect(access(outB.spillPath)).rejects.toThrow();
       await expect(access(outA.spillPath)).resolves.toBeUndefined();
 
-      // Clear the obstacle and plant a fresh spill file at the re-queued path:
-      // the second dispose must delete it, proving the failure was re-queued.
+      // Nothing left tracked: a second dispose reports no failures.
       await rm(outA.spillPath, { recursive: true, force: true });
-      await writeFile(outA.spillPath, "retry me");
-      await disposeSpillFiles();
-      await expect(access(outA.spillPath)).rejects.toThrow();
+      expect(await disposeSpillFiles()).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
