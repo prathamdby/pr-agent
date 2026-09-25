@@ -24,6 +24,7 @@ export type ReviewRunSetup = {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
   };
+  readonly disposeSpillFiles: () => Promise<void>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly evidenceLedger: EvidenceLedger;
   readonly prSurface: PrSurface;
@@ -89,16 +90,14 @@ export function buildReviewRunSetup(params: {
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
-  const bundle = hideWorkspaceToolsBehindCodeMode(
-    buildLocalWorkspaceTools(params.workspace, {
-      pathGate,
-      headSha,
-      ...(params.workItemId != null
-        ? { spillScope: { workItemId: params.workItemId, toolCall: "readWorkspaceFile" } }
-        : {}),
-    }),
-    { evidenceLedger, headSha },
-  );
+  const localTools = buildLocalWorkspaceTools(params.workspace, {
+    pathGate,
+    headSha,
+    ...(params.workItemId != null
+      ? { spillScope: { workItemId: params.workItemId, toolCall: "readWorkspaceFile" } }
+      : {}),
+  });
+  const bundle = hideWorkspaceToolsBehindCodeMode(localTools, { evidenceLedger, headSha });
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
@@ -133,6 +132,7 @@ export function buildReviewRunSetup(params: {
       trustedContext,
     }),
     workspaceTools,
+    disposeSpillFiles: localTools.disposeSpillFiles,
     cachedDiffIndex,
     evidenceLedger,
     prSurface,

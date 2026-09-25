@@ -14,6 +14,7 @@ import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import {
   MISSING_FROM_CHECKOUT_REASON,
+  disposeSpillFile,
   readBudgetedWorkspaceTextFile,
   refuseWorkspaceTextFileRead,
   type BudgetedWorkspaceTextFileRead,
@@ -209,11 +210,13 @@ export function buildLocalWorkspaceTools(
 ): {
   piTools: PiTool[];
   executors: Record<string, AgentRunnerToolExecutor>;
+  disposeSpillFiles: () => Promise<void>;
 } {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
   const evidenceLedger = opts?.evidenceLedger;
   const headSha = opts?.headSha ?? evidenceLedger?.headSha;
+  const spillPaths: string[] = [];
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 
   const listChangedFiles: LocalTool = {
@@ -263,6 +266,7 @@ export function buildLocalWorkspaceTools(
           };
         }
         if ("spilled" in result && result.spilled) {
+          spillPaths.push(result.spillPath);
           const combinedNote = [note, result.note].filter(Boolean).join(" ");
           const { path: _ignored, note: _noteIgnored, ...spill } = result;
           return {
@@ -510,5 +514,9 @@ export function buildLocalWorkspaceTools(
     executors: Object.fromEntries(
       Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
     ),
+    disposeSpillFiles: async () => {
+      const paths = spillPaths.splice(0, spillPaths.length);
+      await Promise.all(paths.map((spillPath) => disposeSpillFile(spillPath)));
+    },
   };
 }

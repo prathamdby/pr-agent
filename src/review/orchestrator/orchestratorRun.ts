@@ -1204,6 +1204,7 @@ export async function runOrchestratedPrReview(
       await settleBefore(disposePromise, params.timing.returnByMs);
       void disposePromise.catch(() => undefined);
     }
+    await setup.disposeSpillFiles().catch(() => undefined);
   }
 
   const specialistOutcomes: Record<string, number> = {};
