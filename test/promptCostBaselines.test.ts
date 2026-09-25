@@ -8,6 +8,21 @@ import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools
 import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import {
+  causalPublicationContract,
+  compactBugPatternCatalogue,
+  compactInvestigationMethod,
+  compactReportingGate,
+  highStakesTrivialTrapGuidance,
+  securityTripwiresGuidance,
+  proseContractGuidance,
+  priorInlineFeedbackGuidance,
+  agentInstructionFilesGuidance,
+  repoPolicyGuidance,
+  specialistFindingsReportContract,
+  pathAndSizeGuidance,
+} from "../src/review/prompts/reviewPromptBlocks.js";
+import { REVIEW_COMPACT_SHARED_METHODOLOGY_ENABLED } from "../src/settings/reviewConstants.js";
+import {
   createReviewPayloadSchema,
   REVIEW_PUBLISH_SUMMARY_FIELDS,
 } from "../src/review/reviewSchema.js";
@@ -46,6 +61,57 @@ describe("prompt cost baselines", () => {
     expect(prompt).toContain("no_findings");
     expect(prompt).toContain("Report only issues introduced or exposed by this PR");
     expect(prompt).toContain("Honor each installed `tools.*` rule");
+    for (const severity of SEVERITIES) {
+      expect(prompt).toContain(severity);
+    }
+  });
+
+  it("keeps the default correctness prompt byte-identical (compact flag off)", () => {
+    expect(REVIEW_COMPACT_SHARED_METHODOLOGY_ENABLED).toBe(false);
+    expect(buildAutomatedSystemPrompt()).toBe(
+      buildAutomatedSystemPrompt({ compactSharedMethodology: false }),
+    );
+  });
+
+  it("keeps the compact shared-methodology variant within a tighter budget", () => {
+    const full = buildAutomatedSystemPrompt();
+    const compact = buildAutomatedSystemPrompt({ compactSharedMethodology: true });
+    assertPromptCostWithinBudget({
+      name: "compact correctness review system prompt",
+      content: compact,
+      budget: { bytes: 17_200, characters: 17_200, estimatedTokens: 4_300 },
+    });
+    expect(compact.length).toBeLessThan(full.length);
+    expect(compact).toContain("<!-- BEGIN_SHARED_METHODOLOGY -->");
+    expect(compact).toContain("<!-- END_SHARED_METHODOLOGY -->");
+    expect(compact).toContain(compactInvestigationMethod.join("\n"));
+    expect(compact).toContain(compactBugPatternCatalogue.join("\n"));
+    expect(compact).toContain(compactReportingGate.join("\n"));
+    for (const block of [
+      causalPublicationContract,
+      highStakesTrivialTrapGuidance,
+      securityTripwiresGuidance,
+      proseContractGuidance,
+      priorInlineFeedbackGuidance,
+      agentInstructionFilesGuidance,
+      repoPolicyGuidance,
+      specialistFindingsReportContract,
+      pathAndSizeGuidance,
+    ]) {
+      expect(compact).toContain(block);
+    }
+  });
+
+  it("keeps compact variant behavior-critical phrases", () => {
+    const prompt = buildAutomatedSystemPrompt({ compactSharedMethodology: true });
+    expect(prompt).toContain("submit_findings_report");
+    expect(prompt).toContain("no_findings");
+    expect(prompt).toContain("Report only issues introduced or exposed by this PR");
+    expect(prompt).toContain("Honor each installed `tools.*` rule");
+    expect(prompt).toContain("## Investigation method");
+    expect(prompt).toContain("## High-signal bug patterns");
+    expect(prompt).toContain("## Reporting gate");
+    expect(prompt).toContain("### Severity classification");
     for (const severity of SEVERITIES) {
       expect(prompt).toContain(severity);
     }

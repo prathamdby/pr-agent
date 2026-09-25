@@ -1,4 +1,12 @@
-import type { AcceptedPlacement, SpecialistId, SpecialistOutcome } from "../orchestratorTypes.js";
+import type {
+  AcceptedPlacement,
+  JudgmentSlimmingHints,
+  SpecialistId,
+  SpecialistOutcome,
+} from "../orchestratorTypes.js";
+import { ORCHESTRATOR_JUDGMENT_SLIM_ACCEPTED } from "../orchestratorTypes.js";
+import type { ReviewFinding } from "../../reviewSchema.js";
+import { fingerprintCandidates } from "../../findings/reviewFindingFingerprint.js";
 import { orchestratorHarness } from "../../../agent/prompts/harnessProtocol.js";
 import { ste100WritingGuidance } from "../../../agent/prompts/ste100Guidance.js";
 import { wrapUntrustedEvidence } from "../../../agent/prompts/promptBlocks.js";
@@ -60,7 +68,8 @@ export const ORCHESTRATOR_RECON_INSTRUCTION = [
   "Call `submit_specialist_brief` exactly once with the complete brief. Do not publish findings or a review summary during reconnaissance.",
 ].join("\n\n");
 
-export function renderJudgmentTurn(outcome: ReportOutcome): string {
+export function renderJudgmentTurn(outcome: ReportOutcome, hints?: JudgmentSlimmingHints): string {
+  const slimmed = slimJudgmentReport(outcome, hints);
   return [
     `Judge the ${outcome.specialist} specialist report below.`,
     causalPublicationContract,
@@ -73,12 +82,77 @@ export function renderJudgmentTurn(outcome: ReportOutcome): string {
     "Verify every candidate finding against your reconnaissance and the reviewed checkout. Drop anything unreachable, incorrectly anchored, dependent on unread evidence, or outside the reporting gate.",
     "Prefer findings whose file and line range can attach to the PR's changed files so an inline review thread can land. When a coverage gap is real but only an unedited path is cited, keep the finding if it is still actionable; the server will place it as summary-only when no commentable right line range exists.",
     "Compare candidates with the already-published same-file overlap hints returned by earlier `publish_thread` calls. Remove duplicates and near-duplicates before publishing.",
+    ...(slimmed.count > 0
+      ? [
+          "Entries below shaped as slim references ({findingId, file, startLine, endLine, title}) were already accepted from earlier `publish_thread` calls in this run. Treat them as published duplicates: do not republish them; judge only the full findings, which still carry the detail, trigger, and lines needed for independent re-verification.",
+        ]
+      : []),
     "Call `publish_thread` exactly once with every worthy remaining finding. One call with zero findings is valid when none survive judgment. Do not publish a summary in this turn.",
     "",
     "<specialist_report>",
-    wrapUntrustedEvidence("specialist_report", JSON.stringify(outcome.report, null, 2)),
+    wrapUntrustedEvidence("specialist_report", slimmed.json),
     "</specialist_report>",
   ].join("\n");
+}
+
+/**
+ * Envelope-only judgment slimming (peer-review Fix #2).
+ *
+ * Flag off (default): returns the legacy serialization untouched, ignoring
+ * hints entirely. Flag on: findings already accepted in this run (matched by
+ * ledger fingerprint, mirroring `hasAcceptedFingerprint` in
+ * publishFindingBatch, with an exact file/lines/title fallback) become slim
+ * references; undecided findings keep their original object references so
+ * their serialized bytes are identical to the legacy envelope.
+ */
+function slimJudgmentReport(
+  outcome: ReportOutcome,
+  hints?: JudgmentSlimmingHints,
+): { readonly json: string; readonly count: number } {
+  const legacy = JSON.stringify(outcome.report, null, 2);
+  if ((hints?.slimAccepted ?? ORCHESTRATOR_JUDGMENT_SLIM_ACCEPTED) !== true) {
+    return { json: legacy, count: 0 };
+  }
+  const findings = outcome.report.findings;
+  if (findings.length === 0) return { json: legacy, count: 0 };
+  const acceptedIds = new Set(hints?.acceptedFindingIds ?? []);
+  const accepted = (hints?.accepted ?? []).filter(
+    (placement) => placement.kind === "posted" || placement.kind === "resumed",
+  );
+  for (const placement of accepted) acceptedIds.add(placement.canonicalFingerprint);
+  if (acceptedIds.size === 0) return { json: legacy, count: 0 };
+  let count = 0;
+  const slimmed = findings.map((finding) => {
+    const findingId = acceptedFindingIdFor(finding, acceptedIds, accepted);
+    if (findingId == null) return finding;
+    count += 1;
+    return {
+      findingId,
+      file: finding.file,
+      startLine: finding.startLine,
+      endLine: finding.endLine,
+      title: finding.title,
+    };
+  });
+  if (count === 0) return { json: legacy, count: 0 };
+  return { json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2), count };
+}
+
+function acceptedFindingIdFor(
+  finding: ReviewFinding,
+  acceptedIds: ReadonlySet<string>,
+  accepted: readonly AcceptedPlacement[],
+): string | null {
+  const match = fingerprintCandidates(finding).find((candidate) => acceptedIds.has(candidate));
+  if (match !== undefined) return match;
+  const exact = accepted.find(
+    (placement) =>
+      placement.placement.finding.file === finding.file &&
+      placement.placement.finding.startLine === finding.startLine &&
+      placement.placement.finding.endLine === finding.endLine &&
+      placement.placement.finding.title === finding.title,
+  );
+  return exact?.canonicalFingerprint ?? null;
 }
 
 export function renderSynthesisTurn(params: {

@@ -31,6 +31,19 @@ export function capTextOutput(
   };
 }
 
+/**
+ * Pure spill gate for oversized tool outputs. Returns true only when `bytes`
+ * is strictly over a finite, non-negative `threshold`. The default threshold
+ * constant is Infinity (spill OFF), so this is false unless a caller opts in
+ * with an explicit finite threshold. Never throws: non-finite or negative
+ * inputs mean "do not spill".
+ */
+export function shouldSpillToFile(bytes: number, threshold: number): boolean {
+  if (!Number.isFinite(bytes) || !Number.isFinite(threshold)) return false;
+  if (bytes < 0 || threshold < 0) return false;
+  return bytes > threshold;
+}
+
 export type FileReadWindowParams = {
   readonly startLine?: number;
   readonly maxLines?: number;

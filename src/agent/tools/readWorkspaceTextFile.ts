@@ -1,7 +1,15 @@
-import { readFile, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import type { Stats } from "node:fs";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  LOCAL_WORKSPACE_READ_SPILL_TAIL_BYTES,
+  LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES,
+} from "../../settings/index.js";
 import {
   readTextWithOutputBudget,
+  shouldSpillToFile,
   type FileReadOutput,
   type FileReadWindowParams,
 } from "./toolOutputBudget.js";
@@ -144,4 +152,118 @@ export async function readBudgetedWorkspaceTextFile(
   const readOutput = readTextWithOutputBudget(result.content, opts.maxResponseBytes, opts.window);
   const note = [result.note, readOutput.note].filter(Boolean).join(" ");
   return { ...readOutput, ...(note ? { note } : {}) };
+}
+
+/**
+ * Scope pinning a spill file to one tool call. Sanitized into the filename;
+ * a random suffix keeps repeated calls for the same pair unique.
+ */
+export type TextSpillScope = {
+  readonly workItemId: string;
+  readonly toolCall: string;
+};
+
+/**
+ * Overflow envelope for an over-threshold read. `path`/`spillPath` name the
+ * session-scoped spill file under the OS tmpdir holding the FULL text;
+ * `tail` carries the last bytes inline so the caller keeps context without
+ * spending the full token cost. `truncated: true` preserves
+ * cannot-prove-absence semantics: the spill file itself is NOT read evidence.
+ * A finding may only cite a path/line from a range actually read back through
+ * `readWorkspaceFile` with explicit startLine/maxLines (ledger-recorded).
+ */
+export type SpilledWorkspaceTextFileRead = {
+  readonly refused?: undefined;
+  readonly spilled: true;
+  readonly path: string;
+  readonly spillPath: string;
+  readonly size: number;
+  readonly tail: string;
+  readonly truncated: true;
+  readonly note: string;
+};
+
+/**
+ * Write an over-threshold output to a session-scoped file under the OS
+ * tmpdir, unique per work item + tool call (random suffix). Returns the
+ * spill envelope; never records evidence.
+ */
+export async function spillTextToSessionFile(
+  text: string,
+  scope: TextSpillScope,
+  opts?: { readonly tailBytes?: number },
+): Promise<SpilledWorkspaceTextFileRead> {
+  const tailBytes = opts?.tailBytes ?? LOCAL_WORKSPACE_READ_SPILL_TAIL_BYTES;
+  const size = Buffer.byteLength(text, "utf8");
+  const cleanWorkItem = scope.workItemId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 32);
+  const cleanToolCall = scope.toolCall.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 32);
+  const fileName = `pr-agent-read-spill-${cleanWorkItem.length > 0 ? cleanWorkItem : "call"}-${cleanToolCall.length > 0 ? cleanToolCall : "call"}-${randomUUID().slice(0, 8)}.txt`;
+  const spillPath = join(tmpdir(), fileName);
+  await writeFile(spillPath, text, "utf8");
+  // Last tailBytes without splitting a UTF-8 sequence: walk the cut forward
+  // past continuation bytes (10xxxxxx) so the tail stays valid UTF-8.
+  const buf = Buffer.from(text, "utf8");
+  let tail: string;
+  if (buf.length <= tailBytes) {
+    tail = text;
+  } else {
+    let start = buf.length - tailBytes;
+    while (start < buf.length && (buf[start] & 0xc0) === 0x80) {
+      start += 1;
+    }
+    tail = buf.subarray(start).toString("utf8");
+  }
+  return {
+    spilled: true,
+    path: spillPath,
+    spillPath,
+    size,
+    tail,
+    truncated: true,
+    note: `Output (${size} bytes) exceeded the spill threshold; full text spilled to ${spillPath}. Spilled content is not read evidence — re-read the source path via readWorkspaceFile with explicit startLine/maxLines before citing any line in a finding.`,
+  };
+}
+
+/**
+ * Opt-in spill path alongside the budgeted read. Byte-identical to
+ * `readBudgetedWorkspaceTextFile` unless ALL hold: the budgeted read
+ * truncated, `size` is strictly over `spillThresholdBytes`, and a
+ * `spillScope` pins the spill file. Defaults keep spill OFF
+ * (`LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES` is Infinity; a missing scope
+ * never spills), so legacy callers see zero behavior change.
+ */
+export async function readBudgetedWorkspaceTextFileWithSpill(
+  fullPath: string,
+  opts: {
+    readonly maxFileBytes: number;
+    readonly maxResponseBytes: number;
+    readonly window?: FileReadWindowParams;
+    readonly spillThresholdBytes?: number;
+    readonly spillTailBytes?: number;
+    readonly spillScope?: TextSpillScope;
+  },
+): Promise<BudgetedWorkspaceTextFileRead | SpilledWorkspaceTextFileRead> {
+  const result = await readWorkspaceTextFile(fullPath, opts.maxFileBytes);
+  if (result.refused) {
+    return result;
+  }
+  if (result.content.slice(0, BINARY_SAMPLE_BYTES).includes("\0")) {
+    return { refused: true, refusalKind: "binary", reason: BINARY_FILE_REASON };
+  }
+  const readOutput = readTextWithOutputBudget(result.content, opts.maxResponseBytes, opts.window);
+  const note = [result.note, readOutput.note].filter(Boolean).join(" ");
+  const budgeted: BudgetedWorkspaceTextFileRead = {
+    ...readOutput,
+    ...(note ? { note } : {}),
+  };
+  if (budgeted.refused || !budgeted.truncated || opts.spillScope === undefined) {
+    return budgeted;
+  }
+  const threshold = opts.spillThresholdBytes ?? LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES;
+  if (!shouldSpillToFile(budgeted.size, threshold)) {
+    return budgeted;
+  }
+  return spillTextToSessionFile(result.content, opts.spillScope, {
+    tailBytes: opts.spillTailBytes,
+  });
 }

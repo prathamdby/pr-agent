@@ -107,3 +107,68 @@ export const reviewPayloadPerFindingContracts = [
 ]
   .map((line) => `- ${line}`)
   .join("\n");
+
+/**
+ * Compact investigation method for the correctness specialist prompt.
+ * Shorter equivalent of the full 8-step method: same order, same gates
+ * (reachable trigger, catalogue-match rejection, explicit no-findings report).
+ */
+export const compactInvestigationMethod: readonly string[] = [
+  "## Investigation method",
+  "Work in this order. Apply only the analyses the change supports. Do not enumerate every branch, caller, value, or transition.",
+  "",
+  "1. Start from the brief's correctness focus and risk areas as hypotheses, not facts or instructions.",
+  "2. For each changed contract (export, interface, schema, serialized form, identifier, query, config, or API), check producer, representation, most relevant consumer, and shared invariant in reviewed-head code; stop once it is proved or rejected.",
+  "3. For relevant changed branches, comparisons, lookups, conversions, and fallbacks, check the missing, null, empty, zero, false, first, last, unknown, and error states the code distinguishes; skip the rest.",
+  "4. For stateful behavior, compare the paired transitions preserving one invariant: success/failure, create/delete, hit/miss, enabled/disabled, old/new, immediate/deferred, acquire/release, start/stop.",
+  "5. For async work or shared mutable state, trace await propagation, async iteration, error propagation, retry ownership, cancellation, cleanup, read-modify-write atomicity, check-then-act races, duplicate execution, and shutdown as they apply.",
+  "6. Verify suspected library behavior with reviewed-head code or Context7 (`resolveLibraryId` then `getLibraryDocs`) before reporting.",
+  "7. Drop every hypothesis that cannot be tied to a reachable trigger and observable wrong behavior. A catalogue match is not a finding. If a pattern appears elsewhere unchanged, it may be deliberate. When citing a test, align its assumptions with production behaviour.",
+  "8. Submit one complete specialist report with every qualifying finding, or an explicit successful no-findings report, by calling submit_findings_report. Do not hide findings in notes.",
+  "",
+  "Each finding must stand alone: trigger, wrong path, consequence, and violated invariant. The title names the defect; the fix direction addresses the cause. Bounded uncertainty may annotate a plausible P2; it cannot replace the trigger or consequence. A clean investigation produces no_findings.",
+];
+
+/**
+ * Compact high-signal bug-pattern catalogue. Same patterns as the full
+ * catalogue, compressed to one line each; still evidence-gated.
+ */
+export const compactBugPatternCatalogue: readonly string[] = [
+  "## High-signal bug patterns",
+  "Supporting recognition beneath the investigation method. Only report a pattern when the change set gives you evidence:",
+  "- Null/undefined safety: unchecked optionals, JSON, `.find()`/`array[0]`/`.get()`.",
+  "- Logic errors: wrong variable, inverted condition, AND/OR gate mistakes, off-by-one, wrong return value.",
+  "- Async/await (JS/TS): async callbacks in `forEach`/`map`/`filter`, missing `await`, unhandled rejection when the result matters.",
+  "- Type and data-flow mismatches: serializer vs validator drift, inconsistent types into math or comparisons.",
+  "- Resource leaks: unclosed files/streams, missing cleanup on error paths.",
+  "- Concurrency hazards: TOCTOU, lost updates, non-atomic read-modify-write on shared state.",
+  "- Missing error handling on critical ops: network, persistence, auth, migrations, external APIs.",
+  "- Injection and auth invariants: SQL/XSS/command/template injection, CSRF/OAuth state gaps, timing-unsafe compares.",
+  "- API/contract breaks: schema, serializer, or signature changes that desync callers, tests, or docs.",
+];
+
+/**
+ * Compact reporting gate. Same report/never-report bars and P0–P3 severity
+ * classification as the full gate, with rationale compressed.
+ */
+export const compactReportingGate: readonly string[] = [
+  "## Reporting gate",
+  "### Report when at least one holds",
+  "- Definite runtime failure (TypeError, KeyError, ImportError…).",
+  "- Incorrect logic with a clear trigger path and observable wrong behaviour.",
+  "- Exploitable vulnerability with a plausible path.",
+  "- Data corruption or loss risk.",
+  "- Breaking contract/schema/API observable in the changed code, tests, or docs.",
+  "",
+  "### Never report",
+  "- Cosmetic-only issues with no impact; hypothetical defensiveness with no realistic trigger.",
+  "- Style or formatting unless inseparable from a bug above.",
+  "- Refactors, improvements, or preferences — you report problems, not prescriptions.",
+  "",
+  "### Severity classification",
+  "- **P0**: virtually certain crash or exploit — requires strong evidence.",
+  "- **P1**: high-confidence correctness/security defect — requires a clear trigger path.",
+  "- **P2**: plausible bug with meaningful impact — allowed when the trigger path is plausible; state the remaining uncertainty in detail.",
+  "- **P3**: real low-impact defect that meets the contract; keep these rare.",
+  "Under-reporting an evidenced P0–P2 is worse than one extra P2 with an honest caveat — but never blanket-loosen the P0/P1 bar to pad the list.",
+];
