@@ -131,8 +131,10 @@ export type BudgetedWorkspaceTextFileRead =
 /**
  * The one budgeted read path every feature shares: stat-level refusal, then
  * the binary sniff, then the response budget with its per-line clamp, line
- * windows, and precomputed resume offsets. The 1MB-style file-size refusal
- * stays the outer ceiling; the response budget is the inner one.
+ * windows, and precomputed resume offsets. Reads whose full size is strictly
+ * over the spill threshold AND whose budgeted read truncated spill the full
+ * text to a session file and carry a tail inline. The 1MB-style file-size
+ * refusal stays the outer ceiling; the response budget is the inner one.
  */
 export async function readBudgetedWorkspaceTextFile(
   fullPath: string,
@@ -140,8 +142,10 @@ export async function readBudgetedWorkspaceTextFile(
     readonly maxFileBytes: number;
     readonly maxResponseBytes: number;
     readonly window?: FileReadWindowParams;
+    readonly spillTailBytes?: number;
+    readonly spillScope?: TextSpillScope;
   },
-): Promise<BudgetedWorkspaceTextFileRead> {
+): Promise<BudgetedWorkspaceTextFileRead | SpilledWorkspaceTextFileRead> {
   const result = await readWorkspaceTextFile(fullPath, opts.maxFileBytes);
   if (result.refused) {
     return result;
@@ -151,7 +155,19 @@ export async function readBudgetedWorkspaceTextFile(
   }
   const readOutput = readTextWithOutputBudget(result.content, opts.maxResponseBytes, opts.window);
   const note = [result.note, readOutput.note].filter(Boolean).join(" ");
-  return { ...readOutput, ...(note ? { note } : {}) };
+  const budgeted: BudgetedWorkspaceTextFileRead = {
+    ...readOutput,
+    ...(note ? { note } : {}),
+  };
+  if (budgeted.refused || !budgeted.truncated || opts.spillScope === undefined) {
+    return budgeted;
+  }
+  if (!shouldSpillToFile(budgeted.size, LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES)) {
+    return budgeted;
+  }
+  return spillTextToSessionFile(result.content, opts.spillScope, {
+    tailBytes: opts.spillTailBytes,
+  });
 }
 
 /**
@@ -222,48 +238,4 @@ export async function spillTextToSessionFile(
     truncated: true,
     note: `Output (${size} bytes) exceeded the spill threshold; full text spilled to ${spillPath}. Spilled content is not read evidence — re-read the source path via readWorkspaceFile with explicit startLine/maxLines before citing any line in a finding.`,
   };
-}
-
-/**
- * Opt-in spill path alongside the budgeted read. Byte-identical to
- * `readBudgetedWorkspaceTextFile` unless ALL hold: the budgeted read
- * truncated, `size` is strictly over `spillThresholdBytes`, and a
- * `spillScope` pins the spill file. Defaults keep spill OFF
- * (`LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES` is Infinity; a missing scope
- * never spills), so legacy callers see zero behavior change.
- */
-export async function readBudgetedWorkspaceTextFileWithSpill(
-  fullPath: string,
-  opts: {
-    readonly maxFileBytes: number;
-    readonly maxResponseBytes: number;
-    readonly window?: FileReadWindowParams;
-    readonly spillThresholdBytes?: number;
-    readonly spillTailBytes?: number;
-    readonly spillScope?: TextSpillScope;
-  },
-): Promise<BudgetedWorkspaceTextFileRead | SpilledWorkspaceTextFileRead> {
-  const result = await readWorkspaceTextFile(fullPath, opts.maxFileBytes);
-  if (result.refused) {
-    return result;
-  }
-  if (result.content.slice(0, BINARY_SAMPLE_BYTES).includes("\0")) {
-    return { refused: true, refusalKind: "binary", reason: BINARY_FILE_REASON };
-  }
-  const readOutput = readTextWithOutputBudget(result.content, opts.maxResponseBytes, opts.window);
-  const note = [result.note, readOutput.note].filter(Boolean).join(" ");
-  const budgeted: BudgetedWorkspaceTextFileRead = {
-    ...readOutput,
-    ...(note ? { note } : {}),
-  };
-  if (budgeted.refused || !budgeted.truncated || opts.spillScope === undefined) {
-    return budgeted;
-  }
-  const threshold = opts.spillThresholdBytes ?? LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES;
-  if (!shouldSpillToFile(budgeted.size, threshold)) {
-    return budgeted;
-  }
-  return spillTextToSessionFile(result.content, opts.spillScope, {
-    tailBytes: opts.spillTailBytes,
-  });
 }

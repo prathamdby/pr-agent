@@ -81,6 +81,7 @@ export function buildReviewRunSetup(params: {
   workspace: LocalPrWorkspace;
   pool?: Pool;
   codeIndexSnapshotId?: string;
+  workItemId?: string;
 }): ReviewRunSetup {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
@@ -92,6 +93,9 @@ export function buildReviewRunSetup(params: {
     buildLocalWorkspaceTools(params.workspace, {
       pathGate,
       headSha,
+      ...(params.workItemId != null
+        ? { spillScope: { workItemId: params.workItemId, toolCall: "readWorkspaceFile" } }
+        : {}),
     }),
     { evidenceLedger, headSha },
   );

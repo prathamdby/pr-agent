@@ -27,12 +27,11 @@ export const LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS = 5;
 /** Min bigram-Dice similarity (lowercase basenames, same directory) for a suggestion. */
 export const LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY = 0.6;
 /**
- * Opt-in spill gate for oversized read outputs (token efficiency).
- * `readBudgetedWorkspaceTextFileWithSpill` only spills when the full file size
- * is strictly over this threshold AND the budgeted read truncated. Infinity
- * keeps the legacy inline head+resume behavior: nothing spills unless a caller
- * passes an explicit finite threshold. Code constant by design (no new env keys).
+ * Read spill gate for oversized read outputs (token efficiency). Reads whose
+ * full size is strictly over this threshold AND whose budgeted read truncated
+ * spill the full text to a session file and carry a tail inline. Set above
+ * the read response budget so only genuinely oversized reads spill.
  */
-export const LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES = Number.POSITIVE_INFINITY;
+export const LOCAL_WORKSPACE_READ_SPILL_THRESHOLD_BYTES = 256_000;
 /** Tail bytes carried inline in a spill envelope; the rest lives in the spill file. */
 export const LOCAL_WORKSPACE_READ_SPILL_TAIL_BYTES = 8_000;

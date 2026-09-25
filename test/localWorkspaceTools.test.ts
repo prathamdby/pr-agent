@@ -180,6 +180,39 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("readWorkspaceFile spills oversized reads to a session file with a tail", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const body = `${"x".repeat(200)}\n`.repeat(2_000);
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/large.ts": body,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 1_000_000 }),
+        spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
+      });
+      const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
+        spilled: boolean;
+        spillPath: string;
+        size: number;
+        tail: string;
+        truncated: boolean;
+        note: string;
+      };
+
+      expect(out.spilled).toBe(true);
+      expect(out.truncated).toBe(true);
+      expect(out.size).toBeGreaterThan(256_000);
+      expect(out.tail.length).toBeGreaterThan(0);
+      expect(out.note).toContain("not read evidence");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("readWorkspaceFile clamps a minified mega-line instead of letting it eat the budget", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

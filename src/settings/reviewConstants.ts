@@ -256,10 +256,3 @@ export const MAX_PR_FILES_LISTED = 300;
 export const MAX_PR_FILES_PATCH_BYTES = 500_000;
 export const REVIEW_ANCHOR_MENU_MAX_FILES = 40;
 export const REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE = 20;
-
-/**
- * Compact shared-methodology variant for the correctness specialist prompt.
- * Code-only switch, default false: the full investigation methodology,
- * bug-pattern catalogue, and reporting gate stay the legacy behavior.
- */
-export const REVIEW_COMPACT_SHARED_METHODOLOGY_ENABLED = false;

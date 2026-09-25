@@ -1,10 +1,10 @@
 import type {
+  AcceptedFindingSlimReference,
   AcceptedPlacement,
-  JudgmentSlimmingHints,
+  FindingLedger,
   SpecialistId,
   SpecialistOutcome,
 } from "../orchestratorTypes.js";
-import { ORCHESTRATOR_JUDGMENT_SLIM_ACCEPTED } from "../orchestratorTypes.js";
 import type { ReviewFinding } from "../../reviewSchema.js";
 import { fingerprintCandidates } from "../../findings/reviewFindingFingerprint.js";
 import { orchestratorHarness } from "../../../agent/prompts/harnessProtocol.js";
@@ -68,8 +68,8 @@ export const ORCHESTRATOR_RECON_INSTRUCTION = [
   "Call `submit_specialist_brief` exactly once with the complete brief. Do not publish findings or a review summary during reconnaissance.",
 ].join("\n\n");
 
-export function renderJudgmentTurn(outcome: ReportOutcome, hints?: JudgmentSlimmingHints): string {
-  const slimmed = slimJudgmentReport(outcome, hints);
+export function renderJudgmentTurn(outcome: ReportOutcome, ledger: FindingLedger): string {
+  const slimmed = slimAcceptedFindings(outcome, ledger);
   return [
     `Judge the ${outcome.specialist} specialist report below.`,
     causalPublicationContract,
@@ -96,45 +96,38 @@ export function renderJudgmentTurn(outcome: ReportOutcome, hints?: JudgmentSlimm
 }
 
 /**
- * Envelope-only judgment slimming (peer-review Fix #2).
- *
- * Flag off (default): returns the legacy serialization untouched, ignoring
- * hints entirely. Flag on: findings already accepted in this run (matched by
- * ledger fingerprint, mirroring `hasAcceptedFingerprint` in
- * publishFindingBatch, with an exact file/lines/title fallback) become slim
- * references; undecided findings keep their original object references so
- * their serialized bytes are identical to the legacy envelope.
+ * Findings already accepted in this run (matched by ledger fingerprint, with
+ * an exact file/lines/title fallback) slim to references; undecided findings
+ * keep their original object references so their bytes are unchanged.
  */
-function slimJudgmentReport(
+function slimAcceptedFindings(
   outcome: ReportOutcome,
-  hints?: JudgmentSlimmingHints,
+  ledger: FindingLedger,
 ): { readonly json: string; readonly count: number } {
-  const legacy = JSON.stringify(outcome.report, null, 2);
-  if ((hints?.slimAccepted ?? ORCHESTRATOR_JUDGMENT_SLIM_ACCEPTED) !== true) {
-    return { json: legacy, count: 0 };
-  }
   const findings = outcome.report.findings;
-  if (findings.length === 0) return { json: legacy, count: 0 };
-  const acceptedIds = new Set(hints?.acceptedFindingIds ?? []);
-  const accepted = (hints?.accepted ?? []).filter(
-    (placement) => placement.kind === "posted" || placement.kind === "resumed",
-  );
-  for (const placement of accepted) acceptedIds.add(placement.canonicalFingerprint);
-  if (acceptedIds.size === 0) return { json: legacy, count: 0 };
+  if (findings.length === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
+  const acceptedIds = new Set<string>();
+  for (const placement of ledger.accepted) {
+    if (placement.kind === "posted" || placement.kind === "resumed") {
+      acceptedIds.add(placement.canonicalFingerprint);
+    }
+  }
   let count = 0;
-  const slimmed = findings.map((finding) => {
-    const findingId = acceptedFindingIdFor(finding, acceptedIds, accepted);
-    if (findingId == null) return finding;
-    count += 1;
-    return {
-      findingId,
-      file: finding.file,
-      startLine: finding.startLine,
-      endLine: finding.endLine,
-      title: finding.title,
-    };
-  });
-  if (count === 0) return { json: legacy, count: 0 };
+  const slimmed: readonly (ReviewFinding | AcceptedFindingSlimReference)[] = findings.map(
+    (finding) => {
+      const findingId = acceptedFindingIdFor(finding, acceptedIds, ledger.accepted);
+      if (findingId == null) return finding;
+      count += 1;
+      return {
+        findingId,
+        file: finding.file,
+        startLine: finding.startLine,
+        endLine: finding.endLine,
+        title: finding.title,
+      };
+    },
+  );
+  if (count === 0) return { json: JSON.stringify(outcome.report, null, 2), count: 0 };
   return { json: JSON.stringify({ ...outcome.report, findings: slimmed }, null, 2), count };
 }
 

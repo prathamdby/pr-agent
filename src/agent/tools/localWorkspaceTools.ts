@@ -17,6 +17,8 @@ import {
   readBudgetedWorkspaceTextFile,
   refuseWorkspaceTextFileRead,
   type BudgetedWorkspaceTextFileRead,
+  type SpilledWorkspaceTextFileRead,
+  type TextSpillScope,
 } from "./readWorkspaceTextFile.js";
 import { capTextOutput } from "./toolOutputBudget.js";
 import {
@@ -202,6 +204,7 @@ export function buildLocalWorkspaceTools(
     readonly extraAllowedPaths?: readonly string[];
     readonly evidenceLedger?: EvidenceLedger;
     readonly headSha?: string;
+    readonly spillScope?: TextSpillScope;
   },
 ): {
   piTools: PiTool[];
@@ -231,7 +234,7 @@ export function buildLocalWorkspaceTools(
 
   const readWorkspaceFile: LocalTool = {
     description:
-      "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; on truncated, narrow the range — do not retry the same call unchanged. Missing paths explain why and may include similarPaths; empty files and past-EOF windows return a note — act on it instead of retrying.",
+      "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; oversized reads spill to a session file and return a tail with `spilled: true` — the spill file is not read evidence, so re-read the source path with explicit startLine/maxLines before citing any line. On truncated, narrow the range — do not retry the same call unchanged. Missing paths explain why and may include similarPaths; empty files and past-EOF windows return a note — act on it instead of retrying.",
     schema: v.object({
       path: v.pipe(v.string(), v.minLength(1)),
       startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
@@ -247,7 +250,7 @@ export function buildLocalWorkspaceTools(
 
       const respondWithRead = (
         readPath: string,
-        result: BudgetedWorkspaceTextFileRead,
+        result: BudgetedWorkspaceTextFileRead | SpilledWorkspaceTextFileRead,
         note?: string,
       ) => {
         if (result.refused) {
@@ -259,7 +262,17 @@ export function buildLocalWorkspaceTools(
             ...(note ? { note } : {}),
           };
         }
+        if ("spilled" in result && result.spilled) {
+          const combinedNote = [note, result.note].filter(Boolean).join(" ");
+          const { path: _ignored, note: _noteIgnored, ...spill } = result;
+          return {
+            path: readPath,
+            ...spill,
+            ...(combinedNote ? { note: combinedNote } : {}),
+          };
+        }
         if (
+          !("spilled" in result) &&
           evidenceLedger &&
           headSha &&
           result.content.length > 0 &&
@@ -298,6 +311,7 @@ export function buildLocalWorkspaceTools(
               maxFileBytes: limits.maxFileBytes,
               maxResponseBytes: limits.readResponseBytes,
               window: { startLine, maxLines },
+              ...(opts?.spillScope != null ? { spillScope: opts.spillScope } : {}),
             },
           );
           return respondWithRead(resolved, resolvedResult, repairNote);
@@ -325,6 +339,7 @@ export function buildLocalWorkspaceTools(
           maxFileBytes: limits.maxFileBytes,
           maxResponseBytes: limits.readResponseBytes,
           window: { startLine, maxLines },
+          ...(opts?.spillScope != null ? { spillScope: opts.spillScope } : {}),
         },
       );
       if (result.refused && result.refusalKind === "missing") {

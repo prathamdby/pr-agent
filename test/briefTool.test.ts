@@ -13,7 +13,9 @@ import {
   renderSynthesisTurn,
 } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
 import { causalPublicationContract } from "../src/review/prompts/reviewPromptBlocks.js";
+import { fingerprintCandidates } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
+  createFindingLedger,
   SPECIALIST_IDS,
   type SpecialistOutcome,
 } from "../src/review/orchestrator/orchestratorTypes.js";
@@ -384,7 +386,7 @@ describe("orchestrator prompts", () => {
       },
     } satisfies Extract<SpecialistOutcome, { readonly kind: "report" }>;
 
-    const prompt = renderJudgmentTurn(outcome);
+    const prompt = renderJudgmentTurn(outcome, createFindingLedger());
 
     expect(prompt).toContain("publish_thread` exactly once");
     expect(prompt).toContain("same-file overlap hints");
@@ -407,6 +409,45 @@ describe("orchestrator prompts", () => {
     expect(orchestratorSystemPrompt).toContain("publish_thread");
     expect(orchestratorSystemPrompt).toContain("publish_summary");
     expect(orchestratorSystemPrompt).not.toContain("Silence is a successful result");
+  });
+
+  it("slims already-accepted findings in the judgment envelope", () => {
+    const finding = {
+      severity: "P2",
+      file: "src/example.ts",
+      startLine: 4,
+      endLine: 4,
+      title: "Handle the missing value",
+      detail: "The changed path dereferences an absent value.",
+    } as const;
+    const outcome = {
+      kind: "report",
+      specialist: "correctness",
+      durationMs: 1,
+      report: { status: "findings", findings: [{ ...finding }] },
+    } satisfies Extract<SpecialistOutcome, { readonly kind: "report" }>;
+    const [candidate] = fingerprintCandidates({ ...finding });
+    const ledger = createFindingLedger({
+      accepted: [
+        {
+          kind: "posted",
+          source: "correctness",
+          placement: {
+            finding: { ...finding },
+            inlineLine: 4,
+            inlinePosted: true,
+          },
+          canonicalFingerprint: candidate ?? "fp",
+          reviewId: 1,
+        },
+      ],
+    });
+
+    const prompt = renderJudgmentTurn(outcome, ledger);
+
+    expect(prompt).toContain("already accepted");
+    expect(prompt).toContain("findingId");
+    expect(prompt).not.toContain("dereferences an absent value");
   });
 
   it("binds synthesis to accepted placements and partial coverage", () => {

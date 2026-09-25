@@ -4,36 +4,16 @@ import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
 /**
- * Envelope-only judgment slimming (peer-review Fix #2, default OFF).
- *
- * When enabled, `renderJudgmentTurn` keeps undecided findings as full JSON and
- * replaces already-accepted findings (present in the ledger from earlier
- * `publish_thread` calls in the same run) with slim references
- * `{findingId, file, startLine, endLine, title}`. The flag lives here instead
- * of `src/settings/reviewConstants.ts` so Slice A keeps exclusive ownership
- * of that file; settingsInventory pins the ENV key count, so no new env key.
+ * Accepted findings already published from earlier `publish_thread` calls in
+ * the same run slim to `{findingId, file, startLine, endLine, title}` in the
+ * judgment envelope; undecided findings always keep full JSON.
  */
-export const ORCHESTRATOR_JUDGMENT_SLIM_ACCEPTED = false;
-
-/** Slim reference carried in the judgment envelope for an accepted finding. */
 export type AcceptedFindingSlimReference = {
   readonly findingId: string;
   readonly file: string;
   readonly startLine: number;
   readonly endLine: number;
   readonly title: string;
-};
-
-/**
- * Optional hints for `renderJudgmentTurn`. Accepted ledger overlap from
- * earlier `publish_thread` calls in the same run; entries that match a
- * current finding mark it already-accepted. Empty/absent preserves the
- * legacy envelope exactly.
- */
-export type JudgmentSlimmingHints = {
-  readonly slimAccepted?: boolean;
-  readonly acceptedFindingIds?: readonly string[];
-  readonly accepted?: readonly AcceptedPlacement[];
 };
 export const SPECIALIST_IDS = ["correctness", "security", "quality", "tests"] as const;
 export type SpecialistId = (typeof SPECIALIST_IDS)[number];
