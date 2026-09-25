@@ -1204,7 +1204,15 @@ export async function runOrchestratedPrReview(
       await settleBefore(disposePromise, params.timing.returnByMs);
       void disposePromise.catch(() => undefined);
     }
-    await setup.disposeSpillFiles().catch(() => undefined);
+    const leftoverSpillPaths = await setup.disposeSpillFiles().catch(() => undefined);
+    if (leftoverSpillPaths != null && leftoverSpillPaths.length > 0) {
+      logWarn("review_spill_files_undisposed", {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        spillPaths: leftoverSpillPaths,
+      });
+    }
   }
 
   const specialistOutcomes: Record<string, number> = {};

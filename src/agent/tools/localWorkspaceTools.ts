@@ -210,7 +210,7 @@ export function buildLocalWorkspaceTools(
 ): {
   piTools: PiTool[];
   executors: Record<string, AgentRunnerToolExecutor>;
-  disposeSpillFiles: () => Promise<void>;
+  disposeSpillFiles: () => Promise<readonly string[]>;
 } {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
@@ -519,9 +519,7 @@ export function buildLocalWorkspaceTools(
       const outcomes = await Promise.allSettled(
         paths.map((spillPath) => disposeSpillFile(spillPath)),
       );
-      for (const [index, outcome] of outcomes.entries()) {
-        if (outcome.status === "rejected") spillPaths.push(paths[index]);
-      }
+      return paths.filter((_, index) => outcomes[index]?.status === "rejected");
     },
   };
 }

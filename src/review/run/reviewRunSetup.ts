@@ -24,7 +24,7 @@ export type ReviewRunSetup = {
     readonly piTools: PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
   };
-  readonly disposeSpillFiles: () => Promise<void>;
+  readonly disposeSpillFiles: () => Promise<readonly string[]>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly evidenceLedger: EvidenceLedger;
   readonly prSurface: PrSurface;

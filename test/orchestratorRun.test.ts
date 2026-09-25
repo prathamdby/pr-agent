@@ -93,7 +93,7 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
     systemPrompt: "legacy prompt must not be used",
     userContent: "Inspect the pull request.",
     workspaceTools: { piTools: [], executors: {} },
-    disposeSpillFiles: async () => undefined,
+    disposeSpillFiles: async () => [],
     cachedDiffIndex: {
       files: new Map(),
       truncated: false,
