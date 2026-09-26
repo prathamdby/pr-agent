@@ -25,7 +25,7 @@ nub run test
 nub run build
 ```
 
-Done when every command exits 0. Format with `nub run fmt` if `fmt:check` fails. Also run `nub run test:integration` when the change touches durable work, webhooks, or DB paths.
+Done when every command exits 0. Format with `nub run fmt` if `fmt:check` fails. Prefer `DATABASE_URL=... nub run test:integration` (or a live-stack E2E run when one exists) as behavior proof before push. Run integration whenever the change touches durable work, webhooks, or DB paths.
 
 ---
 
@@ -40,8 +40,12 @@ This file gives agents the operating model for this repository. Direct maintaine
 - Keep scope tied to the requested outcome. Review feedback does not authorize adjacent cleanup or a redesign.
 - Honor explicit stop points. Do not commit, push, open a PR, or start external services past the point the developer requested.
 - Keep context lean. Read the files and history needed to prove the next decision, then act.
-- New test files are opt-in. Do not create unit, integration, end-to-end, or spec files, or new test-only helpers/fixtures, unless the user explicitly requests their creation or approves it first. A request to implement, fix, test, or verify something does not by itself authorize new test files. Assume no by default; ask only when creating them has a concrete benefit, not as a routine step.
-- Prefer running existing tests and direct browser/runtime checks without adding test files. Where test changes are in scope, exercise observable behavior rather than asserting source-code strings, implementation shapes, or that tests exist.
+- Never write unit tests after you write code.
+- Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
+- If you must test a system in isolation, first write down all the ways it could fail, then write the code.
+- New test files remain opt-in. Do not create unit, integration, end-to-end, or spec files, or new test-only helpers/fixtures, unless the user explicitly requests their creation or approves them first. A request to implement, fix, test, or verify something does not by itself authorize new test files. Assume no by default; ask only when creating them has a concrete benefit, not as a routine step.
+- Prefer existing tests and direct browser or runtime checks without adding test files. Where test changes are in scope, exercise observable behavior and artifacts rather than asserting source-code strings, implementation shapes, or that tests exist.
+- Until a dedicated E2E suite exists, `nub run test:integration` is the durable-path proof for webhook, lease, and database work. Keep the unit suite small: security guards, architecture and import-graph locks, and isolation tests written from an explicit failure-mode list before the code.
 
 ## Non-negotiables
 
@@ -90,7 +94,7 @@ Host Nub is optional on the maintainer-local path. Pin it to `@nubjs/nub@0.7.2` 
 
 The web process owns `POST /webhooks` and exposes intake health and readiness probes. The worker owns queue consumers and agent execution, with separate readiness for consumer and Postgres health. Web-only runs accept work but do not publish reviews.
 
-Use `nub run test` for unit tests. Use `DATABASE_URL=... nub run test:integration` for database and durable-work paths. The inventory-only integration command is `nub run test:integration:inventory`.
+Proof integration and E2E first. `DATABASE_URL=... nub run test:integration` is the durable-path suite for webhook, lease, and database work until a dedicated E2E suite exists; inventory-only runs use `nub run test:integration:inventory`. `nub run test` runs the remaining small unit suite: security guards, architecture and import-graph locks, and isolation tests written from an explicit failure-mode list before the code.
 
 ## Test data and external systems
 
@@ -103,9 +107,9 @@ Use `nub run test` for unit tests. Use `DATABASE_URL=... nub run test:integratio
 
 Start with the smallest check that proves the changed contract, then run the repository gate before pushing. Read the actual output and inspect the final diff. A passing typecheck alone does not prove webhook intake, queue recovery, or GitHub publishing.
 
-For durable work, webhooks, or database paths, run the integration suite as well as the backend gate. For prompt, policy, or output changes, inspect the generated prompt or published record and verify the relevant seam tests. Record any unavailable external dependency instead of treating an unrun check as a pass.
+Default to end-to-end or integration proof with a verifiable artifact. For durable work, webhooks, or database paths, run the integration suite as well as the backend gate. For prompt, policy, or output changes, inspect the generated prompt, published record, or other repeatable runtime output; do not add post-hoc unit tests or treat seam tests as the default substitute. Record any unavailable external dependency instead of treating an unrun check as a pass.
 
-When test changes are already in scope, keep them proportional to the changed contract. Strengthen the nearest existing test. Separate an environment or toolchain failure from a repository failure, and record the evidence for that distinction.
+When test changes are already in scope, keep them proportional to the changed contract and aligned with the testing policy above. Do not strengthen coverage by adding low-signal unit tests after the fact. Separate an environment or toolchain failure from a repository failure, and record the evidence for that distinction.
 
 ## Pull requests
 
