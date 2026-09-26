@@ -13,6 +13,7 @@ import {
   isRetryableAssistantError,
   type AssistantMessage,
   type Message,
+  type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { AppError, toAppError } from "../../errors/appError.js";
 import {
@@ -217,7 +218,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       ]);
       const phaseRef = { current: opts.phase };
       let protocolInvalid = false;
-      let sessionToolTurnCount = 0;
+      const reservedTerminalTool = opts.reservedTerminalTool;
+      let investigationTurnCount = 0;
+      let reservedTerminalSuccessCount = 0;
+      let reservedTerminalAttemptCount = 0;
       let finalText = "";
       let terminalProviderError: string | undefined;
       let toolBudgetStopped = false;
@@ -251,6 +255,18 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         }, checkEveryMs);
       };
 
+      type BudgetToolResult = Pick<ToolResultMessage, "toolName" | "isError">;
+      const turnContainsReservedTool = (toolResults: readonly BudgetToolResult[]): boolean => {
+        if (reservedTerminalTool == null) return false;
+        return toolResults.some((result) => result.toolName === reservedTerminalTool);
+      };
+      const isSuccessfulReservedTurn = (toolResults: readonly BudgetToolResult[]): boolean => {
+        if (reservedTerminalTool == null) return false;
+        return toolResults.some(
+          (result) => result.toolName === reservedTerminalTool && result.isError !== true,
+        );
+      };
+
       const thinking = resolveThinkingLevel({
         policy: params.thinkingPolicy,
         phase: opts.phase,
@@ -279,13 +295,37 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         ...(thinking === "off" ? {} : { reasoning: thinking }),
         // Core calls finishTurn before it emits turn_end, so the turn_end handler has not
         // counted this round yet; count it here so the budget matches the handler's view.
+        // Investigation rounds share maxToolRounds. A reserved terminal tool (judgment
+        // publish_thread) gets exactly one extra successful round beyond that budget so
+        // exhausted re-reads never starve the decision. At most 2 terminal attempts
+        // total are allowed (1 fail + 1 retry); the second failed attempt ends the loop.
+        // Mixed turns count both sides: non-reserved results consume investigation
+        // budget in turn_end, and reserved results consume the terminal attempt budget.
         finishTurn: ({ toolResults }) => {
           if (opts.maxToolRounds == null) return undefined;
-          const roundsAfterThisTurn = sessionToolTurnCount + 1;
-          if (
-            toolBudgetStopped ||
-            (toolResults.length > 0 && roundsAfterThisTurn >= opts.maxToolRounds)
-          ) {
+          if (toolResults.length === 0) return undefined;
+          if (isSuccessfulReservedTurn(toolResults)) {
+            return { action: "end" };
+          }
+          if (turnContainsReservedTool(toolResults)) {
+            if (reservedTerminalSuccessCount > 0) {
+              return { action: "end" };
+            }
+            if (reservedTerminalAttemptCount + 1 >= 2) {
+              return { action: "end" };
+            }
+            return undefined;
+          }
+          const maxToolRounds = opts.maxToolRounds;
+          const roundsAfterThisTurn = investigationTurnCount + 1;
+          if (toolBudgetStopped || roundsAfterThisTurn >= maxToolRounds) {
+            if (
+              reservedTerminalTool != null &&
+              reservedTerminalSuccessCount === 0 &&
+              investigationTurnCount < maxToolRounds
+            ) {
+              return undefined;
+            }
             return { action: "end" };
           }
           return undefined;
@@ -305,6 +345,29 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             const gate = assertPhaseToolAllowed(phaseRef.current, toolCall.name);
             if (!gate.ok) {
               return { block: true, reason: gate.error };
+            }
+          }
+          if (opts.maxToolRounds != null && reservedTerminalTool != null) {
+            if (toolCall.name === reservedTerminalTool) {
+              if (reservedTerminalSuccessCount > 0) {
+                return {
+                  block: true,
+                  reason: `Reserved terminal ${reservedTerminalTool} already used this turn.`,
+                };
+              }
+              if (reservedTerminalAttemptCount >= 2) {
+                return {
+                  block: true,
+                  reason: `Reserved terminal ${reservedTerminalTool} attempt budget exhausted.`,
+                };
+              }
+              return undefined;
+            }
+            if (investigationTurnCount >= opts.maxToolRounds) {
+              return {
+                block: true,
+                reason: `Tool budget exhausted: only ${reservedTerminalTool} is allowed.`,
+              };
             }
           }
           return undefined;
@@ -356,7 +419,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           });
         }
         if (event.type !== "turn_end") return;
-        sessionToolTurnCount += 1;
         const assistant = asAssistantMessage(event.message);
         if (assistant && !sessionMessages.includes(assistant)) {
           sessionMessages.push(assistant);
@@ -393,8 +455,37 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         }
         if (event.toolResults.length === 0) {
           finalText = assistantMessageText(event.message);
-        } else if (opts.maxToolRounds != null && sessionToolTurnCount >= opts.maxToolRounds) {
-          toolBudgetStopped = true;
+        } else if (isSuccessfulReservedTurn(event.toolResults)) {
+          reservedTerminalAttemptCount += 1;
+          reservedTerminalSuccessCount += 1;
+          const hasNonReserved =
+            reservedTerminalTool != null &&
+            event.toolResults.some((result) => result.toolName !== reservedTerminalTool);
+          if (hasNonReserved) {
+            investigationTurnCount += 1;
+          }
+        } else if (turnContainsReservedTool(event.toolResults)) {
+          reservedTerminalAttemptCount += 1;
+          const hasNonReserved =
+            reservedTerminalTool != null &&
+            event.toolResults.some((result) => result.toolName !== reservedTerminalTool);
+          if (hasNonReserved) {
+            investigationTurnCount += 1;
+          }
+          if (reservedTerminalSuccessCount > 0 && opts.maxToolRounds != null) {
+            toolBudgetStopped = true;
+          } else if (reservedTerminalAttemptCount >= 2 && opts.maxToolRounds != null) {
+            toolBudgetStopped = true;
+          }
+        } else {
+          investigationTurnCount += 1;
+          if (opts.maxToolRounds != null && investigationTurnCount >= opts.maxToolRounds) {
+            if (reservedTerminalTool == null || reservedTerminalSuccessCount > 0) {
+              toolBudgetStopped = true;
+            } else if (investigationTurnCount > opts.maxToolRounds) {
+              toolBudgetStopped = true;
+            }
+          }
         }
       };
 

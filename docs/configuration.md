@@ -437,30 +437,30 @@ Treat missing session checks as P1 minimum. Flag any new outbound HTTP without t
 
 An orchestrated review computes its hard return deadline from the pg-boss job start time as `expireInSeconds * 0.8`. Model work stops `REVIEW_FINALIZATION_WINDOW_MS` before that deadline. Each specialist attempt uses the smaller of `REVIEW_SPECIALIST_TIMEOUT_MS` and the remaining model window.
 
-| Symbol                                   | Default / role                                                                                          |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `MAX_TOOL_ROUNDS`                        | 24 for orchestrator reconnaissance and specialist investigation                                         |
-| `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 per specialist judgment turn                                                                          |
-| `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                                                          |
-| `MAX_PR_FILES_PATCH_BYTES`               | 500000                                                                                                  |
-| `REVIEW_ANCHOR_MENU_MAX_FILES`           | 40                                                                                                      |
-| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | 20                                                                                                      |
-| `MAX_TOOL_ROUNDS_TRIAGE`                 | 32                                                                                                      |
-| `MAX_TOOL_ROUNDS_VERIFICATION`           | 32                                                                                                      |
-| `MAX_ESCALATED_VERIFICATION_INVENTORY`   | 10 oldest open findings re-checked by an escalated verification attempt; the rest waits for a later run |
-| `MAX_TRIAGE_FIXES_PER_RUN`               | 10                                                                                                      |
-| `MAX_ASK_TOOL_ROUNDS`                    | 12                                                                                                      |
-| `MAX_ASK_FINALIZE_ROUNDS`                | 2                                                                                                       |
-| `SESSION_CACHE_ID_MAX_LENGTH`            | 64 — OpenAI-style `prompt_cache_key` clamp for Pi session ids                                           |
-| `SESSION_TURN_RETRY_MAX`                 | 1 — Core `runAgentLoopContinue` after a retryable assistant error with no admitted tool from that turn  |
-| `SESSION_TURN_RETRY_BASE_DELAY_MS`       | 250 — base delay before the first turn retry; doubles on each later retry                               |
-| `SESSION_OVERFLOW_COMPACT_MAX`           | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal        |
-| `VALIDATION_REPAIR_ROUNDS`               | 3                                                                                                       |
-| `SUBMIT_ONLY_MAX_TOOL_ROUNDS`            | 2 per submit-only turn (repair, synthesis, summary recovery); not scaled by escalation                  |
-| `PUBLISH_RECOVERY_ROUNDS`                | 2 summary recovery sends                                                                                |
-| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                                                                       |
-| `ReviewValidationFailureKind`            | Validation failure metric categories                                                                    |
-| `ReviewPhase`                            | Review metric categories                                                                                |
+| Symbol                                   | Default / role                                                                                                                                                  |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MAX_TOOL_ROUNDS`                        | 24 for orchestrator reconnaissance and specialist investigation                                                                                                 |
+| `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 evidence rounds per specialist judgment turn, plus one reserved publish round (at most one extra round; evidence gathering can never starve `publish_thread`) |
+| `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                                                                                                                  |
+| `MAX_PR_FILES_PATCH_BYTES`               | 500000                                                                                                                                                          |
+| `REVIEW_ANCHOR_MENU_MAX_FILES`           | 40                                                                                                                                                              |
+| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | 20                                                                                                                                                              |
+| `MAX_TOOL_ROUNDS_TRIAGE`                 | 32                                                                                                                                                              |
+| `MAX_TOOL_ROUNDS_VERIFICATION`           | 32                                                                                                                                                              |
+| `MAX_ESCALATED_VERIFICATION_INVENTORY`   | 10 oldest open findings re-checked by an escalated verification attempt; the rest waits for a later run                                                         |
+| `MAX_TRIAGE_FIXES_PER_RUN`               | 10                                                                                                                                                              |
+| `MAX_ASK_TOOL_ROUNDS`                    | 12                                                                                                                                                              |
+| `MAX_ASK_FINALIZE_ROUNDS`                | 2                                                                                                                                                               |
+| `SESSION_CACHE_ID_MAX_LENGTH`            | 64 — OpenAI-style `prompt_cache_key` clamp for Pi session ids                                                                                                   |
+| `SESSION_TURN_RETRY_MAX`                 | 1 — Core `runAgentLoopContinue` after a retryable assistant error with no admitted tool from that turn                                                          |
+| `SESSION_TURN_RETRY_BASE_DELAY_MS`       | 250 — base delay before the first turn retry; doubles on each later retry                                                                                       |
+| `SESSION_OVERFLOW_COMPACT_MAX`           | 1 — compact-and-continue after a context-overflow assistant error; a second overflow is terminal                                                                |
+| `VALIDATION_REPAIR_ROUNDS`               | 3                                                                                                                                                               |
+| `SUBMIT_ONLY_MAX_TOOL_ROUNDS`            | 2 per submit-only turn (repair, synthesis, summary recovery); not scaled by escalation                                                                          |
+| `PUBLISH_RECOVERY_ROUNDS`                | 2 summary recovery sends                                                                                                                                        |
+| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                                                                                                                               |
+| `ReviewValidationFailureKind`            | Validation failure metric categories                                                                                                                            |
+| `ReviewPhase`                            | Review metric categories                                                                                                                                        |
 
 ### Description
 

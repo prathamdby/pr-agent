@@ -56,7 +56,7 @@ export function installationDistinctId(installationId: number): AnalyticsDistinc
 }
 
 export type PublishTelemetry = {
-  /** Recovery-only. Starts at 0. Increments on deterministic/salvage publish. */
+  /** Recovery-only. Starts at 0. Increments only on real publish throw/failure, not successful deterministic salvage. */
   readonly publishAttempts: number;
   /** Healthy step shape: specialist reports plus synthesis, plus salvage extras. */
   readonly publishStepCount: number;

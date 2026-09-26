@@ -250,6 +250,7 @@ export type ReviewPhase =
 
 /** Review agent caps. */
 export const MAX_TOOL_ROUNDS = 24;
+/** Evidence rounds per specialist judgment turn. A reserved publish round is additional (at most one extra round), so evidence gathering can never starve `publish_thread`. */
 export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
 /** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */
 export const MAX_PR_FILES_LISTED = 300;

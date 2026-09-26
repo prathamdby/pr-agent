@@ -61,6 +61,7 @@ export type AuthoritativeStructuredState = {
 export type PiSessionSendOptions = {
   readonly phase: AgentSessionPhase;
   readonly maxToolRounds?: number;
+  readonly reservedTerminalTool?: string;
   readonly deadlineMs?: number;
   readonly checkpointId: string;
 };

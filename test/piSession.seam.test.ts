@@ -112,6 +112,588 @@ describe("createPiSession seam", () => {
     await session.dispose();
   });
 
+  it("reserves one publish_thread call beyond the investigation budget", async () => {
+    const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
+    const finishEnds: boolean[] = [];
+    let executedBlockedAfterBudget = false;
+    let publishAllowedAfterBudget = false;
+    let capturedConfig: {
+      beforeToolCall?: (
+        ctx: unknown,
+        signal?: AbortSignal,
+      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
+      finishTurn?: (turn: unknown, signal?: AbortSignal) => { action: string } | undefined;
+    } | null = null;
+
+    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
+      role: "toolResult" as const,
+      toolCallId: id,
+      toolName,
+      content: [{ type: "text" as const, text: isError ? "blocked" : "ok" }],
+      isError,
+      timestamp: Date.now(),
+    });
+    const assistantForTool = (toolName: string, id: string) => ({
+      role: "assistant" as const,
+      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
+    });
+
+    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
+      capturedConfig = config as typeof capturedConfig & object;
+      const cfg = config as unknown as {
+        beforeToolCall: (ctx: {
+          assistantMessage: unknown;
+          toolCall: unknown;
+          args: unknown;
+          context: unknown;
+        }) => Promise<{ block?: boolean } | undefined>;
+        finishTurn: (turn: {
+          message: unknown;
+          toolResults: unknown[];
+          context: unknown;
+          newMessages: unknown[];
+        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
+      };
+      const simulateToolTurn = async (toolName: string, isError: boolean, step: string) => {
+        const id = `${step}-${toolName}`;
+        const assistantMessage = assistantForTool(toolName, id);
+        const before = await cfg.beforeToolCall({
+          assistantMessage,
+          toolCall: { id, name: toolName, arguments: {} },
+          args: {},
+          context: _context,
+        });
+        beforeDecisions.push({ tool: toolName, blocked: before?.block === true });
+        const toolResults = [toolResultFor(toolName, isError, id)];
+        const message = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: step }],
+        };
+        const decision = await cfg.finishTurn({
+          message,
+          toolResults,
+          context: _context,
+          newMessages: [],
+        });
+        finishEnds.push(decision?.action === "end");
+        await emit({ type: "turn_end", toolResults, message });
+        return decision;
+      };
+
+      for (let index = 0; index < 4; index += 1) {
+        await simulateToolTurn("execute", false, `inv-${index}`);
+      }
+      const blockedProbe = await cfg.beforeToolCall({
+        assistantMessage: assistantForTool("execute", "probe-execute"),
+        toolCall: { id: "probe-execute", name: "execute", arguments: {} },
+        args: {},
+        context: _context,
+      });
+      executedBlockedAfterBudget = blockedProbe?.block === true;
+      const allowedProbe = await cfg.beforeToolCall({
+        assistantMessage: assistantForTool("publish_thread", "probe-publish"),
+        toolCall: { id: "probe-publish", name: "publish_thread", arguments: {} },
+        args: {},
+        context: _context,
+      });
+      publishAllowedAfterBudget = !(allowedProbe?.block === true);
+      await simulateToolTurn("publish_thread", false, "terminal");
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: { role: "assistant", content: [{ type: "text", text: "judgment-done" }] },
+      });
+      return [];
+    });
+
+    const session = await createPiSession({
+      role: "orchestrator",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("orchestrator"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "orchestrator",
+      eventSink: () => undefined,
+      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      tools: [],
+      executors: {},
+    });
+
+    const turn = await session.send("judge", {
+      phase: "judgment",
+      checkpointId: "cp-judgment",
+      maxToolRounds: 4,
+      reservedTerminalTool: "publish_thread",
+    });
+    expect(turn.text).toBe("judgment-done");
+    expect(turn.end).toBe("completed");
+    expect(beforeDecisions.slice(0, 4).every((entry) => !entry.blocked)).toBe(true);
+    expect(beforeDecisions[4]).toEqual({ tool: "publish_thread", blocked: false });
+    expect(executedBlockedAfterBudget).toBe(true);
+    expect(publishAllowedAfterBudget).toBe(true);
+    expect(finishEnds.slice(0, 4).every((ended) => !ended)).toBe(true);
+    expect(finishEnds[4]).toBe(true);
+
+    const cfg = capturedConfig as unknown as {
+      beforeToolCall: (ctx: {
+        assistantMessage: unknown;
+        toolCall: unknown;
+        args: unknown;
+        context: unknown;
+      }) => Promise<{ block?: boolean } | undefined>;
+    };
+    const againPublish = await cfg.beforeToolCall({
+      assistantMessage: assistantForTool("publish_thread", "again-publish"),
+      toolCall: { id: "again-publish", name: "publish_thread", arguments: {} },
+      args: {},
+      context: {},
+    });
+    expect(againPublish?.block).toBe(true);
+    const againExecute = await cfg.beforeToolCall({
+      assistantMessage: assistantForTool("execute", "again-execute"),
+      toolCall: { id: "again-execute", name: "execute", arguments: {} },
+      args: {},
+      context: {},
+    });
+    expect(againExecute?.block).toBe(true);
+
+    await session.dispose();
+  });
+
+  it("fits a publish_thread validation-failure retry in the reserved slot", async () => {
+    const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
+    const finishEnds: boolean[] = [];
+    let publishAllowedAfterFailure = false;
+    let capturedConfig: {
+      beforeToolCall?: (
+        ctx: unknown,
+        signal?: AbortSignal,
+      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
+    } | null = null;
+
+    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
+      role: "toolResult" as const,
+      toolCallId: id,
+      toolName,
+      content: [{ type: "text" as const, text: isError ? "validation failed" : "ok" }],
+      isError,
+      timestamp: Date.now(),
+    });
+    const assistantForTool = (toolName: string, id: string) => ({
+      role: "assistant" as const,
+      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
+    });
+
+    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
+      capturedConfig = config as typeof capturedConfig & object;
+      const cfg = config as unknown as {
+        beforeToolCall: (ctx: {
+          assistantMessage: unknown;
+          toolCall: unknown;
+          args: unknown;
+          context: unknown;
+        }) => Promise<{ block?: boolean } | undefined>;
+        finishTurn: (turn: {
+          message: unknown;
+          toolResults: unknown[];
+          context: unknown;
+          newMessages: unknown[];
+        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
+      };
+      const simulateToolTurn = async (toolName: string, isError: boolean, step: string) => {
+        const id = `${step}-${toolName}`;
+        const before = await cfg.beforeToolCall({
+          assistantMessage: assistantForTool(toolName, id),
+          toolCall: { id, name: toolName, arguments: {} },
+          args: {},
+          context: _context,
+        });
+        beforeDecisions.push({ tool: toolName, blocked: before?.block === true });
+        const toolResults = [toolResultFor(toolName, isError, id)];
+        const message = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: step }],
+        };
+        const decision = await cfg.finishTurn({
+          message,
+          toolResults,
+          context: _context,
+          newMessages: [],
+        });
+        finishEnds.push(decision?.action === "end");
+        await emit({ type: "turn_end", toolResults, message });
+        return decision;
+      };
+
+      for (let index = 0; index < 4; index += 1) {
+        await simulateToolTurn("execute", false, `inv-${index}`);
+      }
+      await simulateToolTurn("publish_thread", true, "terminal-fail");
+      const retryProbe = await cfg.beforeToolCall({
+        assistantMessage: assistantForTool("publish_thread", "probe-retry"),
+        toolCall: { id: "probe-retry", name: "publish_thread", arguments: {} },
+        args: {},
+        context: _context,
+      });
+      publishAllowedAfterFailure = !(retryProbe?.block === true);
+      await simulateToolTurn("publish_thread", false, "terminal-retry");
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: { role: "assistant", content: [{ type: "text", text: "judgment-retry-done" }] },
+      });
+      return [];
+    });
+
+    const session = await createPiSession({
+      role: "orchestrator",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("orchestrator"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "orchestrator",
+      eventSink: () => undefined,
+      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      tools: [],
+      executors: {},
+    });
+
+    const turn = await session.send("judge", {
+      phase: "judgment",
+      checkpointId: "cp-judgment-retry",
+      maxToolRounds: 4,
+      reservedTerminalTool: "publish_thread",
+    });
+    expect(turn.text).toBe("judgment-retry-done");
+    expect(turn.end).toBe("completed");
+    expect(beforeDecisions.slice(0, 4).every((entry) => !entry.blocked)).toBe(true);
+    expect(beforeDecisions[4]).toEqual({ tool: "publish_thread", blocked: false });
+    expect(beforeDecisions[5]).toEqual({ tool: "publish_thread", blocked: false });
+    expect(publishAllowedAfterFailure).toBe(true);
+    expect(finishEnds.slice(0, 5).every((ended) => !ended)).toBe(true);
+    expect(finishEnds[5]).toBe(true);
+
+    const cfg = capturedConfig as unknown as {
+      beforeToolCall: (ctx: {
+        assistantMessage: unknown;
+        toolCall: unknown;
+        args: unknown;
+        context: unknown;
+      }) => Promise<{ block?: boolean } | undefined>;
+    };
+    const againPublish = await cfg.beforeToolCall({
+      assistantMessage: assistantForTool("publish_thread", "again-publish"),
+      toolCall: { id: "again-publish", name: "publish_thread", arguments: {} },
+      args: {},
+      context: {},
+    });
+    expect(againPublish?.block).toBe(true);
+
+    await session.dispose();
+  });
+
+  it("ends at budget with no reserved terminal tool", async () => {
+    const finishEnds: boolean[] = [];
+    const beforeBlocked: boolean[] = [];
+    let capturedConfig: {
+      beforeToolCall?: (
+        ctx: unknown,
+        signal?: AbortSignal,
+      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
+      finishTurn?: (turn: unknown, signal?: AbortSignal) => { action: string } | undefined;
+    } | null = null;
+
+    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
+      role: "toolResult" as const,
+      toolCallId: id,
+      toolName,
+      content: [{ type: "text" as const, text: isError ? "blocked" : "ok" }],
+      isError,
+      timestamp: Date.now(),
+    });
+    const assistantForTool = (toolName: string, id: string) => ({
+      role: "assistant" as const,
+      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
+    });
+
+    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
+      capturedConfig = config as typeof capturedConfig & object;
+      const cfg = config as unknown as {
+        beforeToolCall: (ctx: {
+          assistantMessage: unknown;
+          toolCall: unknown;
+          args: unknown;
+          context: unknown;
+        }) => Promise<{ block?: boolean } | undefined>;
+        finishTurn: (turn: {
+          message: unknown;
+          toolResults: unknown[];
+          context: unknown;
+          newMessages: unknown[];
+        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
+      };
+      const simulateToolTurn = async (toolName: string, step: string) => {
+        const id = `${step}-${toolName}`;
+        const before = await cfg.beforeToolCall({
+          assistantMessage: assistantForTool(toolName, id),
+          toolCall: { id, name: toolName, arguments: {} },
+          args: {},
+          context: _context,
+        });
+        beforeBlocked.push(before?.block === true);
+        const toolResults = [toolResultFor(toolName, false, id)];
+        const message = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: step }],
+        };
+        const decision = await cfg.finishTurn({
+          message,
+          toolResults,
+          context: _context,
+          newMessages: [],
+        });
+        finishEnds.push(decision?.action === "end");
+        await emit({ type: "turn_end", toolResults, message });
+      };
+
+      await simulateToolTurn("execute", "inv-0");
+      await simulateToolTurn("execute", "inv-1");
+      return [];
+    });
+
+    const session = await createPiSession({
+      role: "orchestrator",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("orchestrator"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "orchestrator",
+      eventSink: () => undefined,
+      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      tools: [],
+      executors: {},
+    });
+
+    // No reservedTerminalTool: maxToolRounds=2 means exactly 2 investigation rounds.
+    // Expected: investigationTurnCount 0 -> 1 -> 2; first finishTurn continues,
+    // second finishTurn ends; turn ends tool_budget with empty text.
+    const turn = await session.send("run", {
+      phase: "recon",
+      checkpointId: "cp-no-reserved",
+      maxToolRounds: 2,
+    });
+    expect(finishEnds).toEqual([false, true]);
+    expect(turn.end).toBe("tool_budget");
+    expect(turn.text).toBe("");
+
+    const cfg = capturedConfig as unknown as {
+      finishTurn: (turn: {
+        message: unknown;
+        toolResults: unknown[];
+        context: unknown;
+        newMessages: unknown[];
+      }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
+    };
+    const probeFinish = await cfg.finishTurn({
+      message: { role: "assistant", content: [{ type: "text", text: "probe" }] },
+      toolResults: [toolResultFor("execute", false, "probe-execute")],
+      context: {},
+      newMessages: [],
+    });
+    expect(probeFinish?.action).toBe("end");
+
+    await session.dispose();
+  });
+
+  it("counts investigation in a mixed execute+publish_thread turn without double-counting reserved", async () => {
+    // Budget edge: maxToolRounds=4, 3 investigation turns then one mixed turn.
+    // Expected counts after the mixed turn:
+    //   investigationTurnCount = 4 (3 + 1 for the execute part, +0 for the reserved part)
+    //   reservedTerminalAttemptCount = 1, reservedTerminalSuccessCount = 1
+    // finishTurn for the mixed turn ends (successful reserved), and afterwards
+    // both publish_thread (success>0) and execute (investigation>=max) are blocked.
+    const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
+    const finishEnds: boolean[] = [];
+    let capturedConfig: {
+      beforeToolCall?: (
+        ctx: unknown,
+        signal?: AbortSignal,
+      ) => Promise<{ block?: boolean; reason?: string } | undefined>;
+    } | null = null;
+
+    const toolResultFor = (toolName: string, isError: boolean, id: string) => ({
+      role: "toolResult" as const,
+      toolCallId: id,
+      toolName,
+      content: [{ type: "text" as const, text: isError ? "blocked" : "ok" }],
+      isError,
+      timestamp: Date.now(),
+    });
+    const assistantForTool = (toolName: string, id: string) => ({
+      role: "assistant" as const,
+      content: [{ type: "toolCall" as const, id, name: toolName, arguments: {} }],
+    });
+
+    runAgentLoop.mockImplementation(async (_prompts, _context, config, emit) => {
+      capturedConfig = config as typeof capturedConfig & object;
+      const cfg = config as unknown as {
+        beforeToolCall: (ctx: {
+          assistantMessage: unknown;
+          toolCall: unknown;
+          args: unknown;
+          context: unknown;
+        }) => Promise<{ block?: boolean } | undefined>;
+        finishTurn: (turn: {
+          message: unknown;
+          toolResults: unknown[];
+          context: unknown;
+          newMessages: unknown[];
+        }) => { action: string } | undefined | Promise<{ action: string } | undefined>;
+      };
+      const simulateToolTurn = async (toolName: string, isError: boolean, step: string) => {
+        const id = `${step}-${toolName}`;
+        const before = await cfg.beforeToolCall({
+          assistantMessage: assistantForTool(toolName, id),
+          toolCall: { id, name: toolName, arguments: {} },
+          args: {},
+          context: _context,
+        });
+        beforeDecisions.push({ tool: toolName, blocked: before?.block === true });
+        const toolResults = [toolResultFor(toolName, isError, id)];
+        const message = {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: step }],
+        };
+        const decision = await cfg.finishTurn({
+          message,
+          toolResults,
+          context: _context,
+          newMessages: [],
+        });
+        finishEnds.push(decision?.action === "end");
+        await emit({ type: "turn_end", toolResults, message });
+      };
+
+      for (let index = 0; index < 3; index += 1) {
+        await simulateToolTurn("execute", false, `inv-${index}`);
+      }
+
+      const execId = "mixed-execute";
+      const pubId = "mixed-publish";
+      const mixedAssistant = {
+        role: "assistant" as const,
+        content: [
+          { type: "toolCall" as const, id: execId, name: "execute", arguments: {} },
+          { type: "toolCall" as const, id: pubId, name: "publish_thread", arguments: {} },
+        ],
+      };
+      const beforeExec = await cfg.beforeToolCall({
+        assistantMessage: mixedAssistant,
+        toolCall: { id: execId, name: "execute", arguments: {} },
+        args: {},
+        context: _context,
+      });
+      beforeDecisions.push({ tool: "execute", blocked: beforeExec?.block === true });
+      const beforePub = await cfg.beforeToolCall({
+        assistantMessage: mixedAssistant,
+        toolCall: { id: pubId, name: "publish_thread", arguments: {} },
+        args: {},
+        context: _context,
+      });
+      beforeDecisions.push({ tool: "publish_thread", blocked: beforePub?.block === true });
+      const mixedResults = [
+        toolResultFor("execute", false, execId),
+        toolResultFor("publish_thread", false, pubId),
+      ];
+      const mixedMessage = {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "mixed" }],
+      };
+      const mixedDecision = await cfg.finishTurn({
+        message: mixedMessage,
+        toolResults: mixedResults,
+        context: _context,
+        newMessages: [],
+      });
+      finishEnds.push(mixedDecision?.action === "end");
+      await emit({ type: "turn_end", toolResults: mixedResults, message: mixedMessage });
+
+      await emit({
+        type: "turn_end",
+        toolResults: [],
+        message: { role: "assistant", content: [{ type: "text", text: "mixed-done" }] },
+      });
+      return [];
+    });
+
+    const session = await createPiSession({
+      role: "orchestrator",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("orchestrator"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "orchestrator",
+      eventSink: () => undefined,
+      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      tools: [],
+      executors: {},
+    });
+
+    const turn = await session.send("judge", {
+      phase: "judgment",
+      checkpointId: "cp-mixed",
+      maxToolRounds: 4,
+      reservedTerminalTool: "publish_thread",
+    });
+    expect(turn.text).toBe("mixed-done");
+    expect(turn.end).toBe("completed");
+    // 3 investigation turns continue, mixed successful turn ends.
+    expect(finishEnds).toEqual([false, false, false, true]);
+    // At the edge (investigation=3, attempts=0) both sides of the mixed turn are allowed.
+    expect(beforeDecisions).toEqual([
+      { tool: "execute", blocked: false },
+      { tool: "execute", blocked: false },
+      { tool: "execute", blocked: false },
+      { tool: "execute", blocked: false },
+      { tool: "publish_thread", blocked: false },
+    ]);
+
+    const cfg = capturedConfig as unknown as {
+      beforeToolCall: (ctx: {
+        assistantMessage: unknown;
+        toolCall: unknown;
+        args: unknown;
+        context: unknown;
+      }) => Promise<{ block?: boolean } | undefined>;
+    };
+    // Expected final counts: investigation=4, attempts=1, success=1.
+    // Second publish blocked (success>0); execute blocked (investigation>=max).
+    const againPublish = await cfg.beforeToolCall({
+      assistantMessage: assistantForTool("publish_thread", "again-publish"),
+      toolCall: { id: "again-publish", name: "publish_thread", arguments: {} },
+      args: {},
+      context: {},
+    });
+    expect(againPublish?.block).toBe(true);
+    const againExecute = await cfg.beforeToolCall({
+      assistantMessage: assistantForTool("execute", "again-execute"),
+      toolCall: { id: "again-execute", name: "execute", arguments: {} },
+      args: {},
+      context: {},
+    });
+    expect(againExecute?.block).toBe(true);
+
+    await session.dispose();
+  });
+
   it("does not import createAgentSession or coding-agent from feature harness paths", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
