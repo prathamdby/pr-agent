@@ -221,6 +221,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       const reservedTerminalTool = opts.reservedTerminalTool;
       let investigationTurnCount = 0;
       let reservedTerminalSuccessCount = 0;
+      let reservedTerminalAttemptCount = 0;
       let finalText = "";
       let terminalProviderError: string | undefined;
       let toolBudgetStopped = false;
@@ -296,8 +297,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         // counted this round yet; count it here so the budget matches the handler's view.
         // Investigation rounds share maxToolRounds. A reserved terminal tool (judgment
         // publish_thread) gets exactly one extra successful round beyond that budget so
-        // exhausted re-reads never starve the decision. Failed terminal attempts do not
-        // consume the slot, so a validation-failure retry still fits.
+        // exhausted re-reads never starve the decision. At most 2 terminal attempts
+        // total are allowed (1 fail + 1 retry); the second failed attempt ends the loop.
+        // Mixed turns count both sides: non-reserved results consume investigation
+        // budget in turn_end, and reserved results consume the terminal attempt budget.
         finishTurn: ({ toolResults }) => {
           if (opts.maxToolRounds == null) return undefined;
           if (toolResults.length === 0) return undefined;
@@ -306,6 +309,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           }
           if (turnContainsReservedTool(toolResults)) {
             if (reservedTerminalSuccessCount > 0) {
+              return { action: "end" };
+            }
+            if (reservedTerminalAttemptCount + 1 >= 2) {
               return { action: "end" };
             }
             return undefined;
@@ -347,6 +353,12 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
                 return {
                   block: true,
                   reason: `Reserved terminal ${reservedTerminalTool} already used this turn.`,
+                };
+              }
+              if (reservedTerminalAttemptCount >= 2) {
+                return {
+                  block: true,
+                  reason: `Reserved terminal ${reservedTerminalTool} attempt budget exhausted.`,
                 };
               }
               return undefined;
@@ -444,9 +456,25 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         if (event.toolResults.length === 0) {
           finalText = assistantMessageText(event.message);
         } else if (isSuccessfulReservedTurn(event.toolResults)) {
+          reservedTerminalAttemptCount += 1;
           reservedTerminalSuccessCount += 1;
+          const hasNonReserved =
+            reservedTerminalTool != null &&
+            event.toolResults.some((result) => result.toolName !== reservedTerminalTool);
+          if (hasNonReserved) {
+            investigationTurnCount += 1;
+          }
         } else if (turnContainsReservedTool(event.toolResults)) {
+          reservedTerminalAttemptCount += 1;
+          const hasNonReserved =
+            reservedTerminalTool != null &&
+            event.toolResults.some((result) => result.toolName !== reservedTerminalTool);
+          if (hasNonReserved) {
+            investigationTurnCount += 1;
+          }
           if (reservedTerminalSuccessCount > 0 && opts.maxToolRounds != null) {
+            toolBudgetStopped = true;
+          } else if (reservedTerminalAttemptCount >= 2 && opts.maxToolRounds != null) {
             toolBudgetStopped = true;
           }
         } else {

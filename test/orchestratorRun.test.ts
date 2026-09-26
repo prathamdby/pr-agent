@@ -1704,4 +1704,74 @@ describe("runOrchestratedPrReview", () => {
     }
     await run;
   });
+
+  it("skips synthesis when the accepted ledger is empty", async () => {
+    const run = runOrchestratedPrReview(params());
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    // Proves orchestratorRun.ts synthesis gate requires accepted.length > 0:
+    // empty ledger goes deterministic directly without spending a synthesis turn.
+    expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
+      false,
+    );
+    expect(testState.deterministicSummaries).toHaveLength(1);
+  });
+
+  it("degrades a judgment turn without retiring so later specialists still get judgment", async () => {
+    // Closest expressible variant for the missed-pump drain at
+    // orchestratorRun.ts:1106-1127 (degrade reason judgment_failed with code
+    // review.orchestrator_outcome_unhandled, sessionAborts 0).
+    //
+    // Limitation: a true post-pump arrival is not expressible with the existing
+    // harness without production changes. pumpSpecialistCompletions awaits all
+    // four pending runSpecialist promises before returning, so resolving a
+    // deferred "after pump completes" cannot happen while the run is live: the
+    // mock resolves on abort as failed and any late deferred resolve is then
+    // swallowed by the already-settled promise. Likewise, any lifecycle stop
+    // (stop/finalize/deadline) retires the session via retireSession, so the
+    // drain's session-alive branch (judgment_failed vs judgment_unavailable)
+    // cannot be reached by stopping the lifecycle first. This test therefore
+    // covers the same per-report degrade invariant through the in-pump
+    // judgment-failure path: degrade reason judgment_failed, session stays
+    // alive (sessionAborts 0), and the next specialist still gets a model
+    // judgment turn.
+    testState.judgmentFailuresRemaining = 2;
+    testState.judgmentBySource.set("security", [finding("security")]);
+    const run = runOrchestratedPrReview({
+      ...params(),
+      cfg: makeTestConfig({ agentEventsEnabled: true }),
+      durability: {
+        pool: Object.create(null) as Pool,
+        workItemId: "wi-1",
+        installationId: 1,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+      },
+    });
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
+    testState.outcomes.get("security")?.resolve(report("security"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness", "security"]));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    const result = await run;
+    expect(result).toMatchObject({ published: true, publishAttempts: 0 });
+    expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
+    // Per-report degrade keeps the session alive: no retire on judgment_failed.
+    expect(testState.sessionAborts).toBe(0);
+    expect(testState.decisionEvents).toEqual([
+      expect.objectContaining({
+        specialist: "correctness",
+        degradedReason: "judgment_failed",
+      }),
+    ]);
+    // Later specialist still got a model judgment turn (2 failed attempts for
+    // correctness + 1 success for security).
+    expect(testState.judgmentPrompts).toHaveLength(3);
+  });
 });
