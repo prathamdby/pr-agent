@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import type { PgBoss } from "pg-boss";
 import { queryOne } from "../db/postgres.js";
 import { AppError } from "../errors/appError.js";
 import type { WorkType } from "./types.js";
@@ -180,4 +181,54 @@ export async function assertPrActorLeaseHeld(
     message: "PR actor lease is no longer held by this execution",
     context: { workItemId, leaseEpoch },
   });
+}
+
+/**
+ * Arm one throttled watchdog hop for a lease-blocked delivery. Same send options
+ * and live-hop verification the failed-acquire branch has always used; the
+ * pre-claim seed calls it best-effort (`warn-and-proceed`) so a pg-boss send
+ * failure never blocks a holder whose lease is free, while the failed-acquire
+ * branch keeps strict (`throw`) semantics. Returns whether a live hop exists so
+ * the failed-acquire branch can skip a second send when the seed just armed one.
+ */
+export async function armLeaseWatchdogHop(
+  boss: Pick<PgBoss, "send" | "findJobs">,
+  params: {
+    readonly queue: string;
+    readonly data: { readonly workItemId: string };
+    readonly singletonKey: string;
+    readonly deferSeconds?: number;
+    readonly priority?: number;
+    readonly groupId: string;
+    readonly workItemId: string;
+    readonly onSendFailure: "throw" | "warn-and-proceed";
+  },
+): Promise<{ readonly liveHop: boolean }> {
+  const deferSeconds = params.deferSeconds ?? PR_ACTOR_LEASE_DEFER_SECONDS;
+  const hopId = await boss.send(params.queue, params.data, {
+    singletonKey: params.singletonKey,
+    singletonSeconds: deferSeconds,
+    singletonNextSlot: true,
+    startAfter: deferSeconds,
+    ...(params.priority != null ? { priority: params.priority } : {}),
+    group: { id: params.groupId },
+  });
+  if (hopId != null) return { liveHop: true };
+  // singletonSeconds dedups pending copies per slot; singletonNextSlot lands the
+  // re-arm past the firing copy's own row, which outlives completion (job_i4
+  // covers all non-cancelled states). findJobs queued:true is only
+  // created/retry, so a null send still looks at created/active/retry before
+  // giving up. An active hop is live.
+  const hops = await boss.findJobs(params.queue, { key: params.singletonKey });
+  const liveHop = hops.some(
+    (job) => job.state === "created" || job.state === "active" || job.state === "retry",
+  );
+  if (!liveHop && params.onSendFailure === "throw") {
+    throw new AppError({
+      code: "agent_work.lease_watchdog_arm_failed",
+      message: `pg-boss did not enqueue a lease deferral for work item ${params.workItemId}`,
+      context: { workItemId: params.workItemId, queue: params.queue },
+    });
+  }
+  return { liveHop };
 }

@@ -231,14 +231,17 @@ export type WorkClaim = {
  * Admission is owned by the PR actor lease, not the claim: a re-claimed row still
  * needs the lease before any durable write.
  */
-export async function claimWorkForExecution(pool: Pool, id: string): Promise<WorkClaim | null> {
+export async function claimWorkForExecution(
+  db: Pool | PoolClient,
+  id: string,
+): Promise<WorkClaim | null> {
   const row = await queryOne<{
     created_at: Date;
     started_at: Date;
     attempt_count: number;
     resumed: boolean;
   }>(
-    pool,
+    db,
     `WITH prior AS (
        SELECT id, status FROM agent_work_items WHERE id = $1 FOR UPDATE
      )
