@@ -230,10 +230,14 @@ export type WorkClaim = {
  * durable retry budget across pg-boss retries and lease hop jobs.
  * Admission is owned by the PR actor lease, not the claim: a re-claimed row still
  * needs the lease before any durable write.
+ * When `leaseEpoch` is provided (leased work types), the claim also records it
+ * on the row as this holder's epoch for intake-cancel release pairs (#660).
+ * Unleased callers omit it and leave `execution_epoch` untouched.
  */
 export async function claimWorkForExecution(
   db: Pool | PoolClient,
   id: string,
+  leaseEpoch?: number | null,
 ): Promise<WorkClaim | null> {
   const row = await queryOne<{
     created_at: Date;
@@ -249,13 +253,14 @@ export async function claimWorkForExecution(
         SET status = 'running',
             started_at = COALESCE(w.started_at, now()),
             attempt_count = w.attempt_count + 1,
+            execution_epoch = COALESCE($2::bigint, w.execution_epoch),
             updated_at = now()
        FROM prior
       WHERE w.id = prior.id
         AND w.status IN ('queued', 'running')
         AND w.cancel_requested_at IS NULL
     RETURNING w.created_at, w.started_at, w.attempt_count, prior.status = 'running' AS resumed`,
-    [id],
+    [id, leaseEpoch ?? null],
   );
   if (!row) return null;
   return {

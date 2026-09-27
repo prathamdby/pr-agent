@@ -451,6 +451,13 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
     const heldEpoch = await acquireReviewLease(oldWorkItemId, resourceKey);
     expect(heldEpoch).toBeGreaterThan(0);
+    // Mirror the production atomicClaim path, which records the acquired epoch
+    // on the item row: intake cancel builds exact (id, epoch) release pairs
+    // from these records (#660). Rows without a record (pre-fix) fail closed.
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = $2 WHERE id = $1`, [
+      oldWorkItemId,
+      heldEpoch,
+    ]);
     const siblingWorkItemId = randomUUID();
     const siblingAcquisition = await acquirePrActorLease(pool, {
       resourceKey,

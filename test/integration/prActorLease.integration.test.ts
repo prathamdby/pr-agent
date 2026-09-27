@@ -8,9 +8,11 @@ import {
   assertPrActorLeaseHeld,
   isPrActorLeaseHeld,
   releasePrActorLease,
+  releasePrActorLeaseHeldByWorkItems,
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
 import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
+import { cancelActiveReviews } from "../../src/agentWork/intake/workItemRepository.js";
 import {
   claimWorkForExecution,
   getWorkItem,
@@ -323,5 +325,178 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       contender.release();
       observer.release();
     }
+  });
+
+  it("records the acquired epoch on the work item row at claim time", async () => {
+    const resourceKey = `${OWNER}/record-${randomUUID().slice(0, 8)}#1`;
+    const workItemId = await insertRunningWorkItem(resourceKey);
+    const acquisition = await acquire(resourceKey, workItemId);
+    if (!acquisition.acquired) throw new Error("expected acquisition to succeed");
+
+    await expect(
+      claimWorkForExecution(pool, workItemId, acquisition.leaseEpoch),
+    ).resolves.toMatchObject({ attemptCount: 2 });
+    const { rows } = await pool.query<{ execution_epoch: string | number }>(
+      `SELECT execution_epoch FROM agent_work_items WHERE id = $1`,
+      [workItemId],
+    );
+    expect(Number(rows[0]?.execution_epoch)).toBe(acquisition.leaseEpoch);
+
+    // Unleased callers omit the epoch and leave the record untouched.
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = 9 WHERE id = $1`, [workItemId]);
+    await claimWorkForExecution(pool, workItemId);
+    const { rows: kept } = await pool.query<{ execution_epoch: string | number }>(
+      `SELECT execution_epoch FROM agent_work_items WHERE id = $1`,
+      [workItemId],
+    );
+    expect(Number(kept[0]?.execution_epoch)).toBe(9);
+  });
+
+  it("refuses a stale predecessor release when the replacement reused its identifier (#660)", async () => {
+    // The TLC id-reuse kill trace, replayed against real Postgres:
+    // Cancel(dead ids) snapshots pairs [(D,5)]; the replacement reuses D's id
+    // and acquires epoch 6; the late release with the stale pairs must leave
+    // the live epoch held with renewal and fencing intact.
+    const resourceKey = `${OWNER}/reuse-${randomUUID().slice(0, 8)}#1`;
+    const workItemId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload, execution_epoch
+       )
+       VALUES (
+         $1, 'review', 'auto', 'running', $2, 'r', 1, 1, 'h', 'review', $3,
+         '{"mode":"review","source":"auto"}'::jsonb, 5
+       )`,
+      [workItemId, OWNER, resourceKey],
+    );
+
+    await expect(acquire(resourceKey, workItemId)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 1,
+    });
+    // Predecessor epoch on the cancelled row is 5 in the model; drive the
+    // lease to a matching shape: release the initial holder, then let the
+    // same identifier acquire the newer epoch the stale cancel must not clear.
+    await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch: 1 });
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = 5 WHERE id = $1`, [workItemId]);
+    // A stale cancel snapshot taken before the replacement acquires.
+    const stalePairs = [{ workItemId, leaseEpoch: 5 }];
+
+    await expect(acquire(resourceKey, workItemId)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 2,
+    });
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = 2 WHERE id = $1`, [workItemId]);
+
+    // The exact-pairs release with the stale predecessor epoch refuses the kill.
+    await releasePrActorLeaseHeldByWorkItems(pool, {
+      resourceKey,
+      workType: "review",
+      holders: stalePairs,
+    });
+    const row = await getLeaseRow(resourceKey);
+    expect(row.work_item_id).toBe(workItemId);
+    expect(Number(row.lease_epoch)).toBe(2);
+    await expect(
+      renewPrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        workItemId,
+        leaseEpoch: 2,
+        ttlSeconds: TTL_SECONDS,
+      }),
+    ).resolves.toBe(true);
+    await expect(assertPrActorLeaseHeld(pool, workItemId, 2)).resolves.toBeUndefined();
+    await expect(isPrActorLeaseHeld(pool, workItemId, 2)).resolves.toBe(true);
+  });
+
+  it("clears the holder on an exact (id, epoch) match and skips unknown epochs", async () => {
+    const resourceKey = `${OWNER}/pairs-${randomUUID().slice(0, 8)}#1`;
+    const holder = randomUUID();
+    const other = randomUUID();
+
+    await expect(acquire(resourceKey, holder)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 1,
+    });
+
+    // A non-matching epoch for the same id never clears (newer survives).
+    await releasePrActorLeaseHeldByWorkItems(pool, {
+      resourceKey,
+      workType: "review",
+      holders: [{ workItemId: holder, leaseEpoch: 99 }],
+    });
+    expect((await getLeaseRow(resourceKey)).work_item_id).toBe(holder);
+
+    // A matching pair clears (genuine holder cleanup never waits out the TTL).
+    await releasePrActorLeaseHeldByWorkItems(pool, {
+      resourceKey,
+      workType: "review",
+      holders: [
+        { workItemId: other, leaseEpoch: 7 },
+        { workItemId: holder, leaseEpoch: 1 },
+      ],
+    });
+    expect((await getLeaseRow(resourceKey)).work_item_id).toBeNull();
+
+    // Empty holders skip the UPDATE entirely (fail closed to TTL/watchdog).
+    await expect(acquire(resourceKey, other)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 2,
+    });
+    await releasePrActorLeaseHeldByWorkItems(pool, {
+      resourceKey,
+      workType: "review",
+      holders: [],
+    });
+    const row = await getLeaseRow(resourceKey);
+    expect(row.work_item_id).toBe(other);
+    expect(Number(row.lease_epoch)).toBe(2);
+  });
+
+  it("cancelActiveReviews clears on exact pairs and fails closed on unknown epochs", async () => {
+    const resourceKey = `${OWNER}/cancel-${randomUUID().slice(0, 8)}#1`;
+    const known = await insertRunningWorkItem(resourceKey);
+
+    const acquisition = await acquire(resourceKey, known);
+    if (!acquisition.acquired) throw new Error("expected acquisition to succeed");
+    await claimWorkForExecution(pool, known, acquisition.leaseEpoch);
+
+    const client = await pool.connect();
+    try {
+      const cancelled = await cancelActiveReviews(client, resourceKey, { kind: "closed" as const });
+      expect(cancelled.map((row) => row.id)).toEqual([known]);
+    } finally {
+      client.release();
+    }
+
+    // The known holder's exact pair cleared the lease (handoff intact).
+    expect((await getLeaseRow(resourceKey)).work_item_id).toBeNull();
+  });
+
+  it("cancelActiveReviews fails closed when the holder predates epoch recording", async () => {
+    // Pre-fix row: acquired before the claim path recorded execution_epoch,
+    // so the row still carries 0 (unknown). The cancel must skip the lease
+    // UPDATE rather than clear blindly; expiry plus the watchdog recover it.
+    const resourceKey = `${OWNER}/cancel-legacy-${randomUUID().slice(0, 8)}#1`;
+    const legacy = await insertRunningWorkItem(resourceKey);
+    await expect(acquire(resourceKey, legacy)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 1,
+    });
+    // No claim-with-epoch: execution_epoch stays 0 as on pre-fix rows.
+
+    const client = await pool.connect();
+    try {
+      const cancelled = await cancelActiveReviews(client, resourceKey, { kind: "closed" as const });
+      expect(cancelled.map((row) => row.id)).toEqual([legacy]);
+    } finally {
+      client.release();
+    }
+
+    const row = await getLeaseRow(resourceKey);
+    expect(row.work_item_id).toBe(legacy);
+    expect(Number(row.lease_epoch)).toBe(1);
   });
 });

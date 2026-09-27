@@ -225,7 +225,7 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
 
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[1].headSha).toBe("abc123");
     expect(execute.mock.calls[0]?.[1].prSurface).toBeDefined();
@@ -249,7 +249,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
 
     expect(repo.getWorkItemCore).toHaveBeenCalledWith(pool, "wi-1");
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(prActorLease.acquirePrActorLease).toHaveBeenCalledWith(pool, {
       resourceKey: item.resourceKey,
       workType: "review",
@@ -462,7 +462,7 @@ describe("runDurableWorkItem", () => {
       execute,
     });
 
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
@@ -480,7 +480,7 @@ describe("runDurableWorkItem", () => {
       }),
     ).rejects.toThrow(/Invalid review work item payload/);
 
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkFailed).toHaveBeenCalledWith(
       pool,
       "wi-1",
@@ -528,7 +528,7 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ execute });
 
-    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();

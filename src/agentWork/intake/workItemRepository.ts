@@ -634,6 +634,7 @@ export async function cancelActiveReviews(
     source: WorkSource;
     head_sha: string;
     created_at: Date | string;
+    execution_epoch: string | number | null;
   }>(
     `UPDATE agent_work_items
 		    SET status = 'cancelled',
@@ -644,7 +645,7 @@ export async function cancelActiveReviews(
 		  WHERE resource_key = $1
 		    AND type = 'review'
 		    AND status = 'queued'
-		  RETURNING id, source, head_sha, created_at`,
+		  RETURNING id, source, head_sha, created_at, execution_epoch`,
     [resourceKey, lastError, payloadPatch],
   );
   const running = await client.query<{
@@ -652,6 +653,7 @@ export async function cancelActiveReviews(
     source: WorkSource;
     head_sha: string;
     created_at: Date | string;
+    execution_epoch: string | number | null;
   }>(
     `UPDATE agent_work_items
 		    SET status = 'cancelled',
@@ -663,17 +665,24 @@ export async function cancelActiveReviews(
 		  WHERE resource_key = $1
 		    AND type = 'review'
 		    AND status = 'running'
-		  RETURNING id, source, head_sha, created_at`,
+		  RETURNING id, source, head_sha, created_at, execution_epoch`,
     [resourceKey, lastError, payloadPatch],
   );
   const cancelled = [
     ...mapCancelledReviewRows(running.rows),
     ...mapCancelledReviewRows(queued.rows),
   ];
+  // Exact (id, epoch) pairs from the rows just cancelled. Unknown epochs
+  // (0/NULL: pre-fix rows or never-acquired queued items that never held the
+  // lease) are filtered out, and an empty set skips the lease UPDATE entirely
+  // (fail closed — expiry plus the lease watchdog recover within TTL).
+  const holders = [...running.rows, ...queued.rows]
+    .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
+    .filter((holder) => holder.leaseEpoch > 0);
   await releasePrActorLeaseHeldByWorkItems(client, {
     resourceKey,
     workType: "review",
-    workItemIds: cancelled.map((row) => row.id),
+    holders,
   });
   return cancelled;
 }
