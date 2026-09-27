@@ -1,0 +1,16 @@
+# Law files: changes require maintainer review.
+tsconfig*.json @prathamdby
+.oxlintrc.json @prathamdby
+.oxfmtrc.json @prathamdby
+knip.json @prathamdby
+src/util/escape.ts @prathamdby
+test/architectureRules.test.ts @prathamdby
+test/featureMap.test.ts @prathamdby
+scripts/check-*.mjs @prathamdby
+scripts/gen-*.mjs @prathamdby
+scripts/verify.mjs @prathamdby
+scripts/dump-prompt.mjs @prathamdby
+scripts/baselines/** @prathamdby
+.github/workflows/ci.yml @prathamdby
+CODEOWNERS @prathamdby
+AGENTS.md @prathamdby
