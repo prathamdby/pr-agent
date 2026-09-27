@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
+import * as evlog from "../../src/evlog.js";
 import {
   acquirePrActorLease,
   assertPrActorLeaseHeld,
@@ -42,6 +43,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
   });
@@ -125,6 +127,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
   });
 
   it("steals a lapsed lease and fences the dead holder out of durable writes", async () => {
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
     const resourceKey = `${OWNER}/lapse-${randomUUID().slice(0, 8)}#1`;
     const deadWorkerItem = await insertRunningWorkItem(resourceKey);
     const successorItem = await insertRunningWorkItem(resourceKey);
@@ -151,6 +154,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
 
     await markWorkPublishDegraded(pool, deadWorkerItem, dead.leaseEpoch);
+    expect(logWarn).toHaveBeenCalledExactlyOnceWith("agent_work_publish_degraded_mark_rejected", {
+      workItemId: deadWorkerItem,
+      leaseEpoch: dead.leaseEpoch,
+      rowCount: 0,
+    });
     const { rows: deadPayload } = await pool.query<{ payload: { publishDegraded?: boolean } }>(
       `SELECT payload FROM agent_work_items WHERE id = $1`,
       [deadWorkerItem],
@@ -158,6 +166,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     expect(deadPayload[0]?.payload.publishDegraded).toBeUndefined();
 
     await markWorkPublishDegraded(pool, successorItem, 2);
+    expect(logWarn).toHaveBeenCalledTimes(1);
     const { rows: livePayload } = await pool.query<{ payload: { publishDegraded?: boolean } }>(
       `SELECT payload FROM agent_work_items WHERE id = $1`,
       [successorItem],

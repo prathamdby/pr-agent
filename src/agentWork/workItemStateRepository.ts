@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { queryOne } from "../db/postgres.js";
+import { logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
   isAnyReviewLens,
@@ -278,7 +279,7 @@ export async function markWorkPublishDegraded(
   id: string,
   leaseEpoch: number | null,
 ): Promise<void> {
-  await pool.query(
+  const result = await pool.query(
     `UPDATE agent_work_items
 		    SET payload = payload || '{"publishDegraded": true}'::jsonb,
 		        updated_at = now()
@@ -286,6 +287,13 @@ export async function markWorkPublishDegraded(
 		    ${leaseFenceSql(2)}`,
     [id, leaseEpoch],
   );
+  if ((result.rowCount ?? 0) === 0) {
+    logWarn("agent_work_publish_degraded_mark_rejected", {
+      workItemId: id,
+      leaseEpoch,
+      rowCount: result.rowCount,
+    });
+  }
 }
 
 export async function markWorkCompleted(

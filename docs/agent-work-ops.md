@@ -43,6 +43,8 @@ A lease block can leave `agent_work_items.status = 'queued'` with no live job in
 
 Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age counts), `agent_dead_letter_stats`, and `agent_work_item_age`. Empty queues are not treated as unhealthy.
 
+If a `publishDegraded` write affects no rows, the worker logs `agent_work_publish_degraded_mark_rejected` at warn with `workItemId`, `leaseEpoch`, and `rowCount`. Inspect the work item and its PR actor lease to identify a fenced-out write or a missing row.
+
 Worker readiness is distinct from web probes: `GET /ready` on the worker process returns 200 only when consumers are registered and Postgres/pg-boss respond. Compose healthchecks that endpoint. Web `GET /health` / `GET /ready` remain intake-process probes (liveness / Postgres ping).
 
 ## Retry and Recovery
