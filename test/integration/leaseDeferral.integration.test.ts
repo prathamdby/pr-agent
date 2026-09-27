@@ -211,10 +211,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       // Drive the production entry (real transaction, no seam) with a fault
       // injected between acquire and claim: the pair must roll back together,
       // never parking a held lease on the queued row.
-      const coreRow = await pool.query(
-        `SELECT id FROM agent_work_items WHERE id = $1`,
-        [first],
-      );
+      const coreRow = await pool.query(`SELECT id FROM agent_work_items WHERE id = $1`, [first]);
       expect(coreRow.rowCount).toBe(1);
       const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
       const core = await getWorkItemCore(pool, first);
