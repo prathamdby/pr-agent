@@ -188,7 +188,7 @@ describe("PrSurface lease mutation boundary", () => {
     ]);
   });
 
-  it("nests surface mutation keys under a stable parent operation key", async () => {
+  it("scopes nested surface mutation keys by input under a stable parent", async () => {
     const mutations: PrSurfaceMutation[] = [];
     const { surface } = createFakePrSurface(surfaceParams, {
       mutationBoundary: {
@@ -202,12 +202,14 @@ describe("PrSurface lease mutation boundary", () => {
 
     await runInOperationIntentFrame("ask:reply:1:o/r#1", async () => {
       await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "first body");
-      await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "retry with a new body");
+      await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "second body");
+      await surface.replyAt({ kind: "prConversation", prNumber: 1 }, "first body");
     });
 
-    expect(mutations).toHaveLength(2);
-    expect(mutations[0]?.operationKey).toBe("ask:reply:1:o/r#1:surface:replyAt");
-    expect(mutations[1]?.operationKey).toBe(mutations[0]?.operationKey);
+    expect(mutations).toHaveLength(3);
+    expect(mutations[0]?.operationKey).toMatch(/^ask:reply:1:o\/r#1:surface:replyAt:/);
+    expect(mutations[1]?.operationKey).not.toBe(mutations[0]?.operationKey);
+    expect(mutations[2]?.operationKey).toBe(mutations[0]?.operationKey);
     expect(mutations[0]?.detail).toMatchObject({
       surfaceMethod: "replyAt",
       parentOperationKey: "ask:reply:1:o/r#1",

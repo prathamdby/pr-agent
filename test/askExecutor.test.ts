@@ -396,7 +396,7 @@ describe("executeAskJob", () => {
     expect(mocks.findExistingAskReplyComment).toHaveBeenCalled();
   });
 
-  it("falls back to a PR comment when inline thread reply fails", async () => {
+  it("falls back to one PR comment across retries when inline thread reply fails", async () => {
     const item = makeAskWorkItem({
       headSha: "head",
       payload: {
@@ -422,6 +422,7 @@ describe("executeAskJob", () => {
     });
 
     await executeAskJob(cfg, pool, boss, askJob());
+    await executeAskJob(cfg, pool, boss, askJob());
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.target).toEqual({
@@ -432,6 +433,12 @@ describe("executeAskJob", () => {
       "Could not reply in the review thread",
     );
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
+    expect(
+      memoryOperationIntentStore.get(item.id, askReplyOperationKey(item.resourceKey, 99)),
+    ).toMatchObject({
+      status: "reconciled",
+      detail: { replyTargetKind: "prConversation" },
+    });
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({

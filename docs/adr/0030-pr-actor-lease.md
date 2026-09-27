@@ -26,6 +26,9 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
    and combined cancellation signal into the centralized `PrSurface` mutation
    boundary. The boundary writes an epoch-bound `operation_intents` row before
    each mutation and asserts ownership immediately before the external call.
+   Nested mutation keys include the parent operation key, method, and input
+   hash. Different inputs get distinct intents; identical retries reuse the
+   same intent.
    It also fences intent reconciliation and `publish_records` writes, so a
    renewal loss during a long remote call cannot advance stale durable state.
    Recovery workers may still use read-only surface calls to reconcile an

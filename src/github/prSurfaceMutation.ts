@@ -122,7 +122,7 @@ function mutation(
   const args = Array.isArray(input) ? input : [];
   return {
     operationKey:
-      parentKey != null ? `${parentKey}:surface:${method}` : `pr-surface:${method}:${hash}`,
+      parentKey != null ? `${parentKey}:surface:${method}:${hash}` : `pr-surface:${method}:${hash}`,
     mutationKind: `github.pr_surface.${method}`,
     detail: {
       surfaceMethod: method,
