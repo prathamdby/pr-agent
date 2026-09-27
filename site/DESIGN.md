@@ -703,3 +703,5 @@ Run these before calling a site change done. They are the checks the maintainer 
 | `site/assets/fonts/`                  | Geist and Geist Mono variable `ttf` for the social card, plus licence                        |
 | `site/public/fonts/`                  | Geist and Geist Mono `woff2` plus licence                                                    |
 | `docs/development.md` (Landing site)  | The pointer to this file and the markdown negotiation rules                                  |
+
+<!-- probe: skipped-check mergeability test, closes unmerged -->
