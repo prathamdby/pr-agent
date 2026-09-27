@@ -47,12 +47,14 @@ describe("cancelActiveReviews (PR close)", () => {
               source: "auto",
               head_sha: "sha-a",
               created_at: "2026-01-01T00:00:02Z",
+              execution_epoch: 3,
             },
             {
               id: "queued-slash",
               source: "slash",
               head_sha: "sha-b",
               created_at: "2026-01-01T00:00:01Z",
+              execution_epoch: 2,
             },
           ],
         };
@@ -65,6 +67,7 @@ describe("cancelActiveReviews (PR close)", () => {
               source: "auto",
               head_sha: "sha-r",
               created_at: "2026-01-01T00:00:03Z",
+              execution_epoch: 5,
             },
           ],
         };
@@ -82,8 +85,10 @@ describe("cancelActiveReviews (PR close)", () => {
     const runningSql = String(query.mock.calls[1]?.[0]);
     expect(queuedSql).toContain("type = 'review'");
     expect(queuedSql).not.toContain("source = 'auto'");
+    expect(queuedSql).toContain("execution_epoch");
     expect(runningSql).toContain("cancel_requested_at");
     expect(runningSql).toMatch(/status\s*=\s*'cancelled'/);
+    expect(runningSql).toContain("execution_epoch");
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'queued'"), [
       "acme/app#7",
       "Pull request merged",
@@ -94,10 +99,13 @@ describe("cancelActiveReviews (PR close)", () => {
       "Pull request merged",
       mergedPatch,
     ]);
+    // Exact (id, epoch) pairs: a predecessor cancel never clears a newer epoch
+    // under id reuse (#660). The release matches holder pairs, not bare ids.
     expect(query).toHaveBeenCalledWith(expect.stringContaining("pr_actor_leases"), [
       "acme/app#7",
       "review",
       ["running-1", "queued-auto", "queued-slash"],
+      [5, 3, 2],
     ]);
   });
 
@@ -111,6 +119,7 @@ describe("cancelActiveReviews (PR close)", () => {
               source: "auto",
               head_sha: "sha-a",
               created_at: "2026-01-01T00:00:02Z",
+              execution_epoch: 4,
             },
           ],
         };
@@ -135,7 +144,42 @@ describe("cancelActiveReviews (PR close)", () => {
       "acme/app#7",
       "review",
       ["queued-auto"],
+      [4],
     ]);
+  });
+
+  it("skips the lease release when every cancelled row has an unknown epoch", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("status = 'queued'")) {
+        return {
+          rows: [
+            {
+              id: "queued-unknown",
+              source: "auto",
+              head_sha: "sha-a",
+              created_at: "2026-01-01T00:00:01Z",
+              execution_epoch: 0,
+            },
+          ],
+        };
+      }
+      if (sql.includes("status = 'running'")) {
+        return { rows: [] };
+      }
+      if (sql.includes("pr_actor_leases")) return { rows: [] };
+      throw new Error(`unexpected sql: ${sql}`);
+    });
+    const client = { query } as unknown as PoolClient;
+
+    const cancelled = await cancelActiveReviews(client, "acme/app#7", closedAttribution);
+
+    // Pre-fix rows (execution_epoch 0) and never-acquired queued items fail
+    // closed: no lease UPDATE, expiry plus the watchdog recover within TTL.
+    expect(cancelled.map((row) => row.id)).toEqual(["queued-unknown"]);
+    expect(query).toHaveBeenCalledTimes(2);
+    expect(query.mock.calls.some((call) => String(call[0]).includes("pr_actor_leases"))).toBe(
+      false,
+    );
   });
 });
 

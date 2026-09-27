@@ -89,24 +89,45 @@ export async function renewPrActorLease(
   return (result.rowCount ?? 0) > 0;
 }
 
+export type PrActorLeaseHolder = {
+  readonly workItemId: string;
+  /** Lease epoch recorded on the work item row at claim time; unknowns never reach here. */
+  readonly leaseEpoch: number;
+};
+
 /**
- * Intake cancel knows the work item ids, not the epoch. Clear those holders in
- * place so a replacement can acquire without waiting for cooperative release or TTL.
+ * Intake cancel knows the cancelled work item ids and the lease epoch each one
+ * recorded at claim time. Clear only exact (id, epoch) pairs so a predecessor
+ * cancel never clears a newer epoch when a replacement reuses a cancelled
+ * identifier. Empty holders skip the UPDATE entirely (fail closed): expiry and
+ * the lease watchdog recover the holder within TTL. Never pass unknown epochs
+ * (`0`/NULL from pre-fix rows or never-acquired queued items) — the caller
+ * filters those before building pairs.
  */
 export async function releasePrActorLeaseHeldByWorkItems(
   db: Pool | PoolClient,
-  params: PrActorLeaseKey & { readonly workItemIds: readonly string[] },
+  params: PrActorLeaseKey & { readonly holders: readonly PrActorLeaseHolder[] },
 ): Promise<void> {
-  if (params.workItemIds.length === 0) return;
+  if (params.holders.length === 0) return;
   await db.query(
-    `UPDATE pr_actor_leases
+    `UPDATE pr_actor_leases AS l
         SET work_item_id = NULL,
             holder_id = NULL,
             expires_at = now()
-      WHERE resource_key = $1
-        AND work_type = $2
-        AND work_item_id = ANY($3::uuid[])`,
-    [params.resourceKey, params.workType, params.workItemIds],
+      WHERE l.resource_key = $1
+        AND l.work_type = $2
+        AND EXISTS (
+          SELECT 1
+            FROM unnest($3::uuid[], $4::bigint[]) AS p(id, epoch)
+           WHERE p.id = l.work_item_id
+             AND p.epoch = l.lease_epoch
+        )`,
+    [
+      params.resourceKey,
+      params.workType,
+      params.holders.map((holder) => holder.workItemId),
+      params.holders.map((holder) => holder.leaseEpoch),
+    ],
   );
 }
 

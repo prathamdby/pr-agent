@@ -502,7 +502,11 @@ export async function acquireAndClaimWorkItem<T extends WorkType>(params: {
       // so a deadlock retry still owns renewal and release on success.
       let claimed: WorkClaim | null;
       try {
-        claimed = await claimWorkForExecution(client, params.core.id);
+        // Record the acquired epoch on the item row in the same statement:
+        // intake cancel reads these per-item epochs to build exact (id, epoch)
+        // release pairs, so a predecessor cancel never clears a newer epoch
+        // under id reuse. Pre-fix rows keep execution_epoch = 0 (unknown).
+        claimed = await claimWorkForExecution(client, params.core.id, acquisition.leaseEpoch);
       } catch (error) {
         await releasePrActorLease(client, {
           ...params.leaseKey,
