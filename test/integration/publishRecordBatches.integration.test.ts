@@ -5,6 +5,11 @@ import {
   loadReviewExecutorPublishContext,
   recordPublishStep,
 } from "../../src/agentWork/repository.js";
+import {
+  runInOperationIntentFrame,
+  withOperationIntent,
+} from "../../src/agentWork/withOperationIntent.js";
+import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
@@ -20,7 +25,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
     await pool.end();
   });
 
-  it("appends each batch once in the shared inline review row", async () => {
+  it("publishes distinct nested batches and records each once across retries", async () => {
     const workItemId = randomUUID();
     const resourceKey = `integration/publish-batches#${randomUUID()}`;
     await pool.query(
@@ -31,11 +36,49 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
     );
 
     try {
+      const { surface, controls } = createFakePrSurface(
+        { owner: "o", repo: "r", prNumber: 1 },
+        {
+          mutationBoundary: {
+            signal: new AbortController().signal,
+            run: (mutation, mutate) =>
+              withOperationIntent({
+                client: pool,
+                workItemId,
+                operationKey: mutation.operationKey,
+                mutationKind: mutation.mutationKind,
+                detail: mutation.detail,
+                mutate,
+              }),
+          },
+        },
+      );
+      const publish = (body: string) =>
+        runInOperationIntentFrame("review:publish", () =>
+          surface.publishThreadBatch({ body, event: "COMMENT", commitId: "abc1234" }),
+        );
+      const first = await publish("correctness findings");
+      const second = await publish("security findings");
+      expect(await publish("correctness findings")).toEqual(first);
+      expect(await publish("security findings")).toEqual(second);
+      expect(first.reviewId).not.toBe(second.reviewId);
+      expect(controls.threadBatches.map((batch) => batch.body)).toEqual([
+        "correctness findings",
+        "security findings",
+      ]);
+      const intents = await pool.query<{ operation_key: string; status: string }>(
+        "SELECT operation_key, status FROM operation_intents WHERE work_item_id = $1",
+        [workItemId],
+      );
+      expect(intents.rows).toHaveLength(2);
+      expect(new Set(intents.rows.map((intent) => intent.operation_key)).size).toBe(2);
+      expect(intents.rows.map((intent) => intent.status)).toEqual(["reconciled", "reconciled"]);
+
       const firstBatch = {
         batchId: "batch-1",
         workItemId,
         specialist: "correctness",
-        reviewId: 41,
+        reviewId: first.reviewId,
         fingerprints: ["fp-1"],
         placements: [
           {
@@ -57,7 +100,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         batchId: "batch-2",
         workItemId,
         specialist: "security",
-        reviewId: 42,
+        reviewId: second.reviewId,
         fingerprints: ["fp-2"],
         placements: [],
       };
@@ -95,7 +138,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       );
       expect(result.rows).toEqual([
         {
-          github_id: "42",
+          github_id: String(second.reviewId),
           detail: { batches: [firstBatch, secondBatch] },
         },
       ]);
@@ -105,7 +148,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         resourceKey,
         "review",
       );
-      expect(context.publishState.inlineReviewIds).toEqual([41, 42]);
+      expect(context.publishState.inlineReviewIds).toEqual([first.reviewId, second.reviewId]);
       expect(context.publishState.threadCallCount).toBe(2);
       expect(context.storedInlineFingerprints.toSorted()).toEqual(["fp-1", "fp-2", "fp-legacy"]);
       expect(context.resumedPlacements).toEqual([
@@ -118,7 +161,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
             inlinePosted: true,
           },
           canonicalFingerprint: "fp-1",
-          reviewId: 41,
+          reviewId: first.reviewId,
         },
       ]);
     } finally {
