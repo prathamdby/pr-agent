@@ -1,0 +1,14 @@
+{
+  "no-unsafe-type-assertion": {
+    "count": 0,
+    "scope": "src/**"
+  },
+  "no-console": {
+    "count": 1,
+    "scope": "src/**"
+  },
+  "escape-calls": {
+    "count": 0,
+    "scope": "src/**"
+  }
+}
