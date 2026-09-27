@@ -66,6 +66,7 @@ import {
   type RetryDisposition,
 } from "./retryPolicy.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
+import { inTransaction } from "../db/postgres.js";
 import { installationGroupId, isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
@@ -447,8 +448,10 @@ type AtomicClaimResult =
  * epoch inside the same transaction. Intake cancel takes the opposite lock
  * order (item rows, then lease), so retry once on Postgres deadlock (`40P01`):
  * the retry re-reads the cancelled row and takes the claim-null path.
+ * Test seam surface: integration tests drive this entry directly with a real
+ * transaction to prove the atomic pair rolls back or commits together.
  */
-async function acquireAndClaimWorkItem<T extends WorkType>(params: {
+export async function acquireAndClaimWorkItem<T extends WorkType>(params: {
   readonly pool: Pool;
   readonly boss: DurableJobSpec<T>["boss"];
   readonly queue: string;
@@ -457,18 +460,17 @@ async function acquireAndClaimWorkItem<T extends WorkType>(params: {
   readonly ttlSeconds: number;
   readonly priority?: number;
   readonly seededLiveHop: boolean;
-  /** Test seam: run the acquire+claim body against this client instead of a real transaction. */
-  readonly transact?: <R>(fn: (client: PoolClient) => Promise<R>) => Promise<R>;
   /**
-   * Called with the named epoch when the claim body throws after a successful
-   * acquire, so the caller can clear it (mocked tx bodies commit nothing).
+   * Test seam: run the acquire+claim body against this client instead of a real
+   * transaction. Unit tests pass a passthrough (their pool is a `{}` stub with
+   * mocked repositories); integration tests drive this entry with a real tx or
+   * omit the seam for the production default. Production callers omit it.
    */
-  readonly onAcquiredClaimError?: (leaseEpoch: number) => Promise<void>;
+  readonly transact?: <R>(fn: (client: PoolClient) => Promise<R>) => Promise<R>;
 }): Promise<AtomicClaimResult> {
-  // Unit-test pools are `{}` stubs with mocked repositories: run the body
-  // against the pool object itself (mocked acquire/claim/release ignore the
-  // client argument), and rely on explicit transactForTest in integration.
-  const transact = params.transact ?? ((fn) => fn(params.pool as unknown as PoolClient));
+  // Production default is a real transaction: acquire and claim commit or roll
+  // back together.
+  const transact = params.transact ?? ((fn) => inTransaction(params.pool, fn));
   const attempt = async (): Promise<AtomicClaimResult> =>
     transact(async (client) => {
       const acquisition = await acquirePrActorLease(client, {
@@ -493,11 +495,19 @@ async function acquireAndClaimWorkItem<T extends WorkType>(params: {
         }
         return acquisition;
       }
+      // A throw here rolls the whole transaction back, so the just-acquired
+      // epoch never commits. Release it on the client anyway: inside a real tx
+      // this is a harmless no-op under rollback, and under a mocked passthrough
+      // body it clears the named epoch — without touching outer runner state,
+      // so a deadlock retry still owns renewal and release on success.
       let claimed: WorkClaim | null;
       try {
         claimed = await claimWorkForExecution(client, params.core.id);
       } catch (error) {
-        await params.onAcquiredClaimError?.(acquisition.leaseEpoch);
+        await releasePrActorLease(client, {
+          ...params.leaseKey,
+          leaseEpoch: acquisition.leaseEpoch,
+        });
         throw error;
       }
       if (!claimed) {
@@ -704,11 +714,6 @@ export async function runDurableWorkItem<T extends WorkType>(
       priority: spec.job.priority,
       seededLiveHop,
       transact: spec.transactForTest,
-      onAcquiredClaimError: async (epoch) => {
-        leaseEpoch = epoch;
-        await releaseLeaseQuietly();
-        leaseEpoch = null;
-      },
     });
     if (atomic == null) return;
     if (!atomic.acquired) {

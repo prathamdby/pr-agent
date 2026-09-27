@@ -15,6 +15,7 @@ import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js
 import { makeTestConfig } from "./helpers/config.js";
 import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
+import type { PoolClient } from "pg";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
@@ -156,6 +157,9 @@ function runReviewWorkItem(
     type: "review",
     prActorLease: { queue: "agent-work-review" },
     resolveHeadSha: async () => ({ headSha: "x" }),
+    // Unit pool is a `{}` stub with mocked repositories: run the atomic body
+    // without a real transaction (mocked acquire/claim/release ignore it).
+    transactForTest: async (fn) => fn(pool as unknown as PoolClient),
     ...overrides,
   });
 }
@@ -644,6 +648,69 @@ describe("runDurableWorkItem", () => {
       leaseEpoch: 1,
     });
     await expectNoFurtherLeaseRenewal();
+  });
+
+  it("sends one hop total when the seed already armed a live hop", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
+      acquired: false,
+      heldByWorkItemId: "wi-other",
+      leaseEpoch: 7,
+    });
+    // Seed send succeeds (returns a hop id): failed-acquire skips its send.
+    vi.mocked(boss.send).mockResolvedValue("seed-hop");
+    const execute = vi.fn();
+
+    await runReviewWorkItem({ execute });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    // Seed (warn-and-proceed) armed the hop; the failed-acquire branch skips
+    // its second send, so one send per cycle.
+    expect(vi.mocked(boss.send)).toHaveBeenCalledTimes(1);
+    expect(prActorLease.releasePrActorLease).not.toHaveBeenCalled();
+  });
+
+  it("re-arms strictly when the seed armed no live hop", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
+      acquired: false,
+      heldByWorkItemId: "wi-other",
+      leaseEpoch: 7,
+    });
+    vi.mocked(boss.send).mockResolvedValue(null);
+    vi.mocked(boss.findJobs)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([{ id: "hop-1", state: "created" }] as never);
+    const execute = vi.fn();
+
+    await runReviewWorkItem({ execute });
+
+    expect(execute).not.toHaveBeenCalled();
+    // Seed found no live hop, failed-acquire re-armed strictly: two sends.
+    expect(vi.mocked(boss.send)).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases the named epoch on the client when claim rejects after acquire", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    const claimError = new Error("claim unavailable");
+    vi.mocked(repo.claimWorkForExecution).mockRejectedValue(claimError);
+    const execute = vi.fn();
+
+    await expect(runReviewWorkItem({ execute })).rejects.toBe(claimError);
+
+    expect(execute).not.toHaveBeenCalled();
+    // In-tx release on the client: outer runner state untouched, so a
+    // deadlock retry would still own renewal and release on success.
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledTimes(1);
+    expect(prActorLease.releasePrActorLease).toHaveBeenCalledWith(pool, {
+      resourceKey: item.resourceKey,
+      workType: "review",
+      leaseEpoch: 1,
+    });
   });
 
   it("releases the owned epoch and stops renewal when payload read rejects", async () => {

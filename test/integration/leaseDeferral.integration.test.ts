@@ -11,6 +11,7 @@ import {
   PR_ACTOR_LEASE_DEFER_SECONDS,
   releasePrActorLease,
 } from "../../src/agentWork/prActorLease.js";
+import { acquireAndClaimWorkItem } from "../../src/agentWork/durableJob.js";
 import { claimWorkForExecution } from "../../src/agentWork/repository.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -207,24 +208,33 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       [first, resourceKey],
     );
     try {
-      // Simulate the named crash: acquire commits, the process dies before claim.
-      // The atomic shape under test rolls the pair back instead: emulate it by
-      // running acquire in a transaction and rolling back.
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        const acquired = await acquirePrActorLease(client, {
-          resourceKey,
-          workType: "review",
-          workItemId: first,
-          holderId: "deferral-it-holder",
+      // Drive the production entry (real transaction, no seam) with a fault
+      // injected between acquire and claim: the pair must roll back together,
+      // never parking a held lease on the queued row.
+      const coreRow = await pool.query(
+        `SELECT id FROM agent_work_items WHERE id = $1`,
+        [first],
+      );
+      expect(coreRow.rowCount).toBe(1);
+      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const core = await getWorkItemCore(pool, first);
+      if (core == null || core.type !== "review") throw new Error("missing review core");
+      await expect(
+        acquireAndClaimWorkItem({
+          pool,
+          boss,
+          queue: REVIEW_QUEUE,
+          leaseKey: { resourceKey, workType: "review" },
+          core,
           ttlSeconds: 900,
-        });
-        expect(acquired.acquired).toBe(true);
-        await client.query("ROLLBACK");
-      } finally {
-        client.release();
-      }
+          seededLiveHop: true,
+          transact: async (fn) =>
+            inTransaction(pool, async (client) => {
+              await fn(client);
+              throw new Error("fault between acquire and claim");
+            }),
+        }),
+      ).rejects.toThrow("fault between acquire and claim");
       // No parked lease: the row is still queued and the lease is free, so a
       // successor acquires immediately with no TTL wait.
       const successor = await acquirePrActorLease(pool, {
@@ -282,6 +292,128 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       );
       expect(rows[0]?.status).toBe("running");
       await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch: 1 });
+      const freed = await pool.query<{ work_item_id: string | null }>(
+        `SELECT work_item_id FROM pr_actor_leases WHERE resource_key = $1 AND work_type = 'review'`,
+        [resourceKey],
+      );
+      expect(freed.rows[0]?.work_item_id).toBeNull();
+    } finally {
+      await pool.query(`DELETE FROM agent_work_items WHERE id = $1`, [id]);
+      await pool.query(`DELETE FROM pr_actor_leases WHERE resource_key = $1`, [resourceKey]);
+    }
+  });
+
+  it("rolls back a claim throw after acquire inside a real transaction", async () => {
+    const resourceKey = `lease-it/claim-throw-${randomUUID().slice(0, 8)}#1`;
+    const id = randomUUID();
+    const successorId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES (
+         $1, 'review', 'auto', 'queued', 'lease-it', 'r', 1, 1, 'h', 'review', $2,
+         '{"mode":"review","source":"auto"}'::jsonb
+       )`,
+      [id, resourceKey],
+    );
+    try {
+      // Claim throws after a good acquire inside the real transaction: the
+      // pair rolls back, so no partial commit parks a held lease.
+      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const core = await getWorkItemCore(pool, id);
+      if (core == null || core.type !== "review") throw new Error("missing review core");
+      await expect(
+        acquireAndClaimWorkItem({
+          pool,
+          boss,
+          queue: REVIEW_QUEUE,
+          leaseKey: { resourceKey, workType: "review" },
+          core,
+          ttlSeconds: 900,
+          seededLiveHop: true,
+          transact: async (_fn) =>
+            inTransaction(pool, async (client) => {
+              const acquisition = await acquirePrActorLease(client, {
+                resourceKey,
+                workType: "review",
+                workItemId: id,
+                holderId: "deferral-it-holder",
+                ttlSeconds: 900,
+              });
+              expect(acquisition.acquired).toBe(true);
+              throw new Error("claim fault after acquire");
+            }),
+        }),
+      ).rejects.toThrow("claim fault after acquire");
+      const successor = await acquirePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        workItemId: successorId,
+        holderId: "deferral-it-successor",
+        ttlSeconds: 900,
+      });
+      expect(successor).toEqual({ acquired: true, leaseEpoch: 1 });
+      const { rows } = await pool.query<{ status: string }>(
+        `SELECT status FROM agent_work_items WHERE id = $1`,
+        [id],
+      );
+      expect(rows[0]?.status).toBe("queued");
+    } finally {
+      await pool.query(`DELETE FROM agent_work_items WHERE id = $1`, [id]);
+      await pool.query(`DELETE FROM pr_actor_leases WHERE resource_key = $1`, [resourceKey]);
+    }
+  });
+
+  it("retries once on deadlock and takes the claim-null release path", async () => {
+    const resourceKey = `lease-it/deadlock-${randomUUID().slice(0, 8)}#1`;
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES (
+         $1, 'review', 'auto', 'cancelled', 'lease-it', 'r', 1, 1, 'h', 'review', $2,
+         '{"mode":"review","source":"auto"}'::jsonb
+       )`,
+      [id, resourceKey],
+    );
+    try {
+      // Intake cancel already terminalized the row; the first attempt throws
+      // 40P01, so the retry must re-read the cancelled row, claim-null, and
+      // free the just-acquired epoch in-tx.
+      const { getWorkItemCore: getCore } = await import("../../src/agentWork/repository.js");
+      const core = await getCore(pool, id);
+      if (core == null || core.type !== "review") throw new Error("missing review core");
+      let attempts = 0;
+      const result = await acquireAndClaimWorkItem({
+        pool,
+        boss,
+        queue: REVIEW_QUEUE,
+        leaseKey: { resourceKey, workType: "review" },
+        core,
+        ttlSeconds: 900,
+        seededLiveHop: true,
+        transact: (fn) =>
+          inTransaction(pool, async (client) => {
+            attempts += 1;
+            if (attempts === 1) {
+              await acquirePrActorLease(client, {
+                resourceKey,
+                workType: "review",
+                workItemId: id,
+                holderId: "deferral-it-holder",
+                ttlSeconds: 900,
+              });
+              throw Object.assign(new Error("deadlock detected"), { code: "40P01" });
+            }
+            return fn(client);
+          }),
+      });
+      expect(result).toBeNull();
+      expect(attempts).toBe(2);
       const freed = await pool.query<{ work_item_id: string | null }>(
         `SELECT work_item_id FROM pr_actor_leases WHERE resource_key = $1 AND work_type = 'review'`,
         [resourceKey],
