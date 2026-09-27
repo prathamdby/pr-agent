@@ -1,6 +1,6 @@
 import os from "node:os";
 import type { JobWithMetadata } from "pg-boss";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import {
@@ -44,8 +44,8 @@ import {
 } from "./repository.js";
 import {
   acquirePrActorLease,
+  armLeaseWatchdogHop,
   isPrActorLeaseHeld,
-  PR_ACTOR_LEASE_DEFER_SECONDS,
   releasePrActorLease,
   renewPrActorLease,
   type PrActorLeaseKey,
@@ -291,6 +291,11 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
    * retry acquisition until the lease frees or lapses.
    */
   readonly prActorLease?: { readonly queue: string };
+  /**
+   * Test seam: run the atomic acquire-and-claim body against this client
+   * instead of opening a real transaction. Production callers omit it.
+   */
+  readonly transactForTest?: <R>(fn: (client: PoolClient) => Promise<R>) => Promise<R>;
   readonly acceptItem?: (item: Extract<AgentWorkItemCore, { type: T }>) => boolean;
   readonly resolveHeadSha: (
     prSurface: PrSurface,
@@ -422,6 +427,104 @@ function enterExecutingPhase(state: WorkItemPhaseState): void {
 
 function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
   return state.phase === "executing";
+}
+
+type AtomicClaimResult =
+  | { readonly acquired: true; readonly leaseEpoch: number; readonly claimed: WorkClaim }
+  | {
+      readonly acquired: false;
+      readonly heldByWorkItemId: string | null;
+      readonly leaseEpoch: number;
+    }
+  | null;
+
+/**
+ * Acquire the PR actor lease and claim the work item in one transaction, so a
+ * crash between acquire and claim can never park a held lease on a queued row.
+ * Either both commit (holder owns running work under the seeded watchdog chain)
+ * or neither does (crashed delivery holds nothing; the next delivery acquires
+ * immediately). A claim-null (cancel/terminal race) clears the just-acquired
+ * epoch inside the same transaction. Intake cancel takes the opposite lock
+ * order (item rows, then lease), so retry once on Postgres deadlock (`40P01`):
+ * the retry re-reads the cancelled row and takes the claim-null path.
+ */
+async function acquireAndClaimWorkItem<T extends WorkType>(params: {
+  readonly pool: Pool;
+  readonly boss: DurableJobSpec<T>["boss"];
+  readonly queue: string;
+  readonly leaseKey: PrActorLeaseKey;
+  readonly core: Extract<AgentWorkItemCore, { type: T }>;
+  readonly ttlSeconds: number;
+  readonly priority?: number;
+  readonly seededLiveHop: boolean;
+  /** Test seam: run the acquire+claim body against this client instead of a real transaction. */
+  readonly transact?: <R>(fn: (client: PoolClient) => Promise<R>) => Promise<R>;
+  /**
+   * Called with the named epoch when the claim body throws after a successful
+   * acquire, so the caller can clear it (mocked tx bodies commit nothing).
+   */
+  readonly onAcquiredClaimError?: (leaseEpoch: number) => Promise<void>;
+}): Promise<AtomicClaimResult> {
+  // Unit-test pools are `{}` stubs with mocked repositories: run the body
+  // against the pool object itself (mocked acquire/claim/release ignore the
+  // client argument), and rely on explicit transactForTest in integration.
+  const transact = params.transact ?? ((fn) => fn(params.pool as unknown as PoolClient));
+  const attempt = async (): Promise<AtomicClaimResult> =>
+    transact(async (client) => {
+      const acquisition = await acquirePrActorLease(client, {
+        ...params.leaseKey,
+        workItemId: params.core.id,
+        holderId: leaseHolderId,
+        ttlSeconds: params.ttlSeconds,
+      });
+      if (!acquisition.acquired) {
+        // Single send per cycle: skip the re-arm when the pre-tx seed just
+        // armed a live hop; otherwise arm strictly as before.
+        if (!params.seededLiveHop) {
+          await armLeaseWatchdogHop(params.boss, {
+            queue: params.queue,
+            data: { workItemId: params.core.id },
+            singletonKey: params.core.id,
+            priority: params.priority,
+            groupId: installationGroupId(params.core.installationId),
+            workItemId: params.core.id,
+            onSendFailure: "throw",
+          });
+        }
+        return acquisition;
+      }
+      let claimed: WorkClaim | null;
+      try {
+        claimed = await claimWorkForExecution(client, params.core.id);
+      } catch (error) {
+        await params.onAcquiredClaimError?.(acquisition.leaseEpoch);
+        throw error;
+      }
+      if (!claimed) {
+        await releasePrActorLease(client, {
+          ...params.leaseKey,
+          leaseEpoch: acquisition.leaseEpoch,
+        });
+        return null;
+      }
+      return { ...acquisition, claimed };
+    });
+  try {
+    return await attempt();
+  } catch (error) {
+    if (isPostgresDeadlockError(error)) return attempt();
+    throw error;
+  }
+}
+
+function isPostgresDeadlockError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    error.code === "40P01"
+  );
 }
 
 /**
@@ -559,57 +662,67 @@ export async function runDurableWorkItem<T extends WorkType>(
     await markCancelledAndInvokeHook(core, "job_aborted_before_claim");
     return;
   }
-  // Acquire before claiming: a waiting item stays queued so queue-rank display and
-  // stale-queued diagnostics keep their meaning, and only the lease holder flips
-  // the row to running.
+  // Acquire atomically with the claim: a waiting item stays queued so queue-rank
+  // display and stale-queued diagnostics keep their meaning, and only the lease
+  // holder flips the row to running — in the same transaction, so a crash
+  // between acquire and claim can never park a held lease on a queued row.
+  // A pre-commit crash rolls back: the row stays queued and the lease stays
+  // free, so the next delivery acquires immediately with no TTL wait.
+  // A post-commit crash is running-with-held-lease under the seeded chain.
   if (spec.prActorLease) {
     leaseKey = { resourceKey: core.resourceKey, workType: spec.type };
-    const acquisition = await acquirePrActorLease(spec.pool, {
-      ...leaseKey,
-      workItemId: core.id,
-      holderId: leaseHolderId,
-      ttlSeconds: spec.cfg.prActorLeaseTtlSeconds,
-    });
-    if (!acquisition.acquired) {
-      // Every failed acquire arms one watchdog hop, self-held included: after a crash the
-      // redelivery finds its own lease mid-TTL, and this chain steals it once it lapses.
-      // singletonSeconds dedups pending copies per slot; singletonNextSlot lands the re-arm
-      // past the firing copy's own row, which outlives completion (job_i4 covers all
-      // non-cancelled states). findJobs queued:true is only created/retry, so a null send
-      // still looks at created/active/retry before throwing. An active hop is live.
-      const hopId = await spec.boss.send(spec.prActorLease.queue, spec.job.data, {
+    // Seed one throttled watchdog hop before the transaction so any crash that
+    // commits a held lease always has a chain to steal it after TTL.
+    // Best-effort: a pg-boss send failure never blocks a holder whose lease is
+    // free (TTL backstops it).
+    let seededLiveHop = false;
+    try {
+      const seed = await armLeaseWatchdogHop(spec.boss, {
+        queue: spec.prActorLease.queue,
+        data: spec.job.data,
         singletonKey: core.id,
-        singletonSeconds: PR_ACTOR_LEASE_DEFER_SECONDS,
-        singletonNextSlot: true,
-        startAfter: PR_ACTOR_LEASE_DEFER_SECONDS,
         priority: spec.job.priority,
-        group: { id: installationGroupId(core.installationId) },
+        groupId: installationGroupId(core.installationId),
+        workItemId: core.id,
+        onSendFailure: "warn-and-proceed",
       });
-      if (hopId == null) {
-        const hops = await spec.boss.findJobs(spec.prActorLease.queue, {
-          key: core.id,
-        });
-        const liveHop = hops.some(
-          (job) => job.state === "created" || job.state === "active" || job.state === "retry",
-        );
-        if (!liveHop) {
-          throw new AppError({
-            code: "agent_work.lease_watchdog_arm_failed",
-            message: `pg-boss did not enqueue a lease deferral for work item ${core.id}`,
-            context: { workItemId: core.id, queue: spec.prActorLease.queue },
-          });
-        }
-      }
+      seededLiveHop = seed.liveHop;
+    } catch (error) {
+      logWarn("agent_work_lease_watchdog_seed_failed", {
+        type: spec.type,
+        workItemId: core.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    const atomic = await acquireAndClaimWorkItem({
+      pool: spec.pool,
+      boss: spec.boss,
+      queue: spec.prActorLease.queue,
+      leaseKey,
+      core,
+      ttlSeconds: spec.cfg.prActorLeaseTtlSeconds,
+      priority: spec.job.priority,
+      seededLiveHop,
+      transact: spec.transactForTest,
+      onAcquiredClaimError: async (epoch) => {
+        leaseEpoch = epoch;
+        await releaseLeaseQuietly();
+        leaseEpoch = null;
+      },
+    });
+    if (atomic == null) return;
+    if (!atomic.acquired) {
       logInfo("pr_actor_lease_unavailable", {
         type: spec.type,
         workItemId: core.id,
         resourceKey: core.resourceKey,
-        heldByWorkItemId: acquisition.heldByWorkItemId,
-        leaseEpoch: acquisition.leaseEpoch,
+        heldByWorkItemId: atomic.heldByWorkItemId,
+        leaseEpoch: atomic.leaseEpoch,
       });
       return;
     }
-    leaseEpoch = acquisition.leaseEpoch;
+    leaseEpoch = atomic.leaseEpoch;
+    workClaim = atomic.claimed;
     leaseAbortController = new AbortController();
     executionSignal = combineAbortSignals(jobSignal, leaseAbortController.signal);
     stopLeaseRenewal = startLeaseRenewal(spec.pool, spec.cfg, leaseKey, core.id, leaseEpoch, () => {
@@ -624,7 +737,9 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   try {
-    const claimed = await claimWorkForExecution(spec.pool, core.id);
+    // Leased items already claimed atomically above; unleased types claim here.
+    const leasedClaim = spec.prActorLease ? workClaim : undefined;
+    const claimed = leasedClaim ?? (await claimWorkForExecution(spec.pool, core.id));
     if (!claimed) {
       return;
     }
