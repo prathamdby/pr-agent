@@ -207,11 +207,15 @@
     min-height: 100svh;
     background: var(--color-bg);
     color: var(--color-text);
+    text-wrap: pretty;
   }
 
   h1,
   h2,
-  h3 {
+  h3,
+  h4,
+  h5,
+  h6 {
     text-wrap: balance;
   }
 
