@@ -20,10 +20,13 @@ Before every push, run the backend check job from [`.github/workflows/ci.yml`](.
 ```bash
 nub run check:effect-versions
 nub run check:prod-deps
+nub run check:guards
 nub run check:code
 nub run test
 nub run build
 ```
+
+A red check is a finding about your code. Never weaken a rule, delete a lock, or grow a baseline count to merge.
 
 Done when every command exits 0. Format with `nub run fmt` if `fmt:check` fails. Prefer `DATABASE_URL=... nub run test:integration` (or a live-stack E2E run when one exists) as behavior proof before push. Run integration whenever the change touches durable work, webhooks, or DB paths.
 

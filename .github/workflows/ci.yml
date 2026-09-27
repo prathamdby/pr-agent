@@ -65,6 +65,7 @@ jobs:
       - run: nub ci --filter pr-agent... --filter pr-agent-landing...
       - run: nub run check:effect-versions
       - run: nub run check:prod-deps
+      - run: nub run check:guards
       - run: nub run check:code
       - run: nub run test
       - run: nub run build
