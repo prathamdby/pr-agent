@@ -11,6 +11,8 @@ import {
   releasePrActorLeaseHeldByWorkItems,
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
+import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.js";
+import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
 import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
 import { cancelActiveReviews } from "../../src/agentWork/intake/workItemRepository.js";
 import {
@@ -409,6 +411,104 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     ).resolves.toBe(true);
     await expect(assertPrActorLeaseHeld(pool, workItemId, 2)).resolves.toBeUndefined();
     await expect(isPrActorLeaseHeld(pool, workItemId, 2)).resolves.toBe(true);
+  });
+
+  describe("catch-path operation intent (#656)", () => {
+    const OPERATION_KEY = "review:summary:lease-it";
+
+    type IntentSnapshot = {
+      readonly status: string;
+      readonly detail: Record<string, unknown>;
+      readonly lease_epoch: string | number | null;
+      readonly updated_at: string;
+    };
+
+    async function snapshotIntent(workItemId: string): Promise<IntentSnapshot> {
+      // updated_at::text keeps microsecond precision; a Date would round to ms.
+      const { rows } = await pool.query<IntentSnapshot>(
+        `SELECT status, detail, lease_epoch, updated_at::text AS updated_at
+           FROM operation_intents
+          WHERE work_item_id = $1 AND operation_key = $2`,
+        [workItemId, OPERATION_KEY],
+      );
+      const row = rows[0];
+      if (!row) throw new Error("missing operation_intents row");
+      return row;
+    }
+
+    function gatewayError(): Error {
+      return Object.assign(new Error("bad gateway"), { status: 503 });
+    }
+
+    async function acquireLive(resourceKey: string) {
+      const workItemId = await insertRunningWorkItem(resourceKey);
+      const acquisition = await acquire(resourceKey, workItemId);
+      if (!acquisition.acquired) throw new Error("expected acquisition to succeed");
+      return { workItemId, epoch: acquisition.leaseEpoch };
+    }
+
+    it("refuses the recovery persist after a watchdog steal, with no write and no recover", async () => {
+      const resourceKey = `${OWNER}/catch-stale-${randomUUID().slice(0, 8)}#1`;
+      const { workItemId, epoch } = await acquireLive(resourceKey);
+      const recover = vi.fn(async () => ({ kind: "absent" as const }));
+      let beforeCatch: IntentSnapshot | undefined;
+
+      await expect(
+        withOperationIntent({
+          client: pool,
+          workItemId,
+          operationKey: OPERATION_KEY,
+          mutationKind: "review_summary",
+          leaseEpoch: epoch,
+          recover,
+          mutate: async () => {
+            await pool.query(
+              `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
+                WHERE resource_key = $1 AND work_type = 'review'`,
+              [resourceKey],
+            );
+            await expect(acquire(resourceKey, workItemId)).resolves.toEqual({
+              acquired: true,
+              leaseEpoch: epoch + 1,
+            });
+            beforeCatch = await snapshotIntent(workItemId);
+            throw gatewayError();
+          },
+        }),
+      ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+
+      expect(recover).not.toHaveBeenCalled();
+      expect(beforeCatch).toMatchObject({
+        status: "pending",
+        detail: { __mutating: true },
+        lease_epoch: String(epoch),
+      });
+      expect(await snapshotIntent(workItemId)).toEqual(beforeCatch);
+    });
+
+    it("still recovers by exact evidence while the lease is held", async () => {
+      const resourceKey = `${OWNER}/catch-live-${randomUUID().slice(0, 8)}#1`;
+      const { workItemId, epoch } = await acquireLive(resourceKey);
+      const recover = vi.fn(async (_intent: OperationIntentRow) => ({ kind: "absent" as const }));
+
+      await expect(
+        withOperationIntent({
+          client: pool,
+          workItemId,
+          operationKey: OPERATION_KEY,
+          mutationKind: "review_summary",
+          leaseEpoch: epoch,
+          recover,
+          mutate: async () => {
+            throw gatewayError();
+          },
+        }),
+      ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+
+      expect(recover).toHaveBeenCalledTimes(1);
+      expect(recover.mock.calls[0]?.[0].detail.__mutating).toBe(true);
+      expect((await snapshotIntent(workItemId)).status).toBe("outcome_unknown");
+    });
   });
 
   it("clears the holder on an exact (id, epoch) match and skips unknown epochs", async () => {
