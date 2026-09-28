@@ -152,9 +152,10 @@ export function renderSynthesisTurn(params: {
 }): string {
   return [
     "Synthesize the final pull request review.",
-    "Use accepted placements below as the sole source of review findings. Do not add findings from raw specialist reports, remove accepted findings, change their severity, or relocate them.",
+    "Use accepted placements below as the sole source of review findings. An empty placement list is a valid review: zero findings to publish. Do not add findings from raw specialist reports, remove accepted findings, change their severity, or relocate them. Do not invent findings to fill an empty list.",
     "`execute` may still run to confirm a placement. It cannot invent findings.",
     "The server writes the summary action line from finding count, CI, and specialist coverage. Carry partial coverage only as accepted evidence; do not add a coverage note or a PR overview.",
+    "Size, mergeability, and blastRadius are still required on every summary, including a zero-findings review: assess the change set itself for scale, reversibility, and impact if wrong.",
     "Call `publish_summary` exactly once. Do not call `publish_thread` in this turn.",
     "",
     "<accepted_placements>",

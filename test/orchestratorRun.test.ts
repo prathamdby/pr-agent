@@ -1705,19 +1705,43 @@ describe("runOrchestratedPrReview", () => {
     await run;
   });
 
-  it("skips synthesis when the accepted ledger is empty", async () => {
+  it("runs synthesis for a zero-findings review so gates stay model-authored", async () => {
     const run = runOrchestratedPrReview(params());
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
     }
 
-    await expect(run).resolves.toMatchObject({ published: true });
-    // Proves orchestratorRun.ts synthesis gate requires accepted.length > 0:
-    // empty ledger goes deterministic directly without spending a synthesis turn.
+    const result = await run;
+    expect(result).toMatchObject({ published: true, publishAttempts: 0 });
+    // Guard-removal proof: an empty ledger still spends the summary turn, so
+    // Size, Mergeability, and Blast Radius are model-authored instead of the
+    // deterministic `Not assessed.` fallback.
     expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
-      false,
+      true,
+    );
+    const synthesisPrompt = testState.sentPrompts.find((prompt) =>
+      prompt.includes("Synthesize the final"),
+    );
+    expect(synthesisPrompt).toContain("empty placement list is a valid review");
+    expect(synthesisPrompt).toContain("Do not invent findings");
+    expect(synthesisPrompt).toContain("still required on every summary");
+    expect(testState.deterministicSummaries).toHaveLength(0);
+  });
+
+  it("falls back to a deterministic summary when zero-findings synthesis never publishes", async () => {
+    testState.synthesisPublishesSummary = false;
+    const run = runOrchestratedPrReview(params());
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    const result = await run;
+    expect(result).toMatchObject({ published: true, publishSuperseded: false });
+    expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
+      true,
     );
     expect(testState.deterministicSummaries).toHaveLength(1);
+    expect(testState.publishOrder.at(-1)).toBe("summary");
   });
 
   it("degrades a judgment turn without retiring so later specialists still get judgment", async () => {

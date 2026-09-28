@@ -1151,14 +1151,13 @@ export async function runOrchestratedPrReview(
     } else if (state.failedSpecialists.length === SPECIALIST_IDS.length) {
       await publishFailureNotice();
       state.lifecycle = { kind: "complete" };
-    } else if (
-      !sessionRetired &&
-      session != null &&
-      publishThread.getLedger().accepted.length > 0
-    ) {
-      // Synthesis runs on the accepted ledger whenever anything was accepted
-      // and the session is alive — even on degraded runs. Deterministic publish
-      // stays as the final fallback when synthesis fails or never lands.
+    } else if (!sessionRetired && session != null) {
+      // Synthesis runs on the accepted ledger whenever the session is alive —
+      // even on degraded runs, and even when the ledger is empty. A
+      // zero-findings review is a legitimate published review, not a degraded
+      // run: the summary turn still authors Size, Mergeability, and Blast
+      // Radius. Deterministic publish stays as the final fallback when
+      // synthesis fails or never lands.
       publishStepCount += 1;
       const synthesisPrompt = renderSynthesisTurn({
         acceptedFindings: publishThread.getLedger().accepted,
@@ -1235,8 +1234,8 @@ export async function runOrchestratedPrReview(
       }
       markCompleteUnlessStopped();
     } else {
-      // Nothing accepted to synthesize, or the session is dead: deterministic
-      // fallback directly without spending a synthesis turn.
+      // The session is dead or retired: deterministic fallback directly
+      // without spending a synthesis turn.
       await publishDeterministicSummary();
       markCompleteUnlessStopped();
     }
