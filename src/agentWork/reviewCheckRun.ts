@@ -19,7 +19,11 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "./repository.js";
-import { reviewCheckOperationKey, withOperationIntent } from "./withOperationIntent.js";
+import {
+  reviewCheckOperationKey,
+  throwIfExecutionAborted,
+  withOperationIntent,
+} from "./withOperationIntent.js";
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
@@ -100,6 +104,8 @@ type EnsureReviewCheckRunParams = {
   resourceKey: string;
   reviewLens: AnyReviewLens;
   leaseEpoch?: number | null;
+  /** Gates starting a check only. An accepted check is still recorded after an abort. */
+  signal?: AbortSignal;
 };
 
 type GithubCheckRunRef = { id: number; url: string | null };
@@ -182,12 +188,17 @@ async function createGithubCheckRunOnSurface(
   params: EnsureReviewCheckRunParams,
 ): Promise<GithubCheckRunRef | null> {
   const name = reviewCheckRunName();
+  const operationKey = reviewCheckOperationKey(params.workItemId);
   try {
+    throwIfExecutionAborted(params.signal, { workItemId: params.workItemId, operationKey });
+    // The signal stays out of withOperationIntent: its after-mutate check would
+    // drop the stash for a check GitHub already accepted.
     return await withOperationIntent<GithubCheckRunRef>({
       client: pool,
       workItemId: params.workItemId,
-      operationKey: reviewCheckOperationKey(params.workItemId),
+      operationKey,
       mutationKind: "github.review_check_run",
+      ...leaseEpochParam(params.leaseEpoch),
       detail: {
         step: "check_run",
         resourceKey: params.resourceKey,
@@ -218,6 +229,7 @@ async function createGithubCheckRunOnSurface(
       reviewLens: params.reviewLens,
       ...leaseEpochParam(params.leaseEpoch),
     });
+    if (params.signal?.aborted) throw createError;
     const event = isDuplicateCheckRunCreationError(createError)
       ? "review_check_run_start_duplicate_unresolved"
       : "review_check_run_start_failed";

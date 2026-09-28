@@ -15,6 +15,11 @@ vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
 }));
 
+vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.js")>()),
+  assertPrActorLeaseHeld: vi.fn(async () => undefined),
+}));
+
 import {
   getReviewCheckRunGithubId,
   getSummaryCommentGithubId,
@@ -24,6 +29,8 @@ import {
   reserveReviewCheckRun,
 } from "../src/agentWork/repository.js";
 import { logWarn } from "../src/evlog.js";
+import { AppError } from "../src/errors/appError.js";
+import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
 import {
   closeOwnVerdictsForWorkItems,
   ownVerdictSurfaces,
@@ -80,6 +87,89 @@ function startParams(prSurface = makePrSurface()) {
 describe("review check run lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(assertPrActorLeaseHeld).mockResolvedValue(undefined);
+  });
+
+  const leaseLost = () =>
+    new AppError({
+      code: "agent_work.pr_actor_lease_lost",
+      message: "PR actor lease is no longer held by this execution",
+    });
+
+  it("refuses a stale create after a fenced reserve so the live holder can still create", async () => {
+    vi.mocked(reserveReviewCheckRun).mockImplementationOnce(async () => {
+      vi.mocked(assertPrActorLeaseHeld).mockRejectedValue(leaseLost());
+      return true;
+    });
+    vi.mocked(releaseUnstartedReviewCheckRunReservation).mockRejectedValueOnce(leaseLost());
+    const stalePrSurface = makePrSurface();
+
+    await expect(
+      ensureReviewCheckRunStarted(pool, { ...startParams(stalePrSurface), leaseEpoch: 1 }),
+    ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+
+    expect(stalePrSurface.startReviewCheck).not.toHaveBeenCalled();
+    expect(recordReviewCheckRun).not.toHaveBeenCalled();
+
+    vi.mocked(assertPrActorLeaseHeld).mockResolvedValue(undefined);
+    const livePrSurface = makePrSurface();
+    await expect(
+      ensureReviewCheckRunStarted(pool, { ...startParams(livePrSurface), leaseEpoch: 2 }),
+    ).resolves.toBe(123);
+    expect(livePrSurface.startReviewCheck).toHaveBeenCalledTimes(1);
+    expect(recordReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ githubId: 123, leaseEpoch: 2 }),
+    );
+  });
+
+  it("does not start a check after a cancel and releases the reservation", async () => {
+    const controller = new AbortController();
+    vi.mocked(reserveReviewCheckRun).mockImplementationOnce(async () => {
+      controller.abort();
+      return true;
+    });
+    const prSurface = makePrSurface();
+
+    await expect(
+      ensureReviewCheckRunStarted(pool, {
+        ...startParams(prSurface),
+        leaseEpoch: 1,
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ code: "agent_work.execution_aborted" });
+
+    expect(prSurface.startReviewCheck).not.toHaveBeenCalled();
+    expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+      leaseEpoch: 1,
+    });
+    expect(logWarn).not.toHaveBeenCalledWith("review_check_run_start_failed", expect.anything());
+  });
+
+  it("records a check GitHub accepted even when the run is cancelled mid-create", async () => {
+    const controller = new AbortController();
+    const prSurface = makePrSurface({
+      startReviewCheck: async () => {
+        controller.abort();
+        return { id: 123, url: "https://github.com/o/r/runs/123" };
+      },
+    });
+
+    await expect(
+      ensureReviewCheckRunStarted(pool, {
+        ...startParams(prSurface),
+        leaseEpoch: 1,
+        signal: controller.signal,
+      }),
+    ).resolves.toBe(123);
+
+    expect(recordReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ githubId: 123, leaseEpoch: 1 }),
+    );
   });
 
   it("uses a fixed check run name", () => {

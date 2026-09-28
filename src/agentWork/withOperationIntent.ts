@@ -352,22 +352,29 @@ async function recoverAfterMutatingWithoutResult<T>(
   });
 }
 
-async function assertMutationReady<T>(params: WithOperationIntentParams<T>): Promise<void> {
-  if (params.signal?.aborted) {
-    const reason = params.signal.reason;
-    if (isAppError(reason)) throw reason;
-    if (reason !== undefined) {
-      throw toAppError(reason, {
-        code: "agent_work.execution_aborted",
-        context: { workItemId: params.workItemId, operationKey: params.operationKey },
-      });
-    }
-    throw new AppError({
-      code: "agent_work.execution_aborted",
-      message: "PR-surface mutation was aborted before completion",
-      context: { workItemId: params.workItemId, operationKey: params.operationKey },
-    });
+/** Throw the abort reason as an AppError when the signal has fired. */
+export function throwIfExecutionAborted(
+  signal: AbortSignal | undefined,
+  context: Record<string, unknown>,
+): void {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  if (isAppError(reason)) throw reason;
+  if (reason !== undefined) {
+    throw toAppError(reason, { code: "agent_work.execution_aborted", context });
   }
+  throw new AppError({
+    code: "agent_work.execution_aborted",
+    message: "PR-surface mutation was aborted before completion",
+    context,
+  });
+}
+
+async function assertMutationReady<T>(params: WithOperationIntentParams<T>): Promise<void> {
+  throwIfExecutionAborted(params.signal, {
+    workItemId: params.workItemId,
+    operationKey: params.operationKey,
+  });
   if (params.leaseEpoch != null) {
     await assertPrActorLeaseHeld(params.client, params.workItemId, params.leaseEpoch);
   }
