@@ -477,6 +477,7 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
           workItemId: params.workItemId,
           operationKey: params.operationKey,
           mutationKind: params.mutationKind,
+          ...leaseEpochDetail(params),
           detail: params.detail,
         });
         const recovered = await recoverByExactEvidence(params, intentForRecovery, null);
