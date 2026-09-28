@@ -952,6 +952,7 @@ async function runClaimedReview(args: {
     resourceKey: item.resourceKey,
     reviewLens,
     leaseEpoch: env.leaseEpoch,
+    signal: env.signal,
   });
   if (startedCheckId != null) {
     const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
