@@ -705,6 +705,8 @@ function triageAckTargets(
  * Cancel every queued/running slash triage for a PR on close/merge.
  * Running rows carry cancel_requested_at so an in-process Pi session stops at
  * its next tool checkpoint; both states become terminal immediately.
+ * Clears any PR actor lease still held by those rows so the next triage run can
+ * acquire without waiting for cooperative worker exit or lease TTL.
  */
 export async function cancelActiveTriage(
   client: PoolClient,
@@ -720,6 +722,7 @@ export async function cancelActiveTriage(
     head_sha: string;
     created_at: Date | string;
     payload: unknown;
+    execution_epoch: string | number | null;
   }>(
     `UPDATE agent_work_items
 			   SET status = 'cancelled',
@@ -730,7 +733,7 @@ export async function cancelActiveTriage(
 		 WHERE resource_key = $1
 		   AND type = 'triage'
 		   AND status = 'queued'
-		 RETURNING id, head_sha, created_at, payload`,
+		 RETURNING id, head_sha, created_at, payload, execution_epoch`,
     [resourceKey, lastError, payloadPatch],
   );
   const running = await client.query<{
@@ -738,6 +741,7 @@ export async function cancelActiveTriage(
     head_sha: string;
     created_at: Date | string;
     payload: unknown;
+    execution_epoch: string | number | null;
   }>(
     `UPDATE agent_work_items
 			   SET status = 'cancelled',
@@ -749,9 +753,17 @@ export async function cancelActiveTriage(
 		 WHERE resource_key = $1
 		   AND type = 'triage'
 		   AND status = 'running'
-		 RETURNING id, head_sha, created_at, payload`,
+		 RETURNING id, head_sha, created_at, payload, execution_epoch`,
     [resourceKey, lastError, payloadPatch],
   );
+  const holders = [...running.rows, ...queued.rows]
+    .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
+    .filter((holder) => holder.leaseEpoch > 0);
+  await releasePrActorLeaseHeldByWorkItems(client, {
+    resourceKey,
+    workType: "triage",
+    holders,
+  });
   return [
     ...mapCancelledTriageRows(running.rows, prNumber),
     ...mapCancelledTriageRows(queued.rows, prNumber),

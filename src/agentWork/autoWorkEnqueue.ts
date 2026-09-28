@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { releasePrActorLeaseHeldByWorkItems } from "./prActorLease.js";
 
 export type AutoWorkSupersedeTarget =
   | {
@@ -36,7 +37,7 @@ function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
 			       AND review_lens = $2
 			       AND source = 'auto'
 			       AND status = 'queued'
-			     RETURNING id`,
+			     RETURNING id, execution_epoch`,
       params: [target.resourceKey, "review"],
     };
   }
@@ -47,7 +48,7 @@ function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
 			     AND type = $2
 			     AND source = 'auto'
 			     AND status = 'queued'
-			   RETURNING id`,
+			   RETURNING id, execution_epoch`,
     params: [target.resourceKey, target.kind],
   };
 }
@@ -64,7 +65,7 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
 			       AND review_lens = $2
 			       AND source = 'auto'
 			       AND status = 'running'
-			     RETURNING id`,
+			     RETURNING id, execution_epoch`,
       params: [target.resourceKey, "review"],
     };
   }
@@ -75,14 +76,17 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
 			     AND type = $2
 			     AND source = 'auto'
 			     AND status = 'running'
-			   RETURNING id`,
+			   RETURNING id, execution_epoch`,
     params: [target.resourceKey, target.kind],
   };
 }
 
 /**
  * Supersede queued auto work and request cancel on running rows under the intake
- * lock. Returns the affected ids; an empty list means no active auto work.
+ * lock. Running rows stay `running` with `cancel_requested_at` set while they wind
+ * down; both sets release their PR actor lease holders in the same transaction so
+ * the replacement acquires immediately instead of hop-looping till TTL.
+ * Returns the affected ids; an empty list means no active auto work.
  */
 async function supersedeActiveAutoWork(
   client: PoolClient,
@@ -93,8 +97,24 @@ async function supersedeActiveAutoWork(
   ]);
   const queuedQuery = supersedeQueuedSql(target);
   const runningQuery = cancelRunningSql(target);
-  const queued = await client.query<{ id: string }>(queuedQuery.sql, queuedQuery.params);
-  const running = await client.query<{ id: string }>(runningQuery.sql, runningQuery.params);
+  const queued = await client.query<{ id: string; execution_epoch: string | number | null }>(
+    queuedQuery.sql,
+    queuedQuery.params,
+  );
+  const running = await client.query<{ id: string; execution_epoch: string | number | null }>(
+    runningQuery.sql,
+    runningQuery.params,
+  );
+  const holders = [...queued.rows, ...running.rows]
+    .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
+    .filter((holder) => holder.leaseEpoch > 0);
+  // Target kind is the lease work type; triage targets match zero rows today
+  // (planner never emits triage, triage rows are slash-only, supersede filters auto).
+  await releasePrActorLeaseHeldByWorkItems(client, {
+    resourceKey: target.resourceKey,
+    workType: target.kind,
+    holders,
+  });
   return [...queued.rows, ...running.rows].map((r) => r.id);
 }
 
