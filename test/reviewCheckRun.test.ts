@@ -149,6 +149,32 @@ describe("review check run lifecycle", () => {
     expect(logWarn).not.toHaveBeenCalledWith("review_check_run_start_failed", expect.anything());
   });
 
+  it("surfaces a create failure instead of null when the run is cancelled mid-create", async () => {
+    const controller = new AbortController();
+    const prSurface = makePrSurface({
+      startReviewCheck: async () => {
+        controller.abort();
+        throw new Error("gh 500");
+      },
+    });
+
+    await expect(
+      ensureReviewCheckRunStarted(pool, {
+        ...startParams(prSurface),
+        leaseEpoch: 1,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("gh 500");
+
+    expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+      leaseEpoch: 1,
+    });
+    expect(logWarn).not.toHaveBeenCalledWith("review_check_run_start_failed", expect.anything());
+  });
+
   it("records a check GitHub accepted even when the run is cancelled mid-create", async () => {
     const controller = new AbortController();
     const prSurface = makePrSurface({
