@@ -14,7 +14,14 @@ import {
 import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.js";
 import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
 import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
-import { cancelActiveReviews } from "../../src/agentWork/intake/workItemRepository.js";
+import {
+  cancelActiveReviews,
+  cancelActiveTriage,
+} from "../../src/agentWork/intake/workItemRepository.js";
+import {
+  replaceActiveAutoWorkItem,
+  replaceAutoWorkItem,
+} from "../../src/agentWork/autoWorkEnqueue.js";
 import {
   claimWorkForExecution,
   getWorkItem,
@@ -598,5 +605,382 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const row = await getLeaseRow(resourceKey);
     expect(row.work_item_id).toBe(legacy);
     expect(Number(row.lease_epoch)).toBe(1);
+  });
+
+  async function getLeaseRowFor(resourceKey: string, workType: string): Promise<LeaseRow | null> {
+    const { rows } = await pool.query<LeaseRow>(
+      `SELECT lease_epoch, work_item_id, holder_id, expires_at
+         FROM pr_actor_leases
+        WHERE resource_key = $1 AND work_type = $2`,
+      [resourceKey, workType],
+    );
+    return rows[0] ?? null;
+  }
+
+  async function insertTriageQueued(resourceKey: string, prNumber = 1): Promise<string> {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES (
+         $1, 'triage', 'slash', 'queued', $2, 'r', $3, 1, 'h', NULL, $4,
+         '{"source":"slash","commentId":1,"scope":"all","replyTarget":{"kind":"prConversation","prNumber":1}}'::jsonb
+       )`,
+      [id, OWNER, prNumber, resourceKey],
+    );
+    return id;
+  }
+
+  async function insertAutoQueued(
+    resourceKey: string,
+    type: "review" | "description" | "verification",
+  ): Promise<string> {
+    const id = randomUUID();
+    if (type === "review") {
+      await pool.query(
+        `INSERT INTO agent_work_items (
+           id, type, source, status, owner, repo, pr_number, installation_id,
+           head_sha, review_lens, resource_key, payload
+         )
+         VALUES (
+           $1, 'review', 'auto', 'queued', $2, 'r', 1, 1, 'h', 'review', $3,
+           '{"mode":"review","source":"auto"}'::jsonb
+         )`,
+        [id, OWNER, resourceKey],
+      );
+      return id;
+    }
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES ($1, $2, 'auto', 'queued', $3, 'r', 1, 1, 'h', NULL, $4, '{"source":"auto"}'::jsonb)`,
+      [id, type, OWNER, resourceKey],
+    );
+    return id;
+  }
+
+  async function insertAutoRunning(
+    resourceKey: string,
+    type: "review" | "description" | "verification",
+  ): Promise<string> {
+    const id = await insertAutoQueued(resourceKey, type);
+    await claimWorkForExecution(pool, id);
+    return id;
+  }
+
+  function acquireFor(
+    resourceKey: string,
+    workType: "review" | "description" | "verification" | "triage",
+    workItemId: string,
+  ) {
+    return acquirePrActorLease(pool, {
+      resourceKey,
+      workType,
+      workItemId,
+      holderId: "lease-it-holder",
+      ttlSeconds: TTL_SECONDS,
+    });
+  }
+
+  it("cancelActiveTriage clears the triage holder so the next triage acquires immediately (#663)", async () => {
+    const resourceKey = `${OWNER}/triage-cancel-${randomUUID().slice(0, 8)}#1`;
+    const oldId = await insertTriageQueued(resourceKey);
+    await claimWorkForExecution(pool, oldId);
+    const acquisition = await acquireFor(resourceKey, "triage", oldId);
+    if (!acquisition.acquired) throw new Error("expected triage acquisition to succeed");
+    await claimWorkForExecution(pool, oldId, acquisition.leaseEpoch);
+
+    const client = await pool.connect();
+    try {
+      const cancelled = await cancelActiveTriage(
+        client,
+        resourceKey,
+        { kind: "closed" as const },
+        1,
+      );
+      expect(cancelled.map((row) => row.id)).toEqual([oldId]);
+    } finally {
+      client.release();
+    }
+
+    expect((await getLeaseRowFor(resourceKey, "triage"))?.work_item_id).toBeNull();
+
+    const nextId = await insertTriageQueued(resourceKey);
+    await expect(acquireFor(resourceKey, "triage", nextId)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 2,
+    });
+    await expect(claimWorkForExecution(pool, nextId, 2)).resolves.toMatchObject({
+      attemptCount: expect.any(Number),
+    });
+    await expect(markWorkCompleted(pool, nextId, 2)).resolves.toBe(true);
+
+    await expect(
+      renewPrActorLease(pool, {
+        resourceKey,
+        workType: "triage",
+        workItemId: oldId,
+        leaseEpoch: acquisition.leaseEpoch,
+        ttlSeconds: TTL_SECONDS,
+      }),
+    ).resolves.toBe(false);
+    await expect(markWorkCompleted(pool, oldId, acquisition.leaseEpoch)).resolves.toBe(false);
+    await expect(assertPrActorLeaseHeld(pool, oldId, acquisition.leaseEpoch)).rejects.toMatchObject(
+      {
+        code: "agent_work.pr_actor_lease_lost",
+      },
+    );
+  });
+
+  it("cancelActiveTriage fails closed when the holder predates epoch recording", async () => {
+    const resourceKey = `${OWNER}/triage-cancel-legacy-${randomUUID().slice(0, 8)}#1`;
+    const legacy = await insertTriageQueued(resourceKey);
+    await claimWorkForExecution(pool, legacy);
+    await expect(acquireFor(resourceKey, "triage", legacy)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 1,
+    });
+
+    const client = await pool.connect();
+    try {
+      const cancelled = await cancelActiveTriage(
+        client,
+        resourceKey,
+        { kind: "closed" as const },
+        1,
+      );
+      expect(cancelled.map((row) => row.id)).toEqual([legacy]);
+    } finally {
+      client.release();
+    }
+
+    const row = await getLeaseRowFor(resourceKey, "triage");
+    expect(row?.work_item_id).toBe(legacy);
+    expect(Number(row?.lease_epoch)).toBe(1);
+  });
+
+  it("auto supersede hands the review lease to the replacement immediately (#663)", async () => {
+    const resourceKey = `${OWNER}/supersede-review-${randomUUID().slice(0, 8)}#1`;
+    const runningId = await insertAutoRunning(resourceKey, "review");
+    const runningAcquisition = await acquireFor(resourceKey, "review", runningId);
+    if (!runningAcquisition.acquired) throw new Error("expected running acquisition to succeed");
+    await claimWorkForExecution(pool, runningId, runningAcquisition.leaseEpoch);
+    const queuedId = await insertAutoQueued(resourceKey, "review");
+
+    const client = await pool.connect();
+    let replacementId: string | null;
+    let supersededIds: readonly string[];
+    try {
+      const result = await replaceActiveAutoWorkItem({
+        client,
+        target: { kind: "review", resourceKey },
+        createWorkItem: async () => insertAutoQueued(resourceKey, "review"),
+      });
+      replacementId = result.workItemId;
+      supersededIds = result.supersededIds;
+    } finally {
+      client.release();
+    }
+
+    expect(new Set(supersededIds)).toEqual(new Set([queuedId, runningId]));
+    expect(replacementId).toEqual(expect.any(String));
+    if (replacementId == null) throw new Error("expected replacement");
+
+    const { rows: queuedRow } = await pool.query<{ status: string }>(
+      `SELECT status FROM agent_work_items WHERE id = $1`,
+      [queuedId],
+    );
+    expect(queuedRow[0]?.status).toBe("superseded");
+    const { rows: runningRow } = await pool.query<{
+      status: string;
+      cancel_requested_at: Date | null;
+    }>(`SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1`, [runningId]);
+    expect(runningRow[0]?.status).toBe("running");
+    expect(runningRow[0]?.cancel_requested_at).not.toBeNull();
+
+    expect((await getLeaseRowFor(resourceKey, "review"))?.work_item_id).toBeNull();
+
+    await expect(acquireFor(resourceKey, "review", replacementId)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 2,
+    });
+    await expect(claimWorkForExecution(pool, replacementId, 2)).resolves.toMatchObject({
+      attemptCount: expect.any(Number),
+    });
+    await expect(markWorkCompleted(pool, replacementId, 2)).resolves.toBe(true);
+
+    await expect(
+      renewPrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        workItemId: runningId,
+        leaseEpoch: runningAcquisition.leaseEpoch,
+        ttlSeconds: TTL_SECONDS,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      assertPrActorLeaseHeld(pool, runningId, runningAcquisition.leaseEpoch),
+    ).rejects.toMatchObject({
+      code: "agent_work.pr_actor_lease_lost",
+    });
+  });
+
+  it("auto supersede hands description and verification leases over via replaceAuto (#663)", async () => {
+    for (const type of ["description", "verification"] as const) {
+      const resourceKey = `${OWNER}/supersede-${type}-${randomUUID().slice(0, 8)}#1`;
+      const runningId = await insertAutoRunning(resourceKey, type);
+      const acquisition = await acquireFor(resourceKey, type, runningId);
+      if (!acquisition.acquired) throw new Error(`expected ${type} acquisition to succeed`);
+      await claimWorkForExecution(pool, runningId, acquisition.leaseEpoch);
+
+      const client = await pool.connect();
+      let replacementId: string;
+      try {
+        const result = await replaceAutoWorkItem({
+          client,
+          target: { kind: type, resourceKey },
+          createWorkItem: async () => insertAutoQueued(resourceKey, type),
+        });
+        replacementId = result.workItemId;
+        expect(result.supersededIds).toContain(runningId);
+      } finally {
+        client.release();
+      }
+
+      expect((await getLeaseRowFor(resourceKey, type))?.work_item_id).toBeNull();
+      await expect(acquireFor(resourceKey, type, replacementId)).resolves.toEqual({
+        acquired: true,
+        leaseEpoch: 2,
+      });
+      await expect(claimWorkForExecution(pool, replacementId, 2)).resolves.toMatchObject({
+        attemptCount: expect.any(Number),
+      });
+    }
+  });
+
+  it("auto supersede fails closed on queued-only and legacy rows and matches zero triage rows", async () => {
+    const queuedOnlyKey = `${OWNER}/supersede-queued-only-${randomUUID().slice(0, 8)}#1`;
+    await insertAutoQueued(queuedOnlyKey, "review");
+    await insertAutoQueued(queuedOnlyKey, "review");
+    const queuedClient = await pool.connect();
+    try {
+      const result = await replaceActiveAutoWorkItem({
+        client: queuedClient,
+        target: { kind: "review", resourceKey: queuedOnlyKey },
+        createWorkItem: async () => insertAutoQueued(queuedOnlyKey, "review"),
+      });
+      expect(result.supersededIds).toHaveLength(2);
+      expect(result.workItemId).toEqual(expect.any(String));
+    } finally {
+      queuedClient.release();
+    }
+    expect(await getLeaseRowFor(queuedOnlyKey, "review")).toBeNull();
+
+    const legacyKey = `${OWNER}/supersede-legacy-${randomUUID().slice(0, 8)}#1`;
+    const legacy = await insertAutoRunning(legacyKey, "review");
+    await expect(acquireFor(legacyKey, "review", legacy)).resolves.toEqual({
+      acquired: true,
+      leaseEpoch: 1,
+    });
+    const legacyClient = await pool.connect();
+    try {
+      const result = await replaceActiveAutoWorkItem({
+        client: legacyClient,
+        target: { kind: "review", resourceKey: legacyKey },
+        createWorkItem: async () => insertAutoQueued(legacyKey, "review"),
+      });
+      expect(result.supersededIds).toContain(legacy);
+    } finally {
+      legacyClient.release();
+    }
+    const legacyRow = await getLeaseRowFor(legacyKey, "review");
+    expect(legacyRow?.work_item_id).toBe(legacy);
+    expect(Number(legacyRow?.lease_epoch)).toBe(1);
+
+    const triageKey = `${OWNER}/supersede-triage-zero-${randomUUID().slice(0, 8)}#1`;
+    const triageClient = await pool.connect();
+    try {
+      const result = await replaceActiveAutoWorkItem({
+        client: triageClient,
+        target: { kind: "triage", resourceKey: triageKey },
+        createWorkItem: async () => insertAutoQueued(triageKey, "review"),
+      });
+      expect(result).toEqual({ workItemId: null, supersededIds: [] });
+    } finally {
+      triageClient.release();
+    }
+    expect(await getLeaseRowFor(triageKey, "triage")).toBeNull();
+  });
+
+  it("auto supersede never steals a live slash holder (review + description)", async () => {
+    const reviewKey = `${OWNER}/supersede-mixed-review-${randomUUID().slice(0, 8)}#1`;
+    const slashReviewId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES (
+         $1, 'review', 'slash', 'queued', $2, 'r', 1, 1, 'h', 'review', $3,
+         '{"mode":"review","source":"slash"}'::jsonb
+       )`,
+      [slashReviewId, OWNER, reviewKey],
+    );
+    await claimWorkForExecution(pool, slashReviewId);
+    const slashAcquisition = await acquireFor(reviewKey, "review", slashReviewId);
+    if (!slashAcquisition.acquired) throw new Error("expected slash acquisition to succeed");
+    await claimWorkForExecution(pool, slashReviewId, slashAcquisition.leaseEpoch);
+    const autoQueued = await insertAutoQueued(reviewKey, "review");
+
+    const reviewClient = await pool.connect();
+    try {
+      const result = await replaceActiveAutoWorkItem({
+        client: reviewClient,
+        target: { kind: "review", resourceKey: reviewKey },
+        createWorkItem: async () => insertAutoQueued(reviewKey, "review"),
+      });
+      expect(result.supersededIds).toEqual([autoQueued]);
+    } finally {
+      reviewClient.release();
+    }
+    expect((await getLeaseRowFor(reviewKey, "review"))?.work_item_id).toBe(slashReviewId);
+    const blocked = await acquireFor(reviewKey, "review", randomUUID());
+    expect(blocked).toEqual({
+      acquired: false,
+      heldByWorkItemId: slashReviewId,
+      leaseEpoch: slashAcquisition.leaseEpoch,
+    });
+
+    const descKey = `${OWNER}/supersede-mixed-desc-${randomUUID().slice(0, 8)}#1`;
+    const slashDescId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES ($1, 'description', 'slash', 'queued', $2, 'r', 1, 1, 'h', NULL, $3, '{"source":"slash"}'::jsonb)`,
+      [slashDescId, OWNER, descKey],
+    );
+    await claimWorkForExecution(pool, slashDescId);
+    const slashDescAcquisition = await acquireFor(descKey, "description", slashDescId);
+    if (!slashDescAcquisition.acquired) throw new Error("expected slash desc acquisition");
+    await claimWorkForExecution(pool, slashDescId, slashDescAcquisition.leaseEpoch);
+    await insertAutoQueued(descKey, "description");
+
+    const descClient = await pool.connect();
+    try {
+      await replaceAutoWorkItem({
+        client: descClient,
+        target: { kind: "description", resourceKey: descKey },
+        createWorkItem: async () => insertAutoQueued(descKey, "description"),
+      });
+    } finally {
+      descClient.release();
+    }
+    expect((await getLeaseRowFor(descKey, "description"))?.work_item_id).toBe(slashDescId);
   });
 });
