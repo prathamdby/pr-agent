@@ -1705,19 +1705,21 @@ describe("runOrchestratedPrReview", () => {
     await run;
   });
 
-  it("skips synthesis when the accepted ledger is empty", async () => {
+  it("runs synthesis for a zero-findings review so gates stay model-authored", async () => {
     const run = runOrchestratedPrReview(params());
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
     }
 
-    await expect(run).resolves.toMatchObject({ published: true });
-    // Proves orchestratorRun.ts synthesis gate requires accepted.length > 0:
-    // empty ledger goes deterministic directly without spending a synthesis turn.
+    const result = await run;
+    expect(result).toMatchObject({ published: true, publishAttempts: 0 });
+    // Guard-removal proof: an empty ledger still spends the summary turn, so
+    // Size, Mergeability, and Blast Radius are model-authored instead of the
+    // deterministic `Not assessed.` fallback.
     expect(testState.sentPrompts.some((prompt) => prompt.includes("Synthesize the final"))).toBe(
-      false,
+      true,
     );
-    expect(testState.deterministicSummaries).toHaveLength(1);
+    expect(testState.deterministicSummaries).toHaveLength(0);
   });
 
   it("degrades a judgment turn without retiring so later specialists still get judgment", async () => {
