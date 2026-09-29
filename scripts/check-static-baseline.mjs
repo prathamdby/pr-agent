@@ -27,7 +27,11 @@ function countOxRule(rule, scope) {
       { cwd: ROOT, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 },
     );
   } catch (e) {
-    raw = e.stdout ?? "";
+    // A hard oxlint failure (missing binary, bad flag, broken config) must
+    // fail the gate, never read as zero violations.
+    const stdout = e.stdout ?? "";
+    if (typeof stdout !== "string" || stdout.trim().length === 0) throw e;
+    raw = stdout;
   }
   let diagnostics;
   const trimmed = raw.trim();

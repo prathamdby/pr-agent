@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,7 +33,10 @@ const registrations = [
   ),
 ].map((m) => ({ data: m[1], queueConst: m[2], executor: m[3] }));
 
-const retention = workerSrc.includes("RETENTION_QUEUE,")
+const retentionRegistered = /registerPlainQueue\(\s*boss,\s*executions,\s*RETENTION_QUEUE,/.test(
+  workerSrc,
+);
+const retention = retentionRegistered
   ? [{ data: "retention sweep", queueConst: "RETENTION_QUEUE", executor: "runRetention" }]
   : [];
 
@@ -80,4 +84,9 @@ const lines = [
 
 const outPath = process.argv[2] ?? path.join(ROOT, "docs", "feature-map.md");
 fs.writeFileSync(outPath, `${lines.join("\n")}`);
+execFileSync(
+  path.join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "oxfmt.cmd" : "oxfmt"),
+  [outPath],
+  { cwd: ROOT, encoding: "utf8" },
+);
 console.log(`Wrote ${path.relative(ROOT, outPath)} (${rows.length} rows).`);

@@ -73,13 +73,13 @@ function isAllowedImporter(rel: string, allowed: string[]): boolean {
   );
 }
 
-/** Value (non-`import type`) references to pg / pg-boss only. */
+/** Value (non-`import type`) references to pg / pg-boss only, including re-exports. */
 function hasValueImportReference(text: string, module: string): boolean {
   const lines = text.split("\n");
   const valueLines = lines.filter((line) => {
     const trimmed = line.trim();
-    if (!trimmed.startsWith("import")) return false;
-    if (/^import\s+type\b/.test(trimmed)) return false;
+    if (!trimmed.startsWith("import") && !trimmed.startsWith("export")) return false;
+    if (/^(import|export)\s+type\b/.test(trimmed)) return false;
     return true;
   });
   const joined = valueLines.join("\n");

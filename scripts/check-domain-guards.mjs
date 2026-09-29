@@ -25,8 +25,15 @@ function rg(pattern, dir, flags = "") {
 const consoleHits = rg("console\\.(log|error|warn|info|debug|trace)\\s*\\(", "src", "--line-number")
   .split("\n")
   .filter(Boolean);
-const allowedConsole = ["index.ts:12"];
-const strayConsole = consoleHits.filter((line) => !allowedConsole.some((a) => line.includes(a)));
+// Exact allowlist: rg --line-number emits "<abs path>:<line>:<col>:<code>".
+// Parse each hit and compare relative path plus line number exactly so a
+// stray call at another file's line 12 cannot hide behind a substring.
+const strayConsole = consoleHits.filter((line) => {
+  const match = line.match(/^(.*?):(\d+):(.*)$/);
+  if (!match) return true;
+  const rel = path.relative(ROOT, match[1]);
+  return !(rel === path.join("src", "index.ts") && match[2] === "12");
+});
 if (strayConsole.length > 0) {
   fail(`console.* outside the src/index.ts boot path:\n${strayConsole.join("\n")}`);
 }
