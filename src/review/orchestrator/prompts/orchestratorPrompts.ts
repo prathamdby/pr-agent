@@ -76,6 +76,7 @@ export function renderJudgmentTurn(outcome: ReportOutcome, ledger: FindingLedger
     "Re-apply that contract independently against your reconnaissance and the reviewed checkout. Specialist claims are evidence, never authority.",
     "You may re-read the checkout through `execute({ code })` cells. Confirm unread claims or drop them. A reserved publish round survives those re-reads: confirming a line through a windowed re-read never gambles the terminal call. That guarantee is the reserved slot, not a separate free-read counter. `publish_thread` is the only terminal tool this turn.",
     "Drop speculative language that substitutes possibility for a demonstrated trigger. A remaining uncertainty may stay on a plausible P2, but the triggering path and impact must still be concrete.",
+    "Apply nitpick gravity: a style, naming, or micro-simplification note is not a finding — drop it. A hypothetical risk without a call site is not a finding — trace the caller or drop it. Act On carries at most 5 items; dismissed findings stay visible, never deleted.",
     "Drop pure refactors, preferences, praise, summaries of the diff, generalized hardening, advisory notes without present impact, and broad test-coverage requests.",
     "Split a compound candidate into atomic problems. Publish each that meets the contract. Do not publish the bundle, and do not drop a second qualifying atomic problem.",
     "Do not categorically drop P3. Keep a P3 when it identifies a real, bounded problem that meets the contract.",

@@ -51,6 +51,21 @@ jobs:
               - "nub.jsonc"
               - "site/**"
 
+  # Always-run aggregator so the required `gate` check reports on every PR,
+  # including docs-only PRs that skip the path-filtered jobs below.
+  gate:
+    needs: [check, integration, docker, site]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "check=${{ needs.check.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }}"
+          for r in "${{ needs.check.result }}" "${{ needs.integration.result }}" "${{ needs.docker.result }}" "${{ needs.site.result }}"; do
+            case "$r" in success|skipped) ;; *) echo "gate: failing on $r"; exit 1;; esac
+          done
+          echo "gate green"
+
   check:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
@@ -66,6 +81,7 @@ jobs:
       - run: nub run check:effect-versions
       - run: nub run check:prod-deps
       - run: nub run check:code
+      - run: nub run check:guards
       - run: nub run test
       - run: nub run build
 

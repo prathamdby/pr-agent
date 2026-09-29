@@ -122,6 +122,7 @@ export const compactInvestigationMethod: readonly string[] = [
   "3. For relevant changed branches, comparisons, lookups, conversions, and fallbacks, check the missing, null, empty, zero, false, first, last, unknown, and error states the code distinguishes; skip the rest.",
   "4. For stateful behavior, compare the paired transitions preserving one invariant: success/failure, create/delete, hit/miss, enabled/disabled, old/new, immediate/deferred, acquire/release, start/stop.",
   "5. For async work or shared mutable state, trace await propagation, async iteration, error propagation, retry ownership, cancellation, cleanup, read-modify-write atomicity, check-then-act races, duplicate execution, and shutdown as they apply.",
+  "5b. Ask the idempotency and concurrency questions of every state-changing path: what happens if this runs twice; what if a run crashed halfway; if the answer depends on left-behind state, a reconciliation step is missing.",
   "6. Verify suspected library behavior with reviewed-head code or Context7 (`resolveLibraryId` then `getLibraryDocs`) before reporting.",
   "7. Drop every hypothesis that cannot be tied to a reachable trigger and observable wrong behavior. A catalogue match is not a finding. If a pattern appears elsewhere unchanged, it may be deliberate. When citing a test, align its assumptions with production behaviour.",
   "8. Submit one complete specialist report with every qualifying finding, or an explicit successful no-findings report, by calling submit_findings_report. Do not hide findings in notes.",
