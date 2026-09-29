@@ -116,6 +116,7 @@ describe("processWebhookPostRequestEffect", () => {
         pullRequest: () => Effect.void,
         issueComment: () => Effect.void,
         pullRequestReviewComment: () => Effect.void,
+        approvalReview: () => Effect.void,
         ciRefresh: () => Effect.void,
       }),
     ),
@@ -273,6 +274,10 @@ describe("processWebhookPostRequestEffect", () => {
         pullRequestReviewComment: () =>
           Effect.sync(() => {
             calls.push("pullRequestReviewComment");
+          }),
+        approvalReview: () =>
+          Effect.sync(() => {
+            calls.push("approvalReview");
           }),
         ciRefresh: () =>
           Effect.sync(() => {
@@ -1064,6 +1069,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
+          approvalReview: () => Effect.void,
           ciRefresh: () => Effect.void,
         }),
       ),
@@ -1124,6 +1130,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
+          approvalReview: () => Effect.void,
           ciRefresh: () => Effect.void,
         }),
       ),
@@ -1175,6 +1182,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
+          approvalReview: () => Effect.void,
           ciRefresh: () => Effect.void,
         }),
       ),

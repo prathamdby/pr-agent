@@ -6,11 +6,16 @@ import {
 } from "./payloads/checkSuiteEvent.js";
 import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.js";
 import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.js";
+import {
+  isApprovalReview,
+  pullRequestReviewWebhookSchema,
+} from "./payloads/pullRequestReviewEvent.js";
 import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
 import { statusWebhookSchema, type StatusWebhookPayload } from "./payloads/statusEvent.js";
 import { workflowRunWebhookSchema } from "./payloads/workflowRunEvent.js";
 import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
+import type { PullRequestReviewWebhookPayload } from "./payloads/pullRequestReviewEvent.js";
 import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
 import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.js";
 import { AppError } from "../errors/appError.js";
@@ -37,6 +42,7 @@ export class WebhookParseError extends AppError {
 
 export type ParsedGithubEvent =
   | { name: "pull_request"; data: PullRequestWebhookPayload }
+  | { name: "pull_request_review"; data: PullRequestReviewWebhookPayload }
   | { name: "issue_comment"; data: IssueCommentWebhookPayload }
   | {
       name: "pull_request_review_comment";
@@ -84,6 +90,13 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
         name: "pull_request",
         data: parseOrThrow(eventName, pullRequestWebhookSchema, payload),
       };
+    case "pull_request_review": {
+      const parsed = parseOrThrow(eventName, pullRequestReviewWebhookSchema, payload);
+      if (!isApprovalReview(parsed)) {
+        return { name: "ignored", data: payload };
+      }
+      return { name: "pull_request_review", data: parsed };
+    }
     case "issue_comment":
       if (payloadAction(payload) !== "created") {
         return { name: "ignored", data: payload };

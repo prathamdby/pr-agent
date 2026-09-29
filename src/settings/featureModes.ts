@@ -1,6 +1,6 @@
 /** Feature tier: the only user-facing settings. Catalog: docs/features.md. */
 
-export const REVIEW_FEATURE_MODES = ["manual", "auto"] as const;
+export const REVIEW_FEATURE_MODES = ["manual", "auto", "approval"] as const;
 export const DESCRIBE_FEATURE_MODES = ["off", "manual", "auto"] as const;
 export const VERIFICATION_FEATURE_MODES = ["off", "manual", "auto"] as const;
 export const COMMAND_FEATURE_MODES = ["off", "manual"] as const;
@@ -23,7 +23,7 @@ export type Features = {
   readonly titleRewrite: boolean;
 };
 
-export const DEFAULT_FEATURE_REVIEW: ReviewFeatureMode = "auto";
+export const DEFAULT_FEATURE_REVIEW: ReviewFeatureMode = "approval";
 export const DEFAULT_FEATURE_DESCRIBE: DescribeFeatureMode = "auto";
 export const DEFAULT_FEATURE_VERIFICATION: VerificationFeatureMode = "auto";
 export const DEFAULT_FEATURE_ASK: CommandFeatureMode = "manual";

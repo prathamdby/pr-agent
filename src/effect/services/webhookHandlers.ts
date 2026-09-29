@@ -9,12 +9,17 @@ import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
-import { IGNORED_BOT_SLASH_COMMAND, IGNORED_UNAUTHORIZED_SLASH } from "../../settings/index.js";
+import {
+  IGNORED_BOT_SLASH_COMMAND,
+  IGNORED_UNAUTHORIZED_APPROVAL,
+  IGNORED_UNAUTHORIZED_SLASH,
+} from "../../settings/index.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
 import { prNumbersForCiHead, type CiHeadSource } from "../../webhook/payloads/ciHeadSource.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
+type PullRequestReviewData = Extract<ParsedGithubEvent, { name: "pull_request_review" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
 type PullRequestReviewCommentData = Extract<
   ParsedGithubEvent,
@@ -47,6 +52,12 @@ export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
       cfg: Config,
       headers: WebhookHeaders,
       data: PullRequestData,
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
+    readonly approvalReview: (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: PullRequestReviewData,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly issueComment: (
@@ -244,6 +255,53 @@ export const WebhookHandlersCore = Layer.effect(
               pushBeforeSha: data.before,
               merged: data.pull_request.merged,
             },
+          );
+        }),
+
+      approvalReview: (cfg, headers, data, intakeLog) =>
+        Effect.gen(function* () {
+          // Approval gate: only a submitted approving review from a reviewer
+          // with standing may trigger an approval-mode review. Any bot
+          // (own App or otherwise) and outside associations fail closed.
+          const reviewerType = data.review.user.type?.toLowerCase();
+          if (reviewerType === "bot") {
+            yield* scheduler.recordIgnored(headers, IGNORED_BOT_SLASH_COMMAND, intakeLog);
+            return;
+          }
+          const bot = yield* Effect.tryPromise({
+            try: async () => getAppBotIdentity(cfg),
+            catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+          });
+          if (data.review.user.id === bot.userId) {
+            yield* scheduler.recordIgnored(headers, IGNORED_BOT_SLASH_COMMAND, intakeLog);
+            return;
+          }
+          if (
+            !isSlashAssociationAllowed(cfg.slashAllowedAssociations, data.review.author_association)
+          ) {
+            yield* scheduler.recordIgnored(headers, IGNORED_UNAUTHORIZED_APPROVAL, intakeLog);
+            return;
+          }
+          if (cfg.features.review !== "approval") {
+            yield* scheduler.recordIgnored(
+              headers,
+              "ignored_approval_review_not_enabled",
+              intakeLog,
+            );
+            return;
+          }
+          yield* scheduler.submitAutomatedReview(
+            headers,
+            {
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              prNumber: data.pull_request.number,
+              headSha: data.pull_request.head.sha,
+              installationId: data.installation.id,
+              repositorySizeKb: data.repository.size,
+            },
+            "approval",
+            intakeLog,
           );
         }),
 

@@ -34,18 +34,18 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 
 ## Features
 
-| Feature             | When it runs                                      | Command                         |
-| ------------------- | ------------------------------------------------- | ------------------------------- |
-| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`            | `/review` always                |
-| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`          | `/describe`                     |
-| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto` | `/verify`                       |
-| Ask                 | On demand when `FEATURE_ASK=manual`               | `/ask …` or mention the App bot |
-| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`            | `/triage`                       |
-| Cancel review       | On demand                                         | `/cancel`                       |
-| Restart review      | On demand (cancels the active run, latest commit) | `/review force`                 |
-| Help                | On demand                                         | `/help`                         |
+| Feature             | When it runs                                                              | Command                         |
+| ------------------- | ------------------------------------------------------------------------- | ------------------------------- |
+| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`, or first approval when `approval` | `/review` always                |
+| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`                                  | `/describe`                     |
+| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto`                         | `/verify`                       |
+| Ask                 | On demand when `FEATURE_ASK=manual`                                       | `/ask …` or mention the App bot |
+| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`                                    | `/triage`                       |
+| Cancel review       | On demand                                                                 | `/cancel`                       |
+| Restart review      | On demand (cancels the active run, latest commit)                         | `/review force`                 |
+| Help                | On demand                                                                 | `/help`                         |
 
-Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts only `manual` or `auto`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup.
+Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup.
 
 <details>
 <summary>Review rules and slash matching</summary>
@@ -71,7 +71,7 @@ Create the GitHub App and paste a real private key before you start Compose. The
 3. Leave **Identifying and authorizing users** off. Do not set a callback URL. This App does not use user login.
 4. Set **Webhook URL** to `https://<your-host>/webhooks` once you have HTTPS, or a tunnel URL that forwards to `/webhooks`. You can save the App first and add the URL after the host is up.
 5. Set **Webhook secret** now. Copy the same value into `WEBHOOK_SECRET` later.
-6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. Do not require `pull_request_review` unless you have a reason.
+6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. Add `pull_request_review` when `FEATURE_REVIEW=approval` so approvals can trigger reviews.
 7. Set repository permissions (table below). Create the app, generate a **private key**, and copy the **App ID**.
 8. Install the app on the orgs or repos you want reviewed. Creating the App is not enough. If you pick **Only select repositories**, include the test repo.
 
