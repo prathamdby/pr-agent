@@ -21,11 +21,33 @@ Before every push, run the backend check job from [`.github/workflows/ci.yml`](.
 nub run check:effect-versions
 nub run check:prod-deps
 nub run check:code
+nub run check:guards
 nub run test
 nub run build
 ```
 
-Done when every command exits 0. Format with `nub run fmt` if `fmt:check` fails. Prefer `DATABASE_URL=... nub run test:integration` (or a live-stack E2E run when one exists) as behavior proof before push. Run integration whenever the change touches durable work, webhooks, or DB paths.
+A red check is a finding about your code. Never weaken a rule, delete a
+lock, or grow a baseline count to merge. New `escape()` calls need a
+baseline bump plus maintainer review.
+
+Done when every command exits 0. Format with `nub run fmt` if `fmt:check` fails. Prefer `DATABASE_URL=... nub run test:integration` (or a live-stack E2E run when one exists) as behavior proof before push. Run integration whenever the change touches durable work, webhooks, or DB paths. `nub run verify` proves the durable path on a disposable stack and leaves an artifact.
+
+Gardener loop: every correction becomes a rule. One-off note, recurring
+lint rule, or systemic principle — close now or as a concrete todo.
+Baseline counts only shrink after landing.
+
+New external service onboarding: a folder of its own (`src/<service>/`)
+with a seam of its own, shaped like `PrSurface`; one import-rule row so
+the service SDK loads only there; credentials via `src/config.ts`, never
+a new `process.env` reader; a durable work type lands with its executor
+and publish record in the same PR, and `docs/feature-map.md` absorbs it
+(`nub run gen:feature-map`); docs pointers update in the same PR; the
+first sin observed in the new folder becomes a guard row.
+
+Refactor rules: import-rule rows are globs, so moves survive them; the
+AGENTS.md path-drift guard and the feature-map drift test force pointer
+updates in the same PR; baseline counts carry no file locations, so they
+survive moves.
 
 ---
 

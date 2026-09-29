@@ -27,7 +27,13 @@
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
     "site:dev": "nub --node run --filter pr-agent-landing dev",
     "site:build": "nub --node run --filter pr-agent-landing build",
-    "site:generate-og": "nub --node run --filter pr-agent-landing generate:og"
+    "site:generate-og": "nub --node run --filter pr-agent-landing generate:og",
+    "check:static-baseline": "node scripts/check-static-baseline.mjs",
+    "check:guards": "node scripts/check-static-baseline.mjs && node scripts/check-comments.mjs && node scripts/check-domain-guards.mjs",
+    "gen:feature-map": "node scripts/gen-feature-map.mjs",
+    "gen:migration": "node scripts/gen-migration.mjs",
+    "verify": "node scripts/verify.mjs",
+    "dump-prompt": "nub scripts/dump-prompt.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "latest",

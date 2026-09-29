@@ -11,3 +11,4 @@ site/.output/
 site/.vercel/
 .tmp-bench/
 .audit/
+verify-artifacts/

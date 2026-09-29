@@ -29,11 +29,16 @@ jobs:
               - ".github/workflows/ci.yml"
               - ".dockerignore"
               - ".env.example"
+              - ".gitignore"
               - ".node-version"
               - ".npmrc"
               - ".oxfmtrc.json"
               - ".oxlintrc.json"
+              - "AGENTS.md"
+              - "CODEOWNERS"
               - "Dockerfile"
+              - "README.md"
+              - "docs/**"
               - "migrations/**"
               - "package.json"
               - "nub.lock"
@@ -51,6 +56,25 @@ jobs:
               - "nub.jsonc"
               - "site/**"
 
+  # Always-run aggregator so the required `gate` check reports on every PR,
+  # including docs-only PRs that skip the path-filtered jobs below. `changes`
+  # is in `needs` so a paths-filter failure cannot silently green the gate:
+  # with `if: always()`, jobs `needs` omits default to skipped, which the
+  # loop below treats as success.
+  gate:
+    needs: [changes, check, integration, docker, site]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }}"
+          if [ "${{ needs.changes.result }}" != "success" ]; then echo "gate: failing on changes=${{ needs.changes.result }}"; exit 1; fi
+          for r in "${{ needs.check.result }}" "${{ needs.integration.result }}" "${{ needs.docker.result }}" "${{ needs.site.result }}"; do
+            case "$r" in success|skipped) ;; *) echo "gate: failing on $r"; exit 1;; esac
+          done
+          echo "gate green"
+
   check:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
@@ -66,6 +90,7 @@ jobs:
       - run: nub run check:effect-versions
       - run: nub run check:prod-deps
       - run: nub run check:code
+      - run: nub run check:guards
       - run: nub run test
       - run: nub run build
 

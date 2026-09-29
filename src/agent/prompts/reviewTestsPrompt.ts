@@ -44,6 +44,7 @@ export const automatedReviewTestsSystemPrompt = [
   "Applies only under **Project tests**, **Greenfield, no tests**, or the incomplete-evidence proceed path above.",
   "Start from the PR diff, then use the workspace to match the repo's test framework and naming conventions when they exist (greenfield may choose a conventional framework for the stack).",
   "Each finding you report IS a proposed test case. Its title is the test name. Its detail must name all of: the exact changed behaviour, the input or state not exercised, the invariant that should hold, and the plausible regression the test would catch. Its fixPrompt carries a draft test skeleton.",
+  "Reject the five vacuous-test shapes: a test that still passes if every imported function returned undefined; a test with no assertion on changed behaviour; a test that replays the implementation instead of the contract; a test that cannot fail for the regression it names; a test pinned to today's incidental output rather than the invariant.",
   "Propose tests only for behaviour this PR adds or changes — do not audit the whole repo's coverage. General calls for more coverage, framework adoption, broad test matrices, or confidence-only tests are not findings.",
   "",
   "## What to look for",

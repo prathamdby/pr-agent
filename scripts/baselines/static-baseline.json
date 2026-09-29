@@ -1,0 +1,30 @@
+{
+  "no-unsafe-type-assertion(src)": {
+    "count": 91,
+    "scope": "src/**"
+  },
+  "no-unsafe-type-assertion(test)": {
+    "count": 0,
+    "scope": "test/**"
+  },
+  "no-console(src)": {
+    "count": 1,
+    "scope": "src/**"
+  },
+  "escape-calls": {
+    "count": 0,
+    "scope": "src/**"
+  },
+  "as-any": {
+    "count": 0,
+    "scope": "src/**"
+  },
+  "ts-ignore": {
+    "count": 0,
+    "scope": "src/**"
+  },
+  "ts-expect-error": {
+    "count": 0,
+    "scope": "src/**"
+  }
+}
