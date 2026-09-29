@@ -35,6 +35,10 @@ function countOxRule(rule, scope) {
   }
   let diagnostics;
   const trimmed = raw.trim();
+  // oxlint prints nothing when the scope is clean: an empty success is a
+  // valid zero, but only when the binary itself succeeded above. The catch
+  // path rethrows on empty stdout, so reaching here with "" means clean.
+  if (trimmed.length === 0) return 0;
   if (trimmed.startsWith("{")) {
     diagnostics = JSON.parse(trimmed).diagnostics;
   } else {

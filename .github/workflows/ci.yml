@@ -57,15 +57,19 @@ jobs:
               - "site/**"
 
   # Always-run aggregator so the required `gate` check reports on every PR,
-  # including docs-only PRs that skip the path-filtered jobs below.
+  # including docs-only PRs that skip the path-filtered jobs below. `changes`
+  # is in `needs` so a paths-filter failure cannot silently green the gate:
+  # with `if: always()`, jobs `needs` omits default to skipped, which the
+  # loop below treats as success.
   gate:
-    needs: [check, integration, docker, site]
+    needs: [changes, check, integration, docker, site]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - run: |
-          echo "check=${{ needs.check.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }}"
+          if [ "${{ needs.changes.result }}" != "success" ]; then echo "gate: failing on changes=${{ needs.changes.result }}"; exit 1; fi
           for r in "${{ needs.check.result }}" "${{ needs.integration.result }}" "${{ needs.docker.result }}" "${{ needs.site.result }}"; do
             case "$r" in success|skipped) ;; *) echo "gate: failing on $r"; exit 1;; esac
           done

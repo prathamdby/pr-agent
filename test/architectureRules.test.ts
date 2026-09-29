@@ -5,6 +5,7 @@ import {
   exportedSignatureTexts,
   forbiddenExportedParam,
   hasForbiddenImportReference,
+  hasValueImportReference,
 } from "./architectureRulesHelpers.js";
 
 const SRC_ROOT = join(process.cwd(), "src");
@@ -73,20 +74,6 @@ function isAllowedImporter(rel: string, allowed: string[]): boolean {
   );
 }
 
-/** Value (non-`import type`) references to pg / pg-boss only, including re-exports. */
-function hasValueImportReference(text: string, module: string): boolean {
-  const lines = text.split("\n");
-  const valueLines = lines.filter((line) => {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("import") && !trimmed.startsWith("export")) return false;
-    if (/^(import|export)\s+type\b/.test(trimmed)) return false;
-    return true;
-  });
-  const joined = valueLines.join("\n");
-  if (module === "pg-value") return /\bfrom\s+["']pg["']/.test(joined);
-  return /\bfrom\s+["']pg-boss["']/.test(joined);
-}
-
 function checkImportRule(rule: ImportRule): string[] {
   const violations: string[] = [];
   for (const file of walkTsFiles(SRC_ROOT)) {
@@ -124,11 +111,16 @@ function runtimeImportGraph(entry: string): Set<string> {
     if (seen.has(file) || !existsSync(file)) continue;
     seen.add(file);
     const text = readFileSync(file, "utf8");
+    // Type-only imports carry no runtime edge; strip them before edge matching.
+    // Order matters: the two-line `import type {` ... `} from "..."` form first,
+    // then remaining single-line `import type ...` forms.
     const stripped = text
-      .replace(/^import\s+type\s+[\s\S]*?from\s+["'][^"']+["'];?\s*$/gm, "")
-      .replace(/^import\s+type\s+[^;]+;?\s*$/gm, "");
-    for (const match of stripped.matchAll(/from\s+["'](\.[^"']+)["']/g)) {
-      let spec = match[1]!;
+      .replace(/^import\s+type\s*\{[^}]*\}\s*from\s*["'][^"']+["'];?\s*$/gm, "")
+      .replace(/^import\s+type\s+[^\n]+$/gm, "");
+    for (const match of stripped.matchAll(
+      /(?:\bfrom\s+["'](\.[^"']+)["']|\bimport\s*\(\s*["'](\.[^"']+)["']\s*\))/g,
+    )) {
+      let spec = (match[1] ?? match[2])!;
       if (spec.endsWith(".js")) spec = `${spec.slice(0, -3)}.ts`;
       else if (!spec.endsWith(".ts")) spec = `${spec}.ts`;
       const resolved = relative(process.cwd(), join(file, "..", spec)).replace(/\\/g, "/");
@@ -165,6 +157,18 @@ describe("architecture rules", () => {
       }
     }
     expect(violations).toEqual([]);
+  });
+
+  it("catches pg/pg-boss value imports in any layout, including multiline", () => {
+    expect(hasValueImportReference(`import { Pool } from "pg";`, "pg-value")).toBe(true);
+    expect(hasValueImportReference(`import {\n  Pool\n} from "pg";`, "pg-value")).toBe(true);
+    expect(hasValueImportReference(`export { Pool } from "pg";`, "pg-value")).toBe(true);
+    expect(hasValueImportReference(`const p = await import("pg");`, "pg-value")).toBe(true);
+    expect(hasValueImportReference(`import type { Pool } from "pg";`, "pg-value")).toBe(false);
+    expect(hasValueImportReference(`export type { Pool } from "pg";`, "pg-value")).toBe(false);
+    expect(hasValueImportReference(`// import { Pool } from "pg";\nconst x = 1;`, "pg-value")).toBe(
+      false,
+    );
   });
 
   it("keeps webhook server free of worker executors and orchestrator", () => {

@@ -1,3 +1,3 @@
 # These owners will be the default owners for everything in the repo. The
 # existing branch ruleset already requires code-owner review with no bypass.
-@prathamdby
+* @prathamdby
