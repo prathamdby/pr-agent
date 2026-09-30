@@ -9,6 +9,7 @@ import {
   reviewCancelAttributionForClosedPr,
 } from "../../settings/index.js";
 import {
+  acquireAutoWorkIntakeLock,
   replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
   type AutoWorkSupersedeTarget,
@@ -232,12 +233,17 @@ async function applyPlannedAutomatedPullRequestIntake(
 
   if (plan.kinds.includes("reviewApproval")) {
     const approvalAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+    // Intake lock held for the rest of this transaction: concurrent approvals
+    // serialize here so only the first creates a review. The rest observe the
+    // prior row below and emit the dedup event instead.
+    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
     const prior = await client.query<{ id: string }>(
       `SELECT id
 \t\t\t   FROM agent_work_items
 \t\t\t  WHERE resource_key = $1
 \t\t\t    AND type = 'review'
 \t\t\t    AND source = 'auto'
+\t\t\t    AND status IN ('queued', 'running')
 \t\t\t  LIMIT 1`,
       [resourceKey],
     );

@@ -91,6 +91,9 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
         data: parseOrThrow(eventName, pullRequestWebhookSchema, payload),
       };
     case "pull_request_review": {
+      if (payloadAction(payload) !== "submitted") {
+        return { name: "ignored", data: payload };
+      }
       const parsed = parseOrThrow(eventName, pullRequestReviewWebhookSchema, payload);
       if (!isApprovalReview(parsed)) {
         return { name: "ignored", data: payload };

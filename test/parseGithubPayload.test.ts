@@ -977,6 +977,63 @@ describe("parseGithubPayload", () => {
       }),
     ).toThrow(WebhookParseError);
   });
+
+  it("routes submitted approvals to pull_request_review", () => {
+    const raw = {
+      action: "submitted",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      pull_request: { number: 3, head: { sha: "abc" } },
+      review: {
+        id: 99,
+        state: "approved",
+        user: { id: 7, login: "reviewer" },
+        author_association: "MEMBER",
+      },
+    };
+    const p = parseGithubPayload("pull_request_review", raw);
+    expect(p.name).toBe("pull_request_review");
+    if (p.name !== "pull_request_review") throw new Error("expected pull_request_review");
+    expect(p.data.pull_request.number).toBe(3);
+    expect(p.data.review.state).toBe("approved");
+  });
+
+  it("routes uppercase APPROVED state to pull_request_review", () => {
+    const raw = {
+      action: "submitted",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      pull_request: { number: 3, head: { sha: "abc" } },
+      review: {
+        id: 99,
+        state: "APPROVED",
+        user: { id: 7, login: "reviewer" },
+        author_association: "MEMBER",
+      },
+    };
+    expect(parseGithubPayload("pull_request_review", raw).name).toBe("pull_request_review");
+  });
+
+  it("ignores non-approving review states", () => {
+    const base = {
+      action: "submitted",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      pull_request: { number: 3, head: { sha: "abc" } },
+    };
+    for (const state of ["changes_requested", "commented", "dismissed"]) {
+      const p = parseGithubPayload("pull_request_review", {
+        ...base,
+        review: { id: 99, state, user: { id: 7 }, author_association: "MEMBER" },
+      });
+      expect(p.name).toBe("ignored");
+    }
+  });
+
+  it("ignores non-submitted review actions without parsing", () => {
+    const p = parseGithubPayload("pull_request_review", { action: "edited" });
+    expect(p.name).toBe("ignored");
+  });
 });
 
 describe("toCiHeadSource", () => {

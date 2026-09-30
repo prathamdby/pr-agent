@@ -29,8 +29,10 @@ export function planAutomatedPullRequestIntake(
   } else if (features.review === "approval") {
     if (action === "approval") {
       // No review on `opened`: the first approving review enqueues it instead,
-      // so unreviewed slop PRs never spend model tokens. The supersede rule
-      // below keeps approval-started reviews pinned to the latest head.
+      // so unreviewed slop PRs start no review work. Describe and verification
+      // keep their own triggers; set them to manual or off to stop all
+      // open-time model spend. The supersede rule below keeps
+      // approval-started reviews pinned to the latest head.
       kinds.push("reviewApproval");
     } else if (action === "synchronize") {
       kinds.push("reviewSupersede");

@@ -7,7 +7,7 @@ import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentW
 import type { PrRef, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
 import { runMigrations } from "../../src/db/migrations.js";
-import { createOperationLogger } from "../../src/evlog.js";
+import { createOperationLogger, initEvlog } from "../../src/evlog.js";
 import { makeTestConfig } from "../helpers/config.js";
 
 // These tests exercise the supersede/cancel mechanism on repeated synchronize deliveries,
@@ -135,6 +135,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
     await deleteQueueJobs(boss);
+    initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
 
   async function countWebhookRows(delivery?: string): Promise<number> {
@@ -433,5 +434,143 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       [EVENT],
     );
     expect(rows[0]?.processing_decision).toBe("ignored_pull_request_labeled");
+  });
+
+  it("approval mode: first approval enqueues one deferred-head review", async () => {
+    const ref = makePrRef("approval-first");
+    const approvalCfg = makeTestConfig({
+      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+    });
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", "delivery-approval-first"),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalCfg,
+    );
+
+    await expect(countWorkItems()).resolves.toBe(1);
+    const { rows } = await pool.query<{ head_sha: string; status: string }>(
+      `SELECT head_sha, status FROM agent_work_items WHERE owner = $1`,
+      [OWNER],
+    );
+    expect(rows[0]?.head_sha).toBe("deferred-to-worker");
+    expect(rows[0]?.status).toBe("queued");
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+  });
+
+  it("approval mode: repeat approval is a no-op without a second review", async () => {
+    const ref = makePrRef("approval-repeat");
+    const approvalCfg = makeTestConfig({
+      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+    });
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", "delivery-approval-repeat-a"),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalCfg,
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", "delivery-approval-repeat-b"),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalCfg,
+    );
+
+    await expect(countWorkItems()).resolves.toBe(1);
+    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+    initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const secondLog = intakeLog();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", "delivery-approval-repeat-c"),
+      ref,
+      "approval",
+      secondLog,
+      approvalCfg,
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+    const dedupEvents = (secondLog.getContext().events ?? []) as Array<{
+      event?: string;
+    }>;
+    expect(dedupEvents.some((entry) => entry.event === "ignored_approval_review_exists")).toBe(
+      true,
+    );
+  });
+
+  it("approval mode: approval after a terminal review starts a fresh review", async () => {
+    const ref = makePrRef("approval-terminal");
+    const approvalCfg = makeTestConfig({
+      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+    });
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", "delivery-approval-terminal-a"),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalCfg,
+    );
+    await pool.query(
+      `UPDATE agent_work_items SET status = 'completed', completed_at = now(), updated_at = now()
+        WHERE owner = $1`,
+      [OWNER],
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", "delivery-approval-terminal-b"),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalCfg,
+    );
+
+    await expect(countWorkItems()).resolves.toBe(2);
+  });
+
+  it("approval mode: synchronize supersedes the approval-started review", async () => {
+    const ref = makePrRef("approval-push");
+    const approvalCfg = makeTestConfig({
+      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+    });
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", "delivery-approval-push-a"),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalCfg,
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-approval-push-b"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      approvalCfg,
+    );
+
+    const { rows: workRows } = await pool.query<{ status: string }>(
+      `SELECT status FROM agent_work_items WHERE owner = $1 ORDER BY created_at`,
+      [OWNER],
+    );
+    expect(workRows.map((row) => row.status).toSorted()).toEqual(["queued", "superseded"]);
   });
 });

@@ -1214,6 +1214,137 @@ describe("processWebhookPostRequestEffect", () => {
     }
   });
 
+  function approvalReviewPayload(
+    overrides: {
+      readonly userId?: number;
+      readonly userType?: string;
+      readonly association?: string | null;
+    } = {},
+  ) {
+    return {
+      action: "submitted",
+      installation: { id: 1 },
+      repository: { owner: { login: "o" }, name: "r", size: 10 },
+      pull_request: { number: 3, head: { sha: "abc" } },
+      review: {
+        id: 99,
+        state: "approved",
+        user: {
+          id: overrides.userId ?? 7,
+          ...(overrides.userType != null ? { type: overrides.userType } : {}),
+        },
+        author_association: overrides.association ?? "MEMBER",
+      },
+    };
+  }
+
+  function approvalGateLayer(decisions: string[], submitted: string[]) {
+    const schedulerLayer = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: (_headers, decision) =>
+          Effect.sync(() => {
+            decisions.push(decision);
+          }),
+        submitAutomatedReview: (_headers, _ref, action) =>
+          Effect.sync(() => {
+            submitted.push(action);
+          }),
+        submitSlashCommand: () => Effect.void,
+        submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
+        ping: () => Effect.succeed(true),
+      }),
+    );
+    return Layer.mergeAll(schedulerLayer, WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)));
+  }
+
+  async function runApprovalReview(
+    payload: ReturnType<typeof approvalReviewPayload>,
+    runCfg = cfg,
+    delivery = "d-approval-gate",
+  ) {
+    const decisions: string[] = [];
+    const submitted: string[] = [];
+    const intakeLog = evlog.createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const handlers = yield* WebhookHandlers;
+        yield* handlers.approvalReview(
+          runCfg,
+          { event: "pull_request_review", delivery, rawBody: Buffer.from("{}") },
+          payload,
+          intakeLog,
+        );
+      }).pipe(Effect.provide(approvalGateLayer(decisions, submitted))),
+    );
+    return { decisions, submitted };
+  }
+
+  const approvalCfg = makeTestConfig({
+    features: { ...makeTestConfig().features, review: "approval" },
+  });
+
+  it("ignores approval reviews from bot accounts", async () => {
+    const { decisions, submitted } = await runApprovalReview(
+      approvalReviewPayload({ userType: "Bot" }),
+      approvalCfg,
+      "d-approval-bot",
+    );
+
+    expect(decisions).toEqual(["ignored_bot_slash_command"]);
+    expect(submitted).toEqual([]);
+    expect(mocks.getAppBotIdentity).not.toHaveBeenCalled();
+  });
+
+  it("ignores approval reviews from the app identity", async () => {
+    const { decisions, submitted } = await runApprovalReview(
+      approvalReviewPayload({ userId: 42 }),
+      approvalCfg,
+      "d-approval-own-id",
+    );
+
+    expect(decisions).toEqual(["ignored_bot_slash_command"]);
+    expect(submitted).toEqual([]);
+    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
+  });
+
+  it("rejects approval reviews outside the allowlist", async () => {
+    const { decisions, submitted } = await runApprovalReview(
+      approvalReviewPayload({ association: "NONE" }),
+      approvalCfg,
+      "d-approval-allowlist",
+    );
+
+    expect(decisions).toEqual(["ignored_unauthorized_approval"]);
+    expect(submitted).toEqual([]);
+  });
+
+  it("ignores approvals unless approval mode is on", async () => {
+    const { decisions, submitted } = await runApprovalReview(
+      approvalReviewPayload(),
+      cfg,
+      "d-approval-wrong-mode",
+    );
+
+    expect(decisions).toEqual(["ignored_approval_review_not_enabled"]);
+    expect(submitted).toEqual([]);
+  });
+
+  it("submits an automated review for allowed approvals", async () => {
+    const { decisions, submitted } = await runApprovalReview(
+      approvalReviewPayload(),
+      approvalCfg,
+      "d-approval-allowed",
+    );
+
+    expect(decisions).toEqual([]);
+    expect(submitted).toEqual(["approval"]);
+  });
+
   it("returns 200 before slow emitOperationLogger settles", async () => {
     let releaseEmit!: () => void;
     const emitGate = new Promise<void>((resolve) => {
