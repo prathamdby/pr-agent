@@ -101,47 +101,6 @@ describe("buildTriageWorkspaceTools", () => {
     });
   });
 
-  it("names a FIFO instead of reporting it missing", async () => {
-    const { root, executors } = await setup({ files: { "src/app.ts": "export {};\n" } });
-    await mkdir(join(root, "logs"), { recursive: true });
-    await exec("mkfifo", [join(root, "logs", "live.pipe")]);
-
-    const out = (await executors.readWorkspaceFile({ path: "logs/live.pipe" })) as {
-      refused?: boolean;
-      reason?: string;
-    };
-
-    expect(out.refused).toBe(true);
-    expect(out.reason).toContain("FIFO");
-    expect(out.reason).not.toContain("missing");
-  });
-
-  it("notes an empty file instead of returning silent empty content", async () => {
-    const { executors } = await setup({ files: { "src/empty.ts": "" } });
-
-    const out = (await executors.readWorkspaceFile({ path: "src/empty.ts" })) as {
-      content?: string;
-      note?: string;
-      refused?: boolean;
-    };
-
-    expect(out.content).toBe("");
-    expect(out.note).toBe("File is empty (0 bytes).");
-    expect(out.refused).toBeUndefined();
-  });
-
-  it("refuses binary files with the shared named dead end", async () => {
-    const { executors } = await setup({ files: { "src/app.ts": "abc\0def\n" } });
-
-    const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
-      refused?: boolean;
-      reason?: string;
-    };
-
-    expect(out.refused).toBe(true);
-    expect(out.reason).toBe("Binary file cannot be read as text.");
-  });
-
   it("caps oversized reads at the shared response budget with a resume offset", async () => {
     // Lines stay under the per-line clamp so the byte budget is what fires.
     const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
@@ -185,18 +144,6 @@ describe("buildTriageWorkspaceTools", () => {
     expect(out.truncated).toBe(true);
     expect(out.resumeStartLine).toBe(4);
     expect(out.note).toBe("Line window ended at line 3 of 4. Resume with startLine 4.");
-  });
-
-  it("strips BOM and normalizes CRLF so line numbers match diff and blame", async () => {
-    const { executors } = await setup({ files: { "src/app.ts": "\uFEFFone\r\ntwo\r\n" } });
-
-    const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
-      content?: string;
-      endLine?: number;
-    };
-
-    expect(out.content).toBe("one\ntwo\n");
-    expect(out.endLine).toBe(2);
   });
 
   it("blocks read through absolute symlink escapes", async () => {

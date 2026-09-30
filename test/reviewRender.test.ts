@@ -951,22 +951,6 @@ describe("renderInlineThreadBody", () => {
     expect(body).toMatchSnapshot();
   });
 
-  it("P2 with fixPrompt accordion", () => {
-    const body = renderInlineThreadBody(
-      {
-        severity: "P2",
-        file: "src/c.ts",
-        startLine: 20,
-        endLine: 22,
-        title: "Off-by-one in slice",
-        detail: "End index excludes last element incorrectly.",
-        fixPrompt: "Adjust slice end index to include the last item.",
-      },
-      inlineCtx,
-    );
-    expect(body).toMatchSnapshot();
-  });
-
   it("escapes triple backticks in fixPrompt inside accordion fence", () => {
     const body = renderInlineThreadBody(
       {

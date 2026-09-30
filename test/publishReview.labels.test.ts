@@ -23,7 +23,7 @@ const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
-describe("publishReview labels and token expiry", () => {
+describe("publishReview labels", () => {
   beforeEach(() => {
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
@@ -109,7 +109,7 @@ describe("publishReview labels and token expiry", () => {
     expect(harness.setLabels).toHaveBeenCalledWith(["bug", "size:L"]);
   });
 
-  it("preserves unmanaged labels beyond the first GitHub page on replace-all sync", async () => {
+  it("preserves every unmanaged label on replace-all sync", async () => {
     const pageOneExtras = Array.from({ length: 30 }, (_, i) => `extra-${i + 1}`);
     const pageTwoExtras = ["must-preserve-page-two", "also-preserve-page-two"];
     harness.getLabels.mockResolvedValueOnce(["size:XS", ...pageOneExtras, ...pageTwoExtras]);
@@ -130,24 +130,6 @@ describe("publishReview labels and token expiry", () => {
     const nextLabels = harness.setLabels.mock.calls[0]?.[0] ?? [];
     expect(nextLabels).toHaveLength(pageOneExtras.length + pageTwoExtras.length + 1);
     expect(nextLabels).not.toContain("size:XS");
-  });
-
-  it("does not create a zero-comment review on repeat no-bugs publish", async () => {
-    harness.resolveProgressComment.mockResolvedValueOnce({
-      id: 99,
-      url: "https://github.com/o/r/pull/1#issuecomment-99",
-      body: "progress",
-    });
-
-    await publishReviewForTest({
-      ...baseParams,
-      shouldLinkToSummary: true,
-      progressCommentIdHint: 99,
-      publishState: testPublishState(),
-      payload: { ...payload, findings: [] },
-    });
-
-    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("does not fail publish when label sync throws", async () => {

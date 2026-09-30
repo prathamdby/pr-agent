@@ -16,7 +16,7 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
 
 2. **No installation tokens outside `src/github/`**. Executors receive `PrSurface` on `DurableExecutionContext` (and mint only inside `durableJob.ts` when constructing a surface). `gitCredentialAuth()` is the only credential escape hatch for `src/prWorkspace/` git checkout.
 
-3. **CI guard** — `test/prSurfaceImportGraph.test.ts` fails when code outside `src/github/` imports `@octokit/*`, references `installationOctokit`, or exports signatures with `token: string` / `expiresAtTs` / `tokenExpiresAtTs` parameters.
+3. **CI guards** — `test/architectureRules.test.ts` keeps `@octokit/*` imports inside `src/github/` and rejects exported installation-token parameters outside `src/github/` and the `src/prWorkspace/` checkout credential seam. `test/prSurfaceImportGraph.test.ts` keeps `installationOctokit` references inside those seams and covers the guard helpers.
 
 4. **Binding rule** — `.pr-agent/pr-surface-seam.mdc` mirrors the Pi session seam rule (`.pr-agent/pi-session-seam.mdc`).
 

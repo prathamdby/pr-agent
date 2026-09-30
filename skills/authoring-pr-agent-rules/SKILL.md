@@ -250,7 +250,7 @@ globs:
   - "src/agent/triage/**"
 ---
 
-Feature harnesses must call `createFeaturePiSession` → `createPiSession` in `src/agent/runtime/piSession.ts`. Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep the web import graph free of Pi/models (`test/webImportGraph.test.ts`, ADR 0023).
+Feature harnesses must call `createFeaturePiSession` → `createPiSession` in `src/agent/runtime/piSession.ts`. Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep the web import graph free of Pi/models (`test/architectureRules.test.ts`, ADR 0023).
 
 ````
 </Good>

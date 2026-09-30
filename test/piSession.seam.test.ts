@@ -66,52 +66,6 @@ describe("createPiSession seam", () => {
     await session.dispose();
   });
 
-  it("rejects a resolved loop that ends on an assistant error", async () => {
-    const events: Array<{ kind: string }> = [];
-    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit) => {
-      await emit({
-        type: "turn_end",
-        toolResults: [],
-        message: {
-          role: "assistant",
-          content: [],
-          stopReason: "error",
-          errorMessage: "429 Too Many Requests: rate limit exceeded",
-        },
-      });
-      return [];
-    });
-
-    const session = await createPiSession({
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: compactionPolicyForRole("orchestrator"),
-      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
-      systemPrompt: "orchestrator",
-      eventSink: (event) => events.push({ kind: event.kind }),
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
-      tools: [],
-      executors: {},
-    });
-
-    await expect(
-      session.send("run", {
-        phase: "recon",
-        checkpointId: "cp-recon",
-        maxToolRounds: 2,
-      }),
-    ).rejects.toMatchObject({
-      code: "provider.request_failed",
-    });
-    expect(events.map((event) => event.kind)).toContain("failure");
-    expect(events.map((event) => event.kind)).not.toContain("completion");
-
-    await session.dispose();
-  });
-
   it("reserves one publish_thread call beyond the investigation budget", async () => {
     const beforeDecisions: Array<{ tool: string; blocked: boolean }> = [];
     const finishEnds: boolean[] = [];

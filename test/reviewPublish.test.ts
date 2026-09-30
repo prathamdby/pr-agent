@@ -5,7 +5,6 @@ import {
   CHECK_RUNS_PAGE_SIZE,
   COMMENTS_PAGE_SIZE,
 } from "../src/settings/index.js";
-import { syncReviewLabels } from "../src/review/run/reviewLabels.js";
 
 const {
   listComments,
@@ -180,26 +179,6 @@ describe("listPullRequestLabels", () => {
     expect(labels).toHaveLength(COMMENTS_PAGE_SIZE + 2);
     expect(labels).toContain("label-beyond-page-one");
     expect(labels).toContain("team-owned");
-  });
-
-  it("keeps later-page labels when computing replace-all setLabels payload", async () => {
-    const pageOne = Array.from({ length: COMMENTS_PAGE_SIZE }, (_, i) => ({
-      name: i === 0 ? "size:XS" : `custom-${i}`,
-    }));
-    const pageTwo = [{ name: "must-preserve" }, { name: "also-preserve" }];
-    listLabelsOnIssue.mockResolvedValueOnce({ data: pageOne }).mockResolvedValueOnce({
-      data: pageTwo,
-    });
-
-    const current = await listPullRequestLabels("tok", "o", "r", 7);
-    const next = syncReviewLabels(current, ["size:S"]);
-
-    expect(current).toHaveLength(COMMENTS_PAGE_SIZE + 2);
-    expect(next).toContain("must-preserve");
-    expect(next).toContain("also-preserve");
-    expect(next).toContain("custom-1");
-    expect(next).toContain("size:S");
-    expect(next).not.toContain("size:XS");
   });
 });
 

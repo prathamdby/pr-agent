@@ -62,6 +62,7 @@ This file gives agents the operating model for this repository. Direct maintaine
 - Keep scope tied to the requested outcome. Review feedback does not authorize adjacent cleanup or a redesign.
 - Honor explicit stop points. Do not commit, push, open a PR, or start external services past the point the developer requested.
 - Keep context lean. Read the files and history needed to prove the next decision, then act.
+- Each contract has one owner test at its strongest boundary. Do not copy guard or shared-helper tests into another suite.
 - Never write unit tests after you write code.
 - Highly prefer E2E tests as the sole testing mechanism. Use them to verify complex features work. At the end of E2E tests, produce a verifiable and repeatable artifact.
 - If you must test a system in isolation, first write down all the ways it could fail, then write the code.
