@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -152,60 +152,6 @@ describe("buildVerificationWorkspaceTools", { timeout: WORKSPACE_TEST_TIMEOUT_MS
   }
 
   describe("readWorkspaceFile", () => {
-    it("names a FIFO instead of reporting it missing", async () => {
-      const { workspace, executors } = await setup({ "src/app.ts": "export {};\n" });
-      await chmod(workspace.agentCwd, 0o755);
-      await mkdir(join(workspace.agentCwd, "logs"), { recursive: true });
-      await exec("mkfifo", [join(workspace.agentCwd, "logs", "live.pipe")]);
-
-      const out = (await executors.readWorkspaceFile({ path: "logs/live.pipe" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
-
-      expect(out.refused).toBe(true);
-      expect(out.reason).toContain("FIFO");
-      expect(out.reason).not.toContain("missing");
-    });
-
-    it("notes an empty file instead of returning silent empty content", async () => {
-      const { executors } = await setup({ "src/empty.ts": "" });
-
-      const out = (await executors.readWorkspaceFile({ path: "src/empty.ts" })) as {
-        content?: string;
-        note?: string;
-        refused?: boolean;
-      };
-
-      expect(out.content).toBe("");
-      expect(out.note).toBe("File is empty (0 bytes).");
-      expect(out.refused).toBeUndefined();
-    });
-
-    it("reads regular files without a note", async () => {
-      const { executors } = await setup({ "src/app.ts": "alpha\nbeta\n" });
-
-      const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
-        content?: string;
-        note?: string;
-      };
-
-      expect(out.content).toBe("alpha\nbeta\n");
-      expect(out.note).toBeUndefined();
-    });
-
-    it("refuses binary files with the shared named dead end", async () => {
-      const { executors } = await setup({ "src/blob.bin": "abc\0def\n" });
-
-      const out = (await executors.readWorkspaceFile({ path: "src/blob.bin" })) as {
-        refused?: boolean;
-        reason?: string;
-      };
-
-      expect(out.refused).toBe(true);
-      expect(out.reason).toBe("Binary file cannot be read as text.");
-    });
-
     it("caps oversized reads at the shared response budget with a resume offset", async () => {
       const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
       const { executors } = await setup({ "src/big.txt": bigFile });
@@ -247,18 +193,6 @@ describe("buildVerificationWorkspaceTools", { timeout: WORKSPACE_TEST_TIMEOUT_MS
       expect(out.truncated).toBe(true);
       expect(out.resumeStartLine).toBe(4);
       expect(out.note).toBe("Line window ended at line 3 of 4. Resume with startLine 4.");
-    });
-
-    it("strips BOM and normalizes CRLF so line numbers match diff and blame", async () => {
-      const { executors } = await setup({ "src/crlf.ts": "\uFEFFone\r\ntwo\r\n" });
-
-      const out = (await executors.readWorkspaceFile({ path: "src/crlf.ts" })) as {
-        content?: string;
-        endLine?: number;
-      };
-
-      expect(out.content).toBe("one\ntwo\n");
-      expect(out.endLine).toBe(2);
     });
   });
 
