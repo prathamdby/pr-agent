@@ -7,9 +7,9 @@ import tailwindcss from "@tailwindcss/vite";
 import viteReact from "@vitejs/plugin-react";
 import { nitro } from "nitro/vite";
 import { defineConfig, type Plugin } from "vite";
-import { AGENT_INSTRUCTIONS, LANDING_PAGE_MARKDOWN } from "./lib/agentResources";
-import { renderLlmsTxt } from "./lib/llmsKnowledge";
-import { agentInstructionsResponse, homeMarkdownDocumentResponse } from "./lib/siteHttp";
+import { AGENT_INSTRUCTIONS, LANDING_PAGE_MARKDOWN } from "./lib/agentResources.js";
+import { renderLlmsTxt } from "./lib/llmsKnowledge.js";
+import { agentInstructionsResponse, homeMarkdownDocumentResponse } from "./lib/siteHttp.js";
 
 const siteDir = fileURLToPath(new URL(".", import.meta.url));
 
