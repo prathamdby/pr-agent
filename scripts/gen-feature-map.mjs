@@ -83,7 +83,7 @@ const lines = [
 ];
 
 const outPath = process.argv[2] ?? path.join(ROOT, "docs", "feature-map.md");
-fs.writeFileSync(outPath, `${lines.join("\n")}`);
+fs.writeFileSync(outPath, lines.join("\n"));
 execFileSync(
   path.join(ROOT, "node_modules", ".bin", process.platform === "win32" ? "oxfmt.cmd" : "oxfmt"),
   [outPath],

@@ -258,7 +258,7 @@ export async function runOrchestratedPrReview(
     codeIndexSnapshotId: params.codeIndexSnapshotId,
     ...(params.workItemId != null || params.durability?.workItemId != null
       ? {
-          workItemId: (params.workItemId ?? params.durability?.workItemId) as string,
+          workItemId: params.workItemId ?? params.durability?.workItemId,
         }
       : {}),
   });

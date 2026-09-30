@@ -76,11 +76,13 @@ parentPort.on("message", (message: HostMessage) => {
             callId,
             name,
             args,
+            // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Worker-thread ports have no origin.
           });
         }),
     })
       .then((result: QuickJsCellResult) => {
         abortByExecution.delete(message.executionId);
+        // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Worker-thread ports have no origin.
         parentPort?.postMessage({ type: "done", result });
       })
       .catch((error: unknown) => {
@@ -98,6 +100,7 @@ parentPort.on("message", (message: HostMessage) => {
               message: error instanceof Error ? error.message : String(error),
             },
           },
+          // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Worker-thread ports have no origin.
         });
       });
   }

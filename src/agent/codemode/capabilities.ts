@@ -85,8 +85,10 @@ export function createCodeModeCapabilityBridge(params: {
   let inFlight = 0;
   const waiters: Array<() => void> = [];
 
+  const atInFlightLimit = () => inFlight >= CODE_MODE_HOST_IN_FLIGHT;
+
   async function acquireInFlight(signal: AbortSignal): Promise<void> {
-    while (inFlight >= CODE_MODE_HOST_IN_FLIGHT) {
+    while (atInFlightLimit()) {
       if (signal.aborted) {
         throw hostCancelHalt();
       }

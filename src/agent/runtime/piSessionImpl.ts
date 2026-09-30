@@ -263,7 +263,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       const isSuccessfulReservedTurn = (toolResults: readonly BudgetToolResult[]): boolean => {
         if (reservedTerminalTool == null) return false;
         return toolResults.some(
-          (result) => result.toolName === reservedTerminalTool && result.isError !== true,
+          (result) => result.toolName === reservedTerminalTool && !result.isError,
         );
       };
 
@@ -553,7 +553,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           loopError = error;
         }
 
-        while (!abortPromise && !idleRejected && !protocolInvalid && !toolBudgetStopped) {
+        const shouldContinue = () =>
+          !abortPromise && !idleRejected && !protocolInvalid && !toolBudgetStopped;
+        while (shouldContinue()) {
           const assistant = lastAssistant(sessionMessages);
           if (!assistant || assistant.stopReason !== "error") break;
           if (isContextOverflow(assistant, model.contextWindow)) {

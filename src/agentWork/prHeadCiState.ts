@@ -491,7 +491,7 @@ function mapLoadedRow(row: LoadedCiStateRow): PrHeadCiStateRow {
     prNumbers: row.pr_numbers,
     truncated: row.truncated,
     seededAt: row.seeded_at,
-    projectionRepairPending: row.projection_repair_pending === true,
+    projectionRepairPending: row.projection_repair_pending,
     firstSeenAt: row.first_seen_at,
     updatedAt: row.updated_at,
   };

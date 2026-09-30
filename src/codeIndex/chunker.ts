@@ -46,13 +46,20 @@ export function recognizeTsMethod(line: string): {
     steps += 1;
   };
 
-  while (i < n && isLineWs(line[i])) advance();
+  const skipWhile = (pred: (ch: string) => boolean): void => {
+    while (i < n && pred(line[i])) {
+      i += 1;
+      steps += 1;
+    }
+  };
+
+  skipWhile(isLineWs);
 
   const readIdent = (): string | null => {
     if (!isIdentStart(line[i])) return null;
     const start = i;
     advance();
-    while (i < n && isIdentPart(line[i])) advance();
+    skipWhile(isIdentPart);
     return line.slice(start, i);
   };
 
@@ -67,12 +74,12 @@ export function recognizeTsMethod(line: string): {
       i = save;
       break;
     }
-    while (i < n && isLineWs(line[i])) advance();
+    skipWhile(isLineWs);
   }
 
   const save = i;
   if (readIdent() === "function" && isLineWs(line[i])) {
-    while (i < n && isLineWs(line[i])) advance();
+    skipWhile(isLineWs);
   } else {
     i = save;
   }
@@ -80,13 +87,13 @@ export function recognizeTsMethod(line: string): {
   const symbolName = readIdent();
   if (symbolName === null) return { symbolName: null, steps };
 
-  while (i < n && isLineWs(line[i])) advance();
+  skipWhile(isLineWs);
   if (line[i] !== "(") return { symbolName: null, steps };
   advance();
-  while (i < n && line[i] !== ")") advance();
+  skipWhile((ch) => ch !== ")");
   if (line[i] !== ")") return { symbolName: null, steps };
   advance();
-  while (i < n && isLineWs(line[i])) advance();
+  skipWhile(isLineWs);
   if (line[i] !== ":" && line[i] !== "{") return { symbolName: null, steps };
   return { symbolName, steps };
 }
