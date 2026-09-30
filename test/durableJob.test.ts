@@ -203,7 +203,7 @@ function defaultMocks() {
   vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
-  } as Awaited<ReturnType<typeof appAuth.getAppBotIdentity>>);
+  });
 }
 
 async function expectNoFurtherLeaseRenewal(): Promise<void> {

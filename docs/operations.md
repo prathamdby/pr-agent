@@ -161,8 +161,8 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 | `nub run build`                        | Compile to `dist/`                                                                                                          |
 | `nub run start` / `node dist/index.js` | Run compiled `dist/`                                                                                                        |
 | `nub run typecheck`                    | `tsc --noEmit -p tsconfig.json` (`src/`, `test/`, Vitest configs). `nub run build` uses `tsconfig.build.json` (`src/` only) |
-| `nub run lint`                         | Type-aware Oxlint (includes `site/`)                                                                                        |
-| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`                                                                                         |
+| `nub run lint`                         | Type-aware Oxlint, zero warnings (includes `site/`)                                                                         |
+| `nub run lint:backend`                 | Type-aware Oxlint, zero warnings, excluding `site/`                                                                         |
 | `nub run lint:fix`                     | Oxlint with safe fixes                                                                                                      |
 | `nub run fmt`                          | Format with Oxfmt                                                                                                           |
 | `nub run fmt:check`                    | Check formatting                                                                                                            |
@@ -179,6 +179,8 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 | `nub run site:generate-og`             | Generate landing OG assets                                                                                                  |
 
 Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry cooling-window settings live only in [`nub.jsonc`](../nub.jsonc) (`install.minimumReleaseAge`, `install.minimumReleaseAgeExclude`); edit that file when adding or removing temporary excludes.
+
+Both lint scripts pass `--deny-warnings`. `nub run check:guards` locks suppression markers with `lint-suppressions(src)` (5) and `lint-suppressions(test)` (0) in the static baseline. Counts only shrink.
 
 ### Effect version gate
 

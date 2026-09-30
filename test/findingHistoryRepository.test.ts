@@ -137,7 +137,7 @@ describe("recordFindingHistoryOutcome", () => {
       "dismissed",
     );
 
-    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain("last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id");
     expect(sql).toContain("repo_finding_history.dismiss_count + EXCLUDED.dismiss_count");
     expect(values[4]).toBe("dismissed");
@@ -160,7 +160,7 @@ describe("loadCrossPrSuppressionFingerprints", () => {
     });
 
     expect(fingerprints).toEqual(["fp-hot"]);
-    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
+    const [sql, values] = query.mock.calls[0] as unknown as [string, unknown[]];
     expect(sql).toContain("dismiss_count >=");
     expect(sql).toContain("last_outcome = 'dismissed'");
     expect(values).toEqual([1, "o", "r", 3, "180"]);

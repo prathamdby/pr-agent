@@ -53,7 +53,7 @@ export function buildThing(
 `;
     const signatures = exportedSignatureTexts(fixture);
     expect(signatures).toHaveLength(1);
-    expect(forbiddenExportedParam(signatures[0]!)).toBe("token: string");
+    expect(forbiddenExportedParam(signatures[0])).toBe("token: string");
   });
 
   it("does not flag comment-only installationOctokit mentions", () => {

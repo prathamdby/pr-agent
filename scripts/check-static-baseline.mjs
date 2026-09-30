@@ -91,6 +91,20 @@ const RULES = [
     scope: "src/**",
     flags: "",
   },
+  {
+    id: "lint-suppressions(src)",
+    kind: "pattern",
+    pattern: "(oxlint|eslint)-disable",
+    scope: "src/**",
+    flags: "",
+  },
+  {
+    id: "lint-suppressions(test)",
+    kind: "pattern",
+    pattern: "(oxlint|eslint)-disable",
+    scope: "test/**",
+    flags: "",
+  },
   { id: "escape-calls", kind: "pattern", pattern: "\\bescape\\s*\\(", scope: "src/**", flags: "" },
   { id: "as-any", kind: "pattern", pattern: "\\bas\\s+any\\b", scope: "src/**", flags: "" },
   {

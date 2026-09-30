@@ -10,6 +10,7 @@
  * fails the gate on growth: a new call needs a baseline bump plus
  * maintainer review, so the escape stays a deliberate act, not a shortcut.
  */
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- ADR 0039 requires a caller-chosen return type.
 export function escape<T>(reason: string, value: unknown): T {
   void reason;
   return value as T;

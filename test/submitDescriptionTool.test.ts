@@ -156,7 +156,7 @@ describe("submitDescription tool", () => {
     const { executor } = buildTool(undefined, { mapMode: "omit" });
     await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
     expect(published.payload.prFiles).toBeUndefined();
   });
@@ -180,7 +180,7 @@ describe("submitDescription tool", () => {
         }),
       }),
     );
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.prFiles).toBeUndefined();
     expect(published.payload.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
   });
@@ -193,7 +193,7 @@ describe("submitDescription tool", () => {
       prFiles: { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.prFiles).toEqual([
       { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
     ]);
@@ -206,7 +206,7 @@ describe("submitDescription tool", () => {
       title: "feat: add user session validation.",
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.title).toBe("Add user session validation");
   });
 
@@ -225,7 +225,7 @@ describe("submitDescription tool", () => {
       visuals: [{ kind: "mermaid", content: raw }],
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.visuals?.[0]?.content).toContain('K["api/admin-users/list proxy"]');
     expect(published.payload.visuals?.[0]?.content.startsWith("```")).toBe(false);
   });
@@ -262,7 +262,7 @@ describe("submitDescription tool", () => {
       prFiles,
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
     expect(published.payload.prFiles).toHaveLength(5);
   });
 });

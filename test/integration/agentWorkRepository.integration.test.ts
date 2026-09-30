@@ -283,7 +283,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     ]);
     const attemptCounts = claims
       .map((claim) => claim?.attemptCount)
-      .sort((left, right) => (left ?? 0) - (right ?? 0));
+      .toSorted((left, right) => (left ?? 0) - (right ?? 0));
     expect(attemptCounts).toEqual([1, 2]);
     expect(claims.filter((claim) => claim?.resumed)).toHaveLength(1);
 

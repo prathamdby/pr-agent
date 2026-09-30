@@ -120,7 +120,7 @@ function runtimeImportGraph(entry: string): Set<string> {
     for (const match of stripped.matchAll(
       /(?:\bfrom\s+["'](\.[^"']+)["']|\bimport\s*\(\s*["'](\.[^"']+)["']\s*\))/g,
     )) {
-      let spec = (match[1] ?? match[2])!;
+      let spec = match[1] ?? match[2];
       if (spec.endsWith(".js")) spec = `${spec.slice(0, -3)}.ts`;
       else if (!spec.endsWith(".ts")) spec = `${spec}.ts`;
       const resolved = relative(process.cwd(), join(file, "..", spec)).replace(/\\/g, "/");

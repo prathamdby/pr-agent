@@ -636,9 +636,9 @@ describe("executeAckJob", () => {
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
       }),
     );
-    const cancelOrder = vi.mocked(closeOwnVerdictsForWorkItems).mock.invocationCallOrder[0]!;
+    const cancelOrder = vi.mocked(closeOwnVerdictsForWorkItems).mock.invocationCallOrder[0];
     const progressOrder = vi.mocked(upsertSummaryCommentWithCreationClaim).mock
-      .invocationCallOrder[0]!;
+      .invocationCallOrder[0];
     expect(cancelOrder).toBeLessThan(progressOrder);
   });
 

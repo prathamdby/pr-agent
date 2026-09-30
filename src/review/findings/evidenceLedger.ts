@@ -26,7 +26,7 @@ export function segmentsExcluding(
   if (!excluded || excluded.length === 0) return [[startLine, endLine]];
   const sorted = [...new Set(excluded)]
     .filter((line) => line >= startLine && line <= endLine)
-    .sort((a, b) => a - b);
+    .toSorted((a, b) => a - b);
   const segments: [number, number][] = [];
   let cur = startLine;
   for (const line of sorted) {

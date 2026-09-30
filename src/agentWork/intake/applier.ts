@@ -26,7 +26,11 @@ import {
   prResourceKey,
 } from "../types.js";
 import { flushDeferredEvents, type DeferredIntakeEvent } from "./deferredEvents.js";
-import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
+import {
+  automatedIntakeDecision,
+  planAutomatedPullRequestIntake,
+  type AutomatedPrIntakePlan,
+} from "./planner.js";
 import {
   enqueueAck,
   enqueueCiProjectionDebounced,
@@ -115,7 +119,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   pushBeforeSha?: string,
 ): Promise<PlannedAutomatedIntakeResult> {
   const events: DeferredIntakeEvent[] = [];
-  const event = await insertWebhookEvent(client, headers, "automated_review_enqueued");
+  const event = await insertWebhookEvent(client, headers, automatedIntakeDecision(plan));
   if (event.duplicate) {
     events.push({
       name: "deduped_delivery",

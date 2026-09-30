@@ -81,8 +81,8 @@ describe("cancelActiveReviews (PR close)", () => {
 
     expect(cancelled.map((row) => row.id)).toEqual(["running-1", "queued-auto", "queued-slash"]);
     expect(query).toHaveBeenCalledTimes(3);
-    const queuedSql = String(query.mock.calls[0]?.[0]);
-    const runningSql = String(query.mock.calls[1]?.[0]);
+    const queuedSql = query.mock.calls[0]?.[0];
+    const runningSql = query.mock.calls[1]?.[0];
     expect(queuedSql).toContain("type = 'review'");
     expect(queuedSql).not.toContain("source = 'auto'");
     expect(queuedSql).toContain("execution_epoch");
@@ -177,9 +177,7 @@ describe("cancelActiveReviews (PR close)", () => {
     // closed: no lease UPDATE, expiry plus the watchdog recover within TTL.
     expect(cancelled.map((row) => row.id)).toEqual(["queued-unknown"]);
     expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls.some((call) => String(call[0]).includes("pr_actor_leases"))).toBe(
-      false,
-    );
+    expect(query.mock.calls.some((call) => call[0].includes("pr_actor_leases"))).toBe(false);
   });
 });
 
@@ -241,7 +239,7 @@ describe("cancelActiveTriage (PR close)", () => {
       "Pull request closed",
       closedPatch,
     ]);
-    expect(String(query.mock.calls[1]?.[0])).toContain("cancel_requested_at");
+    expect(query.mock.calls[1]?.[0]).toContain("cancel_requested_at");
   });
 });
 
@@ -617,9 +615,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         { merged: true },
       );
 
-      expect(clientQuery.mock.calls.every((call) => !String(call[0]).includes("status ="))).toBe(
-        true,
-      );
+      expect(clientQuery.mock.calls.every((call) => !call[0].includes("status ="))).toBe(true);
       expect(recordSpy).toHaveBeenCalledWith(
         intakeLog,
         "deduped_delivery",

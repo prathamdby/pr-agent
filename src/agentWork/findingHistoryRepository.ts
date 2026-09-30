@@ -282,9 +282,9 @@ export function safeRecordThreadFindingHistoryOutcome(
     resourceKey: params.resourceKey,
     thread: params.thread,
   })
-    .then((fingerprint) => {
+    .then(async (fingerprint) => {
       if (fingerprint == null) return;
-      return recordFindingHistoryOutcome(client, params.scope, fingerprint, params.outcome);
+      await recordFindingHistoryOutcome(client, params.scope, fingerprint, params.outcome);
     })
     .catch((error) => {
       logWarn("finding_history_thread_outcome_failed", {
