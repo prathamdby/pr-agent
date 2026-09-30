@@ -1,6 +1,6 @@
 {
   "no-unsafe-type-assertion(src)": {
-    "count": 91,
+    "count": 90,
     "scope": "src/**"
   },
   "no-unsafe-type-assertion(test)": {
@@ -10,6 +10,14 @@
   "no-console(src)": {
     "count": 1,
     "scope": "src/**"
+  },
+  "lint-suppressions(src)": {
+    "count": 5,
+    "scope": "src/**"
+  },
+  "lint-suppressions(test)": {
+    "count": 0,
+    "scope": "test/**"
   },
   "escape-calls": {
     "count": 0,
