@@ -29,7 +29,7 @@ import {
   MIGRATIONS_DIR_NAME,
   REVIEW_QUEUE,
 } from "../../src/settings/index.js";
-import type { QueueConfig } from "../../src/agentWork/types.js";
+import { installationGroupId, type QueueConfig } from "../../src/agentWork/types.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const DATABASE_URL = process.env.DATABASE_URL!;
@@ -58,15 +58,24 @@ type DeferredRow = {
   readonly state: string;
   readonly start_after: Date;
   readonly group_id: string | null;
+  readonly singleton_on: Date | null;
+  readonly data: { readonly workItemId: string };
+  readonly output: unknown;
+  readonly priority: number;
 };
 
-async function deferredRows(pool: Pool, singletonKey: string): Promise<readonly DeferredRow[]> {
+async function deferredRows(
+  pool: Pool,
+  singletonKey: string,
+  queue: string = REVIEW_QUEUE,
+): Promise<readonly DeferredRow[]> {
   const { rows } = await pool.query<DeferredRow>(
-    `SELECT id::text AS id, state::text AS state, start_after, group_id
+    `SELECT id::text AS id, state::text AS state, start_after, group_id,
+            singleton_on, data, output, priority
        FROM pgboss.job
       WHERE name = $1 AND singleton_key = $2
-      ORDER BY created_on`,
-    [REVIEW_QUEUE, singletonKey],
+      ORDER BY created_on, id`,
+    [queue, singletonKey],
   );
   return rows;
 }
@@ -189,6 +198,355 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
         REVIEW_QUEUE,
         workItemId,
       ]);
+    }
+  });
+
+  it.each(
+    LEASED_QUEUES.flatMap((queue) =>
+      (["completed", "failed"] as const).flatMap((state) =>
+        (["throw", "warn-and-proceed"] as const).map((onSendFailure) => ({
+          queue,
+          state,
+          onSendFailure,
+        })),
+      ),
+    ),
+  )("re-arms past retained $state slots on $queue ($onSendFailure)", async (params) => {
+    const workItemId = randomUUID();
+    const foreignKey = randomUUID();
+    const deferSeconds = 3600;
+    const options = {
+      singletonKey: workItemId,
+      singletonSeconds: deferSeconds,
+      singletonNextSlot: true,
+      startAfter: deferSeconds,
+      priority: 7,
+      group: { id: "installation:651" },
+    };
+    try {
+      await pool.query(
+        `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data, output,
+                                completed_on)
+         SELECT gen_random_uuid(), $1, $2::pgboss.job_state, $3,
+                'epoch'::timestamp + interval '1 second'
+                  * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
+                jsonb_build_object('workItemId', $3::text), '{"retained":true}'::jsonb, now()
+           FROM unnest(ARRAY[0, 1, 2, -10, 10]) AS offsets(slot_offset)`,
+        [params.queue, params.state, workItemId],
+      );
+      await pool.query(
+        `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data)
+         SELECT gen_random_uuid(), name, 'completed', key, 'epoch'::timestamp
+                  + interval '1 second' * (3600 * floor(date_part('epoch', now()) / 3600)),
+                jsonb_build_object('workItemId', key)
+           FROM (VALUES ($1::text, $2::text), ('agent-work-ask', $3::text)) AS other(name, key)`,
+        [params.queue, foreignKey, workItemId],
+      );
+      const before = await deferredRows(pool, workItemId, params.queue);
+      const unrelated = await pool.query(
+        `SELECT name, id, singleton_on, state, data, output FROM pgboss.job
+          WHERE singleton_key = ANY($1::text[])
+            AND (singleton_key = $2 OR name = 'agent-work-ask'
+                 OR singleton_on < now() - interval '2 hours'
+                 OR singleton_on > now() + interval '3 hours')
+          ORDER BY name, id`,
+        [[workItemId, foreignKey], foreignKey],
+      );
+      expect(await boss.send(params.queue, { workItemId }, options)).toBeNull();
+      await expect(
+        armLeaseWatchdogHop(boss, {
+          ...params,
+          data: { workItemId },
+          singletonKey: workItemId,
+          workItemId,
+          deferSeconds,
+          priority: 7,
+          groupId: "installation:651",
+        }),
+      ).resolves.toEqual({ liveHop: true });
+      const after = await deferredRows(pool, workItemId, params.queue);
+      const hop = after.find((row) => row.state === "created");
+      expect(hop).toMatchObject({
+        data: { workItemId },
+        group_id: "installation:651",
+        priority: 7,
+      });
+      expect(hop?.start_after.getTime()).toBeGreaterThan(Date.now());
+      for (const retained of before) {
+        expect(after.find((row) => row.id === retained.id)).toMatchObject({
+          state: retained.state,
+          data: retained.data,
+          output: retained.output,
+        });
+      }
+      const preserved = await pool.query(
+        `SELECT name, id, singleton_on, state, data, output FROM pgboss.job
+          WHERE id = ANY($1::uuid[]) ORDER BY name, id`,
+        [unrelated.rows.map((row: { id: string }) => row.id)],
+      );
+      expect(preserved.rows).toEqual(unrelated.rows);
+    } finally {
+      await pool.query(`DELETE FROM pgboss.job WHERE singleton_key = ANY($1::text[])`, [
+        [workItemId, foreignKey],
+      ]);
+    }
+  });
+
+  it.each(["created", "active", "retry"] as const)(
+    "keeps existing %s watchdogs singleton-suppressed with terminal history",
+    async (state) => {
+      const workItemId = randomUUID();
+      try {
+        await pool.query(
+          `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data)
+           SELECT gen_random_uuid(), $1, $2::pgboss.job_state, $3,
+                  'epoch'::timestamp + interval '1 second'
+                    * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
+                  jsonb_build_object('workItemId', $3::text)
+             FROM unnest(ARRAY[0, 1, 2]) AS offsets(slot_offset)`,
+          [REVIEW_QUEUE, state, workItemId],
+        );
+        await pool.query(
+          `INSERT INTO pgboss.job (id, name, state, singleton_key, data)
+           VALUES (gen_random_uuid(), $1, 'completed', $2,
+                   jsonb_build_object('workItemId', $2::text))`,
+          [REVIEW_QUEUE, workItemId],
+        );
+        const before = await deferredRows(pool, workItemId);
+        await expect(
+          armLeaseWatchdogHop(boss, {
+            queue: REVIEW_QUEUE,
+            data: { workItemId },
+            singletonKey: workItemId,
+            workItemId,
+            groupId: "installation:651",
+            deferSeconds: 3600,
+            onSendFailure: "throw",
+          }),
+        ).resolves.toEqual({ liveHop: true });
+        expect(await deferredRows(pool, workItemId)).toEqual(before);
+      } finally {
+        await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
+          REVIEW_QUEUE,
+          workItemId,
+        ]);
+      }
+    },
+  );
+
+  it("retains the two-slot bound when terminal-slot recovery calls race", async () => {
+    const workItemId = randomUUID();
+    try {
+      await pool.query(
+        `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data)
+         SELECT gen_random_uuid(), $1, 'completed', $2,
+                'epoch'::timestamp + interval '1 second'
+                  * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
+                jsonb_build_object('workItemId', $2::text)
+           FROM unnest(ARRAY[0, 1, 2]) AS offsets(slot_offset)`,
+        [REVIEW_QUEUE, workItemId],
+      );
+      const outcomes = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          armLeaseWatchdogHop(boss, {
+            queue: REVIEW_QUEUE,
+            data: { workItemId },
+            singletonKey: workItemId,
+            workItemId,
+            groupId: "installation:651",
+            deferSeconds: 3600,
+            onSendFailure: "throw",
+          }),
+        ),
+      );
+      expect(outcomes.every((outcome) => outcome.liveHop)).toBe(true);
+      const live = (await deferredRows(pool, workItemId)).filter((row) => row.state === "created");
+      expect(live.length).toBeGreaterThan(0);
+      expect(live.length).toBeLessThanOrEqual(2);
+      expect(live.every((row) => row.data.workItemId === workItemId)).toBe(true);
+      expect(live.every((row) => row.group_id === "installation:651")).toBe(true);
+    } finally {
+      await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
+        REVIEW_QUEUE,
+        workItemId,
+      ]);
+    }
+  });
+
+  it.each(
+    (["cleanup", "resend-null", "resend-error", "recheck"] as const).flatMap((fault) =>
+      (["throw", "warn-and-proceed"] as const).map((onSendFailure) => ({ fault, onSendFailure })),
+    ),
+  )("recovers after a terminal-slot $fault fault ($onSendFailure)", async (params) => {
+    const workItemId = randomUUID();
+    const fault = new Error("watchdog recovery storage fault");
+    const db = boss.getDb();
+    const executeSql = db.executeSql.bind(db);
+    try {
+      await pool.query(
+        `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data, output)
+         SELECT gen_random_uuid(), $1, 'completed', $2,
+                'epoch'::timestamp + interval '1 second'
+                  * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
+                jsonb_build_object('workItemId', $2::text), '{"retained":true}'::jsonb
+           FROM unnest(ARRAY[0, 1, 2]) AS offsets(slot_offset)`,
+        [REVIEW_QUEUE, workItemId],
+      );
+      const before = await deferredRows(pool, workItemId);
+      // Inject at the existing database boundary after the first real singleton
+      // miss. All other statements, including the cleanup, use real Postgres.
+      let reads = 0;
+      let cleaned = false;
+      vi.spyOn(db, "executeSql").mockImplementation(async (text, values) => {
+        if (text.includes("SET singleton_on = NULL")) {
+          if (params.fault === "cleanup") throw fault;
+          const result = await executeSql(text, values);
+          cleaned = true;
+          return result;
+        }
+        if (cleaned && text.includes("INSERT INTO") && text.includes("singleton_on")) {
+          if (params.fault === "resend-error") throw fault;
+          return { rows: [] };
+        }
+        if (text.includes('singleton_on as "singletonOn"') && text.includes("SELECT")) {
+          reads += 1;
+          if (params.fault === "recheck" && reads === 2) throw fault;
+        }
+        return executeSql(text, values);
+      });
+      const result = armLeaseWatchdogHop(boss, {
+        queue: REVIEW_QUEUE,
+        data: { workItemId },
+        singletonKey: workItemId,
+        workItemId,
+        groupId: "installation:651",
+        deferSeconds: 3600,
+        onSendFailure: params.onSendFailure,
+      });
+      if (params.fault === "resend-null") {
+        if (params.onSendFailure === "throw") {
+          await expect(result).rejects.toMatchObject({
+            code: "agent_work.lease_watchdog_arm_failed",
+          });
+        } else {
+          await expect(result).resolves.toEqual({ liveHop: false });
+        }
+      } else {
+        await expect(result).rejects.toBe(fault);
+      }
+      vi.restoreAllMocks();
+      const retained = await deferredRows(pool, workItemId);
+      expect(retained.map(({ id, state, data, output }) => ({ id, state, data, output }))).toEqual(
+        before.map(({ id, state, data, output }) => ({ id, state, data, output })),
+      );
+      await expect(
+        armLeaseWatchdogHop(boss, {
+          queue: REVIEW_QUEUE,
+          data: { workItemId },
+          singletonKey: workItemId,
+          workItemId,
+          groupId: "installation:651",
+          deferSeconds: 3600,
+          onSendFailure: "throw",
+        }),
+      ).resolves.toEqual({ liveHop: true });
+      expect((await deferredRows(pool, workItemId)).some((row) => row.state === "created")).toBe(
+        true,
+      );
+    } finally {
+      vi.restoreAllMocks();
+      await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
+        REVIEW_QUEUE,
+        workItemId,
+      ]);
+    }
+  });
+
+  it("keeps blocked work queued under terminal slots and claims its armed recovery delivery", async () => {
+    const resourceKey = `lease-it/watchdog-${randomUUID().slice(0, 8)}#1`;
+    const workItemId = randomUUID();
+    const holderId = randomUUID();
+    try {
+      await pool.query(
+        `INSERT INTO agent_work_items (
+           id, type, source, status, owner, repo, pr_number, installation_id,
+           head_sha, review_lens, resource_key, payload
+         ) VALUES (
+           $1, 'review', 'auto', 'queued', 'lease-it', 'r', 1, 651, 'h', 'review', $2,
+           '{"mode":"review","source":"auto"}'::jsonb
+         )`,
+        [workItemId, resourceKey],
+      );
+      await acquirePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        workItemId: holderId,
+        holderId: "watchdog-it-dead-holder",
+        ttlSeconds: 900,
+      });
+      await pool.query(
+        `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data)
+         SELECT gen_random_uuid(), $1, 'completed', $2,
+                'epoch'::timestamp + interval '1 second'
+                  * (15 * floor(date_part('epoch', now()) / 15) + slot_offset * 15),
+                jsonb_build_object('workItemId', $2::text)
+           FROM generate_series(0, 6) AS offsets(slot_offset)`,
+        [REVIEW_QUEUE, workItemId],
+      );
+      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const core = await getWorkItemCore(pool, workItemId);
+      if (core == null || core.type !== "review") throw new Error("missing review core");
+      await expect(
+        acquireAndClaimWorkItem({
+          pool,
+          boss,
+          queue: REVIEW_QUEUE,
+          leaseKey: { resourceKey, workType: "review" },
+          core,
+          ttlSeconds: 900,
+          seededLiveHop: false,
+        }),
+      ).resolves.toMatchObject({ acquired: false, heldByWorkItemId: holderId });
+      const queued = await pool.query(`SELECT status FROM agent_work_items WHERE id = $1`, [
+        workItemId,
+      ]);
+      expect(queued.rows[0]?.status).toBe("queued");
+      const hop = (await deferredRows(pool, workItemId)).find((row) => row.state === "created");
+      expect(hop?.group_id).toBe(installationGroupId(651));
+      expect(hop?.data).toEqual({ workItemId });
+      await pool.query(
+        `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
+          WHERE resource_key = $1 AND work_type = 'review'`,
+        [resourceKey],
+      );
+      // Only this test's recovery row becomes deliverable; do not fetch another
+      // test's jobs from the shared queue.
+      await pool.query(
+        `UPDATE pgboss.job SET state = 'active', started_on = now() WHERE name = $1 AND id = $2`,
+        [REVIEW_QUEUE, hop?.id],
+      );
+      await expect(
+        acquireAndClaimWorkItem({
+          pool,
+          boss,
+          queue: REVIEW_QUEUE,
+          leaseKey: { resourceKey, workType: "review" },
+          core,
+          ttlSeconds: 900,
+          seededLiveHop: true,
+        }),
+      ).resolves.toMatchObject({ acquired: true });
+      const claimed = await pool.query(`SELECT status FROM agent_work_items WHERE id = $1`, [
+        workItemId,
+      ]);
+      expect(claimed.rows[0]?.status).toBe("running");
+    } finally {
+      await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
+        REVIEW_QUEUE,
+        workItemId,
+      ]);
+      await pool.query(`DELETE FROM pr_actor_leases WHERE resource_key = $1`, [resourceKey]);
+      await pool.query(`DELETE FROM agent_work_items WHERE id = $1`, [workItemId]);
     }
   });
 
