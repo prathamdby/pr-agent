@@ -46,6 +46,7 @@ const EXPECTED_MIGRATIONS = [
   "030_pr_head_ci_state.sql",
   "031_projection_repair_pending.sql",
   "032_agent_events_recorded_at_index.sql",
+  "033_webhook_delivery_duplicates.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {
@@ -107,6 +108,14 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(publishIndexNames).toContain("publish_records_unique_shared_step_idx");
     expect(publishIndexNames).toContain("publish_records_unique_ask_work_item_step_idx");
     expect(publishIndexNames).toContain("publish_records_unique_check_run_work_item_step_idx");
+
+    const duplicateIndexes = await pool.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE tablename = 'webhook_delivery_duplicates'",
+    );
+    const definitions = duplicateIndexes.rows.map((row) => row.indexdef).join("\n");
+    expect(definitions).toContain("(received_at)");
+    expect(definitions).toContain("(delivery_id, received_at)");
+    expect(definitions).toContain("(body_sha256, received_at)");
   });
 
   it("accepts outcome_unknown on operation_intents.status", async () => {
