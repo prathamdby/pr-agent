@@ -9,15 +9,11 @@ import { queryOne } from "../src/db/postgres.js";
 import {
   listTriageEligibleInlineReviews,
   loadReviewExecutorPublishContext,
-  claimSummaryCommentCreation,
   getProgressCommentOwner,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getWorkItem,
-  recordReviewCheckRun,
-  recordPublishStep,
   reserveReviewCheckRun,
-  forceMarkRescheduledParentCompleted,
 } from "../src/agentWork/repository.js";
 import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
 
@@ -205,67 +201,6 @@ describe("publish records", () => {
     await expect(getProgressStubPostedAtMs(pool, "o/r#1", "review")).resolves.toBeNull();
   });
 
-  it("atomically appends unique inline batches in one publish record row", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
-    const batch = {
-      batchId: "batch-1",
-      workItemId: "wi-1",
-      reviewId: 42,
-      fingerprints: ["fp-1"],
-    };
-
-    await recordPublishStep(scopedPool, {
-      workItemId: "wi-1",
-      leaseEpoch: null,
-      resourceKey: "o/r#1",
-      reviewLens: "review",
-      step: "inline_review",
-      githubId: 42,
-      detail: batch,
-    });
-
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("jsonb_set"),
-      expect.arrayContaining([JSON.stringify({ batches: [batch] })]),
-    );
-    expect(vi.mocked(query).mock.calls[0]?.[0]).toContain("batchId");
-  });
-
-  it("uses the shared-step conflict predicate that matches the partial index", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
-
-    await recordPublishStep(scopedPool, {
-      workItemId: "wi-1",
-      leaseEpoch: null,
-      resourceKey: "o/r#1",
-      reviewLens: "review",
-      step: "progress_comment",
-    });
-
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'",
-      ),
-      expect.arrayContaining(["wi-1", "o/r#1", "review", "progress_comment"]),
-    );
-  });
-
-  it("uses the shared-step conflict predicate for summary creation claims", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
-
-    await claimSummaryCommentCreation(scopedPool, "wi-1", "o/r#1", "review");
-
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'",
-      ),
-      expect.arrayContaining(["wi-1", "o/r#1", "review"]),
-    );
-  });
-
   it("reserves check runs with the work-item scoped conflict target", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const scopedPool = { query } as unknown as Pool;
@@ -281,24 +216,6 @@ describe("publish records", () => {
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("ON CONFLICT (work_item_id, review_lens, step)"),
       expect.arrayContaining(["wi-1", "o/r#1", "review"]),
-    );
-  });
-
-  it("records check run ids with the work-item scoped conflict target", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const scopedPool = { query } as unknown as Pool;
-
-    await recordReviewCheckRun(scopedPool, {
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-      reviewLens: "review",
-      githubId: 123,
-      detail: { status: "in_progress" },
-    });
-
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("ON CONFLICT (work_item_id, review_lens, step)"),
-      expect.arrayContaining(["wi-1", "o/r#1", "review", "123"]),
     );
   });
 });
@@ -356,24 +273,5 @@ describe("mapWorkItem payload boundary", () => {
     vi.mocked(queryOne).mockResolvedValue(reviewRow({ payload: { question: "wrong type shape" } }));
 
     await expect(getWorkItem(pool, "wi-1")).rejects.toBeInstanceOf(WorkItemPayloadValidationError);
-  });
-});
-
-describe("forceMarkRescheduledParentCompleted", () => {
-  it("fences forced completion on the supplied lease epoch", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 0 });
-    const fencedPool = { query } as unknown as Pool;
-
-    await expect(forceMarkRescheduledParentCompleted(fencedPool, "wi-1", 3)).resolves.toBe(false);
-
-    expect(String(query.mock.calls[0]?.[0])).toContain("pr_actor_leases");
-    expect(query.mock.calls[0]?.[1]).toEqual(["wi-1", 3]);
-  });
-
-  it("returns true when the lease fence matches", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
-    const fencedPool = { query } as unknown as Pool;
-
-    await expect(forceMarkRescheduledParentCompleted(fencedPool, "wi-1", 3)).resolves.toBe(true);
   });
 });

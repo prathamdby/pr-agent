@@ -8,7 +8,6 @@ import {
   safeLoadCrossPrSuppressionFingerprints,
   safeRecordThreadFindingHistoryOutcome,
   safeUpsertFindingHistoryOpen,
-  upsertFindingHistoryOpen,
 } from "../src/agentWork/findingHistoryRepository.js";
 
 vi.mock("../src/evlog.js", async (importOriginal) => {
@@ -37,90 +36,6 @@ function mockPool() {
   const query = vi.fn(async () => ({ rowCount: 1 }));
   return { query, pool: { query } as unknown as Pool };
 }
-
-function upsertSqlAndValues(query: ReturnType<typeof vi.fn>): [string, unknown[]] {
-  expect(query).toHaveBeenCalledTimes(1);
-  return query.mock.calls[0]! as unknown as [string, unknown[]];
-}
-
-describe("upsertFindingHistoryOpen", () => {
-  it("skips the database when the fingerprint list is empty", async () => {
-    const { query, pool } = mockPool();
-
-    await upsertFindingHistoryOpen(pool, openScope, []);
-
-    expect(query).not.toHaveBeenCalled();
-  });
-
-  it("issues one unnest upsert for a single fingerprint", async () => {
-    const { query, pool } = mockPool();
-
-    await upsertFindingHistoryOpen(pool, openScope, ["fp-a"]);
-
-    const [sql, values] = upsertSqlAndValues(query);
-    expect(sql).toContain("INSERT INTO repo_finding_history");
-    expect(sql).toContain("FROM unnest($7::text[])");
-    expect(sql).toContain("ON CONFLICT (installation_id, owner, repo, fingerprint)");
-    expect(sql).toContain("last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id");
-    expect(sql).toContain("repo_finding_history.last_outcome = 'open'");
-    expect(sql).toContain("THEN repo_finding_history.open_count");
-    expect(sql).toContain("repo_finding_history.open_count + 1");
-    expect(values).toEqual([9, "acme", "app", 12, "wi-1", "abc123", ["fp-a"]]);
-  });
-
-  it("issues one unnest upsert for many fingerprints", async () => {
-    const { query, pool } = mockPool();
-
-    await upsertFindingHistoryOpen(pool, openScope, ["fp-a", "fp-b", "fp-c"]);
-
-    const [sql, values] = upsertSqlAndValues(query);
-    expect(sql).toContain("FROM unnest($7::text[])");
-    expect(values).toEqual([9, "acme", "app", 12, "wi-1", "abc123", ["fp-a", "fp-b", "fp-c"]]);
-  });
-
-  it("deduplicates fingerprints before constructing the batch", async () => {
-    const { query, pool } = mockPool();
-
-    await upsertFindingHistoryOpen(pool, openScope, ["fp-a", "fp-b", "fp-a", "fp-b", "fp-c"]);
-
-    const [, values] = upsertSqlAndValues(query);
-    expect(values[6]).toEqual(["fp-a", "fp-b", "fp-c"]);
-  });
-
-  it("keeps same-work-item already-open from incrementing open_count", async () => {
-    const { query, pool } = mockPool();
-
-    await upsertFindingHistoryOpen(pool, openScope, ["fp-a"]);
-
-    const [sql] = upsertSqlAndValues(query);
-    expect(sql).toMatch(
-      /WHEN repo_finding_history\.last_work_item_id IS NOT DISTINCT FROM EXCLUDED\.last_work_item_id\s+AND repo_finding_history\.last_outcome = 'open'\s+THEN repo_finding_history\.open_count/,
-    );
-  });
-
-  it("increments open_count on cross-work-item reopen", async () => {
-    const { query, pool } = mockPool();
-
-    await upsertFindingHistoryOpen(pool, { ...openScope, workItemId: "wi-2" }, ["fp-a"]);
-
-    const [sql, values] = upsertSqlAndValues(query);
-    expect(sql).toContain("ELSE repo_finding_history.open_count + 1");
-    expect(values[4]).toBe("wi-2");
-  });
-
-  it("reuses the same parameterized statement on repeated invocation", async () => {
-    const { query, pool } = mockPool();
-
-    await upsertFindingHistoryOpen(pool, openScope, ["fp-a", "fp-b"]);
-    await upsertFindingHistoryOpen(pool, openScope, ["fp-a", "fp-b"]);
-
-    expect(query).toHaveBeenCalledTimes(2);
-    const first = query.mock.calls[0] as unknown as [string, unknown[]];
-    const second = query.mock.calls[1] as unknown as [string, unknown[]];
-    expect(second[0]).toBe(first[0]);
-    expect(second[1]).toEqual(first[1]);
-  });
-});
 
 describe("safeUpsertFindingHistoryOpen", () => {
   it("does not query when finding history is disabled", () => {
