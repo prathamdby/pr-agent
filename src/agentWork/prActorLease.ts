@@ -204,8 +204,9 @@ export async function assertPrActorLeaseHeld(
   });
 }
 
-function isLiveWatchdogHop(job: Pick<JobWithMetadata, "state">) {
-  return job.state === "created" || job.state === "active" || job.state === "retry";
+function isPendingWatchdogHop(job: Pick<JobWithMetadata, "state">) {
+  // An active job may be firing this handler and will complete without a successor.
+  return job.state === "created" || job.state === "retry";
 }
 
 /**
@@ -241,7 +242,7 @@ export async function armLeaseWatchdogHop(
   const hopId = await boss.send(params.queue, params.data, sendOptions);
   if (hopId != null) return { liveHop: true };
   const hops = await boss.findJobs(params.queue, { key: params.singletonKey });
-  let liveHop = hops.some(isLiveWatchdogHop);
+  let liveHop = hops.some(isPendingWatchdogHop);
   if (liveHop) return { liveHop };
   const terminalIds = hops
     .filter(
@@ -272,7 +273,7 @@ export async function armLeaseWatchdogHop(
     const rearmed = await boss.send(params.queue, params.data, sendOptions);
     if (rearmed != null) return { liveHop: true };
     liveHop = (await boss.findJobs(params.queue, { key: params.singletonKey })).some(
-      isLiveWatchdogHop,
+      isPendingWatchdogHop,
     );
   }
   if (!liveHop && params.onSendFailure === "throw") {

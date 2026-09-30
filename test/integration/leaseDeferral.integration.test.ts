@@ -292,7 +292,94 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     }
   });
 
-  it.each(["created", "active", "retry"] as const)(
+  it.each(
+    LEASED_QUEUES.flatMap((queue) =>
+      (["completed", "failed"] as const).flatMap((state) =>
+        (["throw", "warn-and-proceed"] as const).map((onSendFailure) => ({
+          queue,
+          state,
+          onSendFailure,
+        })),
+      ),
+    ),
+  )(
+    "re-arms while the firing delivery is active on $queue ($state, $onSendFailure)",
+    async (params) => {
+      const workItemId = randomUUID();
+      const firingId = randomUUID();
+      try {
+        await pool.query(
+          `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data, output)
+         SELECT CASE WHEN slot_offset = 0 THEN $4::uuid ELSE gen_random_uuid() END,
+                $1, CASE WHEN slot_offset = 0 THEN 'active'::pgboss.job_state
+                         ELSE $2::pgboss.job_state END, $3,
+                'epoch'::timestamp + interval '1 second'
+                  * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
+                jsonb_build_object('workItemId', $3::text), '{"retained":true}'::jsonb
+           FROM unnest(ARRAY[0, 1, 2, -10, 10]) AS offsets(slot_offset)`,
+          [params.queue, params.state, workItemId, firingId],
+        );
+        const before = await deferredRows(pool, workItemId, params.queue);
+        expect(
+          await boss.send(
+            params.queue,
+            { workItemId },
+            {
+              singletonKey: workItemId,
+              singletonSeconds: 3600,
+              singletonNextSlot: true,
+              startAfter: 3600,
+            },
+          ),
+        ).toBeNull();
+        await expect(
+          armLeaseWatchdogHop(boss, {
+            ...params,
+            data: { workItemId },
+            singletonKey: workItemId,
+            workItemId,
+            groupId: installationGroupId(651),
+            priority: 7,
+            deferSeconds: 3600,
+          }),
+        ).resolves.toEqual({ liveHop: true });
+        const after = await deferredRows(pool, workItemId, params.queue);
+        expect(after.find((row) => row.id === firingId)).toEqual(
+          before.find((row) => row.id === firingId),
+        );
+        expect(after.find((row) => row.state === "created")).toMatchObject({
+          data: { workItemId },
+          group_id: installationGroupId(651),
+          priority: 7,
+        });
+        expect(
+          after
+            .filter((row) => row.state === "created")
+            .every((row) => row.start_after > new Date()),
+        ).toBe(true);
+        await boss.complete(params.queue, firingId);
+        expect(
+          (await deferredRows(pool, workItemId, params.queue)).some(
+            (row) => row.state === "created",
+          ),
+        ).toBe(true);
+        for (const row of before.filter((row) => row.id !== firingId)) {
+          expect(after.find((retained) => retained.id === row.id)).toMatchObject({
+            state: row.state,
+            data: row.data,
+            output: row.output,
+          });
+        }
+      } finally {
+        await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
+          params.queue,
+          workItemId,
+        ]);
+      }
+    },
+  );
+
+  it.each(["created", "retry"] as const)(
     "keeps existing %s watchdogs singleton-suppressed with terminal history",
     async (state) => {
       const workItemId = randomUUID();
@@ -334,12 +421,55 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     },
   );
 
-  it("retains the two-slot bound when terminal-slot recovery calls race", async () => {
+  it.each(["throw", "warn-and-proceed"] as const)(
+    "does not count active deliveries alone as a future hop (%s)",
+    async (onSendFailure) => {
+      const workItemId = randomUUID();
+      try {
+        await pool.query(
+          `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data)
+           SELECT gen_random_uuid(), $1, 'active', $2,
+                  'epoch'::timestamp + interval '1 second'
+                    * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
+                  jsonb_build_object('workItemId', $2::text)
+             FROM unnest(ARRAY[0, 1, 2]) AS offsets(slot_offset)`,
+          [REVIEW_QUEUE, workItemId],
+        );
+        const before = await deferredRows(pool, workItemId);
+        const result = armLeaseWatchdogHop(boss, {
+          queue: REVIEW_QUEUE,
+          data: { workItemId },
+          singletonKey: workItemId,
+          workItemId,
+          groupId: installationGroupId(651),
+          deferSeconds: 3600,
+          onSendFailure,
+        });
+        if (onSendFailure === "throw") {
+          await expect(result).rejects.toMatchObject({
+            code: "agent_work.lease_watchdog_arm_failed",
+          });
+        } else {
+          await expect(result).resolves.toEqual({ liveHop: false });
+        }
+        expect(await deferredRows(pool, workItemId)).toEqual(before);
+      } finally {
+        await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
+          REVIEW_QUEUE,
+          workItemId,
+        ]);
+      }
+    },
+  );
+
+  it("retains a successor and the two-slot bound when active-delivery recovery calls race", async () => {
     const workItemId = randomUUID();
     try {
       await pool.query(
         `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data)
-         SELECT gen_random_uuid(), $1, 'completed', $2,
+         SELECT gen_random_uuid(), $1,
+                CASE WHEN slot_offset = 0 THEN 'active'::pgboss.job_state
+                     ELSE 'completed'::pgboss.job_state END, $2,
                 'epoch'::timestamp + interval '1 second'
                   * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
                 jsonb_build_object('workItemId', $2::text)
@@ -365,6 +495,12 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       expect(live.length).toBeLessThanOrEqual(2);
       expect(live.every((row) => row.data.workItemId === workItemId)).toBe(true);
       expect(live.every((row) => row.group_id === "installation:651")).toBe(true);
+      const firing = (await deferredRows(pool, workItemId)).find((row) => row.state === "active");
+      if (firing == null) throw new Error("missing firing delivery");
+      await boss.complete(REVIEW_QUEUE, firing.id);
+      expect((await deferredRows(pool, workItemId)).some((row) => row.state === "created")).toBe(
+        true,
+      );
     } finally {
       await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
         REVIEW_QUEUE,
@@ -385,7 +521,9 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     try {
       await pool.query(
         `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data, output)
-         SELECT gen_random_uuid(), $1, 'completed', $2,
+         SELECT gen_random_uuid(), $1,
+                CASE WHEN slot_offset = 0 THEN 'active'::pgboss.job_state
+                     ELSE 'completed'::pgboss.job_state END, $2,
                 'epoch'::timestamp + interval '1 second'
                   * (3600 * floor(date_part('epoch', now()) / 3600) + slot_offset * 3600),
                 jsonb_build_object('workItemId', $2::text), '{"retained":true}'::jsonb
@@ -462,7 +600,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     }
   });
 
-  it("keeps blocked work queued under terminal slots and claims its armed recovery delivery", async () => {
+  it("keeps blocked work queued while its firing delivery is active and claims its successor", async () => {
     const resourceKey = `lease-it/watchdog-${randomUUID().slice(0, 8)}#1`;
     const workItemId = randomUUID();
     const holderId = randomUUID();
@@ -486,7 +624,9 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       });
       await pool.query(
         `INSERT INTO pgboss.job (id, name, state, singleton_key, singleton_on, data)
-         SELECT gen_random_uuid(), $1, 'completed', $2,
+         SELECT gen_random_uuid(), $1,
+                CASE WHEN slot_offset = 0 THEN 'active'::pgboss.job_state
+                     ELSE 'completed'::pgboss.job_state END, $2,
                 'epoch'::timestamp + interval '1 second'
                   * (15 * floor(date_part('epoch', now()) / 15) + slot_offset * 15),
                 jsonb_build_object('workItemId', $2::text)
@@ -514,6 +654,9 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       const hop = (await deferredRows(pool, workItemId)).find((row) => row.state === "created");
       expect(hop?.group_id).toBe(installationGroupId(651));
       expect(hop?.data).toEqual({ workItemId });
+      const firing = (await deferredRows(pool, workItemId)).find((row) => row.state === "active");
+      if (firing == null) throw new Error("missing firing delivery");
+      await boss.complete(REVIEW_QUEUE, firing.id);
       await pool.query(
         `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
           WHERE resource_key = $1 AND work_type = 'review'`,
