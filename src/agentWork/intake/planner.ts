@@ -12,6 +12,16 @@ export type AutomatedPrIntakePlan = {
   readonly kinds: readonly AutomatedPrIntakeKind[];
 };
 
+export function automatedIntakeDecision(plan: AutomatedPrIntakePlan) {
+  if (plan.kinds.includes("review") || plan.kinds.includes("reviewApproval")) {
+    return "automated_review_enqueued";
+  }
+  if (plan.kinds.includes("reviewSupersede")) {
+    return "automated_review_supersede_requested";
+  }
+  return "automated_work_enqueued";
+}
+
 /** Pure planner: maps webhook action + feature modes → agent work kinds (no I/O). */
 export function planAutomatedPullRequestIntake(
   action: string,

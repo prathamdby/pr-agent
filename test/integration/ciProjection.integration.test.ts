@@ -352,6 +352,66 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await expect(webhookDecision(delivery)).resolves.toBe("automated_review_enqueued");
   });
 
+  it("records automated work without review on opened in approval mode", async () => {
+    const delivery = `ci-pr-approval-open-${randomUUID().slice(0, 8)}`;
+    const approvalCfg = makeTestConfig({
+      features: { ...cfg.features, review: "approval" },
+    });
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("pull_request", delivery),
+      {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha: "a1".repeat(20),
+      },
+      "opened",
+      intakeLog(),
+      approvalCfg,
+    );
+
+    await expect(webhookDecision(delivery)).resolves.toBe("automated_work_enqueued");
+    const { rows } = await pool.query<{ type: string }>(
+      "SELECT type FROM agent_work_items WHERE owner = $1",
+      [OWNER],
+    );
+    expect(rows.map((row) => row.type)).toEqual(["description"]);
+  });
+
+  it("records a review supersede request on synchronize in approval mode", async () => {
+    const delivery = `ci-pr-approval-sync-${randomUUID().slice(0, 8)}`;
+    const approvalCfg = makeTestConfig({
+      features: { ...cfg.features, review: "approval" },
+    });
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("pull_request", delivery),
+      {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha: "a2".repeat(20),
+      },
+      "synchronize",
+      intakeLog(),
+      approvalCfg,
+    );
+
+    await expect(webhookDecision(delivery)).resolves.toBe("automated_review_supersede_requested");
+    const { rows } = await pool.query<{ type: string }>(
+      "SELECT type FROM agent_work_items WHERE owner = $1",
+      [OWNER],
+    );
+    expect(rows.map((row) => row.type)).toEqual(["verification"]);
+  });
+
   it("enqueues a projection from pull_request opened when review is manual and the head is unseeded", async () => {
     const delivery = `ci-pr-manual-${randomUUID().slice(0, 8)}`;
     const headSha = "55".repeat(20);
