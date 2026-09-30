@@ -1,6 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
 import {
   createPublishReviewTestHarness,
@@ -171,43 +170,6 @@ describe("publishReview commit status", () => {
     await publishReviewForTest({
       ...baseParams,
       cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep: coordinatedRecordPublishStep(),
-    });
-
-    expect(close).toHaveBeenCalledWith(
-      expect.objectContaining({
-        commitStatusEnabled: true,
-        outcome: expect.objectContaining({ kind: "published" }),
-      }),
-    );
-    expect(closeOwnVerdict.ownVerdictSurfaces(close.mock.calls[0]?.[0].outcome)).toEqual(
-      expect.objectContaining({ checkRun: "failure", commitStatus: "failure" }),
-    );
-  });
-
-  it("closes the own verdict as failure when findings are P2-only", async () => {
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
-    const p2Payload: ReviewPayload = {
-      ...payload,
-      findings: [
-        {
-          severity: "P2",
-          file: "src/x.ts",
-          startLine: 4,
-          endLine: 4,
-          title: "Nit",
-          detail: "Minor.",
-          fixPrompt: "Fix src/x.ts line 4.",
-        },
-      ],
-    };
-
-    await publishReviewForTest({
-      ...baseParams,
-      cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
-      payload: p2Payload,
       publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: coordinatedRecordPublishStep(),

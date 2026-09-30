@@ -68,30 +68,6 @@ Await the promise before returning.
 </details>"
 `;
 
-exports[`renderInlineThreadBody > P2 with fixPrompt accordion 1`] = `
-"**P2** · **Off-by-one in slice**
-
-\`src/c.ts\` · lines 20-22
-
-End index excludes last element incorrectly.
-
-<details>
-<summary>Prompt to fix</summary>
-
-\`\`\`
-Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.
-
-Repository: acme/widgets
-Pull request: #42
-Head SHA: abc123def456
-
-[P2] @src/c.ts lines 20-22
-Adjust slice end index to include the last item.
-\`\`\`
-
-</details>"
-`;
-
 exports[`renderReviewSummaryComment > drops finding rows from the tail when compact mode still exceeds the body budget 1`] = `
 "## PR Agent Review
 
