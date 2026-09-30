@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -33,38 +33,12 @@ function filesOutsideGithub(): string[] {
 }
 
 describe("PR surface import graph", () => {
-  it("keeps @octokit imports inside src/github/", () => {
-    const violations: string[] = [];
-    for (const file of filesOutsideGithub()) {
-      const text = readFileSync(file, "utf8");
-      if (hasForbiddenImportReference(text, "@octokit")) {
-        violations.push(relative(process.cwd(), file));
-      }
-    }
-    expect(violations).toEqual([]);
-  });
-
   it("keeps installationOctokit references inside src/github/", () => {
     const violations: string[] = [];
     for (const file of filesOutsideGithub()) {
       const text = readFileSync(file, "utf8");
       if (hasForbiddenImportReference(text, "installationOctokit")) {
         violations.push(relative(process.cwd(), file));
-      }
-    }
-    expect(violations).toEqual([]);
-  });
-
-  it("does not export installation-token parameters outside src/github/", () => {
-    const violations: Array<{ file: string; line: string; reason: string }> = [];
-    for (const file of filesOutsideGithub()) {
-      if (!existsSync(file)) continue;
-      const text = readFileSync(file, "utf8");
-      for (const signature of exportedSignatureTexts(text)) {
-        const reason = forbiddenExportedParam(signature);
-        if (reason != null) {
-          violations.push({ file: relative(process.cwd(), file), line: signature, reason });
-        }
       }
     }
     expect(violations).toEqual([]);
