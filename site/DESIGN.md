@@ -107,6 +107,7 @@ These rules are followed without exception. They are grouped the way the site ap
 ### Layout
 
 - `html { scroll-padding-top: 80px }` clears the 64px sticky header for anything scrolled into view, including keyboard focus, so a focused control is never hidden under the header. Anchor targets add `scroll-mt-5` (20px) on top, so every anchored section's first line lands exactly 100px down.
+- `html { overscroll-behavior: none }` is gated by `@media (pointer: fine)` to disable page overscroll for a fine primary pointer. Coarse-pointer devices keep native overscroll and pull-to-refresh.
 - Group spacing is at least twice item spacing: cards `gap-4` inside sections that start at `mt-10 sm:mt-12`; footer links `gap-1` under headings at `mt-3` inside columns at `gap-10`.
 
 ### Writing
