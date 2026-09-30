@@ -293,7 +293,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       progressRevision: 1,
     });
 
-    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0] as string;
+    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0];
     expect(writtenBody).not.toContain("<strong>CI</strong>");
     expect(writtenBody).not.toContain("CI is still running");
     expect(writtenBody).toContain("<strong>Recon</strong>");
@@ -411,7 +411,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     expect(result).toEqual({ id: 99, updated: false });
-    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0] as string;
+    const writtenBody = harness.upsertProgressComment.mock.calls[0]?.[0];
     expect(writtenBody).toContain("workItemId=wi-1 value=2");
   });
 

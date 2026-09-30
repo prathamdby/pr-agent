@@ -116,10 +116,10 @@ describe.skipIf(!hasDatabase)("upsertFindingHistoryOpen (integration)", () => {
     const repo = `same-wi-${randomUUID().slice(0, 8)}`;
     const scope = writeScope(repo);
     await upsertFindingHistoryOpen(pool, scope, ["fp-a"]);
-    const first = (await rowsFor(repo))[0]!;
+    const first = (await rowsFor(repo))[0];
 
     await upsertFindingHistoryOpen(pool, scope, ["fp-a"]);
-    const second = (await rowsFor(repo))[0]!;
+    const second = (await rowsFor(repo))[0];
 
     expect(second.open_count).toBe(1);
     expect(second.last_outcome).toBe("open");
@@ -140,7 +140,7 @@ describe.skipIf(!hasDatabase)("upsertFindingHistoryOpen (integration)", () => {
     await upsertFindingHistoryOpen(pool, firstScope, ["fp-a"]);
     await upsertFindingHistoryOpen(pool, secondScope, ["fp-a"]);
 
-    const row = (await rowsFor(repo))[0]!;
+    const row = (await rowsFor(repo))[0];
     expect(row.open_count).toBe(2);
     expect(row.last_outcome).toBe("open");
     expect(row.last_work_item_id).toBe(secondScope.workItemId);
@@ -155,7 +155,7 @@ describe.skipIf(!hasDatabase)("upsertFindingHistoryOpen (integration)", () => {
     await recordFindingHistoryOutcome(pool, scope, "fp-a", "dismissed");
     await upsertFindingHistoryOpen(pool, scope, ["fp-a"]);
 
-    const row = (await rowsFor(repo))[0]!;
+    const row = (await rowsFor(repo))[0];
     expect(row.last_outcome).toBe("open");
     expect(row.open_count).toBe(2);
   });

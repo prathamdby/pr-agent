@@ -240,7 +240,7 @@ async function stopEffectServer(handle: Handle): Promise<void> {
 
 describe("effect webhook server (end-to-end)", () => {
   beforeAll(() => {
-    initEvlog("error", { silent: true });
+    initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
 
   let handle: Handle | undefined;

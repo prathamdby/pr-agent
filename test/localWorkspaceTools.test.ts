@@ -871,7 +871,7 @@ describe("local workspace tools", () => {
         filesScanned: number;
       };
 
-      expect(out.matches.map((match) => match.path).sort()).toEqual(["src/a.ts", "src/b.ts"]);
+      expect(out.matches.map((match) => match.path).toSorted()).toEqual(["src/a.ts", "src/b.ts"]);
       expect(out.truncated).toBe(false);
       expect(out.pathsSearched).toBe(3);
       expect(out.filesScanned).toBe(2);

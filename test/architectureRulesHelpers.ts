@@ -6,7 +6,7 @@ export function stripComments(text: string): string {
   let out = "";
   let i = 0;
   while (i < text.length) {
-    const ch = text[i]!;
+    const ch = text[i];
     const next = text[i + 1];
     if (ch === "/" && next === "/") {
       i += 2;
@@ -24,10 +24,10 @@ export function stripComments(text: string): string {
       out += ch;
       i += 1;
       while (i < text.length) {
-        const c = text[i]!;
+        const c = text[i];
         out += c;
         if (c === "\\") {
-          if (i + 1 < text.length) out += text[i + 1]!;
+          if (i + 1 < text.length) out += text[i + 1];
           i += 2;
           continue;
         }
@@ -50,7 +50,7 @@ export function stripCommentsAndStringLiterals(text: string): string {
   let out = "";
   let i = 0;
   while (i < text.length) {
-    const ch = text[i]!;
+    const ch = text[i];
     const next = text[i + 1];
     if (ch === "/" && next === "/") {
       i += 2;
@@ -110,7 +110,7 @@ export function hasValueImportReference(text: string, module: string): boolean {
     const head = before.match(/[\s\S]*\b(import|export)\b([\s\S]*)$/);
     if (!head) continue;
     // head[2] is the clause after the import/export keyword; skip type-only clauses.
-    if (!/^\s*type\b/.test(head[2]!)) return true;
+    if (!/^\s*type\b/.test(head[2])) return true;
   }
   const dynamic = new RegExp(`\\bimport\\s*\\(\\s*${quoted}\\s*\\)`);
   return dynamic.test(cleaned);
@@ -165,7 +165,7 @@ function functionParameterList(signature: string): string | null {
   if (open < 0) return null;
   let depth = 0;
   for (let i = open; i < signature.length; i++) {
-    const ch = signature[i]!;
+    const ch = signature[i];
     if (ch === "(") depth += 1;
     if (ch === ")") {
       depth -= 1;

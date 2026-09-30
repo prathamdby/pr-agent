@@ -160,6 +160,6 @@ describe("codeIndex chunker", () => {
       expect(chunks).toHaveLength(1);
       expect(chunks[0]?.symbolNames).toEqual([]);
     }
-    expect(works[2]! / Math.max(works[0]!, 1)).toBeLessThan(6);
+    expect(works[2] / Math.max(works[0], 1)).toBeLessThan(6);
   });
 });

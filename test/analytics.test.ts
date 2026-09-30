@@ -288,7 +288,7 @@ describe("analytics facade", () => {
   });
 
   it("keeps analytics disabled when PostHog sink construction fails", async () => {
-    mockPostHog.PostHog.mockImplementationOnce(() => {
+    mockPostHog.PostHog.mockImplementationOnce(function () {
       throw new Error("sdk missing");
     });
     const analytics = await import("../src/analytics/index.js");
@@ -336,7 +336,7 @@ describe("analytics facade", () => {
     const previous = mockPostHog.instances[0];
     expect(analytics.isAnalyticsEnabled()).toBe(true);
 
-    mockPostHog.PostHog.mockImplementationOnce(() => {
+    mockPostHog.PostHog.mockImplementationOnce(function () {
       throw new Error("reinit failed");
     });
     await expect(analytics.initAnalytics({ projectToken: "token-2", host: "" })).rejects.toThrow(

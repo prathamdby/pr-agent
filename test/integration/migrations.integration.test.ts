@@ -46,12 +46,12 @@ const EXPECTED_MIGRATIONS = [
   "030_pr_head_ci_state.sql",
   "031_projection_repair_pending.sql",
   "032_agent_events_recorded_at_index.sql",
-].sort();
+].toSorted();
 
 function migrationFilesOnDisk(): string[] {
   return readdirSync(MIGRATIONS_DIR)
     .filter((name) => name.endsWith(".sql"))
-    .sort();
+    .toSorted();
 }
 
 describe("migrations inventory", () => {
@@ -74,7 +74,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
 
   it("records every migration file", async () => {
     const { rows } = await pool.query<{ version: string }>("SELECT version FROM schema_migrations");
-    const versions = rows.map((r) => r.version).sort();
+    const versions = rows.map((r) => r.version).toSorted();
     expect(versions).toEqual(EXPECTED_MIGRATIONS);
     expect(versions).toEqual(migrationFilesOnDisk());
   });

@@ -11,7 +11,6 @@ import {
   remapBulkPayload,
 } from "../src/agent/triage/previewApproval.js";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import type { TriagePayload } from "../src/review/triageSchema.js";
 import {
   TRIAGE_PREVIEW_SENTINEL,
   TRIAGE_STALE_HEAD_NOTICE,
@@ -48,7 +47,7 @@ describe("renderTriageReport policy suggestion footer", () => {
         verdicts: [
           { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
     });
@@ -66,7 +65,7 @@ describe("renderTriageReport policy suggestion footer", () => {
         verdicts: [
           { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
       ciRollup: { headSha, version: 2, rollup: "failing" },
@@ -111,7 +110,7 @@ describe("renderTriageReport policy suggestion footer", () => {
             evidence: "fixed",
           },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
     });
@@ -137,7 +136,7 @@ describe("renderTriageReport policy suggestion footer", () => {
             evidence: "current code already handles this",
           },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
       notice: `${TRIAGE_STALE_HEAD_NOTICE}\n\n${TRIAGE_THREAD_RESOLUTION_NOTICE}`,
@@ -187,7 +186,7 @@ describe("classifyTriageBulkOutcomes", () => {
           { verdict: "skipped", threadRootCommentId: 2, reason: "later" },
           { verdict: "fixed", threadRootCommentId: 3, commitSha: "c".repeat(40), evidence: "done" },
         ],
-      } as TriagePayload,
+      },
       commitByThreadRootCommentId: new Map([[1, "b".repeat(40)]]),
       commitErrors: [{ threadRootCommentId: 3 }],
       excludedIds: new Set([2]),
@@ -209,7 +208,7 @@ describe("classifyTriageBulkOutcomes", () => {
           { verdict: "skipped", threadRootCommentId: 2, reason: "later" },
           { verdict: "fixed", threadRootCommentId: 3, commitSha: "c".repeat(40), evidence: "done" },
         ],
-      } as TriagePayload,
+      },
       commits: [{ sha: "b".repeat(40), subject: "fix: one", diff: "+ok\n" }],
       previouslyResolvedCount: 0,
       bulkOutcomes: outcomes,
@@ -277,7 +276,7 @@ describe("renderTriageReport bulk outcomes", () => {
         verdicts: [
           { verdict: "fixed", threadRootCommentId: 1, commitSha: "b".repeat(40), evidence: "done" },
         ],
-      } as TriagePayload,
+      },
       commits: [],
       previouslyResolvedCount: 0,
       bulkOutcomes: new Map<number, "applied" | "skipped" | "failed">([

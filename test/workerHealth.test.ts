@@ -153,7 +153,7 @@ describe("collectQueueDiagnostics", () => {
     expect(report.staleQueuedWorkItems).toEqual([
       { workItemId: "wi-stale", resourceKey: "o/r#5", workType: "review", ageSeconds: 612 },
     ]);
-    const staleSql = String(vi.mocked(pool.query).mock.calls[1]?.[0]);
+    const staleSql = vi.mocked(pool.query).mock.calls[1]?.[0];
     expect(staleSql).toContain("NOT EXISTS");
     expect(staleSql).toContain("pgboss.job");
     logQueueDiagnosticsReport(report);
@@ -223,7 +223,7 @@ describe("collectQueueDiagnostics", () => {
     expect(report.lostRunningWorkItems).toEqual([
       { workItemId: "wi-lost", resourceKey: "o/r#7", workType: "review", ageSeconds: 1300 },
     ]);
-    const lostSql = String(vi.mocked(pool.query).mock.calls[2]?.[0]);
+    const lostSql = vi.mocked(pool.query).mock.calls[2]?.[0];
     expect(lostSql).toContain("status = 'running'");
     expect(lostSql).toContain("pgboss.job");
     logQueueDiagnosticsReport(report);

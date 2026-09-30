@@ -251,8 +251,8 @@ describe("resolveBoundPolicyFooters", () => {
       judge,
     });
     expect(judge).toHaveBeenCalledTimes(1);
-    expect(bound.get(reviewFindingPlacementKey(findings[1]!))).toEqual([".pr-agent/always.mdc"]);
-    expect(bound.get(reviewFindingPlacementKey(findings[4]!))).toEqual([".pr-agent/always.mdc"]);
+    expect(bound.get(reviewFindingPlacementKey(findings[1]))).toEqual([".pr-agent/always.mdc"]);
+    expect(bound.get(reviewFindingPlacementKey(findings[4]))).toEqual([".pr-agent/always.mdc"]);
     expect(bound.size).toBe(2);
   });
 

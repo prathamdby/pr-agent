@@ -255,7 +255,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_projection",
       owner: OWNER,
       repo: REPO,
@@ -283,7 +283,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_projection",
       owner: OWNER,
       repo: REPO,
@@ -313,7 +313,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_projection",
       owner: OWNER,
       repo: REPO,
@@ -437,7 +437,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_projection",
       owner: OWNER,
       repo: REPO,
@@ -518,7 +518,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_projection",
       owner: OWNER,
       repo: REPO,
@@ -546,7 +546,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_projection",
       owner: OWNER,
       repo: REPO,
@@ -608,7 +608,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
-    expect(jobs[0]!.data).toMatchObject({
+    expect(jobs[0].data).toMatchObject({
       kind: "ci_projection",
       owner: OWNER,
       repo: REPO,

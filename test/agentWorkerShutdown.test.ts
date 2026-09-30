@@ -10,7 +10,7 @@ import { makeTestConfig } from "./helpers/config.js";
 
 const shutdownHarness = vi.hoisted(() => {
   const ack = {
-    pending: Promise.resolve() as Promise<void>,
+    pending: Promise.resolve(),
     release: () => undefined as void,
     arm() {
       this.pending = new Promise<void>((resolve) => {
