@@ -639,6 +639,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -678,6 +679,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -966,6 +968,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -1043,6 +1046,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -1094,6 +1098,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -1160,6 +1165,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -1235,6 +1241,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -1300,6 +1307,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -1367,6 +1375,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }
@@ -1434,6 +1443,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PgBoss;
     const client = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
         if (sql.includes("INSERT INTO webhook_event_replays")) {
           return { rows: [{ body_sha256: "hash" }] };
         }

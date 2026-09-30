@@ -144,7 +144,7 @@ When test changes are already in scope, keep them proportional to the changed co
 
 ## How it works
 
-GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
+GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. Automatic and slash review intake share a per-PR transaction lock, so concurrent `/review force` requests cancel and replace reviews in intake order. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
 
 ```mermaid
 flowchart LR

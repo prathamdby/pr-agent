@@ -42,7 +42,7 @@ There is no hosted PR Agent to sign up for. Point people at the repository and t
 Slash commands are case-sensitive. The command must be the first non-empty line of a new (created) comment.
 Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMBER,COLLABORATOR).
 /review: run an orchestrated review. Always available. FEATURE_REVIEW has no off mode.
-/review force: cancel any queued or running review and start a new one on the latest commit.
+/review force: cancel any queued or running review and start a new one on the latest commit. Concurrent restarts are applied in intake order, not treated as already-in-progress requests.
 /describe: write summary bullets and optional visual sketches into the PR body.
 /ask … or mention the App bot ({slug}[bot]): answer a code question in the same thread. The prompt includes a read-only ci_state block from pr_head_ci_state. No CI tool is added. The literal string @bot only matches if the App was named that.
 /triage: apply-mode fix for open bot findings. The report stamps a CI rollup marker the projector patches. /triage preview renders would-be diffs without push. /triage all replays those stored hunks (refused without a matching preview on this head).

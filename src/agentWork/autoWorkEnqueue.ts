@@ -15,9 +15,9 @@ function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
 }
 
 /**
- * Acquires the intake advisory lock for the rest of this transaction so two
- * concurrent deliveries cannot both observe "no prior row" and create
- * duplicate work. Xact-scoped: released at commit or rollback.
+ * Serializes automated intake and slash reviews through commit or rollback.
+ * Review callers acquire it before cancellation or insertion so a force sees
+ * the preceding transaction's replacement, including ordinary slash inserts.
  */
 export async function acquireAutoWorkIntakeLock(
   client: PoolClient,
