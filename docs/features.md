@@ -34,10 +34,13 @@ Custom trigger sets are intentionally not supported.
 
 Notes:
 
+- With no open findings, verification skips the agent after checking the live
+  head. An older-head run completes degraded instead of clean and preserves
+  any existing verification failure signal.
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
 - Describe, verification, ask, and triage can be turned `off` to stop those
   surfaces from spending tokens at all. Default `FEATURE_VERIFICATION=auto`
-  spends tokens on every `synchronize` push.
+  spends tokens on `synchronize` pushes with open findings.
 - Ask mentions match the App bot login (`{slug}[bot]`), not the literal string
   `@bot`.
 - An ask answer cut off by the model's output limit is retried as a shorter
