@@ -28,6 +28,11 @@ Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.p
 
 `gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
+`durableJob.ts` owns the leased `PrSurface` publication fence: reread durable
+cancellation at entry and in the final callback, then reassert the epoch before
+the signal-checked mutation. Terminal hooks bypass only the durable cancellation
+read to preserve verdict cleanup. See [ADR 0026](adr/0026-pr-surface-seam.md).
+
 `createPiSession.send` fails after a settled unrecovered Pi provider error. Recovered Core transport retries stay successful. Public cancellation, idle timeout, and tool-budget stops stay distinct from provider outages. `send` replaces the session suffix with Core's returned turn slice so tool results stay between the assistant turns that produced them.
 
 ## Landing site

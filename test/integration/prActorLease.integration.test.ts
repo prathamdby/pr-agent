@@ -1,8 +1,22 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
+import { PgBoss } from "pg-boss";
 import { runMigrations } from "../../src/db/migrations.js";
+import { inTransaction } from "../../src/db/postgres.js";
 import * as evlog from "../../src/evlog.js";
+import * as leaseRepository from "../../src/agentWork/prActorLease.js";
+import * as intentRepository from "../../src/agentWork/operationIntentRepository.js";
+import * as workRepository from "../../src/agentWork/repository.js";
+import * as appAuth from "../../src/github/appAuth.js";
+import * as prSurfaceModule from "../../src/github/prSurface.js";
+import {
+  clearDurableAuthCachesForTest,
+  runDurableWorkItem,
+  type DurableJobSpec,
+} from "../../src/agentWork/durableJob.js";
+import { recordPublishStep } from "../../src/agentWork/publishRecordRepository.js";
+import { makeTestConfig } from "../helpers/config.js";
 import {
   acquirePrActorLease,
   assertPrActorLeaseHeld,
@@ -97,6 +111,295 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       ttlSeconds: TTL_SECONDS,
     });
   }
+
+  it.each(["late_cancel", "legacy_cancel", "request_cancel", "live", "read_failure", "takeover"])(
+    "fences durable publication during %s (#640)",
+    async (mode) => {
+      const resourceKey = `${OWNER}/cancel-publish-${randomUUID()}#1`;
+      const workItemId = await insertAutoQueued(resourceKey, "review");
+      const controller = new AbortController();
+      const boss = new PgBoss(makeTestConfig().databaseUrl);
+      const surfaces: ReturnType<typeof prSurfaceModule.createFakePrSurface>[] = [];
+      let executing = false;
+      let checkpointArmed = false;
+      let checkpointUsed = false;
+      let finalRead = false;
+      let successorId: string | undefined;
+      let releaseObserver: (() => void) | undefined;
+      const held = leaseRepository.isPrActorLeaseHeld;
+      const assertHeld = leaseRepository.assertPrActorLeaseHeld;
+      const mergeDetail = intentRepository.mergeOperationIntentDetail;
+      const skipWork = workRepository.shouldSkipWork;
+      const observerReady = new Promise<void>((resolve) => {
+        releaseObserver = resolve;
+        vi.spyOn(leaseRepository, "isPrActorLeaseHeld").mockImplementation(async (...args) => {
+          const result = await held(...args);
+          if (executing) resolve();
+          return result;
+        });
+      });
+
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      clearDurableAuthCachesForTest();
+      vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
+      vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+      vi.spyOn(evlog, "logError").mockImplementation(() => {});
+      vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
+      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+      vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
+        type: "token",
+        tokenType: "installation",
+        token: "synthetic-installation-token",
+        installationId: 1,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
+        permissions: {},
+        repositorySelection: "all",
+      });
+      vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation((params) => {
+        const fake = prSurfaceModule.createFakePrSurface(params, {
+          headSha: "h",
+          mutationBoundary: params.mutationBoundary,
+        });
+        surfaces.push(fake);
+        return fake.surface;
+      });
+      vi.spyOn(intentRepository, "mergeOperationIntentDetail").mockImplementation(
+        async (...args) => {
+          const result = await mergeDetail(...args);
+          if (!checkpointUsed && args[1].detail.__mutating === true) checkpointArmed = true;
+          return result;
+        },
+      );
+      vi.spyOn(leaseRepository, "assertPrActorLeaseHeld").mockImplementation(async (...args) => {
+        await assertHeld(...args);
+        if (!checkpointArmed) return;
+        checkpointArmed = false;
+        checkpointUsed = true;
+        finalRead = true;
+        if (mode === "late_cancel" || mode === "legacy_cancel") {
+          await inTransaction(pool, (client) =>
+            cancelActiveReviews(client, resourceKey, { kind: "user", login: "cancel-test" }),
+          );
+        } else if (mode === "request_cancel") {
+          await inTransaction(pool, (client) =>
+            replaceActiveAutoWorkItem({
+              client,
+              target: { kind: "review", resourceKey },
+              createWorkItem: async () => {
+                const replacementId = randomUUID();
+                await client.query(
+                  `INSERT INTO agent_work_items
+                   (id, type, source, status, owner, repo, pr_number, installation_id,
+                    head_sha, review_lens, resource_key, payload)
+                   VALUES ($1, 'review', 'auto', 'queued', $2, 'r', 1, 1, 'h', 'review', $3,
+                           '{"mode":"review","source":"auto"}'::jsonb)`,
+                  [replacementId, OWNER, resourceKey],
+                );
+                return replacementId;
+              },
+            }),
+          );
+          const requested = await getWorkItem(pool, workItemId);
+          expect(requested?.status).toBe("running");
+          expect(requested?.cancelRequestedAt).not.toBeNull();
+        }
+        if (mode === "legacy_cancel" || mode === "request_cancel") {
+          expect((await getLeaseRow(resourceKey)).work_item_id).toBe(workItemId);
+        }
+      });
+      vi.spyOn(workRepository, "shouldSkipWork").mockImplementation(async (...args) => {
+        const skipped = await skipWork(...args);
+        if (!finalRead) return skipped;
+        finalRead = false;
+        if (mode === "read_failure") throw new Error("Synthetic final cancellation read failure");
+        if (mode === "takeover") {
+          expect(skipped).toBe(false);
+          await pool.query(
+            "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+            [resourceKey],
+          );
+          successorId = await insertAutoQueued(resourceKey, "review");
+          const successor = await acquire(resourceKey, successorId);
+          if (!successor.acquired) throw new Error("expected successor acquisition");
+          await claimWorkForExecution(pool, successorId, successor.leaseEpoch);
+        }
+        return skipped;
+      });
+
+      const now = new Date();
+      const spec: DurableJobSpec<"review"> = {
+        cfg: makeTestConfig(),
+        pool,
+        boss,
+        type: "review",
+        prActorLease: { queue: "review" },
+        job: {
+          id: randomUUID(),
+          name: "review",
+          data: { workItemId },
+          signal: controller.signal,
+          expireInSeconds: 600,
+          heartbeatSeconds: null,
+          priority: 0,
+          state: "active",
+          retryLimit: 2,
+          retryCount: 0,
+          retryDelay: 0,
+          retryBackoff: false,
+          startAfter: now,
+          startedOn: now,
+          singletonKey: null,
+          singletonOn: null,
+          deleteAfterSeconds: 600,
+          createdOn: now,
+          completedOn: null,
+          keepUntil: now,
+          policy: "standard",
+          heartbeatOn: null,
+          blocked: false,
+          blocking: false,
+          pendingDependencies: 0,
+          deadLetter: "",
+          output: {},
+          sourceName: null,
+          sourceId: null,
+          sourceCreatedOn: null,
+          sourceRetryCount: null,
+        },
+        resolveHeadSha: async () => ({ headSha: "h" }),
+        execute: async (item, env) => {
+          executing = true;
+          await observerReady;
+          if (mode === "legacy_cancel" || mode === "request_cancel") {
+            await pool.query("UPDATE agent_work_items SET execution_epoch = 0 WHERE id = $1", [
+              workItemId,
+            ]);
+          }
+          const batch = await env.prSurface.publishThreadBatch({
+            body: "Synthetic review output",
+            event: "COMMENT",
+            commitId: "h",
+          });
+          await recordPublishStep(pool, {
+            workItemId,
+            resourceKey: item.resourceKey,
+            reviewLens: "review",
+            step: "inline_review",
+            githubId: batch.reviewId,
+            leaseEpoch: env.leaseEpoch,
+            detail: {
+              batchId: "cancel-race-batch",
+              workItemId,
+              specialist: "correctness",
+              reviewId: batch.reviewId,
+              fingerprints: [],
+              placements: [],
+            },
+          });
+          return { kind: "completed" };
+        },
+        onCancelled: async (_item, surface) => {
+          await surface.finishReviewCheck({
+            checkRunId: 1,
+            conclusion: "cancelled",
+            summary: "Cancelled",
+          });
+        },
+      };
+      const runner = runDurableWorkItem(spec);
+      const settled = runner.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      try {
+        const error = await settled;
+        if (mode === "read_failure") {
+          expect(error).toMatchObject({ message: "Synthetic final cancellation read failure" });
+        } else {
+          expect(error).toBeNull();
+        }
+        const row = await getWorkItem(pool, workItemId);
+        const terminal = await pool.query<{ completed_at: Date | null; last_error: string | null }>(
+          "SELECT completed_at, last_error FROM agent_work_items WHERE id = $1",
+          [workItemId],
+        );
+        const events = surfaces.flatMap(({ controls }) => controls.events);
+        const batches = surfaces.flatMap(({ controls }) => controls.threadBatches);
+        const records = await pool.query(
+          "SELECT github_id FROM publish_records WHERE work_item_id = $1 AND step = 'inline_review' AND status = 'completed'",
+          [workItemId],
+        );
+        if (mode === "live") {
+          expect(batches).toHaveLength(1);
+          expect(records.rows).toHaveLength(1);
+          expect(row?.status).toBe("completed");
+        } else {
+          expect(batches).toHaveLength(0);
+          expect(events.some((event) => event.kind === "publishThreadBatch")).toBe(false);
+          expect(records.rows).toHaveLength(0);
+          expect(
+            events.some(
+              (event) => event.kind === "setAcknowledgementReaction" && event.reaction === "+1",
+            ),
+          ).toBe(false);
+          if (mode === "takeover") {
+            expect((await getLeaseRow(resourceKey)).work_item_id).toBe(successorId);
+            expect((await getWorkItem(pool, successorId ?? ""))?.status).toBe("running");
+            expect(row?.status).toBe("running");
+          } else if (mode === "read_failure") {
+            expect(row?.status).toBe("queued");
+          } else {
+            expect(row?.status).toBe("cancelled");
+            expect(row?.cancelRequestedAt).not.toBeNull();
+            expect(terminal.rows[0]?.completed_at).not.toBeNull();
+            if (mode !== "request_cancel") {
+              expect(terminal.rows[0]?.last_error).toBe("Cancelled by slash /cancel");
+              if (row?.type === "review") {
+                expect(row.payload.cancelAttribution).toEqual({
+                  kind: "user",
+                  login: "cancel-test",
+                });
+              }
+            }
+            if (mode !== "late_cancel") {
+              expect(events.some((event) => event.kind === "finishReviewCheck")).toBe(true);
+            }
+          }
+        }
+        if (mode === "live" || mode.endsWith("cancel")) {
+          const count = events.length;
+          await runDurableWorkItem(spec);
+          expect(surfaces.flatMap(({ controls }) => controls.events)).toHaveLength(count);
+          expect((await getWorkItem(pool, workItemId))?.status).toBe(row?.status);
+          const replayRecords = await pool.query(
+            "SELECT id FROM publish_records WHERE work_item_id = $1 AND step = 'inline_review' AND status = 'completed'",
+            [workItemId],
+          );
+          expect(replayRecords.rows).toHaveLength(records.rows.length);
+        }
+        console.info(
+          "cancel-publication-evidence",
+          JSON.stringify({
+            scenario: mode,
+            status: row?.status,
+            completed: terminal.rows[0]?.completed_at != null,
+            cancelRequested: row?.cancelRequestedAt != null,
+            featureBatches: batches.length,
+            completedPublications: records.rows.length,
+            cancelledCheck: events.some((event) => event.kind === "finishReviewCheck"),
+          }),
+        );
+      } finally {
+        releaseObserver?.();
+        controller.abort();
+        await settled;
+        vi.restoreAllMocks();
+        clearDurableAuthCachesForTest();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("admits exactly one holder per (resource key, work type) under concurrency", async () => {
     const resourceKey = `${OWNER}/race-${randomUUID().slice(0, 8)}#1`;

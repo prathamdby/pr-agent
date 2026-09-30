@@ -25,7 +25,11 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 7. **External mutations are epoch-bound.** The worker injects the lease epoch
    and combined cancellation signal into the centralized `PrSurface` mutation
    boundary. The boundary writes an epoch-bound `operation_intents` row before
-   each mutation and asserts ownership immediately before the external call.
+   each mutation. Execution surfaces reread durable cancellation at entry and
+   immediately before the mutation callback, then assert ownership again because
+   takeover may occur during that read. The existing signal check remains.
+   Terminal hooks omit only the durable cancellation read so verdict cleanup can
+   run. Neither cancellation nor takeover can withdraw a request already in flight.
    Nested mutation keys include the parent operation key, method, and input
    hash. Different inputs get distinct intents; identical retries reuse the
    same intent.

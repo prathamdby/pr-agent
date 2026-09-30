@@ -146,6 +146,12 @@ When test changes are already in scope, keep them proportional to the changed co
 
 GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
 
+Leased execution surfaces reread durable cancellation at entry and immediately
+before each mutation callback, then reassert lease ownership. Visible cancellation
+blocks feature output even before the observer aborts the signal. Terminal notices
+and verdict cleanup retain their existing signal and epoch fences. A request
+already in flight cannot be withdrawn.
+
 ```mermaid
 flowchart LR
   GitHub[GitHub webhook] --> Web[ROLE=web /webhooks]
