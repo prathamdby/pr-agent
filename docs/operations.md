@@ -13,6 +13,7 @@ Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 
 ## Behaviour and semantics
 
+- **Progress ownership conflicts:** a replacement review keeps ownership of the progress comment. Late specialist ticks from the earlier run are skipped or rejected with an ownership warning, even when that writer's actor lease still holds. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
 - **Payload boundary:** each subscribed `X-GitHub-Event` type is validated with minimal Valibot shapes before deduplication. Malformed payloads are logged and skipped without inserting durable dedupe rows (so GitHub retries can succeed after fixes or transient issues).
 - **Slash commands** are detected on the **first non-empty line** only, and are **case-sensitive** (`/review` works; `/Review` does not). `/ask <question>` answers one question about the PR or a specific diff line (**code anchor**).
 - **Webhook deduplication** is durable: `webhook_events.dedupe_key` keeps delivery-ID correlation, while `webhook_event_replays.body_sha256` blocks the same verified body under any delivery ID. Both records use `WEBHOOK_EVENTS_RETENTION_SECONDS` (30 days by default); replay rows cascade when their event row expires. Duplicate deliveries return **`200`** without creating duplicate **agent work items**. Verified, parsed ignored events consume the same replay window; malformed payloads do not.

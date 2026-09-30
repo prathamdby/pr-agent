@@ -118,6 +118,9 @@ Former env tuning knobs (tool-round caps, byte limits, timeouts, anchor-menu
 caps, CI-summary waits, workspace limits) are now code constants in
 `src/settings/*Constants.ts` — see the tables below.
 
+Progress ownership conflicts use the existing `warn` log level. No new setting
+is required. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
+
 ### Project `models.json` (optional Pi catalog)
 
 `loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs. It does not construct Core sessions or overlay the catalog into a live `Models` collection. Selection stays in env; the file is only the catalog.

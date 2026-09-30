@@ -164,13 +164,14 @@ async function prepareSummaryCommentAtRevision(
     params.workItemId != null &&
     progressOwner.workItemId !== params.workItemId
   ) {
-    if (currentComment == null && params.hintCommentId == null) {
+    if (params.progressRevision > 0 || (currentComment == null && params.hintCommentId == null)) {
       logWarn("review_progress_skipped_foreign_owner", {
         resourceKey: params.resourceKey,
         reviewLens: params.reviewLens,
         workItemId: params.workItemId,
         ownerWorkItemId: progressOwner.workItemId,
         progressGeneration: progressOwner.generation,
+        progressRevision: params.progressRevision,
       });
     }
     return {

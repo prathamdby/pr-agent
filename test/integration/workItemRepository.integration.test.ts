@@ -1,9 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
 import { inTransaction } from "../../src/db/postgres.js";
-import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
+import {
+  acquirePrActorLease,
+  assertPrActorLeaseHeld,
+  releasePrActorLease,
+} from "../../src/agentWork/prActorLease.js";
+import * as repository from "../../src/agentWork/repository.js";
+import * as evlog from "../../src/evlog.js";
+import { createFakePrSurface } from "../../src/github/prSurface.js";
+import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
 import {
   createAskWorkItem,
   createDescriptionWorkItem,
@@ -58,6 +67,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
@@ -403,20 +413,221 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       step: "progress_comment",
       detail: { progressRevision: 0 },
     });
-    await recordPublishStep(pool, {
-      workItemId: parentId,
-      leaseEpoch: null,
-      resourceKey,
-      reviewLens: "review",
-      step: "progress_comment",
-      detail: { progressRevision: 6 },
-    });
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+    await assertPrActorLeaseHeld(pool, parentId, leaseEpoch);
+    for (const epoch of [leaseEpoch, null]) {
+      await expect(
+        recordPublishStep(pool, {
+          workItemId: parentId,
+          leaseEpoch: epoch,
+          resourceKey,
+          reviewLens: "review",
+          step: "progress_comment",
+          detail: { progressRevision: 6 },
+        }),
+      ).rejects.toMatchObject({ code: "agent_work.progress_comment_ownership_conflict" });
+    }
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_progress_publish_record_conflict",
+      expect.objectContaining({
+        errorCode: "agent_work.progress_comment_ownership_conflict",
+        errorContext: expect.objectContaining({ workItemId: parentId, resourceKey }),
+      }),
+    );
 
     expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
       workItemId: replacement.replacementWorkItemId,
       revision: 0,
     });
+    await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch });
+    await expect(
+      recordPublishStep(pool, {
+        workItemId: parentId,
+        leaseEpoch,
+        resourceKey,
+        reviewLens: "review",
+        step: "progress_comment",
+        detail: { progressRevision: 6 },
+      }),
+    ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
   });
+
+  it.each(
+    (["slash", "auto", "parent"] as const).flatMap((transfer) =>
+      (["preflight", "claim", "record"] as const).map((checkpoint) => ({
+        transfer,
+        checkpoint,
+      })),
+    ),
+  )(
+    "surfaces a stale specialist tick after $transfer transfer at $checkpoint",
+    async ({ transfer, checkpoint }) => {
+      const repo = `repo-${randomUUID().slice(0, 8)}`;
+      const ref = makeRef(repo, 18);
+      const resourceKey = prResourceKey(OWNER, repo, 18);
+      const eventId = randomUUID();
+      const first = await inTransaction(pool, async (client) => {
+        await insertWebhookEvent(client, eventId);
+        return transfer === "slash"
+          ? createReviewWorkItem(client, { webhookEventId: eventId, source: "auto", ref })
+          : createReviewWorkItem(client, { webhookEventId: eventId, source: "slash", ref });
+      });
+      const parentId = typeof first === "string" ? first : first.id;
+      await pool.query("UPDATE agent_work_items SET status = 'running' WHERE id = $1", [parentId]);
+      const leaseEpoch = await acquireReviewLease(parentId, resourceKey);
+      const fake = createFakePrSurface({ owner: OWNER, repo, prNumber: 18 });
+      const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+      const tick = {
+        pool,
+        workItemId: parentId,
+        resourceKey,
+        owner: OWNER,
+        repo,
+        prNumber: 18,
+        mode: "review" as const,
+        headSha: ref.headSha,
+        source: transfer === "slash" ? ("auto" as const) : ("slash" as const),
+        prSurface: fake.surface,
+        progressRevision: 2 as const,
+        tickState: {
+          kind: "specialists" as const,
+          recon: "done" as const,
+          specialists: {
+            correctness: { phase: "done" as const, findingsAccepted: 0 },
+            security: { phase: "running" as const },
+            quality: { phase: "running" as const },
+            tests: { phase: "running" as const },
+          },
+        },
+      };
+      await tickProgressComment(tick);
+      const commentId = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.id;
+      expect(commentId).toBeDefined();
+
+      let reached = () => {};
+      const paused = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      let resume = () => {};
+      const continued = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      if (checkpoint === "claim") {
+        const readStub = repository.getProgressStubPostedAtMs;
+        vi.spyOn(repository, "getProgressStubPostedAtMs").mockImplementationOnce(
+          async (...args) => {
+            const result = await readStub(...args);
+            reached();
+            await continued;
+            return result;
+          },
+        );
+      } else if (checkpoint === "record") {
+        const upsert = fake.surface.upsertProgressComment;
+        vi.spyOn(fake.surface, "upsertProgressComment").mockImplementationOnce(async (...args) => {
+          const result = await upsert(...args);
+          reached();
+          await continued;
+          return result;
+        });
+      }
+      const staleTick = {
+        ...tick,
+        progressRevision: 3 as const,
+        tickState: {
+          ...tick.tickState,
+          specialists: {
+            ...tick.tickState.specialists,
+            correctness: { phase: "done" as const, findingsAccepted: 9 },
+          },
+        },
+      };
+      const pending = checkpoint === "preflight" ? null : tickProgressComment(staleTick);
+      try {
+        if (pending != null) await paused;
+        let replacementId: string;
+        if (transfer === "parent") {
+          const parent = await getWorkItem(pool, parentId);
+          if (parent?.type !== "review") throw new Error("expected running review parent");
+          replacementId = (await createReviewRescheduleWorkItem(pool, parent, leaseEpoch))
+            .replacementWorkItemId;
+        } else {
+          const replacementEvent = randomUUID();
+          const replacement = await inTransaction(pool, async (client) => {
+            await insertWebhookEvent(client, replacementEvent);
+            return transfer === "slash"
+              ? createReviewWorkItem(client, {
+                  webhookEventId: replacementEvent,
+                  source: "slash",
+                  ref,
+                })
+              : createReviewWorkItem(client, {
+                  webhookEventId: replacementEvent,
+                  source: "auto",
+                  ref,
+                });
+          });
+          replacementId = typeof replacement === "string" ? replacement : replacement.id;
+        }
+        await assertPrActorLeaseHeld(pool, parentId, leaseEpoch);
+        const winnerTick = {
+          ...tick,
+          workItemId: replacementId,
+          tickState: {
+            ...tick.tickState,
+            specialists: {
+              ...tick.tickState.specialists,
+              correctness: { phase: "done" as const, findingsAccepted: 1 },
+            },
+          },
+        };
+        if (checkpoint !== "claim") await tickProgressComment(winnerTick);
+        const winnerBody = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body;
+        const writesBefore = fake.controls.events.filter(
+          (event) => event.kind === "upsertProgressComment",
+        ).length;
+        if (pending == null) {
+          await tickProgressComment(staleTick);
+        } else {
+          resume();
+          await pending;
+        }
+        expect(
+          fake.controls.events.filter((event) => event.kind === "upsertProgressComment"),
+        ).toHaveLength(writesBefore);
+        if (checkpoint === "claim") {
+          await tickProgressComment(winnerTick);
+        } else {
+          expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toBe(winnerBody);
+        }
+        expect(logWarn).toHaveBeenCalledWith(
+          checkpoint === "preflight"
+            ? "review_progress_skipped_foreign_owner"
+            : "review_progress_publish_record_conflict",
+          expect.objectContaining(
+            checkpoint === "preflight"
+              ? { workItemId: parentId, ownerWorkItemId: replacementId, progressRevision: 3 }
+              : {
+                  errorCode: "agent_work.progress_comment_ownership_conflict",
+                  errorContext: expect.objectContaining({ workItemId: parentId, resourceKey }),
+                },
+          ),
+        );
+        expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
+          workItemId: replacementId,
+          revision: 2,
+        });
+        await tickProgressComment({ ...winnerTick, progressRevision: 3 });
+        const comment = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+        expect(comment?.id).toBe(commentId);
+        expect(comment?.body).toContain(`workItemId=${replacementId} value=3`);
+        expect(comment?.body).not.toContain("9 findings");
+      } finally {
+        resume();
+        await pending;
+      }
+    },
+  );
 
   it("concurrent same-scope slash description inserts yield one winner id", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;

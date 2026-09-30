@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import * as v from "valibot";
 import { queryOne } from "../db/postgres.js";
+import { AppError, errorLogFields } from "../errors/appError.js";
+import { logWarn } from "../evlog.js";
 import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
 import {
   isFindingSource,
@@ -733,6 +735,22 @@ export async function recordPublishStep(
   );
   if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
     await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
+  }
+  if ((result.rowCount ?? 0) === 0 && params.step === "progress_comment") {
+    const error = new AppError({
+      code: "agent_work.progress_comment_ownership_conflict",
+      message: "Progress comment publish record was rejected by its ownership gate",
+      context: {
+        workItemId: params.workItemId,
+        resourceKey: params.resourceKey,
+        reviewLens: params.reviewLens,
+        leaseEpoch: params.leaseEpoch,
+        rowCount: result.rowCount ?? 0,
+        ...(params.githubId != null ? { githubId: params.githubId } : {}),
+      },
+    });
+    logWarn("review_progress_publish_record_conflict", errorLogFields(error));
+    throw error;
   }
 }
 

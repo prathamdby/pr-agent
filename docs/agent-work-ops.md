@@ -55,6 +55,21 @@ A supersede request may create no replacement when no auto review is active. Exi
 
 If a `publishDegraded` write affects no rows, the worker logs `agent_work_publish_degraded_mark_rejected` at warn with `workItemId`, `leaseEpoch`, and `rowCount`. Inspect the work item and its PR actor lease to identify a fenced-out write or a missing row.
 
+Progress ownership is independent of the actor lease. A late specialist tick
+from a previous owner logs `review_progress_skipped_foreign_owner` and skips
+the comment edit. If ownership changes after that check, a zero-row progress
+write logs `review_progress_publish_record_conflict` with
+`errorCode: agent_work.progress_comment_ownership_conflict` and raises that
+error. `errorContext` identifies the work item, resource, lens, lease epoch,
+and row count, plus the GitHub comment ID when supplied. A lost lease still
+raises `agent_work.pr_actor_lease_lost` instead.
+
+A persistence conflict does not prove the GitHub edit failed. Inspect the
+current progress owner alongside `publish_records` and `operation_intents`.
+Keep the replacement's metadata. Do not clear its lease, reassign the record,
+or blindly replay the earlier mutation; reconcile exact provider evidence
+using the existing publish recovery path.
+
 Worker readiness is distinct from web probes: `GET /ready` on the worker process returns 200 only when consumers are registered and Postgres/pg-boss respond. Compose healthchecks that endpoint. Web `GET /health` / `GET /ready` remain intake-process probes (liveness / Postgres ping).
 
 ## Retry and Recovery
