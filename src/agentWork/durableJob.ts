@@ -17,6 +17,7 @@ import {
   mintInstallationToken,
 } from "../github/installationToken.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { classifyProviderError, isCancelAbortError } from "../agent/providers/providerErrors.js";
 import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
@@ -214,6 +215,7 @@ function createLeaseMutationBoundary(params: {
     signal: params.signal,
     run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => {
       await assertNotCancelled(mutation.operationKey);
+      let mutationStarted = false;
       return withOperationIntent<T>({
         client: params.pool,
         workItemId: params.workItemId,
@@ -229,10 +231,14 @@ function createLeaseMutationBoundary(params: {
         },
         recover: mutation.recover as WithOperationIntentParams<T>["recover"],
         allowsUndefinedResult: mutation.allowsUndefinedResult,
+        // The local gate can fail before any request reaches the surface.
+        isKnownNoAcceptanceError: (error) =>
+          !mutationStarted || isKnownNoAcceptanceMutationError(error),
         mutate: async () => {
           await assertNotCancelled(mutation.operationKey);
           // Ownership can change during the awaited cancellation read.
           await assertPrActorLeaseHeld(params.pool, params.workItemId, params.leaseEpoch);
+          mutationStarted = true;
           return mutate();
         },
       });

@@ -28,7 +28,9 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
    call. Visible cancellation blocks feature output without waiting for signal
    observation. Terminal hooks bypass only the durable cancellation read so
    cancelled verdicts can close; their signal and epoch checks remain.
-   Requests already in flight cannot be withdrawn. A crash between
+   Requests already in flight cannot be withdrawn. A local gate failure before
+   delegation proves the request never started and remains retryable. After
+   delegation, the provider's acceptance rules still apply. A crash between
    GitHub acceptance and `__result` is recovered from the operation-intent
    marker or provider id already on the PR; methods that cannot prove
    presence or absence stay fail-closed. Read-only methods do not cross the
