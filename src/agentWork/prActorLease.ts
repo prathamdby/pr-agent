@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { JobWithMetadata, PgBoss } from "pg-boss";
 import { queryOne } from "../db/postgres.js";
 import { AppError } from "../errors/appError.js";
 import type { WorkType } from "./types.js";
@@ -204,6 +204,11 @@ export async function assertPrActorLeaseHeld(
   });
 }
 
+function isPendingWatchdogHop(job: Pick<JobWithMetadata, "state">) {
+  // An active job may be firing this handler and will complete without a successor.
+  return job.state === "created" || job.state === "retry";
+}
+
 /**
  * Arm one throttled watchdog hop for a lease-blocked delivery. Same send options
  * and live-hop verification the failed-acquire branch has always used; the
@@ -213,7 +218,7 @@ export async function assertPrActorLeaseHeld(
  * the failed-acquire branch can skip a second send when the seed just armed one.
  */
 export async function armLeaseWatchdogHop(
-  boss: Pick<PgBoss, "send" | "findJobs">,
+  boss: Pick<PgBoss, "send" | "findJobs" | "getDb">,
   params: {
     readonly queue: string;
     readonly data: { readonly workItemId: string };
@@ -226,24 +231,51 @@ export async function armLeaseWatchdogHop(
   },
 ): Promise<{ readonly liveHop: boolean }> {
   const deferSeconds = params.deferSeconds ?? PR_ACTOR_LEASE_DEFER_SECONDS;
-  const hopId = await boss.send(params.queue, params.data, {
+  const sendOptions = {
     singletonKey: params.singletonKey,
     singletonSeconds: deferSeconds,
     singletonNextSlot: true,
     startAfter: deferSeconds,
     ...(params.priority != null ? { priority: params.priority } : {}),
     group: { id: params.groupId },
-  });
+  };
+  const hopId = await boss.send(params.queue, params.data, sendOptions);
   if (hopId != null) return { liveHop: true };
-  // singletonSeconds dedups pending copies per slot; singletonNextSlot lands the
-  // re-arm past the firing copy's own row, which outlives completion (job_i4
-  // covers all non-cancelled states). findJobs queued:true is only
-  // created/retry, so a null send still looks at created/active/retry before
-  // giving up. An active hop is live.
   const hops = await boss.findJobs(params.queue, { key: params.singletonKey });
-  const liveHop = hops.some(
-    (job) => job.state === "created" || job.state === "active" || job.state === "retry",
-  );
+  let liveHop = hops.some(isPendingWatchdogHop);
+  if (liveHop) return { liveHop };
+  const terminalIds = hops
+    .filter(
+      (job) => (job.state === "completed" || job.state === "failed") && job.singletonOn != null,
+    )
+    .map((job) => job.id);
+  if (terminalIds.length > 0) {
+    // pg-boss retains terminal rows in its throttle index. Free only the two
+    // candidate slots; live hops and unrelated archive slots keep their guard.
+    await boss.getDb().executeSql(
+      `WITH slots AS (
+         SELECT 'epoch'::timestamp + interval '1 second'
+                  * ($4::float8 * floor(date_part('epoch', now()) / $4::float8)) AS current_slot
+       )
+       UPDATE pgboss.job AS j
+          SET singleton_on = NULL
+         FROM slots
+        WHERE j.name = $1
+          AND j.singleton_key = $2
+          AND j.id = ANY($3::uuid[])
+          AND j.state IN ('completed', 'failed')
+          AND j.singleton_on IN (
+            slots.current_slot,
+            slots.current_slot + $4::float8 * interval '1 second'
+          )`,
+      [params.queue, params.singletonKey, terminalIds, deferSeconds],
+    );
+    const rearmed = await boss.send(params.queue, params.data, sendOptions);
+    if (rearmed != null) return { liveHop: true };
+    liveHop = (await boss.findJobs(params.queue, { key: params.singletonKey })).some(
+      isPendingWatchdogHop,
+    );
+  }
   if (!liveHop && params.onSendFailure === "throw") {
     throw new AppError({
       code: "agent_work.lease_watchdog_arm_failed",
