@@ -103,6 +103,12 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 ### Runtime (Effect TS)
 
+- **Interrupted publish:** completed recovery without a usable result stops the
+  run through its existing terminal hook. The intent keeps `outcome_unknown`
+  with `unknownResolution: "terminal"`; that is a local decision, not proof
+  that GitHub rejected the change. Failed evidence reads remain transient.
+  Reactions, labels, commit statuses, and check completion without exact
+  evidence take this bounded fail-closed path, never a second mutation.
 - Production boot uses a **web/worker split** (`ROLE` env).
 - **Web:** [`processWebhookRequestEffect`](../src/effect/programs/processWebhookRequestEffect.ts) verifies signatures, parses payloads, and dispatches to [`WebhookHandlers`](../src/effect/services/webhookHandlers.ts), which call [`AgentWorkScheduler`](../src/agentWork/scheduler.ts) for Postgres intake and pg-boss enqueue.
 - **Worker:** [`agentWorkWorkerLive`](../src/agentWork/worker.ts) consumes acknowledgement, review, ask, description, triage, verification, CI-projection, code-index-build, and retention queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).

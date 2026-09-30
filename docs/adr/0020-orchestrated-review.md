@@ -89,8 +89,12 @@ The intent is marked as mutating before the provider call and stores the
 result before it is reconciled. If a provider call can have been accepted but
 its response is missing, recovery first checks the authoritative
 `publish_records` row and then reconciles only an exact work-item-scoped
-operation marker or provider id. No exact evidence means `outcome_unknown`: the worker does not
-blindly repeat the mutation. Automatic retry is limited to errors that prove
+operation marker or provider id. Completed recovery without a usable result
+records terminal local resolution while retaining `outcome_unknown`: the worker
+does not blindly repeat the mutation or consume the remaining retry budget.
+Failed evidence reads remain transient. Already-published summaries stay
+authoritative; an unpublished run uses its existing terminal failure notice.
+Automatic retry of the mutation is limited to errors that prove
 the provider rejected the mutation before acceptance; otherwise the run uses
 the bounded deterministic degradation path (including the ask fallback only
 after the inline mutation is proven absent).

@@ -39,6 +39,10 @@ against active slash reviews.
 
 Notes:
 
+- After an interrupted publish, PR Agent checks the saved result and available
+  evidence. If it cannot confirm the result, it stops that run rather than
+  repeat the change. An unpublished review gets the usual failure notice;
+  an existing published summary is kept.
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
 - A replacement review owns the progress comment. Late specialist ticks from
   the earlier run are skipped or rejected with an ownership warning.

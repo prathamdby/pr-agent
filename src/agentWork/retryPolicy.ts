@@ -29,6 +29,13 @@ export function retryDispositionFor(error: unknown): RetryDisposition {
   if (isStaleHeadReplacementExhausted(error)) return "terminal";
   if (isCancelAbortError(error)) return "terminal";
   if (isAppError(error) && error.code === "agent_work.attempts_exhausted") return "terminal";
+  if (
+    isAppError(error) &&
+    error.code === "operation_intent.mutation_outcome_unknown" &&
+    error.context.unknownResolution === "terminal"
+  ) {
+    return "terminal";
+  }
   if (isAppError(error) && DETERMINISTIC_FAILURE_CODES.has(error.code)) return "deterministic";
   // Everything classifyProviderError and classifyGithubError can return keeps its queue
   // budget: transport, 5xx, rate limit, timeout, auth, quota, billing, and unknown.

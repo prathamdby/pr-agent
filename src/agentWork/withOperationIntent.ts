@@ -286,6 +286,28 @@ async function finishVoidSuccess<T>(
   return undefined as T;
 }
 
+const UNKNOWN_MUTATION_MESSAGE =
+  "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden";
+
+function unknownOutcomeError<T>(
+  params: WithOperationIntentParams<T>,
+  message: string,
+  terminal: boolean,
+  cause?: unknown,
+): AppError {
+  return new AppError({
+    code: "operation_intent.mutation_outcome_unknown",
+    message,
+    cause,
+    context: {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      mutationKind: params.mutationKind,
+      ...(terminal ? { unknownResolution: "terminal" } : {}),
+    },
+  });
+}
+
 async function recoverAfterMutatingWithoutResult<T>(
   params: WithOperationIntentParams<T>,
   intent: OperationIntentRow,
@@ -306,11 +328,13 @@ async function recoverAfterMutatingWithoutResult<T>(
     });
   }
   let recovered: RecoveryAttempt<T> = { found: false };
+  let observationError: AppError | undefined;
   try {
     recovered = await recoverByExactEvidence(params, intent, publishRecordId);
   } catch (error) {
     if (publishRecordId == null) throw error;
     if (!isAppError(error) || error.code !== "operation_intent.recovery_failed") throw error;
+    observationError = error;
   }
   if (recovered.found) return recovered.value;
 
@@ -327,7 +351,7 @@ async function recoverAfterMutatingWithoutResult<T>(
     );
   }
   await assertMutationReady(params);
-  await reconcileOperationIntent(params.client, {
+  const resolved = await reconcileOperationIntent(params.client, {
     workItemId: params.workItemId,
     operationKey: params.operationKey,
     status: "outcome_unknown",
@@ -335,21 +359,25 @@ async function recoverAfterMutatingWithoutResult<T>(
     detail: {
       ...resolveReconcileDetail(params, undefined as T, false),
       [OPERATION_INTENT_MUTATING_KEY]: false,
+      ...(observationError == null ? { unknownResolution: "terminal" } : {}),
       errorCode: "operation_intent.mutation_outcome_unknown",
-      errorMessage:
-        "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden",
+      errorMessage: UNKNOWN_MUTATION_MESSAGE,
     },
   });
-  throw new AppError({
-    code: "operation_intent.mutation_outcome_unknown",
-    message:
-      "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden",
-    context: {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
-      mutationKind: params.mutationKind,
-    },
-  });
+  if (resolved === null) {
+    await assertMutationReady(params);
+    throw new AppError({
+      code: "operation_intent.reconcile_no_row",
+      message: "Unknown mutation resolution returned no row",
+      context: { workItemId: params.workItemId, operationKey: params.operationKey },
+    });
+  }
+  throw unknownOutcomeError(
+    params,
+    UNKNOWN_MUTATION_MESSAGE,
+    observationError == null,
+    observationError,
+  );
 }
 
 /** Throw the abort reason as an AppError when the signal has fired. */
@@ -401,6 +429,12 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
     return finishWithStashedResult(params, intent);
   }
 
+  // A completed evidence decision stays fail-closed even if the worker died
+  // before it could mark the owning work item failed.
+  if (intent.status === "outcome_unknown" && intent.detail.unknownResolution === "terminal") {
+    throw unknownOutcomeError(params, UNKNOWN_MUTATION_MESSAGE, true);
+  }
+
   // Reconciled without a stashed return value (void mutate, or recovered
   // publish_records). Side effect is done — never remutate. If recover can
   // rebuild a typed result, stash it so later retries do not return undefined.
@@ -411,16 +445,11 @@ async function withOperationIntentBody<T>(params: WithOperationIntentParams<T>):
     if (allowsUndefinedSuccess(params)) {
       return finishVoidSuccess(params, {}, intent.publishRecordId);
     }
-    throw new AppError({
-      code: "operation_intent.mutation_outcome_unknown",
-      message:
-        "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden",
-      context: {
-        workItemId: params.workItemId,
-        operationKey: params.operationKey,
-        mutationKind: params.mutationKind,
-      },
-    });
+    throw unknownOutcomeError(
+      params,
+      "Reconciled mutation has no stashed result and recover cannot rebuild it; remutate forbidden",
+      true,
+    );
   }
 
   // Crash between mutate() and __result: never auto-remutate. Resolve by evidence.

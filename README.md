@@ -56,6 +56,8 @@ Slash commands are case-sensitive. The command must be the first non-empty line 
 
 `/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.
 
+After an interrupted publish, PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with `/review` guidance.
+
 Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags. Set `FEATURE_DESCRIBE=off`, `FEATURE_ASK=off`, and similar when you want those features to stop calling the model.
 
 </details>

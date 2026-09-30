@@ -57,7 +57,8 @@ function replyTargetKind(value: unknown): "prConversation" | "inlineReviewThread
 /**
  * Persist enough identity for later GitHub lookup. Methods that cannot prove
  * this attempt landed (reactions, labels, commit status, finishing a check)
- * store nothing extra and stay fail-closed.
+ * store nothing extra; completed absent recovery terminates fail-closed at
+ * the intent boundary, without repeating the mutation.
  */
 export function extractPrSurfaceRecoverDetail(
   method: keyof PrSurfaceMutationMethods,
@@ -226,7 +227,8 @@ async function recoverMarkedComment(
 /**
  * Look up the GitHub side effect for a leased PR-surface mutation. Absence is
  * not permission to remutate. Reactions, labels, commit statuses, and finishing
- * a check run cannot prove this attempt landed, so they stay fail-closed.
+ * a check run cannot prove this attempt landed. Their absent recovery ends
+ * in a bounded terminal decision at the intent boundary, never remutation.
  */
 export async function recoverPrSurfaceMutation<T>(
   surface: PrSurface,

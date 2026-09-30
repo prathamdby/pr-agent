@@ -83,6 +83,19 @@ lock timeout; failed intake rolls back and uses the existing webhook `503`/redel
 path. Roll out the fix to every web intake replica before relying on serialization;
 unchanged workers need no coordinated upgrade. A code rollback reopens the race.
 
+- Completed mutation recovery without a usable result is `terminal`, not a
+  transient unknown. Inspect `operation_intents.detail.unknownResolution`:
+  `"terminal"` records a completed fail-closed decision while status remains
+  `outcome_unknown`. The owning item fails with budget remaining through its
+  existing feature hook. Read or persistence outages stay transient. A failed
+  item cannot claim again, and direct intent replay skips further evidence reads.
+- Do not clear that detail, change an unknown intent to retryable `failed`, or
+  automatically requeue historical failed items. Inspect the actual PR effect
+  before requesting a new run. Existing summaries remain authoritative.
+- Roll affected workers together. Older workers ignore the additive detail and
+  can resume retry burn on active ambiguous items, though they still forbid
+  remutation. To downgrade, stop/drain workers and keep intent, publish, and
+  terminal work rows; do not reopen completed or failed items.
 - If webhook intake cannot commit to Postgres, the web process returns `503`; redeliver from GitHub after Postgres is healthy. Identifier and schema parse failures return `422` and do not write `webhook_events`, `webhook_event_replays`, or work items; GitHub should not retry those payloads. A verified and parsed ignored event records both durable dedupe decisions and consumes the bounded body-hash replay window.
 - If a review fails permanently, the worker upserts the review summary comment with a failure notice and records `agent_work_items.status = 'failed'`.
 - Every failed durable attempt is classified into one retry disposition. `transient` (provider timeout, auth, quota, rate limit, unknown, and every other classified failure) keeps retrying while budget remains. `deterministic` (a run that ended without its terminal submit after its own repair loops: `verification.missing_submit`, `triage.missing_submit`, `review.specialist_invalid_report`) gets exactly one escalated retry, then is terminal even when pg-boss budget remains. `terminal` (stale-head replacement exhaustion, cancellation, `agent_work.attempts_exhausted`) never returns to the queue. The durable `attempt_count` is the one retry budget: every claim increments it, including crash and deploy resumes, because pg-boss `retryCount` restarts on every lease hop job. A claim past `QUEUE_RETRY_LIMIT + 1` marks the item `failed` with `agent_work.attempts_exhausted` before minting a token, posts the failure notice, and closes the crashed verdict. A resumed claim logs `agent_work_resumed` with the new attempt count. pg-boss stays the only retry scheduler; escalation changes what a retry does, not who schedules it.

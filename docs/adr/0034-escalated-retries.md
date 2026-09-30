@@ -14,6 +14,17 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 1. **Three-valued retry disposition.** `retryDispositionFor` replaces the fallback-eligibility predicate. `transient` (provider timeout, auth, quota, rate limit, unknown, and every other classified failure) keeps retrying while budget remains. `deterministic` (a run that ended without its terminal submit after its own repair loops: `verification.missing_submit`, `triage.missing_submit`, `review.specialist_invalid_report`) gets exactly one escalated retry, then is terminal even when pg-boss budget remains. `terminal` (stale-head replacement exhaustion, cancellation, and `agent_work.attempts_exhausted`) never returns to the queue. The budget is the durable attempt count: pg-boss `retryCount` restarts on every lease hop job, so only `agent_work_items.attempt_count` — incremented on every claim, crash and deploy resumes included — bounds re-execution across the hop chain. A claim that arrives already over `QUEUE_RETRY_LIMIT + 1` is marked `failed` with `agent_work.attempts_exhausted` before any provider token is minted, and the terminal path (failure hook, reaction, `agent_work_failed`) runs unchanged.
 
+   Completed mutation recovery without a usable result is also `terminal`:
+   only `operation_intent.mutation_outcome_unknown` qualified by
+   `context.unknownResolution === "terminal"` selects that disposition.
+   Persisted unknown intents retain their remote uncertainty and cache the
+   terminal decision in JSONB detail. Recovery-read/ledger failures and
+   unqualified legacy unknown errors remain transient. A fenced-out terminal
+   write reasserts cancellation/ownership; a null write with valid ownership is
+   a transient persistence failure. No success sentinel or retryable `failed`
+   intent is fabricated. The existing terminal hook and own-verdict writer run
+   once; terminal queue replay cannot claim or burn another attempt.
+
 2. **Escalation is a pure function of the attempt count.** Attempt 1 is unchanged. Attempt 2 and later get `ESCALATED_TOOL_ROUNDS_MULTIPLIER` (2) × their base structured-loop tool-round budget, capped at `ESCALATED_TOOL_ROUNDS_CAP` (64), and run on the fallback model when `PI_FALLBACK_PROVIDER`/`PI_FALLBACK_MODEL` are configured. An escalated verification attempt narrows its inventory to the `MAX_ESCALATED_VERIFICATION_INVENTORY` (10) oldest open findings and reports `inventory_narrowed`; the remainder waits for a later attempt or run. There is no randomness or jitter in the plan.
 
 3. **Provider transport retry belongs at the shared session factory.** `PI_PROVIDER_RETRY_MAX` (default 2) sets Core `maxRetries` on the loop config and stream options; `PI_PROVIDER_MAX_RETRY_DELAY_MS` (default 60000) bounds a provider-requested retry delay. `loadConfig` throws when the delay cap is not strictly less than `PROVIDER_PROMPT_TIMEOUT_MS`, so provider backoff cannot silently outlast the run's inactivity cap. The wait stays abortable by `/cancel`, lease loss, and worker shutdown. `0` disables transport retries only; Core turn retry after a retryable assistant error stays pinned on (`SESSION_TURN_RETRY_MAX`). Every feature session shares this policy, so it is not a feature-level decision.

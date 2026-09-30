@@ -196,6 +196,11 @@ export const FAQ_ITEMS: FaqItem[] = [
       "Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and replies in GitHub comments. GitLab and Bitbucket are not supported yet.",
   },
   {
+    question: "What happens if a publish is interrupted?",
+    answer:
+      "PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with /review guidance. An existing published summary is kept. A failed evidence read can still retry.",
+  },
+  {
     question: "Where should I host PR Agent?",
     answer:
       "On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger and DigitalOcean also work. The App still needs the same Compose stack. The panel does not replace it.",

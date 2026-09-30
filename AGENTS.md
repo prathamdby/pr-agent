@@ -146,6 +146,8 @@ When test changes are already in scope, keep them proportional to the changed co
 
 GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. Automatic and slash review intake share a per-PR transaction lock, so concurrent `/review force` requests cancel and replace reviews in intake order. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
 
+After an interrupted mutation, the intent boundary checks saved results and exact evidence. Completed recovery without a usable result selects terminal failure through the existing feature hook; the intent stays `outcome_unknown` and is never remutated. Failed evidence reads remain transient. A cached terminal resolution skips repeated recovery reads, and terminal work-item redelivery cannot claim again.
+
 ```mermaid
 flowchart LR
   GitHub[GitHub webhook] --> Web[ROLE=web /webhooks]
