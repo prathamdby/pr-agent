@@ -21,6 +21,11 @@ while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
 Custom trigger sets are intentionally not supported.
 
+`/review force` cancels any queued or running review and starts a fresh one on
+the latest commit. Concurrent restarts are applied in intake order, not
+treated as already-in-progress requests. Ordinary `/review` still deduplicates
+against active slash reviews.
+
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews each PR when opened; `approval` reviews only after a reviewer with standing approves; `/review` is always available.                                                                                 |
