@@ -69,4 +69,29 @@ describe("planAutomatedPullRequestIntake", () => {
       }).kinds,
     ).toEqual([]);
   });
+
+  it("schedules no review on opened in approval mode", () => {
+    expect(
+      planAutomatedPullRequestIntake("opened", { ...allAuto, review: "approval" }).kinds,
+    ).toEqual(["description"]);
+  });
+
+  it("schedules reviewApproval on approval in approval mode", () => {
+    expect(
+      planAutomatedPullRequestIntake("approval", { ...allAuto, review: "approval" }).kinds,
+    ).toEqual(["reviewApproval"]);
+  });
+
+  it("schedules review supersede on synchronize in approval mode", () => {
+    expect(
+      planAutomatedPullRequestIntake("synchronize", { ...allAuto, review: "approval" }).kinds,
+    ).toEqual(["reviewSupersede", "verification"]);
+  });
+
+  it("ignores approval action unless review is approval mode", () => {
+    expect(planAutomatedPullRequestIntake("approval", allAuto).kinds).toEqual([]);
+    expect(
+      planAutomatedPullRequestIntake("approval", { ...allAuto, review: "manual" }).kinds,
+    ).toEqual([]);
+  });
 });

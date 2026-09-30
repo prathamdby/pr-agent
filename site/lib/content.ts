@@ -72,7 +72,8 @@ export const CAPABILITIES: CapabilityItem[] = [
   {
     id: "review",
     title: "Catch basics before a human opens the change",
-    trigger: "Runs when a pull request opens, or when you comment /review",
+    trigger:
+      "Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review",
     detail: "Comments land next to the lines that need attention.",
   },
   {

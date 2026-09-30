@@ -1,7 +1,12 @@
 import { AUTO_TRIGGER_ACTIONS, type Features } from "../../settings/index.js";
 
 /** Durable work kinds scheduled from automated pull_request webhooks. */
-type AutomatedPrIntakeKind = "review" | "reviewSupersede" | "description" | "verification";
+type AutomatedPrIntakeKind =
+  | "review"
+  | "reviewSupersede"
+  | "reviewApproval"
+  | "description"
+  | "verification";
 
 export type AutomatedPrIntakePlan = {
   readonly kinds: readonly AutomatedPrIntakeKind[];
@@ -19,6 +24,17 @@ export function planAutomatedPullRequestIntake(
     } else if (action === "synchronize") {
       // A push starts no new review, but it must cancel and replace one that is
       // still in flight so the published review always matches the latest head.
+      kinds.push("reviewSupersede");
+    }
+  } else if (features.review === "approval") {
+    if (action === "approval") {
+      // No review on `opened`: the first approving review enqueues it instead,
+      // so unreviewed slop PRs start no review work. Describe and verification
+      // keep their own triggers; set them to manual or off to stop all
+      // open-time model spend. The supersede rule below keeps
+      // approval-started reviews pinned to the latest head.
+      kinds.push("reviewApproval");
+    } else if (action === "synchronize") {
       kinds.push("reviewSupersede");
     }
   }

@@ -28,7 +28,7 @@ describe("feature config", () => {
   it("defaults features to current behavior", async () => {
     const cfg = await load({});
     expect(cfg.features).toEqual({
-      review: "auto",
+      review: "approval",
       describe: "auto",
       verification: "auto",
       ask: "manual",

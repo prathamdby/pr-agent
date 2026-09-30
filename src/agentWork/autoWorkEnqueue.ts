@@ -14,6 +14,20 @@ function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
   return JSON.stringify(["auto_work_intake", target.kind, target.resourceKey]);
 }
 
+/**
+ * Acquires the intake advisory lock for the rest of this transaction so two
+ * concurrent deliveries cannot both observe "no prior row" and create
+ * duplicate work. Xact-scoped: released at commit or rollback.
+ */
+export async function acquireAutoWorkIntakeLock(
+  client: PoolClient,
+  target: AutoWorkSupersedeTarget,
+): Promise<void> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    autoWorkIntakeLockKey(target),
+  ]);
+}
+
 function linkSupersededWorkItems(
   client: PoolClient,
   workItemId: string,

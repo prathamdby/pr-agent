@@ -4,10 +4,12 @@ import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
 import {
   DEFERRED_HEAD_SHA,
+  IGNORED_APPROVAL_REVIEW_EXISTS,
   REVIEW_CANCELLED_PR_CLOSED,
   reviewCancelAttributionForClosedPr,
 } from "../../settings/index.js";
 import {
+  acquireAutoWorkIntakeLock,
   replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
   type AutoWorkSupersedeTarget,
@@ -225,6 +227,72 @@ async function applyPlannedAutomatedPullRequestIntake(
             ...correlation,
           },
         },
+      );
+    }
+  }
+
+  if (plan.kinds.includes("reviewApproval")) {
+    const approvalAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+    // Intake lock held for the rest of this transaction: concurrent approvals
+    // serialize here so only the first creates a review. The rest observe the
+    // prior row below and emit the dedup event instead.
+    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
+    const prior = await client.query<{ id: string }>(
+      `SELECT id
+\t\t\t   FROM agent_work_items
+\t\t\t  WHERE resource_key = $1
+\t\t\t    AND type = 'review'
+\t\t\t    AND source = 'auto'
+\t\t\t    AND status IN ('queued', 'running')
+\t\t\t  LIMIT 1`,
+      [resourceKey],
+    );
+    if (prior.rows[0]?.id != null) {
+      events.push({
+        name: IGNORED_APPROVAL_REVIEW_EXISTS,
+        fields: {
+          resourceKey,
+          existingWorkItemId: prior.rows[0]?.id,
+          ...correlation,
+        },
+      });
+    } else {
+      events.push(
+        ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
+          target: {
+            kind: "review",
+            resourceKey,
+          },
+          createWorkItem: () =>
+            createReviewWorkItem(client, {
+              webhookEventId: event.id,
+              // Deferred head: the approval may reference an older commit, so
+              // the worker resolves the newest head at claim time.
+              ref: { ...ref, headSha: DEFERRED_HEAD_SHA },
+              source: "auto",
+              ackTargets: approvalAckTargets,
+            }),
+          enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
+          eventType: "review",
+          enqueueAck: async (workItemId) => {
+            const ackData: AckJobData = {
+              kind: "ack",
+              workItemId,
+              installationId: ref.installationId,
+              owner: ref.owner,
+              repo: ref.repo,
+              prNumber: ref.prNumber,
+              targets: approvalAckTargets,
+              progress: {
+                lens: "review",
+                headSha: DEFERRED_HEAD_SHA,
+                source: "auto",
+              },
+              ...correlation,
+            };
+            await enqueueAck(boss, client, ackData);
+          },
+        })),
       );
     }
   }

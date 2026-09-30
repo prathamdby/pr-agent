@@ -27,6 +27,7 @@ const webhookLayer = Layer.mergeAll(
     WebhookHandlers,
     WebhookHandlers.of({
       pullRequest: () => Effect.void,
+      approvalReview: () => Effect.void,
       issueComment: () => Effect.void,
       pullRequestReviewComment: () => Effect.void,
       ciRefresh: () => Effect.void,

@@ -103,6 +103,9 @@ function dispatchGithubEventEffect(
       case "pull_request":
         yield* handlers.pullRequest(cfg, headers, parsed.data, intakeLog);
         return { kind: "ok" as const };
+      case "pull_request_review":
+        yield* handlers.approvalReview(cfg, headers, parsed.data, intakeLog);
+        return { kind: "ok" as const };
       case "issue_comment":
         yield* handlers.issueComment(cfg, headers, parsed.data, intakeLog);
         return { kind: "ok" as const };
