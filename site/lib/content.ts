@@ -74,7 +74,8 @@ export const CAPABILITIES: CapabilityItem[] = [
     title: "Catch basics before a human opens the change",
     trigger:
       "Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review",
-    detail: "Comments land next to the lines that need attention.",
+    detail:
+      "Comments land next to the lines that need attention. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning.",
   },
   {
     id: "describe",
