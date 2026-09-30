@@ -3,7 +3,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
 import { runRetention } from "../../src/agentWork/retention.js";
-import { DEFAULT_AGENT_EVENTS_RETENTION_SECONDS } from "../../src/settings/index.js";
+import {
+  DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+  RETENTION_DELETE_BATCH_SIZE,
+} from "../../src/settings/index.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const RETENTION = {
@@ -31,6 +34,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
   afterEach(async () => {
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM agent_events WHERE event_kind = $1", [EVENT]);
   });
@@ -139,6 +143,31 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     const ids = rows.map((r) => r.id);
     expect(ids).not.toContain(expiredId);
     expect(ids).toContain(freshId);
+  });
+
+  it("purges duplicate evidence across batches using each arrival's age", async () => {
+    await pool.query(
+      `INSERT INTO webhook_delivery_duplicates
+         (id, event_name, body_sha256, dedupe_key, dedupe_reason, received_at)
+       SELECT gen_random_uuid(), $1, repeat('a', 64), 'body:' || repeat('a', 64),
+              'body_replay', CASE WHEN n <= $2 THEN $3::timestamptz ELSE now() END
+         FROM generate_series(1, $2::int + 1) AS n`,
+      [EVENT, RETENTION_DELETE_BATCH_SIZE + 1, daysAgo(60)],
+    );
+    const result = await runRetention(pool, RETENTION);
+    expect(result.webhookDuplicatesDeleted).toBeGreaterThanOrEqual(RETENTION_DELETE_BATCH_SIZE + 1);
+    const evidence = await pool.query<{ received_at: Date }>(
+      "SELECT received_at FROM webhook_delivery_duplicates WHERE event_name = $1",
+      [EVENT],
+    );
+    expect(evidence.rows).toHaveLength(1);
+    expect(evidence.rows[0]?.received_at.getTime()).toBeGreaterThan(Date.parse(daysAgo(1)));
+    await runRetention(pool, RETENTION);
+    const remaining = await pool.query(
+      "SELECT id FROM webhook_delivery_duplicates WHERE event_name = $1",
+      [EVENT],
+    );
+    expect(remaining.rows).toHaveLength(1);
   });
 
   it("deletes aged head CI state with no work item for that head", async () => {

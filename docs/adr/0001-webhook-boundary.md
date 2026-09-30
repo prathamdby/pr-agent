@@ -19,6 +19,7 @@ GitHub App webhooks are untyped JSON at the HTTP boundary. The service must vali
 - Adding a new webhook field requires updating the relevant Valibot schema; this is intentional visibility into contract changes.
 - **Durable dedupe** keeps `webhook_events.dedupe_key` for delivery-ID correlation and uses the unique `webhook_event_replays.body_sha256` row as an independent replay key. Replay rows reference their event and expire with `WEBHOOK_EVENTS_RETENTION_SECONDS` (30 days by default). Duplicate deliveries return **`200`** without creating duplicate work items. Intake failure returns **`503`** so GitHub may redeliver; transaction rollback removes the replay reservation. Parse failures (`WebhookParseError`) return **`422`** and still do not insert either durable dedupe row, so a corrected redelivery is not dropped as a duplicate.
 - Worker execution remains **at-least-once**; `publish_records` and work-item status guard publish side effects under retries.
+- Each duplicate commits a metadata-only `webhook_delivery_duplicates` row before `200`, without creating work or jobs. Audit-write failure returns `503` through the existing transaction failure path. Evidence uses its own arrival age and the same webhook retention duration, with no payload copy or FK to accepted events; it never reserves a dedupe key. Parse failures create no duplicate evidence. Guard reasons describe observed ID/body patterns, not malicious intent.
 
 ## Current implementation
 
