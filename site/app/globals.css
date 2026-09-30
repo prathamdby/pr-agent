@@ -190,6 +190,12 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  @media (pointer: fine) {
+    html {
+      overscroll-behavior: none;
+    }
+  }
+
   /*
     Objects on a wash cast wash-blue shadows; a grey shadow on blue reads as dirt. The wash's own
     shadow falls on the page, so only descendants switch, and anything inside a white surface
