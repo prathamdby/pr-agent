@@ -233,8 +233,7 @@ export type WorkClaim = {
 
 /**
  * Claim queued work or resume a redelivered job while the row is still running.
- * Every claim counts as an attempt, resumes included, so `attempt_count` is the one
- * durable retry budget across pg-boss retries and lease hop jobs.
+ * Claims and resumes do not spend the work budget; fresh feature admission does.
  * Admission is owned by the PR actor lease, not the claim: a re-claimed row still
  * needs the lease before any durable write.
  * When `leaseEpoch` is provided (leased work types), the claim also records it
@@ -259,7 +258,6 @@ export async function claimWorkForExecution(
      UPDATE agent_work_items w
         SET status = 'running',
             started_at = COALESCE(w.started_at, now()),
-            attempt_count = w.attempt_count + 1,
             execution_epoch = COALESCE($2::bigint, w.execution_epoch),
             updated_at = now()
        FROM prior
@@ -276,6 +274,55 @@ export async function claimWorkForExecution(
     attemptCount: row.attempt_count,
     resumed: row.resumed,
   };
+}
+
+export type WorkAttemptResult =
+  | { readonly kind: "started"; readonly claim: Omit<WorkClaim, "resumed"> }
+  | { readonly kind: "exhausted"; readonly attemptCount: number }
+  | { readonly kind: "unavailable" };
+
+/** Charge fresh work under the same lease-first locking discipline as claim. */
+export async function beginWorkAttempt(
+  pool: Pool,
+  id: string,
+  leaseEpoch: number | null,
+  attemptLimit: number,
+): Promise<WorkAttemptResult> {
+  return inTransaction(pool, async (client) => {
+    if (leaseEpoch != null) await lockPrActorLeaseForUpdate(client, id, leaseEpoch);
+    // A separate statement observes cancellation/takeover committed before the lock.
+    const row = await queryOne<{
+      status: WorkStatus;
+      cancel_requested_at: Date | null;
+      attempt_count: number;
+      created_at: Date;
+      started_at: Date;
+    }>(
+      client,
+      `SELECT status, cancel_requested_at, attempt_count, created_at, started_at
+         FROM agent_work_items WHERE id = $1 FOR UPDATE`,
+      [id],
+    );
+    if (row == null || row.status !== "running" || row.cancel_requested_at != null) {
+      return { kind: "unavailable" };
+    }
+    if (row.attempt_count >= attemptLimit) {
+      return { kind: "exhausted", attemptCount: row.attempt_count };
+    }
+    await client.query(
+      `UPDATE agent_work_items SET attempt_count = attempt_count + 1, updated_at = now()
+         WHERE id = $1`,
+      [id],
+    );
+    return {
+      kind: "started",
+      claim: {
+        createdAt: row.created_at,
+        startedAt: row.started_at,
+        attemptCount: row.attempt_count + 1,
+      },
+    };
+  });
 }
 
 /**

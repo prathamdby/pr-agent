@@ -25,6 +25,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   markWorkCancelled: vi.fn(),
   markQueuedWorkCancelled: vi.fn(),
   claimWorkForExecution: vi.fn(),
+  beginWorkAttempt: vi.fn(),
   markWorkCompleted: vi.fn(),
   forceMarkRescheduledParentCompleted: vi.fn(),
   markWorkFailed: vi.fn(),
@@ -161,6 +162,10 @@ function runReviewWorkItem(
     // without a real transaction (mocked acquire/claim/release ignore it).
     transactForTest: async (fn) => fn(pool as unknown as PoolClient),
     ...overrides,
+    execute: async (item, env) => {
+      await env.beginAttempt();
+      return overrides.execute(item, env);
+    },
   });
 }
 
@@ -174,6 +179,13 @@ function defaultMocks() {
     startedAt: new Date("2026-01-01T00:00:05.000Z"),
     attemptCount: 1,
     resumed: false,
+  });
+  vi.mocked(repo.beginWorkAttempt).mockImplementation(async () => {
+    const claim = await vi.mocked(repo.claimWorkForExecution).mock.results.at(-1)?.value;
+    if (!claim) throw new Error("missing mocked lifecycle claim");
+    return claim.attemptCount > cfg.queueRetryLimit + 1
+      ? { kind: "exhausted", attemptCount: claim.attemptCount }
+      : { kind: "started", claim };
   });
   vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
     acquired: true,
@@ -1105,7 +1117,7 @@ describe("runDurableWorkItem", () => {
     });
   });
 
-  it("terminalises an over-budget claim before minting a token", async () => {
+  it("terminalises fresh work at the budget gate after recovery preparation", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -1119,7 +1131,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ job: makeJob(0, 3), execute, onTerminalFailure });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(repo.updateRunningWorkHeadSha).not.toHaveBeenCalled();
+    expect(repo.updateRunningWorkHeadSha).toHaveBeenCalled();
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).toHaveBeenCalledWith(
       pool,
@@ -1340,12 +1352,14 @@ describe("runDurableWorkItem", () => {
         },
       }),
     );
-    // cancelBeforeClaim is false; finishRescheduledParentWorkItem then sees cancel_requested.
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
     vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
     const afterComplete = vi.fn().mockResolvedValue(undefined);
-    const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
+    const execute = vi.fn(async () => {
+      vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
+      return rescheduledResult({ afterComplete });
+    });
 
     await runReviewWorkItem({ execute });
 
@@ -1617,8 +1631,9 @@ describe("runDurableWorkItem", () => {
 
   it("aborts the host signal when cancel is visible during execute", async () => {
     mockFetchedItem(makeItem({ status: "running" }));
-    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
     const execute = vi.fn(async (_item, env) => {
+      vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
       await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
       throw new AppError({
         code: "agent.session_aborted",
@@ -1640,11 +1655,9 @@ describe("runDurableWorkItem", () => {
 
   it("aborts the host signal when the lease holder is cleared during execute", async () => {
     mockFetchedItem(makeItem({ status: "running" }));
-    vi.mocked(prActorLease.isPrActorLeaseHeld)
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(true)
-      .mockResolvedValue(false);
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(true);
     const execute = vi.fn(async (_item, env) => {
+      vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
       await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
       throw new AppError({
         code: "agent.session_aborted",

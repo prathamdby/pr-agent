@@ -113,6 +113,7 @@ Both web and worker must run. If webhooks return 200 and the PR stays quiet, the
 Two processes must run together.
 ROLE=web accepts signed webhooks, writes work to Postgres, and enqueues jobs. It returns 200 once that write succeeds.
 ROLE=worker runs the queues: reactions, progress comments, model sessions, and everything posted back to the PR.
+Recovering a run does not use another retry unless PR Agent admits fresh feature work. Lifecycle claims and watchdog hops are free; substantive resumes, workspace preparation and triage bulk replay count. Each work item admits at most QUEUE_RETRY_LIMIT + 1 attempts. A committed admission interrupted before the provider still counts. Recovery-only completion remains possible at the cap. Pre-admission infrastructure failures retain pg-boss delivery limits and their original cause, not work exhaustion. Work-retry analytics describes acknowledged admitted work only; infrastructure retries remain in agent_work_retrying logs. Upgrade affected workers together. Historical counts and terminal rows are retained without refunds or automatic reopening; coordinated rollback restores future claim burn.
 After an interrupted publish, PR Agent checks the saved result and exact evidence. Completed recovery without a usable result stops that run rather than repeat the change or exhaust its retry budget. The remote effect may still have landed. Failed or incomplete evidence reads can retry. Terminal redelivery is quiet, and an existing published summary is kept.
 Flow: GitHub webhooks → web /webhooks → Postgres webhook_events dedupe → agent_work_items → pg-boss enqueue.
 Duplicate arrivals commit metadata-only webhook_delivery_duplicates in the same intake transaction, without new work or jobs. Audit-write failure rolls back intake and returns 503. The delivery-key and body-replay guards are unchanged.
@@ -188,7 +189,7 @@ A: PR Agent works with OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, an
 Q: Does PR Agent only work with GitHub?
 A: Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and replies in GitHub comments. GitLab and Bitbucket are not supported yet.
 Q: What happens if a publish is interrupted?
-A: PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with /review guidance. An existing published summary is kept. Failed or incomplete evidence reads can still retry.
+A: PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with /review guidance. An existing published summary is kept. Failed or incomplete evidence reads can still retry. Recovering a run does not use another retry unless PR Agent starts another work attempt. Interrupted work attempts still count; previously failed runs are not reopened automatically.
 Q: Where should I host PR Agent?
 A: On a VPS you control, then put HTTPS in front of the web process. A panel such as Dokploy or Coolify can give you a domain and a certificate. Hetzner is a common cheap pick. Hostinger and DigitalOcean also work. The App still needs the same Compose stack. The panel does not replace it.
 

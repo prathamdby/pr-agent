@@ -336,6 +336,7 @@ async function runLightweightCompletionOrSkip(args: {
   readonly leaseEpoch: number | null;
   readonly commitStatusEnabled: boolean;
   readonly profile: ReviewProfileSession;
+  readonly beginAttempt: DurableExecutionContext["beginAttempt"];
 }): Promise<LightweightPhaseResult> {
   const {
     cfg,
@@ -391,6 +392,7 @@ async function runLightweightCompletionOrSkip(args: {
   }
   assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
   const preflight = buildReviewPreflightMetadataFromPullRequestFiles(prefetchedPrFiles);
+  await args.beginAttempt();
   const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
     item,
     reviewLens,
@@ -495,7 +497,7 @@ function createReviewProfileSession(args: {
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
-  readonly claim?: ReviewWorkClaim;
+  readonly getClaim: () => ReviewWorkClaim | undefined;
 }): ReviewProfileSession {
   let pending: ReviewProfileRecord | undefined;
   let flushed = false;
@@ -508,6 +510,7 @@ function createReviewProfileSession(args: {
       if (flushed || !pending) return;
       flushed = true;
       const snapshot = snapshotReviewRunMetrics();
+      const claim = args.getClaim();
       const publishAttempts = pending.publishAttempts ?? snapshot?.publishAttempts ?? 0;
       const publishStepCount = pending.publishStepCount ?? snapshot?.publishStepCount ?? 0;
       const extras = reviewWorkExtras({
@@ -521,8 +524,8 @@ function createReviewProfileSession(args: {
         item: args.item,
         workType: "review",
         outcome: pending.outcome,
-        durationMs: durationMsFromClaim(args.claim),
-        attemptCount: args.claim?.attemptCount ?? args.item.attemptCount,
+        durationMs: durationMsFromClaim(claim),
+        attemptCount: claim?.attemptCount ?? args.item.attemptCount,
         publish: { publishAttempts, publishStepCount },
         extras,
         ...(pending.outcome === "degraded"
@@ -971,7 +974,30 @@ async function runClaimedReview(args: {
     });
   }
 
+  if (publishContext.publishState.summaryPublished) {
+    const summaryDetail = await getCompletedPublishStepDetail(
+      pool,
+      item.id,
+      item.resourceKey,
+      reviewLens,
+      "summary_comment",
+    );
+    if (summaryDetail?.lightweightCompletion === true) {
+      await closeStoredReviewVerdict({
+        pool,
+        item,
+        reviewLens,
+        prSurface,
+        leaseEpoch: env.leaseEpoch,
+        commitStatusEnabled,
+        outcome: ownVerdictFromSummaryDetail(summaryDetail),
+      });
+      return { kind: "completed" };
+    }
+  }
+
   const lightweight = await runLightweightCompletionOrSkip({
+    beginAttempt: env.beginAttempt,
     cfg,
     pool,
     boss,
@@ -1025,6 +1051,7 @@ async function runClaimedReview(args: {
       message: error instanceof Error ? error.message : String(error),
     });
   }
+  await env.beginAttempt();
   return runWithRateLimitCircuit(rateLimitCircuit, () =>
     withPrRepositoryView(
       buildRepositoryViewParams(
@@ -1096,7 +1123,7 @@ export async function executeReviewJob(
         item,
         reviewLens,
         payload,
-        claim: env.claim,
+        getClaim: () => env.claim,
       });
       let threw = false;
       try {

@@ -12,7 +12,13 @@ import {
   releasePrActorLease,
 } from "../../src/agentWork/prActorLease.js";
 import { acquireAndClaimWorkItem } from "../../src/agentWork/durableJob.js";
-import { claimWorkForExecution } from "../../src/agentWork/repository.js";
+import {
+  beginWorkAttempt,
+  claimWorkForExecution,
+  getWorkItem,
+  markWorkCompleted,
+} from "../../src/agentWork/repository.js";
+import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import {
@@ -600,7 +606,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     }
   });
 
-  it("keeps blocked work queued while its firing delivery is active and claims its successor", async () => {
+  it("#657 keeps blocked work budget-neutral while its firing delivery is active and claims its successor", async () => {
     const resourceKey = `lease-it/watchdog-${randomUUID().slice(0, 8)}#1`;
     const workItemId = randomUUID();
     const holderId = randomUUID();
@@ -647,10 +653,12 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
           seededLiveHop: false,
         }),
       ).resolves.toMatchObject({ acquired: false, heldByWorkItemId: holderId });
-      const queued = await pool.query(`SELECT status FROM agent_work_items WHERE id = $1`, [
-        workItemId,
-      ]);
+      const queued = await pool.query(
+        `SELECT status, attempt_count FROM agent_work_items WHERE id = $1`,
+        [workItemId],
+      );
       expect(queued.rows[0]?.status).toBe("queued");
+      expect(queued.rows[0]?.attempt_count).toBe(0);
       const hop = (await deferredRows(pool, workItemId)).find((row) => row.state === "created");
       expect(hop?.group_id).toBe(installationGroupId(651));
       expect(hop?.data).toEqual({ workItemId });
@@ -668,21 +676,50 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
         `UPDATE pgboss.job SET state = 'active', started_on = now() WHERE name = $1 AND id = $2`,
         [REVIEW_QUEUE, hop?.id],
       );
-      await expect(
-        acquireAndClaimWorkItem({
-          pool,
-          boss,
-          queue: REVIEW_QUEUE,
-          leaseKey: { resourceKey, workType: "review" },
-          core,
-          ttlSeconds: 900,
-          seededLiveHop: true,
-        }),
-      ).resolves.toMatchObject({ acquired: true });
-      const claimed = await pool.query(`SELECT status FROM agent_work_items WHERE id = $1`, [
-        workItemId,
-      ]);
+      const successor = await acquireAndClaimWorkItem({
+        pool,
+        boss,
+        queue: REVIEW_QUEUE,
+        leaseKey: { resourceKey, workType: "review" },
+        core,
+        ttlSeconds: 900,
+        seededLiveHop: true,
+      });
+      expect(successor).toMatchObject({ acquired: true });
+      const claimed = await pool.query(
+        `SELECT status, attempt_count FROM agent_work_items WHERE id = $1`,
+        [workItemId],
+      );
       expect(claimed.rows[0]?.status).toBe("running");
+      expect(claimed.rows[0]?.attempt_count).toBe(0);
+      if (!successor?.acquired) throw new Error("missing successor lease");
+      const admitted = await beginWorkAttempt(
+        pool,
+        workItemId,
+        successor.leaseEpoch,
+        queueConfig.queueRetryLimit + 1,
+      );
+      expect(admitted.kind).toBe("started");
+      const fake = createFakePrSurface({ owner: "lease-it", repo: "r", prNumber: 1 });
+      if (admitted.kind === "started") await fake.surface.setLabels(["synthetic-recovery-success"]);
+      expect(fake.controls.events).toContainEqual({
+        kind: "setLabels",
+        labels: ["synthetic-recovery-success"],
+      });
+      expect(await markWorkCompleted(pool, workItemId, successor.leaseEpoch)).toBe(true);
+      expect(await getWorkItem(pool, workItemId)).toMatchObject({
+        status: "completed",
+        attemptCount: 1,
+      });
+      console.info(
+        "budget-survival-evidence",
+        JSON.stringify({
+          scenario: "watchdog_successor",
+          substantiveInvocations: 1,
+          publications: 1,
+          status: "completed",
+        }),
+      );
     } finally {
       await pool.query(`DELETE FROM pgboss.job WHERE name = $1 AND singleton_key = $2`, [
         REVIEW_QUEUE,
@@ -783,7 +820,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
         return { acquisition, claimed };
       });
       expect(committed?.acquisition).toEqual({ acquired: true, leaseEpoch: 1 });
-      expect(committed?.claimed.attemptCount).toBe(1);
+      expect(committed?.claimed.attemptCount).toBe(0);
       const { rows } = await pool.query<{ status: string }>(
         `SELECT status FROM agent_work_items WHERE id = $1`,
         [id],

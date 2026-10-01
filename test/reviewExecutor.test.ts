@@ -14,6 +14,7 @@ import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface, type FakePrSurfaceEvent } from "../src/github/prSurface.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
 
 let durableSurfaceBundle = createFakePrSurface(
   { owner: "o", repo: "r", prNumber: 1 },
@@ -207,6 +208,7 @@ function mockDurableExecution(
       prSurface: durableSurfaceBundle.surface,
       headSha: "head",
       leaseEpoch: 1,
+      beginAttempt: async () => mockWorkClaim(),
       signal: new AbortController().signal,
       pullRequest: executionPullRequest,
       claim: {
@@ -620,6 +622,7 @@ describe("executeReviewJob", () => {
         prSurface: durableSurfaceBundle.surface,
         headSha: "old-replacement-head",
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -700,6 +703,7 @@ describe("executeReviewJob", () => {
         prSurface: durableSurfaceBundle.surface,
         headSha: "head",
         leaseEpoch: null,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -760,6 +764,7 @@ describe("executeReviewJob", () => {
           headSha: "old-replacement-head",
           pullRequest: { ...pullRequest, head: { sha: "old-replacement-head" } },
           leaseEpoch: 1,
+          beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
         }),
       ).rejects.toMatchObject({ code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED });
@@ -1721,6 +1726,7 @@ describe("executeReviewJob", () => {
         prSurface: durableSurfaceBundle.surface,
         headSha: "head",
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
         pullRequest: prWithDescriptionOnly,
       });
@@ -1743,6 +1749,7 @@ describe("executeReviewJob", () => {
         prSurface: durableSurfaceBundle.surface,
         headSha: "head",
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
         pullRequest: prWithDescription,
       });

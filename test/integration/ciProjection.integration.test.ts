@@ -2472,7 +2472,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       expect(completed?.status).toBe(
         scenario === "cancel" ? "cancelled" : scenario === "head-error" ? "queued" : "completed",
       );
-      expect(completed?.attemptCount).toBe(1);
+      expect(completed?.attemptCount).toBe(0);
       expect(completed?.payload).toMatchObject(item.payload);
       if (stale) {
         expect(completed?.payload).toHaveProperty("publishDegraded", true);

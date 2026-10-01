@@ -11,6 +11,7 @@ import { makeTestConfig } from "./helpers/config.js";
 import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
+  mockWorkClaim,
   resetDurablePrSurface,
 } from "./helpers/executorDurableHarness.js";
 import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
@@ -136,6 +137,7 @@ function mockDurableExecution(): void {
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
       leaseEpoch: null,
+      beginAttempt: async () => mockWorkClaim(),
       signal: new AbortController().signal,
     });
   });
@@ -292,6 +294,7 @@ describe("executeAskJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
         leaseEpoch: null,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -325,6 +328,7 @@ describe("executeAskJob", () => {
         prSurface,
         headSha: "head",
         leaseEpoch: null,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
       await spec.onTerminalFailure?.(item, prSurface, new Error("complete failed"));
@@ -417,6 +421,7 @@ describe("executeAskJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
         leaseEpoch: null,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -472,6 +477,7 @@ describe("executeAskJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
         leaseEpoch: null,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -505,6 +511,7 @@ describe("executeAskJob", () => {
           prSurface,
           headSha: "head",
           leaseEpoch: null,
+          beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("agent failed");
@@ -584,6 +591,7 @@ describe("executeAskJob", () => {
           prSurface,
           headSha: "head",
           leaseEpoch: null,
+          beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("transient");

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
+import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
@@ -122,6 +123,7 @@ function mockDurableExecution(
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       leaseEpoch: 1,
+      beginAttempt: async () => mockWorkClaim(),
       signal: new AbortController().signal,
       ...executionEnv,
     }),
@@ -300,6 +302,7 @@ describe("executeTriageJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -393,6 +396,7 @@ describe("executeTriageJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -1098,6 +1102,7 @@ describe("executeTriageJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -1119,6 +1124,7 @@ describe("executeTriageJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -1143,6 +1149,7 @@ describe("executeTriageJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
