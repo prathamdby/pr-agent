@@ -25,6 +25,9 @@ Custom trigger sets are intentionally not supported.
 the cancellation. Requests already in flight cannot be withdrawn. The cancellation
 notice and check closure still run. There is no additional feature mode.
 
+A failed stale review's pending replacement is cancelled even if it has just
+started. Unconfirmed cancellation is logged as an error.
+
 `/review force` cancels any queued or running review and starts a fresh one on
 the latest commit. Concurrent restarts are applied in intake order, not
 treated as already-in-progress requests. Ordinary `/review` still deduplicates
