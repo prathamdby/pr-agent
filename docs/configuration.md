@@ -103,7 +103,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Queue polling interval        | `QUEUE_POLLING_INTERVAL_SECONDS`          | `0.5`                       | pg-boss worker poll interval in seconds; min 0.5                                                                                                                                                                                     |
 | Job retention                 | `QUEUE_RETENTION_SECONDS`                 | `1209600`                   |                                                                                                                                                                                                                                      |
 | Job delete after              | `QUEUE_DELETE_AFTER_SECONDS`              | `604800`                    |                                                                                                                                                                                                                                      |
-| Shutdown drain budget         | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`          | `25`                        | graceful pg-boss stop wait (s) on SIGTERM/SIGINT, then in-flight handlers settle before the pool closes                                                                                                                              |
+| Shutdown drain budget         | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`          | `25`                        | graceful pg-boss stop wait (s) on SIGTERM/SIGINT, then handlers settle and durable work dispatches get one more `SHUTDOWN_SETTLE_TIMEOUT_MS` window before the pool closes                                                           |
 | Webhook event retention       | `WEBHOOK_EVENTS_RETENTION_SECONDS`        | `2592000`                   | delete aged webhook_events and their replay rows, plus duplicate-arrival metadata by its own received_at (30d); disabled scheduled retention leaves evidence unpurged                                                                |
 | PR actor lease TTL            | `PR_ACTOR_LEASE_TTL_SECONDS`              | `900`                       | lease validity window; a crashed holder's lease becomes stealable after this                                                                                                                                                         |
 | PR actor lease renewal        | `PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS` | `120`                       | holder renewal cadence; must be less than `PR_ACTOR_LEASE_TTL_SECONDS` (startup validation)                                                                                                                                          |
@@ -667,20 +667,20 @@ idle-in-transaction limits. Its locks use NOWAIT; contention or protected-query
 cancellation leaves the candidate unchanged for a later pass. These private
 limits do not change the pool defaults below or add an environment setting.
 
-| Symbol                                    | Default | Role                                                                  |
-| ----------------------------------------- | ------- | --------------------------------------------------------------------- |
-| `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                         |
-| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`                                      |
-| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`                                   |
-| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                                                      |
-| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                                                       |
-| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                                                 |
-| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay                                           |
-| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout                                |
-| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout                                   |
-| `PG_BOSS_EVENT_LOG_WINDOW_MS`             | 60000   | one pg-boss error/warning log per key per window; repeats are counted |
-| `SHUTDOWN_SETTLE_TIMEOUT_MS`              | 5000    | wait for in-flight queue handlers after pg-boss drain                 |
-| `ANALYTICS_SHUTDOWN_TIMEOUT_MS`           | 5000    | PostHog flush bound during shutdown                                   |
+| Symbol                                    | Default | Role                                                                                                           |
+| ----------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                                                                  |
+| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`                                                                               |
+| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`                                                                            |
+| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                                                                                               |
+| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                                                                                                |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                                                                                          |
+| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay                                                                                    |
+| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout                                                                         |
+| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout                                                                            |
+| `PG_BOSS_EVENT_LOG_WINDOW_MS`             | 60000   | one pg-boss error/warning log per key per window; repeats are counted                                          |
+| `SHUTDOWN_SETTLE_TIMEOUT_MS`              | 5000    | wait for in-flight queue handlers after pg-boss drain; also the extra durable-work-only window that follows it |
+| `ANALYTICS_SHUTDOWN_TIMEOUT_MS`           | 5000    | PostHog flush bound during shutdown; on the worker it runs concurrently with the durable dispatch window       |
 
 ### Other
 
