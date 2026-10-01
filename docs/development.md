@@ -26,6 +26,12 @@ Review, ask, description, and verification take the prepared Local PR workspace 
 
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
+Within intake, `workItemRepository.ts` owns atomic slash winner resolution and
+the ID-pinned triage payload lookup; `slashIntake.ts` owns acknowledgements.
+The value-preserving conflict update retains the winner's row lock through
+commit. `/verify`'s earlier active-work precheck remains nonlocking. Review
+advisory ordering and execution-time PR actor leases remain separate contracts.
+
 `gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
 `createPiSession.send` fails after a settled unrecovered Pi provider error. Recovered Core transport retries stay successful. Public cancellation, idle timeout, and tool-budget stops stay distinct from provider outages. `send` replaces the session suffix with Core's returned turn slice so tool results stay between the assistant turns that produced them.

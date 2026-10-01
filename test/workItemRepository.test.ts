@@ -37,10 +37,9 @@ describe("createReviewWorkItem", () => {
   });
 
   it("uses slash active uniqueness ON CONFLICT and skips publish on loser", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: "winner-id" }] });
+    const query = vi.fn().mockResolvedValueOnce({
+      rows: [{ id: "winner-id", created: false }],
+    });
     const client = { query } as unknown as PoolClient;
 
     const result = await createReviewWorkItem(client, {
@@ -58,10 +57,6 @@ describe("createReviewWorkItem", () => {
       expect.stringContaining("(payload->>'staleHeadRescheduled') IS DISTINCT FROM 'true'"),
       expect.any(Array),
     );
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("review_lens IS NOT DISTINCT FROM"),
-      expect.any(Array),
-    );
     expect(query.mock.calls.some((call) => String(call[0]).includes("publish_records"))).toBe(
       false,
     );
@@ -70,7 +65,7 @@ describe("createReviewWorkItem", () => {
   it("inserts publish_records when slash review create wins", async () => {
     const query = vi
       .fn()
-      .mockResolvedValueOnce({ rows: [{ id: "created-id" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "created-id", created: true }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] });
     const client = { query } as unknown as PoolClient;
 
@@ -87,7 +82,7 @@ describe("createReviewWorkItem", () => {
   it("returns the created winner id for a slash review", async () => {
     const query = vi
       .fn()
-      .mockResolvedValueOnce({ rows: [{ id: "id-review" }] })
+      .mockResolvedValueOnce({ rows: [{ id: "id-review", created: true }] })
       .mockResolvedValueOnce({ rowCount: 1, rows: [] });
     const client = { query } as unknown as PoolClient;
 
@@ -104,10 +99,9 @@ describe("createReviewWorkItem", () => {
 
 describe("createDescriptionWorkItem", () => {
   it("returns existing winner on slash uniqueness conflict", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: "desc-winner" }] });
+    const query = vi.fn().mockResolvedValueOnce({
+      rows: [{ id: "desc-winner", created: false }],
+    });
     const client = { query } as unknown as PoolClient;
 
     const result = await createDescriptionWorkItem(client, {
@@ -140,7 +134,7 @@ describe("createDescriptionWorkItem", () => {
 
 describe("createTriageWorkItem", () => {
   it("returns created on successful slash insert", async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [{ id: "triage-1" }] });
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: "triage-1", created: true }] });
     const client = { query } as unknown as PoolClient;
 
     const result = await createTriageWorkItem(client, {
@@ -157,11 +151,10 @@ describe("createTriageWorkItem", () => {
     );
   });
 
-  it("returns conflict winner id from unified peer select", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: "triage-winner" }] });
+  it("returns the resolved conflict winner id", async () => {
+    const query = vi.fn().mockResolvedValueOnce({
+      rows: [{ id: "triage-winner", created: false }],
+    });
     const client = { query } as unknown as PoolClient;
 
     const result = await createTriageWorkItem(client, {
@@ -173,8 +166,6 @@ describe("createTriageWorkItem", () => {
     });
 
     expect(result).toEqual({ created: false, id: "triage-winner" });
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(String(query.mock.calls[1]?.[0])).toContain("review_lens IS NOT DISTINCT FROM");
   });
 });
 
@@ -250,7 +241,7 @@ describe("createVerificationWorkItem", () => {
   });
 
   it("uses slash priority and payload source for slash verification", async () => {
-    const query = vi.fn().mockResolvedValue({ rows: [{ id: "verify-1" }] });
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: "verify-1", created: true }] });
     const client = { query } as unknown as PoolClient;
 
     const result = await createVerificationWorkItem(client, {
@@ -271,10 +262,9 @@ describe("createVerificationWorkItem", () => {
   });
 
   it("returns existing winner on slash verification uniqueness conflict", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: "verify-winner" }] });
+    const query = vi.fn().mockResolvedValueOnce({
+      rows: [{ id: "verify-winner", created: false }],
+    });
     const client = { query } as unknown as PoolClient;
 
     const result = await createVerificationWorkItem(client, {

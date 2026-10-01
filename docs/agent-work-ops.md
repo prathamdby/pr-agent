@@ -106,6 +106,19 @@ lock timeout; failed intake rolls back and uses the existing webhook `503`/redel
 path. Roll out the fix to every web intake replica before relying on serialization;
 unchanged workers need no coordinated upgrade. A code rollback reopens the race.
 
+Slash `/review`, `/describe`, `/triage`, and `/verify` insertion resolves active
+work with a value-preserving UPSERT, holding the conflict row until intake commits.
+Triage's payload read is pinned to that winner ID. Cancellation or completion
+waits if resolution wins; a terminal transition that finishes first permits fresh
+work. `/verify`'s earlier active-work precheck remains nonlocking.
+The conflict update preserves payloads, timestamps, and progress ownership, but
+still creates a physical tuple/WAL update. It uses neither the execution lease
+nor a new retry lane. Same-body redelivery creates no new work, even if the
+winner is now terminal. Real lock timeouts still roll back intake and require
+redelivery. Upgrade every web replica for this protection; worker payloads are
+unchanged. Code-only rollback reopens the missing-winner race without data repair
+or schema reversal.
+
 - If webhook intake cannot commit to Postgres, the web process returns `503`; redeliver from GitHub after Postgres is healthy. Identifier and schema parse failures return `422` and do not write `webhook_events`, `webhook_event_replays`, or work items; GitHub should not retry those payloads. A verified and parsed ignored event records both durable dedupe decisions and consumes the bounded body-hash replay window.
 - If a review fails permanently, the worker upserts the review summary comment with a failure notice and records `agent_work_items.status = 'failed'`.
 - Every failed durable attempt is classified into one retry disposition. `transient` (provider timeout, auth, quota, rate limit, unknown, and every other classified failure) keeps retrying while budget remains. `deterministic` (a run that ended without its terminal submit after its own repair loops: `verification.missing_submit`, `triage.missing_submit`, `review.specialist_invalid_report`) gets exactly one escalated retry, then is terminal even when pg-boss budget remains. `terminal` (stale-head replacement exhaustion, cancellation, `agent_work.attempts_exhausted`) never returns to the queue. The durable `attempt_count` is the one retry budget: every claim increments it, including crash and deploy resumes, because pg-boss `retryCount` restarts on every lease hop job. A claim past `QUEUE_RETRY_LIMIT + 1` marks the item `failed` with `agent_work.attempts_exhausted` before minting a token, posts the failure notice, and closes the crashed verdict. A resumed claim logs `agent_work_resumed` with the new attempt count. pg-boss stays the only retry scheduler; escalation changes what a retry does, not who schedules it.
