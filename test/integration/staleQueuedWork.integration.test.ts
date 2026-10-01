@@ -591,25 +591,148 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     },
   );
 
-  it.each(["item", "lease", "unrelated job"] as const)(
-    "defers on $block contention and recovers after it ends",
+  it.each(["uncommitted cancellation", "cancellation after routing"] as const)(
+    "preserves running work during %s",
+    async (cancellation) => {
+      const cfg = makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: true },
+      });
+      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
+      await pool.query(
+        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
+        [id],
+      );
+      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      const token = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "synthetic-integration-token",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      });
+      const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+      const check = await fake.surface.startReviewCheck("h", id, "Running");
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: check.id,
+        detail: { status: "in_progress" },
+      });
+      const snapshot = await collectQueueDiagnostics({
+        boss,
+        pool,
+        now: new Date(),
+        diagnosticQueues: [],
+        dlqQueues: [],
+        lostRunningMinAgeSeconds: minAgeSeconds,
+      });
+      const items = snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id);
+      expect(items).toHaveLength(1);
+      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+      const writer = await pool.connect();
+      const sweeper = await pool.connect();
+      const read = sweeper.query.bind(sweeper);
+      const release = sweeper.release.bind(sweeper);
+      let writerOpen = false;
+      let routed = false;
+      const outcomes: boolean[] = [];
+      const mark = workState.markLostRunningWorkFailed;
+      vi.spyOn(workState, "markLostRunningWorkFailed").mockImplementation(async (...args) => {
+        const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
+        try {
+          const result = await mark(...args);
+          outcomes.push(result);
+          return result;
+        } finally {
+          connect.mockRestore();
+        }
+      });
+      vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
+      vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
+        const result = await read(text, values);
+        if (
+          !routed &&
+          typeof text === "string" &&
+          text.includes("SELECT resource_key, type") &&
+          values?.[0] === id
+        ) {
+          routed = true;
+          if (cancellation === "cancellation after routing") {
+            await writer.query(
+              "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
+              [id],
+            );
+            await writer.query("COMMIT");
+            writerOpen = false;
+          }
+        }
+        return result;
+      });
+      try {
+        await writer.query("BEGIN");
+        writerOpen = true;
+        if (cancellation === "uncommitted cancellation") {
+          await writer.query(
+            "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
+            [id],
+          );
+        }
+        await reconcileLostRunningWork({ cfg, pool, items });
+        expect(routed).toBe(true);
+        expect(outcomes).toEqual([false]);
+        if (writerOpen) {
+          expect(
+            (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
+          ).toEqual(before.rows);
+          await writer.query("COMMIT");
+          writerOpen = false;
+        }
+        const cancelled = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+        expect(cancelled.rows).toEqual([
+          { ...before.rows[0], cancel_requested_at: expect.any(Date) },
+        ]);
+        await reconcileLostRunningWork({ cfg, pool, items });
+        expect(
+          (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
+        ).toEqual(cancelled.rows);
+        expect(token).not.toHaveBeenCalled();
+        expect(factory).not.toHaveBeenCalled();
+        expect(
+          fake.controls.events.filter(
+            (event) => event.kind === "finishReviewCheck" || event.kind === "setReviewCommitStatus",
+          ),
+        ).toEqual([]);
+      } finally {
+        if (writerOpen) await writer.query("ROLLBACK");
+        vi.mocked(sweeper.query).mockRestore();
+        vi.mocked(sweeper.release).mockRestore();
+        release();
+        writer.release();
+      }
+    },
+  );
+
+  it.each(["item", "lease", "missing lease", "unrelated job"] as const)(
+    "defers on %s contention and recovers after it ends",
     async (block) => {
       const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: 1800 });
       await pool.query(
         "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
         [id],
       );
-      await acquirePrActorLease(pool, {
-        resourceKey,
-        workType: "review",
-        workItemId: id,
-        holderId: OWNER,
-        ttlSeconds: 900,
-      });
-      await pool.query(
-        "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
-        [id],
-      );
+      if (block !== "missing lease") {
+        await acquirePrActorLease(pool, {
+          resourceKey,
+          workType: "review",
+          workItemId: id,
+          holderId: OWNER,
+          ttlSeconds: 900,
+        });
+        await pool.query(
+          "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE work_item_id = $1",
+          [id],
+        );
+      }
       const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
       const blocker = await pool.connect();
       let open = false;
@@ -623,6 +746,23 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
             "SELECT resource_key FROM pr_actor_leases WHERE work_item_id = $1 FOR UPDATE",
             [id],
           );
+        } else if (block === "missing lease") {
+          expect(
+            await acquirePrActorLease(blocker, {
+              resourceKey,
+              workType: "review",
+              workItemId: id,
+              holderId: OWNER,
+              ttlSeconds: 900,
+            }),
+          ).toMatchObject({ acquired: true });
+          expect(
+            (
+              await pool.query("SELECT resource_key FROM pr_actor_leases WHERE resource_key = $1", [
+                resourceKey,
+              ])
+            ).rows,
+          ).toEqual([]);
         } else {
           await blocker.query(
             "INSERT INTO pgboss.job (id, name, state, data) VALUES ($1, $2, 'created', $3::jsonb)",
