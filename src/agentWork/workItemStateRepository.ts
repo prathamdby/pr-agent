@@ -3,6 +3,12 @@ import { queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
+  DESCRIPTION_QUEUE,
+  REVIEW_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+} from "../settings/index.js";
+import {
   isAnyReviewLens,
   normalizeReviewLens,
   type AnyReviewLens,
@@ -359,6 +365,56 @@ export async function updateRunningWorkHeadSha(
 	    AND cancel_requested_at IS NULL
 	    ${leaseFenceSql(3)}`,
     [id, headSha, leaseEpoch],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** Shared lost-running predicate; queued diagnostics deliberately use resource-wide leases. */
+export function lostRunningWorkLivenessSql(
+  clock: "$1::timestamptz" | "statement_timestamp()",
+): string {
+  return `AND NOT EXISTS (
+            SELECT 1 FROM pr_actor_leases l
+             WHERE l.work_item_id = w.id
+               AND l.expires_at > ${clock}
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pgboss.job j
+             WHERE j.name = CASE w.type
+               WHEN 'review' THEN '${REVIEW_QUEUE}'
+               WHEN 'description' THEN '${DESCRIPTION_QUEUE}'
+               WHEN 'triage' THEN '${TRIAGE_QUEUE}'
+               WHEN 'verification' THEN '${VERIFICATION_QUEUE}'
+             END
+               AND j.state IN ('created', 'active', 'retry')
+               AND (
+                 j.id = w.id
+                 OR j.singleton_key = w.id::text
+                 OR j.data @> jsonb_build_object('workItemId', w.id::text)
+               )
+          )`;
+}
+
+/** A diagnostics snapshot cannot authorize failure after a lease or delivery revives. */
+export async function markLostRunningWorkFailed(
+  pool: Pool,
+  id: string,
+  minAgeSeconds: number,
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE agent_work_items AS w
+        SET status = 'failed',
+            last_error = 'worker_lost',
+            completed_at = now(),
+            updated_at = now()
+      WHERE w.id = $1
+        AND w.type IN ('review', 'description', 'triage', 'verification')
+        AND w.status = 'running'
+        AND w.cancel_requested_at IS NULL
+        AND w.started_at IS NOT NULL
+        AND w.started_at < statement_timestamp() - ($2 * interval '1 second')
+        ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+    [id, minAgeSeconds],
   );
   return (result.rowCount ?? 0) > 0;
 }

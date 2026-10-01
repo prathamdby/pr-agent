@@ -28,6 +28,7 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 ## Consequences
 
+- The lost-running failure write rechecks age, lease expiry, and live jobs atomically. Only an applied mark permits a candidate's crashed verdict close; revived work stays running. Already-terminal reviews retain the separate open-check repair lane.
 - A deterministic failure costs at most one extra attempt; the second identical failure is terminal without waiting out the queue budget.
 - Escalation rate and degradation reasons are observable from PostHog without reading run transcripts.
 - Provider transport retry is operator-tunable and its backoff is bounded by startup validation against `PROVIDER_PROMPT_TIMEOUT_MS`.

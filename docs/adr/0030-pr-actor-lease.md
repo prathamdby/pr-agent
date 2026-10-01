@@ -25,7 +25,13 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 7. **External mutations are epoch-bound.** The worker injects the lease epoch
    and combined cancellation signal into the centralized `PrSurface` mutation
    boundary. The boundary writes an epoch-bound `operation_intents` row before
-   each mutation and asserts ownership immediately before the external call.
+   each mutation. Execution surfaces reread durable cancellation at entry and
+   immediately before the mutation callback, then assert ownership again because
+   takeover may occur during that read. The existing signal check remains.
+   Terminal hooks omit only the durable cancellation read so verdict cleanup can
+   run. Neither cancellation nor takeover can withdraw a request already in flight.
+   A final gate failure before delegation stays retryable because no request
+   started. Errors after delegation retain the provider's acceptance rules.
    Nested mutation keys include the parent operation key, method, and input
    hash. Different inputs get distinct intents; identical retries reuse the
    same intent.
@@ -37,6 +43,7 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 
 ## Consequences
 
+- Lost-running detection and its conditional failure write share the same no-live-lease and no-live-job predicates. The mark rechecks them at statement time, so a lease renewal or job revival after detection vetoes failure. Queued diagnostics retain their resource-wide lease check; the sweeper still treats `active` jobs as live, unlike watchdog successor proof.
 - Crash recovery no longer needs a reaper: the watchdog deferral chain keeps re-checking until the dead holder's lease lapses, then steals it with a fresh epoch and re-executes the still-`running` item. Re-execution is bounded: a work item whose claims exceed `QUEUE_RETRY_LIMIT + 1` ends as `failed` with the failure notice, so a crash-looping pull request cannot re-run forever.
 - Queue state can never block intake, because intake never inspects it; a terminal work item's leftover job no-ops at execution.
 - Cutover is not safe with mixed old and new workers: old workers fence on queue policy while new workers fence on the lease. Drain only when an existing deployment still has fifo workers. A first install creates `standard` queues and has nothing to drain. See [docs/operations.md](../operations.md). The policy flip itself is carried by migration 023, not by hand.

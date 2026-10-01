@@ -48,7 +48,7 @@ Who may run them is controlled by SLASH_ALLOWED_ASSOCIATIONS (default OWNER,MEMB
 /triage: apply-mode fix for open bot findings. The report stamps a CI rollup marker the projector patches. /triage preview renders would-be diffs without push. /triage all replays those stored hunks (refused without a matching preview on this head).
 /triage preview: render the would-be unified diff. No commits, no push.
 /triage all: replay the stored preview hunks (optional exclude <thread ids>). Refused without a matching preview on this head. Does not start a second agent run.
-/cancel: cancel a queued or running orchestrated review.
+/cancel: cancel a queued or running orchestrated review. The final publication check rereads durable cancellation and blocks new review output when it is visible. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
 /verify: recheck open findings against the current pull request head.
 /help: list available commands.
 
@@ -67,7 +67,7 @@ FEATURE_REVIEW_LABELS: off | size | size+security. Default size. Size and securi
 FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review: pending when the check starts, success or failure from published findings, error on cancel, crash, stale head, unpublished, or partial coverage. No model tokens.
 FEATURE_TITLE_REWRITE: false | true. Default true. Allows /describe to rewrite the PR title using make-pr default title rules. Set false to keep the existing title.
 Landing-page capability copy:
-- Catch basics before a human opens the change. Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review. Comments land next to the lines that need attention. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning.
+- Catch basics before a human opens the change. Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review. Comments land next to the lines that need attention. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning. Crash recovery rechecks live work before failing a review.
 - Turn a blank PR body into a readable summary. Runs when a pull request opens, or when you comment /describe. Summary bullets and optional visual sketches go into the PR body when the diff proves them.
 - Ask code questions without leaving GitHub. Comment /ask … or mention the GitHub App bot with your question. The word @bot only matches if you named the App that. /ask does not need a mention.
 - Recheck open findings after each push. Runs after each new push when that option is left on, or when you comment /verify. With no open findings, verification skips the agent. An older-head run completes degraded instead of clean. Switch to on-demand to limit token use.
@@ -121,6 +121,7 @@ A finding is published only when it meets the causal-publication contract: one a
 Quality findings require present structural harm. Test findings require a named changed behaviour, untested state, invariant, and plausible regression.
 The orchestrator re-applies that contract during judgment. Specialist reports remain evidence.
 P0-P2 findings fail the review check run. P3 does not. Crash and unpublished runs conclude the check as action_required. Cancel, supersede, and stale head conclude it as cancelled.
+Lost-running diagnostics are advisory. The failure write rechecks age, lease expiry, and live jobs in one statement. A renewed lease or restarted job keeps the work running. The sweeper closes a candidate's crashed verdict only after applying that mark, and separately retries open checks on terminal reviews.
 Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.
 Web does not create installation tokens or post to the PR. Workers do that.
 

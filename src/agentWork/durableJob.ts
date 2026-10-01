@@ -17,6 +17,7 @@ import {
   mintInstallationToken,
 } from "../github/installationToken.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { classifyProviderError, isCancelAbortError } from "../agent/providers/providerErrors.js";
 import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
@@ -45,6 +46,7 @@ import {
 import {
   acquirePrActorLease,
   armLeaseWatchdogHop,
+  assertPrActorLeaseHeld,
   isPrActorLeaseHeld,
   releasePrActorLease,
   renewPrActorLease,
@@ -194,11 +196,27 @@ function createLeaseMutationBoundary(params: {
   readonly resourceKey: string;
   readonly leaseEpoch: number;
   readonly signal: AbortSignal;
+  readonly checkCancellation?: boolean;
 }): PrSurfaceMutationBoundary {
+  async function assertNotCancelled(operationKey: string): Promise<void> {
+    if (
+      params.checkCancellation !== false &&
+      (await shouldSkipWork(params.pool, { id: params.workItemId }))
+    ) {
+      throw new AppError({
+        code: "agent_work.execution_aborted",
+        message: "Durable execution was cancelled before a PR mutation",
+        context: { workItemId: params.workItemId, operationKey },
+      });
+    }
+  }
+
   return {
     signal: params.signal,
-    run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
-      withOperationIntent<T>({
+    run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => {
+      await assertNotCancelled(mutation.operationKey);
+      let mutationStarted = false;
+      return withOperationIntent<T>({
         client: params.pool,
         workItemId: params.workItemId,
         operationKey: mutation.operationKey,
@@ -213,8 +231,18 @@ function createLeaseMutationBoundary(params: {
         },
         recover: mutation.recover as WithOperationIntentParams<T>["recover"],
         allowsUndefinedResult: mutation.allowsUndefinedResult,
-        mutate,
-      }),
+        // The local gate can fail before any request reaches the surface.
+        isKnownNoAcceptanceError: (error) =>
+          !mutationStarted || isKnownNoAcceptanceMutationError(error),
+        mutate: async () => {
+          await assertNotCancelled(mutation.operationKey);
+          // Ownership can change during the awaited cancellation read.
+          await assertPrActorLeaseHeld(params.pool, params.workItemId, params.leaseEpoch);
+          mutationStarted = true;
+          return mutate();
+        },
+      });
+    },
   };
 }
 
@@ -582,6 +610,8 @@ export async function runDurableWorkItem<T extends WorkType>(
             resourceKey: workItemCore.resourceKey,
             leaseEpoch,
             signal: executionSignal,
+            // Terminal hooks must still close the cancelled verdict.
+            checkCancellation: false,
           });
     return createPrSurfaceForItem(spec.cfg, workItemCore, token, mutationBoundary);
   }
