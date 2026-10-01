@@ -166,6 +166,12 @@ blocks feature output even before the observer aborts the signal. Terminal notic
 and verdict cleanup retain their existing signal and epoch fences. A request
 already in flight cannot be withdrawn.
 
+Terminal parent failure cancels a pending stale-head replacement even when its
+claim wins concurrently. After a queued miss, cancellation fixes the replacement's
+recorded epoch and locks its lease before updating the item. It never follows a
+newer epoch or clears a holder. Unconfirmed cancellation emits
+`agent_work_replacement_cancel_failed` at error level and rejects.
+
 ```mermaid
 flowchart LR
   GitHub[GitHub webhook] --> Web[ROLE=web /webhooks]

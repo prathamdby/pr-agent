@@ -54,6 +54,15 @@ delegated mutation and post-write errors retain existing acceptance rules.
 CI projection and direct edits do not share this lock.
 See [ADR 0020](adr/0020-orchestrated-review.md).
 
+`workItemStateRepository.ts::markQueuedWorkCancelled` also covers a replacement
+that wins a concurrent claim. Queued attempts finish before a lease-first
+transaction locks the captured replacement epoch and cancels the active row.
+The token stays fixed across rereads, including queued retries.
+`reviewReschedule.ts` shares this writer between registered abort and recovered
+terminal-parent cleanup. A miss logs `agent_work_replacement_cancel_failed` at
+error level before rethrowing; the outer abort catch alone only warns.
+Lease release and publication gating remain on the durable runner.
+
 `createPiSession.send` fails after a settled unrecovered Pi provider error. Recovered Core transport retries stay successful. Public cancellation, idle timeout, and tool-budget stops stay distinct from provider outages. `send` replaces the session suffix with Core's returned turn slice so tool results stay between the assistant turns that produced them.
 
 ## Landing site

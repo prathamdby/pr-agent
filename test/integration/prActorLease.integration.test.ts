@@ -29,7 +29,12 @@ import {
 } from "../../src/agentWork/prActorLease.js";
 import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.js";
 import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
-import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
+import {
+  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+  cancelUnenqueuedStaleHeadReplacement,
+  createReviewRescheduleWorkItem,
+} from "../../src/agentWork/reviewReschedule.js";
+import type { ReviewWorkItem } from "../../src/agentWork/types.js";
 import {
   cancelActiveReviews,
   cancelActiveTriage,
@@ -42,6 +47,7 @@ import {
   claimWorkForExecution,
   getWorkItem,
   markWorkCompleted,
+  markWorkFailed,
   markWorkPublishDegraded,
   updateRunningWorkHeadSha,
 } from "../../src/agentWork/repository.js";
@@ -122,9 +128,32 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     "read_failure",
     "remote_failure",
     "takeover",
-  ])("fences durable publication during %s (#640)", async (mode) => {
+    "replacement_claim_cancel",
+    "replacement_running_cancel",
+  ])("fences durable publication during %s (#640, #661)", async (mode) => {
     const resourceKey = `${OWNER}/cancel-publish-${randomUUID()}#1`;
-    const workItemId = await insertAutoQueued(resourceKey, "review");
+    let workItemId = await insertAutoQueued(resourceKey, "review");
+    let replacementParent: ReviewWorkItem | undefined;
+    const replacementError = new Error("parent failed before enqueue");
+    if (mode.startsWith("replacement_")) {
+      const parentId = workItemId;
+      const parentLease = await acquire(resourceKey, parentId);
+      if (!parentLease.acquired) throw new Error("expected parent lease");
+      await claimWorkForExecution(pool, parentId, parentLease.leaseEpoch);
+      const parent = await getWorkItem(pool, parentId);
+      if (parent?.type !== "review") throw new Error("expected parent review");
+      workItemId = (await createReviewRescheduleWorkItem(pool, parent, parentLease.leaseEpoch))
+        .replacementWorkItemId;
+      const persisted = await getWorkItem(pool, parentId);
+      if (persisted?.type !== "review") throw new Error("expected persisted parent review");
+      replacementParent = persisted;
+      await markWorkFailed(pool, parentId, replacementError, parentLease.leaseEpoch);
+      await releasePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        leaseEpoch: parentLease.leaseEpoch,
+      });
+    }
     const controller = new AbortController();
     const boss = new PgBoss(makeTestConfig().databaseUrl);
     const surfaces: ReturnType<typeof prSurfaceModule.createFakePrSurface>[] = [];
@@ -138,6 +167,29 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const assertHeld = leaseRepository.assertPrActorLeaseHeld;
     const mergeDetail = intentRepository.mergeOperationIntentDetail;
     const skipWork = workRepository.shouldSkipWork;
+    const claimWork = workRepository.claimWorkForExecution;
+    let releaseClaim: (() => void) | undefined;
+    const claimCommit = new Promise<void>((resolve) => {
+      releaseClaim = resolve;
+    });
+    let claimedReady: (() => void) | undefined;
+    const claimReady = new Promise<void>((resolve) => {
+      claimedReady = resolve;
+    });
+    let claimantPid: number | undefined;
+    let cancellation: Promise<unknown> | undefined;
+    if (mode === "replacement_claim_cancel") {
+      vi.spyOn(workRepository, "claimWorkForExecution").mockImplementation(async (...args) => {
+        const result = await claimWork(...args);
+        if (args[1] === workItemId) {
+          const { rows } = await args[0].query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+          claimantPid = rows[0]?.pid;
+          claimedReady?.();
+          await claimCommit;
+        }
+        return result;
+      });
+    }
     const observerReady = new Promise<void>((resolve) => {
       releaseObserver = resolve;
       vi.spyOn(leaseRepository, "isPrActorLeaseHeld").mockImplementation(async (...args) => {
@@ -287,6 +339,16 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       execute: async (item, env) => {
         executing = true;
         await observerReady;
+        if (mode === "replacement_claim_cancel") await cancellation;
+        if (mode === "replacement_running_cancel") {
+          if (!replacementParent) throw new Error("expected replacement parent");
+          await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+            pool,
+            boss,
+            replacementParent,
+            replacementError,
+          );
+        }
         if (mode === "legacy_cancel" || mode === "request_cancel") {
           await pool.query("UPDATE agent_work_items SET execution_epoch = 0 WHERE id = $1", [
             workItemId,
@@ -329,6 +391,37 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       (error: unknown) => error,
     );
     try {
+      if (mode === "replacement_claim_cancel") {
+        await claimReady;
+        if (!replacementParent || claimantPid == null)
+          throw new Error("expected claimed replacement");
+        cancellation = cancelUnenqueuedStaleHeadReplacement(
+          pool,
+          boss,
+          replacementParent,
+          workItemId,
+          replacementError,
+          false,
+        ).then(
+          () => null,
+          (error: unknown) => error,
+        );
+        await expect
+          .poll(async () => {
+            const { rows } = await pool.query<{ blocked: boolean }>(
+              `SELECT EXISTS (
+               SELECT 1 FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND $1::int = ANY(pg_blocking_pids(pid))
+             ) AS blocked`,
+              [claimantPid],
+            );
+            return rows[0]?.blocked;
+          })
+          .toBe(true);
+        releaseClaim?.();
+        await cancellation;
+      }
       const error = await settled;
       if (mode === "read_failure") {
         expect(error).toMatchObject({ message: "Synthetic final cancellation read failure" });
@@ -348,6 +441,18 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         "SELECT github_id FROM publish_records WHERE work_item_id = $1 AND step = 'inline_review' AND status = 'completed'",
         [workItemId],
       );
+      if (mode.startsWith("replacement_")) {
+        console.info(
+          "replacement-cancel-evidence",
+          JSON.stringify({
+            scenario: mode,
+            status: row?.status,
+            featureBatches: batches.length,
+            completedPublications: records.rows.length,
+            cancelRequested: row?.cancelRequestedAt != null,
+          }),
+        );
+      }
       if (mode === "live") {
         expect(batches).toHaveLength(1);
         expect(records.rows).toHaveLength(1);
@@ -371,7 +476,15 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           expect(row?.status).toBe("cancelled");
           expect(row?.cancelRequestedAt).not.toBeNull();
           expect(terminal.rows[0]?.completed_at).not.toBeNull();
-          if (mode !== "request_cancel") {
+          if (mode.startsWith("replacement_")) {
+            if (cancellation) expect(await cancellation).toBeNull();
+            expect(terminal.rows[0]?.last_error).toBe(replacementError.message);
+            expect(evlog.logError).not.toHaveBeenCalledWith(
+              "agent_work_replacement_cancel_failed",
+              expect.anything(),
+              expect.anything(),
+            );
+          } else if (mode !== "request_cancel") {
             expect(terminal.rows[0]?.last_error).toBe("Cancelled by slash /cancel");
             if (row?.type === "review") {
               expect(row.payload.cancelAttribution).toEqual({
@@ -380,7 +493,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               });
             }
           }
-          if (mode !== "late_cancel") {
+          if (mode !== "late_cancel" && mode !== "replacement_claim_cancel") {
             expect(events.some((event) => event.kind === "finishReviewCheck")).toBe(true);
           }
         }
@@ -439,14 +552,63 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         }),
       );
     } finally {
+      releaseClaim?.();
       releaseObserver?.();
       controller.abort();
+      await cancellation;
       await settled;
       vi.restoreAllMocks();
       clearDurableAuthCachesForTest();
       vi.useRealTimers();
     }
   });
+
+  it.each(["missing", "completed", "failed", "superseded"])(
+    "signals a genuine replacement cancellation miss for %s (#661)",
+    async (status) => {
+      const resourceKey = `${OWNER}/cancel-miss-${randomUUID()}#1`;
+      const parentId = await insertAutoQueued(resourceKey, "review");
+      const parent = await getWorkItem(pool, parentId);
+      if (parent?.type !== "review") throw new Error("expected review parent");
+      const targetId =
+        status === "missing" ? randomUUID() : await insertAutoQueued(resourceKey, "review");
+      if (status !== "missing") {
+        await pool.query("UPDATE agent_work_items SET status = $2 WHERE id = $1", [
+          targetId,
+          status,
+        ]);
+      }
+      const boss = new PgBoss(makeTestConfig().databaseUrl);
+      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+      const signal = vi.spyOn(evlog, "logError").mockImplementation(() => {});
+      await expect(
+        cancelUnenqueuedStaleHeadReplacement(
+          pool,
+          boss,
+          parent,
+          targetId,
+          new Error("parent terminal"),
+          false,
+        ),
+      ).rejects.toMatchObject({ code: "agent_work.replacement_cancel_rejected" });
+      expect(signal).toHaveBeenCalledWith(
+        "agent_work_replacement_cancel_failed",
+        expect.objectContaining({ workItemId: parentId, replacementWorkItemId: targetId }),
+        expect.objectContaining({ code: "agent_work.replacement_cancel_rejected" }),
+      );
+      expect((await getWorkItem(pool, targetId))?.status).toBe(
+        status === "missing" ? undefined : status,
+      );
+      console.info(
+        "replacement-cancel-miss-evidence",
+        JSON.stringify({
+          scenario: status,
+          errorLevel: "error",
+          code: "agent_work.replacement_cancel_rejected",
+        }),
+      );
+    },
+  );
 
   it("admits exactly one holder per (resource key, work type) under concurrency", async () => {
     const resourceKey = `${OWNER}/race-${randomUUID().slice(0, 8)}#1`;

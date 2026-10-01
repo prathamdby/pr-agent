@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { inTransaction, pgBossDb } from "../db/postgres.js";
 import { AppError, isAppError } from "../errors/appError.js";
-import { logInfo, logWarn } from "../evlog.js";
+import { logError, logInfo } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
 import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
@@ -53,7 +53,7 @@ export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppErr
 }
 
 /**
- * Cancel a queued stale-head replacement that was persisted but never enqueued.
+ * Cancel a pending stale-head replacement, including one that won a concurrent claim.
  * Uses the known replacement id from the reschedule result — no payload re-fetch/re-parse.
  * No-ops when enqueue succeeded in this attempt or a replacement review job is live.
  */
@@ -69,21 +69,26 @@ export async function cancelUnenqueuedStaleHeadReplacement(
   try {
     if (await replacementReviewJobExists(boss, replacementWorkItemId)) return;
     if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
-      logWarn("agent_work_replacement_cancel_failed", {
-        type: "review",
-        workItemId: parent.id,
-        replacementWorkItemId,
+      throw new AppError({
+        code: "agent_work.replacement_cancel_rejected",
+        message: "Stale-head replacement cancellation was not confirmed.",
+        context: { workItemId: parent.id, replacementWorkItemId },
       });
     }
   } catch (cancelError) {
-    logWarn("agent_work_replacement_cancel_failed", {
-      type: "review",
-      workItemId: parent.id,
-      replacementWorkItemId,
-      message: sanitizeLogMessage(
-        cancelError instanceof Error ? cancelError.message : String(cancelError),
-      ),
-    });
+    logError(
+      "agent_work_replacement_cancel_failed",
+      {
+        type: "review",
+        workItemId: parent.id,
+        replacementWorkItemId,
+        message: sanitizeLogMessage(
+          cancelError instanceof Error ? cancelError.message : String(cancelError),
+        ),
+      },
+      cancelError,
+    );
+    throw cancelError;
   }
 }
 

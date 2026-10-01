@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import { queryOne } from "../db/postgres.js";
+import { inTransaction, queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
@@ -14,6 +14,7 @@ import {
   type AnyReviewLens,
 } from "../settings/legacyReviewLenses.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.js";
+import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
 import {
   attachWorkItemPayload,
   STALE_HEAD_REPLACEMENT_ID_SQL,
@@ -441,24 +442,57 @@ export async function markWorkFailed(
   return (result.rowCount ?? 0) > 0;
 }
 
-/** Cancel a still-queued work item and persist a sanitized failure reason. */
+/** Cancel queued work, or its claim winner under the replacement's recorded epoch. */
 export async function markQueuedWorkCancelled(
   pool: Pool,
   id: string,
   error: unknown,
 ): Promise<boolean> {
   const message = sanitizeWorkError(error);
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const cancelSql = `UPDATE agent_work_items
 		    SET status = 'cancelled',
+		        cancel_requested_at = COALESCE(cancel_requested_at, now()),
 		        last_error = $2,
 		        completed_at = now(),
 		        updated_at = now()
-		  WHERE id = $1
-		    AND status = 'queued'`,
-    [id, message],
-  );
-  return (result.rowCount ?? 0) > 0;
+		  WHERE id = $1`;
+  const result = await pool.query(`${cancelSql} AND status = 'queued'`, [id, message]);
+  if ((result.rowCount ?? 0) > 0) return true;
+
+  type CancellationTarget = { status: WorkStatus; execution_epoch: string | number | null };
+  const targetSql = "SELECT status, execution_epoch FROM agent_work_items WHERE id = $1";
+  let target = await queryOne<CancellationTarget>(pool, targetSql, [id]);
+  if (!target) return false;
+  if (target.status === "cancelled") return true;
+  const observedEpoch = Number(target.execution_epoch);
+  if (target.status === "queued") {
+    // Finish this item-only statement before any lease-first transaction.
+    const retry = await pool.query(
+      `${cancelSql} AND status = 'queued'
+        AND execution_epoch IS NOT DISTINCT FROM $3::bigint`,
+      [id, message, target.execution_epoch],
+    );
+    if ((retry.rowCount ?? 0) > 0) return true;
+    target = await queryOne<CancellationTarget>(pool, targetSql, [id]);
+    if (!target) return false;
+    if (observedEpoch > 0 && Number(target.execution_epoch) !== observedEpoch) return false;
+    if (target.status === "cancelled") return true;
+  }
+  const epoch = observedEpoch > 0 ? observedEpoch : Number(target.execution_epoch);
+  if (target.status !== "running" || !Number.isSafeInteger(epoch) || epoch <= 0) return false;
+  return inTransaction(pool, async (client) => {
+    await lockPrActorLeaseForUpdate(client, id, epoch);
+    const cancelled = await client.query(
+      `${cancelSql}
+        AND status IN ('queued', 'running')
+        AND execution_epoch = $3
+        ${leaseFenceSql(3)}`,
+      [id, message, epoch],
+    );
+    if ((cancelled.rowCount ?? 0) > 0) return true;
+    const current = await queryOne<CancellationTarget>(client, targetSql, [id]);
+    return current?.status === "cancelled" && Number(current.execution_epoch) === epoch;
+  });
 }
 
 export async function markWorkRetrying(

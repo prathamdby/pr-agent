@@ -424,6 +424,10 @@ mutation callback and then reassert lease ownership. This adds no knob and block
 new feature output when cancellation is visible. Cancellation notices and verdict
 cleanup retain their existing fences; requests already in flight cannot be withdrawn.
 
+A failed stale review's pending replacement is cancelled even if its claim wins
+concurrently. This uses the replacement's recorded lease epoch, not a new setting.
+Unconfirmed cancellation is logged as an error.
+
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
 Flat directory of `.mdc` rule files, read from the PR head checkout at review preflight. Parsing, matching, file-count limits, and byte caps apply before the trust decision. When the PR head and base `repo.full_name` values match, matching rules are binding in `Trusted context (repo policy)`. A fork, missing identity, or malformed identity renders matching rules in `Untrusted context (repo policy from PR head)` inside an untrusted wrapper; those bodies are evidence only and cannot define binding review instructions. Forged trusted/binding headers and policy delimiters are neutralized. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
