@@ -985,10 +985,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       );
 
       // reconcileLostRunningWork also scans the separate terminal-review repair
-      // lane; refuse to run it over another suite's rows.
-      await expect(lostRunningModule.listTerminalReviewsWithOpenOwnChecks(pool)).resolves.toEqual(
-        [],
-      );
+      // lane. A reused database may hold another suite's terminal review with an
+      // open check; only this scenario's own row must stay out of that lane.
+      // The count stays in the evidence line so foreign leftovers remain visible.
+      const openCheckRepair = await lostRunningModule.listTerminalReviewsWithOpenOwnChecks(pool);
+      expect(openCheckRepair.map((item) => item.workItemId)).not.toContain(scenario.workItemId);
 
       const report = await workerHealthModule.collectQueueDiagnostics({
         boss: diagnosticsBoss,
@@ -1019,6 +1020,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           releaseReason: scenario.releaseReason,
           markFailed: scenario.markError instanceof Error,
           diagnosed: candidates.length,
+          openCheckRepair: openCheckRepair.length,
           status: recovered?.status,
           lastError: terminal.rows[0]?.last_error,
           completed: terminal.rows[0]?.completed_at != null,
