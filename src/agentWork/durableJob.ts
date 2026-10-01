@@ -924,14 +924,9 @@ export async function runDurableWorkItem<T extends WorkType>(
             error,
           );
         }
-      } catch (abortError) {
-        logWarn("agent_work_replacement_cancel_failed", {
-          type: spec.type,
-          workItemId: item.id,
-          message: sanitizeLogMessage(
-            abortError instanceof Error ? abortError.message : String(abortError),
-          ),
-        });
+      } catch {
+        // The abort helper already logged agent_work_replacement_cancel_failed at
+        // error level before rethrowing; swallow here so terminal failure continues.
       }
     }
 
