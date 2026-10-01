@@ -185,10 +185,13 @@ const SETUP_PROMPT_RESOURCES: readonly AgentResource[] = [
 /**
  * Prompt behind the hero's "Copy prompt" button: paste it into any AI tool and that tool has every
  * machine-readable surface this site publishes, plus the job it is being asked to do.
+ *
+ * Takes the origin from the caller so the copied links follow the host the visitor is on. Build
+ * inputs like SITE_ORIGIN bake at build time and go stale on custom domains and local runs.
  */
-export function renderSetupPrompt(): string {
+export function renderSetupPrompt(origin: string): string {
   const links = SETUP_PROMPT_RESOURCES.map(
-    (resource) => `- ${resource.title}: ${resourceUrl(resource)}`,
+    (resource) => `- ${resource.title}: ${origin}${resource.path}`,
   );
   return [
     "I want to set up PR Agent, a self-hosted GitHub App that reviews pull requests with AI. It is MIT licensed, runs on my own servers with my own model keys, and has no per-seat fee.",
