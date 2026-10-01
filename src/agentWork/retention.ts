@@ -13,6 +13,7 @@ const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 export type RetentionResult = {
   readonly workItemsDeleted: number;
   readonly webhookEventsDeleted: number;
+  readonly webhookDuplicatesDeleted: number;
   readonly resumeSnapshotsDeleted: number;
   readonly agentEventsDeleted: number;
   readonly codeIndexSnapshotsDeleted: number;
@@ -21,7 +22,7 @@ export type RetentionResult = {
 };
 
 /**
- * Delete aged terminal work items then webhook events, in batches, so a large
+ * Delete aged workflow state in independent batches, so a large
  * backlog never holds one long transaction.
  */
 export async function runRetention(
@@ -37,6 +38,7 @@ export async function runRetention(
   const [
     workItemsDeleted,
     webhookEventsDeleted,
+    webhookDuplicatesDeleted,
     resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,
@@ -80,6 +82,24 @@ export async function runRetention(
       }
       return deleted;
     })(),
+    (async () => {
+      let deleted = 0;
+      for (;;) {
+        const result = await pool.query(
+          `DELETE FROM webhook_delivery_duplicates
+            WHERE id IN (
+              SELECT id FROM webhook_delivery_duplicates
+               WHERE received_at < now() - ($1::bigint * interval '1 second')
+               LIMIT $2::int
+            )`,
+          [cfg.webhookEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+        );
+        const batch = result.rowCount ?? 0;
+        deleted += batch;
+        if (batch < RETENTION_DELETE_BATCH_SIZE) break;
+      }
+      return deleted;
+    })(),
     deleteExpiredResumeSnapshots(pool),
     (async () => {
       if (cfg.agentEventsRetentionSeconds <= 0) return 0;
@@ -111,6 +131,7 @@ export async function runRetention(
   return {
     workItemsDeleted,
     webhookEventsDeleted,
+    webhookDuplicatesDeleted,
     resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,

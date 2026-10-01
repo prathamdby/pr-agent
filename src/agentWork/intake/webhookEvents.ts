@@ -27,6 +27,22 @@ function webhookEventKeys(headers: WebhookHeaders): {
   };
 }
 
+async function recordDuplicateWebhookEvent(
+  client: PoolClient,
+  id: string,
+  headers: WebhookHeaders,
+  bodySha256: string,
+  dedupeKey: string,
+  reason: "delivery_key" | "body_key" | "body_replay",
+): Promise<void> {
+  await client.query(
+    `INSERT INTO webhook_delivery_duplicates
+       (id, delivery_id, event_name, body_sha256, dedupe_key, dedupe_reason)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [id, headers.delivery ?? null, headers.event ?? "", bodySha256, dedupeKey, reason],
+  );
+}
+
 export async function insertWebhookEvent(
   client: PoolClient,
   headers: WebhookHeaders,
@@ -43,6 +59,14 @@ export async function insertWebhookEvent(
   );
   const inserted = result.rows[0]?.id;
   if (inserted == null) {
+    await recordDuplicateWebhookEvent(
+      client,
+      id,
+      headers,
+      keys.bodySha256,
+      keys.dedupeKey,
+      headers.delivery ? "delivery_key" : "body_key",
+    );
     return {
       duplicate: true,
       dedupeKey: keys.dedupeKey,
@@ -58,6 +82,14 @@ export async function insertWebhookEvent(
   );
   if (replay.rows[0]?.body_sha256 == null) {
     await client.query("DELETE FROM webhook_events WHERE id = $1", [inserted]);
+    await recordDuplicateWebhookEvent(
+      client,
+      id,
+      headers,
+      keys.bodySha256,
+      keys.bodyDedupeKey,
+      "body_replay",
+    );
     return {
       duplicate: true,
       dedupeKey: keys.bodyDedupeKey,

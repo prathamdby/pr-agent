@@ -56,6 +56,8 @@ Slash commands are case-sensitive. The command must be the first non-empty line 
 
 `/cancel` blocks new review output when the worker's final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
 
+`/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.
+
 Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags. Set `FEATURE_DESCRIBE=off`, `FEATURE_ASK=off`, and similar when you want those features to stop calling the model.
 
 </details>
@@ -128,7 +130,7 @@ docker compose up -d
 
 | Service           | Role          | What it does                                                                                                        |
 | ----------------- | ------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs. Not published to the host.                                        |
+| `postgres`        | database      | Durable webhook dedupe, duplicate metadata, work items, pg-boss jobs. Not published to the host.                    |
 | `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                                        |
 | `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-projection, code-index-build, and retention queues |
 
@@ -376,6 +378,8 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 | LLM providers | Review text leaves your network only when the worker calls `PI_PROVIDER` / `PI_MODEL`. Read that provider's data policy.                                                              |
 | Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)). |
 | Retention     | Agent event rows older than 30 days are deleted with the other cleanup. Set `AGENT_EVENTS_RETENTION_SECONDS` to `0` to keep them.                                                     |
+
+Duplicate deliveries retain local metadata only: incoming delivery ID, body fingerprint, and dedupe guard reason, not another body copy. `WEBHOOK_EVENTS_RETENTION_SECONDS` deletes this evidence by its own arrival age (30 days by default). `RETENTION_ENABLED=false` leaves it unpurged. These patterns do not prove malicious intent. See [duplicate-delivery inspection](docs/agent-work-ops.md#duplicate-delivery-evidence).
 
 <details>
 <summary>Context7</summary>

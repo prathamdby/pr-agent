@@ -22,6 +22,7 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
   });
 
@@ -84,6 +85,14 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
     expect(second.duplicate).toBe(true);
     expect(first.dedupeKey).toBe(second.dedupeKey);
     await expect(countRows()).resolves.toBe(1);
+    const { rows } = await pool.query(
+      `SELECT delivery_id, dedupe_key, dedupe_reason
+         FROM webhook_delivery_duplicates WHERE event_name = $1`,
+      [EVENT],
+    );
+    expect(rows).toEqual([
+      { delivery_id: null, dedupe_key: first.dedupeKey, dedupe_reason: "body_key" },
+    ]);
   });
 
   it("keeps different bodies without delivery ids", async () => {
@@ -105,6 +114,11 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
     expect(results.filter((result) => !result.duplicate)).toHaveLength(1);
     expect(results.filter((result) => result.duplicate)).toHaveLength(1);
     await expect(countRows()).resolves.toBe(1);
+    const { rows } = await pool.query(
+      `SELECT delivery_id, dedupe_reason FROM webhook_delivery_duplicates WHERE event_name = $1`,
+      [EVENT],
+    );
+    expect(rows).toEqual([{ delivery_id: "delivery-race", dedupe_reason: "delivery_key" }]);
   });
 
   it("lets only one concurrent same-body different-delivery insert win", async () => {
@@ -118,11 +132,59 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
     expect(duplicates).toHaveLength(1);
     expect(duplicates[0]?.dedupeKey).toMatch(/^body:[0-9a-f]{64}$/);
     await expect(countRows()).resolves.toBe(1);
+    const { rows } = await pool.query<{ delivery_id: string; dedupe_reason: string }>(
+      `SELECT delivery_id, dedupe_reason FROM webhook_delivery_duplicates WHERE event_name = $1`,
+      [EVENT],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.dedupe_reason).toBe("body_replay");
+    const accepted = await pool.query<{ delivery_id: string }>(
+      "SELECT delivery_id FROM webhook_events WHERE event_name = $1",
+      [EVENT],
+    );
+    expect([rows[0]?.delivery_id, accepted.rows[0]?.delivery_id].toSorted()).toEqual([
+      "delivery-body-race-1",
+      "delivery-body-race-2",
+    ]);
+    const replays = await pool.query(
+      `SELECT r.body_sha256 FROM webhook_event_replays r
+         JOIN webhook_events e ON e.id = r.webhook_event_id WHERE e.event_name = $1`,
+      [EVENT],
+    );
+    expect(replays.rows).toHaveLength(1);
+  });
+
+  it("rolls back duplicate evidence with its intake transaction", async () => {
+    await insert('{"rollback":true}', "delivery-rollback-original");
+    await expect(
+      inTransaction(pool, async (client) => {
+        const duplicate = await insertWebhookEvent(
+          client,
+          headers('{"rollback":true}', "delivery-rollback-duplicate"),
+          "processed",
+        );
+        expect(duplicate.duplicate).toBe(true);
+        const evidence = await client.query(
+          "SELECT id FROM webhook_delivery_duplicates WHERE event_name = $1",
+          [EVENT],
+        );
+        expect(evidence.rows).toHaveLength(1);
+        throw new Error("rollback duplicate intake");
+      }),
+    ).rejects.toThrow("rollback duplicate intake");
+    const evidence = await pool.query(
+      "SELECT id FROM webhook_delivery_duplicates WHERE event_name = $1",
+      [EVENT],
+    );
+    expect(evidence.rows).toHaveLength(0);
+    await expect(countRows()).resolves.toBe(1);
   });
 
   it("releases a body hash after webhook-event retention", async () => {
     const first = await insert('{"retained":true}', "delivery-retained-old");
     if (first.duplicate) throw new Error("initial retained event was treated as duplicate");
+    const duplicate = await insert('{"retained":true}', "delivery-retained-duplicate");
+    expect(duplicate.duplicate).toBe(true);
     await pool.query(
       "UPDATE webhook_events SET received_at = now() - interval '31 days' WHERE id = $1",
       [first.id],
@@ -138,5 +200,10 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
     const retry = await insert('{"retained":true}', "delivery-retained-new");
     expect(retry.duplicate).toBe(false);
     await expect(countRows()).resolves.toBe(1);
+    const evidence = await pool.query(
+      "SELECT delivery_id FROM webhook_delivery_duplicates WHERE event_name = $1",
+      [EVENT],
+    );
+    expect(evidence.rows).toEqual([{ delivery_id: "delivery-retained-duplicate" }]);
   });
 });
