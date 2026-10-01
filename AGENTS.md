@@ -26,7 +26,7 @@ nub run test
 nub run build
 ```
 
-PR commits must satisfy the /commit conventional rules: the `commit-messages` CI job runs `nub run check:commit-messages` over the PR range.
+PR commits must satisfy the /commit conventional rules: the `commit-messages` CI job runs `node scripts/check-commit-messages.mjs --base "origin/$BASE_REF" --head HEAD` over the PR range, and `nub run check:commit-messages` runs the same check locally.
 
 A red check is a finding about your code. Never weaken a rule, delete a
 lock, or grow a baseline count to merge. New `escape()` calls need a
