@@ -1,4 +1,4 @@
-import { Context, Effect, Layer } from "effect";
+import { Cause, Context, Effect, Exit, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -136,10 +136,11 @@ describe("agent work runtime teardown", () => {
     expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the pool open for a durable dispatch past the general settle", async () => {
+  it("overlaps delayed analytics with the durable reserve before ending the pool", async () => {
     runtimeMocks.trace.length = 0;
     runtimeMocks.settleCalls.length = 0;
     runtimeMocks.warnings.length = 0;
+    runtimeMocks.shutdownAnalytics.mockClear();
     const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
       await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig({ role: "worker" });
@@ -149,8 +150,14 @@ describe("agent work runtime teardown", () => {
     const durable = new Promise<void>((resolve) => {
       releaseDurable = () => {
         durableResolved = true;
+        runtimeMocks.trace.push("durable.mark");
         resolve();
       };
+    });
+    runtimeMocks.shutdownAnalytics.mockImplementationOnce(async () => {
+      runtimeMocks.trace.push("analytics.start");
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      runtimeMocks.trace.push("analytics.done");
     });
 
     const Worker = Context.GenericTag<"Worker", void>("Worker");
@@ -169,6 +176,7 @@ describe("agent work runtime teardown", () => {
       Layer.provide(AgentWorkPoolLive(cfg)),
     );
 
+    const started = Date.now();
     const disposed = Effect.runPromise(Effect.scoped(Layer.build(workerLive)));
     await vi.waitFor(
       () => {
@@ -179,14 +187,84 @@ describe("agent work runtime teardown", () => {
       },
       { timeout: 15_000 },
     );
+    expect(runtimeMocks.trace).toContain("analytics.start");
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
     const poolEndedBeforeRelease = runtimeMocks.trace.includes("pool.end");
     releaseDurable();
     await disposed;
 
     expect(poolEndedBeforeRelease).toBe(false);
     expect(durableResolved).toBe(true);
-    expect(runtimeMocks.trace).toContain("analytics.shutdown");
-    expect(runtimeMocks.trace[runtimeMocks.trace.length - 1]).toBe("pool.end");
+    expect(runtimeMocks.trace).toEqual([
+      "boss.stop",
+      "analytics.start",
+      "durable.mark",
+      "analytics.done",
+      "pool.end",
+    ]);
+    expect(Date.now() - started).toBeLessThan(8_500);
+    expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
+    expect(runtimeMocks.warnings).not.toContain("agent_worker_shutdown_incomplete");
+  }, 20_000);
+
+  it("waits for durable marks before propagating an analytics shutdown failure", async () => {
+    runtimeMocks.trace.length = 0;
+    runtimeMocks.settleCalls.length = 0;
+    runtimeMocks.warnings.length = 0;
+    runtimeMocks.shutdownAnalytics.mockClear();
+    const { AgentWorkBossLive, AgentWorkExecutions, AgentWorkExecutionsLive, AgentWorkPoolLive } =
+      await import("../src/agentWork/runtime.js");
+    const cfg = makeTestConfig({ role: "worker" });
+    const analyticsError = new Error("analytics shutdown failed");
+    runtimeMocks.shutdownAnalytics.mockImplementationOnce(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      runtimeMocks.trace.push("analytics.failed");
+      throw analyticsError;
+    });
+    let releaseDurable: () => void = () => undefined;
+    const durable = new Promise<void>((resolve) => {
+      releaseDurable = () => {
+        runtimeMocks.trace.push("durable.mark");
+        resolve();
+      };
+    });
+    const Worker = Context.GenericTag<"Worker", void>("Worker");
+    const workerLive = Layer.scoped(
+      Worker,
+      Effect.acquireRelease(
+        Effect.gen(function* () {
+          const executions = yield* AgentWorkExecutions;
+          void executions.track(() => durable, { durable: true });
+        }),
+        () => Effect.void,
+      ),
+    ).pipe(
+      Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
+      Layer.provide(AgentWorkExecutionsLive),
+      Layer.provide(AgentWorkPoolLive(cfg)),
+    );
+
+    const disposed = Effect.runPromiseExit(Effect.scoped(Layer.build(workerLive)));
+    await vi.waitFor(
+      () => {
+        expect(runtimeMocks.trace).toContain("analytics.failed");
+      },
+      { timeout: 15_000 },
+    );
+    const poolEndedBeforeRelease = runtimeMocks.trace.includes("pool.end");
+    releaseDurable();
+    const exit = await disposed;
+
+    expect(poolEndedBeforeRelease).toBe(false);
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) expect([...Cause.defects(exit.cause)]).toContain(analyticsError);
+    expect(runtimeMocks.trace).toEqual([
+      "boss.stop",
+      "analytics.failed",
+      "durable.mark",
+      "pool.end",
+    ]);
+    expect(runtimeMocks.shutdownAnalytics).toHaveBeenCalledTimes(1);
     expect(runtimeMocks.warnings).not.toContain("agent_worker_shutdown_incomplete");
   }, 20_000);
 

@@ -199,14 +199,27 @@ describe("in-flight handler settle", () => {
     await second;
   });
 
-  it("turns a synchronous track failure into a rejected promise", async () => {
+  it.each([false, true])("clears failed tracked promises with durable=%s", async (durable) => {
     const tracker = createExecutionTracker();
-    const tracked = tracker.track(() => {
-      throw new Error("sync");
-    });
+    const tracked = tracker.track(
+      () => {
+        throw new Error("sync");
+      },
+      { durable },
+    );
     await expect(tracked).rejects.toThrow("sync");
+    await expect(
+      tracker.track(() => Promise.reject(new Error("async")), { durable }),
+    ).rejects.toThrow("async");
     const started = Date.now();
-    await tracker.settle(5_000);
+    await expect(tracker.settle(5_000, { durableOnly: true })).resolves.toEqual({
+      pendingHandlers: 0,
+      pendingDurable: 0,
+    });
+    await expect(tracker.settle(5_000)).resolves.toEqual({
+      pendingHandlers: 0,
+      pendingDurable: 0,
+    });
     expect(Date.now() - started).toBeLessThan(50);
   });
 
@@ -229,10 +242,50 @@ describe("in-flight handler settle", () => {
     await hanging;
   });
 
-  it("tracks durable dispatches in their own lane and reports both outstanding counts", async () => {
+  it("settles nested durable dispatches without waiting for the outer logger tail", async () => {
     const tracker = createExecutionTracker();
     let releaseDurable: () => void = () => undefined;
     let releasePlain: () => void = () => undefined;
+    const loggerTail = new Promise<void>((resolve) => {
+      releasePlain = resolve;
+    });
+    const handlerDone = tracker.track(async () => {
+      await tracker.track(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseDurable = resolve;
+          }),
+        { durable: true },
+      );
+      await loggerTail;
+    });
+
+    await expect(tracker.settle(0)).resolves.toEqual({ pendingHandlers: 1, pendingDurable: 1 });
+
+    const reserveStarted = Date.now();
+    const reserve = tracker.settle(5_000, { durableOnly: true });
+    releaseDurable();
+    await expect(reserve).resolves.toEqual({ pendingHandlers: 1, pendingDurable: 0 });
+    expect(Date.now() - reserveStarted).toBeLessThan(1_000);
+
+    const general = tracker.settle(5_000);
+    const raced = await Promise.race([
+      general.then(() => "settled" as const),
+      new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 30)),
+    ]);
+    expect(raced).toBe("waiting");
+
+    releasePlain();
+    await handlerDone;
+    await expect(general).resolves.toEqual({ pendingHandlers: 0, pendingDurable: 0 });
+    await expect(tracker.settle(0)).resolves.toEqual({ pendingHandlers: 0, pendingDurable: 0 });
+  });
+
+  it("keeps general settlement pending when only a durable dispatch remains", async () => {
+    const tracker = createExecutionTracker();
+    await tracker.track(() => Promise.resolve());
+    await expect(tracker.settle(5_000)).resolves.toEqual({ pendingHandlers: 0, pendingDurable: 0 });
+    let releaseDurable: () => void = () => undefined;
     const durableDone = tracker.track(
       () =>
         new Promise<void>((resolve) => {
@@ -240,29 +293,16 @@ describe("in-flight handler settle", () => {
         }),
       { durable: true },
     );
-    const plainDone = tracker.track(
-      () =>
-        new Promise<void>((resolve) => {
-          releasePlain = resolve;
-        }),
-    );
+    await expect(tracker.settle(0)).resolves.toEqual({ pendingHandlers: 0, pendingDurable: 1 });
 
-    await expect(tracker.settle(30)).resolves.toEqual({ pendingHandlers: 1, pendingDurable: 1 });
-
-    const reserveStarted = Date.now();
-    const reserve = tracker.settle(5_000, { durableOnly: true });
+    const general = tracker.settle(5_000);
+    const raced = await Promise.race([
+      general.then(() => "settled" as const),
+      new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 30)),
+    ]);
+    expect(raced).toBe("waiting");
     releaseDurable();
-    await reserve;
-    expect(Date.now() - reserveStarted).toBeLessThan(1_000);
-
-    // A plain callback still in flight does not block the durable-only wait.
-    await expect(tracker.settle(30, { durableOnly: true })).resolves.toEqual({
-      pendingHandlers: 1,
-      pendingDurable: 0,
-    });
-
-    releasePlain();
-    await Promise.all([durableDone, plainDone]);
-    await expect(tracker.settle(0)).resolves.toEqual({ pendingHandlers: 0, pendingDurable: 0 });
+    await durableDone;
+    await expect(general).resolves.toEqual({ pendingHandlers: 0, pendingDurable: 0 });
   });
 });
