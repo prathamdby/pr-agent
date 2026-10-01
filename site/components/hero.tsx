@@ -5,7 +5,7 @@ import { PrWindow } from "@/components/pr-window";
 import { ClaudeMark, GeminiMark, OpenAiMark } from "@/components/provider-logos";
 import { renderSetupPrompt } from "@/lib/agentResources";
 import { HERO_CTA_NOTE, HERO_HEADING, HERO_SUPPORT } from "@/lib/content";
-import { REPO_URL } from "@/lib/site";
+import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
 
 /*
   The shared heading reads "PR Agent: AI PR reviews on your own servers" so the markdown page and
@@ -17,7 +17,11 @@ const SPLIT = HERO_HEADING.indexOf(SEPARATOR);
 const HERO_BRAND = HERO_HEADING.slice(0, SPLIT);
 const HERO_TAGLINE = HERO_HEADING.slice(SPLIT + SEPARATOR.length);
 
-const SETUP_PROMPT = renderSetupPrompt();
+// The copied links follow the host the visitor is on. The server render has no window, so it falls
+// back to the build-time origin until hydration replaces the text on the client.
+function setupPrompt(): string {
+  return renderSetupPrompt(typeof window === "undefined" ? SITE_ORIGIN : window.location.origin);
+}
 
 /** Three marks stand in for "any AI tool" on the copy-prompt button. */
 function AssistantMarks() {
@@ -66,7 +70,7 @@ export function Hero() {
                 Deploy yourself
               </ButtonLink>
               <CopyButton
-                text={SETUP_PROMPT}
+                text={setupPrompt()}
                 label="Copy prompt"
                 variant="secondary"
                 iconAfter
