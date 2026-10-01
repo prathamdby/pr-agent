@@ -118,6 +118,9 @@ Former env tuning knobs (tool-round caps, byte limits, timeouts, anchor-menu
 caps, CI-summary waits, workspace limits) are now code constants in
 `src/settings/*Constants.ts` — see the tables below.
 
+Progress ownership conflicts use the existing `warn` log level. No new setting
+is required. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
+
 ### Project `models.json` (optional Pi catalog)
 
 `loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs. It does not construct Core sessions or overlay the catalog into a live `Models` collection. Selection stays in env; the file is only the catalog.
@@ -331,7 +334,7 @@ Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RET
 | `publish_records.step` extras              | `ci_cell`, `commit_status`, `verification_failure` — CHECK values reserved for later writers                                                                                                                                                 |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                                                                                                        |
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                                                                                                              |
-| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease-acquisition attempts for a blocked delivery. Lives in `src/agentWork/prActorLease.ts`, not settings.                                                                                                                 |
+| `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease attempts. Arming needs a created/retry successor. Terminal current/next slots are reconciled before one guarded resend, without an extra wait. Lives in `src/agentWork/prActorLease.ts`, not settings.               |
 | `STALE_QUEUED_WORK_GRACE_SECONDS`          | 300, age after which a queued leased-type work item with no live lease and no live pg-boss job is logged as `agent_work_queued_stale` (delivery chain dead). Added to `PR_ACTOR_LEASE_TTL_SECONDS` for the lost-running sweeper.             |
 | `ESCALATED_TOOL_ROUNDS_MULTIPLIER`         | 2, factor applied to a base structured-loop tool-round budget on an escalated attempt (attempt 2 and later)                                                                                                                                  |
 | `ESCALATED_TOOL_ROUNDS_CAP`                | 64, ceiling on any escalated tool-round budget                                                                                                                                                                                               |

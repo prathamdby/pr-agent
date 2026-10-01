@@ -3,8 +3,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
 import { applyAutomatedPullRequestIntake } from "../../src/agentWork/intake/applier.js";
+import {
+  applySlashCommandIntake,
+  type SlashCommandInput,
+} from "../../src/agentWork/intake/slashIntake.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import type { PrRef, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
+import type { AckJobData, PrRef, QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger, initEvlog } from "../../src/evlog.js";
@@ -29,6 +33,7 @@ const intakeCfg = makeTestConfig({
 });
 import {
   ACK_QUEUE,
+  CI_PROJECTION_QUEUE,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
@@ -40,13 +45,14 @@ import {
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_QUEUE,
+  SLASH_REVIEW_FORCE_RESTARTED_BODY,
 } from "../../src/settings/index.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "intake-tx-it";
 const EVENT = "intake-tx-it";
 const DATABASE_URL = process.env.DATABASE_URL!;
-const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE] as const;
+const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE, CI_PROJECTION_QUEUE] as const;
 
 const queueConfig: QueueConfig = {
   queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
@@ -138,6 +144,148 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
 
+  it.each(["auto-first", "force-first"] as const)(
+    "serializes real automatic review and forced slash intake: %s",
+    async (order) => {
+      const ref = makePrRef();
+      const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+      const cfg = makeTestConfig({
+        features: { ...intakeCfg.features, review: "auto", describe: "off", verification: "off" },
+      });
+      const forcedHeaders = headers("force", randomUUID());
+      const input: SlashCommandInput = {
+        ...ref,
+        headers: forcedHeaders,
+        command: "review",
+        body: "/review force",
+        commentId: 647,
+        commenterId: 647,
+        commenterLogin: "force-user",
+        replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+      };
+      const client = await pool.connect();
+      const observer = await pool.connect();
+      const originalSend = boss.send.bind(boss);
+      let releaseAuto!: () => void;
+      const autoGate = new Promise<void>((resolve) => {
+        releaseAuto = resolve;
+      });
+      let autoPaused = false;
+      const sendSpy =
+        order === "auto-first"
+          ? vi
+              .spyOn(boss, "send")
+              .mockImplementation(
+                async (name: string, data?: object | null, options?: SendOptions) => {
+                  const id = await originalSend(name, data, options);
+                  if (name === REVIEW_QUEUE) {
+                    autoPaused = true;
+                    await autoGate;
+                  }
+                  return id;
+                },
+              )
+          : undefined;
+      let committed = false;
+      let autoRun: ReturnType<typeof applyAutomatedPullRequestIntake> | undefined;
+      let forceRun: ReturnType<typeof applySlashCommandIntake> | undefined;
+      try {
+        await client.query("BEGIN");
+        const forcePid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid"))
+          .rows[0].pid;
+        if (order === "force-first") {
+          await applySlashCommandIntake(boss, client, input, cfg.features);
+        }
+        autoRun = applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("opened", randomUUID()),
+          ref,
+          "opened",
+          intakeLog(),
+          cfg,
+        );
+        void autoRun.catch(() => undefined);
+        if (order === "auto-first") {
+          await expect.poll(() => autoPaused, { timeout: 5000 }).toBe(true);
+          forceRun = applySlashCommandIntake(boss, client, input, cfg.features);
+          void forceRun.catch(() => undefined);
+          await expect
+            .poll(
+              async () =>
+                (
+                  await observer.query<{ blocked: boolean }>(
+                    "SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked",
+                    [forcePid],
+                  )
+                ).rows[0].blocked,
+              { timeout: 5000 },
+            )
+            .toBe(true);
+          releaseAuto();
+          await autoRun;
+          await forceRun;
+          await client.query("COMMIT");
+          committed = true;
+        } else {
+          await expect
+            .poll(
+              async () =>
+                (
+                  await observer.query<{ blocked: boolean }>(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))) AS blocked",
+                    [forcePid],
+                  )
+                ).rows[0].blocked,
+              { timeout: 5000 },
+            )
+            .toBe(true);
+          await client.query("COMMIT");
+          committed = true;
+          await autoRun;
+        }
+      } finally {
+        releaseAuto();
+        if (!committed) await client.query("ROLLBACK");
+        if (autoRun) await autoRun.catch(() => undefined);
+        if (forceRun) await forceRun.catch(() => undefined);
+        sendSpy?.mockRestore();
+        client.release();
+        observer.release();
+      }
+      const { rows } = await pool.query<{ id: string; source: string; status: string }>(
+        "SELECT id, source, status FROM agent_work_items WHERE resource_key = $1 ORDER BY created_at, id",
+        [resourceKey],
+      );
+      expect(rows).toHaveLength(2);
+      const auto = rows.find((row) => row.source === "auto")!;
+      const slash = rows.find((row) => row.source === "slash")!;
+      expect(slash.status).toBe("queued");
+      expect(auto.status).toBe(order === "auto-first" ? "cancelled" : "queued");
+      const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+        (job) => job.data.delivery === forcedHeaders.delivery,
+      )!.data;
+      expect(ack.workItemId).toBe(slash.id);
+      expect(ack.progress).toMatchObject({ lens: "review", source: "slash" });
+      if (order === "auto-first") {
+        expect(ack.cancelProgress?.cancelledWorkItemIds).toEqual([auto.id]);
+        expect(ack.reply?.body).toBe(SLASH_REVIEW_FORCE_RESTARTED_BODY);
+      } else {
+        expect(ack.cancelProgress).toBeUndefined();
+        expect(ack.reply).toBeUndefined();
+      }
+      const progress = await pool.query<{ work_item_id: string }>(
+        "SELECT work_item_id FROM publish_records WHERE resource_key = $1 AND step = 'progress_comment'",
+        [resourceKey],
+      );
+      expect(progress.rows[0]?.work_item_id).toBe(order === "auto-first" ? slash.id : auto.id);
+      const jobs = await reviewJobsFor(ref);
+      expect(jobs.map((job) => job.data.workItemId).toSorted()).toEqual(
+        [auto.id, slash.id].toSorted(),
+      );
+    },
+  );
+
   async function countWebhookRows(delivery?: string): Promise<number> {
     const { rows } = await pool.query<{ count: string }>(
       delivery
@@ -172,7 +320,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       [key],
     );
     const workItemIds = new Set(rows.map((row) => row.id));
-    const jobs = await boss.findJobs(REVIEW_QUEUE, {});
+    const jobs = await boss.findJobs<{ workItemId: string }>(REVIEW_QUEUE, {});
     return jobs.filter((job) =>
       workItemIds.has((job.data as { workItemId?: string }).workItemId ?? ""),
     );

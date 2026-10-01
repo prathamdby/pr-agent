@@ -21,6 +21,11 @@ while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
 Custom trigger sets are intentionally not supported.
 
+`/review force` cancels any queued or running review and starts a fresh one on
+the latest commit. Concurrent restarts are applied in intake order, not
+treated as already-in-progress requests. Ordinary `/review` still deduplicates
+against active slash reviews.
+
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews each PR when opened; `approval` reviews only after a reviewer with standing approves; `/review` is always available.                                                                                 |
@@ -38,6 +43,8 @@ Notes:
   head. An older-head run completes degraded instead of clean and preserves
   any existing verification failure signal.
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
+- A replacement review owns the progress comment. Late specialist ticks from
+  the earlier run are skipped or rejected with an ownership warning.
 - Describe, verification, ask, and triage can be turned `off` to stop those
   surfaces from spending tokens at all. Default `FEATURE_VERIFICATION=auto`
   spends tokens on `synchronize` pushes with open findings.

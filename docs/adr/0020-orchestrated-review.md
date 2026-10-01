@@ -58,6 +58,14 @@ explicit empty / `no_findings` report — never "zero inline threads" alone when
 summary-only acceptances exist. The final summary replaces the last tick in
 place and must not contradict that ledger truth.
 
+Intake or stale-head reschedule can transfer progress ownership while the
+earlier run still holds its actor lease. Foreign-owner ticks above revision
+zero warn and skip at preflight. An owner-gated progress write that affects
+zero rows rechecks the lease, then logs and raises an ownership conflict
+when that lease still holds or the writer is unleased. The owner predicate
+and lease fencing remain unchanged. A conflict after a GitHub edit does not
+authorize replaying that mutation or overwriting the replacement's metadata.
+
 ### Retry and degradation
 
 Provider errors, rate limits, and timeouts retry according to the bounded

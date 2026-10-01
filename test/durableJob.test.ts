@@ -378,7 +378,7 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
-  it("returns when a lease deferral send is swallowed but an active hop already exists", async () => {
+  it("throws when a lease deferral send is swallowed and only active deliveries remain", async () => {
     const item = makeItem();
     mockFetchedItem(item);
     vi.mocked(prActorLease.acquirePrActorLease).mockResolvedValue({
@@ -389,7 +389,9 @@ describe("runDurableWorkItem", () => {
     vi.mocked(boss.send).mockResolvedValue(null);
     vi.mocked(boss.findJobs).mockResolvedValue([{ id: "hop-1", state: "active" }] as never);
 
-    await runReviewWorkItem({ execute: vi.fn() });
+    await expect(runReviewWorkItem({ execute: vi.fn() })).rejects.toMatchObject({
+      code: "agent_work.lease_watchdog_arm_failed",
+    });
 
     expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();

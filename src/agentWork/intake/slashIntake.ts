@@ -21,6 +21,7 @@ import {
   type Features,
 } from "../../settings/index.js";
 import type { DeferredIntakeEvent } from "./deferredEvents.js";
+import { acquireAutoWorkIntakeLock } from "../autoWorkEnqueue.js";
 import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
 import {
   type AckJobData,
@@ -293,6 +294,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  await acquireAutoWorkIntakeLock(ctx.client, { kind: "review", resourceKey });
   // `/review force`: cancel any queued/running review first so the fresh run
   // below always starts on the latest head.
   const force = isReviewForceCommand(ctx.input.body);

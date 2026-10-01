@@ -144,7 +144,7 @@ When test changes are already in scope, keep them proportional to the changed co
 
 ## How it works
 
-GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
+GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. Automatic and slash review intake share a per-PR transaction lock, so concurrent `/review force` requests cancel and replace reviews in intake order. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
 
 ```mermaid
 flowchart LR
@@ -163,6 +163,12 @@ flowchart LR
 The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. `check_run` and `status` deliveries write `pr_head_ci_state` in the same transaction as `webhook_events` and enqueue a debounced `ci-projection` job. `pull_request` `opened`, `synchronize`, and `reopened` enqueue that job when the head row is missing or `seeded_at` is null. Ack, ticks, and publish enqueue after they write the comment when the head still needs a seed or the row version moved. The worker consumes that queue and renders CI cells from the row; missing or unseeded heads wait, and a complete seeded empty snapshot shows no-CI copy. After seed, a pending or `unknown` head takes one Checks listing per later job and pending-refreshes durable facts ([ADR 0035](docs/adr/0035-head-ci-state-projection.md)). Verification activate/clear advances the head revision only on an effective transition and enqueues projection in the same transaction. `workflow_run` and `check_suite` completed deliveries enqueue the same projection without writing facts. Ask work is deliberately unleased and relies on publish-record idempotency. Triage may push a branch and uses separate publish records for thread actions.
 
 Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
+
+Progress publish records remain owner-gated independently of the actor lease.
+A zero-row progress write rechecks the lease, then warns and raises
+`agent_work.progress_comment_ownership_conflict` if the lease still holds or
+the writer is unleased. Preflight foreign-owner ticks above revision zero warn
+and skip. Neither path reassigns the replacement's progress record.
 
 ## Where code lives
 
