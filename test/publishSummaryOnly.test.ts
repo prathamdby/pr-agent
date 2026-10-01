@@ -192,10 +192,13 @@ describe("publishReviewSummaryOnly", () => {
 
   it("forces a neutral check and error commit status for partial coverage", async () => {
     const client = {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(async () => ({ rows: [{ locked: true }] })),
       release: vi.fn(),
     } as unknown as PoolClient;
-    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+    const pool = {
+      options: { max: 4 },
+      connect: vi.fn(async () => client),
+    } as unknown as Pool;
     const recordPublishStep = attachSummaryCommentCoordination(async () => undefined, {
       pool,
       workItemId: "wi-1",

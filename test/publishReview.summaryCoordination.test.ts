@@ -50,10 +50,15 @@ let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
 function createLockedPool() {
-  const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({ rows: [] }));
+  const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({
+    rows: [{ locked: true }],
+  }));
   const release = vi.fn();
   const client = { query, release } as unknown as PoolClient;
-  const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+  const pool = {
+    options: { max: 4 },
+    connect: vi.fn(async () => client),
+  } as unknown as Pool;
   return { client, pool, query, release };
 }
 
@@ -175,7 +180,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
 
     expect(harness.upsertProgressComment).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
-    expect(query.mock.calls[0]?.[0]).toContain("pg_advisory_lock");
+    expect(query.mock.calls[0]?.[0]).toContain("pg_try_advisory_lock");
     expect(query.mock.calls.at(-1)?.[0]).toContain("pg_advisory_unlock");
     expect(release).toHaveBeenCalledOnce();
   });
@@ -489,19 +494,20 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     expect(release).toHaveBeenCalledOnce();
   });
 
-  it("does not hold the pooled client across GitHub progress-comment calls", async () => {
+  it("holds the progress lock through the fresh read, GitHub write, and record", async () => {
     const { client, query, release } = createLockedPool();
     const order: string[] = [];
     const pool = {
+      options: { max: 4 },
       connect: vi.fn(async () => {
         order.push("connect");
         return client;
       }),
     } as unknown as Pool;
     query.mockImplementation(async (sql: string) => {
-      if (sql.includes("pg_advisory_lock")) order.push("lock");
+      if (sql.includes("pg_try_advisory_lock")) order.push("lock");
       if (sql.includes("pg_advisory_unlock")) order.push("unlock");
-      return { rows: [] };
+      return { rows: [{ locked: true }] };
     });
     release.mockImplementation(() => {
       order.push("release");
@@ -522,6 +528,9 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       order.push("upsert");
       return { id: 88, updated: true };
     });
+    vi.mocked(recordPublishStep).mockImplementation(async () => {
+      order.push("record");
+    });
 
     await upsertSummaryCommentWithCreationClaim({
       ...claimBase(),
@@ -530,11 +539,153 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     expect(order.indexOf("find")).toBeGreaterThan(-1);
-    expect(order.indexOf("find")).toBeLessThan(order.indexOf("connect"));
-    expect(order.indexOf("unlock")).toBeLessThan(order.indexOf("resolve"));
-    expect(order.indexOf("release")).toBeLessThan(order.indexOf("resolve"));
-    expect(order.indexOf("unlock")).toBeLessThan(order.indexOf("upsert"));
-    expect(order.indexOf("release")).toBeLessThan(order.indexOf("upsert"));
+    expect(order.indexOf("lock")).toBeLessThan(order.indexOf("find"));
+    expect(order.indexOf("find")).toBeLessThan(order.indexOf("resolve"));
+    expect(order.indexOf("upsert")).toBeLessThan(order.lastIndexOf("record"));
+    expect(order.lastIndexOf("record")).toBeLessThan(order.indexOf("unlock"));
+    expect(order.indexOf("unlock")).toBeLessThan(order.indexOf("release"));
+    expect(recordPublishStep).toHaveBeenLastCalledWith(client, expect.anything());
+  });
+
+  it("releases contended clients before retrying and preserves publication", async () => {
+    const { pool: lockedPool, query, release } = createLockedPool();
+    query.mockResolvedValueOnce({ rows: [{ locked: false }] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const pending = upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(release).toHaveBeenCalledOnce();
+      expect(harness.upsertProgressComment).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(pending).resolves.toEqual({ id: 99, updated: false });
+      expect(release).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["read", "write", "record"] as const)(
+    "releases publication capacity after a %s failure without asserting nonacceptance",
+    async (stage) => {
+      const { pool: lockedPool, release } = createLockedPool();
+      const error = new Error(`${stage} failed`);
+      if (stage === "read") harness.findProgressComment.mockRejectedValueOnce(error);
+      if (stage === "write") harness.upsertProgressComment.mockRejectedValueOnce(error);
+      if (stage === "record") {
+        vi.mocked(recordPublishStep).mockResolvedValueOnce(undefined).mockRejectedValueOnce(error);
+      }
+      await expect(
+        upsertSummaryCommentWithCreationClaim({
+          ...claimBase(),
+          pool: lockedPool,
+          progressRevision: 2,
+        }),
+      ).rejects.toBe(error);
+      expect(error).not.toHaveProperty("mutationAccepted");
+      expect(release).toHaveBeenCalledOnce();
+      await expect(
+        upsertSummaryCommentWithCreationClaim({
+          ...claimBase(),
+          pool: lockedPool,
+          progressRevision: 2,
+        }),
+      ).resolves.toMatchObject({ id: 99 });
+    },
+  );
+
+  it("discards a client that connects after the acquisition budget", async () => {
+    const { pool: lockedPool, client, release } = createLockedPool();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    let completeCheckout = (_client: PoolClient) => {};
+    vi.mocked(lockedPool.connect).mockImplementationOnce(
+      () =>
+        new Promise<PoolClient>((resolve) => {
+          completeCheckout = resolve;
+        }),
+    );
+    try {
+      const pending = upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }).catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(10_001);
+      completeCheckout(client);
+      expect(await pending).toMatchObject({ mutationAccepted: false });
+      expect(release).toHaveBeenCalledWith(true);
+      expect(harness.upsertProgressComment).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks checkout failure as nonaccepted and restores capacity", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(lockedPool.connect).mockRejectedValueOnce(new Error("connect failed"));
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).rejects.toMatchObject({ mutationAccepted: false });
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).resolves.toMatchObject({ id: 99 });
+  });
+
+  it("marks contention exhaustion as not accepted and frees capacity for a retry", async () => {
+    const { pool: lockedPool, query } = createLockedPool();
+    query.mockResolvedValue({ rows: [{ locked: false }] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    try {
+      const pending = upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }).catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await pending).toMatchObject({
+        code: "review.progress_lock_timeout",
+        mutationAccepted: false,
+      });
+      expect(harness.upsertProgressComment).not.toHaveBeenCalled();
+      query.mockResolvedValue({ rows: [{ locked: true }] });
+      await expect(
+        upsertSummaryCommentWithCreationClaim({
+          ...claimBase(),
+          pool: lockedPool,
+          progressRevision: 2,
+        }),
+      ).resolves.toMatchObject({ id: 99 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects insufficient pool capacity before any comment mutation", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    lockedPool.options.max = 1;
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).rejects.toMatchObject({
+      code: "review.progress_lock_capacity",
+      mutationAccepted: false,
+    });
+    expect(lockedPool.connect).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).not.toHaveBeenCalled();
   });
 
   it("releases the client when advisory lock acquisition fails", async () => {
@@ -547,16 +698,29 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
         pool: lockedPool,
         progressRevision: 1,
       }),
-    ).rejects.toThrow("lock failed");
+    ).rejects.toMatchObject({
+      code: "review.progress_lock_failed",
+      mutationAccepted: false,
+      cause: expect.objectContaining({ message: "lock failed" }),
+    });
 
     expect(query).toHaveBeenCalledOnce();
-    expect(query.mock.calls[0]?.[0]).toContain("pg_advisory_lock");
-    expect(release).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[0]).toContain("pg_try_advisory_lock");
+    expect(release).toHaveBeenCalledWith(true);
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 1,
+      }),
+    ).resolves.toMatchObject({ id: 99 });
   });
 
   it("destroys the client and surfaces an unlock-only failure", async () => {
     const { pool: lockedPool, query, release } = createLockedPool();
-    query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("unlock failed"));
+    query
+      .mockResolvedValueOnce({ rows: [{ locked: true }] })
+      .mockRejectedValueOnce(new Error("unlock failed"));
     vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 5 });
     harness.findProgressComment.mockResolvedValue({
       id: 88,
@@ -581,7 +745,9 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
 
   it("preserves the operation error when unlock also fails", async () => {
     const { pool: lockedPool, query, release } = createLockedPool();
-    query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("unlock failed"));
+    query
+      .mockResolvedValueOnce({ rows: [{ locked: true }] })
+      .mockRejectedValueOnce(new Error("unlock failed"));
     vi.mocked(getProgressCommentRevision).mockRejectedValueOnce(new Error("operation failed"));
 
     await expect(
@@ -597,6 +763,29 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       "review_progress_unlock_failed",
       expect.objectContaining({ message: "unlock failed" }),
     );
+  });
+
+  it("preserves the operation error and restores capacity when release fails", async () => {
+    const { pool: lockedPool, release } = createLockedPool();
+    const primary = new Error("upsert failed");
+    harness.upsertProgressComment.mockRejectedValueOnce(primary);
+    release.mockImplementationOnce(() => {
+      throw new Error("release failed");
+    });
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).rejects.toBe(primary);
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).resolves.toMatchObject({ id: 99 });
   });
 });
 
@@ -635,7 +824,7 @@ describe("publishReview summary coordination", () => {
       REVIEW_SUMMARY_SENTINEL,
       { id: 88, url: "https://example.com/88" },
     );
-    expect(lockQuery.mock.calls.some(([sql]) => sql.includes("pg_advisory_lock"))).toBe(true);
+    expect(lockQuery.mock.calls.some(([sql]) => sql.includes("pg_try_advisory_lock"))).toBe(true);
     expect(lockQuery.mock.calls.some(([sql]) => sql.includes("pg_advisory_unlock"))).toBe(true);
   });
 });

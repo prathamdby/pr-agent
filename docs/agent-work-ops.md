@@ -56,6 +56,20 @@ A supersede request may create no replacement when no auto review is active. Exi
 
 If a `publishDegraded` write affects no rows, the worker logs `agent_work_publish_degraded_mark_rejected` at warn with `workItemId`, `leaseEpoch`, and `rowCount`. Inspect the work item and its PR actor lease to identify a fenced-out write or a missing row.
 
+Revisioned progress and summary upserts serialize the fresh read, claim, GitHub
+write, and result record for one resource/lens. Late older ticks from the same
+run cannot replace newer progress. Claims stay autocommitted. Contention waits
+use `POSTGRES_LOCK_TIMEOUT_MS`; waiters release clients before backoff and
+per-pool admission leaves one connection for nested mutation checks. A slow
+provider retains the active holder's client, not an open transaction.
+`review.progress_lock_timeout`, `review.progress_lock_capacity`, and
+`review.progress_lock_failed` occur before delegation and prove nonacceptance,
+so an enclosing operation intent remains retryable. After delegation, existing
+unknown-outcome rules still apply. `review_progress_unlock_failed` destroys the
+uncertain session. CI projection and direct edits remain outside this lock.
+Drain old publishers when deploying this change; mixed workers retain the old
+write window. This does not repair earlier stale output or a failed result record.
+
 Progress ownership is independent of the actor lease. A late specialist tick
 from a previous owner logs `review_progress_skipped_foreign_owner` and skips
 the comment edit. If ownership changes after that check, a zero-row progress
