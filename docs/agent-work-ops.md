@@ -60,8 +60,9 @@ Revisioned progress and summary upserts serialize the fresh read, claim, GitHub
 write, and result record for one resource/lens. Late older ticks from the same
 run cannot replace newer progress. Claims stay autocommitted. Contention waits
 use `POSTGRES_LOCK_TIMEOUT_MS`; waiters release clients before backoff and
-per-pool admission leaves one connection for nested mutation checks. A slow
-provider retains the active holder's client, not an open transaction.
+per-pool admission leaves at least half the connections for nested mutation checks
+and unrelated database work. A slow provider retains the active holder's client,
+not an open transaction.
 `review.progress_lock_timeout`, `review.progress_lock_capacity`, and
 `review.progress_lock_failed` occur before delegation and prove nonacceptance,
 so an enclosing operation intent remains retryable. After delegation, existing

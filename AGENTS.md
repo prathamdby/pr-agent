@@ -194,9 +194,9 @@ and skip. Neither path reassigns the replacement's progress record.
 Revisioned progress and summary upserts serialize the fresh comment read,
 claim, GitHub write, and result record under one resource/lens advisory lock.
 Claims stay autocommitted. Contenders release clients before bounded backoff;
-per-pool admission leaves one connection for nested mutation checks. A slow
-GitHub call retains its holder's client. CI projection and direct comment edits
-do not share this lock.
+per-pool admission leaves at least half the connections for nested mutation
+checks and unrelated database work. A slow GitHub call retains its holder's
+client. CI projection and direct comment edits do not share this lock.
 
 ## Where code lives
 

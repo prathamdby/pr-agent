@@ -75,8 +75,8 @@ type SummaryCommentUpsertParams = {
 const retainedClientReservations = new WeakMap<Pool, { count: number }>();
 
 async function acquireProgressLock(pool: Pool, lockKey: string) {
-  // A mutation boundary can query this same pool while its summary client is held.
-  const capacity = (pool.options.max ?? 0) - 1;
+  // Leave shared capacity for concurrent mutation checks and unrelated DB work.
+  const capacity = Math.floor((pool.options.max ?? 0) / 2);
   if (capacity < 1) {
     throw Object.assign(
       new AppError({

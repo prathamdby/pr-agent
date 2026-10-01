@@ -64,9 +64,10 @@ record. A later contender observes the preceding write before deciding; an older
 tick from the same run cannot restore stale progress or replace its final summary.
 The pre-write claim remains autocommitted, with no transaction across HTTP.
 Contenders release clients before bounded retries, and per-pool admission leaves
-one connection for nested mutation checks. The active holder retains its client
-while GitHub settles. Acquisition failures prove nonacceptance to operation
-intents; delegated and post-write failures keep existing recovery rules.
+at least half the connections for nested mutation checks and unrelated database
+work. The active holder retains its client while GitHub settles. Acquisition
+failures prove nonacceptance to operation intents; delegated and post-write
+failures keep existing recovery rules.
 CI projection and direct comment edits do not share this lock.
 
 Intake or stale-head reschedule can transfer progress ownership while the

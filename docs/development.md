@@ -44,9 +44,10 @@ See [ADR 0026](adr/0026-pr-surface-seam.md).
 `summaryCommentUpsert.ts` serializes revisioned progress/summary upserts under
 the resource/lens advisory lock, from the fresh remote read through the result
 record. Its repository calls use the locking client, without an open transaction
-across HTTP. Per-pool admission leaves one connection for nested mutation checks;
-contended clients are released before bounded backoff. The holder keeps its
-client until GitHub settles. Acquisition failures prove nonacceptance, but
+across HTTP. Per-pool admission leaves at least half the connections for nested
+mutation checks and unrelated database work; contended clients are released
+before bounded backoff. The holder keeps its client until GitHub settles.
+Acquisition failures prove nonacceptance, but
 delegated mutation and post-write errors retain existing acceptance rules.
 CI projection and direct edits do not share this lock.
 See [ADR 0020](adr/0020-orchestrated-review.md).

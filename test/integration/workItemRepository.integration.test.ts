@@ -228,9 +228,13 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     },
   );
 
-  it.each([false, true])(
-    "publishes under shared-pool pressure with distinct keys=%s",
-    async (distinct) => {
+  it.each([
+    { distinct: false, occupied: false },
+    { distinct: true, occupied: false },
+    { distinct: true, occupied: true },
+  ])(
+    "publishes under shared-pool pressure with distinct keys=$distinct and unrelated checkout=$occupied",
+    async ({ distinct, occupied }) => {
       const contexts = await Promise.all(
         Array.from({ length: distinct ? 4 : 1 }, async () => {
           const repo = `repo-${randomUUID().slice(0, 8)}`;
@@ -260,12 +264,15 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
         const upsert = fake.surface.upsertProgressComment.bind(fake.surface);
         vi.spyOn(fake.surface, "upsertProgressComment").mockImplementation(async (...args) => {
           arrivals++;
-          if (arrivals === (distinct ? 3 : 1)) signalEntered();
+          if (arrivals === (distinct ? 2 : 1)) signalEntered();
           await resume;
           await pool.query("SELECT 1");
           return upsert(...args);
         });
       }
+      const checkoutTimeout = pool.options.connectionTimeoutMillis;
+      if (occupied) pool.options.connectionTimeoutMillis = 1_000;
+      const unrelated = occupied ? await pool.connect() : undefined;
       const pending = ([2, 3, 4, 5] as const).map((revision, index) => {
         const context = contexts[distinct ? index : 0];
         if (!context) throw new Error("missing pressure context");
@@ -295,7 +302,9 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
         }
       } finally {
         continueWrite();
+        unrelated?.release();
         await Promise.allSettled(pending);
+        pool.options.connectionTimeoutMillis = checkoutTimeout;
       }
     },
   );
