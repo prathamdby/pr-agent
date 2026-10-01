@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Pool } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import * as closeRepository from "../../src/agentWork/publishRecordRepository.js";
 import {
@@ -8,11 +8,14 @@ import {
   closeOwnVerdictsForWorkItems,
 } from "../../src/agentWork/closeOwnVerdict.js";
 import { runMigrations } from "../../src/db/migrations.js";
-import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
+import * as postgres from "../../src/db/postgres.js";
+import * as leaseRepository from "../../src/agentWork/prActorLease.js";
+import { acquirePrActorLease, releasePrActorLease } from "../../src/agentWork/prActorLease.js";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
   hasCompletedPublishStep,
+  markQueuedWorkCancelled,
   markWorkCancelled,
   markWorkCompleted,
   markWorkRetrying,
@@ -203,6 +206,236 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
     await expect(markWorkCompleted(pool, id, null)).resolves.toBe(false);
     await expect(getWorkRow(id)).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it.each(["queued", "running"] as const)(
+    "cancels %s replacement work idempotently without failure or lease release (#661)",
+    async (status) => {
+      const id = await insertWorkItem();
+      const key = `repo-it-${id}`;
+      const epoch = status === "running" ? await acquireReviewLease(id, key) : null;
+      if (epoch != null) await claimWorkForExecution(pool, id, epoch);
+      const error = new Error("parent terminal token=synthetic-secret");
+      await expect(markQueuedWorkCancelled(pool, id, error)).resolves.toBe(true);
+      const cancelled = await getWorkRow(id);
+      expect(cancelled.status).toBe("cancelled");
+      expect(cancelled.cancel_requested_at).not.toBeNull();
+      expect(cancelled.last_error).toBe("parent terminal [redacted]");
+      await expect(markQueuedWorkCancelled(pool, id, new Error("duplicate"))).resolves.toBe(true);
+      expect(await getWorkRow(id)).toEqual(cancelled);
+      await expect(claimWorkForExecution(pool, id, epoch)).resolves.toBeNull();
+      await expect(markWorkCompleted(pool, id, epoch)).resolves.toBe(false);
+      if (epoch != null) {
+        await expect(leaseRepository.isPrActorLeaseHeld(pool, id, epoch)).resolves.toBe(true);
+      }
+    },
+  );
+
+  it.each(["unknown_epoch", "missing_lease"])(
+    "fails closed for running replacement with %s (#661)",
+    async (mode) => {
+      const id = await insertWorkItem({ status: "running" });
+      const epoch = await acquireReviewLease(id, `repo-it-${id}`);
+      if (mode === "missing_lease") {
+        await claimWorkForExecution(pool, id, epoch);
+        await releasePrActorLease(pool, {
+          resourceKey: `repo-it-${id}`,
+          workType: "review",
+          leaseEpoch: epoch,
+        });
+      }
+      const outcome = await markQueuedWorkCancelled(pool, id, new Error("parent terminal")).catch(
+        () => false,
+      );
+      expect(outcome).toBe(false);
+      expect((await getWorkRow(id)).status).toBe("running");
+    },
+  );
+
+  it.each(["same_item", "other_item", "queued_retry"])(
+    "never cancels a newer replacement execution during %s (#661)",
+    async (mode) => {
+      const id = await insertWorkItem();
+      const key = `repo-it-${id}`;
+      const epoch = await acquireReviewLease(id, key);
+      await claimWorkForExecution(pool, id, epoch);
+      const nextId = mode === "other_item" ? await insertWorkItem({ resourceKey: key }) : id;
+      const read = postgres.queryOne;
+      let observed = false;
+      vi.spyOn(postgres, "queryOne").mockImplementation(
+        async <T extends QueryResultRow>(
+          client: Pool | PoolClient,
+          text: string,
+          values: unknown[] = [],
+        ) => {
+          if (
+            !observed &&
+            values[0] === id &&
+            text.includes("execution_epoch") &&
+            text.includes("SELECT")
+          ) {
+            observed = true;
+            if (mode === "queued_retry")
+              await markWorkRetrying(pool, id, new Error("retry"), epoch);
+            const result = await read<T>(client, text, values);
+            await releasePrActorLease(pool, {
+              resourceKey: key,
+              workType: "review",
+              leaseEpoch: epoch,
+            });
+            const next = await acquireReviewLease(nextId, key);
+            expect(next).toBe(epoch + 1);
+            await claimWorkForExecution(pool, nextId, next);
+            if (mode === "queued_retry")
+              await markWorkRetrying(pool, nextId, new Error("new retry"), next);
+            return result;
+          }
+          return read<T>(client, text, values);
+        },
+      );
+      const outcome = await markQueuedWorkCancelled(pool, id, new Error("stale cancel")).catch(
+        () => false,
+      );
+      expect(observed).toBe(true);
+      expect(outcome).toBe(false);
+      expect((await getWorkRow(nextId)).status).toBe(
+        mode === "queued_retry" ? "queued" : "running",
+      );
+      await expect(leaseRepository.isPrActorLeaseHeld(pool, nextId, epoch + 1)).resolves.toBe(true);
+      if (mode === "queued_retry") await claimWorkForExecution(pool, nextId, epoch + 1);
+      await expect(markWorkCompleted(pool, nextId, epoch + 1)).resolves.toBe(true);
+    },
+  );
+
+  it("finishes a queued reread retry before locking the first claim epoch (#661)", async () => {
+    const id = await insertWorkItem({ status: "running" });
+    const key = `repo-it-${id}`;
+    const claimant = await pool.connect();
+    const { rows } = await claimant.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    const claimantPid = rows[0]?.pid;
+    const read = postgres.queryOne;
+    let observed = false;
+    let open = false;
+    let releaseReady: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      releaseReady = resolve;
+    });
+    vi.spyOn(postgres, "queryOne").mockImplementation(
+      async <T extends QueryResultRow>(
+        client: Pool | PoolClient,
+        text: string,
+        values: unknown[] = [],
+      ) => {
+        if (
+          !observed &&
+          values[0] === id &&
+          text.includes("execution_epoch") &&
+          text.includes("SELECT")
+        ) {
+          observed = true;
+          await markWorkRetrying(pool, id, new Error("legacy retry"), null);
+          const result = await read<T>(client, text, values);
+          await claimant.query("BEGIN");
+          open = true;
+          const acquisition = await acquirePrActorLease(claimant, {
+            resourceKey: key,
+            workType: "review",
+            workItemId: id,
+            holderId: "repo-it-first-claim",
+            ttlSeconds: 900,
+          });
+          if (!acquisition.acquired) throw new Error("expected first claim lease");
+          await claimWorkForExecution(claimant, id, acquisition.leaseEpoch);
+          releaseReady?.();
+          return result;
+        }
+        return read<T>(client, text, values);
+      },
+    );
+    const operation = markQueuedWorkCancelled(pool, id, new Error("parent terminal")).then(
+      (value) => value,
+      (error: unknown) => error,
+    );
+    try {
+      await Promise.race([ready, operation]);
+      expect(observed).toBe(true);
+      await expect
+        .poll(async () => {
+          const { rows: waiting } = await pool.query<{ blocked: boolean }>(
+            `SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+             WHERE datname = current_database()
+               AND $1::int = ANY(pg_blocking_pids(pid))) AS blocked`,
+            [claimantPid],
+          );
+          return waiting[0]?.blocked;
+        })
+        .toBe(true);
+      await claimant.query("COMMIT");
+      open = false;
+      expect(await operation).toBe(true);
+      expect((await getWorkRow(id)).status).toBe("cancelled");
+      await expect(markWorkCompleted(pool, id, 1)).resolves.toBe(false);
+    } finally {
+      if (open) await claimant.query("ROLLBACK");
+      await operation;
+      claimant.release();
+    }
+  });
+
+  it("serializes a replacement cancellation fence against takeover (#661)", async () => {
+    const id = await insertWorkItem();
+    const key = `repo-it-${id}`;
+    const epoch = await acquireReviewLease(id, key);
+    await claimWorkForExecution(pool, id, epoch);
+    const lock = leaseRepository.lockPrActorLeaseForUpdate;
+    let unlock: (() => void) | undefined;
+    const release = new Promise<void>((resolve) => {
+      unlock = resolve;
+    });
+    let lockedReady: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => {
+      lockedReady = resolve;
+    });
+    vi.spyOn(leaseRepository, "lockPrActorLeaseForUpdate").mockImplementation(async (...args) => {
+      await lock(...args);
+      lockedReady?.();
+      await release;
+    });
+    const cancel = markQueuedWorkCancelled(pool, id, new Error("parent terminal")).then(
+      (value) => value,
+      (error: unknown) => error,
+    );
+    const contender = await pool.connect();
+    const { rows } = await contender.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+    let takeover: Promise<unknown> | undefined;
+    try {
+      await Promise.race([ready, cancel]);
+      takeover = acquirePrActorLease(contender, {
+        resourceKey: key,
+        workType: "review",
+        workItemId: id,
+        holderId: "repo-it-contender",
+        ttlSeconds: 900,
+      });
+      await expect
+        .poll(async () => {
+          const result = await pool.query<{ waiting: boolean }>(
+            "SELECT wait_event_type = 'Lock' AS waiting FROM pg_stat_activity WHERE pid = $1",
+            [rows[0]?.pid],
+          );
+          return result.rows[0]?.waiting;
+        })
+        .toBe(true);
+      unlock?.();
+      expect(await cancel).toBe(true);
+      expect(await takeover).toMatchObject({ acquired: false });
+      expect((await getWorkRow(id)).status).toBe("cancelled");
+    } finally {
+      unlock?.();
+      await cancel;
+      await takeover;
+      contender.release();
+    }
   });
 
   it("requeues retrying work and increments attempt on the next claim", async () => {

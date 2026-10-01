@@ -20,6 +20,15 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 
 5. **Intake stops repairing the queue.** Slash `/cancel`, `/review force`, close cancel, and stale-head reschedule terminalize work items and request cooperative cancellation exactly as before, but no longer find, cancel, or delete pg-boss jobs. Review cancel clears any `pr_actor_leases` holder whose `(work_item_id, lease_epoch)` matches the cancelled rows' recorded epochs, so a force replacement can acquire immediately instead of waiting for cooperative release or TTL; auto supersede and triage-cancel clear the same way (#663). The slot-release module, the singleton-key helpers, the stranded-work reaper, and the blocked-keys diagnostics are deleted.
 
+   Pending stale-head replacement cleanup also covers a concurrent claim (#661).
+   After a queued miss, the first positive recorded replacement epoch stays fixed
+   across rereads and epoch-equal queued retries. Those item-only statements
+   finish before the running fallback locks the exact lease and updates the item,
+   preserving lease-before-item order. Both recorded epoch equality and the held
+   lease fence authorize the active write. Cleanup never chases a newer epoch,
+   cancels unknown running epochs, or clears a holder. Duplicate cancellation is
+   idempotent; unconfirmed cancellation emits an error before rethrowing.
+
 6. **Migration carries the cutover.** `023_pr_actor_leases.sql` creates the table (no backfill) and flips existing deployments' leased queues to `standard` in place, because pg-boss never changes a stored policy (`createQueue` is insert-only; `updateQueue` rejects policy changes). Fresh installs skip the flip (`to_regclass` guard) and get `standard` queues at boot. Boot verifies the effective policy and logs `agent_queue_policy_mismatch` on a miss.
 
 7. **External mutations are epoch-bound.** The worker injects the lease epoch

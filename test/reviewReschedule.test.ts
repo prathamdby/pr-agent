@@ -41,6 +41,7 @@ vi.mock("../src/db/postgres.js", () => ({
 vi.mock("../src/evlog.js", () => ({
   logInfo: vi.fn(),
   logWarn: vi.fn(),
+  logError: vi.fn(),
 }));
 
 import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/repository.js";
@@ -609,32 +610,8 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
     expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
   });
 
-  it("warns when queued replacement cancel races or misses", async () => {
+  it("rejects and signals an error when replacement cancellation misses (#661)", async () => {
     vi.mocked(markQueuedWorkCancelled).mockResolvedValue(false);
-    const pool = {} as Pool;
-    const boss = bossWithReviewJobs();
-
-    await cancelUnenqueuedStaleHeadReplacement(
-      pool,
-      boss,
-      makeItem(),
-      "replacement-wi",
-      new Error("enqueue failed"),
-      false,
-    );
-
-    expect(evlog.logWarn).toHaveBeenCalledWith(
-      "agent_work_replacement_cancel_failed",
-      expect.objectContaining({
-        type: "review",
-        workItemId: "parent-wi",
-        replacementWorkItemId: "replacement-wi",
-      }),
-    );
-  });
-
-  it("warns and swallows cancel errors", async () => {
-    vi.mocked(markQueuedWorkCancelled).mockRejectedValue(new Error("db down"));
     const pool = {} as Pool;
     const boss = bossWithReviewJobs();
 
@@ -647,17 +624,48 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
         new Error("enqueue failed"),
         false,
       ),
-    ).resolves.toBeUndefined();
+    ).rejects.toMatchObject({ code: "agent_work.replacement_cancel_rejected" });
 
-    expect(evlog.logWarn).toHaveBeenCalledWith(
+    expect(evlog.logError).toHaveBeenCalledWith(
       "agent_work_replacement_cancel_failed",
       expect.objectContaining({
         type: "review",
         workItemId: "parent-wi",
         replacementWorkItemId: "replacement-wi",
-        message: expect.stringMatching(/db down/),
       }),
+      expect.any(AppError),
     );
+    expect(evlog.logWarn).not.toHaveBeenCalled();
+  });
+
+  it("signals and propagates a sanitized cancellation error (#661)", async () => {
+    const failure = new Error("db down token=synthetic-secret");
+    vi.mocked(markQueuedWorkCancelled).mockRejectedValue(failure);
+    const pool = {} as Pool;
+    const boss = bossWithReviewJobs();
+
+    await expect(
+      cancelUnenqueuedStaleHeadReplacement(
+        pool,
+        boss,
+        makeItem(),
+        "replacement-wi",
+        new Error("enqueue failed"),
+        false,
+      ),
+    ).rejects.toBe(failure);
+
+    expect(evlog.logError).toHaveBeenCalledWith(
+      "agent_work_replacement_cancel_failed",
+      expect.objectContaining({
+        type: "review",
+        workItemId: "parent-wi",
+        replacementWorkItemId: "replacement-wi",
+        message: "db down [redacted]",
+      }),
+      failure,
+    );
+    expect(evlog.logWarn).not.toHaveBeenCalled();
   });
 });
 

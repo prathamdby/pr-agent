@@ -1519,7 +1519,7 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkRetrying).toHaveBeenCalled();
   });
 
-  it("warns and continues terminal failure when onRescheduleAbort throws", async () => {
+  it("continues terminal failure without relogging when onRescheduleAbort throws", async () => {
     mockFetchedItem(
       makeItem({
         status: "running",
@@ -1549,13 +1549,10 @@ describe("runDurableWorkItem", () => {
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
-    expect(evlog.logWarn).toHaveBeenCalledWith(
+    // cancelUnenqueuedStaleHeadReplacement already logged the failure at error level.
+    expect(evlog.logWarn).not.toHaveBeenCalledWith(
       "agent_work_replacement_cancel_failed",
-      expect.objectContaining({
-        type: "review",
-        workItemId: "wi-1",
-        message: expect.stringMatching(/cancel blew up/),
-      }),
+      expect.anything(),
     );
     expect(onTerminalFailure).toHaveBeenCalledTimes(1);
     expect(evlog.logError).toHaveBeenCalledWith(
