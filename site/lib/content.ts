@@ -75,7 +75,7 @@ export const CAPABILITIES: CapabilityItem[] = [
     trigger:
       "Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review",
     detail:
-      "Comments land next to the lines that need attention. Late older ticks from the same review do not replace newer progress or its final summary. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning. Crash recovery rechecks live work before failing a review. Coalesced CI deliveries keep their identities on your retained projection job.",
+      "Comments land next to the lines that need attention. After PR Agent accepts a close or merge, automated review intake and /review (including force) cannot start another review. Closed commands ask you to reopen first; merged commands are refused. A newer reopen permits review but does not start one automatically. Late older ticks from the same review do not replace newer progress or its final summary. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning. Crash recovery rechecks live work before failing a review. Coalesced CI deliveries keep their identities on your retained projection job.",
   },
   {
     id: "describe",

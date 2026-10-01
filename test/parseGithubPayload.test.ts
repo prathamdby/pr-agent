@@ -53,7 +53,13 @@ describe("parseGithubPayload", () => {
       action: "closed",
       installation: { id: 42 },
       repository: { owner: { login: "o" }, name: "r", size: 1234 },
-      pull_request: { number: 3, head: { sha: "abc" }, merged: true },
+      pull_request: {
+        number: 3,
+        head: { sha: "abc" },
+        merged: true,
+        state: "closed",
+        updated_at: "2026-10-01T00:00:01Z",
+      },
     };
     const p = parseGithubPayload("pull_request", raw);
     expect(p.name).toBe("pull_request");
@@ -67,13 +73,55 @@ describe("parseGithubPayload", () => {
       action: "closed",
       installation: { id: 42 },
       repository: { owner: { login: "o" }, name: "r", size: 1234 },
-      pull_request: { number: 3, head: { sha: "abc" } },
+      pull_request: {
+        number: 3,
+        head: { sha: "abc" },
+        state: "closed",
+        updated_at: "2026-10-01T00:00:01Z",
+      },
     };
     const p = parseGithubPayload("pull_request", raw);
     expect(p.name).toBe("pull_request");
     if (p.name !== "pull_request") throw new Error("expected pull_request payload");
     expect(p.data.action).toBe("closed");
     expect(p.data.pull_request.merged).toBe(false);
+  });
+
+  it.each([
+    { action: "closed", state: "closed", updated_at: undefined, merged: false },
+    { action: "closed", state: "closed", updated_at: "invalid", merged: false },
+    { action: "closed", state: "closed", updated_at: "2026-02-30T00:00:01Z", merged: false },
+    { action: "closed", state: undefined, updated_at: "2026-10-01T00:00:01Z", merged: false },
+    { action: "closed", state: "open", updated_at: "2026-10-01T00:00:01Z", merged: false },
+    { action: "reopened", state: "closed", updated_at: "2026-10-01T00:00:01Z", merged: false },
+    { action: "reopened", state: "open", updated_at: "2026-10-01T00:00:01Z", merged: true },
+  ])("rejects unusable or contradictory lifecycle metadata: %j", (metadata) => {
+    expect(() =>
+      parseGithubPayload("pull_request", {
+        action: metadata.action,
+        installation: { id: 42 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 3, head: { sha: "abc" }, ...metadata },
+      }),
+    ).toThrow(WebhookParseError);
+  });
+
+  it("retains authoritative reopen metadata", () => {
+    const p = parseGithubPayload("pull_request", {
+      action: "reopened",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      pull_request: {
+        number: 3,
+        head: { sha: "abc" },
+        state: "open",
+        updated_at: "2026-10-01T00:00:02Z",
+      },
+    });
+    expect(p).toMatchObject({
+      name: "pull_request",
+      data: { pull_request: { state: "open", updated_at: "2026-10-01T00:00:02Z", merged: false } },
+    });
   });
 
   it("rejects closed payloads when merged is null", () => {

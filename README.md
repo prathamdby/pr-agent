@@ -36,7 +36,7 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 
 | Feature             | When it runs                                                              | Command                         |
 | ------------------- | ------------------------------------------------------------------------- | ------------------------------- |
-| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`, or first approval when `approval` | `/review` always                |
+| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`, or first approval when `approval` | `/review` on open PRs           |
 | PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`                                  | `/describe`                     |
 | Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto`                         | `/verify`                       |
 | Ask                 | On demand when `FEATURE_ASK=manual`                                       | `/ask …` or mention the App bot |
@@ -61,6 +61,13 @@ Slash commands are case-sensitive. The command must be the first non-empty line 
 `/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.
 
 After an interrupted publish, PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with `/review` guidance. Failed or incomplete evidence reads can retry.
+
+After PR Agent accepts a close or merge, automated review requests and `/review`
+(including `force`) cannot start another review. A closed command receives a
+reply asking you to reopen first; a merged command is refused. A newer
+provider-observed reopen permits review but does not start one automatically.
+Equal close/reopen timestamps stay closed. Coverage begins with an accepted
+close after upgrade, not historical PR state. See [operations.md](docs/operations.md).
 
 Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged without duplicate active slash work. A cancellation racing that decision no longer causes a missing-winner intake failure. A cancellation or completion that finishes first can allow a fresh run.
 

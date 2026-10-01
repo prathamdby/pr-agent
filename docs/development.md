@@ -27,7 +27,9 @@ Review, ask, description, and verification take the prepared Local PR workspace 
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
 Within intake, `workItemRepository.ts` owns atomic slash winner resolution and
-the ID-pinned triage payload lookup; `slashIntake.ts` owns acknowledgements.
+the ID-pinned triage payload lookup, plus provider-ordered review lifecycle
+state; `applier.ts` and `slashIntake.ts` read that state under the shared review
+intake lock before admission. `slashIntake.ts` owns acknowledgements.
 The value-preserving conflict update retains the winner's row lock through
 commit. `/verify`'s earlier active-work precheck remains nonlocking. Review
 advisory ordering and execution-time PR actor leases remain separate contracts.

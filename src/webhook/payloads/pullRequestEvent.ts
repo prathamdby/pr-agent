@@ -6,18 +6,42 @@ import {
   repositorySchema,
 } from "./common.js";
 
-export const pullRequestWebhookSchema = v.object({
-  action: v.string(),
-  installation: installationSchema,
-  repository: repositorySchema,
-  before: v.optional(githubShaSchema),
-  pull_request: v.object({
-    number: githubPrNumberSchema,
-    head: v.object({
-      sha: githubShaSchema,
+const lifecycleTimestampSchema = v.pipe(
+  v.string(),
+  v.isoTimestamp(),
+  v.check(
+    (value) =>
+      value.endsWith("Z") &&
+      Number.isFinite(Date.parse(value)) &&
+      new Date(value).toISOString().slice(0, 19) === value.slice(0, 19),
+    "Expected a valid UTC lifecycle timestamp",
+  ),
+);
+
+export const pullRequestWebhookSchema = v.pipe(
+  v.object({
+    action: v.string(),
+    installation: installationSchema,
+    repository: repositorySchema,
+    before: v.optional(githubShaSchema),
+    pull_request: v.object({
+      number: githubPrNumberSchema,
+      head: v.object({
+        sha: githubShaSchema,
+      }),
+      merged: v.optional(v.boolean(), false),
+      state: v.optional(v.picklist(["open", "closed"])),
+      updated_at: v.optional(lifecycleTimestampSchema),
     }),
-    merged: v.optional(v.boolean(), false),
   }),
-});
+  v.check((data) => {
+    if (data.action !== "closed" && data.action !== "reopened") return true;
+    const pr = data.pull_request;
+    return (
+      pr.updated_at != null &&
+      (data.action === "closed" ? pr.state === "closed" : pr.state === "open" && !pr.merged)
+    );
+  }, "Close and reopen require consistent lifecycle state and observation time"),
+);
 
 export type PullRequestWebhookPayload = v.InferOutput<typeof pullRequestWebhookSchema>;

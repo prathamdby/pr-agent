@@ -258,6 +258,8 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-merged" }] };
       }
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      if (sql.includes("INSERT INTO pr_review_lifecycle")) return { rows: [{ state: "merged" }] };
       if (sql.includes("type = 'triage'")) return { rows: [] };
       if (sql.includes("status = 'queued'")) {
         return {
@@ -303,7 +305,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         "closed",
         intakeLog,
         intakeCfg,
-        { merged: true },
+        { merged: true, lifecycle: { state: "merged", observedAt: "2026-10-01T00:00:01Z" } },
       );
 
       expect(txSpy).toHaveBeenCalled();
@@ -336,6 +338,8 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-closed" }] };
       }
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      if (sql.includes("INSERT INTO pr_review_lifecycle")) return { rows: [{ state: "closed" }] };
       if (sql.includes("type = 'triage'")) return { rows: [] };
       if (sql.includes("status = 'queued'")) {
         return {
@@ -372,7 +376,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         "closed",
         intakeLog,
         intakeCfg,
-        { merged: false },
+        { merged: false, lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:01Z" } },
       );
 
       expect(txSpy).toHaveBeenCalled();
@@ -405,6 +409,8 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-triage-closed" }] };
       }
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      if (sql.includes("INSERT INTO pr_review_lifecycle")) return { rows: [{ state: "closed" }] };
       if (sql.includes("type = 'review'")) return { rows: [] };
       if (sql.includes("type = 'triage'") && sql.includes("status = 'queued'")) {
         return {
@@ -448,7 +454,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         "closed",
         intakeLog,
         intakeCfg,
-        { merged: false },
+        { merged: false, lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:01Z" } },
       );
 
       expect(send).toHaveBeenCalledWith(
@@ -480,6 +486,8 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-mixed-close" }] };
       }
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      if (sql.includes("INSERT INTO pr_review_lifecycle")) return { rows: [{ state: "closed" }] };
       if (sql.includes("type = 'review'") && sql.includes("status = 'queued'")) {
         return {
           rows: [
@@ -558,7 +566,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         "closed",
         intakeLog,
         intakeCfg,
-        { merged: false },
+        { merged: false, lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:01Z" } },
       );
 
       expect(send).toHaveBeenCalledWith(
@@ -613,7 +621,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         "closed",
         intakeLog,
         intakeCfg,
-        { merged: true },
+        { merged: true, lifecycle: { state: "merged", observedAt: "2026-10-01T00:00:01Z" } },
       );
 
       expect(clientQuery.mock.calls.every((call) => !call[0].includes("status ="))).toBe(true);
@@ -637,6 +645,8 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-zero" }] };
       }
+      if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+      if (sql.includes("INSERT INTO pr_review_lifecycle")) return { rows: [{ state: "merged" }] };
       if (sql.includes("type = 'triage'")) return { rows: [] };
       if (sql.includes("status = 'queued'") || sql.includes("status = 'running'")) {
         return { rows: [] };
@@ -661,7 +671,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
         "closed",
         intakeLog,
         intakeCfg,
-        { merged: true },
+        { merged: true, lifecycle: { state: "merged", observedAt: "2026-10-01T00:00:01Z" } },
       );
 
       expect(boss.send).not.toHaveBeenCalled();

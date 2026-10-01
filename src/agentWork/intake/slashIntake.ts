@@ -53,6 +53,7 @@ import {
   createVerificationWorkItem,
   fetchActiveTriageWorkItem,
   fetchActiveVerificationWorkItem,
+  loadReviewLifecycle,
 } from "./workItemRepository.js";
 
 export type SlashCommandInput = {
@@ -295,6 +296,28 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   await acquireAutoWorkIntakeLock(ctx.client, { kind: "review", resourceKey });
+  const lifecycle = await loadReviewLifecycle(ctx.client, resourceKey);
+  if (lifecycle != null && lifecycle.state !== "open") {
+    const decision = `ignored_slash_review_pr_${lifecycle.state}`;
+    await ctx.client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
+      ctx.eventId,
+      decision,
+    ]);
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body:
+          lifecycle.state === "closed"
+            ? "This pull request is closed. Reopen it before running `/review`."
+            : "This pull request is merged. Run `/review` on an open pull request.",
+      },
+    });
+    ctx.events.push({
+      name: "review_intake_refused",
+      fields: { resourceKey, source: "slash", reason: lifecycle.state, ...ctx.correlation },
+    });
+    return;
+  }
   // `/review force`: cancel any queued/running review first so the fresh run
   // below always starts on the latest head.
   const force = isReviewForceCommand(ctx.input.body);
