@@ -210,9 +210,10 @@ Worker shutdown is ordered and bounded. Intake closes first, pg-boss drains on
 `SHUTDOWN_SETTLE_TIMEOUT_MS`, and the five durable work queues then get one more
 `SHUTDOWN_SETTLE_TIMEOUT_MS` window, concurrent with the bounded analytics
 flush, before the Postgres pool ends. A dispatch still running at that cutoff
-logs `agent_worker_shutdown_incomplete` and never writes against an ended pool;
-a later worker recovers its row through the existing watchdog chain or
-lost-running sweep.
+logs `agent_worker_shutdown_incomplete`; the cutoff ends the wait, not the
+dispatch, so its late terminal write fails against the ended pool. A later
+worker recovers the row through the existing watchdog chain or lost-running
+sweep.
 
 Lost-running diagnostics are advisory. The sweeper rechecks the item age,
 lease expiry, and matching live job in the conditional failure write. Only an
