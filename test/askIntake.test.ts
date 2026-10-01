@@ -38,6 +38,8 @@ function askQuotaQuery(
   params?: unknown[],
   overrides: { readonly outstandingCount?: number } = {},
 ) {
+  if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+  if (sql.includes("payload->'replyTarget'")) return { rows: [] };
   if (sql.includes("INSERT INTO ask_quota_buckets")) return { rows: [] };
   if (sql.includes("FROM ask_quota_buckets") && sql.includes("FOR UPDATE")) {
     return {
@@ -219,6 +221,89 @@ describe("promoteAskFromWebhookEvent", () => {
     expect(sent.map((s) => s.queue)).toEqual([ACK_QUEUE, ASK_QUEUE]);
     expect(sent[0]?.options).toEqual(expect.objectContaining({ id: "event-1", priority: 100 }));
     expect(sent[1]?.options).toEqual(expect.objectContaining({ id: "ask-existing", priority: 50 }));
+  });
+
+  it("joins a retained same-mention ask from a different event without quota or jobs", async () => {
+    const sent: string[] = [];
+    const queries: string[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string) => {
+        sent.push(queue);
+        return "jid";
+      }),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        queries.push(sql);
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+        if (sql.includes("payload->'replyTarget'")) {
+          return { rows: [{ id: "ask-existing", webhook_event_id: "event-other" }] };
+        }
+        const quotaResult = askQuotaQuery(sql, params);
+        if (quotaResult) return quotaResult;
+        throw new Error(`unexpected: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+
+    const outcome = await promoteAskFromWebhookEvent(boss, client, baseInput(), "recover");
+
+    expect(outcome).toEqual({ kind: "already_exists_skipped", workItemId: "ask-existing" });
+    expect(sent).toHaveLength(0);
+    expect(queries.some((sql) => sql.includes("ask_quota"))).toBe(false);
+    expect(queries.some((sql) => sql.includes("INSERT INTO agent_work_items"))).toBe(false);
+  });
+
+  it("recovers a retained same-event mention with deterministic job ids and no quota", async () => {
+    const sent: { queue: string; options?: unknown }[] = [];
+    const queries: string[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, _data: unknown, options?: unknown) => {
+        sent.push({ queue, options });
+        return "jid";
+      }),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        queries.push(sql);
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+        if (sql.includes("payload->'replyTarget'")) {
+          return { rows: [{ id: "ask-existing", webhook_event_id: "event-1" }] };
+        }
+        const quotaResult = askQuotaQuery(sql, params);
+        if (quotaResult) return quotaResult;
+        throw new Error(`unexpected: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+
+    const outcome = await promoteAskFromWebhookEvent(boss, client, baseInput(), "recover");
+
+    expect(outcome).toEqual({ kind: "promoted", workItemId: "ask-existing", created: false });
+    expect(sent.map((s) => s.queue)).toEqual([ACK_QUEUE, ASK_QUEUE]);
+    expect(sent[0]?.options).toEqual(expect.objectContaining({ id: "event-1", priority: 100 }));
+    expect(sent[1]?.options).toEqual(expect.objectContaining({ id: "ask-existing", priority: 50 }));
+    expect(queries.some((sql) => sql.includes("ask_quota"))).toBe(false);
+  });
+
+  it("skips a retained same-event mention under skip policy without sends", async () => {
+    const boss = {
+      send: vi.fn(async () => "jid"),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+        if (sql.includes("payload->'replyTarget'")) {
+          return { rows: [{ id: "ask-existing", webhook_event_id: "event-1" }] };
+        }
+        const quotaResult = askQuotaQuery(sql, params);
+        if (quotaResult) return quotaResult;
+        throw new Error(`unexpected: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+
+    const outcome = await promoteAskFromWebhookEvent(boss, client, baseInput(), "skip");
+
+    expect(outcome).toEqual({ kind: "already_exists_skipped", workItemId: "ask-existing" });
+    expect(boss.send).not.toHaveBeenCalled();
   });
 
   it("promotes a new ask with singleton keys", async () => {

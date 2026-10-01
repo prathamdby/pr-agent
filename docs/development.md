@@ -30,9 +30,16 @@ Within intake, `workItemRepository.ts` owns atomic slash winner resolution and
 the ID-pinned triage payload lookup, plus provider-ordered review lifecycle
 state; `applier.ts` and `slashIntake.ts` read that state under the shared review
 intake lock before admission. `slashIntake.ts` owns acknowledgements.
+`reviewReschedule.ts` takes that same lock, reads lifecycle in a separate statement,
+then locks the parent lease and item before creating a stale-head replacement.
+Closed/merged refusal precedes marker persistence and progress ownership transfer.
 The value-preserving conflict update retains the winner's row lock through
 commit. `/verify`'s earlier active-work precheck remains nonlocking. Review
 advisory ordering and execution-time PR actor leases remain separate contracts.
+`askIntake.ts` owns same-mention agreement: it serializes the triggering
+comment identity on a transaction-scoped advisory lock and joins a retained
+ask row in any status before quota admission, while `workItemRepository.ts`
+keeps the per-webhook-event insert conflict as the idempotency backstop.
 
 `gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
@@ -59,7 +66,10 @@ that wins a concurrent claim. Queued attempts finish before a lease-first
 transaction locks the captured replacement epoch and cancels the active row.
 The token stays fixed across rereads, including queued retries.
 `reviewReschedule.ts` shares this writer between registered abort and recovered
-terminal-parent cleanup. A miss logs `agent_work_replacement_cancel_failed` at
+terminal-parent cleanup, without using job existence as cancellation authority.
+Successful in-attempt enqueue and the terminal fallback's persisted enqueued
+marker stay exempt; leftover deliveries for cancelled work no-op.
+A miss logs `agent_work_replacement_cancel_failed` at
 error level before rethrowing; the outer abort catch alone only warns.
 Lease release and publication gating remain on the durable runner.
 

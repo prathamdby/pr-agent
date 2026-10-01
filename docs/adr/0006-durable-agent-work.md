@@ -38,9 +38,12 @@ Production failures during small bursts showed that webhook acknowledgement, Git
    Only a newer reopen restores admission, without starting automatic work.
    Terminal wins timestamp ties; merged cannot reopen. Marker retention is
    independent of webhook/work retention, with no backfill or expiry. This is
-   distinct from execution leases and excludes worker-side stale-head replacement
-   insertion (#662). Migration 034 and all upgraded web replicas are required;
-   code rollback leaves data intact but removes the admission guarantee.
+   distinct from execution leases. Worker-side stale-head replacement insertion
+   takes the same lock and rereads lifecycle before its lease/parent locks,
+   marker persistence and progress ownership transfer. If insertion commits first,
+   close sees and cancels the child. Migration 034 and upgraded web replicas are
+   required for intake coverage; upgrade all workers for replacement coverage.
+   Code rollback leaves data intact but removes the corresponding admission guarantee.
 
 ## Consequences
 
