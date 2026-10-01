@@ -89,7 +89,7 @@ function listPrCommits(base, head) {
     process.exit(2);
   }
   const out = git(["rev-list", "--no-merges", "--reverse", `${mergeBase}..${head}`]).trim();
-  return out.length === 0 ? [] : out.split("\n");
+  return { mergeBase, shas: out.length === 0 ? [] : out.split("\n") };
 }
 
 function firstWordLower(text) {
@@ -223,7 +223,7 @@ function validateCommit(raw) {
 }
 
 const { base, head } = parseArgs(process.argv.slice(2));
-const shas = listPrCommits(base, head);
+const { mergeBase, shas } = listPrCommits(base, head);
 if (shas.length === 0) {
   console.log(`Commit-message check passed: no non-merge commits in ${base}..${head}.`);
   process.exit(0);
@@ -240,11 +240,22 @@ for (const sha of shas) {
     failed += 1;
     console.error(`FAIL ${sha.slice(0, 8)} ${short}`);
     for (const error of errors) console.error(`  - ${error}`);
+    console.error("  message to rewrite:");
+    for (const line of raw.replace(/\n+$/, "").split("\n")) console.error(`    ${line}`);
   }
 }
 
 if (failed > 0) {
   console.error(`\nCommit-message check failed: ${failed}/${shas.length} commits rejected.`);
+  console.error(
+    [
+      "The FAIL blocks above show each complete message and every rule it breaks.",
+      "Rewrite each FAIL commit message, then force-push the branch with lease:",
+      `  git rebase -i ${mergeBase}`,
+      "  git push --force-with-lease",
+      "Reword only FAIL commits and leave passing commits untouched.",
+    ].join("\n"),
+  );
   process.exit(1);
 }
 console.log(`\nCommit-message check passed: ${shas.length}/${shas.length} commits.`);
