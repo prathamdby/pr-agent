@@ -22,7 +22,18 @@ type RecordPublishStep = NonNullable<
 
 vi.mock("../src/agentWork/repository.js", async () => {
   const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createAgentWorkRepositoryMock();
+  return {
+    ...createAgentWorkRepositoryMock(),
+    getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
+  };
+});
+
+vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+  const { createOwnVerdictCloseMock } = await import("./helpers/publishReviewTestSetup.js");
+  return {
+    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...createOwnVerdictCloseMock(),
+  };
 });
 
 vi.mock("../src/agentWork/reviewCheckRun.js", async () => {

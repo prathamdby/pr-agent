@@ -9,7 +9,11 @@ import {
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
 import { closeOwnVerdict } from "../../src/agentWork/closeOwnVerdict.js";
-import { reconcileLostRunningWork } from "../../src/agentWork/lostRunningWork.js";
+import { withOwnVerdictClose } from "../../src/agentWork/publishRecordRepository.js";
+import {
+  listTerminalReviewsWithOpenOwnChecks,
+  reconcileLostRunningWork,
+} from "../../src/agentWork/lostRunningWork.js";
 import {
   claimWorkForExecution,
   markWorkCompleted,
@@ -452,7 +456,9 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           githubId: check.id,
           detail: { status: "in_progress" },
         });
-        finish.mockRejectedValueOnce(new Error("Synthetic close failure"));
+        finish.mockRejectedValueOnce(
+          Object.assign(new Error("Synthetic close failure"), { accepted: false }),
+        );
       }
       await pool.query(
         `INSERT INTO pgboss.job (id, name, state, data)
@@ -511,6 +517,104 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       ).toEqual([expect.objectContaining({ status: expect.objectContaining({ state: "error" }) })]);
       await reconcileLostRunningWork({ cfg, pool, items: snapshot.lostRunningWorkItems });
       expect(finish).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["lock", "admission"] as const)(
+    "repairs a terminal verdict deferred by %s without a new work delivery",
+    async (mode) => {
+      const defaults = makeTestConfig();
+      const cfg = makeTestConfig({ features: { ...defaults.features, commitStatus: true } });
+      const { id, resourceKey } = await insertAgedQueuedWork();
+      await pool.query("UPDATE agent_work_items SET status = 'cancelled' WHERE id = $1", [id]);
+      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "synthetic-integration-token",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      });
+      vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: 111,
+        detail: { status: "in_progress" },
+      });
+      const finish = vi.spyOn(fake.surface, "finishReviewCheck");
+      const status = vi.spyOn(fake.surface, "setReviewCommitStatus");
+      let release!: () => void;
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const entered: Promise<void>[] = [];
+      const holders = Array.from(
+        { length: mode === "lock" ? 1 : (pool.options.max ?? 10) - 1 },
+        (_, index) => {
+          let enter!: () => void;
+          entered.push(
+            new Promise<void>((resolve) => {
+              enter = resolve;
+            }),
+          );
+          return withOwnVerdictClose(
+            pool,
+            {
+              workItemId: mode === "lock" ? id : randomUUID(),
+              resourceKey,
+              reviewLens: "review",
+              leaseEpoch: null,
+            },
+            async () => {
+              enter();
+              await barrier;
+              return index;
+            },
+          );
+        },
+      );
+      try {
+        await Promise.all(entered);
+        await closeOwnVerdict({
+          pool,
+          prSurface: fake.surface,
+          owner: OWNER,
+          repo: "r",
+          prNumber: 1,
+          workItemId: id,
+          resourceKey,
+          reviewLens: "review",
+          headSha: "h",
+          leaseEpoch: null,
+          commitStatusEnabled: cfg.features.commitStatus,
+          outcome: { kind: "cancelled" },
+        });
+        expect(finish).not.toHaveBeenCalled();
+        expect(status).not.toHaveBeenCalled();
+        expect(
+          (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
+        ).toContain(id);
+      } finally {
+        release();
+        await Promise.all(holders);
+      }
+      await reconcileLostRunningWork({ cfg, pool, items: [] });
+      await reconcileLostRunningWork({ cfg, pool, items: [] });
+      expect(finish).toHaveBeenCalledOnce();
+      expect(finish).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "cancelled" }));
+      expect(status).toHaveBeenCalledOnce();
+      expect(status).toHaveBeenCalledWith("h", expect.objectContaining({ state: "error" }));
+      expect(
+        (await listTerminalReviewsWithOpenOwnChecks(pool)).map((item) => item.workItemId),
+      ).not.toContain(id);
+      console.log(
+        "own-verdict-deferred-repair",
+        JSON.stringify({
+          mode,
+          finishCalls: finish.mock.calls.length,
+          statusCalls: status.mock.calls.length,
+        }),
+      );
     },
   );
 

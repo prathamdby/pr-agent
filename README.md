@@ -56,6 +56,8 @@ Review runs four specialists (correctness, security, quality, tests) under one o
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`). Mention matching uses the App bot login, not the word `@bot`. `/ask` and `/help` do not need a mention.
 
+Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it.
+
 `/cancel` blocks new review output when the worker's final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
 If a stale review fails before handing off its replacement, that pending replacement is cancelled even if it has just started or a delivery races the abort. Successfully handed-off replacements remain unchanged. Unconfirmed cancellation is logged as an error.
 Retrying a stale review keeps changes already saved on its replacement.

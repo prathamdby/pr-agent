@@ -123,6 +123,21 @@ export function createAgentWorkRepositoryMock() {
   };
 }
 
+export function createOwnVerdictCloseMock() {
+  return {
+    withOwnVerdictClose: vi.fn(
+      async (client: unknown, _params: unknown, apply: (client: unknown) => unknown) =>
+        apply(client),
+    ),
+    claimOwnVerdict: vi.fn(async (_client: unknown, params: { selected: unknown }) => ({
+      selected: params.selected,
+      checkApplied: false,
+      statusApplied: false,
+    })),
+    recordOwnVerdictSurfaceApplied: vi.fn(async () => undefined),
+  };
+}
+
 export async function createReviewCheckRunMock() {
   const actual = await import("../../src/agentWork/reviewCheckRun.js");
   return {

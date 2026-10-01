@@ -109,6 +109,23 @@ export function createMemoryOperationIntentStore() {
       return stored ? toRow(stored) : null;
     },
 
+    /** Latest intent of one kind created under a parent operation key. */
+    findChildByParent(
+      workItemId: string,
+      mutationKind: string,
+      parentOperationKey: string,
+    ): OperationIntentRow | undefined {
+      return [...rows.values()]
+        .filter(
+          (row) =>
+            row.workItemId === workItemId &&
+            row.mutationKind === mutationKind &&
+            row.detail.parentOperationKey === parentOperationKey,
+        )
+        .toSorted((a, b) => b.createdAtMs - a.createdAtMs)
+        .map(toRow)[0];
+    },
+
     async persist(_client: Pool | PoolClient, params: PersistParams): Promise<OperationIntentRow> {
       const key = rowKey(params.workItemId, params.operationKey);
       const existing = rows.get(key);

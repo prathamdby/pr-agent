@@ -16,9 +16,11 @@ import {
   DESCRIPTION_PUBLISH_LENS,
   TRIAGE_PUBLISH_LENS,
   VERIFICATION_PUBLISH_LENS,
+  DEFERRED_HEAD_SHA,
 } from "../settings/index.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { isRecord } from "../util/typeGuards.js";
+import type { OperationIntentRow } from "./operationIntentRepository.js";
 import { assertPrActorLeaseHeld } from "./prActorLease.js";
 
 export type PublishLens =
@@ -252,7 +254,7 @@ export async function getProgressStubPostedAtMs(
 }
 
 export async function getReviewCheckRunGithubId(
-  pool: Pool,
+  pool: Pool | PoolClient,
   workItemId: string,
   reviewLens: AnyReviewLens,
 ): Promise<number | null> {
@@ -270,6 +272,332 @@ export async function getReviewCheckRunGithubId(
   if (!row?.github_id) return null;
   const id = Number(row.github_id);
   return Number.isFinite(id) ? id : null;
+}
+
+const selectedOwnVerdictSchema = v.object({
+  conclusion: v.picklist(["success", "failure", "neutral", "cancelled", "action_required"]),
+  summary: v.string(),
+  detailsUrl: v.optional(v.string()),
+  status: v.optional(
+    v.object({
+      headSha: v.string(),
+      enabled: v.boolean(),
+      state: v.picklist(["success", "failure", "error"]),
+    }),
+  ),
+});
+
+export type SelectedOwnVerdict = v.InferOutput<typeof selectedOwnVerdictSchema>;
+type OwnVerdictIdentity = {
+  readonly workItemId: string;
+  readonly resourceKey: string;
+  readonly reviewLens: AnyReviewLens;
+  readonly leaseEpoch?: number | null;
+};
+
+export function ownVerdictStatusApplicable(selected: SelectedOwnVerdict): boolean {
+  return (
+    selected.status != null &&
+    selected.status.enabled &&
+    selected.status.headSha.length > 0 &&
+    selected.status.headSha !== DEFERRED_HEAD_SHA
+  );
+}
+
+export async function getOwnVerdictCloseRecord(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity,
+) {
+  const row = await queryOne<{ github_id: string | null; detail: Record<string, unknown> }>(
+    client,
+    `SELECT github_id, detail FROM publish_records
+      WHERE work_item_id = $1 AND resource_key = $2 AND review_lens = $3 AND step = 'check_run'`,
+    [params.workItemId, params.resourceKey, params.reviewLens],
+  );
+  if (row == null) return null;
+  const parsed =
+    row.detail.selectedOwnVerdict == null
+      ? null
+      : v.safeParse(selectedOwnVerdictSchema, row.detail.selectedOwnVerdict);
+  if (parsed != null && !parsed.success)
+    throw new AppError({
+      code: "agent_work.own_verdict_invalid",
+      message: "Stored own verdict selection is invalid",
+      context: { workItemId: params.workItemId, reviewLens: params.reviewLens },
+    });
+  return {
+    selected: parsed?.success ? parsed.output : null,
+    githubId: row.github_id == null ? null : Number(row.github_id),
+    checkApplied: row.detail.ownCheckApplied === true,
+    statusApplied: row.detail.ownStatusApplied === true,
+    legacyClosed:
+      parsed == null &&
+      row.detail.status === "completed" &&
+      typeof row.detail.conclusion === "string" &&
+      row.detail.conclusion.length > 0,
+  };
+}
+
+export function ownVerdictCloseOperationKey(params: OwnVerdictIdentity): string {
+  return `review:check_run_close:${params.workItemId}:${params.reviewLens}`;
+}
+
+/**
+ * The finish mutation delegated under this close's parent intent, if any. The
+ * parent key is unique to the lane, so the boundary child is found by
+ * parentage instead of replicating the boundary's input-hash encoding.
+ */
+export async function getDelegatedOwnVerdictFinish(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity,
+): Promise<Pick<OperationIntentRow, "status" | "detail"> | null> {
+  return queryOne<Pick<OperationIntentRow, "status" | "detail">>(
+    client,
+    `SELECT status, detail FROM operation_intents
+      WHERE work_item_id = $1
+        AND mutation_kind = 'github.pr_surface.finishReviewCheck'
+        AND detail->>'parentOperationKey' = $2
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [params.workItemId, ownVerdictCloseOperationKey(params)],
+  );
+}
+
+/**
+ * Legacy finish intents block a fresh verdict selection only while they are
+ * still actionable: accepted, awaiting recovery, or mid-mutation. An
+ * outcome_unknown row the boundary already resolved `terminal` is inert
+ * evidence — the terminal failure close must still run.
+ */
+export async function hasLegacyOwnVerdictCompletion(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity,
+): Promise<boolean> {
+  const row = await queryOne<{ blocked: boolean }>(
+    client,
+    `SELECT EXISTS (
+       SELECT 1 FROM operation_intents
+        WHERE work_item_id = $1
+          AND (mutation_kind = 'github.pr_surface.finishReviewCheck'
+               OR detail->>'surfaceMethod' = 'finishReviewCheck')
+          AND detail->>'parentOperationKey' IS DISTINCT FROM $2
+          AND (status = 'reconciled'
+               OR (status = 'outcome_unknown'
+                   AND detail->>'unknownResolution' IS DISTINCT FROM 'terminal')
+               OR detail ? '__result'
+               OR (status <> 'failed' AND detail->'__mutating' = 'true'::jsonb))
+     ) AS blocked`,
+    [params.workItemId, ownVerdictCloseOperationKey(params)],
+  );
+  return row?.blocked === true;
+}
+
+export async function claimOwnVerdict(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity & { readonly selected: SelectedOwnVerdict },
+) {
+  if (params.leaseEpoch != null)
+    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+  const eligible = await queryOne<{ ok: number }>(
+    client,
+    `SELECT 1 AS ok FROM agent_work_items
+      WHERE id = $1 AND type = 'review' AND resource_key = $2 AND review_lens = $3
+        AND ($4::bigint IS NOT NULL OR status IN ('completed', 'failed', 'cancelled', 'superseded'))`,
+    [params.workItemId, params.resourceKey, params.reviewLens, params.leaseEpoch ?? null],
+  );
+  if (eligible == null) return null;
+  const existing = await getOwnVerdictCloseRecord(client, params);
+  if (existing?.selected == null && (await hasLegacyOwnVerdictCompletion(client, params))) {
+    logWarn("review_own_verdict_legacy_unresolved", {
+      workItemId: params.workItemId,
+      reviewLens: params.reviewLens,
+    });
+    return null;
+  }
+  const result = await client.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
+       SELECT $1, $2, $3, $4, 'check_run', 'pending', $5,
+              jsonb_build_object('selectedOwnVerdict', $6::jsonb)
+        WHERE EXISTS (
+          SELECT 1 FROM agent_work_items WHERE id = $2 AND type = 'review'
+            AND resource_key = $3 AND review_lens = $4
+            AND ($5::bigint IS NOT NULL OR status IN ('completed', 'failed', 'cancelled', 'superseded'))
+        ) AND ($5::bigint IS NULL OR EXISTS (
+          SELECT 1 FROM pr_actor_leases WHERE work_item_id = $2 AND lease_epoch = $5
+        ))
+       ON CONFLICT (work_item_id, review_lens, step) WHERE step = 'check_run'
+       DO UPDATE SET detail = publish_records.detail || EXCLUDED.detail, updated_at = now()
+       WHERE publish_records.resource_key = EXCLUDED.resource_key
+         AND NOT (publish_records.detail ? 'selectedOwnVerdict')
+         AND COALESCE(publish_records.detail->>'conclusion', '') = ''
+         AND (EXCLUDED.lease_epoch IS NULL OR EXISTS (
+           SELECT 1 FROM pr_actor_leases WHERE work_item_id = EXCLUDED.work_item_id
+             AND lease_epoch = EXCLUDED.lease_epoch
+         ))`,
+    [
+      crypto.randomUUID(),
+      params.workItemId,
+      params.resourceKey,
+      params.reviewLens,
+      params.leaseEpoch ?? null,
+      JSON.stringify(params.selected),
+    ],
+  );
+  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
+    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+  }
+  let record = await getOwnVerdictCloseRecord(client, params);
+  if (
+    record?.selected != null &&
+    record.selected.status == null &&
+    params.selected.status != null
+  ) {
+    const state =
+      record.selected.conclusion === "failure"
+        ? "failure"
+        : record.selected.conclusion === "success"
+          ? "success"
+          : "error";
+    const selected = {
+      ...record.selected,
+      status: { ...params.selected.status, state },
+    } satisfies SelectedOwnVerdict;
+    await client.query(
+      `UPDATE publish_records SET detail = jsonb_set(detail, '{selectedOwnVerdict}', $4::jsonb)
+             || CASE WHEN $7 THEN '{"status":"in_progress"}'::jsonb ELSE '{}'::jsonb END,
+             updated_at = now()
+        WHERE work_item_id = $1 AND resource_key = $2 AND review_lens = $3 AND step = 'check_run'
+          AND detail->'selectedOwnVerdict' = $5::jsonb
+          AND ($6::bigint IS NULL OR EXISTS (
+            SELECT 1 FROM pr_actor_leases WHERE work_item_id = $1 AND lease_epoch = $6
+          ))`,
+      [
+        params.workItemId,
+        params.resourceKey,
+        params.reviewLens,
+        JSON.stringify(selected),
+        JSON.stringify(record.selected),
+        params.leaseEpoch ?? null,
+        ownVerdictStatusApplicable(selected) && !record.statusApplied,
+      ],
+    );
+    record = await getOwnVerdictCloseRecord(client, params);
+  }
+  return record;
+}
+
+export async function recordOwnVerdictSurfaceApplied(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity & { readonly selected: SelectedOwnVerdict },
+  surface: "check" | "status",
+): Promise<void> {
+  if (params.leaseEpoch != null)
+    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+  const check = surface === "check";
+  const result = await client.query(
+    `UPDATE publish_records
+        SET detail = detail || $4::jsonb || jsonb_build_object(
+              'status', CASE WHEN ($5 OR detail->'ownCheckApplied' = 'true'::jsonb)
+                 AND (NOT $6 OR $7 OR detail->'ownStatusApplied' = 'true'::jsonb)
+                THEN 'completed' ELSE 'in_progress' END),
+            updated_at = now()
+      WHERE work_item_id = $1 AND resource_key = $2 AND review_lens = $3 AND step = 'check_run'
+        AND detail->'selectedOwnVerdict' = $8::jsonb
+        AND (NOT $5 OR github_id IS NOT NULL)
+        AND ($9::bigint IS NULL OR EXISTS (
+          SELECT 1 FROM pr_actor_leases WHERE work_item_id = $1 AND lease_epoch = $9
+        ))`,
+    [
+      params.workItemId,
+      params.resourceKey,
+      params.reviewLens,
+      JSON.stringify(
+        check
+          ? {
+              ownCheckApplied: true,
+              conclusion: params.selected.conclusion,
+              completedAt: new Date().toISOString(),
+              detailsUrl: params.selected.detailsUrl,
+            }
+          : { ownStatusApplied: true },
+      ),
+      check,
+      ownVerdictStatusApplicable(params.selected),
+      !check,
+      JSON.stringify(params.selected),
+      params.leaseEpoch ?? null,
+    ],
+  );
+  if ((result.rowCount ?? 0) === 0) {
+    if (params.leaseEpoch != null)
+      await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
+    throw new AppError({
+      code: "agent_work.own_verdict_receipt_rejected",
+      message: "Own verdict acceptance receipt did not match its selection",
+      context: { workItemId: params.workItemId, surface },
+    });
+  }
+}
+
+const ownVerdictCoordinators = new WeakMap<Pool, number>();
+
+export async function withOwnVerdictClose<T>(
+  pool: Pool,
+  params: OwnVerdictIdentity,
+  apply: (client: PoolClient) => Promise<T>,
+): Promise<T | undefined> {
+  const max = pool.options.max ?? 10;
+  if (max === 1 && params.leaseEpoch != null)
+    throw new AppError({
+      code: "agent_work.own_verdict_capacity",
+      message: "Leased own verdict close requires nested database capacity",
+      context: { workItemId: params.workItemId },
+    });
+  const admitted = ownVerdictCoordinators.get(pool) ?? 0;
+  if (admitted >= Math.max(1, max - 1)) return undefined;
+  ownVerdictCoordinators.set(pool, admitted + 1);
+  let client: PoolClient | undefined;
+  let locked = false;
+  let destroy = true;
+  let result: T | undefined;
+  let failure: { readonly error: unknown } | undefined;
+  const key = `own-verdict:${params.workItemId}:${params.reviewLens}`;
+  try {
+    client = await pool.connect();
+    const row = await queryOne<{ locked: boolean }>(
+      client,
+      "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
+      [key],
+    );
+    destroy = false;
+    locked = row?.locked === true;
+    if (!locked) {
+      await getOwnVerdictCloseRecord(client, params);
+    } else {
+      result = await apply(client);
+    }
+  } catch (error) {
+    failure = { error };
+  } finally {
+    try {
+      if (client != null && locked) {
+        const row = await queryOne<{ unlocked: boolean }>(
+          client,
+          "SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS unlocked",
+          [key],
+        );
+        destroy = row?.unlocked !== true;
+      }
+    } catch (error) {
+      destroy = true;
+      failure ??= { error };
+    } finally {
+      ownVerdictCoordinators.set(pool, (ownVerdictCoordinators.get(pool) ?? 1) - 1);
+      client?.release(destroy);
+    }
+  }
+  if (failure != null) throw failure.error;
+  return result;
 }
 
 export async function reserveReviewCheckRun(
@@ -293,7 +621,17 @@ export async function reserveReviewCheckRun(
 			     WHERE work_item_id = $2 AND lease_epoch = $5
 			  )
 			 ON CONFLICT (work_item_id, review_lens, step) WHERE step = 'check_run'
-			 DO NOTHING`,
+			 DO UPDATE SET detail = publish_records.detail || EXCLUDED.detail,
+                           lease_epoch = COALESCE(EXCLUDED.lease_epoch, publish_records.lease_epoch),
+                           updated_at = now()
+         WHERE publish_records.resource_key = EXCLUDED.resource_key
+           AND publish_records.status = 'pending' AND publish_records.github_id IS NULL
+           AND publish_records.detail ? 'selectedOwnVerdict'
+           AND publish_records.detail->>'status' IS DISTINCT FROM 'starting'
+           AND (EXCLUDED.lease_epoch IS NULL OR EXISTS (
+             SELECT 1 FROM pr_actor_leases WHERE work_item_id = EXCLUDED.work_item_id
+               AND lease_epoch = EXCLUDED.lease_epoch
+           ))`,
     [
       crypto.randomUUID(),
       params.workItemId,
@@ -389,14 +727,27 @@ export async function releaseUnstartedReviewCheckRunReservation(
          )`;
   const eligibilityClause = leaseParam == null ? staleClause : leaseClause;
   const result = await pool.query(
-    `DELETE FROM publish_records
+    `WITH protected AS (
+       UPDATE publish_records
+          SET detail = detail - 'status' - 'headSha' - 'name' - 'externalId' - 'recoveredStaleReservation',
+              updated_at = now()
+        WHERE work_item_id = $1 AND resource_key = $2 AND review_lens = $3 AND step = 'check_run'
+          AND status = 'pending' AND github_id IS NULL
+          AND detail ? 'selectedOwnVerdict' AND detail->>'status' = 'starting'
+          ${eligibilityClause}
+        RETURNING id
+     ), ordinary AS (
+       DELETE FROM publish_records
 		  WHERE work_item_id = $1
 		    AND resource_key = $2
 		    AND review_lens = $3
 		    AND step = 'check_run'
 		    AND status = 'pending'
 		    AND github_id IS NULL
-    ${eligibilityClause}`,
+        AND NOT (detail ? 'selectedOwnVerdict')
+    ${eligibilityClause}
+       RETURNING id
+     ) SELECT id FROM protected UNION ALL SELECT id FROM ordinary`,
     values,
   );
   if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
