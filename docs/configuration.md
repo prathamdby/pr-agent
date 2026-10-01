@@ -426,7 +426,12 @@ cleanup retain their existing fences; requests already in flight cannot be withd
 
 A failed stale review's pending replacement is cancelled even if its claim wins
 concurrently. This uses the replacement's recorded lease epoch, not a new setting.
-Unconfirmed cancellation is logged as an error.
+Queue deliveries cannot veto pending cancellation; successful handoff remains
+exempt. Unconfirmed cancellation is logged as an error.
+
+Stale-head replacement creation shares the review intake lock and reads persistent
+lifecycle state after acquiring it. Accepted close/merge blocks replacement work
+and progress ownership transfer. This adds no mode, setting or polling interval.
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 

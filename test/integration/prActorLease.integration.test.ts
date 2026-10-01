@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { PgBoss } from "pg-boss";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { REVIEW_QUEUE } from "../../src/settings/index.js";
 import * as postgres from "../../src/db/postgres.js";
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -21,6 +23,7 @@ import { recordPublishStep } from "../../src/agentWork/publishRecordRepository.j
 import { makeTestConfig } from "../helpers/config.js";
 import {
   acquirePrActorLease,
+  armLeaseWatchdogHop,
   assertPrActorLeaseHeld,
   isPrActorLeaseHeld,
   releasePrActorLease,
@@ -34,7 +37,7 @@ import {
   cancelUnenqueuedStaleHeadReplacement,
   createReviewRescheduleWorkItem,
 } from "../../src/agentWork/reviewReschedule.js";
-import type { ReviewWorkItem } from "../../src/agentWork/types.js";
+import { installationGroupId, type ReviewWorkItem } from "../../src/agentWork/types.js";
 import {
   cancelActiveReviews,
   cancelActiveTriage,
@@ -130,7 +133,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     "takeover",
     "replacement_claim_cancel",
     "replacement_running_cancel",
+    "replacement_send_cancel_662",
+    "replacement_running_send_cancel_662",
+    "replacement_late_hop_cancel_662",
   ])("fences durable publication during %s (#640, #661)", async (mode) => {
+    const realQueue = mode.endsWith("_662");
+    const runningSend = mode === "replacement_running_send_cancel_662";
+    const lateHop = mode === "replacement_late_hop_cancel_662";
     const resourceKey = `${OWNER}/cancel-publish-${randomUUID()}#1`;
     let workItemId = await insertAutoQueued(resourceKey, "review");
     let replacementParent: ReviewWorkItem | undefined;
@@ -155,7 +164,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       });
     }
     const controller = new AbortController();
-    const boss = new PgBoss(makeTestConfig().databaseUrl);
+    const cfg = makeTestConfig();
+    const boss = realQueue
+      ? await createStartedBoss({ databaseUrl: process.env.DATABASE_URL!, role: "web" })
+      : new PgBoss(cfg.databaseUrl);
+    if (realQueue) await ensureAgentQueues(boss, cfg);
     const surfaces: ReturnType<typeof prSurfaceModule.createFakePrSurface>[] = [];
     let executing = false;
     let checkpointArmed = false;
@@ -178,6 +191,23 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
     let claimantPid: number | undefined;
     let cancellation: Promise<unknown> | undefined;
+    let releaseSend!: () => void;
+    const sendGate = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    let sendCommitted!: () => void;
+    const committedSend = new Promise<void>((resolve) => {
+      sendCommitted = resolve;
+    });
+    let releasePublication!: () => void;
+    const publicationGate = new Promise<void>((resolve) => {
+      releasePublication = resolve;
+    });
+    let publicationReady!: () => void;
+    const beforePublication = new Promise<void>((resolve) => {
+      publicationReady = resolve;
+    });
+    let pendingSend: Promise<string | null> | undefined;
     if (mode === "replacement_claim_cancel") {
       vi.spyOn(workRepository, "claimWorkForExecution").mockImplementation(async (...args) => {
         const result = await claimWork(...args);
@@ -204,8 +234,20 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
     vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
     vi.spyOn(evlog, "logError").mockImplementation(() => {});
-    vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
-    vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+    if (!realQueue) {
+      vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
+      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+    } else if (!lateHop) {
+      const send = boss.send.bind(boss);
+      vi.spyOn(boss, "send").mockImplementation(async (...args) => {
+        const id = await send(...args);
+        if (args[2]?.id === workItemId) {
+          sendCommitted();
+          await sendGate;
+        }
+        return id;
+      });
+    }
     vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
       type: "token",
       tokenType: "installation",
@@ -296,15 +338,15 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
 
     const now = new Date();
-    const spec: DurableJobSpec<"review"> = {
-      cfg: makeTestConfig(),
+    let spec: DurableJobSpec<"review"> = {
+      cfg,
       pool,
       boss,
       type: "review",
-      prActorLease: { queue: "review" },
+      prActorLease: { queue: realQueue ? REVIEW_QUEUE : "review" },
       job: {
         id: randomUUID(),
-        name: "review",
+        name: realQueue ? REVIEW_QUEUE : "review",
         data: { workItemId },
         signal: controller.signal,
         expireInSeconds: 600,
@@ -339,6 +381,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       execute: async (item, env) => {
         executing = true;
         await observerReady;
+        if (runningSend) {
+          publicationReady();
+          await publicationGate;
+        }
         if (mode === "replacement_claim_cancel") await cancellation;
         if (mode === "replacement_running_cancel") {
           if (!replacementParent) throw new Error("expected replacement parent");
@@ -385,12 +431,63 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         });
       },
     };
-    const runner = runDurableWorkItem(spec);
-    const settled = runner.then(
-      () => null,
-      (error: unknown) => error,
-    );
+    let settled: Promise<unknown> | undefined;
     try {
+      if (realQueue && !runningSend) {
+        if (!replacementParent) throw new Error("expected replacement parent");
+        if (!lateHop) {
+          pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
+          await committedSend;
+        }
+        await cancelUnenqueuedStaleHeadReplacement(
+          pool,
+          boss,
+          replacementParent,
+          workItemId,
+          replacementError,
+          false,
+        );
+        if (lateHop) {
+          await armLeaseWatchdogHop(boss, {
+            queue: REVIEW_QUEUE,
+            data: { workItemId },
+            singletonKey: workItemId,
+            groupId: installationGroupId(1),
+            workItemId,
+            onSendFailure: "throw",
+          });
+        } else {
+          releaseSend();
+          await pendingSend;
+        }
+        const [delivery] = await boss.findJobs<{ workItemId: string }>(REVIEW_QUEUE, {
+          data: { workItemId },
+        });
+        if (!delivery) throw new Error("expected real replacement delivery");
+        spec = { ...spec, job: { ...delivery, signal: controller.signal } };
+      }
+      const runner = runDurableWorkItem(spec);
+      settled = runner.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      if (runningSend) {
+        await beforePublication;
+        if (!replacementParent) throw new Error("expected replacement parent");
+        pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
+        await committedSend;
+        await cancelUnenqueuedStaleHeadReplacement(
+          pool,
+          boss,
+          replacementParent,
+          workItemId,
+          replacementError,
+          false,
+        );
+        releaseSend();
+        await pendingSend;
+        releasePublication();
+      }
       if (mode === "replacement_claim_cancel") {
         await claimReady;
         if (!replacementParent || claimantPid == null)
@@ -493,7 +590,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               });
             }
           }
-          if (mode !== "late_cancel" && mode !== "replacement_claim_cancel") {
+          if (mode !== "late_cancel" && mode !== "replacement_claim_cancel" && !realQueue) {
             expect(events.some((event) => event.kind === "finishReviewCheck")).toBe(true);
           }
         }
@@ -528,7 +625,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           }),
         );
       }
-      if (mode === "live" || mode.endsWith("cancel")) {
+      if (mode === "live" || mode.endsWith("cancel") || realQueue) {
         const count = events.length;
         await runDurableWorkItem(spec);
         expect(surfaces.flatMap(({ controls }) => controls.events)).toHaveLength(count);
@@ -554,12 +651,24 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     } finally {
       releaseClaim?.();
       releaseObserver?.();
+      releaseSend();
+      releasePublication();
       controller.abort();
       await cancellation;
+      await pendingSend;
       await settled;
       vi.restoreAllMocks();
       clearDurableAuthCachesForTest();
       vi.useRealTimers();
+      if (realQueue) {
+        const jobs = await boss.findJobs(REVIEW_QUEUE, { data: { workItemId } });
+        if (jobs.length)
+          await boss.deleteJob(
+            REVIEW_QUEUE,
+            jobs.map(({ id }) => id),
+          );
+        await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
+      }
     }
   });
 

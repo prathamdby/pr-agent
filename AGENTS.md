@@ -154,7 +154,9 @@ work or transfer progress ownership; slash commands receive an explanatory reply
 Only a newer provider-observed reopen restores admission, without automatically
 starting a review. Terminal state wins timestamp ties; merged never reopens.
 The marker outlives webhook/work retention. Worker-side stale-head replacement
-insertion is a separate contract tracked by #662, not covered by this intake gate.
+insertion takes the same intake lock and reads lifecycle in a subsequent statement,
+before locking the parent lease and item. Closed/merged refusal cannot transfer
+progress ownership; close sees any replacement committed before it acquires the lock.
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
@@ -167,7 +169,10 @@ and verdict cleanup retain their existing signal and epoch fences. A request
 already in flight cannot be withdrawn.
 
 Terminal parent failure cancels a pending stale-head replacement even when its
-claim wins concurrently. After a queued miss, cancellation fixes the replacement's
+claim wins concurrently or a delivery races the abort. Queue existence cannot veto
+the state-predicated cancellation write. Successful in-attempt enqueue and the
+terminal fallback's persisted enqueued marker remain exempt. Leftover deliveries
+for cancelled work cannot publish feature output. After a queued miss, cancellation fixes the replacement's
 recorded epoch and locks its lease before updating the item. It never follows a
 newer epoch or clears a holder. Unconfirmed cancellation emits
 `agent_work_replacement_cancel_failed` at error level and rejects.

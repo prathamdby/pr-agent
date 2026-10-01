@@ -22,8 +22,13 @@ import {
   createReviewWorkItem,
   createTriageWorkItem,
   createVerificationWorkItem,
+  recordReviewLifecycleObservation,
 } from "../../src/agentWork/intake/workItemRepository.js";
-import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
+import { acquireAutoWorkIntakeLock } from "../../src/agentWork/autoWorkEnqueue.js";
+import {
+  createReviewRescheduleWorkItem,
+  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+} from "../../src/agentWork/reviewReschedule.js";
 import { getReviewQueuePosition, getWorkItem } from "../../src/agentWork/repository.js";
 import {
   getProgressCommentOwner,
@@ -71,6 +76,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    await pool.query("DELETE FROM pr_review_lifecycle WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
@@ -653,108 +659,203 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     expect(rows).toHaveLength(2);
   });
 
-  it("transfers progress ownership to a stale-head replacement", async () => {
-    const repo = `repo-${randomUUID().slice(0, 8)}`;
-    const resourceKey = prResourceKey(OWNER, repo, 17);
-    const webhookEventId = randomUUID();
-    const parentId = randomUUID();
+  it.each(["missing", "open", "reopened", "closed", "merged", "closed-after-wait"] as const)(
+    "transfers progress ownership only for an admitted stale-head replacement (#662): %s",
+    async (state) => {
+      const repo = `repo-${randomUUID().slice(0, 8)}`;
+      const resourceKey = prResourceKey(OWNER, repo, 17);
+      const webhookEventId = randomUUID();
+      const parentId = randomUUID();
 
-    await pool.query(
-      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+      await pool.query(
+        `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
        VALUES ($1, $2, $3, 'sha', 'accepted')`,
-      [webhookEventId, `p-${webhookEventId}`, EVENT],
-    );
-    await pool.query(
-      `INSERT INTO agent_work_items (
+        [webhookEventId, `p-${webhookEventId}`, EVENT],
+      );
+      await pool.query(
+        `INSERT INTO agent_work_items (
          id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
          head_sha, review_lens, resource_key, priority, payload
        ) VALUES (
          $1, $2, 'review', 'slash', 'running', $3, $4, 17, 4242, 'sha-old', 'review', $5, 0,
          '{"mode":"review","source":"slash"}'::jsonb
        )`,
-      [parentId, webhookEventId, OWNER, repo, resourceKey],
-    );
-    await pool.query(
-      `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
+        [parentId, webhookEventId, OWNER, repo, resourceKey],
+      );
+      await pool.query(
+        `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
        VALUES ($1, $2, $3, 'review', 'progress_comment', 'completed',
                '{"progressGeneration":4,"progressRevision":6}'::jsonb)`,
-      [randomUUID(), parentId, resourceKey],
-    );
+        [randomUUID(), parentId, resourceKey],
+      );
 
-    const parent = await getWorkItem(pool, parentId);
-    expect(parent?.type).toBe("review");
-    if (parent?.type !== "review") throw new Error("expected review parent");
-    const leaseEpoch = await acquireReviewLease(parentId, resourceKey);
+      const parent = await getWorkItem(pool, parentId);
+      expect(parent?.type).toBe("review");
+      if (parent?.type !== "review") throw new Error("expected review parent");
+      const leaseEpoch = await acquireReviewLease(parentId, resourceKey);
 
-    const replacement = await createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
-    const owner = await getProgressCommentOwner(pool, resourceKey, "review");
+      if (state !== "missing") {
+        await inTransaction(pool, async (client) => {
+          await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
+          if (state === "reopened")
+            await recordReviewLifecycleObservation(
+              client,
+              resourceKey,
+              { state: "closed", observedAt: "2026-10-01T00:00:01Z" },
+              webhookEventId,
+            );
+          await recordReviewLifecycleObservation(
+            client,
+            resourceKey,
+            {
+              state: state === "closed" || state === "merged" ? state : "open",
+              observedAt: "2026-10-01T00:00:02Z",
+            },
+            webhookEventId,
+          );
+        });
+      }
+      if (state === "closed" || state === "merged" || state === "closed-after-wait") {
+        const originalPayload = parent.payload;
+        let replacement: ReturnType<typeof createReviewRescheduleWorkItem> | undefined;
+        if (state === "closed-after-wait") {
+          const blocker = await pool.connect();
+          let open = false;
+          try {
+            await blocker.query("BEGIN");
+            open = true;
+            await acquireAutoWorkIntakeLock(blocker, { kind: "review", resourceKey });
+            const pid = (await blocker.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+            replacement = createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
+            let finished = false;
+            void replacement.then(
+              () => {
+                finished = true;
+              },
+              () => {
+                finished = true;
+              },
+            );
+            await expect
+              .poll(
+                async () => {
+                  const blocked = (
+                    await pool.query<{ blocked: boolean }>(
+                      "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))) AS blocked",
+                      [pid],
+                    )
+                  ).rows[0].blocked;
+                  return blocked || finished;
+                },
+                { timeout: 5000 },
+              )
+              .toBe(true);
+            await recordReviewLifecycleObservation(
+              blocker,
+              resourceKey,
+              { state: "closed", observedAt: "2026-10-01T00:00:03Z" },
+              webhookEventId,
+            );
+            await blocker.query("COMMIT");
+            open = false;
+          } finally {
+            if (open) await blocker.query("ROLLBACK");
+            blocker.release();
+            if (open) await replacement?.catch(() => undefined);
+          }
+        } else replacement = createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
+        await expect(replacement).rejects.toMatchObject({
+          code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+        });
+        expect((await getWorkItem(pool, parentId))?.payload).toEqual(originalPayload);
+        expect(await getProgressCommentOwner(pool, resourceKey, "review")).toEqual({
+          workItemId: parentId,
+          generation: 4,
+        });
+        expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
+          workItemId: parentId,
+          revision: 6,
+        });
+        expect(
+          (
+            await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+              resourceKey,
+            ])
+          ).rows,
+        ).toEqual([{ id: parentId }]);
+        return;
+      }
 
-    const persistedParent = await getWorkItem(pool, parentId);
-    expect(persistedParent?.type).toBe("review");
-    if (persistedParent?.type !== "review") throw new Error("expected review parent");
-    expect(persistedParent.payload.staleHeadReplacement).toEqual({
-      replacementWorkItemId: replacement.replacementWorkItemId,
-      state: "pending-enqueue",
-    });
-    expect(persistedParent.payload).not.toHaveProperty("staleHeadReplacementWorkItemId");
+      const replacement = await createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
+      const owner = await getProgressCommentOwner(pool, resourceKey, "review");
 
-    const reused = await createReviewRescheduleWorkItem(pool, persistedParent, leaseEpoch);
-    expect(reused.replacementWorkItemId).toBe(replacement.replacementWorkItemId);
-    const { rows: replacements } = await pool.query<{ id: string }>(
-      `SELECT id FROM agent_work_items WHERE resource_key = $1 AND id <> $2`,
-      [resourceKey, parentId],
-    );
-    expect(replacements).toEqual([{ id: replacement.replacementWorkItemId }]);
+      const persistedParent = await getWorkItem(pool, parentId);
+      expect(persistedParent?.type).toBe("review");
+      if (persistedParent?.type !== "review") throw new Error("expected review parent");
+      expect(persistedParent.payload.staleHeadReplacement).toEqual({
+        replacementWorkItemId: replacement.replacementWorkItemId,
+        state: "pending-enqueue",
+      });
+      expect(persistedParent.payload).not.toHaveProperty("staleHeadReplacementWorkItemId");
 
-    expect(owner).toEqual({ workItemId: replacement.replacementWorkItemId, generation: 5 });
-    expect(await getProgressCommentRevision(pool, resourceKey, "review")).toBeNull();
+      const reused = await createReviewRescheduleWorkItem(pool, persistedParent, leaseEpoch);
+      expect(reused.replacementWorkItemId).toBe(replacement.replacementWorkItemId);
+      const { rows: replacements } = await pool.query<{ id: string }>(
+        `SELECT id FROM agent_work_items WHERE resource_key = $1 AND id <> $2`,
+        [resourceKey, parentId],
+      );
+      expect(replacements).toEqual([{ id: replacement.replacementWorkItemId }]);
 
-    await recordPublishStep(pool, {
-      workItemId: replacement.replacementWorkItemId,
-      leaseEpoch: null,
-      resourceKey,
-      reviewLens: "review",
-      step: "progress_comment",
-      detail: { progressRevision: 0 },
-    });
-    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
-    await assertPrActorLeaseHeld(pool, parentId, leaseEpoch);
-    for (const epoch of [leaseEpoch, null]) {
+      expect(owner).toEqual({ workItemId: replacement.replacementWorkItemId, generation: 5 });
+      expect(await getProgressCommentRevision(pool, resourceKey, "review")).toBeNull();
+
+      await recordPublishStep(pool, {
+        workItemId: replacement.replacementWorkItemId,
+        leaseEpoch: null,
+        resourceKey,
+        reviewLens: "review",
+        step: "progress_comment",
+        detail: { progressRevision: 0 },
+      });
+      const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+      await assertPrActorLeaseHeld(pool, parentId, leaseEpoch);
+      for (const epoch of [leaseEpoch, null]) {
+        await expect(
+          recordPublishStep(pool, {
+            workItemId: parentId,
+            leaseEpoch: epoch,
+            resourceKey,
+            reviewLens: "review",
+            step: "progress_comment",
+            detail: { progressRevision: 6 },
+          }),
+        ).rejects.toMatchObject({ code: "agent_work.progress_comment_ownership_conflict" });
+      }
+      expect(logWarn).toHaveBeenCalledWith(
+        "review_progress_publish_record_conflict",
+        expect.objectContaining({
+          errorCode: "agent_work.progress_comment_ownership_conflict",
+          errorContext: expect.objectContaining({ workItemId: parentId, resourceKey }),
+        }),
+      );
+
+      expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
+        workItemId: replacement.replacementWorkItemId,
+        revision: 0,
+      });
+      await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch });
       await expect(
         recordPublishStep(pool, {
           workItemId: parentId,
-          leaseEpoch: epoch,
+          leaseEpoch,
           resourceKey,
           reviewLens: "review",
           step: "progress_comment",
           detail: { progressRevision: 6 },
         }),
-      ).rejects.toMatchObject({ code: "agent_work.progress_comment_ownership_conflict" });
-    }
-    expect(logWarn).toHaveBeenCalledWith(
-      "review_progress_publish_record_conflict",
-      expect.objectContaining({
-        errorCode: "agent_work.progress_comment_ownership_conflict",
-        errorContext: expect.objectContaining({ workItemId: parentId, resourceKey }),
-      }),
-    );
-
-    expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
-      workItemId: replacement.replacementWorkItemId,
-      revision: 0,
-    });
-    await releasePrActorLease(pool, { resourceKey, workType: "review", leaseEpoch });
-    await expect(
-      recordPublishStep(pool, {
-        workItemId: parentId,
-        leaseEpoch,
-        resourceKey,
-        reviewLens: "review",
-        step: "progress_comment",
-        detail: { progressRevision: 6 },
-      }),
-    ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
-  });
+      ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+    },
+  );
 
   it.each(
     (["slash", "auto", "parent"] as const).flatMap((transfer) =>
