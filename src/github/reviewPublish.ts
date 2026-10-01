@@ -1,4 +1,5 @@
 import { installationOctokit } from "./appAuth.js";
+import { AppError } from "../errors/appError.js";
 import { httpStatus } from "./httpStatus.js";
 import { paginateOctokitPages, paginateOctokitPagesWithMeta } from "./paginateOctokit.js";
 import {
@@ -49,7 +50,13 @@ export async function findReviewCheckRunByName(
       return data.check_runs;
     },
   });
-  if (truncated) return null;
+  if (truncated) {
+    throw new AppError({
+      code: "github.review_check_lookup_incomplete",
+      message: "Review check lookup was truncated before identity could be confirmed",
+      context: { owner, repo, headSha, name, externalId },
+    });
+  }
   const matches = runs.filter(
     (check) =>
       check.name === name && check.head_sha === headSha && check.external_id === externalId,

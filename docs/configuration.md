@@ -296,6 +296,10 @@ Verification:
 
 Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). The retry budget is the durable `agent_work_items.attempt_count`: every claim increments it, so crash and deploy resumes count too, and a claim past `QUEUE_RETRY_LIMIT + 1` ends the item as failed (`agent_work.attempts_exhausted`). A retry disposition decides whether a failed attempt may return to that budget; escalation owns what a retry does. See [ADR 0034](adr/0034-escalated-retries.md).
 
+Completed mutation recovery without a usable result is terminal before budget
+exhaustion. Failed or incomplete evidence reads remain transient, and genuine failure budgets
+and defaults are unchanged. There is no separate unknown-resolution knob.
+
 ---
 
 ## Code constants (`src/settings/*Constants.ts`, re-exported via `constants.ts`)

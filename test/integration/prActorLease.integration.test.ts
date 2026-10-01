@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Pool } from "pg";
+import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { PgBoss } from "pg-boss";
+import * as postgres from "../../src/db/postgres.js";
+import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import * as evlog from "../../src/evlog.js";
@@ -385,13 +387,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       }
       if (mode === "read_failure" || mode === "remote_failure") {
         const retried = runDurableWorkItem(spec);
-        if (mode === "read_failure") {
-          await expect(retried).resolves.toBeUndefined();
-        } else {
-          await expect(retried).rejects.toMatchObject({
-            code: "operation_intent.mutation_outcome_unknown",
-          });
-        }
+        await expect(retried).resolves.toBeUndefined();
         const retryBatches = surfaces.flatMap(({ controls }) => controls.threadBatches);
         const retryRecords = await pool.query(
           "SELECT id FROM publish_records WHERE work_item_id = $1 AND step = 'inline_review' AND status = 'completed'",
@@ -402,7 +398,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           expect(retryBatches).toHaveLength(1);
           expect(retryRecords.rows).toHaveLength(1);
         } else {
-          expect((await getWorkItem(pool, workItemId))?.status).not.toBe("completed");
+          expect((await getWorkItem(pool, workItemId))?.status).toBe("failed");
           expect(retryBatches).toHaveLength(0);
           expect(retryRecords.rows).toHaveLength(0);
           expect(
@@ -871,6 +867,113 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       expect((await snapshotIntent(workItemId)).status).toBe("outcome_unknown");
     });
   });
+
+  it.each(["after recovery", "SQL boundary", "null with ownership", "cancellation"] as const)(
+    "fences terminal unknown resolution at %s",
+    async (window) => {
+      const resourceKey = `${OWNER}/terminal-${randomUUID()}#1`;
+      const workItemId = await insertRunningWorkItem(resourceKey);
+      const nextItemId = await insertRunningWorkItem(resourceKey);
+      await acquire(resourceKey, workItemId);
+      await claimWorkForExecution(pool, workItemId, 1);
+      const operationKey = "review:terminal-resolution";
+      await intentRepository.persistOperationIntent(pool, {
+        workItemId,
+        operationKey,
+        mutationKind: "github.pr_surface.setLabels",
+        leaseEpoch: 1,
+        detail: { __mutating: true },
+      });
+      const abort = new AbortController();
+      const queryOne = postgres.queryOne;
+      const reconcile = intentRepository.reconcileOperationIntent;
+      let intercepted = false;
+      if (window === "SQL boundary") {
+        vi.spyOn(postgres, "queryOne").mockImplementation(
+          async <T extends QueryResultRow>(
+            client: Pool | PoolClient,
+            text: string,
+            values: unknown[] = [],
+          ) => {
+            if (
+              !intercepted &&
+              text.includes("UPDATE operation_intents") &&
+              values[0] === workItemId
+            ) {
+              intercepted = true;
+              await pool.query(
+                "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+                [resourceKey],
+              );
+              expect(await acquire(resourceKey, nextItemId)).toEqual({
+                acquired: true,
+                leaseEpoch: 2,
+              });
+              const row = await queryOne<T>(client, text, values);
+              expect(row).toBeNull();
+              return row;
+            }
+            return queryOne<T>(client, text, values);
+          },
+        );
+      }
+      if (window === "null with ownership") {
+        vi.spyOn(intentRepository, "reconcileOperationIntent").mockImplementation(
+          async (client, params) => {
+            if (params.workItemId === workItemId) {
+              intercepted = true;
+              return null;
+            }
+            return reconcile(client, params);
+          },
+        );
+      }
+      const mutate = vi.fn(async () => undefined);
+      const error = await withOperationIntent({
+        client: pool,
+        workItemId,
+        operationKey,
+        mutationKind: "github.pr_surface.setLabels",
+        leaseEpoch: 1,
+        signal: abort.signal,
+        mutate,
+        recover: async () => {
+          if (window === "after recovery") {
+            await pool.query(
+              "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+              [resourceKey],
+            );
+            expect(await acquire(resourceKey, nextItemId)).toEqual({
+              acquired: true,
+              leaseEpoch: 2,
+            });
+          }
+          if (window === "cancellation") abort.abort();
+          return { kind: "absent" };
+        },
+      }).catch((failure: unknown) => failure);
+      expect(error).toMatchObject({
+        code:
+          window === "null with ownership"
+            ? "operation_intent.reconcile_no_row"
+            : window === "cancellation"
+              ? "agent_work.execution_aborted"
+              : "agent_work.pr_actor_lease_lost",
+      });
+      if (window === "null with ownership") expect(retryDispositionFor(error)).toBe("transient");
+      if (window === "SQL boundary" || window === "null with ownership")
+        expect(intercepted).toBe(true);
+      const intent = await intentRepository.getOperationIntent(pool, workItemId, operationKey);
+      expect(intent).toMatchObject({ status: "pending", detail: { __mutating: true } });
+      expect(intent?.detail.unknownResolution).toBeUndefined();
+      expect(mutate).not.toHaveBeenCalled();
+      expect(await getWorkItem(pool, workItemId)).toMatchObject({ status: "running" });
+      expect(await getWorkItem(pool, nextItemId)).toMatchObject({ status: "running" });
+      expect((await getLeaseRow(resourceKey)).work_item_id).toBe(
+        window === "after recovery" || window === "SQL boundary" ? nextItemId : workItemId,
+      );
+    },
+  );
 
   it("clears the holder on an exact (id, epoch) match and skips unknown epochs", async () => {
     const resourceKey = `${OWNER}/pairs-${randomUUID().slice(0, 8)}#1`;

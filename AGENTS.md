@@ -148,6 +148,8 @@ GitHub sends a signed webhook to the web role. The web role verifies and parses 
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
+After an interrupted mutation, the intent boundary checks saved results and exact evidence. Completed recovery without a usable result selects terminal failure through the existing feature hook; the intent stays `outcome_unknown` and is never remutated. Failed or incomplete evidence reads remain transient. A cached terminal resolution skips repeated recovery reads, and terminal work-item redelivery cannot claim again.
+
 Leased execution surfaces reread durable cancellation at entry and immediately
 before each mutation callback, then reassert lease ownership. Visible cancellation
 blocks feature output even before the observer aborts the signal. Terminal notices
