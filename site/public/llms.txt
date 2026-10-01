@@ -70,15 +70,15 @@ FEATURE_COMMIT_STATUS: false | true. Default false. Posts pr-agent/review: pendi
 Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it. The check and optional commit status use that same verdict. Ambiguous publication stays fail-closed.
 FEATURE_TITLE_REWRITE: false | true. Default true. Allows /describe to rewrite the PR title using make-pr default title rules. Set false to keep the existing title.
 Landing-page capability copy:
-- Catch basics before a human opens the change. Runs when a pull request opens, or when you comment /review. Comments land next to the lines that need attention.
-- Turn a blank PR body into a readable summary. Runs when a pull request opens, or when you comment /describe. Summary bullets and optional visual sketches go into the PR body when the diff proves them.
+- Catch basics before a human opens the change. Runs on opening or approval, depending on your settings, or when you comment /review on an open pull request. Comments land next to the lines that need attention.
+- Turn a blank PR body into a readable summary. Runs when a pull request opens in auto mode, or when you comment /describe. Summary bullets and optional visual sketches go into the PR body when the diff proves them.
 - Ask code questions without leaving GitHub. Comment /ask … or mention the GitHub App bot with your question. The word @bot only matches if you named the App that. /ask does not need a mention. Asking the same comment twice posts one answer; post a new comment to ask again.
 - Recheck open findings after each push. Runs after each new push when that option is left on, or when you comment /verify. With no open findings, verification skips the agent. An older-head run completes degraded instead of clean. Switch to on-demand to limit token use.
 - Revisit earlier findings on the pull request. Comment /triage, or /triage preview then /triage all, on the pull request. Preview the would-be diff, then apply the approved set. Bare /triage still fixes without a preview.
 - Skip AI review when the PR is only docs. Runs automatically on small documentation-only changes. Docs-only pull requests take a lighter path instead of a full review.
 Landing-page review flow copy:
 - Deploy once on servers you control: Install PR Agent beside the rest of your stack. Your GitHub credentials and AI keys stay in your account, not a vendor dashboard.
-- A pull request opens on your project: PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.
+- A pull request opens on your project: PR Agent starts a review on opening or approval, depending on your settings. Your team sees a reaction on the pull request so everyone knows work has begun.
 - It reads what actually changed: PR Agent looks at the branch and the changes, then hunts for bugs and correctness issues. When risky APIs show up, it also checks for security problems.
 - Feedback shows up on the pull request: Notes appear next to the changed lines, plus a short summary in the conversation. Want more? Comment /describe, /ask, /triage, or mention the App bot. Replies stay in the same thread.
 - Honest limits when the change is huge: Docs-only pull requests can take a lighter path. Very large changes may get a partial review, and PR Agent says what it could not cover instead of faking completeness.
@@ -175,7 +175,7 @@ Feature matrix. Each criterion lists every tool with Yes, Partial, or No:
 Q: What is PR Agent?
 A: PR Agent is open-source software that reviews GitHub pull requests on servers you run. You deploy it once, connect GitHub and an AI provider, and it posts reviews, summaries, and answers back on the pull request.
 Q: Is PR Agent a self-hosted alternative to CodeRabbit?
-A: Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.
+A: Yes. It reviews pull requests, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.
 Q: How does PR Agent compare to Greptile?
 A: Greptile is a cloud reviewer that indexes whole repositories. PR Agent is self-hosted and looks at each pull request from the branch and what changed. Pick it when you want to run the reviewer and choose the model provider, not another managed subscription.
 Q: Does PR Agent replace Cursor Bugbot?

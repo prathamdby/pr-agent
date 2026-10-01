@@ -31,7 +31,7 @@ const CASES: readonly UseCase[] = [
       "Four specialists read the branch and the diff for correctness, security, quality, and tests. One orchestrator decides what is worth posting.",
     bullets: [
       "Comments land next to the changed lines, with a summary in the conversation",
-      "Runs when a pull request opens, or when you comment /review",
+      "Runs on opening or approval, depending on your settings, or when you comment /review on an open pull request",
       "P0–P2 findings fail the PR Agent Review check. P3 does not",
       "Docs-only pull requests take a lighter path instead of a full run",
     ],
@@ -44,7 +44,7 @@ const CASES: readonly UseCase[] = [
     description:
       "Turn a blank description into a type, summary bullets, a changes diagram, and a file walkthrough.",
     bullets: [
-      "Runs when a pull request opens, or when you comment /describe",
+      "Runs when a pull request opens in auto mode, or when you comment /describe",
       "Sections: PR type, description, changes diagram, file walkthrough",
       "Optional title rewrite, controlled by FEATURE_TITLE_REWRITE",
       "Stop it from calling the model with FEATURE_DESCRIBE=off",

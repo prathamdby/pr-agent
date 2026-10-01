@@ -32,8 +32,8 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "A pull request opens on your project",
     detail:
-      "PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.",
-    cue: "Starts when a pull request opens",
+      "PR Agent starts a review on opening or approval, depending on your settings. Your team sees a reaction on the pull request so everyone knows work has begun.",
+    cue: "Starts on opening or approval",
     summary: "Automated AI pull request reviews",
   },
   {
@@ -72,13 +72,14 @@ export const CAPABILITIES: CapabilityItem[] = [
   {
     id: "review",
     title: "Catch basics before a human opens the change",
-    trigger: "Runs when a pull request opens, or when you comment /review",
+    trigger:
+      "Runs on opening or approval, depending on your settings, or when you comment /review on an open pull request",
     detail: "Comments land next to the lines that need attention.",
   },
   {
     id: "describe",
     title: "Turn a blank PR body into a readable summary",
-    trigger: "Runs when a pull request opens, or when you comment /describe",
+    trigger: "Runs when a pull request opens in auto mode, or when you comment /describe",
     detail:
       "Summary bullets and optional visual sketches go into the PR body when the diff proves them.",
   },
@@ -162,7 +163,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Is PR Agent a self-hosted alternative to CodeRabbit?",
     answer:
-      "Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.",
+      "Yes. It reviews pull requests, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.",
   },
   {
     question: "How does PR Agent compare to Greptile?",
@@ -389,7 +390,7 @@ export const APP_FIELDS = [
   {
     label: "Subscribe to",
     value:
-      "Pull requests, issue comments, pull request review comments, workflow runs, check suites, check runs, and statuses",
+      "Pull requests, issue comments, pull request review comments, workflow runs, check suites, check runs, and statuses. Add pull request reviews for approval mode.",
     mono: false,
   },
   {
@@ -406,6 +407,10 @@ export const SLASH_COMMANDS = [
     tip: "Run a full review; repeated commands acknowledge active work, even when cancellation races intake",
   },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
+  { cmd: "/verify", tip: "Recheck open findings" },
+  { cmd: "/cancel", tip: "Cancel a queued or running review" },
+  { cmd: "/review force", tip: "Restart the review on the latest commit" },
+  { cmd: "/help", tip: "List available commands" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
   { cmd: "/triage", tip: "Apply fixes and push. Preview is optional." },
   { cmd: "/triage preview", tip: "Show the would-be unified diff. Nothing is pushed." },
