@@ -974,6 +974,28 @@ async function runClaimedReview(args: {
     });
   }
 
+  if (publishContext.publishState.summaryPublished) {
+    const summaryDetail = await getCompletedPublishStepDetail(
+      pool,
+      item.id,
+      item.resourceKey,
+      reviewLens,
+      "summary_comment",
+    );
+    if (summaryDetail?.lightweightCompletion === true) {
+      await closeStoredReviewVerdict({
+        pool,
+        item,
+        reviewLens,
+        prSurface,
+        leaseEpoch: env.leaseEpoch,
+        commitStatusEnabled,
+        outcome: ownVerdictFromSummaryDetail(summaryDetail),
+      });
+      return { kind: "completed" };
+    }
+  }
+
   const lightweight = await runLightweightCompletionOrSkip({
     beginAttempt: env.beginAttempt,
     cfg,

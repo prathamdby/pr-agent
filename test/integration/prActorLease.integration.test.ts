@@ -25,6 +25,7 @@ import {
   DEFERRED_HEAD_SHA,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
+  REVIEW_SUMMARY_SENTINEL,
   STALE_QUEUED_WORK_GRACE_SECONDS,
 } from "../../src/settings/index.js";
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
@@ -79,6 +80,7 @@ import {
 } from "../../src/agentWork/repository.js";
 import { hasDatabase, integrationPool } from "./db.js";
 import { closeOwnVerdict } from "../../src/agentWork/closeOwnVerdict.js";
+import * as ownVerdictModule from "../../src/agentWork/closeOwnVerdict.js";
 
 const OWNER = "lease-it";
 const TTL_SECONDS = 900;
@@ -146,6 +148,153 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       ttlSeconds: TTL_SECONDS,
     });
   }
+
+  it.each(["lightweight", "ordinary_summary", "foreign_lightweight"] as const)(
+    "#657 recovers interrupted lightweight publication at the cap (%s)",
+    async (mode) => {
+      const resourceKey = `${OWNER}/lightweight-recovery-${randomUUID()}#1`;
+      const workItemId = await insertAutoQueued(resourceKey, "review");
+      const cfg = makeTestConfig({ queueRetryLimit: 0 });
+      const job = {
+        ...makeDurableJobMetadata(workItemId, 0, 0),
+        data: { kind: "review" as const, workItemId },
+      };
+      const boss = new PgBoss(cfg.databaseUrl);
+      vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
+      vi.spyOn(boss, "sendDebounced").mockResolvedValue(randomUUID());
+      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+      clearDurableAuthCachesForTest();
+      vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
+        type: "token",
+        tokenType: "installation",
+        token: "synthetic-installation-token",
+        installationId: 1,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
+        permissions: {},
+        repositorySelection: "all",
+      });
+      const fake = prSurfaceModule.createFakePrSurface(
+        { owner: OWNER, repo: "r", prNumber: 1 },
+        { headSha: "h" },
+      );
+      fake.controls.setChangedFilesResult({
+        files: [
+          {
+            filename: "README.md",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            changes: 1,
+            patch: "+Synthetic documentation change",
+          },
+        ],
+        truncated: false,
+        omittedCountLowerBound: 0,
+        totalChanges: 1,
+        headSha: "h",
+      });
+      vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation((params) =>
+        params.mutationBoundary == null
+          ? fake.surface
+          : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
+      );
+      const workspace = vi.spyOn(prWorkspaceModule, "withPrRepositoryView");
+      const close = ownVerdictModule.closeOwnVerdict;
+      let interrupted = false;
+      vi.spyOn(ownVerdictModule, "closeOwnVerdict").mockImplementation(async (params) => {
+        if (
+          !interrupted &&
+          params.workItemId === workItemId &&
+          params.outcome.kind === "published"
+        ) {
+          interrupted = true;
+          await pool.query(
+            "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+            [resourceKey],
+          );
+          expect(await acquire(resourceKey, workItemId)).toMatchObject({ acquired: true });
+          throw new AppError({
+            code: "agent_work.pr_actor_lease_lost",
+            message: "Synthetic interruption before verdict close",
+          });
+        }
+        return close(params);
+      });
+      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, job);
+      expect(interrupted).toBe(true);
+      expect(await getWorkItem(pool, workItemId)).toMatchObject({
+        status: "running",
+        attemptCount: 1,
+      });
+      const summary = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+      const published = fake.controls.events.filter(
+        (event) => event.kind === "upsertProgressComment",
+      );
+      expect(published).toHaveLength(1);
+      const stored = await workRepository.getCompletedPublishStepDetail(
+        pool,
+        workItemId,
+        resourceKey,
+        "review",
+        "summary_comment",
+      );
+      expect(stored?.lightweightCompletion).toBe(true);
+      if (mode === "ordinary_summary") {
+        await pool.query(
+          "UPDATE publish_records SET detail = detail - 'lightweightCompletion' WHERE work_item_id = $1 AND step = 'summary_comment'",
+          [workItemId],
+        );
+      } else if (mode === "foreign_lightweight") {
+        const foreignId = await insertAutoQueued(resourceKey, "review");
+        await pool.query("UPDATE agent_work_items SET status = 'completed' WHERE id = $1", [
+          foreignId,
+        ]);
+        await pool.query(
+          "UPDATE publish_records SET work_item_id = $2 WHERE work_item_id = $1 AND step = 'summary_comment'",
+          [workItemId, foreignId],
+        );
+      }
+      await pool.query(
+        "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+        [resourceKey],
+      );
+      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, { ...job, id: randomUUID() });
+      const expectedStatus = mode === "lightweight" ? "completed" : "failed";
+      expect(await getWorkItem(pool, workItemId)).toMatchObject({
+        status: expectedStatus,
+        attemptCount: 1,
+      });
+      expect(workspace).not.toHaveBeenCalled();
+      if (mode === "lightweight") {
+        expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)).toEqual(summary);
+        expect(
+          fake.controls.events.filter((event) => event.kind === "upsertProgressComment"),
+        ).toHaveLength(1);
+        expect(fake.controls.events).toContainEqual(
+          expect.objectContaining({
+            kind: "finishReviewCheck",
+            conclusion: "success",
+          }),
+        );
+        expect(fake.controls.reactions.map((reaction) => reaction.kind)).toEqual(["+1"]);
+      } else {
+        expect(fake.controls.reactions.map((reaction) => reaction.kind)).toEqual(["-1"]);
+      }
+      const eventCount = fake.controls.events.length;
+      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, { ...job, id: randomUUID() });
+      expect(fake.controls.events).toHaveLength(eventCount);
+      console.info(
+        "lightweight-recovery-evidence",
+        JSON.stringify({
+          mode,
+          status: expectedStatus,
+          originalPublications: published.length,
+          freshWorkspaceEntries: 0,
+        }),
+      );
+    },
+  );
 
   it.each([
     "published",

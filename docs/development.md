@@ -13,6 +13,10 @@ claim/escalation. Every executor calls it before fresh workspace/computation or
 bulk patch work, after its recovery-only branches. No remote work runs under
 the admission transaction. Resumed substantive work charges again.
 
+Review recovery accepts a completed summary's `lightweightCompletion: true`
+only when that record belongs to the current work item. It repairs the verdict
+before fresh admission. An ordinary or foreign summary cannot select this path.
+
 ## Module layout (production)
 
 | Area                                      | Path                                          | Public entry                                                                                                                                                                                                                                                                             |

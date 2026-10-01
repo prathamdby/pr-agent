@@ -340,6 +340,11 @@ or schema reversal.
   provider call still counts. The count proves admission, not provider acceptance.
   `agent_work_resumed` reports the stored count before any new work admission.
   pg-boss stays the only retry scheduler.
+- An interrupted lightweight review with a completed `summary_comment` for its
+  own work item and `detail.lightweightCompletion = true` repairs its verdict
+  and completes without another work attempt, including at the cap. The saved
+  summary is not rewritten and completion uses the normal positive reaction.
+  An ordinary summary or another item's publication does not prove this recovery.
 - Before admission, infrastructure failures retain pg-boss's per-delivery retry
   limit and original cause, not remaining work attempts or
   `agent_work.attempts_exhausted`. `agent_work_retrying` includes `retryPhase`,
