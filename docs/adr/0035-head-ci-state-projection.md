@@ -24,6 +24,16 @@ Webhook delivery is best effort. A head whose checks finished before the App saw
 
 5. **Completed-run intake is head-scoped.** `workflow_run` and `check_suite` completed deliveries enqueue one debounced `ci-projection` for the head. They do not write facts. Empty `pull_requests[]` still enqueues. Each projection merges stored `pr_numbers` with `agent_work_items` and one `commits/{sha}/pulls` lookup.
 
+   Correlated intake jobs retain a deduplicated `correlations` array of
+   `{webhookEventId, delivery}` pairs, alongside their original top-level identity.
+   pg-boss tries the current five-second slot, then the next; a null result
+   atomically appends attribution to the exact non-cancelled next-slot job on the
+   intake client, including active or terminal conflicts. Legacy primary identity
+   joins the set. Missing targets or attribution write errors roll back intake.
+   This does not change fact acceptance, head revisions, scheduling, or rendering.
+   Evidence lasts only as long as the retained job. Worker logs keep one primary
+   identity; standalone repair and retry scheduling accept no new delivery.
+
 6. **First seed from pull_request.** `opened`, `synchronize`, and `reopened` enqueue that same job only when the row is missing or `seeded_at` is null. A delivery that plans no review work records `ci_projection_enqueued` when it schedules that seed, and `ignored_pull_request_${action}` when it does not. Completed-run intake still always enqueues.
 
 7. **Authoring lives on the projector.** A failing rollup runs one LLM turn per facts hash. The result is stored on `authored` and does not bump `version`. Publish does not wait or poll.

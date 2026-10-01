@@ -1,12 +1,16 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { PgBoss, SendOptions } from "pg-boss";
 import {
   applyAutomatedPullRequestIntake,
   applyCompletedRunCiIntake,
   applyCiStateIntake,
 } from "../../src/agentWork/intake/applier.js";
+import {
+  enqueueCiProjectionDebounced,
+  enqueueCiProjectionDebouncedStandalone,
+} from "../../src/agentWork/intake/queueing.js";
 import {
   enqueueCiProjectionIfDue,
   loadRenderableHeadCi,
@@ -31,7 +35,12 @@ import * as prSurface from "../../src/github/prSurface.js";
 import * as evlog from "../../src/evlog.js";
 import * as prWorkspace from "../../src/prWorkspace/index.js";
 import * as verificationRun from "../../src/agent/verification/verificationRun.js";
-import type { QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
+import type {
+  CiProjectionJobData,
+  JobCorrelation,
+  QueueConfig,
+  WebhookHeaders,
+} from "../../src/agentWork/types.js";
 import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
 import { hashCiFacts, parseCiAuthoredCache } from "../../src/review/ci/ciAuthoredCache.js";
 import { observedAtFromGithub, type CiCheckFact } from "../../src/review/ci/classifySnapshot.js";
@@ -46,6 +55,7 @@ import { makeReviewPayload } from "../helpers/reviewPayloadFactory.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
 import { renderReviewProgressComment } from "../../src/review/run/progressComment.js";
 import { runMigrations } from "../../src/db/migrations.js";
+import { pgBossDb } from "../../src/db/postgres.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import {
@@ -624,8 +634,8 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(row?.rollup).toBe("failing");
     expect(row?.checks.lint?.conclusion).toBe("failure");
 
-    const { rows: events } = await pool.query<{ processing_decision: string }>(
-      "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+    const { rows: events } = await pool.query<{ id: string; processing_decision: string }>(
+      "SELECT id, processing_decision FROM webhook_events WHERE delivery_id = $1",
       [delivery],
     );
     expect(events[0]?.processing_decision).toBe("ci_state_applied");
@@ -637,8 +647,680 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       owner: OWNER,
       repo: REPO,
       headSha,
+      webhookEventId: events[0].id,
+      delivery,
+      correlations: [{ webhookEventId: events[0].id, delivery }],
     });
   });
+
+  it("retains both coalesced fact deliveries and renders the actual absorbing job", async () => {
+    const headSha = randomUUID().replaceAll("-", "");
+    const deliveries = [randomUUID(), randomUUID()];
+    const data = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+    };
+    const observer = await pool.connect();
+    const originalSend = boss.sendDebounced.bind(boss);
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstPid: number | undefined;
+    const sends: Array<{ delivery?: string; id: string | null; slot: number }> = [];
+    const spy = vi
+      .spyOn(boss, "sendDebounced")
+      .mockImplementation(
+        async (
+          name: string,
+          payload: object | null,
+          options: SendOptions | null,
+          seconds: number,
+          key?: string,
+        ) => {
+          const id = await originalSend(name, payload, options, seconds, key);
+          if (name === CI_PROJECTION_QUEUE && options?.db) {
+            const meta = await options.db.executeSql(
+              "SELECT pg_backend_pid() AS pid, floor(extract(epoch FROM now()) / 5)::int AS slot",
+            );
+            const identity = payload as CiProjectionJobData;
+            sends.push({ delivery: identity.delivery, id, slot: meta.rows[0].slot });
+            if (identity.delivery === deliveries[0]) {
+              firstPid = meta.rows[0].pid;
+              await firstGate;
+            }
+          }
+          return id;
+        },
+      );
+    let first: Promise<void> | undefined;
+    let second: Promise<void> | undefined;
+    let workItemId: string | undefined;
+    try {
+      await observer.query(
+        "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
+      );
+      await enqueueCiProjectionDebouncedStandalone(boss, data);
+      const setup = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
+      expect(setup).toHaveLength(1);
+      const setupJob = setup[0];
+      first = applyCiStateIntake(
+        boss,
+        pool,
+        headers("check_run", deliveries[0]),
+        { ...data, fact: ciStateFact() },
+        intakeLog(),
+      );
+      void first.catch(() => undefined);
+      await expect.poll(() => firstPid, { timeout: 2000 }).toBeDefined();
+      second = applyCiStateIntake(
+        boss,
+        pool,
+        headers("check_run", deliveries[1]),
+        { ...data, fact: ciStateFact({ name: "test", check_run_id: 88, conclusion: "success" }) },
+        intakeLog(),
+      );
+      void second.catch(() => undefined);
+      await expect
+        .poll(
+          async () =>
+            (
+              await observer.query<{ blocked: boolean }>(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))) AS blocked",
+                [firstPid],
+              )
+            ).rows[0].blocked,
+          { timeout: 2000 },
+        )
+        .toBe(true);
+      releaseFirst();
+      await Promise.all([first, second]);
+      expect(sends).toHaveLength(2);
+      expect(sends[0].id).not.toBeNull();
+      expect(sends[1].id).toBeNull();
+      expect(sends[1].slot).toBe(sends[0].slot);
+      const jobs = await boss.findJobs<CiProjectionJobData & { correlations: JobCorrelation[] }>(
+        CI_PROJECTION_QUEUE,
+        {},
+      );
+      expect(jobs).toHaveLength(2);
+      const absorbing = jobs.find((job) => job.id === sends[0].id)!;
+      expect(jobs.find((job) => job.id === setupJob.id)?.data).toEqual(setupJob.data);
+      const row = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+      expect(row?.version).toBe(2);
+      expect(row?.checks.lint?.conclusion).toBe("failure");
+      expect(row?.checks.test?.conclusion).toBe("success");
+      const events = await pool.query<{ id: string; delivery_id: string }>(
+        "SELECT id, delivery_id FROM webhook_events WHERE delivery_id = ANY($1::text[])",
+        [deliveries],
+      );
+      expect(events.rows).toHaveLength(2);
+      expect(absorbing.data.correlations).toHaveLength(2);
+      expect(absorbing.data.correlations).toEqual(
+        expect.arrayContaining(
+          events.rows.map((event) => ({ webhookEventId: event.id, delivery: event.delivery_id })),
+        ),
+      );
+      expect(absorbing.data.delivery).toBe(deliveries[0]);
+
+      workItemId = await insertReviewWorkItem(headSha);
+      const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+      fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+      fake.controls.setProgressComment(
+        REVIEW_SUMMARY_SENTINEL,
+        reviewCommentBody(headSha, 0, workItemId),
+        653,
+      );
+      const authored: unknown[] = [];
+      await executeCiProjectionJob(cfg, pool, boss, absorbing.data, {
+        createSurface: async () => fake.surface,
+        author: stubCiAuthor(authored),
+      });
+      const projected = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+      expect(projected?.version).toBe(3);
+      expect(projected?.checks.lint?.conclusion).toBe("failure");
+      expect(projected?.checks.test?.conclusion).toBe("success");
+      expect(authored).toHaveLength(1);
+      const body = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body ?? "";
+      expect(parseCiSummaryMarkerVersion(body)).toBe(3);
+      expect(body).toContain("authored lint");
+      expect(body).toContain(`head=${headSha}`);
+    } finally {
+      releaseFirst();
+      await Promise.allSettled([first, second].filter((run) => run !== undefined));
+      spy.mockRestore();
+      observer.release();
+      const jobs = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
+      const ids = jobs
+        .filter(
+          (job) =>
+            job.data.owner === OWNER && job.data.repo === REPO && job.data.headSha === headSha,
+        )
+        .map((job) => job.id);
+      if (ids.length) await boss.deleteJob(CI_PROJECTION_QUEUE, ids);
+      if (workItemId) await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      await pool.query("DELETE FROM webhook_events WHERE delivery_id = ANY($1::text[])", [
+        deliveries,
+      ]);
+      await pool.query(
+        "DELETE FROM pr_head_ci_state WHERE owner = $1 AND repo = $2 AND head_sha = $3",
+        [OWNER, REPO, headSha],
+      );
+    }
+  });
+
+  it("atomically retains two overlapping completed-run appenders after both real sends return null", async () => {
+    const headSha = randomUUID().replaceAll("-", "");
+    const deliveries: string[] = [randomUUID(), randomUUID(), randomUUID()];
+    const data = {
+      kind: "ci_projection" as const,
+      installationId: 9001,
+      owner: OWNER,
+      repo: REPO,
+      headSha,
+      prNumbers: [],
+    };
+    const observer = await pool.connect();
+    const bClient = await pool.connect();
+    const cClient = await pool.connect();
+    const originalSend = boss.sendDebounced.bind(boss);
+    let releaseB!: () => void;
+    let releaseC!: () => void;
+    let releaseCommit!: () => void;
+    const gateB = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
+    const gateC = new Promise<void>((resolve) => {
+      releaseC = resolve;
+    });
+    const commitGate = new Promise<void>((resolve) => {
+      releaseCommit = resolve;
+    });
+    const arrivals: Array<{ delivery?: string; id: string | null; pid: number; slot: number }> = [];
+    let bAtCommit = false;
+    let querySpy: { mockRestore(): void } | undefined;
+    let connectSpy: { mockRestore(): void } | undefined;
+    const sendSpy = vi
+      .spyOn(boss, "sendDebounced")
+      .mockImplementation(
+        async (
+          name: string,
+          payload: object | null,
+          options: SendOptions | null,
+          seconds: number,
+          key?: string,
+        ) => {
+          const id = await originalSend(name, payload, options, seconds, key);
+          const identity = payload as CiProjectionJobData;
+          if (options?.db && deliveries.slice(1).includes(identity.delivery ?? "")) {
+            const result = await options.db.executeSql(
+              "SELECT pg_backend_pid() AS pid, floor(extract(epoch FROM now()) / 5)::int AS slot",
+            );
+            arrivals.push({ delivery: identity.delivery, id, ...result.rows[0] });
+            await (identity.delivery === deliveries[1] ? gateB : gateC);
+          }
+          return id;
+        },
+      );
+    let b: Promise<void> | undefined;
+    let c: Promise<void> | undefined;
+    try {
+      await observer.query(
+        "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
+      );
+      await enqueueCiProjectionDebouncedStandalone(boss, data);
+      await applyCompletedRunCiIntake(
+        boss,
+        pool,
+        headers("workflow_run", deliveries[0]),
+        data,
+        intakeLog(),
+      );
+      const before = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
+      expect(before).toHaveLength(2);
+      const absorbingId = before.find((job) => job.data.delivery === deliveries[0])!.id;
+      const query = bClient.query.bind(bClient);
+      querySpy = vi
+        .spyOn(bClient, "query")
+        .mockImplementation(async (...args: Parameters<typeof bClient.query>) => {
+          if (args[0] === "COMMIT") {
+            bAtCommit = true;
+            await commitGate;
+          }
+          return query(...args);
+        });
+      connectSpy = vi
+        .spyOn(pool, "connect")
+        .mockImplementationOnce(async () => bClient)
+        .mockImplementationOnce(async () => cClient);
+      b = applyCompletedRunCiIntake(
+        boss,
+        pool,
+        headers("workflow_run", deliveries[1]),
+        data,
+        intakeLog(),
+      );
+      c = applyCompletedRunCiIntake(
+        boss,
+        pool,
+        headers("check_suite", deliveries[2]),
+        data,
+        intakeLog(),
+      );
+      void b.catch(() => undefined);
+      void c.catch(() => undefined);
+      await expect.poll(() => arrivals.length, { timeout: 2000 }).toBe(2);
+      expect(arrivals.map((arrival) => arrival.id)).toEqual([null, null]);
+      expect(arrivals[0].slot).toBe(arrivals[1].slot);
+      releaseB();
+      await expect.poll(() => bAtCommit, { timeout: 2000 }).toBe(true);
+      releaseC();
+      const bPid = arrivals.find((arrival) => arrival.delivery === deliveries[1])!.pid;
+      const cPid = arrivals.find((arrival) => arrival.delivery === deliveries[2])!.pid;
+      await expect
+        .poll(
+          async () =>
+            (
+              await observer.query<{ blocked: boolean }>(
+                "SELECT $1 = ANY(pg_blocking_pids($2)) AS blocked",
+                [bPid, cPid],
+              )
+            ).rows[0].blocked,
+          { timeout: 2000 },
+        )
+        .toBe(true);
+      releaseCommit();
+      await Promise.all([b, c]);
+      const jobs = await boss.findJobs<CiProjectionJobData & { correlations: JobCorrelation[] }>(
+        CI_PROJECTION_QUEUE,
+        {},
+      );
+      expect(jobs).toHaveLength(2);
+      const absorbing = jobs.find((job) => job.id === absorbingId)!;
+      const events = await pool.query<{ id: string; delivery_id: string }>(
+        "SELECT id, delivery_id FROM webhook_events WHERE delivery_id = ANY($1::text[])",
+        [deliveries],
+      );
+      expect(events.rows).toHaveLength(3);
+      expect(absorbing.data.correlations).toHaveLength(3);
+      expect(absorbing.data.correlations).toEqual(
+        expect.arrayContaining(
+          events.rows.map((event) => ({ webhookEventId: event.id, delivery: event.delivery_id })),
+        ),
+      );
+      expect(absorbing.data.delivery).toBe(deliveries[0]);
+    } finally {
+      releaseB();
+      releaseC();
+      releaseCommit();
+      await Promise.allSettled([b, c].filter((run) => run !== undefined));
+      sendSpy.mockRestore();
+      querySpy?.mockRestore();
+      connectSpy?.mockRestore();
+      if (!b) bClient.release();
+      if (!c) cClient.release();
+      observer.release();
+      const jobs = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
+      const ids = jobs
+        .filter(
+          (job) =>
+            job.data.owner === OWNER && job.data.repo === REPO && job.data.headSha === headSha,
+        )
+        .map((job) => job.id);
+      if (ids.length) await boss.deleteJob(CI_PROJECTION_QUEUE, ids);
+      await pool.query("DELETE FROM webhook_events WHERE delivery_id = ANY($1::text[])", [
+        deliveries,
+      ]);
+      await pool.query(
+        "DELETE FROM pr_head_ci_state WHERE owner = $1 AND repo = $2 AND head_sha = $3",
+        [OWNER, REPO, headSha],
+      );
+    }
+  });
+
+  it.each(["legacy", "uncorrelated", "active", "completed", "failed"] as const)(
+    "attributes absorption on a %s target without changing unrelated jobs or repeating identities",
+    async (variant) => {
+      const headSha = randomUUID().replaceAll("-", "");
+      const delivery = randomUUID();
+      const prior = { webhookEventId: randomUUID(), delivery: randomUUID() };
+      const data = {
+        kind: "ci_projection" as const,
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      };
+      const client = await pool.connect();
+      const ids: string[] = [];
+      const send = boss.sendDebounced.bind(boss);
+      const results: Array<string | null> = [];
+      const spy = vi
+        .spyOn(boss, "sendDebounced")
+        .mockImplementation(
+          async (
+            name: string,
+            payload: object | null,
+            options: SendOptions | null,
+            seconds: number,
+            key?: string,
+          ) => {
+            const id = await send(name, payload, options, seconds, key);
+            if ((payload as CiProjectionJobData).delivery === delivery) results.push(id);
+            return id;
+          },
+        );
+      let committed = false;
+      try {
+        await client.query(
+          "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
+        );
+        await client.query("BEGIN");
+        const key = `${OWNER}/${REPO}:${headSha}`;
+        ids.push(
+          (await boss.sendDebounced(CI_PROJECTION_QUEUE, data, { db: pgBossDb(client) }, 5, key))!,
+        );
+        const targetId = (await boss.sendDebounced(
+          CI_PROJECTION_QUEUE,
+          { ...data, ...(variant === "uncorrelated" ? {} : prior) },
+          { db: pgBossDb(client), retryLimit: 0 },
+          5,
+          key,
+        ))!;
+        ids.push(targetId);
+        for (const other of [
+          { ...data, headSha: `${headSha}-other` },
+          { ...data, repo: `${REPO}-other` },
+          { ...data, installationId: 9002, headSha: `${headSha}-installation` },
+        ]) {
+          ids.push(
+            (await boss.sendDebounced(
+              CI_PROJECTION_QUEUE,
+              other,
+              { db: pgBossDb(client) },
+              5,
+              `${other.owner}/${other.repo}:${other.headSha}`,
+            ))!,
+          );
+        }
+        ids.push(
+          (await boss.send(CI_PROJECTION_QUEUE, data, {
+            db: pgBossDb(client),
+            singletonKey: `${key}:deferred`,
+            singletonSeconds: 5,
+          }))!,
+        );
+        await client.query("COMMIT");
+        committed = true;
+        if (variant === "active" || variant === "completed" || variant === "failed") {
+          await client.query(
+            "UPDATE pgboss.job SET start_after = now(), priority = 1000 WHERE id = $1 AND name = $2",
+            [targetId, CI_PROJECTION_QUEUE],
+          );
+          const fetched = await boss.fetch(CI_PROJECTION_QUEUE, { batchSize: 1 });
+          expect(fetched[0]?.id).toBe(targetId);
+          if (variant === "completed") await boss.complete(CI_PROJECTION_QUEUE, targetId);
+          if (variant === "failed")
+            await boss.fail(CI_PROJECTION_QUEUE, targetId, { message: "test terminal target" });
+        }
+        const before = (
+          await client.query<{
+            id: string;
+            data: unknown;
+            state: string;
+            start_after: Date;
+            singleton_on: Date;
+          }>(
+            "SELECT id, data, state, start_after, singleton_on FROM pgboss.job WHERE id = ANY($1::uuid[]) ORDER BY id",
+            [ids],
+          )
+        ).rows;
+        expect(before.find((job) => job.id === targetId)?.state).toBe(
+          variant === "legacy" || variant === "uncorrelated" ? "created" : variant,
+        );
+        await applyCompletedRunCiIntake(
+          boss,
+          pool,
+          headers("check_suite", delivery),
+          { ...data, prNumbers: [] },
+          intakeLog(),
+        );
+        expect(results).toEqual([null]);
+        const event = (
+          await client.query<{ id: string }>(
+            "SELECT id FROM webhook_events WHERE delivery_id = $1",
+            [delivery],
+          )
+        ).rows[0];
+        const correlation = { webhookEventId: event.id, delivery };
+        await client.query("BEGIN");
+        await expect(
+          enqueueCiProjectionDebounced(boss, client, { ...data, ...correlation }),
+        ).resolves.toBe("already_present");
+        await client.query("COMMIT");
+        await applyCompletedRunCiIntake(
+          boss,
+          pool,
+          headers("check_suite", delivery),
+          { ...data, prNumbers: [] },
+          intakeLog(),
+        );
+        const expected = variant === "uncorrelated" ? [correlation] : [prior, correlation];
+        if (variant === "legacy") {
+          const sameDelivery = { webhookEventId: randomUUID(), delivery };
+          const forwarded = { ...data, ...correlation, correlations: [sameDelivery, {}, prior] };
+          await client.query("BEGIN");
+          await expect(enqueueCiProjectionDebounced(boss, client, forwarded)).resolves.toBe(
+            "already_present",
+          );
+          await client.query("COMMIT");
+          expected.push(sameDelivery);
+        }
+        const after = (
+          await client.query<{
+            id: string;
+            data: CiProjectionJobData & { correlations: JobCorrelation[] };
+            state: string;
+            start_after: Date;
+            singleton_on: Date;
+          }>(
+            "SELECT id, data, state, start_after, singleton_on FROM pgboss.job WHERE id = ANY($1::uuid[]) ORDER BY id",
+            [ids],
+          )
+        ).rows;
+        expect(after).toHaveLength(ids.length);
+        expect(after.filter((job) => job.id !== targetId)).toEqual(
+          before.filter((job) => job.id !== targetId),
+        );
+        const target = after.find((job) => job.id === targetId)!;
+        const oldTarget = before.find((job) => job.id === targetId)!;
+        expect({ ...target, data: oldTarget.data }).toEqual(oldTarget);
+        expect(target.data.correlations).toHaveLength(expected.length);
+        expect(target.data.correlations).toEqual(expect.arrayContaining(expected));
+        expect(target.data.delivery).toBe(variant === "uncorrelated" ? undefined : prior.delivery);
+      } finally {
+        spy.mockRestore();
+        await client.query("ROLLBACK");
+        client.release();
+        if (ids.length && committed) await boss.deleteJob(CI_PROJECTION_QUEUE, ids);
+        await pool.query("DELETE FROM webhook_delivery_duplicates WHERE delivery_id = $1", [
+          delivery,
+        ]);
+        await pool.query("DELETE FROM webhook_events WHERE delivery_id = $1", [delivery]);
+        await pool.query(
+          "DELETE FROM pr_head_ci_state WHERE owner = $1 AND repo = $2 AND head_sha = $3",
+          [OWNER, REPO, headSha],
+        );
+      }
+    },
+  );
+
+  it.each(["update_failure", "missing_target", "foreign_installation"] as const)(
+    "rolls back fact, event and replay reservation on %s and accepts a retry",
+    async (variant) => {
+      const headSha = randomUUID().replaceAll("-", "");
+      const deliveries = [randomUUID(), randomUUID()];
+      const data = {
+        kind: "ci_projection" as const,
+        installationId: 9001,
+        owner: OWNER,
+        repo: REPO,
+        headSha,
+      };
+      const request = headers("check_run", deliveries[1]);
+      const fingerprint = createHash("sha256").update(request.rawBody).digest("hex");
+      const client = await pool.connect();
+      const query = client.query.bind(client);
+      const send = boss.sendDebounced.bind(boss);
+      let querySpy: { mockRestore(): void } | undefined;
+      let connectSpy: { mockRestore(): void } | undefined;
+      let deletedTarget: string | undefined;
+      const sendSpy = vi
+        .spyOn(boss, "sendDebounced")
+        .mockImplementation(
+          async (
+            name: string,
+            payload: object | null,
+            options: SendOptions | null,
+            seconds: number,
+            key?: string,
+          ) => {
+            const id = await send(name, payload, options, seconds, key);
+            if ((payload as CiProjectionJobData).delivery === deliveries[1]) {
+              expect(id).toBeNull();
+              if (variant === "missing_target") {
+                const target = (
+                  await query<{ id: string }>(
+                    "SELECT id FROM pgboss.job WHERE name = $1 AND data->>'delivery' = $2",
+                    [CI_PROJECTION_QUEUE, deliveries[0]],
+                  )
+                ).rows[0];
+                deletedTarget = target.id;
+                await query("DELETE FROM pgboss.job WHERE name = $1 AND id = $2", [
+                  CI_PROJECTION_QUEUE,
+                  target.id,
+                ]);
+              }
+            }
+            return id;
+          },
+        );
+      try {
+        await client.query(
+          "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
+        );
+        await enqueueCiProjectionDebouncedStandalone(boss, data);
+        await applyCiStateIntake(
+          boss,
+          pool,
+          headers("check_run", deliveries[0]),
+          { ...data, fact: ciStateFact() },
+          intakeLog(),
+        );
+        if (variant === "foreign_installation") {
+          await client.query(
+            "UPDATE pgboss.job SET data = jsonb_set(data, '{installationId}', '9002'::jsonb) WHERE name = $1 AND data->>'delivery' = $2",
+            [CI_PROJECTION_QUEUE, deliveries[0]],
+          );
+        }
+        const before = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+        const priorJobs = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
+        connectSpy = vi.spyOn(pool, "connect").mockImplementationOnce(async () => client);
+        if (variant === "update_failure") {
+          querySpy = vi
+            .spyOn(client, "query")
+            .mockImplementation((...args: Parameters<typeof client.query>) => {
+              if (typeof args[0] === "string" && /UPDATE\s+pgboss\.job/i.test(args[0])) {
+                return Promise.reject(new Error("injected attribution update failure"));
+              }
+              return query(...args);
+            });
+        }
+        await expect(
+          applyCiStateIntake(
+            boss,
+            pool,
+            request,
+            {
+              ...data,
+              fact: ciStateFact({ name: "test", check_run_id: 88, conclusion: "success" }),
+            },
+            intakeLog(),
+          ),
+        ).rejects.toThrow(
+          variant === "update_failure" ? "injected attribution update failure" : "correlation",
+        );
+        querySpy?.mockRestore();
+        connectSpy.mockRestore();
+        sendSpy.mockRestore();
+        expect(await loadPrHeadCiState(pool, OWNER, REPO, headSha)).toEqual(before);
+        expect(
+          (
+            await pool.query("SELECT id FROM webhook_events WHERE delivery_id = $1", [
+              deliveries[1],
+            ])
+          ).rows,
+        ).toEqual([]);
+        expect(
+          (
+            await pool.query(
+              "SELECT body_sha256 FROM webhook_event_replays WHERE body_sha256 = $1",
+              [fingerprint],
+            )
+          ).rows,
+        ).toEqual([]);
+        expect(await boss.findJobs(CI_PROJECTION_QUEUE, {})).toEqual(priorJobs);
+        if (variant === "missing_target") expect(deletedTarget).toBeDefined();
+        if (variant === "foreign_installation") {
+          await pool.query(
+            "UPDATE pgboss.job SET data = jsonb_set(data, '{installationId}', '9001'::jsonb) WHERE name = $1 AND data->>'delivery' = $2",
+            [CI_PROJECTION_QUEUE, deliveries[0]],
+          );
+        }
+        await applyCiStateIntake(
+          boss,
+          pool,
+          request,
+          { ...data, fact: ciStateFact({ name: "test", check_run_id: 88, conclusion: "success" }) },
+          intakeLog(),
+        );
+        expect((await loadPrHeadCiState(pool, OWNER, REPO, headSha))?.version).toBe(2);
+        const jobs = await boss.findJobs<CiProjectionJobData & { correlations: JobCorrelation[] }>(
+          CI_PROJECTION_QUEUE,
+          {},
+        );
+        const absorbing = jobs.find((job) => job.data.delivery === deliveries[0])!;
+        expect(absorbing.data.correlations).toHaveLength(2);
+        expect(absorbing.data.correlations.map((identity) => identity.delivery)).toEqual(
+          expect.arrayContaining(deliveries),
+        );
+      } finally {
+        querySpy?.mockRestore();
+        connectSpy?.mockRestore();
+        sendSpy.mockRestore();
+        // inTransaction released the injected client; otherwise it is still held here.
+        if (!connectSpy) client.release();
+        const jobs = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
+        const ids = jobs
+          .filter(
+            (job) =>
+              job.data.owner === OWNER && job.data.repo === REPO && job.data.headSha === headSha,
+          )
+          .map((job) => job.id);
+        if (ids.length) await boss.deleteJob(CI_PROJECTION_QUEUE, ids);
+        await pool.query("DELETE FROM webhook_events WHERE delivery_id = ANY($1::text[])", [
+          deliveries,
+        ]);
+        await pool.query(
+          "DELETE FROM pr_head_ci_state WHERE owner = $1 AND repo = $2 AND head_sha = $3",
+          [OWNER, REPO, headSha],
+        );
+      }
+    },
+  );
 
   it("rejects an older observation and does not enqueue another projection", async () => {
     const headSha = "feedbeef0123456789abcdef0123456789abcdef";

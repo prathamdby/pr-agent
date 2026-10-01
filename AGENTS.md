@@ -182,6 +182,13 @@ These row locks are separate from review advisory ordering and execution leases.
 
 Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
 
+CI projection intake retains accepted delivery/event pairs in the job's
+`correlations` array, including when debounce absorbs a delivery. That metadata
+commits in the intake transaction; a missing target or failed attribution write
+rolls back intake. The original top-level correlation remains the worker log
+identity. Projection still renders from head state. Inspection and retention:
+[the queue runbook](docs/agent-work-ops.md#ci-projection-delivery-attribution).
+
 Lost-running diagnostics are advisory. The sweeper rechecks the item age,
 lease expiry, and matching live job in the conditional failure write. Only an
 applied mark permits a candidate's crashed verdict close; revived work stays
