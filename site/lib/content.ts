@@ -88,7 +88,8 @@ export const CAPABILITIES: CapabilityItem[] = [
     id: "ask",
     title: "Ask code questions without leaving GitHub",
     trigger: "Comment /ask … or mention the GitHub App bot with your question",
-    detail: "The word @bot only matches if you named the App that. /ask does not need a mention.",
+    detail:
+      "The word @bot only matches if you named the App that. /ask does not need a mention. Asking the same comment twice posts one answer; post a new comment to ask again.",
   },
   {
     id: "verify",

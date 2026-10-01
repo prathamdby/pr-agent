@@ -39,7 +39,10 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
    renewal loss during a long remote call cannot advance stale durable state.
    Recovery workers may still use read-only surface calls to reconcile an
    ambiguous intent. Ask work remains unleased and uses its existing
-   publish-record idempotency path.
+   publish-record idempotency path (amended for #658: same-mention sibling
+   admission is now prevented at intake, so unleased execution no longer
+   relies on per-item markers tolerating a live sibling; the marker protocol
+   itself is unchanged).
 
 ## Consequences
 

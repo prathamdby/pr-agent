@@ -71,6 +71,8 @@ close after upgrade, not historical PR state. See [operations.md](docs/operation
 
 Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged without duplicate active slash work. A cancellation racing that decision no longer causes a missing-winner intake failure. A cancellation or completion that finishes first can allow a fresh run.
 
+Asking the same comment twice does not post twice. Repeat deliveries of one `/ask` or App-bot mention join the retained run — queued, running, or finished — without a second answer or quota charge. Post a new comment to ask again.
+
 Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags. Set `FEATURE_DESCRIBE=off`, `FEATURE_ASK=off`, and similar when you want those features to stop calling the model.
 
 </details>

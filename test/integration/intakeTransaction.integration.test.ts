@@ -7,6 +7,11 @@ import {
   applySlashCommandIntake,
   type SlashCommandInput,
 } from "../../src/agentWork/intake/slashIntake.js";
+import { promoteAskFromWebhookEvent } from "../../src/agentWork/intake/askIntake.js";
+import { insertWebhookEvent } from "../../src/agentWork/intake/webhookEvents.js";
+import { createAskWorkItem } from "../../src/agentWork/intake/workItemRepository.js";
+import { defaultAskQuotaConfig } from "../../src/agentWork/askQuota.js";
+import { inTransaction } from "../../src/db/postgres.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import type {
   AckJobData,
@@ -20,9 +25,20 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger, initEvlog } from "../../src/evlog.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
-import * as installationToken from "../../src/github/installationToken.js";
+import { executeAskJob } from "../../src/agentWork/executors/askExecutor.js";
 import * as appAuth from "../../src/github/appAuth.js";
+import * as installationToken from "../../src/github/installationToken.js";
 import * as prSurface from "../../src/github/prSurface.js";
+import * as prWorkspace from "../../src/prWorkspace/index.js";
+import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
+import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
+
+vi.mock("../../src/agent/ask/askRun.js", () => ({
+  runAskRun: vi.fn(async () => ({
+    answer: "Synthetic ask answer.",
+    usage: { estimated: false, totalTokens: 4 },
+  })),
+}));
 
 // These tests exercise the supersede/cancel mechanism on repeated synchronize deliveries,
 // which only auto-runs review on push when the review trigger includes synchronize.
@@ -43,6 +59,8 @@ const intakeCfg = makeTestConfig({
 });
 import {
   ACK_QUEUE,
+  ASK_QUEUE,
+  ASK_THROTTLED_BODY,
   AUTO_TRIGGER_ACTIONS,
   CI_PROJECTION_QUEUE,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
@@ -60,9 +78,11 @@ import {
   REVIEW_SUMMARY_SENTINEL,
 } from "../../src/settings/index.js";
 import { hasDatabase, integrationPool } from "./db.js";
+import type { AskJobData } from "../../src/agentWork/types.js";
 
 const OWNER = "intake-tx-it";
 const EVENT = "intake-tx-it";
+const ASK_INSTALLATION_ID = 6589001;
 const DATABASE_URL = process.env.DATABASE_URL!;
 const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE, CI_PROJECTION_QUEUE] as const;
 
@@ -119,6 +139,17 @@ function withSendFailOnNth(realBoss: PgBoss, failOnSend: number): { restore: () 
 }
 
 async function deleteQueueJobs(boss: PgBoss): Promise<void> {
+  const items = await boss.findJobs<AskJobData>(ASK_QUEUE, {});
+  const { rows } = await boss
+    .getDb()
+    .executeSql("SELECT id FROM agent_work_items WHERE owner = $1", [OWNER]);
+  const workItemIds = new Set(rows.map((row: { id: string }) => row.id));
+  const asks = items.filter((job) => workItemIds.has(job.data.workItemId));
+  if (asks.length > 0)
+    await boss.deleteJob(
+      ASK_QUEUE,
+      asks.map((job) => job.id),
+    );
   for (const queue of CLEANUP_QUEUES) {
     const jobs = await boss.findJobs(queue, {});
     if (jobs.length > 0) {
@@ -167,6 +198,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
+    await deleteQueueJobs(boss);
     if (
       (await pool.query("SELECT to_regclass('public.pr_review_lifecycle') AS relation")).rows[0]
         .relation
@@ -176,10 +209,659 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ]);
     }
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
+    await pool.query(
+      "DELETE FROM ask_quota_buckets WHERE scope_key LIKE $1 OR scope_key LIKE $2 OR scope_key LIKE $3",
+      ["installation:658900%", "repository:658900%", "actor:658900%"],
+    );
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
-    await deleteQueueJobs(boss);
     initEvlog("error", { silent: true, suppressDrainWarning: true });
+  });
+
+  it.each([
+    { surface: "prConversation", rollback: false },
+    { surface: "inlineReviewThread", rollback: false },
+    { surface: "prConversation", rollback: true },
+  ] as const)(
+    "posts one answer for contending ask arrivals: $surface (rollback=$rollback)",
+    async ({ surface, rollback }) => {
+      const ref = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+      const target =
+        surface === "prConversation"
+          ? { kind: surface, prNumber: ref.prNumber }
+          : { kind: surface, prNumber: ref.prNumber, inReplyToCommentId: 650 };
+      const firstHeaders = headers("ask", randomUUID());
+      const secondHeaders = headers("ask", randomUUID());
+      const input: SlashCommandInput = {
+        ...ref,
+        headers: firstHeaders,
+        command: "ask",
+        body: surface === "prConversation" ? "/ask why?" : "@pr-agent[bot] why?",
+        botLogin: "pr-agent[bot]",
+        commentId: 658,
+        commenterId: 658,
+        replyTarget: target,
+      };
+      const clientA = await pool.connect();
+      const clientB = await pool.connect();
+      const observer = await pool.connect();
+      const originalSend = boss.send.bind(boss);
+      let releaseIntake!: () => void;
+      const intakeGate = new Promise<void>((resolve) => {
+        releaseIntake = resolve;
+      });
+      let paused = false;
+      let injected = false;
+      const sendSpy = vi
+        .spyOn(boss, "send")
+        .mockImplementation(async (name: string, data?: object | null, options?: SendOptions) => {
+          const id = await originalSend(name, data, options);
+          if (name === ASK_QUEUE && (data as AskJobData).delivery === firstHeaders.delivery) {
+            paused = true;
+            await intakeGate;
+            if (rollback && !injected) {
+              injected = true;
+              throw new Error("injected ask send failure");
+            }
+          }
+          return id;
+        });
+      let runA: Promise<void> | undefined;
+      let runB: Promise<void> | undefined;
+      try {
+        await clientA.query("BEGIN");
+        await clientB.query("BEGIN");
+        const pid = (await clientB.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]
+          .pid;
+        runA = applySlashCommandIntake(boss, clientA, input, intakeCfg.features).then(
+          async () => {
+            await clientA.query("COMMIT");
+          },
+          async (error: unknown) => {
+            await clientA.query("ROLLBACK");
+            throw error;
+          },
+        );
+        void runA.catch(() => undefined);
+        await expect.poll(() => paused, { timeout: 5000 }).toBe(true);
+        runB = applySlashCommandIntake(
+          boss,
+          clientB,
+          { ...input, headers: secondHeaders },
+          intakeCfg.features,
+        ).then(
+          async () => {
+            await clientB.query("COMMIT");
+          },
+          async (error: unknown) => {
+            await clientB.query("ROLLBACK");
+            throw error;
+          },
+        );
+        void runB.catch(() => undefined);
+        await expect
+          .poll(
+            async () =>
+              (
+                await observer.query<{ blocked: boolean }>(
+                  "SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked",
+                  [pid],
+                )
+              ).rows[0].blocked,
+            { timeout: 5000 },
+          )
+          .toBe(true);
+        releaseIntake();
+        if (rollback) await expect(runA).rejects.toThrow("injected ask send failure");
+        else await runA;
+        await runB;
+      } finally {
+        releaseIntake();
+        await Promise.allSettled([runA, runB]);
+        await clientA.query("ROLLBACK");
+        await clientB.query("ROLLBACK");
+        sendSpy.mockRestore();
+        clientA.release();
+        clientB.release();
+        observer.release();
+      }
+      await expect(countWebhookRows()).resolves.toBe(rollback ? 1 : 2);
+      await expect(countReplayRows(firstHeaders.rawBody)).resolves.toBe(rollback ? 0 : 1);
+      await expect(countReplayRows(secondHeaders.rawBody)).resolves.toBe(1);
+      const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+      const items = await pool.query<{ id: string; status: string }>(
+        "SELECT id, status FROM agent_work_items WHERE resource_key = $1",
+        [key],
+      );
+      const ids = new Set(items.rows.map((item) => item.id));
+      const jobs = (await boss.findJobs<AskJobData>(ASK_QUEUE, {})).filter((job) =>
+        ids.has(job.data.workItemId),
+      );
+      const reservations = await pool.query(
+        "SELECT work_item_id FROM ask_quota_reservations WHERE work_item_id = ANY($1::uuid[])",
+        [[...ids]],
+      );
+      clearDurableAuthCachesForTest();
+      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "synthetic-ask-token",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      });
+      vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+        userId: 999,
+        login: "pr-agent[bot]",
+      });
+      const fake = prSurface.createFakePrSurface(ref, { headSha: ref.headSha });
+      vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+      vi.spyOn(prWorkspace, "withPrRepositoryView").mockImplementation(async (_params, run) =>
+        run({
+          preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+          agentCwd: "/tmp/pr-agent",
+          workspace: mockLocalPrWorkspace(),
+        }),
+      );
+      let releasePublish!: () => void;
+      const publishGate = new Promise<void>((resolve) => {
+        releasePublish = resolve;
+      });
+      let atPublish = 0;
+      const replyAt = fake.surface.replyAt.bind(fake.surface);
+      vi.spyOn(fake.surface, "replyAt").mockImplementation(async (replyTarget, body) => {
+        atPublish += 1;
+        await publishGate;
+        return replyAt(replyTarget, body);
+      });
+      const executions = jobs.map((job) =>
+        executeAskJob(intakeCfg, pool, boss, { ...job, signal: new AbortController().signal }),
+      );
+      for (const execution of executions) void execution.catch(() => undefined);
+      try {
+        await expect.poll(() => atPublish, { timeout: 5000 }).toBe(jobs.length);
+        const live = await pool.query(
+          "SELECT id FROM agent_work_items WHERE resource_key = $1 AND status = 'running'",
+          [key],
+        );
+        expect(live.rows).toHaveLength(jobs.length);
+      } finally {
+        releasePublish();
+        await Promise.all(executions);
+      }
+      expect(fake.controls.replies).toHaveLength(1);
+      expect(fake.controls.replies[0]?.target).toEqual(target);
+      expect(fake.controls.replies[0]?.body).toContain("Synthetic ask answer.");
+      expect(items.rows).toHaveLength(1);
+      expect(jobs).toHaveLength(1);
+      expect(reservations.rows).toHaveLength(1);
+      const final = await pool.query(
+        "SELECT id, status FROM agent_work_items WHERE resource_key = $1",
+        [key],
+      );
+      expect(final.rows).toEqual([{ id: items.rows[0].id, status: "completed" }]);
+      const intents = await pool.query(
+        "SELECT status FROM operation_intents WHERE work_item_id = $1",
+        [items.rows[0].id],
+      );
+      expect(intents.rows).toEqual([{ status: "reconciled" }]);
+      await executeAskJob(intakeCfg, pool, boss, {
+        ...jobs[0],
+        signal: new AbortController().signal,
+      });
+      expect(fake.controls.replies).toHaveLength(1);
+    },
+  );
+
+  it("answers distinct comments in the same inline thread independently", async () => {
+    const ref = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+    const target = {
+      kind: "inlineReviewThread" as const,
+      prNumber: ref.prNumber,
+      inReplyToCommentId: 650,
+    };
+    for (const commentId of [658, 659]) {
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...ref,
+            headers: headers("ask", randomUUID()),
+            command: "ask",
+            body: "@pr-agent[bot] why?",
+            botLogin: "pr-agent[bot]",
+            commentId,
+            commenterId: 658,
+            replyTarget: target,
+          },
+          intakeCfg.features,
+        ),
+      );
+    }
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const items = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_work_items WHERE resource_key = $1 ORDER BY created_at, id",
+      [key],
+    );
+    expect(items.rows).toHaveLength(2);
+    const ids = new Set(items.rows.map((item) => item.id));
+    const jobs = (await boss.findJobs<AskJobData>(ASK_QUEUE, {})).filter((job) =>
+      ids.has(job.data.workItemId),
+    );
+    expect(jobs).toHaveLength(2);
+    clearDurableAuthCachesForTest();
+    vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+      token: "synthetic-ask-token",
+      expiresAtTs: Date.now() + 60_000,
+      ttlMs: 60_000,
+    });
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 999,
+      login: "pr-agent[bot]",
+    });
+    const fake = prSurface.createFakePrSurface(ref, { headSha: ref.headSha });
+    vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+    vi.spyOn(prWorkspace, "withPrRepositoryView").mockImplementation(async (_params, run) =>
+      run({
+        preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+        agentCwd: "/tmp/pr-agent",
+        workspace: mockLocalPrWorkspace(),
+      }),
+    );
+    for (const job of jobs) {
+      await executeAskJob(intakeCfg, pool, boss, { ...job, signal: new AbortController().signal });
+    }
+    expect(fake.controls.replies).toHaveLength(2);
+    expect(fake.controls.replies.every((reply) => reply.target.kind === "inlineReviewThread")).toBe(
+      true,
+    );
+  });
+
+  it("treats the same comment id on different reply surfaces as distinct mentions", async () => {
+    const ref = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+    const targets = [
+      { kind: "prConversation" as const, prNumber: ref.prNumber },
+      { kind: "inlineReviewThread" as const, prNumber: ref.prNumber, inReplyToCommentId: 650 },
+    ];
+    for (const replyTarget of targets) {
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...ref,
+            headers: headers("ask", randomUUID()),
+            command: "ask",
+            body: replyTarget.kind === "prConversation" ? "/ask why?" : "@pr-agent[bot] why?",
+            botLogin: "pr-agent[bot]",
+            commentId: 700,
+            commenterId: 658,
+            replyTarget,
+          },
+          intakeCfg.features,
+        ),
+      );
+    }
+    const { rows } = await pool.query<{ kind: string }>(
+      `SELECT payload->'replyTarget'->>'kind' AS kind
+         FROM agent_work_items WHERE resource_key = $1 ORDER BY created_at, id`,
+      [prResourceKey(ref.owner, ref.repo, ref.prNumber)],
+    );
+    expect(rows.map((row) => row.kind).toSorted()).toEqual([
+      "inlineReviewThread",
+      "prConversation",
+    ]);
+  });
+
+  it("does not join mentions across pull requests, repositories, or installations", async () => {
+    const base = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+    const quota = {
+      ...defaultAskQuotaConfig(),
+      askActorMaxOutstanding: 8,
+      askRepositoryMaxOutstanding: 8,
+      askInstallationMaxOutstanding: 8,
+    };
+    const variants = [
+      base,
+      { ...base, prNumber: base.prNumber + 1 },
+      { ...base, repo: `${base.repo}-other` },
+      { ...base, installationId: ASK_INSTALLATION_ID + 1 },
+    ];
+    for (const ref of variants) {
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...ref,
+            headers: headers("ask", randomUUID()),
+            command: "ask",
+            body: "/ask why?",
+            commentId: 800,
+            commenterId: 658,
+            replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+          },
+          intakeCfg.features,
+          quota,
+        ),
+      );
+    }
+    const { rows } = await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM agent_work_items WHERE owner = $1",
+      [OWNER],
+    );
+    expect(Number(rows[0]?.count ?? "0")).toBe(4);
+  });
+
+  it.each(["completed", "failed", "cancelled", "superseded"] as const)(
+    "joins a retained %s ask instead of answering again",
+    async (status) => {
+      const ref = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+      const target = { kind: "prConversation" as const, prNumber: ref.prNumber };
+      await inTransaction(pool, async (client) => {
+        const event = await insertWebhookEvent(client, headers("seed", randomUUID()), "slash_ask");
+        if (event.duplicate) throw new Error("seed event must be new");
+        await createAskWorkItem(client, {
+          webhookEventId: event.id,
+          ref,
+          question: "why?",
+          replyTarget: target,
+          commentId: 950,
+          commenterId: 658,
+        });
+      });
+      const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+      await pool.query("UPDATE agent_work_items SET status = $1 WHERE resource_key = $2", [
+        status,
+        key,
+      ]);
+      const duplicateDelivery = randomUUID();
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...ref,
+            headers: headers("ask", duplicateDelivery),
+            command: "ask",
+            body: "/ask why?",
+            commentId: 950,
+            commenterId: 658,
+            replyTarget: target,
+          },
+          intakeCfg.features,
+        ),
+      );
+      const items = await pool.query<{ id: string; status: string }>(
+        "SELECT id, status FROM agent_work_items WHERE resource_key = $1",
+        [key],
+      );
+      expect(items.rows).toHaveLength(1);
+      expect(items.rows[0]?.status).toBe(status);
+      const askJobs = (await boss.findJobs<AskJobData>(ASK_QUEUE, {})).filter(
+        (job) => job.data.workItemId === items.rows[0]?.id,
+      );
+      expect(askJobs).toHaveLength(0);
+      const ackJobs = await boss.findJobs<AckJobData>(ACK_QUEUE, {});
+      expect(ackJobs.some((job) => job.data.delivery === duplicateDelivery)).toBe(false);
+
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...ref,
+            headers: headers("ask", randomUUID()),
+            command: "ask",
+            body: "/ask why?",
+            commentId: 951,
+            commenterId: 658,
+            replyTarget: target,
+          },
+          intakeCfg.features,
+        ),
+      );
+      const after = await pool.query<{ id: string }>(
+        "SELECT id FROM agent_work_items WHERE resource_key = $1",
+        [key],
+      );
+      expect(after.rows).toHaveLength(2);
+    },
+  );
+
+  it("joins a retained mention without quota admission while a fresh mention throttles", async () => {
+    const ref = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+    const target = { kind: "prConversation" as const, prNumber: ref.prNumber };
+    const arrivals = [
+      { commentId: 900, delivery: randomUUID() },
+      { commentId: 901, delivery: randomUUID() },
+      { commentId: 902, delivery: randomUUID() },
+      { commentId: 900, delivery: randomUUID() },
+    ];
+    for (const arrival of arrivals) {
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...ref,
+            headers: headers("ask", arrival.delivery),
+            command: "ask",
+            body: "/ask why?",
+            commentId: arrival.commentId,
+            commenterId: 658,
+            replyTarget: target,
+          },
+          intakeCfg.features,
+        ),
+      );
+    }
+    const items = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_work_items WHERE resource_key = $1",
+      [prResourceKey(ref.owner, ref.repo, ref.prNumber)],
+    );
+    expect(items.rows).toHaveLength(2);
+    const ackJobs = await boss.findJobs<AckJobData>(ACK_QUEUE, {});
+    const throttled = ackJobs.find((job) => job.data.delivery === arrivals[2]?.delivery);
+    expect(throttled?.data.reply?.body).toBe(ASK_THROTTLED_BODY);
+    expect(ackJobs.some((job) => job.data.delivery === arrivals[3]?.delivery)).toBe(false);
+    expect(ackJobs.some((job) => job.data.delivery === arrivals[0]?.delivery)).toBe(true);
+  });
+
+  it("joins a running ask instead of publishing a second answer", async () => {
+    const ref = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+    const target = { kind: "prConversation" as const, prNumber: ref.prNumber };
+    const input: SlashCommandInput = {
+      ...ref,
+      headers: headers("ask", randomUUID()),
+      command: "ask",
+      body: "/ask why?",
+      commentId: 975,
+      commenterId: 658,
+      replyTarget: target,
+    };
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(boss, client, input, intakeCfg.features),
+    );
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const items = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_work_items WHERE resource_key = $1",
+      [key],
+    );
+    expect(items.rows).toHaveLength(1);
+    const ids = new Set(items.rows.map((item) => item.id));
+    const jobs = (await boss.findJobs<AskJobData>(ASK_QUEUE, {})).filter((job) =>
+      ids.has(job.data.workItemId),
+    );
+    expect(jobs).toHaveLength(1);
+    clearDurableAuthCachesForTest();
+    vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+      token: "synthetic-ask-token",
+      expiresAtTs: Date.now() + 60_000,
+      ttlMs: 60_000,
+    });
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+      userId: 999,
+      login: "pr-agent[bot]",
+    });
+    const fake = prSurface.createFakePrSurface(ref, { headSha: ref.headSha });
+    vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+    vi.spyOn(prWorkspace, "withPrRepositoryView").mockImplementation(async (_params, run) =>
+      run({
+        preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+        agentCwd: "/tmp/pr-agent",
+        workspace: mockLocalPrWorkspace(),
+      }),
+    );
+    let releasePublish!: () => void;
+    const publishGate = new Promise<void>((resolve) => {
+      releasePublish = resolve;
+    });
+    let atPublish = 0;
+    const replyAt = fake.surface.replyAt.bind(fake.surface);
+    vi.spyOn(fake.surface, "replyAt").mockImplementation(async (replyTarget, body) => {
+      atPublish += 1;
+      await publishGate;
+      return replyAt(replyTarget, body);
+    });
+    const execution = executeAskJob(intakeCfg, pool, boss, {
+      ...jobs[0],
+      signal: new AbortController().signal,
+    });
+    void execution.catch(() => undefined);
+    try {
+      await expect.poll(() => atPublish, { timeout: 5000 }).toBe(1);
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          { ...input, headers: headers("ask", randomUUID()) },
+          intakeCfg.features,
+        ),
+      );
+    } finally {
+      releasePublish();
+      await execution;
+    }
+    expect(fake.controls.replies).toHaveLength(1);
+    const finalItems = await pool.query<{ id: string; status: string }>(
+      "SELECT id, status FROM agent_work_items WHERE resource_key = $1",
+      [key],
+    );
+    expect(finalItems.rows).toEqual([{ id: items.rows[0]?.id, status: "completed" }]);
+    const finalJobs = (await boss.findJobs<AskJobData>(ASK_QUEUE, {})).filter((job) =>
+      ids.has(job.data.workItemId),
+    );
+    expect(finalJobs).toHaveLength(1);
+  });
+
+  it("recover resolves the incoming event's own row before older same-mention rows", async () => {
+    const ref = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
+    const target = { kind: "prConversation" as const, prNumber: ref.prNumber };
+    let olderId = "";
+    let newerId = "";
+    let newerEventId = "";
+    await inTransaction(pool, async (client) => {
+      const event = await insertWebhookEvent(client, headers("seed", randomUUID()), "slash_ask");
+      if (event.duplicate) throw new Error("seed event must be new");
+      const insert = await createAskWorkItem(client, {
+        webhookEventId: event.id,
+        ref,
+        question: "why?",
+        replyTarget: target,
+        commentId: 990,
+        commenterId: 658,
+      });
+      olderId = insert.id;
+    });
+    await pool.query("UPDATE agent_work_items SET webhook_event_id = NULL WHERE id = $1", [
+      olderId,
+    ]);
+    await inTransaction(pool, async (client) => {
+      const event = await insertWebhookEvent(client, headers("seed", randomUUID()), "slash_ask");
+      if (event.duplicate) throw new Error("seed event must be new");
+      const insert = await createAskWorkItem(client, {
+        webhookEventId: event.id,
+        ref,
+        question: "why?",
+        replyTarget: target,
+        commentId: 990,
+        commenterId: 658,
+      });
+      newerId = insert.id;
+      newerEventId = event.id;
+    });
+
+    const outcome = await inTransaction(pool, (client) =>
+      promoteAskFromWebhookEvent(
+        boss,
+        client,
+        {
+          webhookEventId: newerEventId,
+          correlation: { webhookEventId: newerEventId, delivery: "recover-delivery" },
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          prNumber: ref.prNumber,
+          body: "/ask why?",
+          replyTarget: target,
+          commentId: 990,
+          commenterId: 658,
+          ackTargets: [],
+          askQuota: defaultAskQuotaConfig(),
+        },
+        "recover",
+      ),
+    );
+    expect(outcome).toEqual({ kind: "promoted", workItemId: newerId, created: false });
+    const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    const items = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_work_items WHERE resource_key = $1",
+      [key],
+    );
+    expect(items.rows).toHaveLength(2);
+    const ackJobs = await boss.findJobs<AckJobData>(ACK_QUEUE, {});
+    expect(ackJobs.some((job) => job.id === newerEventId && job.data.workItemId === newerId)).toBe(
+      true,
+    );
+    const askJobs = await boss.findJobs<AskJobData>(ASK_QUEUE, {});
+    expect(askJobs.some((job) => job.id === newerId)).toBe(true);
+    const reservations = await pool.query(
+      "SELECT work_item_id FROM ask_quota_reservations WHERE work_item_id = ANY($1::uuid[])",
+      [[olderId, newerId]],
+    );
+    expect(reservations.rows).toHaveLength(0);
+
+    const joinEventId = await inTransaction(pool, async (client) => {
+      const event = await insertWebhookEvent(client, headers("seed", randomUUID()), "slash_ask");
+      if (event.duplicate) throw new Error("seed event must be new");
+      const outcome = await promoteAskFromWebhookEvent(
+        boss,
+        client,
+        {
+          webhookEventId: event.id,
+          correlation: { webhookEventId: event.id, delivery: "join-delivery" },
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          prNumber: ref.prNumber,
+          body: "/ask why?",
+          replyTarget: target,
+          commentId: 990,
+          commenterId: 658,
+          ackTargets: [],
+          askQuota: defaultAskQuotaConfig(),
+        },
+        "recover",
+      );
+      expect(outcome).toEqual({ kind: "already_exists_skipped", workItemId: olderId });
+      return event.id;
+    });
+    const afterJoinAcks = await boss.findJobs<AckJobData>(ACK_QUEUE, {});
+    expect(afterJoinAcks.some((job) => job.id === joinEventId)).toBe(false);
+    const afterJoinItems = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_work_items WHERE resource_key = $1",
+      [key],
+    );
+    expect(afterJoinItems.rows).toHaveLength(2);
   });
 
   it.each(["queued", "running"] as const)(

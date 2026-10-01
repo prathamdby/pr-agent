@@ -33,6 +33,10 @@ intake lock before admission. `slashIntake.ts` owns acknowledgements.
 The value-preserving conflict update retains the winner's row lock through
 commit. `/verify`'s earlier active-work precheck remains nonlocking. Review
 advisory ordering and execution-time PR actor leases remain separate contracts.
+`askIntake.ts` owns same-mention agreement: it serializes the triggering
+comment identity on a transaction-scoped advisory lock and joins a retained
+ask row in any status before quota admission, while `workItemRepository.ts`
+keeps the per-webhook-event insert conflict as the idempotency backstop.
 
 `gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
