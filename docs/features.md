@@ -60,6 +60,7 @@ Notes:
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
 - A replacement review owns the progress comment. Late specialist ticks from
   the earlier run are skipped or rejected with an ownership warning.
+- Late older ticks from the same review do not replace newer progress or its final summary.
 - Describe, verification, ask, and triage can be turned `off` to stop those
   surfaces from spending tokens at all. Default `FEATURE_VERIFICATION=auto`
   spends tokens on `synchronize` pushes with open findings.

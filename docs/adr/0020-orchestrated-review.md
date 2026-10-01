@@ -58,6 +58,18 @@ explicit empty / `no_findings` report — never "zero inline threads" alone when
 summary-only acceptances exist. The final summary replaces the last tick in
 place and must not contradict that ledger truth.
 
+Revisioned progress and summary upserts hold the existing resource/lens advisory
+lock from the fresh comment read through preparation, GitHub upsert, and result
+record. A later contender observes the preceding write before deciding; an older
+tick from the same run cannot restore stale progress or replace its final summary.
+The pre-write claim remains autocommitted, with no transaction across HTTP.
+Contenders release clients before bounded retries, and per-pool admission leaves
+at least half the connections for nested mutation checks and unrelated database
+work. The active holder retains its client while GitHub settles. Acquisition
+failures prove nonacceptance to operation intents; delegated and post-write
+failures keep existing recovery rules.
+CI projection and direct comment edits do not share this lock.
+
 Intake or stale-head reschedule can transfer progress ownership while the
 earlier run still holds its actor lease. Foreign-owner ticks above revision
 zero warn and skip at preflight. An owner-gated progress write that affects

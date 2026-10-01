@@ -11,6 +11,9 @@ import {
 import * as repository from "../../src/agentWork/repository.js";
 import * as evlog from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
+import { isKnownNoAcceptanceMutationError } from "../../src/github/mutationErrorContract.js";
+import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
+import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
 import {
@@ -84,6 +87,307 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     if (!acquisition.acquired) throw new Error(`expected lease acquisition for ${workItemId}`);
     return acquisition.leaseEpoch;
   }
+
+  it.each([
+    { scenario: "older first", older: 2 as const, newer: 3 as const, seeded: true },
+    { scenario: "newer first", older: 3 as const, newer: 2 as const, seeded: true },
+    { scenario: "equal revisions", older: 2 as const, newer: 2 as const, seeded: true },
+    { scenario: "absent comment", older: 2 as const, newer: 3 as const, seeded: false },
+  ])(
+    "serializes concurrent progress ticks ($scenario)",
+    async ({ older: first, newer: second, seeded }) => {
+      const repo = `repo-${randomUUID().slice(0, 8)}`;
+      const ref = makeRef(repo, 19);
+      const resourceKey = prResourceKey(OWNER, repo, 19);
+      const eventId = randomUUID();
+      const work = await inTransaction(pool, async (client) => {
+        await insertWebhookEvent(client, eventId);
+        return createReviewWorkItem(client, { webhookEventId: eventId, source: "slash", ref });
+      });
+      const fake = createFakePrSurface({ owner: OWNER, repo, prNumber: 19 });
+      const warn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+      const tick = {
+        pool,
+        workItemId: work.id,
+        resourceKey,
+        owner: OWNER,
+        repo,
+        prNumber: 19,
+        mode: "review" as const,
+        headSha: ref.headSha,
+        source: "slash" as const,
+        prSurface: fake.surface,
+        progressRevision: 1 as const,
+        tickState: {
+          kind: "specialists" as const,
+          recon: "done" as const,
+          specialists: {
+            correctness: { phase: "done" as const, findingsAccepted: 1 },
+            security: { phase: "running" as const },
+            quality: { phase: "running" as const },
+            tests: { phase: "running" as const },
+          },
+        },
+      };
+      if (seeded) await tickProgressComment(tick);
+      const commentId = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.id;
+      let signalPaused = () => {};
+      const paused = new Promise<void>((resolve) => {
+        signalPaused = resolve;
+      });
+      let continueWrite = () => {};
+      const resume = new Promise<void>((resolve) => {
+        continueWrite = resolve;
+      });
+      let signalContention = () => {};
+      let rejectContention = (_error: unknown) => {};
+      const contended = new Promise<void>((resolve, reject) => {
+        signalContention = resolve;
+        rejectContention = reject;
+      });
+      const upsert = fake.surface.upsertProgressComment.bind(fake.surface);
+      vi.spyOn(fake.surface, "upsertProgressComment").mockImplementationOnce(async (...args) => {
+        signalPaused();
+        await resume;
+        return upsert(...args);
+      });
+      const older = tickProgressComment({
+        ...tick,
+        progressRevision: first,
+        tickState: {
+          ...tick.tickState,
+          specialists: {
+            ...tick.tickState.specialists,
+            correctness: { phase: "done", findingsAccepted: first },
+          },
+        },
+      });
+      let newer: Promise<void> | undefined;
+      // Observe the existing lock only to release the barrier on either implementation.
+      // The oracle is the final public body and durable record, not lock metadata.
+      const observeLock = (client: PoolClient) => {
+        void client
+          .query<{ held: boolean }>(
+            `SELECT EXISTS (
+             SELECT 1 FROM pg_locks
+              WHERE locktype = 'advisory' AND granted AND pid <> pg_backend_pid()
+                AND classid = ((hashtextextended($1, 0) >> 32) & 4294967295)::oid
+                AND objid = (hashtextextended($1, 0) & 4294967295)::oid
+                AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+           ) AS held`,
+            [JSON.stringify([resourceKey, "review"])],
+          )
+          .then(({ rows }) => {
+            if (rows[0]?.held) signalContention();
+          }, rejectContention);
+      };
+      try {
+        await paused;
+        pool.on("acquire", observeLock);
+        newer = tickProgressComment({
+          ...tick,
+          progressRevision: second,
+          tickState: {
+            ...tick.tickState,
+            specialists: {
+              ...tick.tickState.specialists,
+              correctness: { phase: "done", findingsAccepted: second },
+            },
+          },
+        });
+        await Promise.race([newer, contended]);
+        pool.off("acquire", observeLock);
+        continueWrite();
+        await Promise.all([older, newer]);
+
+        const comment = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+        const expectedRevision = Math.max(first, second);
+        if (seeded) expect(comment?.id).toBe(commentId);
+        expect(comment?.id).toBeGreaterThan(0);
+        expect(comment?.body).toContain(`${expectedRevision} findings`);
+        expect(comment?.body).toContain(`workItemId=${work.id} value=${expectedRevision}`);
+        expect(
+          fake.controls.events.filter((event) => event.kind === "upsertProgressComment"),
+        ).toHaveLength((seeded ? 1 : 0) + (first < second ? 2 : 1));
+        expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
+          workItemId: work.id,
+          revision: expectedRevision,
+        });
+        const record = await pool.query<{ github_id: string; work_item_id: string }>(
+          `SELECT github_id, work_item_id FROM publish_records
+          WHERE resource_key = $1 AND step = 'progress_comment'`,
+          [resourceKey],
+        );
+        expect(record.rows).toEqual([{ github_id: String(comment?.id), work_item_id: work.id }]);
+        expect(warn).not.toHaveBeenCalledWith("review_progress_tick_failed", expect.anything());
+      } finally {
+        pool.off("acquire", observeLock);
+        continueWrite();
+        await Promise.allSettled([older, ...(newer ? [newer] : [])]);
+      }
+    },
+  );
+
+  it.each([
+    { distinct: false, occupied: false },
+    { distinct: true, occupied: false },
+    { distinct: true, occupied: true },
+  ])(
+    "publishes under shared-pool pressure with distinct keys=$distinct and unrelated checkout=$occupied",
+    async ({ distinct, occupied }) => {
+      const contexts = await Promise.all(
+        Array.from({ length: distinct ? 4 : 1 }, async () => {
+          const repo = `repo-${randomUUID().slice(0, 8)}`;
+          const ref = makeRef(repo, 20);
+          const eventId = randomUUID();
+          const work = await inTransaction(pool, async (client) => {
+            await insertWebhookEvent(client, eventId);
+            return createReviewWorkItem(client, { webhookEventId: eventId, source: "slash", ref });
+          });
+          return {
+            work,
+            resourceKey: prResourceKey(OWNER, repo, 20),
+            fake: createFakePrSurface({ owner: OWNER, repo, prNumber: 20 }),
+          };
+        }),
+      );
+      let signalEntered = () => {};
+      const entered = new Promise<void>((resolve) => {
+        signalEntered = resolve;
+      });
+      let continueWrite = () => {};
+      const resume = new Promise<void>((resolve) => {
+        continueWrite = resolve;
+      });
+      let arrivals = 0;
+      for (const { fake } of contexts) {
+        const upsert = fake.surface.upsertProgressComment.bind(fake.surface);
+        vi.spyOn(fake.surface, "upsertProgressComment").mockImplementation(async (...args) => {
+          arrivals++;
+          if (arrivals === (distinct ? 2 : 1)) signalEntered();
+          await resume;
+          await pool.query("SELECT 1");
+          return upsert(...args);
+        });
+      }
+      const checkoutTimeout = pool.options.connectionTimeoutMillis;
+      if (occupied) pool.options.connectionTimeoutMillis = 1_000;
+      const unrelated = occupied ? await pool.connect() : undefined;
+      const pending = ([2, 3, 4, 5] as const).map((revision, index) => {
+        const context = contexts[distinct ? index : 0];
+        if (!context) throw new Error("missing pressure context");
+        return upsertSummaryCommentWithCreationClaim({
+          pool,
+          workItemId: context.work.id,
+          resourceKey: context.resourceKey,
+          reviewLens: "review",
+          prSurface: context.fake.surface,
+          body: `${REVIEW_SUMMARY_SENTINEL}\npressure-${index}`,
+          sentinel: REVIEW_SUMMARY_SENTINEL,
+          progressRevision: distinct ? 2 : revision,
+        });
+      });
+      try {
+        await entered;
+        continueWrite();
+        await Promise.all(pending);
+        for (const { work, resourceKey, fake } of contexts) {
+          const revision = distinct ? 2 : 5;
+          const comment = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+          expect(comment?.body).toContain(`workItemId=${work.id} value=${revision}`);
+          expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
+            workItemId: work.id,
+            revision,
+          });
+        }
+      } finally {
+        continueWrite();
+        unrelated?.release();
+        await Promise.allSettled(pending);
+        pool.options.connectionTimeoutMillis = checkoutTimeout;
+      }
+    },
+  );
+
+  it("retries an exhausted summary intent only after proven nonacceptance", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 21);
+    const eventId = randomUUID();
+    const work = await inTransaction(pool, async (client) => {
+      await insertWebhookEvent(client, eventId);
+      return createReviewWorkItem(client, {
+        webhookEventId: eventId,
+        source: "slash",
+        ref: makeRef(repo, 21),
+      });
+    });
+    const fake = createFakePrSurface({ owner: OWNER, repo, prNumber: 21 });
+    let signalPaused = () => {};
+    const paused = new Promise<void>((resolve) => {
+      signalPaused = resolve;
+    });
+    let continueWrite = () => {};
+    const resume = new Promise<void>((resolve) => {
+      continueWrite = resolve;
+    });
+    const upsert = fake.surface.upsertProgressComment.bind(fake.surface);
+    vi.spyOn(fake.surface, "upsertProgressComment").mockImplementationOnce(async (...args) => {
+      signalPaused();
+      await resume;
+      return upsert(...args);
+    });
+    const params = {
+      pool,
+      workItemId: work.id,
+      resourceKey,
+      reviewLens: "review" as const,
+      prSurface: fake.surface,
+      body: `${REVIEW_SUMMARY_SENTINEL}\nholder`,
+      sentinel: REVIEW_SUMMARY_SENTINEL,
+      progressRevision: 2 as const,
+    };
+    const holder = upsertSummaryCommentWithCreationClaim(params);
+    const operationKey = `review:summary:review:${resourceKey}`;
+    const intent = {
+      client: pool,
+      workItemId: work.id,
+      operationKey,
+      mutationKind: "github.summary_comment",
+      isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
+      mutate: () =>
+        upsertSummaryCommentWithCreationClaim({
+          ...params,
+          body: `${REVIEW_SUMMARY_SENTINEL}\nwinner`,
+          progressRevision: 7,
+        }),
+    };
+    try {
+      await paused;
+      await expect(withOperationIntent(intent)).rejects.toMatchObject({
+        code: "review.progress_lock_timeout",
+        mutationAccepted: false,
+      });
+      expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)).toBeNull();
+      const failed = await pool.query<{ status: string }>(
+        "SELECT status FROM operation_intents WHERE work_item_id = $1 AND operation_key = $2",
+        [work.id, operationKey],
+      );
+      expect(failed.rows).toEqual([{ status: "failed" }]);
+      continueWrite();
+      await holder;
+      await withOperationIntent(intent);
+      const comment = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
+      expect(comment?.body).toContain("winner");
+      expect(comment?.body).toContain(`workItemId=${work.id} value=7`);
+      expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
+        workItemId: work.id,
+        revision: 7,
+      });
+    } finally {
+      continueWrite();
+      await Promise.allSettled([holder]);
+    }
+  });
 
   it("returns created id for slash review and records progress_comment", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
@@ -543,6 +847,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
         },
       };
       const pending = checkpoint === "preflight" ? null : tickProgressComment(staleTick);
+      let winner: Promise<void> | undefined;
       try {
         if (pending != null) await paused;
         let replacementId: string;
@@ -581,10 +886,11 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
             },
           },
         };
-        if (checkpoint !== "claim") await tickProgressComment(winnerTick);
-        const winnerBody = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body;
+        winner = tickProgressComment(winnerTick);
         const writesBefore = fake.controls.events.filter(
-          (event) => event.kind === "upsertProgressComment",
+          (event) =>
+            event.kind === "upsertProgressComment" &&
+            event.body.includes(`workItemId=${parentId} value=3`),
         ).length;
         if (pending == null) {
           await tickProgressComment(staleTick);
@@ -593,13 +899,16 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
           await pending;
         }
         expect(
-          fake.controls.events.filter((event) => event.kind === "upsertProgressComment"),
+          fake.controls.events.filter(
+            (event) =>
+              event.kind === "upsertProgressComment" &&
+              event.body.includes(`workItemId=${parentId} value=3`),
+          ),
         ).toHaveLength(writesBefore);
-        if (checkpoint === "claim") {
-          await tickProgressComment(winnerTick);
-        } else {
-          expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toBe(winnerBody);
-        }
+        await winner;
+        const winnerBody = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body;
+        expect(winnerBody).toContain(`workItemId=${replacementId} value=2`);
+        expect(winnerBody).not.toContain("9 findings");
         expect(logWarn).toHaveBeenCalledWith(
           checkpoint === "preflight"
             ? "review_progress_skipped_foreign_owner"
@@ -624,7 +933,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
         expect(comment?.body).not.toContain("9 findings");
       } finally {
         resume();
-        await pending;
+        await Promise.allSettled([...(pending ? [pending] : []), ...(winner ? [winner] : [])]);
       }
     },
   );

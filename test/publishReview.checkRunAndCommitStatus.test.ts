@@ -34,8 +34,9 @@ const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 const pool = {
+  options: { max: 4 },
   connect: vi.fn(async () => ({
-    query: vi.fn(async () => undefined),
+    query: vi.fn(async () => ({ rows: [{ locked: true }] })),
     release: vi.fn(),
   })),
 } as unknown as import("pg").Pool;

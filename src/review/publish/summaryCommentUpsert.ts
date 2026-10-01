@@ -8,8 +8,12 @@ import {
   recordPublishStep as recordAgentWorkPublishStep,
 } from "../../agentWork/repository.js";
 import { logWarn } from "../../evlog.js";
+import { AppError } from "../../errors/appError.js";
 import type { IssueCommentRef, PrSurface } from "../../github/prSurface.js";
-import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
+import {
+  POSTGRES_LOCK_TIMEOUT_MS,
+  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
+} from "../../settings/index.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/progressComment.js";
 
@@ -67,6 +71,87 @@ type SummaryCommentUpsertParams = {
   ciHeadSha?: string;
   ciVersion?: number;
 };
+
+const retainedClientReservations = new WeakMap<Pool, { count: number }>();
+
+async function acquireProgressLock(pool: Pool, lockKey: string) {
+  // Leave shared capacity for concurrent mutation checks and unrelated DB work.
+  const capacity = Math.floor((pool.options.max ?? 0) / 2);
+  if (capacity < 1) {
+    throw Object.assign(
+      new AppError({
+        code: "review.progress_lock_capacity",
+        message: "Progress publication needs a pool with at least two connections",
+        context: { poolMax: pool.options.max ?? 0 },
+      }),
+      { mutationAccepted: false },
+    );
+  }
+  const reservation = retainedClientReservations.get(pool) ?? { count: 0 };
+  retainedClientReservations.set(pool, reservation);
+  const deadline = performance.now() + POSTGRES_LOCK_TIMEOUT_MS;
+  const timeoutError = Object.assign(
+    new AppError({
+      code: "review.progress_lock_timeout",
+      message: "Progress publication lock acquisition timed out",
+      context: { timeoutMs: POSTGRES_LOCK_TIMEOUT_MS },
+    }),
+    { mutationAccepted: false },
+  );
+  let attempt = 0;
+  try {
+    while (performance.now() < deadline) {
+      if (reservation.count < capacity) {
+        reservation.count++;
+        let client: PoolClient | undefined;
+        let retained = false;
+        let discard = true;
+        try {
+          client = await pool.connect();
+          if (performance.now() >= deadline) throw timeoutError;
+          const result = await client.query<{ locked: boolean }>(
+            "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
+            [lockKey],
+          );
+          if (performance.now() >= deadline) throw timeoutError;
+          discard = false;
+          if (result.rows[0]?.locked) {
+            retained = true;
+            return { client, reservation };
+          }
+        } finally {
+          if (!retained) {
+            try {
+              client?.release(discard ? true : undefined);
+            } finally {
+              reservation.count--;
+            }
+          }
+        }
+      }
+      const remaining = deadline - performance.now();
+      if (remaining <= 0) break;
+      const delay =
+        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt++] ??
+        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1) ??
+        0;
+      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(delay, remaining)));
+    }
+  } catch (error) {
+    // This scope ends before any remote read or delegated mutation can begin.
+    throw Object.assign(
+      error instanceof AppError
+        ? error
+        : new AppError({
+            code: "review.progress_lock_failed",
+            message: "Progress publication lock acquisition failed",
+            cause: error,
+          }),
+      { mutationAccepted: false },
+    );
+  }
+  throw timeoutError;
+}
 
 async function upsertSummaryCommentWithoutRevision(
   params: SummaryCommentUpsertParams,
@@ -189,7 +274,7 @@ async function prepareSummaryCommentAtRevision(
       : -1;
   // Body revision is the published watermark. Stored revision is the lock-time
   // claim, so a retry after claim-but-before-GitHub can still write when the
-  // comment is behind. A newer claim still wins without holding the lock across HTTP.
+  // comment is behind. The lock serializes the visible write and durable record.
   if (currentComment && bodyRevisionForRun >= params.progressRevision) {
     return { kind: "skipped", result: { id: currentComment.id, updated: false, skipped: true } };
   }
@@ -208,7 +293,7 @@ async function prepareSummaryCommentAtRevision(
         : null;
 
   // Claim this revision under the advisory lock before the GitHub write so a
-  // concurrent older tick cannot pass the check after we unlock.
+  // crash before acceptance remains recoverable without an open transaction.
   if (params.workItemId != null) {
     await recordAgentWorkPublishStep(client, {
       workItemId: params.workItemId,
@@ -241,71 +326,71 @@ export async function upsertSummaryCommentWithCreationClaim(
     return upsertSummaryCommentWithoutRevision(params);
   }
 
-  const currentComment = await params.prSurface.findProgressComment(params.sentinel);
-
-  const client = await params.pool.connect();
   const lockKey = JSON.stringify([params.resourceKey, params.reviewLens]);
-  let lockAcquired = false;
+  const { client, reservation } = await acquireProgressLock(params.pool, lockKey);
   let outcome:
-    | { readonly kind: "success"; readonly value: PreparedRevisionUpsert }
+    | { readonly kind: "success"; readonly value: SummaryCommentUpsertResult }
     | { readonly kind: "error"; readonly error: unknown };
   try {
-    await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
-    lockAcquired = true;
-    outcome = {
-      kind: "success",
-      value: await prepareSummaryCommentAtRevision(
-        { ...params, progressRevision: params.progressRevision, currentComment },
-        client,
-      ),
-    };
+    const currentComment = await params.prSurface.findProgressComment(params.sentinel);
+    const prepared = await prepareSummaryCommentAtRevision(
+      { ...params, progressRevision: params.progressRevision, currentComment },
+      client,
+    );
+    if (prepared.kind === "skipped") {
+      outcome = { kind: "success", value: prepared.result };
+    } else {
+      const result = await upsertSummaryCommentWithoutRevision({
+        ...params,
+        pool: client,
+        body: prepared.body,
+        hintCommentId: prepared.hintCommentId,
+      });
+      if (params.workItemId != null) {
+        await recordAgentWorkPublishStep(client, {
+          workItemId: params.workItemId,
+          resourceKey: params.resourceKey,
+          reviewLens: params.reviewLens,
+          step: "progress_comment",
+          githubId: result.id,
+          leaseEpoch: params.leaseEpoch ?? null,
+          detail: {
+            progressRevision: params.progressRevision,
+            updated: result.updated,
+            ...(prepared.stubPostedAtMs != null ? { stubPostedAtMs: prepared.stubPostedAtMs } : {}),
+            ...(params.ciHeadSha != null
+              ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
+              : {}),
+          },
+        });
+      }
+      outcome = { kind: "success", value: result };
+    }
   } catch (error) {
     outcome = { kind: "error", error };
   }
 
   let unlockError: unknown;
-  if (lockAcquired) {
-    try {
-      await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
-    } catch (error) {
-      unlockError = error;
-      logWarn("review_progress_unlock_failed", {
-        resourceKey: params.resourceKey,
-        reviewLens: params.reviewLens,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-  client.release(unlockError === undefined ? undefined : true);
-  if (outcome.kind === "error") throw outcome.error;
-  if (unlockError !== undefined) throw unlockError;
-  if (outcome.value.kind === "skipped") return outcome.value.result;
-
-  const result = await upsertSummaryCommentWithoutRevision({
-    ...params,
-    pool: params.pool,
-    body: outcome.value.body,
-    hintCommentId: outcome.value.hintCommentId,
-  });
-  if (params.workItemId != null) {
-    await recordAgentWorkPublishStep(params.pool, {
-      workItemId: params.workItemId,
+  try {
+    await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+  } catch (error) {
+    unlockError = error;
+    logWarn("review_progress_unlock_failed", {
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
-      step: "progress_comment",
-      githubId: result.id,
-      leaseEpoch: params.leaseEpoch ?? null,
-      detail: {
-        progressRevision: params.progressRevision,
-        updated: result.updated,
-        ...(outcome.value.stubPostedAtMs != null
-          ? { stubPostedAtMs: outcome.value.stubPostedAtMs }
-          : {}),
-        ...(params.ciHeadSha != null
-          ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
-          : {}),
-      },
+      message: error instanceof Error ? error.message : String(error),
     });
   }
-  return result;
+  let releaseError: unknown;
+  try {
+    client.release(unlockError === undefined ? undefined : true);
+  } catch (error) {
+    releaseError = error;
+  } finally {
+    reservation.count--;
+  }
+  if (outcome.kind === "error") throw outcome.error;
+  if (unlockError !== undefined) throw unlockError;
+  if (releaseError !== undefined) throw releaseError;
+  return outcome.value;
 }

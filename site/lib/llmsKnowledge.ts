@@ -266,6 +266,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "Ack worker posts the eyes reaction and the review progress stub.",
       "Review runs four specialists (correctness, security, quality, tests) under one orchestrator.",
       "A replacement review owns the progress comment. Late specialist ticks from the earlier run are skipped or rejected with an ownership warning, even when its actor lease still holds. See the queue runbook for progress conflict diagnostics.",
+      "Late older ticks from the same review do not replace newer progress or its final summary.",
       "A finding is published only when it meets the causal-publication contract: one atomic problem, a concrete trigger, PR-introduced or PR-exposed harm or a precise unprotected regression, an observable consequence, ledger-authorized reviewed-head evidence, and a bounded fix.",
       "Quality findings require present structural harm. Test findings require a named changed behaviour, untested state, invariant, and plausible regression.",
       "The orchestrator re-applies that contract during judgment. Specialist reports remain evidence.",
