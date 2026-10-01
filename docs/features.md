@@ -10,7 +10,7 @@ commands reply with a notice, nothing runs), `manual` = slash command only,
 `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` is invalid and crashes
 startup. `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` is
 invalid and crashes startup.
-`/review` always works. Auto triggers are fixed: review and describe fire when
+`/review` is available in every review mode on open PRs. Auto triggers are fixed: review and describe fire when
 a PR is `opened`; verification fires on `synchronize` (every push). With
 `FEATURE_REVIEW=approval`, no review fires on `opened`: the first submitted
 approving review from a reviewer with standing (`SLASH_ALLOWED_ASSOCIATIONS`,
@@ -33,6 +33,13 @@ the latest commit. Concurrent restarts are applied in intake order, not
 treated as already-in-progress requests. Ordinary `/review` still deduplicates
 against active slash reviews.
 
+After PR Agent accepts a close or merge, automated review intake and `/review`
+(including `force`) cannot start another review. Commands reply on their original
+thread: reopen a closed PR before retrying; a merged PR cannot be reviewed.
+A newer provider-observed reopen restores admission but starts no automatic
+review. Equal close/reopen timestamps remain closed. Other features keep their
+existing policies. See [operations.md](operations.md) for coverage and rollout limits.
+
 Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are
 acknowledged without duplicate active slash work. A cancellation racing that
 decision no longer causes a missing-winner intake failure. A cancellation or
@@ -41,7 +48,7 @@ not use this active-work gate.
 
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews each PR when opened; `approval` reviews only after a reviewer with standing approves; `/review` is always available.                                                                                 |
+| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews each PR when opened; `approval` reviews only after a reviewer with standing approves; `/review` is available in every mode, subject to open-PR admission.                                            |
 | `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`     | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                   |
 | `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`     | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                     |
 | `FEATURE_ASK`           | `off` \| `manual`                  | `manual`   | yes            | `/ask` and App-bot mention question threads.                                                                                                                                                                                             |
@@ -60,7 +67,7 @@ Notes:
 - With no open findings, verification skips the agent after checking the live
   head. An older-head run completes degraded instead of clean and preserves
   any existing verification failure signal.
-- `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
+- `FEATURE_REVIEW` has no `off`: review is the product; `/review` is available in every mode on open PRs.
 - A replacement review owns the progress comment. Late specialist ticks from
   the earlier run are skipped or rejected with an ownership warning.
 - Late older ticks from the same review do not replace newer progress or its final summary.

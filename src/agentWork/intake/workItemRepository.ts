@@ -62,6 +62,45 @@ export type ConflictAwareInsertResult =
 
 export type SlashActiveWorkInsertResult = ConflictAwareInsertResult;
 
+export type ReviewLifecycleObservation = {
+  readonly state: "open" | "closed" | "merged";
+  readonly observedAt: string;
+};
+
+export async function loadReviewLifecycle(client: PoolClient, resourceKey: string) {
+  const { rows } = await client.query<{ state: ReviewLifecycleObservation["state"] }>(
+    "SELECT state FROM pr_review_lifecycle WHERE resource_key = $1",
+    [resourceKey],
+  );
+  return rows[0];
+}
+
+/** Call only after acquiring the review intake lock, in its transaction. */
+export async function recordReviewLifecycleObservation(
+  client: PoolClient,
+  resourceKey: string,
+  observation: ReviewLifecycleObservation,
+  webhookEventId: string,
+): Promise<boolean> {
+  const { rows } = await client.query<{ state: ReviewLifecycleObservation["state"] }>(
+    `INSERT INTO pr_review_lifecycle (resource_key, state, observed_at, webhook_event_id)
+     VALUES ($1, $2, $3::timestamptz, $4)
+     ON CONFLICT (resource_key) DO UPDATE
+       SET state = EXCLUDED.state,
+           observed_at = EXCLUDED.observed_at,
+           webhook_event_id = EXCLUDED.webhook_event_id,
+           updated_at = now()
+     WHERE pr_review_lifecycle.state <> 'merged'
+       AND (EXCLUDED.observed_at > pr_review_lifecycle.observed_at
+         OR (EXCLUDED.observed_at = pr_review_lifecycle.observed_at
+           AND (EXCLUDED.state = 'merged'
+             OR (EXCLUDED.state = 'closed' AND pr_review_lifecycle.state = 'open'))))
+     RETURNING state`,
+    [resourceKey, observation.state, observation.observedAt, webhookEventId],
+  );
+  return rows[0] != null;
+}
+
 type AgentWorkInsertCommon = {
   readonly id: string;
   readonly webhookEventId: string;

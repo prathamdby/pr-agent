@@ -25,6 +25,8 @@ function basePrPayload(merged: boolean): PullRequestWebhookPayload {
       number: 11,
       head: { sha: "sha-head" },
       merged,
+      state: "closed",
+      updated_at: "2026-10-01T00:00:01Z",
     },
   };
 }
@@ -33,7 +35,11 @@ describe("WebhookHandlers.pullRequest merged flag", () => {
   it("forwards merged:true as opts.merged for closed+merged deliveries", async () => {
     const captured: Array<{
       readonly action: string;
-      readonly opts?: { readonly pushBeforeSha?: string; readonly merged?: boolean };
+      readonly opts?: {
+        readonly pushBeforeSha?: string;
+        readonly merged?: boolean;
+        readonly lifecycle?: { readonly state: string; readonly observedAt: string };
+      };
     }> = [];
 
     const scheduler = Layer.succeed(
@@ -72,12 +78,20 @@ describe("WebhookHandlers.pullRequest merged flag", () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]?.action).toBe("closed");
     expect(captured[0]?.opts?.merged).toBe(true);
+    expect(captured[0]?.opts?.lifecycle).toEqual({
+      state: "merged",
+      observedAt: "2026-10-01T00:00:01Z",
+    });
   });
 
   it("forwards merged:false when the closed payload is not merged", async () => {
     const captured: Array<{
       readonly action: string;
-      readonly opts?: { readonly pushBeforeSha?: string; readonly merged?: boolean };
+      readonly opts?: {
+        readonly pushBeforeSha?: string;
+        readonly merged?: boolean;
+        readonly lifecycle?: { readonly state: string; readonly observedAt: string };
+      };
     }> = [];
 
     const scheduler = Layer.succeed(
@@ -116,5 +130,9 @@ describe("WebhookHandlers.pullRequest merged flag", () => {
     expect(captured).toHaveLength(1);
     expect(captured[0]?.action).toBe("closed");
     expect(captured[0]?.opts?.merged).toBe(false);
+    expect(captured[0]?.opts?.lifecycle).toEqual({
+      state: "closed",
+      observedAt: "2026-10-01T00:00:01Z",
+    });
   });
 });

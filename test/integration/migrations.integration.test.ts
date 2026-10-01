@@ -47,6 +47,7 @@ const EXPECTED_MIGRATIONS = [
   "031_projection_repair_pending.sql",
   "032_agent_events_recorded_at_index.sql",
   "033_webhook_delivery_duplicates.sql",
+  "034_pr_review_lifecycle.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {
@@ -116,6 +117,27 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(definitions).toContain("(received_at)");
     expect(definitions).toContain("(delivery_id, received_at)");
     expect(definitions).toContain("(body_sha256, received_at)");
+    const lifecycle = await pool.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE tablename = 'pr_review_lifecycle'",
+    );
+    expect(lifecycle.rows.map((row) => row.indexdef).join("\n")).toContain("(webhook_event_id)");
+    const constraints = await pool.query<{ definition: string }>(
+      "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = 'pr_review_lifecycle'::regclass",
+    );
+    const contract = constraints.rows.map((row) => row.definition).join("\n");
+    expect(contract).toContain("PRIMARY KEY (resource_key)");
+    expect(contract).toContain("'open'");
+    expect(contract).toContain("'closed'");
+    expect(contract).toContain("'merged'");
+    expect(contract).toContain("ON DELETE SET NULL");
+    await runMigrations(pool);
+    expect(
+      (
+        await pool.query("SELECT version FROM schema_migrations WHERE version = $1", [
+          "034_pr_review_lifecycle.sql",
+        ])
+      ).rows,
+    ).toHaveLength(1);
   });
 
   it("accepts outcome_unknown on operation_intents.status", async () => {
