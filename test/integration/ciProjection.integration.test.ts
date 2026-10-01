@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
@@ -15,7 +15,22 @@ import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentW
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
 import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
 import { loadPrHeadCiState, storePrNumbersForHead } from "../../src/agentWork/prHeadCiState.js";
-import { recordPublishStep, recordReviewCheckRun } from "../../src/agentWork/repository.js";
+import {
+  getLatestCompletedPublishStepDetail,
+  getWorkItem,
+  recordPublishStep,
+  recordReviewCheckRun,
+} from "../../src/agentWork/repository.js";
+import { executeVerificationJob } from "../../src/agentWork/executors/verificationExecutor.js";
+import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
+import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
+import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.js";
+import * as appAuth from "../../src/github/appAuth.js";
+import * as installationToken from "../../src/github/installationToken.js";
+import * as prSurface from "../../src/github/prSurface.js";
+import * as evlog from "../../src/evlog.js";
+import * as prWorkspace from "../../src/prWorkspace/index.js";
+import * as verificationRun from "../../src/agent/verification/verificationRun.js";
 import type { QueueConfig, WebhookHeaders } from "../../src/agentWork/types.js";
 import type { CiSummaryAuthor } from "../../src/review/ci/authorCiSummary.js";
 import { hashCiFacts, parseCiAuthoredCache } from "../../src/review/ci/ciAuthoredCache.js";
@@ -48,8 +63,12 @@ import {
   REVIEW_CI_SUMMARY_INCOMPLETE,
   REVIEW_SUMMARY_SENTINEL,
   TRIAGE_SUMMARY_SENTINEL,
+  VERIFICATION_PUBLISH_LENS,
+  VERIFICATION_QUEUE,
 } from "../../src/settings/index.js";
 import { makeTestConfig } from "../helpers/config.js";
+import { makeVerificationWorkItem } from "../helpers/agentWorkItems.js";
+import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "ci-projection-it";
@@ -190,8 +209,13 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       ["workflow_run", "check_run", "pull_request"],
     ]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
+    await pool.query(
+      "DELETE FROM pr_actor_leases WHERE resource_key = $1 AND work_type = 'verification'",
+      [`${OWNER}/${REPO}#${PR_NUMBER}`],
+    );
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
+    await deleteQueueJobs(boss, VERIFICATION_QUEUE);
   });
 
   async function insertSeededHead(
@@ -1620,6 +1644,198 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     const after = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
     expect(after?.seededAt).not.toBeNull();
     expect(after?.version).toBe((before?.version ?? 0) + 1);
+  });
+
+  it.each([
+    { source: "auto", scenario: "stale" },
+    { source: "slash", scenario: "stale" },
+    { source: "auto", scenario: "race" },
+    { source: "slash", scenario: "race" },
+    { source: "auto", scenario: "resolved-stale" },
+    { source: "slash", scenario: "resolved-stale" },
+    { source: "auto", scenario: "fresh" },
+    { source: "slash", scenario: "fresh" },
+    { source: "auto", scenario: "resolved-fresh" },
+    { source: "slash", scenario: "resolved-fresh" },
+    { source: "auto", scenario: "cancel" },
+    { source: "slash", scenario: "cancel" },
+    { source: "auto", scenario: "head-error" },
+    { source: "slash", scenario: "head-error" },
+  ] as const)("empty verification $source $scenario", async ({ source, scenario }) => {
+    const headSha = "a".repeat(40);
+    const latestHeadSha = "b".repeat(40);
+    const stale = scenario === "stale" || scenario === "resolved-stale" || scenario === "race";
+    const fresh = scenario === "fresh" || scenario === "resolved-fresh";
+    const item = makeVerificationWorkItem({
+      id: randomUUID(),
+      webhookEventId: null,
+      status: "queued",
+      source,
+      owner: OWNER,
+      repo: REPO,
+      prNumber: PR_NUMBER,
+      installationId: 9001,
+      headSha,
+      resourceKey: `${OWNER}/${REPO}#${PR_NUMBER}`,
+    });
+    const priorWorkItemId = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, resource_key, attempt_count, payload
+       ) VALUES
+         ($1, 'verification', $3, 'failed', $4, $5, $6, $7, $8, $9, 1, $10::jsonb),
+         ($2, 'verification', $3, 'queued', $4, $5, $6, $7, $8, $9, 0, $10::jsonb)`,
+      [
+        priorWorkItemId,
+        item.id,
+        source,
+        OWNER,
+        REPO,
+        PR_NUMBER,
+        item.installationId,
+        headSha,
+        item.resourceKey,
+        JSON.stringify(item.payload),
+      ],
+    );
+    const fake = createFakePrSurface(
+      { owner: OWNER, repo: REPO, prNumber: PR_NUMBER },
+      { headSha: scenario === "stale" || scenario === "resolved-stale" ? latestHeadSha : headSha },
+    );
+    if (scenario.startsWith("resolved-")) {
+      fake.controls.setBotFindingThreads([
+        {
+          rootCommentId: 71,
+          lens: "review",
+          path: "src/app.ts",
+          line: 1,
+          severity: "P1",
+          titleSnippet: "P1 · Bug",
+          humanReplies: [],
+          threadUrl: "https://github.test/thread/71",
+        },
+      ]);
+      fake.controls.setThreads(new Map([[71, { threadNodeId: "thread-71", isResolved: true }]]));
+    }
+    await publishVerificationFailure({
+      pool,
+      workItemId: priorWorkItemId,
+      resourceKey: item.resourceKey,
+      prSurface: fake.surface,
+      headSha,
+      leaseEpoch: null,
+      boss,
+      installationId: item.installationId,
+    });
+    const priorLedger = await loadVerificationThreadLedger(pool, item);
+    const priorCi = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+    const priorSignal = await getLatestCompletedPublishStepDetail(
+      pool,
+      item.resourceKey,
+      VERIFICATION_PUBLISH_LENS,
+      "verification_failure",
+    );
+    clearDurableAuthCachesForTest();
+    try {
+      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "test-installation-token",
+        expiresAtTs: Date.now() + 3_600_000,
+        ttlMs: 3_600_000,
+      });
+      vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+        userId: 999,
+        login: "pr-agent[bot]",
+      });
+      vi.spyOn(prSurface, "createPrSurface").mockImplementation((params) =>
+        params.mutationBoundary == null
+          ? fake.surface
+          : prSurface.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
+      );
+      const workspace = vi
+        .spyOn(prWorkspace, "withPrRepositoryView")
+        .mockRejectedValue(new Error("Unexpected empty verification checkout"));
+      const agent = vi
+        .spyOn(verificationRun, "runVerification")
+        .mockRejectedValue(new Error("Unexpected empty verification agent"));
+      const log = vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
+      if (scenario === "race" || scenario === "cancel") {
+        const fetchThreads = fake.surface.fetchBotFindingThreads.bind(fake.surface);
+        vi.spyOn(fake.surface, "fetchBotFindingThreads").mockImplementationOnce(async (...args) => {
+          const threads = await fetchThreads(...args);
+          fake.controls.setHeadSha(latestHeadSha);
+          if (scenario === "cancel") {
+            await pool.query(
+              "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
+              [item.id],
+            );
+          }
+          return threads;
+        });
+      }
+      if (scenario === "head-error") {
+        vi.spyOn(fake.surface, "getHeadSha").mockRejectedValue(new Error("test_head_unavailable"));
+      }
+      const job = {
+        ...makeDurableJobMetadata(item.id),
+        data: { kind: "verification" as const, workItemId: item.id },
+      };
+      const run = executeVerificationJob(cfg, pool, boss, job);
+      if (scenario === "head-error") {
+        await expect(run).rejects.toThrow("test_head_unavailable");
+      } else {
+        await run;
+      }
+      const completed = await getWorkItem(pool, item.id);
+      expect(completed?.status).toBe(
+        scenario === "cancel" ? "cancelled" : scenario === "head-error" ? "queued" : "completed",
+      );
+      expect(completed?.attemptCount).toBe(1);
+      expect(completed?.payload).toMatchObject(item.payload);
+      if (stale) {
+        expect(completed?.payload).toHaveProperty("publishDegraded", true);
+        expect(log).toHaveBeenCalledWith(
+          "verification_publish_skipped",
+          expect.objectContaining({
+            workItemId: item.id,
+            reason: "stale_head",
+            boundHeadSha: headSha,
+            latestHeadSha,
+          }),
+        );
+      } else {
+        expect(completed?.payload).not.toHaveProperty("publishDegraded");
+      }
+      const ledger = await loadVerificationThreadLedger(pool, item);
+      const ci = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+      const signal = await getLatestCompletedPublishStepDetail(
+        pool,
+        item.resourceKey,
+        VERIFICATION_PUBLISH_LENS,
+        "verification_failure",
+      );
+      if (fresh) {
+        expect(ledger.failureSignal).toBeUndefined();
+        expect(signal).toMatchObject({ active: false, headSha });
+        expect(ci?.version).toBe((priorCi?.version ?? 0) + 1);
+      } else {
+        expect(ledger).toEqual(priorLedger);
+        expect(signal).toEqual(priorSignal);
+        expect(ci?.version).toBe(priorCi?.version);
+      }
+      expect(workspace).not.toHaveBeenCalled();
+      expect(agent).not.toHaveBeenCalled();
+      expect(fake.controls.events.filter((event) => event.kind === "replyAt")).toEqual([]);
+      expect(fake.controls.events.filter((event) => event.kind === "editReviewComment")).toEqual(
+        [],
+      );
+      expect(
+        fake.controls.events.filter((event) => event.kind === "resolveInlineReviewThread"),
+      ).toEqual([]);
+    } finally {
+      vi.restoreAllMocks();
+      clearDurableAuthCachesForTest();
+    }
   });
 
   it("bumps projection revision when verification activates or clears", async () => {

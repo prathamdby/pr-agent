@@ -178,6 +178,8 @@ intake commits the normal in-progress acknowledgement before that transition.
 `/verify` also has an unchanged, nonlocking active-work precheck.
 These row locks are separate from review advisory ordering and execution leases.
 
+Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
+
 Lost-running diagnostics are advisory. The sweeper rechecks the item age,
 lease expiry, and matching live job in the conditional failure write. Only an
 applied mark permits a candidate's crashed verdict close; revived work stays

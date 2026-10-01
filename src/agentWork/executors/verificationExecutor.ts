@@ -22,7 +22,12 @@ import {
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
-import { resolveWorkItemHead, runDurableWorkItem, type DegradationReason } from "../durableJob.js";
+import {
+  resolveWorkItemHead,
+  runDurableWorkItem,
+  type DegradationReason,
+  type DurableExecutionResult,
+} from "../durableJob.js";
 import { escalatedVerificationInventory } from "../retryPolicy.js";
 import { type VerificationJobData } from "../types.js";
 import {
@@ -83,7 +88,41 @@ export async function executeVerificationJob(
       const inventory = escalatedVerificationInventory(orderedThreads, env.escalation);
       const inventoryNarrowed = inventory.length < orderedThreads.length;
 
+      const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
+        if (await shouldSkipWork(pool, item)) {
+          logInfo("verification_publish_skipped", {
+            type: "verification",
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            reason: "cancel_or_superseded",
+            owner: item.owner,
+            repo: item.repo,
+            pr: item.prNumber,
+          });
+          return { kind: "completed" };
+        }
+
+        const freshness = verificationHeadFreshness(headSha, await prSurface.getHeadSha());
+        if (freshness.kind === "stale") {
+          logInfo("verification_publish_skipped", {
+            type: "verification",
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            reason: "stale_head",
+            boundHeadSha: freshness.boundHeadSha,
+            latestHeadSha: freshness.latestHeadSha,
+            owner: item.owner,
+            repo: item.repo,
+            pr: item.prNumber,
+          });
+          return STALE_VERIFICATION_RESULT;
+        }
+        return undefined;
+      };
+
       if (inventory.length === 0) {
+        const terminal = await checkCompletionGate();
+        if (terminal) return terminal;
         logInfo("verification_short_circuit_no_open_findings", {
           type: "verification",
           workItemId: item.id,
@@ -183,34 +222,8 @@ export async function executeVerificationJob(
         },
       );
 
-      if (await shouldSkipWork(pool, item)) {
-        logInfo("verification_publish_skipped", {
-          type: "verification",
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          reason: "cancel_or_superseded",
-          owner: item.owner,
-          repo: item.repo,
-          pr: item.prNumber,
-        });
-        return { kind: "completed" };
-      }
-
-      const freshness = verificationHeadFreshness(headSha, await prSurface.getHeadSha());
-      if (freshness.kind === "stale") {
-        logInfo("verification_publish_skipped", {
-          type: "verification",
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          reason: "stale_head",
-          boundHeadSha: freshness.boundHeadSha,
-          latestHeadSha: freshness.latestHeadSha,
-          owner: item.owner,
-          repo: item.repo,
-          pr: item.prNumber,
-        });
-        return STALE_VERIFICATION_RESULT;
-      }
+      const terminal = await checkCompletionGate();
+      if (terminal) return terminal;
 
       const publish = await publishVerification({
         pool,

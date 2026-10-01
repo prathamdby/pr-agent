@@ -47,6 +47,8 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 
 Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup.
 
+With no open findings, verification skips the agent. It checks the live head first. An older-head run completes degraded instead of clean and leaves any existing verification failure signal in place.
+
 <details>
 <summary>Review rules and slash matching</summary>
 
