@@ -23,6 +23,7 @@ import {
   VERIFICATION_QUEUE,
 } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
+import * as reviewAdmission from "../src/agentWork/intake/reviewAdmission.js";
 
 function makeSlashInput(body: string) {
   const command = body.slice(1).split(/\s+/, 1)[0] ?? "";
@@ -63,6 +64,7 @@ function makeClient() {
 describe("applySlashCommandIntake", () => {
   beforeEach(() => {
     initEvlog("info", { silent: true, suppressDrainWarning: true });
+    vi.spyOn(reviewAdmission, "tryAdmit").mockResolvedValue("missing");
   });
 
   afterEach(() => {

@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
-import { applyAutomatedPullRequestIntake } from "../../src/agentWork/intake/applier.js";
+import {
+  applyAutomatedPullRequestIntake,
+  applyCompletedRunCiIntake,
+  applyWorkflowRunStartedIntake,
+} from "../../src/agentWork/intake/applier.js";
 import {
   applySlashCommandIntake,
   type SlashCommandInput,
@@ -183,6 +187,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
+    await pool.query("DELETE FROM pr_review_admission WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]);
     if (
       (await pool.query("SELECT to_regclass('public.pr_review_lifecycle') AS relation")).rows[0]
         .relation
@@ -207,6 +213,8 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await deleteQueueJobs(boss);
+    await pool.query("DELETE FROM pr_review_admission WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]);
     if (
       (await pool.query("SELECT to_regclass('public.pr_review_lifecycle') AS relation")).rows[0]
         .relation
@@ -2563,12 +2571,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const dedupEvents = (secondLog.getContext().events ?? []) as Array<{
       event?: string;
     }>;
-    expect(dedupEvents.some((entry) => entry.event === "ignored_approval_review_exists")).toBe(
+    expect(dedupEvents.some((entry) => entry.event === "ignored_review_already_admitted")).toBe(
       true,
     );
   });
 
-  it("approval mode: approval after a terminal review starts a fresh review", async () => {
+  it("approval mode: approval after a terminal review is still a no-op", async () => {
     const ref = makePrRef("approval-terminal");
     const approvalCfg = makeTestConfig({
       features: { ...makeTestConfig().features, review: "approval", verification: "off" },
@@ -2598,7 +2606,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       approvalCfg,
     );
 
-    await expect(countWorkItems()).resolves.toBe(2);
+    await expect(countWorkItems()).resolves.toBe(1);
   });
 
   it("approval mode: synchronize supersedes the approval-started review", async () => {
@@ -2631,5 +2639,574 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       [OWNER],
     );
     expect(workRows.map((row) => row.status).toSorted()).toEqual(["queued", "superseded"]);
+  });
+
+  const approvalAdmissionCfg = makeTestConfig({
+    features: {
+      ...makeTestConfig().features,
+      review: "approval",
+      describe: "off",
+      verification: "off",
+    },
+  });
+
+  it.each(["opened-first", "workflow-first", "concurrent"])(
+    "workflow approval and pending PR converge: %s",
+    async (order) => {
+      const ref = makePrRef();
+      const runId = 55001;
+      const data = {
+        installationId: ref.installationId,
+        owner: ref.owner,
+        repo: ref.repo,
+        headSha: ref.headSha,
+        runId,
+        senderId: 7,
+        status: "in_progress",
+        conclusion: null,
+      };
+      await applyCompletedRunCiIntake(
+        boss,
+        pool,
+        headers("hold", randomUUID()),
+        {
+          ...data,
+          prNumbers: [],
+          approvalHold: { runId },
+        },
+        intakeLog(),
+      );
+      const opened = () =>
+        applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("opened", randomUUID()),
+          ref,
+          "opened",
+          intakeLog(),
+          approvalAdmissionCfg,
+          { authorTrusted: false, authorId: 8 },
+        );
+      const started = () =>
+        applyWorkflowRunStartedIntake(
+          boss,
+          pool,
+          headers("in_progress", randomUUID()),
+          data,
+          intakeLog(),
+        );
+      if (order === "workflow-first") {
+        await started();
+        await opened();
+      } else if (order === "concurrent") await Promise.all([started(), opened()]);
+      else {
+        await opened();
+        await expect(countWorkItems()).resolves.toBe(0);
+        const decision = await pool.query(
+          "SELECT processing_decision FROM webhook_events WHERE event_name = $1 AND processing_decision = 'review_awaiting_approval'",
+          [EVENT],
+        );
+        expect(decision.rows).toHaveLength(1);
+        await Promise.all([started(), started()]);
+      }
+      await expect(countWorkItems()).resolves.toBe(1);
+      expect(
+        (
+          await pool.query(
+            "SELECT state, admitted_via, admitted_by FROM pr_review_admission WHERE owner = $1",
+            [OWNER],
+          )
+        ).rows,
+      ).toEqual([{ state: "admitted", admitted_via: "workflow", admitted_by: "7" }]);
+      await started();
+      await expect(countWorkItems()).resolves.toBe(1);
+    },
+  );
+
+  it.each(["head-first", "approval-first"])(
+    "approval follows a pending head update: %s",
+    async (order) => {
+      const ref = makePrRef();
+      const next = { ...ref, headSha: "new-head" };
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        approvalAdmissionCfg,
+      );
+      const data = {
+        installationId: ref.installationId,
+        owner: ref.owner,
+        repo: ref.repo,
+        headSha: next.headSha,
+        runId: 55002,
+        senderId: 7,
+        status: "in_progress",
+        conclusion: null,
+      };
+      await applyCompletedRunCiIntake(
+        boss,
+        pool,
+        headers("hold", randomUUID()),
+        { ...data, prNumbers: [], approvalHold: { runId: data.runId } },
+        intakeLog(),
+      );
+      const push = () =>
+        applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("synchronize", randomUUID()),
+          next,
+          "synchronize",
+          intakeLog(),
+          approvalAdmissionCfg,
+        );
+      const approve = () =>
+        applyWorkflowRunStartedIntake(
+          boss,
+          pool,
+          headers("in_progress", randomUUID()),
+          data,
+          intakeLog(),
+        );
+      if (order === "head-first") {
+        await push();
+        await approve();
+      } else {
+        await approve();
+        await push();
+      }
+      await expect(countWorkItems()).resolves.toBe(1);
+    },
+  );
+
+  it("CI reruns and unmatched legacy workflow starts never admit", async () => {
+    const ref = makePrRef();
+    const data = {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      runId: 55003,
+      senderId: 7,
+      status: "in_progress",
+      conclusion: null,
+    };
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      data,
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(0);
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("hold", randomUUID()),
+      { ...data, headSha: "unmatched", prNumbers: [], approvalHold: { runId: data.runId } },
+      intakeLog(),
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      { ...data, headSha: "unmatched" },
+      intakeLog(),
+    );
+    expect(
+      (
+        await pool.query(
+          "SELECT processing_decision FROM webhook_events WHERE event_name = $1 ORDER BY received_at DESC LIMIT 1",
+          [EVENT],
+        )
+      ).rows[0].processing_decision,
+    ).toBe("ignored_workflow_approval_unmatched");
+    await expect(countWorkItems()).resolves.toBe(0);
+  });
+
+  it("trusted opened admission prevents later approval even after terminal work", async () => {
+    const ref = makePrRef();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { authorTrusted: true, authorId: 8 },
+    );
+    await pool.query(
+      "UPDATE agent_work_items SET status = 'completed', completed_at = now() WHERE owner = $1",
+      [OWNER],
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", randomUUID()),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { admittedBy: 7 },
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+  });
+
+  it("slash review consumes pending admission before workflow approval", async () => {
+    const ref = makePrRef();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(
+        boss,
+        client,
+        {
+          headers: headers("slash", randomUUID()),
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          prNumber: ref.prNumber,
+          commenterId: 7,
+          commentId: 77,
+          body: "/review",
+          command: "review",
+          replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+        },
+        approvalAdmissionCfg.features,
+      ),
+    );
+    await pool.query(
+      "UPDATE agent_work_items SET status = 'completed', completed_at = now() WHERE owner = $1",
+      [OWNER],
+    );
+    const data = {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      runId: 55004,
+      senderId: 7,
+      status: "in_progress",
+      conclusion: null,
+    };
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("hold", randomUUID()),
+      { ...data, prNumbers: [], approvalHold: { runId: data.runId } },
+      intakeLog(),
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      data,
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+    expect(
+      (await pool.query("SELECT admitted_via FROM pr_review_admission WHERE owner = $1", [OWNER]))
+        .rows[0].admitted_via,
+    ).toBe("slash");
+  });
+
+  it.each(["closed", "merged"] as const)("refuses pending admission on %s PR", async (state) => {
+    const ref = makePrRef();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("closed", randomUUID()),
+      ref,
+      "closed",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { lifecycle: { state, observedAt: "2026-10-01T00:00:00Z" } },
+    );
+    const data = {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      runId: 55005,
+      senderId: 7,
+      status: "in_progress",
+      conclusion: null,
+    };
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("hold", randomUUID()),
+      { ...data, prNumbers: [], approvalHold: { runId: data.runId } },
+      intakeLog(),
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      data,
+      intakeLog(),
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("approval", randomUUID()),
+      ref,
+      "approval",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    await expect(countWorkItems()).resolves.toBe(0);
+    expect(
+      (await pool.query("SELECT state FROM pr_review_admission WHERE owner = $1", [OWNER])).rows[0]
+        .state,
+    ).toBe("pending");
+  });
+
+  it("completed action_required hold writes one event and no review", async () => {
+    const ref = makePrRef();
+    const delivery = randomUUID();
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("completed", delivery),
+      {
+        installationId: ref.installationId,
+        owner: ref.owner,
+        repo: ref.repo,
+        headSha: ref.headSha,
+        prNumbers: [],
+        approvalHold: { runId: 55006 },
+      },
+      intakeLog(),
+    );
+    await expect(countWebhookRows(delivery)).resolves.toBe(1);
+    await expect(countWorkItems()).resolves.toBe(0);
+    expect(
+      (await pool.query("SELECT state FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]))
+        .rows,
+    ).toEqual([{ state: "awaiting" }]);
+  });
+
+  it("requested action_required records a hold, and queued requested approves it", async () => {
+    const ref = makePrRef();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    const data = {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      runId: 55007,
+      senderId: 7,
+      status: "completed",
+      conclusion: "action_required",
+    };
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("requested", randomUUID()),
+      data,
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(0);
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("requested", randomUUID()),
+      { ...data, status: "queued", conclusion: null },
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+  });
+
+  it("pending approving reviews consume admission once, even when concurrent", async () => {
+    const ref = makePrRef();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    await Promise.all(
+      [1, 2].map(() =>
+        applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("approval", randomUUID()),
+          ref,
+          "approval",
+          intakeLog(),
+          approvalAdmissionCfg,
+          { admittedBy: 7 },
+        ),
+      ),
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+    expect(
+      (
+        await pool.query("SELECT state, admitted_via FROM pr_review_admission WHERE owner = $1", [
+          OWNER,
+        ])
+      ).rows,
+    ).toEqual([{ state: "admitted", admitted_via: "review" }]);
+  });
+
+  it("expired holds, unknown started status, and mismatched run heads fail closed", async () => {
+    const ref = makePrRef();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    const data = {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      runId: 55008,
+      senderId: 7,
+      status: "in_progress",
+      conclusion: null,
+    };
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("hold", randomUUID()),
+      { ...data, prNumbers: [], approvalHold: { runId: data.runId } },
+      intakeLog(),
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      { ...data, status: undefined },
+      intakeLog(),
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      { ...data, headSha: "other-head" },
+      intakeLog(),
+    );
+    await pool.query(
+      "UPDATE workflow_run_approval_holds SET observed_at = now() - interval '31 days' WHERE owner = $1",
+      [OWNER],
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      data,
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(0);
+  });
+
+  it("workflow enqueue failure rolls back admission, hold approval, and accepted delivery", async () => {
+    const ref = makePrRef();
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+    );
+    const data = {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      runId: 55009,
+      senderId: 7,
+      status: "in_progress",
+      conclusion: null,
+    };
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("hold", randomUUID()),
+      { ...data, prNumbers: [], approvalHold: { runId: data.runId } },
+      intakeLog(),
+    );
+    const delivery = randomUUID();
+    const failure = withSendFailOnNth(boss, 1);
+    try {
+      await expect(
+        applyWorkflowRunStartedIntake(
+          boss,
+          pool,
+          headers("in_progress", delivery),
+          data,
+          intakeLog(),
+        ),
+      ).rejects.toThrow("injected send failure");
+    } finally {
+      failure.restore();
+    }
+    await expect(countWebhookRows(delivery)).resolves.toBe(0);
+    await expect(countWorkItems()).resolves.toBe(0);
+    expect(
+      (await pool.query("SELECT state FROM pr_review_admission WHERE owner = $1", [OWNER])).rows[0]
+        .state,
+    ).toBe("pending");
+    expect(
+      (await pool.query("SELECT state FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]))
+        .rows[0].state,
+    ).toBe("awaiting");
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", delivery),
+      data,
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
   });
 });

@@ -36,6 +36,7 @@ import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
+import { tryAdmit } from "./reviewAdmission.js";
 import {
   enqueueAck,
   enqueueDescription,
@@ -360,6 +361,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     commenterId: ctx.input.commenterId,
     ackTargets: ctx.baseAck.targets,
   });
+  await tryAdmit(ctx.client, resourceKey, "slash", ctx.input.commenterId, ctx.eventId);
   if (!insert.created) {
     await enqueueSlashAck(ctx, {
       ...(cancelProgress ? { cancelProgress } : {}),

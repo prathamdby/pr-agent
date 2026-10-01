@@ -201,6 +201,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
+    await pool.query("DELETE FROM pr_review_admission WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
       ["workflow_run", "check_run", "pull_request"],
     ]);
@@ -215,6 +216,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM pr_review_admission WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
       ["workflow_run", "check_run", "pull_request"],
     ]);
@@ -386,7 +388,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await expect(webhookDecision(delivery)).resolves.toBe("automated_review_enqueued");
   });
 
-  it("records automated work without review on opened in approval mode", async () => {
+  it("records approval waiting while keeping independent description work", async () => {
     const delivery = `ci-pr-approval-open-${randomUUID().slice(0, 8)}`;
     const approvalCfg = makeTestConfig({
       features: { ...cfg.features, review: "approval" },
@@ -408,13 +410,76 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       approvalCfg,
     );
 
-    await expect(webhookDecision(delivery)).resolves.toBe("automated_work_enqueued");
+    await expect(webhookDecision(delivery)).resolves.toBe("review_awaiting_approval");
     const { rows } = await pool.query<{ type: string }>(
       "SELECT type FROM agent_work_items WHERE owner = $1",
       [OWNER],
     );
     expect(rows.map((row) => row.type)).toEqual(["description"]);
   });
+
+  it.each(["approval", "auto"] as const)(
+    "keeps failing-CI authoring silent for pending admission only in %s mode",
+    async (mode) => {
+      const headSha = "a3".repeat(20);
+      const ref = {
+        owner: OWNER,
+        repo: REPO,
+        prNumber: PR_NUMBER,
+        installationId: 9001,
+        headSha,
+      };
+      const approvalCfg = makeTestConfig({
+        features: { ...cfg.features, review: "approval", describe: "manual" },
+      });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("pull_request", `ci-waiting-open-${randomUUID()}`),
+        ref,
+        "opened",
+        intakeLog(),
+        approvalCfg,
+      );
+      await insertSeededHead(headSha, { lint: ciStateFact() }, "failing", 1);
+      const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
+      fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
+      const calls: unknown[] = [];
+      const options = {
+        createSurface: async () => fake.surface,
+        author: stubCiAuthor(calls),
+      };
+      const job: CiProjectionJobData = { kind: "ci_projection", ...ref };
+      const projectionCfg = makeTestConfig({
+        features: { ...approvalCfg.features, review: mode },
+      });
+      await executeCiProjectionJob(projectionCfg, pool, boss, job, options);
+      expect(calls).toHaveLength(mode === "approval" ? 0 : 1);
+      const waiting = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+      expect(waiting?.checks.lint?.conclusion).toBe("failure");
+      expect(parseCiAuthoredCache(waiting?.authored) != null).toBe(mode === "auto");
+      expect(fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)).toBeNull();
+      const beforeApproval = await pool.query("SELECT id FROM agent_work_items WHERE owner = $1", [
+        OWNER,
+      ]);
+      expect(beforeApproval.rows).toHaveLength(0);
+
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("pull_request_review", `ci-waiting-approval-${randomUUID()}`),
+        ref,
+        "approval",
+        intakeLog(),
+        approvalCfg,
+        { admittedBy: 123 },
+      );
+      await executeCiProjectionJob(projectionCfg, pool, boss, job, options);
+      expect(calls).toHaveLength(1);
+      const admitted = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
+      expect(parseCiAuthoredCache(admitted?.authored)?.headline).toBe("❌ authored lint");
+    },
+  );
 
   it("records a review supersede request on synchronize in approval mode", async () => {
     const delivery = `ci-pr-approval-sync-${randomUUID().slice(0, 8)}`;

@@ -213,6 +213,7 @@ function startEffectServer({
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitWorkflowRunStarted: () => Effect.void,
         recordIgnored,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,

@@ -48,6 +48,12 @@ export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";
 export const IGNORED_UNAUTHORIZED_APPROVAL = "ignored_unauthorized_approval";
 /** Intake decision when an approval arrives but the review already exists. */
 export const IGNORED_APPROVAL_REVIEW_EXISTS = "ignored_approval_review_exists";
+export const REVIEW_AWAITING_APPROVAL = "review_awaiting_approval";
+export const IGNORED_REVIEW_ALREADY_ADMITTED = "ignored_review_already_admitted";
+export const IGNORED_WORKFLOW_APPROVAL_UNMATCHED = "ignored_workflow_approval_unmatched";
+export const WORKFLOW_APPROVAL_HOLD_RECORDED = "workflow_approval_hold_recorded";
+/** GitHub expires fork workflow approvals after 30 days. */
+export const WORKFLOW_APPROVAL_HOLD_TTL_SECONDS = 30 * 86_400;
 /** Intake decision + deferred log event when a closed PR cancels active reviews. */
 export const REVIEW_CANCELLED_PR_CLOSED = "review_cancelled_pr_closed";
 

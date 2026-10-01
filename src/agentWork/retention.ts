@@ -7,6 +7,7 @@ import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
 import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
 import { deleteExpiredAskQuotaState } from "./askQuota.js";
 import { deleteExpiredPrHeadCiState } from "./prHeadCiState.js";
+import { deleteExpiredReviewAdmission } from "./intake/reviewAdmission.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -19,6 +20,8 @@ export type RetentionResult = {
   readonly codeIndexSnapshotsDeleted: number;
   readonly askQuotaBucketsDeleted: number;
   readonly prHeadCiStateDeleted: number;
+  readonly reviewAdmissionsDeleted: number;
+  readonly workflowApprovalHoldsDeleted: number;
 };
 
 /**
@@ -44,6 +47,7 @@ export async function runRetention(
     codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
+    reviewAdmission,
   ] = await Promise.all([
     (async () => {
       let deleted = 0;
@@ -127,6 +131,7 @@ export async function runRetention(
     ),
     deleteExpiredAskQuotaState(pool, cfg.agentWorkRetentionSeconds, RETENTION_DELETE_BATCH_SIZE),
     deleteExpiredPrHeadCiState(pool, cfg.agentWorkRetentionSeconds),
+    deleteExpiredReviewAdmission(pool, cfg.agentWorkRetentionSeconds),
   ]);
   return {
     workItemsDeleted,
@@ -137,6 +142,7 @@ export async function runRetention(
     codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,
     prHeadCiStateDeleted,
+    ...reviewAdmission,
   };
 }
 

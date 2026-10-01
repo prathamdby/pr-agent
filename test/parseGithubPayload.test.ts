@@ -912,9 +912,50 @@ describe("parseGithubPayload", () => {
     expect(parsed.data.workflow_run.pull_requests).toHaveLength(1);
   });
 
-  it("ignores workflow_run actions other than completed", () => {
+  it.each(["requested", "in_progress"])(
+    "routes %s workflow runs without approval metadata",
+    (action) => {
+      const parsed = parseGithubPayload("workflow_run", {
+        action,
+        installation: { id: 9 },
+        repository: { owner: { login: "acme" }, name: "pr-agent" },
+        workflow_run: { id: 55, head_sha: "abc123" },
+      });
+      expect(parsed).toMatchObject({
+        name: "workflow_run_started",
+        data: { workflow_run: { id: 55, head_sha: "abc123" } },
+      });
+    },
+  );
+
+  it("preserves requested action_required and completed approval metadata", () => {
+    for (const action of ["requested", "completed"]) {
+      const parsed = parseGithubPayload("workflow_run", {
+        action,
+        installation: { id: 9 },
+        repository: { owner: { login: "acme" }, name: "pr-agent" },
+        sender: { id: 7, type: "User" },
+        workflow_run: {
+          id: 55,
+          head_sha: "abc123",
+          event: "pull_request",
+          status: "completed",
+          conclusion: "action_required",
+        },
+      });
+      expect(parsed).toMatchObject({
+        name: action === "completed" ? "workflow_run" : "workflow_run_started",
+        data: {
+          sender: { id: 7, type: "User" },
+          workflow_run: { event: "pull_request", conclusion: "action_required" },
+        },
+      });
+    }
+  });
+
+  it("ignores unsupported workflow_run actions", () => {
     const parsed = parseGithubPayload("workflow_run", {
-      action: "requested",
+      action: "unknown",
       installation: { id: 1 },
     });
     expect(parsed.name).toBe("ignored");

@@ -34,18 +34,20 @@ CodeRabbit and the other hosted reviewers charge per person and keep your keys. 
 
 ## Features
 
-| Feature             | When it runs                                                              | Command                         |
-| ------------------- | ------------------------------------------------------------------------- | ------------------------------- |
-| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`, or first approval when `approval` | `/review` on open PRs           |
-| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`                                  | `/describe`                     |
-| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto`                         | `/verify`                       |
-| Ask                 | On demand when `FEATURE_ASK=manual`                                       | `/ask …` or mention the App bot |
-| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`                                    | `/triage`                       |
-| Cancel review       | On demand                                                                 | `/cancel`                       |
-| Restart review      | On demand (cancels the active run, latest commit)                         | `/review force`                 |
-| Help                | On demand                                                                 | `/help`                         |
+| Feature             | When it runs                                                                                    | Command                         |
+| ------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------- |
+| Orchestrated review | PR `opened` in `auto`; trusted authors on open or external authors after approval in `approval` | `/review` on open PRs           |
+| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`                                                        | `/describe`                     |
+| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto`                                               | `/verify`                       |
+| Ask                 | On demand when `FEATURE_ASK=manual`                                                             | `/ask …` or mention the App bot |
+| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`                                                          | `/triage`                       |
+| Cancel review       | On demand                                                                                       | `/cancel`                       |
+| Restart review      | On demand (cancels the active run, latest commit)                                               | `/review force`                 |
+| Help                | On demand                                                                                       | `/help`                         |
 
 Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md). `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` crashes startup. `FEATURE_ASK` and `FEATURE_TRIAGE` accept only `off` or `manual`. `auto` aborts startup.
+
+The default `approval` mode now reviews trusted authors when they open a PR. This increases default model spend.
 
 With no open findings, verification skips the agent. It checks the live head first. An older-head run completes degraded instead of clean and leaves any existing verification failure signal in place.
 
@@ -55,6 +57,8 @@ With no open findings, verification skips the agent. It checks the live head fir
 Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. A finding is published only when it meets the causal-publication contract. The orchestrator re-applies that contract during judgment. P0-P2 findings fail the review check run. P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0010](docs/adr/0010-lightweight-review-completion.md)).
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`). Mention matching uses the App bot login, not the word `@bot`. `/ask` and `/help` do not need a mention.
+
+In `approval` mode, that allowlist also defines trusted non-bot PR authors. Missing author or association metadata is untrusted. `*` admits every author on open, including bots, like `auto`. External authors wait without review comments, checks, or review model calls. A recorded `pull_request` workflow hold (`action_required`) followed by the same run starting with a human sender admits the current pending head. A CI rerun with no recorded hold does not. If GitHub does not hold the workflow, or the transition is missing, use an approving review from someone with standing or `/review`. Each PR gets one automatic admission; later reviews need `/review`. Description and verification keep their separate settings.
 
 Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it.
 
@@ -96,7 +100,7 @@ Create the GitHub App and paste a real private key before you start Compose. The
 3. Leave **Identifying and authorizing users** off. Do not set a callback URL. This App does not use user login.
 4. Set **Webhook URL** to `https://<your-host>/webhooks` once you have HTTPS, or a tunnel URL that forwards to `/webhooks`. You can save the App first and add the URL after the host is up.
 5. Set **Webhook secret** now. Copy the same value into `WEBHOOK_SECRET` later.
-6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. Add `pull_request_review` when `FEATURE_REVIEW=approval` so approvals can trigger reviews.
+6. Subscribe to `pull_request`, `issue_comment`, `pull_request_review_comment`, `workflow_run`, `check_suite`, `check_run`, and `status`. `workflow_run` also gates external reviews in approval mode. Add `pull_request_review` when `FEATURE_REVIEW=approval` for the approving-review fallback.
 7. Set repository permissions (table below). Create the app, generate a **private key**, and copy the **App ID**.
 8. Install the app on the orgs or repos you want reviewed. Creating the App is not enough. If you pick **Only select repositories**, include the test repo.
 
@@ -107,7 +111,7 @@ Create the GitHub App and paste a real private key before you start Compose. The
 | Contents        | Read & write | Read code; write only needed for `/triage` pushes                               |
 | Metadata        | Read         | Required by GitHub for apps                                                     |
 | Checks          | Read & write | Review check run + CI summary inputs                                            |
-| Actions         | Read         | Condensed job logs when CI fails                                                |
+| Actions         | Read         | Workflow approval events and condensed job logs when CI fails                   |
 | Commit statuses | Read         | Legacy `status` events and CI facts. Add write if `FEATURE_COMMIT_STATUS=true`. |
 
 `workflow_run` or `check_suite` (completed) refreshes the CI row and action line on an existing review summary when Actions finish later. After you push, a finished review's CI row and action line follow the new head. The footer still names the reviewed commit. `check_run` (`created`, `completed`) and `status` are recorded for the head even when no PR is known yet. Opening, synchronizing, or reopening a pull request also enqueues a snapshot when that head has no seeded row. Ack and publish do the same after they write the comment. A missing or unseeded snapshot shows **Waiting for CI**. A complete snapshot with no external checks shows **No CI checks on this head**. Own-App `check_run` and `check_suite` deliveries are ignored.

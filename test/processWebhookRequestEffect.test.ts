@@ -69,6 +69,7 @@ function slashGateLayer(
         Effect.sync(() => {
           decisions.push(decision);
         }),
+      submitWorkflowRunStarted: () => Effect.void,
       submitAutomatedReview: () => Effect.void,
       submitSlashCommand: (input) =>
         Effect.sync(() => {
@@ -103,6 +104,7 @@ describe("processWebhookPostRequestEffect", () => {
       AgentWorkScheduler,
       AgentWorkScheduler.of({
         recordIgnored: () => Effect.void,
+        submitWorkflowRunStarted: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
@@ -113,6 +115,7 @@ describe("processWebhookPostRequestEffect", () => {
     Layer.succeed(
       WebhookHandlers,
       WebhookHandlers.of({
+        workflowApproval: () => Effect.void,
         pullRequest: () => Effect.void,
         issueComment: () => Effect.void,
         pullRequestReviewComment: () => Effect.void,
@@ -175,6 +178,7 @@ describe("processWebhookPostRequestEffect", () => {
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitWorkflowRunStarted: () => Effect.void,
         recordIgnored: () =>
           Effect.promise(() => {
             entered = true;
@@ -313,6 +317,7 @@ describe("processWebhookPostRequestEffect", () => {
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitWorkflowRunStarted: () => Effect.void,
         recordIgnored: () =>
           Effect.sync(() => {
             calls.push("recordIgnored");
@@ -339,6 +344,7 @@ describe("processWebhookPostRequestEffect", () => {
     const handlersLayer = Layer.succeed(
       WebhookHandlers,
       WebhookHandlers.of({
+        workflowApproval: () => Effect.void,
         pullRequest: () =>
           Effect.sync(() => {
             calls.push("pullRequest");
@@ -812,6 +818,7 @@ describe("processWebhookPostRequestEffect", () => {
       AgentWorkScheduler,
       AgentWorkScheduler.of({
         recordIgnored: () => Effect.void,
+        submitWorkflowRunStarted: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: (_headers, data) =>
@@ -1131,6 +1138,7 @@ describe("processWebhookPostRequestEffect", () => {
       Layer.succeed(
         AgentWorkScheduler,
         AgentWorkScheduler.of({
+          submitWorkflowRunStarted: () => Effect.void,
           recordIgnored: () => Effect.sleep("20 millis"),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
@@ -1142,6 +1150,7 @@ describe("processWebhookPostRequestEffect", () => {
       Layer.succeed(
         WebhookHandlers,
         WebhookHandlers.of({
+          workflowApproval: () => Effect.void,
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
@@ -1203,6 +1212,7 @@ describe("processWebhookPostRequestEffect", () => {
       Layer.succeed(
         WebhookHandlers,
         WebhookHandlers.of({
+          workflowApproval: () => Effect.void,
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
@@ -1244,6 +1254,7 @@ describe("processWebhookPostRequestEffect", () => {
       Layer.succeed(
         AgentWorkScheduler,
         AgentWorkScheduler.of({
+          submitWorkflowRunStarted: () => Effect.void,
           recordIgnored: () => Effect.fail(new Error("boom")),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
@@ -1255,6 +1266,7 @@ describe("processWebhookPostRequestEffect", () => {
       Layer.succeed(
         WebhookHandlers,
         WebhookHandlers.of({
+          workflowApproval: () => Effect.void,
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
@@ -1318,6 +1330,7 @@ describe("processWebhookPostRequestEffect", () => {
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitWorkflowRunStarted: () => Effect.void,
         recordIgnored: (_headers, decision) =>
           Effect.sync(() => {
             decisions.push(decision);
@@ -1362,6 +1375,196 @@ describe("processWebhookPostRequestEffect", () => {
 
   const approvalCfg = makeTestConfig({
     features: { ...makeTestConfig().features, review: "approval" },
+  });
+
+  it.each([
+    { user: { id: 7, login: "author", type: "User" }, association: "OWNER", trusted: true },
+    { user: { id: 7, login: "author", type: "Bot" }, association: "OWNER", trusted: false },
+    { user: { id: 7, login: "author", type: "User" }, association: undefined, trusted: false },
+    { user: undefined, association: "OWNER", trusted: false },
+    { user: { id: 7, login: "author", type: "User" }, association: "CONTRIBUTOR", trusted: false },
+  ])("passes signed author trust to intake: %j", async ({ user, association, trusted }) => {
+    const submitAutomatedReview = vi.fn(() => Effect.void);
+    const schedulerLayer = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: () => Effect.void,
+        submitAutomatedReview,
+        submitWorkflowRunStarted: () => Effect.void,
+        submitSlashCommand: () => Effect.void,
+        submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
+        ping: () => Effect.succeed(true),
+      }),
+    );
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 3, head: { sha: "abc" }, user, author_association: association },
+      }),
+    );
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: { "x-hub-signature-256": sign(body), "x-github-event": "pull_request" },
+          rawBody: body,
+        },
+        Layer.mergeAll(schedulerLayer, WebhookHandlersCore.pipe(Layer.provide(schedulerLayer))),
+        approvalCfg,
+      ),
+    );
+    expect(out.status).toBe(200);
+    expect(submitAutomatedReview).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "opened",
+      expect.anything(),
+      expect.objectContaining({ authorTrusted: trusted, authorId: user?.id }),
+    );
+  });
+
+  it.each([
+    { event: "pull_request", sender: { id: 7, type: "User" }, enabled: true, submitted: true },
+    {
+      event: "pull_request_target",
+      sender: { id: 7, type: "User" },
+      enabled: true,
+      submitted: false,
+    },
+    { event: "pull_request", sender: { id: 7, type: "Bot" }, enabled: true, submitted: false },
+    { event: undefined, sender: { id: 7, type: "User" }, enabled: true, submitted: false },
+    { event: "pull_request", sender: undefined, enabled: true, submitted: false },
+    { event: "pull_request", sender: { id: 7 }, enabled: true, submitted: false },
+    { event: "pull_request", sender: { id: 7, type: "User" }, enabled: false, submitted: false },
+  ])(
+    "fails closed at workflow approval boundary: %j",
+    async ({ event, sender, enabled, submitted }) => {
+      const submitWorkflowRunStarted = vi.fn(() => Effect.void);
+      const schedulerLayer = Layer.succeed(
+        AgentWorkScheduler,
+        AgentWorkScheduler.of({
+          recordIgnored: () => Effect.void,
+          submitAutomatedReview: () => Effect.void,
+          submitWorkflowRunStarted,
+          submitSlashCommand: () => Effect.void,
+          submitCiRefresh: () => Effect.void,
+          submitCiState: () => Effect.void,
+          ping: () => Effect.succeed(true),
+        }),
+      );
+      const body = Buffer.from(
+        JSON.stringify({
+          action: "in_progress",
+          installation: { id: 1 },
+          repository: { owner: { login: "o" }, name: "r" },
+          sender,
+          workflow_run: { id: 55, head_sha: "abc", status: "in_progress", event },
+        }),
+      );
+      const out = await Effect.runPromise(
+        runWithIntake(
+          {
+            headers: { "x-hub-signature-256": sign(body), "x-github-event": "workflow_run" },
+            rawBody: body,
+          },
+          Layer.mergeAll(schedulerLayer, WebhookHandlersCore.pipe(Layer.provide(schedulerLayer))),
+          enabled ? approvalCfg : cfg,
+        ),
+      );
+      expect(out.status).toBe(200);
+      expect(submitWorkflowRunStarted).toHaveBeenCalledTimes(submitted ? 1 : 0);
+    },
+  );
+
+  it("wildcard author trust admits even bots on opened", async () => {
+    const trusted: boolean[] = [];
+    const schedulerLayer = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: () => Effect.void,
+        submitAutomatedReview: (_headers, _ref, _action, _log, opts) =>
+          Effect.sync(() => {
+            trusted.push(opts?.authorTrusted === true);
+          }),
+        submitWorkflowRunStarted: () => Effect.void,
+        submitSlashCommand: () => Effect.void,
+        submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
+        ping: () => Effect.succeed(true),
+      }),
+    );
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: { number: 3, head: { sha: "abc" }, user: { id: 8, type: "Bot" } },
+      }),
+    );
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: { "x-hub-signature-256": sign(body), "x-github-event": "pull_request" },
+          rawBody: body,
+        },
+        Layer.mergeAll(schedulerLayer, WebhookHandlersCore.pipe(Layer.provide(schedulerLayer))),
+        {
+          ...approvalCfg,
+          slashAllowedAssociations: new Set(["*"]),
+        },
+      ),
+    );
+    expect(out.status).toBe(200);
+    expect(trusted).toEqual([true]);
+  });
+
+  it("passes completed pull_request approval holds without changing CI dispatch", async () => {
+    const captured: unknown[] = [];
+    const schedulerLayer = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: () => Effect.void,
+        submitAutomatedReview: () => Effect.void,
+        submitWorkflowRunStarted: () => Effect.void,
+        submitSlashCommand: () => Effect.void,
+        submitCiRefresh: (_headers, data) =>
+          Effect.sync(() => {
+            captured.push(data);
+          }),
+        submitCiState: () => Effect.void,
+        ping: () => Effect.succeed(true),
+      }),
+    );
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "completed",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r" },
+        sender: { id: 7, type: "User" },
+        workflow_run: {
+          id: 55,
+          head_sha: "abc",
+          status: "completed",
+          conclusion: "action_required",
+          event: "pull_request",
+        },
+      }),
+    );
+    await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: { "x-hub-signature-256": sign(body), "x-github-event": "workflow_run" },
+          rawBody: body,
+        },
+        Layer.mergeAll(schedulerLayer, WebhookHandlersCore.pipe(Layer.provide(schedulerLayer))),
+        approvalCfg,
+      ),
+    );
+    expect(captured).toEqual([
+      expect.objectContaining({ approvalHold: { runId: 55 }, headSha: "abc" }),
+    ]);
   });
 
   it("ignores approval reviews from bot accounts", async () => {

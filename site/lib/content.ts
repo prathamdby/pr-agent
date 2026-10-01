@@ -32,8 +32,8 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "A pull request opens on your project",
     detail:
-      "PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.",
-    cue: "Starts when a pull request opens",
+      "Trusted authors start a review on open in the default approval mode. External authors wait for workflow or review approval, or /review. Your team sees a reaction when review work begins.",
+    cue: "Trusted authors on open; external authors after approval",
     summary: "Automated AI pull request reviews",
   },
   {
@@ -73,7 +73,7 @@ export const CAPABILITIES: CapabilityItem[] = [
     id: "review",
     title: "Catch basics before a human opens the change",
     trigger:
-      "Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review",
+      "Runs on open in auto; trusted authors on open or external authors after approval in approval mode; /review remains available",
     detail:
       "Comments land next to the lines that need attention. After PR Agent accepts a close or merge, automated review intake, /review (including force) and stale-head replacements cannot start another review. Closed commands ask you to reopen first; merged commands are refused. A newer reopen permits review but does not start one automatically. Late older ticks from the same review do not replace newer progress or its final summary. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning. Crash recovery serializes its failure decision with live work. Busy or timed-out recovery passes leave your review alone and retry later. Coalesced CI deliveries keep their identities on your retained projection job. A failed stale review's pending replacement is cancelled even if it has just started or a delivery races the abort. Successfully handed-off replacements remain unchanged; unconfirmed cancellation is logged as an error. Retrying a stale review keeps changes already saved on its replacement.",
   },

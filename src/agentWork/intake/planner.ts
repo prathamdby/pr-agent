@@ -1,10 +1,17 @@
-import { AUTO_TRIGGER_ACTIONS, type Features } from "../../settings/index.js";
+import {
+  AUTO_TRIGGER_ACTIONS,
+  REVIEW_AWAITING_APPROVAL,
+  type Features,
+} from "../../settings/index.js";
 
 /** Durable work kinds scheduled from automated pull_request webhooks. */
 type AutomatedPrIntakeKind =
   | "review"
   | "reviewSupersede"
   | "reviewApproval"
+  | "admissionAuthor"
+  | "admissionPending"
+  | "admissionHead"
   | "description"
   | "verification";
 
@@ -19,6 +26,7 @@ export function automatedIntakeDecision(plan: AutomatedPrIntakePlan) {
   if (plan.kinds.includes("reviewSupersede")) {
     return "automated_review_supersede_requested";
   }
+  if (plan.kinds.includes("admissionPending")) return REVIEW_AWAITING_APPROVAL;
   return "automated_work_enqueued";
 }
 
@@ -26,6 +34,7 @@ export function automatedIntakeDecision(plan: AutomatedPrIntakePlan) {
 export function planAutomatedPullRequestIntake(
   action: string,
   features: Pick<Features, "review" | "describe" | "verification">,
+  authorTrusted = false,
 ): AutomatedPrIntakePlan {
   const kinds: AutomatedPrIntakeKind[] = [];
   if (features.review === "auto") {
@@ -37,15 +46,13 @@ export function planAutomatedPullRequestIntake(
       kinds.push("reviewSupersede");
     }
   } else if (features.review === "approval") {
-    if (action === "approval") {
-      // No review on `opened`: the first approving review enqueues it instead,
-      // so unreviewed slop PRs start no review work. Describe and verification
-      // keep their own triggers; set them to manual or off to stop all
-      // open-time model spend. The supersede rule below keeps
-      // approval-started reviews pinned to the latest head.
+    if (action === "opened") {
+      if (authorTrusted) kinds.push("review", "admissionAuthor");
+      else kinds.push("admissionPending");
+    } else if (action === "approval") {
       kinds.push("reviewApproval");
     } else if (action === "synchronize") {
-      kinds.push("reviewSupersede");
+      kinds.push("reviewSupersede", "admissionHead");
     }
   }
   if (features.describe === "auto" && AUTO_TRIGGER_ACTIONS.describe.has(action)) {

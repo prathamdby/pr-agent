@@ -2,6 +2,7 @@ import * as v from "valibot";
 import {
   githubPrNumberSchema,
   githubShaSchema,
+  githubUserSchema,
   installationSchema,
   repositorySchema,
 } from "./common.js";
@@ -30,6 +31,8 @@ export const pullRequestWebhookSchema = v.pipe(
         sha: githubShaSchema,
       }),
       merged: v.optional(v.boolean(), false),
+      user: v.nullish(v.object({ ...githubUserSchema.entries, type: v.nullish(v.string()) })),
+      author_association: v.nullish(v.string()),
       state: v.optional(v.picklist(["open", "closed"])),
       updated_at: v.optional(lifecycleTimestampSchema),
     }),

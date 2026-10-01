@@ -40,6 +40,7 @@ import {
 } from "../../settings/legacyReviewLenses.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
+import { isHeadAwaitingReviewAdmission } from "../intake/reviewAdmission.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { closeOwnVerdict } from "../closeOwnVerdict.js";
 import {
@@ -648,23 +649,25 @@ export async function executeCiProjectionJob(
   });
   if (row == null) return;
 
-  try {
-    const authorSurface =
-      prNumbers.length > 0 ? await createSurface(prNumbers[0] ?? 0) : probeSurface;
-    row = await authorHeadCiIfFactsChanged({
-      cfg,
-      pool,
-      prSurface: authorSurface,
-      row,
-      author: options?.author,
-    });
-  } catch (error) {
-    logWarn("ci_projection_author_failed", {
-      owner: data.owner,
-      repo: data.repo,
-      headSha: data.headSha,
-      message: error instanceof Error ? error.message : String(error),
-    });
+  if (cfg.features.review !== "approval" || !(await isHeadAwaitingReviewAdmission(pool, data))) {
+    try {
+      const authorSurface =
+        prNumbers.length > 0 ? await createSurface(prNumbers[0] ?? 0) : probeSurface;
+      row = await authorHeadCiIfFactsChanged({
+        cfg,
+        pool,
+        prSurface: authorSurface,
+        row,
+        author: options?.author,
+      });
+    } catch (error) {
+      logWarn("ci_projection_author_failed", {
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (prNumbers.length === 0) {

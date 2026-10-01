@@ -163,6 +163,19 @@ insertion takes the same intake lock and reads lifecycle in a subsequent stateme
 before locking the parent lease and item. Closed/merged refusal cannot transfer
 progress ownership; close sees any replacement committed before it acquires the lock.
 
+Approval mode admits trusted non-bot PR authors on open using
+`SLASH_ALLOWED_ASSOCIATIONS`; `*` admits every author, like auto. External PRs
+record pending admission without review output. A recorded `pull_request`
+workflow `action_required` hold followed by the same run starting with a human
+sender, an approving review with standing, or `/review` consumes admission once.
+Head discovery takes its transaction lock before the review intake lock, so
+PR-first and approved-hold-first delivery orders converge. Admission rereads
+under `FOR UPDATE` and checks lifecycle before enqueue. Ordinary reruns cannot
+approve without a hold. Legacy approving reviews admit once without backfill;
+unmatched workflow approvals remain silent. Holds expire after 30 days; open
+admissions survive work retention. See [ADR 0042](docs/adr/0042-review-admission.md).
+CI facts still refresh while pending heads skip failing-CI model authoring.
+
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
 After an interrupted mutation, the intent boundary checks saved results and exact evidence. Completed recovery without a usable result selects terminal failure through the existing feature hook; the intent stays `outcome_unknown` and is never remutated. Failed or incomplete evidence reads remain transient. A cached terminal resolution skips repeated recovery reads, and terminal work-item redelivery cannot claim again.

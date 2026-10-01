@@ -70,10 +70,23 @@ describe("planAutomatedPullRequestIntake", () => {
     ).toEqual([]);
   });
 
-  it("schedules no review on opened in approval mode", () => {
+  it("records pending admission on untrusted opened in approval mode", () => {
     expect(
       planAutomatedPullRequestIntake("opened", { ...allAuto, review: "approval" }).kinds,
-    ).toEqual(["description"]);
+    ).toEqual(["admissionPending", "description"]);
+  });
+
+  it("admits trusted opened authors in approval mode", () => {
+    expect(
+      planAutomatedPullRequestIntake("opened", { ...allAuto, review: "approval" }, true).kinds,
+    ).toEqual(["review", "admissionAuthor", "description"]);
+  });
+
+  it.each([true, false])("updates pending head on synchronize, trusted=%s", (trusted) => {
+    expect(
+      planAutomatedPullRequestIntake("synchronize", { ...allAuto, review: "approval" }, trusted)
+        .kinds,
+    ).toEqual(["reviewSupersede", "admissionHead", "verification"]);
   });
 
   it("schedules reviewApproval on approval in approval mode", () => {
@@ -85,7 +98,7 @@ describe("planAutomatedPullRequestIntake", () => {
   it("schedules review supersede on synchronize in approval mode", () => {
     expect(
       planAutomatedPullRequestIntake("synchronize", { ...allAuto, review: "approval" }).kinds,
-    ).toEqual(["reviewSupersede", "verification"]);
+    ).toEqual(["reviewSupersede", "admissionHead", "verification"]);
   });
 
   it("ignores approval action unless review is approval mode", () => {

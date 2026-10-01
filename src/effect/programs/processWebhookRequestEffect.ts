@@ -121,7 +121,17 @@ function dispatchGithubEventEffect(
             run: parsed.data.workflow_run,
           }),
           intakeLog,
+          cfg.features.review === "approval" &&
+            parsed.data.workflow_run.event === "pull_request" &&
+            parsed.data.sender?.type?.toLowerCase() === "user" &&
+            (parsed.data.workflow_run.status === "action_required" ||
+              parsed.data.workflow_run.conclusion === "action_required")
+            ? { runId: parsed.data.workflow_run.id }
+            : undefined,
         );
+        return { kind: "ok" as const };
+      case "workflow_run_started":
+        yield* handlers.workflowApproval(cfg, headers, parsed.data, intakeLog);
         return { kind: "ok" as const };
       case "check_suite": {
         const suite = parsed.data.check_suite;

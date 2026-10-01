@@ -9,6 +9,8 @@ import {
   applyAutomatedPullRequestIntake,
   applyCompletedRunCiIntake,
   applyCiStateIntake,
+  applyWorkflowRunStartedIntake,
+  type WorkflowRunStartedInput,
   type CiStateFactInput,
   type AutomatedPullRequestIntakeOpts,
   recordIgnoredWebhook,
@@ -41,7 +43,13 @@ export class AgentWorkScheduler extends Context.Service<
         readonly repo: string;
         readonly headSha: string;
         readonly prNumbers: readonly number[];
+        readonly approvalHold?: { readonly runId: number };
       },
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
+    readonly submitWorkflowRunStarted: (
+      headers: WebhookHeaders,
+      data: WorkflowRunStartedInput,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly submitCiState: (
@@ -83,6 +91,12 @@ export function makeAgentWorkScheduler(
     submitCiRefresh: (headers, data, intakeLog) =>
       Effect.tryPromise({
         try: () => applyCompletedRunCiIntake(boss, pool, headers, data, intakeLog),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }).pipe(Effect.uninterruptible),
+
+    submitWorkflowRunStarted: (headers, data, intakeLog) =>
+      Effect.tryPromise({
+        try: () => applyWorkflowRunStartedIntake(boss, pool, headers, data, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }).pipe(Effect.uninterruptible),
 

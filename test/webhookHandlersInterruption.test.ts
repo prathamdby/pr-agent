@@ -82,6 +82,7 @@ function slashTraceLayers(
   const scheduler = Layer.succeed(
     AgentWorkScheduler,
     AgentWorkScheduler.of({
+      submitWorkflowRunStarted: () => Effect.void,
       recordIgnored: (_headers, decision) =>
         Effect.sync(() => {
           trace.decision = decision;
@@ -183,6 +184,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const failingScheduler = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitWorkflowRunStarted: () => Effect.void,
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.fail(new Error("scheduler failed")),
@@ -230,6 +232,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const scheduler = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitWorkflowRunStarted: () => Effect.void,
         recordIgnored: () =>
           Effect.sync(() => {
             ignored = true;
@@ -282,6 +285,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const scheduler = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitWorkflowRunStarted: () => Effect.void,
         recordIgnored: (_headers, decision) =>
           Effect.sync(() => {
             if (decision === "ignored_bot_slash_command") ignored = true;

@@ -44,6 +44,48 @@ group by phase order by phase;
 
 A lease block can leave `agent_work_items.status = 'queued'` with no live job in the first seven queries. Inspect `pr_actor_leases` and `operation_intents` before assuming the worker is idle. Ask admission also writes `ask_quota_*` tables.
 
+## Waiting approval-mode reviews
+
+Trusted non-bot authors in `SLASH_ALLOWED_ASSOCIATIONS` start reviews on open.
+External authors wait without review comments, checks, or review model calls.
+CI facts still refresh; pending heads skip failing-CI model authoring.
+Description and verification are separate features. Inspect metadata only:
+
+```sql
+select resource_key, head_sha, author_id, state, admitted_via, admitted_by,
+       webhook_event_id, created_at, updated_at
+from pr_review_admission where resource_key = $1;
+
+select run_id, head_sha, state, approved_by, observed_at, updated_at
+from workflow_run_approval_holds
+where owner = $1 and repo = $2 and head_sha = $3;
+
+select id, delivery_id, processing_decision, received_at
+from webhook_events where id = $1;
+```
+
+`review_awaiting_approval` means open-time intake is waiting.
+`ignored_review_already_admitted` means the PR already consumed its automatic
+admission, even if its review finished or failed. `workflow_approval_hold_recorded`
+records a requested run with `action_required`; completed holds retain
+`ci_projection_enqueued`. `ignored_workflow_approval_not_awaiting` means no
+usable waiting hold or started state. `ignored_workflow_approval_unmatched`
+means an approved hold has no eligible pending PR for its repository and head.
+An approved hold may still reconcile when that PR or head delivery arrives.
+
+If the run never waited, its CI rerun is not approval. Missing payload fields,
+`pull_request_target`, and bot senders cannot approve. A started delivery received
+before its waiting hold does not approve retroactively. Recover with `/review`
+on the open PR, or a submitted approving review from someone with standing.
+Do not edit admission or hold rows to manufacture approval.
+
+Hold eligibility and retention both stop at 30 days. Admission retention removes
+rows only after a known closed/merged PR's admission and lifecycle marker both
+age past `AGENT_WORK_RETENTION_SECONDS`; open admissions survive. Upgrade every
+web replica with migration 035 before relying on one automatic admission.
+Rollback leaves the additive tables intact but restores the older approval behavior.
+See [ADR 0042](adr/0042-review-admission.md).
+
 ## Ask Mention Duplicates
 
 Canonical ask intake admits one work item per triggering mention (installation, resource key, comment surface, and comment ID) and quietly joins later accepted deliveries to the retained item in any status. To find duplicate mentions admitted before this agreement existed (or by a mixed old/new web fleet), group ask items by mention identity:
@@ -73,6 +115,7 @@ Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age count
 | ------------------------------ | -------------------------------------- |
 | `review` or `reviewApproval`   | `automated_review_enqueued`            |
 | Otherwise `reviewSupersede`    | `automated_review_supersede_requested` |
+| Otherwise `admissionPending`   | `review_awaiting_approval`             |
 | Otherwise other automated work | `automated_work_enqueued`              |
 
 A supersede request may create no replacement when no auto review is active.

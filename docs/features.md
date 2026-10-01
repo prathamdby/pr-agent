@@ -12,11 +12,19 @@ startup. `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` is
 invalid and crashes startup.
 `/review` is available in every review mode on open PRs. Auto triggers are fixed: review and describe fire when
 a PR is `opened`; verification fires on `synchronize` (every push). With
-`FEATURE_REVIEW=approval`, no review fires on `opened`: the first submitted
-approving review from a reviewer with standing (`SLASH_ALLOWED_ASSOCIATIONS`,
-bots excluded) enqueues one auto review for the latest head, and repeat
-approvals are a no-op. On your own PRs use `/review`, since GitHub does not
-let authors approve their own PR. A push
+`FEATURE_REVIEW=approval`, trusted non-bot authors in `SLASH_ALLOWED_ASSOCIATIONS`
+get a review on `opened`. Missing author or association metadata is untrusted.
+`*` admits every author, including bots, on open, like `auto`.
+External authors wait for a recorded `pull_request` workflow hold
+(`action_required`) followed by the same run starting with a human sender,
+or the first approving review from a non-bot reviewer with standing.
+An ordinary CI rerun without a hold never admits. `/review` also admits a waiting PR.
+Each PR gets one automatic admission, even after its review finishes or fails.
+Later reviews need `/review`. Waiting creates no review comments, checks, or
+review model calls; description and verification remain independently configured.
+CI facts still refresh, but failing-CI model authoring waits for admission.
+The default `approval` mode now spends tokens on trusted PRs when they open.
+A push
 while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
 Custom trigger sets are intentionally not supported.
@@ -56,7 +64,7 @@ thread. The join lasts until the work item is purged by
 
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews each PR when opened; `approval` reviews only after a reviewer with standing approves; `/review` is available in every mode, subject to open-PR admission.                                            |
+| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews on open; `approval` reviews trusted authors on open and external authors after workflow or review approval. One automatic admission per PR; `/review` remains available on open PRs.                 |
 | `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`     | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                   |
 | `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`     | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                     |
 | `FEATURE_ASK`           | `off` \| `manual`                  | `manual`   | yes            | `/ask` and App-bot mention question threads.                                                                                                                                                                                             |

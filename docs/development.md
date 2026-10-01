@@ -57,6 +57,13 @@ comment identity on a transaction-scoped advisory lock and joins a retained
 ask row in any status before quota admission, while `workItemRepository.ts`
 keeps the per-webhook-event insert conflict as the idempotency backstop.
 
+`reviewAdmission.ts` owns all review admission and workflow hold SQL, including
+retention. Head-scoped discovery locks precede review intake locks. Workflow
+discovery visits PRs in resource-key order; PR-side reconciliation only visits its
+own admission. `tryAdmit` rereads the row under `FOR UPDATE` and checks lifecycle.
+`applier.ts` shares deferred-head approval dispatch between workflow and review
+triggers. See [ADR 0042](adr/0042-review-admission.md).
+
 `gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 
 `durableJob.ts` owns the leased `PrSurface` publication fence: reread durable

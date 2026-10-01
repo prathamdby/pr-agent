@@ -6,7 +6,7 @@ export const SLASH_HELP_BODY = [
   "- `/help` - show this message",
   "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
   "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
-  "- `/review` - review the PR for bugs (also runs when a PR opens with FEATURE_REVIEW=auto, or on approval with approval; later reviews need `/review`)",
+  "- `/review` - review the PR for bugs. In approval mode, trusted authors start on open; external authors wait for workflow or review approval. `/review` admits a waiting PR; later reviews need `/review`.",
   "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
   "- `/cancel` - cancel a queued or in-progress review on this PR",
   "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",

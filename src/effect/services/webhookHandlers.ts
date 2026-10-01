@@ -20,6 +20,7 @@ import { prNumbersForCiHead, type CiHeadSource } from "../../webhook/payloads/ci
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type PullRequestReviewData = Extract<ParsedGithubEvent, { name: "pull_request_review" }>["data"];
+type WorkflowRunData = Extract<ParsedGithubEvent, { name: "workflow_run_started" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
 type PullRequestReviewCommentData = Extract<
   ParsedGithubEvent,
@@ -60,6 +61,12 @@ export class WebhookHandlers extends Context.Service<
       data: PullRequestReviewData,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
+    readonly workflowApproval: (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: WorkflowRunData,
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
     readonly issueComment: (
       cfg: Config,
       headers: WebhookHeaders,
@@ -77,6 +84,7 @@ export class WebhookHandlers extends Context.Service<
       headers: WebhookHeaders,
       data: CiHeadSource,
       intakeLog: RequestLogger,
+      approvalHold?: { readonly runId: number },
     ) => Effect.Effect<void, Error>;
   }
 >()("WebhookHandlers") {}
@@ -237,7 +245,7 @@ export const WebhookHandlersCore = Layer.effect(
       });
 
     return WebhookHandlers.of({
-      pullRequest: (_cfg, headers, data, intakeLog) =>
+      pullRequest: (cfg, headers, data, intakeLog) =>
         Effect.gen(function* () {
           yield* scheduler.submitAutomatedReview(
             headers,
@@ -252,6 +260,15 @@ export const WebhookHandlersCore = Layer.effect(
             data.action ?? "",
             intakeLog,
             {
+              authorTrusted:
+                cfg.slashAllowedAssociations.has("*") ||
+                (data.pull_request.user != null &&
+                  data.pull_request.user.type?.toLowerCase() !== "bot" &&
+                  isSlashAssociationAllowed(
+                    cfg.slashAllowedAssociations,
+                    data.pull_request.author_association,
+                  )),
+              authorId: data.pull_request.user?.id,
               pushBeforeSha: data.before,
               merged: data.pull_request.merged,
               lifecycle:
@@ -315,6 +332,41 @@ export const WebhookHandlersCore = Layer.effect(
             },
             "approval",
             intakeLog,
+            { admittedBy: data.review.user.id },
+          );
+        }),
+
+      workflowApproval: (cfg, headers, data, intakeLog) =>
+        Effect.gen(function* () {
+          if (cfg.features.review !== "approval") {
+            yield* scheduler.recordIgnored(
+              headers,
+              "ignored_workflow_approval_not_enabled",
+              intakeLog,
+            );
+            return;
+          }
+          if (data.workflow_run.event !== "pull_request") {
+            yield* scheduler.recordIgnored(headers, "ignored_workflow_approval_event", intakeLog);
+            return;
+          }
+          if (data.sender?.type?.toLowerCase() !== "user") {
+            yield* scheduler.recordIgnored(headers, "ignored_workflow_approval_sender", intakeLog);
+            return;
+          }
+          yield* scheduler.submitWorkflowRunStarted(
+            headers,
+            {
+              installationId: data.installation.id,
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              headSha: data.workflow_run.head_sha,
+              runId: data.workflow_run.id,
+              senderId: data.sender.id,
+              status: data.workflow_run.status,
+              conclusion: data.workflow_run.conclusion,
+            },
+            intakeLog,
           );
         }),
 
@@ -360,7 +412,7 @@ export const WebhookHandlersCore = Layer.effect(
         );
       },
 
-      ciRefresh: (headers, data, intakeLog) =>
+      ciRefresh: (headers, data, intakeLog, approvalHold) =>
         scheduler.submitCiRefresh(
           headers,
           {
@@ -369,6 +421,7 @@ export const WebhookHandlersCore = Layer.effect(
             repo: data.repo,
             headSha: data.headSha,
             prNumbers: prNumbersForCiHead(data.headSha, data.pullRequests),
+            ...(approvalHold ? { approvalHold } : {}),
           },
           intakeLog,
         ),

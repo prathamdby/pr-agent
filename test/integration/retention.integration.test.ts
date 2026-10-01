@@ -32,6 +32,9 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
   });
 
   afterEach(async () => {
+    await pool.query("DELETE FROM pr_review_admission WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM pr_review_lifecycle WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
@@ -54,6 +57,40 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     return id;
   }
 
+  it("bounds approval holds and preserves open or recently closed admissions", async () => {
+    await pool.query(
+      `INSERT INTO pr_review_admission (resource_key, owner, repo, pr_number, head_sha, state, updated_at)
+       VALUES ($1, $4, 'r', 1, 'h', 'pending', $5),
+              ($2, $4, 'r', 2, 'h', 'pending', $5),
+              ($3, $4, 'r', 3, 'h', 'pending', $5)`,
+      [`${OWNER}/r#1`, `${OWNER}/r#2`, `${OWNER}/r#3`, OWNER, daysAgo(60)],
+    );
+    await pool.query(
+      `INSERT INTO pr_review_lifecycle (resource_key, state, observed_at, updated_at)
+       VALUES ($1, 'merged', $4, $4), ($2, 'open', $4, $4), ($3, 'closed', now(), now())`,
+      [`${OWNER}/r#1`, `${OWNER}/r#2`, `${OWNER}/r#3`, daysAgo(60)],
+    );
+    await pool.query(
+      `INSERT INTO workflow_run_approval_holds (run_id, owner, repo, head_sha, state, approved_by, observed_at)
+       VALUES (95001, $1, 'r', 'h', 'awaiting', NULL, $2), (95002, $1, 'r', 'h', 'approved', 7, now())`,
+      [OWNER, daysAgo(31)],
+    );
+    const result = await runRetention(pool, RETENTION);
+    expect(result.reviewAdmissionsDeleted).toBeGreaterThanOrEqual(1);
+    expect(result.workflowApprovalHoldsDeleted).toBeGreaterThanOrEqual(1);
+    expect(
+      (
+        await pool.query(
+          "SELECT pr_number FROM pr_review_admission WHERE owner = $1 ORDER BY pr_number",
+          [OWNER],
+        )
+      ).rows,
+    ).toEqual([{ pr_number: 2 }, { pr_number: 3 }]);
+    expect(
+      (await pool.query("SELECT run_id FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]))
+        .rows,
+    ).toEqual([{ run_id: "95002" }]);
+  });
   it("deletes aged terminal work items but keeps fresh and non-terminal", async () => {
     const aged = await insertWorkItem("completed", daysAgo(60));
     const fresh = await insertWorkItem("completed", daysAgo(1));
