@@ -58,6 +58,7 @@ Slash commands are case-sensitive. The command must be the first non-empty line 
 
 `/cancel` blocks new review output when the worker's final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
 If a stale review fails before handing off its replacement, that pending replacement is cancelled even if it has just started or a delivery races the abort. Successfully handed-off replacements remain unchanged. Unconfirmed cancellation is logged as an error.
+Retrying a stale review keeps changes already saved on its replacement.
 
 `/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.
 

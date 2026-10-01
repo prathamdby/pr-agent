@@ -256,7 +256,7 @@ export async function createReviewRescheduleWorkItem(
      )
      VALUES ($1, $2, 'review', $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 0, $11::jsonb)
      ON CONFLICT (id) DO UPDATE SET
-       payload = EXCLUDED.payload,
+       payload = EXCLUDED.payload || agent_work_items.payload,
        updated_at = now()
      RETURNING head_sha`,
       [

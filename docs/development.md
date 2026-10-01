@@ -33,7 +33,10 @@ intake lock before admission. `slashIntake.ts` owns acknowledgements.
 `reviewReschedule.ts` takes that same lock, reads lifecycle in a separate statement,
 then locks the parent lease and item before creating a stale-head replacement.
 Closed/merged refusal precedes marker persistence and progress ownership transfer.
-The value-preserving conflict update retains the winner's row lock through
+`createReviewRescheduleWorkItem` merges replacement payloads atomically on an
+identifier conflict. Stored child values win over replayed parent values; missing
+incoming fields are added. This preserves intervening changes across lease epochs.
+Slash intake's value-preserving conflict update retains the winner's row lock through
 commit. `/verify`'s earlier active-work precheck remains nonlocking. Review
 advisory ordering and execution-time PR actor leases remain separate contracts.
 `askIntake.ts` owns same-mention agreement: it serializes the triggering
