@@ -664,6 +664,11 @@ Source-boundary recognition is linear in each line. File eligibility, content ha
 intake commit. A timeout remains a real intake failure (`503` and redelivery),
 not an already-in-progress acknowledgement. No timeout defaults change.
 
+Lost-running recovery alone uses transaction-local 1,000 ms statement and
+idle-in-transaction limits. Its locks use NOWAIT; contention or protected-query
+cancellation leaves the candidate unchanged for a later pass. These private
+limits do not change the pool defaults below or add an environment setting.
+
 | Symbol                                    | Default | Role                                                                                                           |
 | ----------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
 | `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                                                                  |

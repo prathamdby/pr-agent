@@ -94,8 +94,8 @@ Notes:
   published P0–P2 finding concludes it as `failure`.
   Concurrent closes keep the first verdict. A later cancellation or recovery
   does not replace it. The optional status uses that same verdict.
-  Crash recovery rechecks the lease and live jobs in the failure write, so
-  renewed or restarted work is not reported crashed from an old snapshot.
+  Crash recovery serializes its failure decision with lease renewals and
+  restarted jobs. Busy or timed-out recovery passes leave work alone and retry later.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
 - Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,

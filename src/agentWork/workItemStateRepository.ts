@@ -402,22 +402,75 @@ export async function markLostRunningWorkFailed(
   id: string,
   minAgeSeconds: number,
 ): Promise<boolean> {
-  const result = await pool.query(
-    `UPDATE agent_work_items AS w
-        SET status = 'failed',
-            last_error = 'worker_lost',
-            completed_at = now(),
-            updated_at = now()
-      WHERE w.id = $1
-        AND w.type IN ('review', 'description', 'triage', 'verification')
-        AND w.status = 'running'
-        AND w.cancel_requested_at IS NULL
-        AND w.started_at IS NOT NULL
-        AND w.started_at < statement_timestamp() - ($2 * interval '1 second')
-        ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
-    [id, minAgeSeconds],
-  );
-  return (result.rowCount ?? 0) > 0;
+  let protectedQuery = false;
+  try {
+    return await inTransaction(pool, async (client) => {
+      await client.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
+      await client.query("SET LOCAL statement_timeout = '1000ms'");
+      await client.query("SET LOCAL idle_in_transaction_session_timeout = '1000ms'");
+      const target = await queryOne<{ resource_key: string; type: WorkType }>(
+        client,
+        `SELECT resource_key, type FROM agent_work_items
+          WHERE id = $1
+            AND type IN ('review', 'description', 'triage', 'verification')
+            AND status = 'running' AND cancel_requested_at IS NULL`,
+        [id],
+      );
+      if (!target) return false;
+
+      protectedQuery = true;
+      const leaseSql = `SELECT 1 FROM pr_actor_leases
+        WHERE resource_key = $1 AND work_type = $2 FOR UPDATE NOWAIT`;
+      const lease = await client.query(leaseSql, [target.resource_key, target.type]);
+      if (lease.rows.length === 0) {
+        // A missing key has no row to lock against first acquisition.
+        await client.query("LOCK TABLE pr_actor_leases IN SHARE MODE NOWAIT");
+        await client.query(leaseSql, [target.resource_key, target.type]);
+      }
+      // Exclude fresh delivery inserts as well as updates, including partitions.
+      await client.query("LOCK TABLE pgboss.job IN SHARE MODE NOWAIT");
+      await client.query("LOCK TABLE agent_work_items IN ROW EXCLUSIVE MODE NOWAIT");
+      const locked = await client.query(
+        `SELECT id FROM agent_work_items
+          WHERE id = $1 AND resource_key = $2 AND type = $3 FOR UPDATE NOWAIT`,
+        [id, target.resource_key, target.type],
+      );
+      if (locked.rows.length === 0) {
+        protectedQuery = false;
+        return false;
+      }
+      // Locks precede this statement so its snapshot includes prior revivals.
+      const result = await client.query(
+        `UPDATE agent_work_items AS w
+            SET status = 'failed',
+                last_error = 'worker_lost',
+                completed_at = now(),
+                updated_at = now()
+          WHERE w.id = $1
+            AND w.resource_key = $3 AND w.type = $4
+            AND w.type IN ('review', 'description', 'triage', 'verification')
+            AND w.status = 'running'
+            AND w.cancel_requested_at IS NULL
+            AND w.started_at IS NOT NULL
+            AND w.started_at < statement_timestamp() - ($2 * interval '1 second')
+            ${lostRunningWorkLivenessSql("statement_timestamp()")}`,
+        [id, minAgeSeconds, target.resource_key, target.type],
+      );
+      protectedQuery = false;
+      return (result.rowCount ?? 0) > 0;
+    });
+  } catch (error) {
+    if (
+      protectedQuery &&
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error.code === "55P03" || error.code === "57014")
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function markWorkFailed(
