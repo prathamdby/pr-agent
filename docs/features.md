@@ -55,6 +55,8 @@ Notes:
 - `FEATURE_COMMIT_STATUS` and the `PR Agent Review` check run share one writer
   (`closeOwnVerdict`). A crash concludes the check as `action_required`. A
   published P0–P2 finding concludes it as `failure`.
+  Crash recovery rechecks the lease and live jobs in the failure write, so
+  renewed or restarted work is not reported crashed from an old snapshot.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
 - Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,

@@ -3,7 +3,11 @@ import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
 import { createPrSurface } from "../github/prSurface.js";
 import { mintInstallationToken } from "../github/installationToken.js";
-import { DEFERRED_HEAD_SHA, STALE_QUEUED_WORK_BATCH_SIZE } from "../settings/index.js";
+import {
+  DEFERRED_HEAD_SHA,
+  STALE_QUEUED_WORK_BATCH_SIZE,
+  STALE_QUEUED_WORK_GRACE_SECONDS,
+} from "../settings/index.js";
 import { isAnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { closeOwnVerdict } from "./closeOwnVerdict.js";
 import {
@@ -12,7 +16,11 @@ import {
   resolveOwnVerdictForTerminalReview,
   type TerminalOwnCheckStatus,
 } from "./ownCheckReconcile.js";
-import { getCompletedPublishStepDetail, getWorkItemCore, markWorkFailed } from "./repository.js";
+import {
+  getCompletedPublishStepDetail,
+  getWorkItemCore,
+  markLostRunningWorkFailed,
+} from "./repository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
 
 export async function listTerminalReviewsWithOpenOwnChecks(
@@ -112,18 +120,13 @@ export async function reconcileLostRunningWork(params: {
     seen.add(item.workItemId);
     try {
       const core = await getWorkItemCore(params.pool, item.workItemId);
-      if (core == null) continue;
-      if (core.status === "running") {
-        const marked = await markWorkFailed(
-          params.pool,
-          item.workItemId,
-          new Error("worker_lost"),
-          null,
-        );
-        if (!marked) continue;
-      } else if (core.status !== "failed") {
-        continue;
-      }
+      if (core == null || core.status !== "running") continue;
+      const marked = await markLostRunningWorkFailed(
+        params.pool,
+        item.workItemId,
+        params.cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
+      );
+      if (!marked) continue;
       if (core.type !== "review") continue;
       await closeOpenOwnVerdict({
         cfg: params.cfg,
