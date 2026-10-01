@@ -121,6 +121,12 @@ caps, CI-summary waits, workspace limits) are now code constants in
 Progress ownership conflicts use the existing `warn` log level. No new setting
 is required. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
 
+CI projection delivery attribution lives in pg-boss job JSON, independently of
+`AGENT_EVENTS_ENABLED`; no new setting is required. Job retention (14 days by
+default) and post-completion deletion (seven days) bound the evidence lifetime.
+Inspection and rollout:
+[the queue runbook](agent-work-ops.md#ci-projection-delivery-attribution).
+
 ### Project `models.json` (optional Pi catalog)
 
 `loadConfig()` resolves an optional Pi `models.json` catalog path (strict subset parsed in [`src/settings/modelsJsonCatalog.ts`](../src/settings/modelsJsonCatalog.ts)). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs. It does not construct Core sessions or overlay the catalog into a live `Models` collection. Selection stays in env; the file is only the catalog.
@@ -295,6 +301,10 @@ Verification:
 ---
 
 Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled). The retry budget is the durable `agent_work_items.attempt_count`: every claim increments it, so crash and deploy resumes count too, and a claim past `QUEUE_RETRY_LIMIT + 1` ends the item as failed (`agent_work.attempts_exhausted`). A retry disposition decides whether a failed attempt may return to that budget; escalation owns what a retry does. See [ADR 0034](adr/0034-escalated-retries.md).
+
+Completed mutation recovery without a usable result is terminal before budget
+exhaustion. Failed or incomplete evidence reads remain transient, and genuine failure budgets
+and defaults are unchanged. There is no separate unknown-resolution knob.
 
 ---
 

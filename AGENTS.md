@@ -148,6 +148,8 @@ GitHub sends a signed webhook to the web role. The web role verifies and parses 
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
+After an interrupted mutation, the intent boundary checks saved results and exact evidence. Completed recovery without a usable result selects terminal failure through the existing feature hook; the intent stays `outcome_unknown` and is never remutated. Failed or incomplete evidence reads remain transient. A cached terminal resolution skips repeated recovery reads, and terminal work-item redelivery cannot claim again.
+
 Leased execution surfaces reread durable cancellation at entry and immediately
 before each mutation callback, then reassert lease ownership. Visible cancellation
 blocks feature output even before the observer aborts the signal. Terminal notices
@@ -179,6 +181,13 @@ intake commits the normal in-progress acknowledgement before that transition.
 These row locks are separate from review advisory ordering and execution leases.
 
 Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
+
+CI projection intake retains accepted delivery/event pairs in the job's
+`correlations` array, including when debounce absorbs a delivery. That metadata
+commits in the intake transaction; a missing target or failed attribution write
+rolls back intake. The original top-level correlation remains the worker log
+identity. Projection still renders from head state. Inspection and retention:
+[the queue runbook](docs/agent-work-ops.md#ci-projection-delivery-attribution).
 
 Lost-running diagnostics are advisory. The sweeper rechecks the item age,
 lease expiry, and matching live job in the conditional failure write. Only an

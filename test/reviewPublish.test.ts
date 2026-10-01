@@ -448,24 +448,27 @@ describe("review check runs", () => {
     ).resolves.toBeNull();
   });
 
-  it("leaves recovery unresolved when pagination reaches its cap", async () => {
-    for (let page = 1; page <= CHECK_RUNS_MAX_PAGES; page++) {
-      listCheckRunsForRef.mockResolvedValueOnce({
-        data: {
-          check_runs: Array.from({ length: CHECK_RUNS_PAGE_SIZE }, (_, index) => ({
-            id: page * CHECK_RUNS_PAGE_SIZE + index,
-            name: "PR Agent Review",
-            head_sha: "abc123",
-            external_id: page === 2 && index === 0 ? "wi-1" : `other-${page}-${index}`,
-            html_url: null,
-          })),
-        },
-      });
-    }
+  it.each([true, false])(
+    "rejects incomplete check lookup with an observed match: %s",
+    async (matched) => {
+      for (let page = 1; page <= CHECK_RUNS_MAX_PAGES; page++) {
+        listCheckRunsForRef.mockResolvedValueOnce({
+          data: {
+            check_runs: Array.from({ length: CHECK_RUNS_PAGE_SIZE }, (_, index) => ({
+              id: page * CHECK_RUNS_PAGE_SIZE + index,
+              name: "PR Agent Review",
+              head_sha: "abc123",
+              external_id: matched && page === 2 && index === 0 ? "wi-1" : `other-${page}-${index}`,
+              html_url: null,
+            })),
+          },
+        });
+      }
 
-    await expect(
-      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
-    ).resolves.toBeNull();
-    expect(listCheckRunsForRef).toHaveBeenCalledTimes(CHECK_RUNS_MAX_PAGES);
-  });
+      await expect(
+        findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review", "wi-1"),
+      ).rejects.toMatchObject({ code: "github.review_check_lookup_incomplete" });
+      expect(listCheckRunsForRef).toHaveBeenCalledTimes(CHECK_RUNS_MAX_PAGES);
+    },
+  );
 });

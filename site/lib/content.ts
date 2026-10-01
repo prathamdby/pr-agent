@@ -75,7 +75,7 @@ export const CAPABILITIES: CapabilityItem[] = [
     trigger:
       "Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review",
     detail:
-      "Comments land next to the lines that need attention. Late older ticks from the same review do not replace newer progress or its final summary. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning. Crash recovery rechecks live work before failing a review.",
+      "Comments land next to the lines that need attention. Late older ticks from the same review do not replace newer progress or its final summary. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning. Crash recovery rechecks live work before failing a review. Coalesced CI deliveries keep their identities on your retained projection job.",
   },
   {
     id: "describe",
@@ -194,6 +194,11 @@ export const FAQ_ITEMS: FaqItem[] = [
     question: "Does PR Agent only work with GitHub?",
     answer:
       "Yes for now. PR Agent connects as a GitHub app, reviews pull requests, and replies in GitHub comments. GitLab and Bitbucket are not supported yet.",
+  },
+  {
+    question: "What happens if a publish is interrupted?",
+    answer:
+      "PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with /review guidance. An existing published summary is kept. Failed or incomplete evidence reads can still retry.",
   },
   {
     question: "Where should I host PR Agent?",

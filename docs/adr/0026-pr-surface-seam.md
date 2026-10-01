@@ -33,7 +33,10 @@ An Effect `Layer` for worker-time PR I/O was rejected for the same reasons as th
    delegation, the provider's acceptance rules still apply. A crash between
    GitHub acceptance and `__result` is recovered from the operation-intent
    marker or provider id already on the PR; methods that cannot prove
-   presence or absence stay fail-closed. Read-only methods do not cross the
+   presence or absence terminate fail-closed after a completed recovery pass:
+   the intent stays `outcome_unknown` with `unknownResolution: "terminal"`,
+   and the existing worker terminal hook handles the unresolved run. Failed
+   or incomplete evidence reads remain transient. Read-only methods do not cross the
    boundary so a replacement worker can recover evidence after a stale
    execution is fenced. Unleased ask work keeps the ordinary surface.
 

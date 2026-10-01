@@ -110,6 +110,54 @@ Audit-write failure rolls back intake and returns `503`, rather than acknowledgi
 
 Install additive migration `033_webhook_delivery_duplicates.sql` before upgraded web intake or worker retention runs. The normal startup migration runner does this. Upgrade all web instances to establish complete coverage; there is no historical backfill. A code-only rollback leaves the table intact but stops new evidence and its cleanup until upgraded code returns. Do not drop retained evidence as an automatic rollback.
 
+## CI projection delivery attribution
+
+Accepted CI projection intake retains `{webhookEventId, delivery}` pairs in the
+job's `data.correlations` array. A single delivery appears once. On debounce
+absorption, intake atomically appends the incoming pair to the exact next-slot
+job in the same transaction as the event and any CI facts. The job's original
+top-level pair stays unchanged, and worker logs still use that primary identity.
+The projector reads `pr_head_ci_state`, not the correlation list, for CI output.
+
+Bind `agent-work-ci-projection`, owner, repository, head SHA, and delivery ID to
+`$1` through `$5`. Never interpolate webhook headers into SQL.
+
+```sql
+select id, state, created_on, singleton_on,
+       data->>'delivery' as primary_delivery,
+       data->'correlations' as correlations
+from pgboss.job
+where name = $1
+  and data->>'owner' = $2
+  and data->>'repo' = $3
+  and data->>'headSha' = $4
+  and (
+    data->>'delivery' = $5
+    or coalesce(data->'correlations', '[]'::jsonb)
+         @> jsonb_build_array(jsonb_build_object('delivery', $5::text))
+  )
+order by created_on desc
+limit 100;
+```
+
+Attribution errors roll back intake and return `503`; redeliver after storage
+recovers. `agent_work.ci_projection_correlation_missing` means the exact absorbing
+job was missing or did not match the intake head/installation. Do not widen the
+lookup or treat it as accepted. Active, completed, and failed conflicts may gain
+metadata without changing state or scheduling.
+
+This metadata does not depend on `AGENT_EVENTS_ENABLED`. pg-boss job retention
+and deletion bound its lifetime: `QUEUE_RETENTION_SECONDS` defaults to 14 days
+and `QUEUE_DELETE_AFTER_SECONDS` to seven days after completion. Deleting a job
+also deletes its attribution; these settings do not promise indefinite history.
+
+Upgrade every web intake replica before relying on complete attribution. Old
+workers tolerate the additive JSON and continue rendering from head state; this
+metadata-only change needs no migration or queue drain. Legacy jobs gain their
+primary identity in the list on the next coalesce. There is no historical
+backfill for identities already lost. A code rollback leaves existing metadata
+readable but restores first-only attribution for new absorbed arrivals.
+
 ## Retry and Recovery
 
 Automatic and slash review intake share a per-PR transaction lock held through commit
@@ -134,6 +182,22 @@ redelivery. Upgrade every web replica for this protection; worker payloads are
 unchanged. Code-only rollback reopens the missing-winner race without data repair
 or schema reversal.
 
+- Completed mutation recovery without a usable result is `terminal`, not a
+  transient unknown. Inspect `operation_intents.detail.unknownResolution`:
+  `"terminal"` records a completed fail-closed decision while status remains
+  `outcome_unknown`. The owning item fails with budget remaining through its
+  existing feature hook. Read or persistence outages stay transient. A failed
+  item cannot claim again, and direct intent replay skips further evidence reads.
+- A capped review-check listing raises `github.review_check_lookup_incomplete`.
+  Intent recovery treats it as a transient observation failure, never confirmed
+  absence. A partial listing cannot prove that an exact match is unique.
+- Do not clear that detail, change an unknown intent to retryable `failed`, or
+  automatically requeue historical failed items. Inspect the actual PR effect
+  before requesting a new run. Existing summaries remain authoritative.
+- Roll affected workers together. Older workers ignore the additive detail and
+  can resume retry burn on active ambiguous items, though they still forbid
+  remutation. To downgrade, stop/drain workers and keep intent, publish, and
+  terminal work rows; do not reopen completed or failed items.
 - If webhook intake cannot commit to Postgres, the web process returns `503`; redeliver from GitHub after Postgres is healthy. Identifier and schema parse failures return `422` and do not write `webhook_events`, `webhook_event_replays`, or work items; GitHub should not retry those payloads. A verified and parsed ignored event records both durable dedupe decisions and consumes the bounded body-hash replay window.
 - If a review fails permanently, the worker upserts the review summary comment with a failure notice and records `agent_work_items.status = 'failed'`.
 - Every failed durable attempt is classified into one retry disposition. `transient` (provider timeout, auth, quota, rate limit, unknown, and every other classified failure) keeps retrying while budget remains. `deterministic` (a run that ended without its terminal submit after its own repair loops: `verification.missing_submit`, `triage.missing_submit`, `review.specialist_invalid_report`) gets exactly one escalated retry, then is terminal even when pg-boss budget remains. `terminal` (stale-head replacement exhaustion, cancellation, `agent_work.attempts_exhausted`) never returns to the queue. The durable `attempt_count` is the one retry budget: every claim increments it, including crash and deploy resumes, because pg-boss `retryCount` restarts on every lease hop job. A claim past `QUEUE_RETRY_LIMIT + 1` marks the item `failed` with `agent_work.attempts_exhausted` before minting a token, posts the failure notice, and closes the crashed verdict. A resumed claim logs `agent_work_resumed` with the new attempt count. pg-boss stays the only retry scheduler; escalation changes what a retry does, not who schedules it.

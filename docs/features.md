@@ -49,6 +49,11 @@ not use this active-work gate.
 
 Notes:
 
+- After an interrupted publish, PR Agent checks the saved result and available
+  evidence. If it cannot confirm the result, it stops that run rather than
+  repeat the change. An unpublished review gets the usual failure notice;
+  an existing published summary is kept. Failed or incomplete evidence reads
+  can retry.
 - With no open findings, verification skips the agent after checking the live
   head. An older-head run completes degraded instead of clean and preserves
   any existing verification failure signal.
