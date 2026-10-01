@@ -92,7 +92,7 @@ its response is missing, recovery first checks the authoritative
 operation marker or provider id. Completed recovery without a usable result
 records terminal local resolution while retaining `outcome_unknown`: the worker
 does not blindly repeat the mutation or consume the remaining retry budget.
-Failed evidence reads remain transient. Already-published summaries stay
+Failed or incomplete evidence reads remain transient. Already-published summaries stay
 authoritative; an unpublished run uses its existing terminal failure notice.
 Automatic retry of the mutation is limited to errors that prove
 the provider rejected the mutation before acceptance; otherwise the run uses

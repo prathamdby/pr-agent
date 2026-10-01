@@ -21,6 +21,9 @@ import type { ReviewJobData } from "../../src/agentWork/types.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as surfaceFactory from "../../src/github/prSurface.js";
 import { withPrSurfaceMutationBoundary } from "../../src/github/prSurfaceMutation.js";
+import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.js";
+import { findReviewCheckRunByName } from "../../src/github/reviewPublish.js";
+import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../../src/settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
 import { makeTestConfig } from "../helpers/config.js";
 import {
@@ -197,6 +200,130 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
     }
   });
+
+  it.each([true, false])(
+    "retries an incomplete check lookup without remutation, observed match: %s",
+    async (matched) => {
+      const workItemId = randomUUID();
+      const resourceKey = `integration/check-lookup-${randomUUID()}#1`;
+      const operationKey = "review:check-lookup";
+      const token = `fake-check-lookup-${workItemId}`;
+      const client = appAuth.installationOctokit(token);
+      const originalList = client.rest.checks.listForRef;
+      let incomplete = true;
+      const { surface, controls } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+      await pool.query(
+        `INSERT INTO agent_work_items
+           (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+         VALUES ($1, 'review', 'slash', 'running', 'o', 'r', 1, 42, 'abc1234', 'review', $2, '{"mode":"review","source":"slash"}')`,
+        [workItemId, resourceKey],
+      );
+      try {
+        await intentRepository.persistOperationIntent(pool, {
+          workItemId,
+          operationKey,
+          mutationKind: "github.pr_surface.startReviewCheck",
+          detail: {
+            __mutating: true,
+            surfaceMethod: "startReviewCheck",
+            headSha: "abc1234",
+            externalId: workItemId,
+          },
+        });
+        const mutate = vi.fn(() => surface.startReviewCheck("abc1234", workItemId));
+        const check = await mutate();
+        const exact = {
+          id: check.id,
+          name: "PR Agent Review",
+          head_sha: "abc1234",
+          external_id: workItemId,
+          html_url: check.url,
+        };
+        const rows = Array.from(
+          { length: CHECK_RUNS_MAX_PAGES * CHECK_RUNS_PAGE_SIZE },
+          (_, index) => ({
+            ...exact,
+            id: index + 100,
+            external_id: `other-${index}`,
+          }),
+        );
+        if (matched) rows[CHECK_RUNS_PAGE_SIZE] = exact;
+        const list = vi.fn(async ({ page = 1 }: { page?: number }) => ({
+          data: {
+            check_runs: incomplete
+              ? rows.slice((page - 1) * CHECK_RUNS_PAGE_SIZE, page * CHECK_RUNS_PAGE_SIZE)
+              : [exact],
+          },
+        }));
+        Object.assign(client.rest.checks, { listForRef: list });
+        const recoverySurface = {
+          ...surface,
+          findReviewCheck: (headSha: string, externalId: string) =>
+            findReviewCheckRunByName(token, "o", "r", headSha, "PR Agent Review", externalId),
+        };
+        const params = {
+          client: pool,
+          workItemId,
+          operationKey,
+          mutationKind: "github.pr_surface.startReviewCheck",
+          mutate,
+          recover: (intent: intentRepository.OperationIntentRow) =>
+            recoverPrSurfaceMutation<typeof check>(recoverySurface, intent),
+        };
+        const failure = await withOperationIntent(params).catch((error: unknown) => error);
+        expect(failure).toMatchObject({
+          code: "operation_intent.recovery_failed",
+          cause: { code: "github.review_check_lookup_incomplete" },
+        });
+        expect(retryDispositionFor(failure)).toBe("transient");
+        const unknown = await intentRepository.getOperationIntent(pool, workItemId, operationKey);
+        expect(unknown?.detail.unknownResolution).toBeUndefined();
+        expect(unknown?.detail.__result).toBeUndefined();
+        expect(await getWorkItem(pool, workItemId)).toMatchObject({ status: "running" });
+        expect(mutate).toHaveBeenCalledTimes(1);
+
+        incomplete = false;
+        expect(await withOperationIntent(params)).toEqual(check);
+        await recordReviewCheckRun(pool, {
+          workItemId,
+          resourceKey,
+          reviewLens: "review",
+          githubId: check.id,
+          detail: { headSha: "abc1234", externalId: workItemId },
+        });
+        await surface.finishReviewCheck({
+          checkRunId: check.id,
+          conclusion: "success",
+          summary: "Recovered.",
+        });
+        const reads = list.mock.calls.length;
+        const effects = controls.events.length;
+        expect(await withOperationIntent(params)).toEqual(check);
+        expect(list).toHaveBeenCalledTimes(reads);
+        expect(controls.events).toHaveLength(effects);
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(controls.events.filter((event) => event.kind === "startReviewCheck")).toHaveLength(
+          1,
+        );
+        expect(controls.events).toContainEqual({
+          kind: "finishReviewCheck",
+          checkRunId: check.id,
+          conclusion: "success",
+        });
+        expect(
+          await intentRepository.getOperationIntent(pool, workItemId, operationKey),
+        ).toMatchObject({
+          status: "reconciled",
+          detail: { __result: check },
+        });
+      } finally {
+        Object.assign(client.rest.checks, { listForRef: originalList });
+        appAuth.clearInstallationOctokitCacheForTest();
+        await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      }
+    },
+  );
 
   it.each([
     "setAcknowledgementReaction",

@@ -18,6 +18,7 @@ import {
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import { AGENT_DEAD_LETTER_QUEUES } from "./boss.js";
+import { lostRunningWorkLivenessSql } from "./workItemStateRepository.js";
 
 /** Queues that must have registered consumers for worker readiness. */
 export const WORKER_CONSUMER_QUEUES = [
@@ -282,26 +283,7 @@ export async function collectQueueDiagnostics(params: {
           AND w.status = 'running'
           AND w.started_at IS NOT NULL
           AND w.started_at < $1::timestamptz - ($2 * interval '1 second')
-          AND NOT EXISTS (
-            SELECT 1 FROM pr_actor_leases l
-             WHERE l.work_item_id = w.id
-               AND l.expires_at > $1::timestamptz
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM pgboss.job j
-             WHERE j.name = CASE w.type
-               WHEN 'review' THEN '${REVIEW_QUEUE}'
-               WHEN 'description' THEN '${DESCRIPTION_QUEUE}'
-               WHEN 'triage' THEN '${TRIAGE_QUEUE}'
-               WHEN 'verification' THEN '${VERIFICATION_QUEUE}'
-             END
-               AND j.state IN ('created', 'active', 'retry')
-               AND (
-                 j.id = w.id
-                 OR j.singleton_key = w.id::text
-                 OR j.data @> jsonb_build_object('workItemId', w.id::text)
-               )
-          )
+          ${lostRunningWorkLivenessSql("$1::timestamptz")}
         ORDER BY w.started_at ASC
         LIMIT $3::int`,
       [params.now.toISOString(), lostRunningMinAgeSeconds, STALE_QUEUED_WORK_BATCH_SIZE],

@@ -21,6 +21,10 @@ while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
 Custom trigger sets are intentionally not supported.
 
+`/cancel` blocks new review output when the worker's final publication check sees
+the cancellation. Requests already in flight cannot be withdrawn. The cancellation
+notice and check closure still run. There is no additional feature mode.
+
 `/review force` cancels any queued or running review and starts a fresh one on
 the latest commit. Concurrent restarts are applied in intake order, not
 treated as already-in-progress requests. Ordinary `/review` still deduplicates
@@ -42,7 +46,8 @@ Notes:
 - After an interrupted publish, PR Agent checks the saved result and available
   evidence. If it cannot confirm the result, it stops that run rather than
   repeat the change. An unpublished review gets the usual failure notice;
-  an existing published summary is kept.
+  an existing published summary is kept. Failed or incomplete evidence reads
+  can retry.
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
 - A replacement review owns the progress comment. Late specialist ticks from
   the earlier run are skipped or rejected with an ownership warning.
@@ -59,6 +64,8 @@ Notes:
 - `FEATURE_COMMIT_STATUS` and the `PR Agent Review` check run share one writer
   (`closeOwnVerdict`). A crash concludes the check as `action_required`. A
   published P0–P2 finding concludes it as `failure`.
+  Crash recovery rechecks the lease and live jobs in the failure write, so
+  renewed or restarted work is not reported crashed from an old snapshot.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
 - Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,
