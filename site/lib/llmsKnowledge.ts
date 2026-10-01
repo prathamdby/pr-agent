@@ -255,6 +255,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "Quality findings require present structural harm. Test findings require a named changed behaviour, untested state, invariant, and plausible regression.",
       "The orchestrator re-applies that contract during judgment. Specialist reports remain evidence.",
       "P0-P2 findings fail the review check run. P3 does not. Crash and unpublished runs conclude the check as action_required. Cancel, supersede, and stale head conclude it as cancelled.",
+      "Lost-running diagnostics are advisory. The failure write rechecks age, lease expiry, and live jobs in one statement. A renewed lease or restarted job keeps the work running. The sweeper closes a candidate's crashed verdict only after applying that mark, and separately retries open checks on terminal reviews.",
       "Docs-only trivial PRs can take a short auto path instead of a full orchestrated run.",
       "Web does not create installation tokens or post to the PR. Workers do that.",
     ]),

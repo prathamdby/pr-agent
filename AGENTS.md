@@ -170,6 +170,11 @@ flowchart LR
 
 The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. `check_run` and `status` deliveries write `pr_head_ci_state` in the same transaction as `webhook_events` and enqueue a debounced `ci-projection` job. `pull_request` `opened`, `synchronize`, and `reopened` enqueue that job when the head row is missing or `seeded_at` is null. Ack, ticks, and publish enqueue after they write the comment when the head still needs a seed or the row version moved. The worker consumes that queue and renders CI cells from the row; missing or unseeded heads wait, and a complete seeded empty snapshot shows no-CI copy. After seed, a pending or `unknown` head takes one Checks listing per later job and pending-refreshes durable facts ([ADR 0035](docs/adr/0035-head-ci-state-projection.md)). Verification activate/clear advances the head revision only on an effective transition and enqueues projection in the same transaction. `workflow_run` and `check_suite` completed deliveries enqueue the same projection without writing facts. Ask work is deliberately unleased and relies on publish-record idempotency. Triage may push a branch and uses separate publish records for thread actions.
 
+Lost-running diagnostics are advisory. The sweeper rechecks the item age,
+lease expiry, and matching live job in the conditional failure write. Only an
+applied mark permits a candidate's crashed verdict close; revived work stays
+running. Terminal reviews with open checks still have a separate repair lane.
+
 Progress publish records remain owner-gated independently of the actor lease.
 A zero-row progress write rechecks the lease, then warns and raises
 `agent_work.progress_comment_ownership_conflict` if the lease still holds or

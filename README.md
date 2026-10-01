@@ -215,6 +215,8 @@ Then open a small PR on an **installed** repo. Comment `/help` as an owner, memb
 | Inline findings on the Files tab            | When the bot can anchor them               |
 | Final summary replaces the progress comment | Same conversation comment                  |
 
+Crash recovery rechecks a review's lease and live jobs in the failure write. A renewed lease or restarted job keeps the review running instead of reporting a crash.
+
 Default `FEATURE_VERIFICATION=auto` spends tokens on every push. Switch it to `manual` or `off` if that bill is too high.
 
 <details>

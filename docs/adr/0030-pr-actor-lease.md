@@ -43,6 +43,7 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 
 ## Consequences
 
+- Lost-running detection and its conditional failure write share the same no-live-lease and no-live-job predicates. The mark rechecks them at statement time, so a lease renewal or job revival after detection vetoes failure. Queued diagnostics retain their resource-wide lease check; the sweeper still treats `active` jobs as live, unlike watchdog successor proof.
 - Crash recovery no longer needs a reaper: the watchdog deferral chain keeps re-checking until the dead holder's lease lapses, then steals it with a fresh epoch and re-executes the still-`running` item. Re-execution is bounded: a work item whose claims exceed `QUEUE_RETRY_LIMIT + 1` ends as `failed` with the failure notice, so a crash-looping pull request cannot re-run forever.
 - Queue state can never block intake, because intake never inspects it; a terminal work item's leftover job no-ops at execution.
 - Cutover is not safe with mixed old and new workers: old workers fence on queue policy while new workers fence on the lease. Drain only when an existing deployment still has fifo workers. A first install creates `standard` queues and has nothing to drain. See [docs/operations.md](../operations.md). The policy flip itself is carried by migration 023, not by hand.
