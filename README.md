@@ -234,7 +234,7 @@ Then open a small PR on an **installed** repo. Comment `/help` as an owner, memb
 
 Late older ticks from the same review do not replace newer progress or its final summary.
 
-Crash recovery rechecks a review's lease and live jobs in the failure write. A renewed lease or restarted job keeps the review running instead of reporting a crash.
+Crash recovery serializes its failure decision with lease renewals and restarted jobs. Busy or timed-out recovery passes leave the review alone and try again later.
 
 Default `FEATURE_VERIFICATION=auto` spends tokens on every push. Switch it to `manual` or `off` if that bill is too high.
 

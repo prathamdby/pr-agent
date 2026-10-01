@@ -76,6 +76,20 @@ A miss logs `agent_work_replacement_cancel_failed` at
 error level before rethrowing; the outer abort catch alone only warns.
 Lease release and publication gating remain on the durable runner.
 
+`workItemStateRepository.ts::markLostRunningWorkFailed` uses an explicitly
+READ COMMITTED transaction. It locks the lease key before the item, taking a
+SHARE table lock when the key is missing, then recursively SHARE-locks
+`pgboss.job` against inserts and state changes. All acquisition is NOWAIT,
+including the item's ROW EXCLUSIVE table mode and row lock. The final eligibility
+UPDATE is a later statement; a locking CTE in that same statement would not
+refresh its snapshot. Negative cross-table liveness reads alone cannot authorize
+failure. Contention or protected-query cancellation rolls back and returns false.
+Unexpected errors still reach the reconciliation warning. Transaction-local
+statement and idle limits are 1,000 ms each; they are not a total transaction
+deadline and do not change pool defaults. GitHub close happens only after commit.
+The broad job lock can briefly delay unrelated lanes or defer recovery under
+busy traffic. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
+
 `createPiSession.send` fails after a settled unrecovered Pi provider error. Recovered Core transport retries stay successful. Public cancellation, idle timeout, and tool-budget stops stay distinct from provider outages. `send` replaces the session suffix with Core's returned turn slice so tool results stay between the assistant turns that produced them.
 
 ## Landing site
