@@ -1,8 +1,25 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { Effect, Fiber, Layer } from "effect";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { PgBoss } from "pg-boss";
+import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import * as postgres from "../../src/db/postgres.js";
+import * as bossModule from "../../src/agentWork/boss.js";
+import * as executionTrackerModule from "../../src/agentWork/executionTracker.js";
+import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.js";
+import * as retentionModule from "../../src/agentWork/retention.js";
+import * as lostRunningModule from "../../src/agentWork/lostRunningWork.js";
+import * as projectionRepairModule from "../../src/agentWork/projectionRepair.js";
+import * as workerHealthModule from "../../src/agentWork/workerHealth.js";
+import * as prWorkspaceModule from "../../src/prWorkspace/index.js";
+import { agentWorkWorkerLive } from "../../src/agentWork/worker.js";
+import {
+  DEFERRED_HEAD_SHA,
+  REVIEW_DEAD_LETTER_QUEUE,
+  REVIEW_QUEUE,
+  STALE_QUEUED_WORK_GRACE_SECONDS,
+} from "../../src/settings/index.js";
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { inTransaction } from "../../src/db/postgres.js";
@@ -21,6 +38,7 @@ import { recordPublishStep } from "../../src/agentWork/publishRecordRepository.j
 import { makeTestConfig } from "../helpers/config.js";
 import {
   acquirePrActorLease,
+  armLeaseWatchdogHop,
   assertPrActorLeaseHeld,
   isPrActorLeaseHeld,
   releasePrActorLease,
@@ -34,7 +52,7 @@ import {
   cancelUnenqueuedStaleHeadReplacement,
   createReviewRescheduleWorkItem,
 } from "../../src/agentWork/reviewReschedule.js";
-import type { ReviewWorkItem } from "../../src/agentWork/types.js";
+import { installationGroupId, type ReviewWorkItem } from "../../src/agentWork/types.js";
 import {
   cancelActiveReviews,
   cancelActiveTriage,
@@ -291,7 +309,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     "takeover",
     "replacement_claim_cancel",
     "replacement_running_cancel",
+    "replacement_send_cancel_662",
+    "replacement_running_send_cancel_662",
+    "replacement_late_hop_cancel_662",
   ])("fences durable publication during %s (#640, #661)", async (mode) => {
+    const realQueue = mode.endsWith("_662");
+    const runningSend = mode === "replacement_running_send_cancel_662";
+    const lateHop = mode === "replacement_late_hop_cancel_662";
     const resourceKey = `${OWNER}/cancel-publish-${randomUUID()}#1`;
     let workItemId = await insertAutoQueued(resourceKey, "review");
     let replacementParent: ReviewWorkItem | undefined;
@@ -316,7 +340,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       });
     }
     const controller = new AbortController();
-    const boss = new PgBoss(makeTestConfig().databaseUrl);
+    const cfg = makeTestConfig();
+    const boss = realQueue
+      ? await createStartedBoss({ databaseUrl: process.env.DATABASE_URL!, role: "web" })
+      : new PgBoss(cfg.databaseUrl);
+    if (realQueue) await ensureAgentQueues(boss, cfg);
     const surfaces: ReturnType<typeof prSurfaceModule.createFakePrSurface>[] = [];
     let executing = false;
     let checkpointArmed = false;
@@ -339,6 +367,23 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
     let claimantPid: number | undefined;
     let cancellation: Promise<unknown> | undefined;
+    let releaseSend!: () => void;
+    const sendGate = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    let sendCommitted!: () => void;
+    const committedSend = new Promise<void>((resolve) => {
+      sendCommitted = resolve;
+    });
+    let releasePublication!: () => void;
+    const publicationGate = new Promise<void>((resolve) => {
+      releasePublication = resolve;
+    });
+    let publicationReady!: () => void;
+    const beforePublication = new Promise<void>((resolve) => {
+      publicationReady = resolve;
+    });
+    let pendingSend: Promise<string | null> | undefined;
     if (mode === "replacement_claim_cancel") {
       vi.spyOn(workRepository, "claimWorkForExecution").mockImplementation(async (...args) => {
         const result = await claimWork(...args);
@@ -365,8 +410,20 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
     vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
     vi.spyOn(evlog, "logError").mockImplementation(() => {});
-    vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
-    vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+    if (!realQueue) {
+      vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
+      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+    } else if (!lateHop) {
+      const send = boss.send.bind(boss);
+      vi.spyOn(boss, "send").mockImplementation(async (...args) => {
+        const id = await send(...args);
+        if (args[2]?.id === workItemId) {
+          sendCommitted();
+          await sendGate;
+        }
+        return id;
+      });
+    }
     vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
       type: "token",
       tokenType: "installation",
@@ -457,15 +514,15 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
 
     const now = new Date();
-    const spec: DurableJobSpec<"review"> = {
-      cfg: makeTestConfig(),
+    let spec: DurableJobSpec<"review"> = {
+      cfg,
       pool,
       boss,
       type: "review",
-      prActorLease: { queue: "review" },
+      prActorLease: { queue: realQueue ? REVIEW_QUEUE : "review" },
       job: {
         id: randomUUID(),
-        name: "review",
+        name: realQueue ? REVIEW_QUEUE : "review",
         data: { workItemId },
         signal: controller.signal,
         expireInSeconds: 600,
@@ -500,6 +557,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       execute: async (item, env) => {
         executing = true;
         await observerReady;
+        if (runningSend) {
+          publicationReady();
+          await publicationGate;
+        }
         if (mode === "replacement_claim_cancel") await cancellation;
         if (mode === "replacement_running_cancel") {
           if (!replacementParent) throw new Error("expected replacement parent");
@@ -546,12 +607,63 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         });
       },
     };
-    const runner = runDurableWorkItem(spec);
-    const settled = runner.then(
-      () => null,
-      (error: unknown) => error,
-    );
+    let settled: Promise<unknown> | undefined;
     try {
+      if (realQueue && !runningSend) {
+        if (!replacementParent) throw new Error("expected replacement parent");
+        if (!lateHop) {
+          pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
+          await committedSend;
+        }
+        await cancelUnenqueuedStaleHeadReplacement(
+          pool,
+          boss,
+          replacementParent,
+          workItemId,
+          replacementError,
+          false,
+        );
+        if (lateHop) {
+          await armLeaseWatchdogHop(boss, {
+            queue: REVIEW_QUEUE,
+            data: { workItemId },
+            singletonKey: workItemId,
+            groupId: installationGroupId(1),
+            workItemId,
+            onSendFailure: "throw",
+          });
+        } else {
+          releaseSend();
+          await pendingSend;
+        }
+        const [delivery] = await boss.findJobs<{ workItemId: string }>(REVIEW_QUEUE, {
+          data: { workItemId },
+        });
+        if (!delivery) throw new Error("expected real replacement delivery");
+        spec = { ...spec, job: { ...delivery, signal: controller.signal } };
+      }
+      const runner = runDurableWorkItem(spec);
+      settled = runner.then(
+        () => null,
+        (error: unknown) => error,
+      );
+      if (runningSend) {
+        await beforePublication;
+        if (!replacementParent) throw new Error("expected replacement parent");
+        pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
+        await committedSend;
+        await cancelUnenqueuedStaleHeadReplacement(
+          pool,
+          boss,
+          replacementParent,
+          workItemId,
+          replacementError,
+          false,
+        );
+        releaseSend();
+        await pendingSend;
+        releasePublication();
+      }
       if (mode === "replacement_claim_cancel") {
         await claimReady;
         if (!replacementParent || claimantPid == null)
@@ -654,7 +766,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               });
             }
           }
-          if (mode !== "late_cancel" && mode !== "replacement_claim_cancel") {
+          if (mode !== "late_cancel" && mode !== "replacement_claim_cancel" && !realQueue) {
             expect(events.some((event) => event.kind === "finishReviewCheck")).toBe(true);
           }
         }
@@ -689,7 +801,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           }),
         );
       }
-      if (mode === "live" || mode.endsWith("cancel")) {
+      if (mode === "live" || mode.endsWith("cancel") || realQueue) {
         const count = events.length;
         await runDurableWorkItem(spec);
         expect(surfaces.flatMap(({ controls }) => controls.events)).toHaveLength(count);
@@ -715,12 +827,24 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     } finally {
       releaseClaim?.();
       releaseObserver?.();
+      releaseSend();
+      releasePublication();
       controller.abort();
       await cancellation;
+      await pendingSend;
       await settled;
       vi.restoreAllMocks();
       clearDurableAuthCachesForTest();
       vi.useRealTimers();
+      if (realQueue) {
+        const jobs = await boss.findJobs(REVIEW_QUEUE, { data: { workItemId } });
+        if (jobs.length)
+          await boss.deleteJob(
+            REVIEW_QUEUE,
+            jobs.map(({ id }) => id),
+          );
+        await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
+      }
     }
   });
 
@@ -770,6 +894,413 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       );
     },
   );
+  describe("worker shutdown terminal marks (#643)", () => {
+    let diagnosticsBoss: PgBoss;
+    let databaseUrl: string;
+
+    beforeAll(async () => {
+      const url = process.env.DATABASE_URL;
+      if (!url) throw new Error("DATABASE_URL is required for integration tests");
+      databaseUrl = url;
+      // pg-boss schema/queues are not app migrations: a real started boss must
+      // install them before the lost-running diagnostics can read pgboss.job.
+      diagnosticsBoss = await bossModule.createStartedBoss({ databaseUrl, role: "web" });
+      await bossModule.ensureAgentQueues(diagnosticsBoss, makeTestConfig());
+    });
+
+    afterAll(async () => {
+      await bossModule.stopBoss(diagnosticsBoss, 1_000);
+    });
+
+    type ShutdownScenario = {
+      readonly workItemId: string;
+      readonly resourceKey: string;
+      readonly cfg: ReturnType<typeof makeTestConfig>;
+      readonly releaseReason: "durableReserve" | "poolEnd";
+      readonly events: readonly string[];
+      readonly warnings: readonly string[];
+      readonly markError: unknown;
+      readonly dispatchError: unknown;
+    };
+
+    async function runShutdownMarkScenario(options: {
+      readonly releaseMarkOn: "durableReserve" | "poolEnd";
+    }): Promise<ShutdownScenario> {
+      const resourceKey = `${OWNER}/shutdown-${randomUUID()}#1`;
+      const workItemId = await insertAutoQueued(resourceKey, "review");
+      const cfg = makeTestConfig({ role: "worker", databaseUrl });
+
+      const handlers = new Map<string, (jobs: readonly unknown[]) => Promise<void>>();
+      const controlledBoss = {
+        work: vi.fn(
+          async (
+            queue: string,
+            _options: unknown,
+            handler: (jobs: readonly unknown[]) => Promise<void>,
+          ) => {
+            handlers.set(queue, handler);
+            return "worker-id";
+          },
+        ),
+        offWork: vi.fn(async () => undefined),
+        send: vi.fn(async () => randomUUID()),
+        findJobs: vi.fn(async () => []),
+      };
+
+      const events: string[] = [];
+      const warnings: string[] = [];
+      let reserveStartedResolve: () => void = () => undefined;
+      const reserveStarted = new Promise<void>((resolve) => {
+        reserveStartedResolve = resolve;
+      });
+      let poolEndedResolve: () => void = () => undefined;
+      const poolEnded = new Promise<void>((resolve) => {
+        poolEndedResolve = resolve;
+      });
+
+      // Observation only: every wrapper below calls through to the real
+      // implementation without delaying it, changing membership, or reordering
+      // the production finalizers.
+      const realCreateExecutionTracker = executionTrackerModule.createExecutionTracker;
+      vi.spyOn(executionTrackerModule, "createExecutionTracker").mockImplementation(() => {
+        const tracker = realCreateExecutionTracker();
+        return {
+          track: tracker.track,
+          settle: (timeoutMs: number, settleOptions?: { durableOnly?: boolean }) => {
+            if (settleOptions?.durableOnly) {
+              events.push("settle:durable");
+              reserveStartedResolve();
+            }
+            return tracker.settle(timeoutMs, settleOptions);
+          },
+        };
+      });
+      const realCreatePgPool = postgres.createPgPool;
+      vi.spyOn(postgres, "createPgPool").mockImplementation((poolCfg) => {
+        const executionPool = realCreatePgPool(poolCfg);
+        const realEnd = executionPool.end.bind(executionPool);
+        executionPool.end = async () => {
+          await realEnd();
+          events.push("pool.end");
+          poolEndedResolve();
+        };
+        return executionPool;
+      });
+      vi.spyOn(bossModule, "createStartedBoss").mockResolvedValue(
+        controlledBoss as unknown as PgBoss,
+      );
+      vi.spyOn(bossModule, "ensureAgentQueues").mockResolvedValue(undefined);
+      vi.spyOn(bossModule, "stopBoss").mockImplementation(async () => {
+        events.push("boss.stop");
+      });
+
+      // Startup-only stubs: no unrelated diagnostics, retention, workspace, or
+      // health work may run beside the scenario. The diagnostics and lost-running
+      // spies are restored after disposal so the recovery proof below runs the
+      // real functions.
+      const diagnosticsSpy = vi
+        .spyOn(workerHealthModule, "collectQueueDiagnostics")
+        .mockResolvedValue({
+          at: new Date().toISOString(),
+          queues: [],
+          deadLetters: [],
+          oldestRunningWorkItemAgeMs: null,
+          staleQueuedWorkItems: [],
+          lostRunningWorkItems: [],
+        });
+      vi.spyOn(workerHealthModule, "logQueueDiagnosticsReport").mockImplementation(() => undefined);
+      vi.spyOn(workerHealthModule, "startPeriodicQueueDiagnostics").mockReturnValue({
+        stop: () => undefined,
+      });
+      vi.spyOn(workerHealthModule, "startWorkerHealthServer").mockReturnValue({
+        close: async () => undefined,
+      } as never);
+      const reconcileSpy = vi
+        .spyOn(lostRunningModule, "reconcileLostRunningWork")
+        .mockResolvedValue(undefined);
+      vi.spyOn(projectionRepairModule, "scanProjectionRepairPending").mockResolvedValue({
+        pendingScanned: 0,
+        enqueued: 0,
+        unreachable: 0,
+        skippedNoInstallation: 0,
+      });
+      vi.spyOn(retentionModule, "ensureRetentionSchedule").mockResolvedValue(undefined);
+      vi.spyOn(prWorkspaceModule, "cleanupStaleLocalPrWorkspaces").mockResolvedValue(undefined);
+
+      clearDurableAuthCachesForTest();
+      vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
+        type: "token",
+        tokenType: "installation",
+        token: "synthetic-installation-token",
+        installationId: 1,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
+        permissions: {},
+        repositorySelection: "all",
+      });
+      vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(
+        (params) =>
+          prSurfaceModule.createFakePrSurface(params, {
+            headSha: "h",
+            mutationBoundary: params.mutationBoundary,
+          }).surface,
+      );
+      vi.spyOn(evlog, "logWarn").mockImplementation((event: string) => {
+        warnings.push(event);
+      });
+
+      // Gate the genuine terminal mark after its real ownership/cancellation
+      // prechecks, then invoke the unchanged original SQL on release.
+      let markEnteredResolve: () => void = () => undefined;
+      const markEntered = new Promise<void>((resolve) => {
+        markEnteredResolve = resolve;
+      });
+      let releaseMark: () => void = () => undefined;
+      const markGate = new Promise<void>((resolve) => {
+        releaseMark = resolve;
+      });
+      let markError: unknown;
+      const realMarkCompleted = workRepository.markWorkCompleted;
+      vi.spyOn(workRepository, "markWorkCompleted").mockImplementation(async (...args) => {
+        if (args[1] !== workItemId) return realMarkCompleted(...args);
+        markEnteredResolve();
+        await markGate;
+        try {
+          const marked = await realMarkCompleted(...args);
+          events.push("mark.completed");
+          return marked;
+        } catch (error) {
+          markError = error;
+          events.push("mark.failed");
+          throw error;
+        }
+      });
+
+      vi.spyOn(reviewExecutorModule, "executeReviewJob").mockImplementation(
+        async (execCfg, execPool, execBoss, job) => {
+          await runDurableWorkItem({
+            cfg: execCfg,
+            pool: execPool,
+            boss: execBoss,
+            type: "review",
+            prActorLease: { queue: REVIEW_QUEUE },
+            job,
+            resolveHeadSha: async () => ({ headSha: "h" }),
+            execute: async () => ({ kind: "completed" }),
+          });
+        },
+      );
+
+      const controller = new AbortController();
+      const fiber = Effect.runFork(
+        Effect.scoped(
+          Effect.gen(function* () {
+            yield* Layer.launch(agentWorkWorkerLive(cfg));
+            yield* Effect.never;
+          }),
+        ),
+      );
+      type DispatchOutcome = { ok: true } | { ok: false; error: unknown };
+      let dispatchOutcome: Promise<DispatchOutcome> | undefined;
+      let disposed: Promise<void> | undefined;
+      let dispatchError: unknown;
+      let releaseReason: "durableReserve" | "poolEnd" = "poolEnd";
+      try {
+        await vi.waitFor(
+          () => {
+            expect(handlers.has(REVIEW_QUEUE)).toBe(true);
+          },
+          { timeout: 10_000 },
+        );
+
+        const now = new Date();
+        const job = {
+          id: randomUUID(),
+          name: REVIEW_QUEUE,
+          data: { kind: "review", workItemId },
+          signal: controller.signal,
+          expireInSeconds: 600,
+          heartbeatSeconds: null,
+          priority: 0,
+          state: "active",
+          retryLimit: 2,
+          retryCount: 0,
+          retryDelay: 0,
+          retryBackoff: false,
+          startAfter: now,
+          startedOn: now,
+          singletonKey: null,
+          singletonOn: null,
+          deleteAfterSeconds: 600,
+          createdOn: now,
+          completedOn: null,
+          keepUntil: now,
+          policy: "standard",
+          heartbeatOn: null,
+          blocked: false,
+          blocking: false,
+          pendingDependencies: 0,
+          deadLetter: "",
+          output: {},
+          sourceName: null,
+          sourceId: null,
+          sourceCreatedOn: null,
+          sourceRetryCount: null,
+        };
+        const handler = handlers.get(REVIEW_QUEUE);
+        if (!handler) throw new Error("review queue handler was not registered");
+        dispatchOutcome = handler([job]).then(
+          (): DispatchOutcome => ({ ok: true }),
+          (error: unknown): DispatchOutcome => ({ ok: false, error }),
+        );
+
+        await markEntered;
+        disposed = Effect.runPromise(Fiber.interrupt(fiber)).then(() => undefined);
+
+        if (options.releaseMarkOn === "poolEnd") {
+          await poolEnded;
+        } else {
+          releaseReason = await Promise.race([
+            reserveStarted.then(() => "durableReserve" as const),
+            poolEnded.then(() => "poolEnd" as const),
+          ]);
+        }
+        releaseMark();
+        const outcome = await dispatchOutcome;
+        await disposed;
+        dispatchError = outcome.ok ? undefined : outcome.error;
+      } finally {
+        releaseMark();
+        controller.abort();
+        diagnosticsSpy.mockRestore();
+        reconcileSpy.mockRestore();
+        await dispatchOutcome;
+        await disposed;
+      }
+      return {
+        workItemId,
+        resourceKey,
+        cfg,
+        releaseReason,
+        events,
+        warnings,
+        markError,
+        dispatchError,
+      };
+    }
+
+    it("marks a past-settle review completed inside the durable shutdown reserve (#643)", async () => {
+      const scenario = await runShutdownMarkScenario({ releaseMarkOn: "durableReserve" });
+
+      const row = await getWorkItem(pool, scenario.workItemId);
+      const terminal = await pool.query<{ completed_at: Date | null }>(
+        "SELECT completed_at FROM agent_work_items WHERE id = $1",
+        [scenario.workItemId],
+      );
+      const markBeforePoolEnd =
+        scenario.events.includes("mark.completed") &&
+        scenario.events.indexOf("mark.completed") < scenario.events.indexOf("pool.end");
+      console.info(
+        "shutdown-reserve-evidence",
+        JSON.stringify({
+          releaseReason: scenario.releaseReason,
+          markFailed: scenario.markError != null,
+          dispatchFailed: scenario.dispatchError != null,
+          markBeforePoolEnd,
+          warnings: scenario.warnings,
+          status: row?.status,
+          completed: terminal.rows[0]?.completed_at != null,
+        }),
+      );
+
+      expect(scenario.releaseReason).toBe("durableReserve");
+      expect(scenario.markError).toBeUndefined();
+      expect(scenario.dispatchError).toBeUndefined();
+      expect(markBeforePoolEnd).toBe(true);
+      expect(scenario.warnings).not.toContain("agent_worker_shutdown_incomplete");
+      expect(row?.status).toBe("completed");
+      expect(terminal.rows[0]?.completed_at).not.toBeNull();
+
+      // The released lease admits a successor immediately.
+      const successorId = await insertAutoQueued(scenario.resourceKey, "review");
+      await expect(acquireFor(scenario.resourceKey, "review", successorId)).resolves.toMatchObject({
+        acquired: true,
+      });
+    }, 60_000);
+
+    it("recovers a terminal mark dropped after the shutdown reserve (#643)", async () => {
+      const scenario = await runShutdownMarkScenario({ releaseMarkOn: "poolEnd" });
+
+      expect(scenario.releaseReason).toBe("poolEnd");
+      expect(scenario.warnings).toContain("agent_worker_shutdown_incomplete");
+      expect(scenario.markError).toBeInstanceOf(Error);
+      expect(scenario.dispatchError).toBeInstanceOf(Error);
+      const running = await getWorkItem(pool, scenario.workItemId);
+      expect(running?.status).toBe("running");
+
+      // Make only this scenario's data recovery-eligible: age the item, lapse
+      // its lease, and keep every matching delivery/watchdog terminal (the
+      // controlled boss wrote no pg-boss rows).
+      const minAgeSeconds = scenario.cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      await pool.query(
+        `UPDATE agent_work_items
+            SET started_at = now() - (($2 + 60) * interval '1 second')
+          WHERE id = $1`,
+        [scenario.workItemId, minAgeSeconds],
+      );
+      await pool.query(
+        `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
+          WHERE work_item_id = $1`,
+        [scenario.workItemId],
+      );
+
+      // reconcileLostRunningWork also scans the separate terminal-review repair
+      // lane. A reused database may hold another suite's terminal review with an
+      // open check; only this scenario's own row must stay out of that lane.
+      // The count stays in the evidence line so foreign leftovers remain visible.
+      const openCheckRepair = await lostRunningModule.listTerminalReviewsWithOpenOwnChecks(pool);
+      expect(openCheckRepair.map((item) => item.workItemId)).not.toContain(scenario.workItemId);
+
+      const report = await workerHealthModule.collectQueueDiagnostics({
+        boss: diagnosticsBoss,
+        pool,
+        now: new Date(),
+        diagnosticQueues: [REVIEW_QUEUE],
+        dlqQueues: [REVIEW_DEAD_LETTER_QUEUE],
+        lostRunningMinAgeSeconds: minAgeSeconds,
+      });
+      const candidates = report.lostRunningWorkItems.filter(
+        (item) => item.workItemId === scenario.workItemId,
+      );
+      expect(candidates).toHaveLength(1);
+      await lostRunningModule.reconcileLostRunningWork({
+        cfg: scenario.cfg,
+        pool,
+        items: candidates,
+      });
+
+      const recovered = await getWorkItem(pool, scenario.workItemId);
+      const terminal = await pool.query<{ completed_at: Date | null; last_error: string | null }>(
+        "SELECT completed_at, last_error FROM agent_work_items WHERE id = $1",
+        [scenario.workItemId],
+      );
+      console.info(
+        "shutdown-recovery-evidence",
+        JSON.stringify({
+          releaseReason: scenario.releaseReason,
+          markFailed: scenario.markError instanceof Error,
+          diagnosed: candidates.length,
+          openCheckRepair: openCheckRepair.length,
+          status: recovered?.status,
+          lastError: terminal.rows[0]?.last_error,
+          completed: terminal.rows[0]?.completed_at != null,
+        }),
+      );
+      expect(recovered?.status).toBe("failed");
+      expect(terminal.rows[0]?.last_error).toBe("worker_lost");
+      expect(terminal.rows[0]?.completed_at).not.toBeNull();
+    }, 60_000);
+  });
 
   it("admits exactly one holder per (resource key, work type) under concurrency", async () => {
     const resourceKey = `${OWNER}/race-${randomUUID().slice(0, 8)}#1`;
@@ -1008,6 +1539,149 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       observer.release();
     }
   });
+
+  it.each([
+    ["auto", "committed"],
+    ["auto", "blocked"],
+    ["slash", "committed"],
+    ["slash", "blocked"],
+  ] as const)(
+    "preserves replacement payload across %s %s retries (#642)",
+    async (source, schedule) => {
+      const resourceKey = `${OWNER}/replacement-payload-${randomUUID()}#1`;
+      const parentId = randomUUID();
+      const initialPayload = {
+        mode: "review",
+        source,
+        userSupplement: "initial supplement",
+        ackTargets: [{ kind: "issueComment", commentId: 642 }],
+      };
+      await pool.query(
+        `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES ($1, 'review', $2, 'queued', $3, 'r', 1, 1, 'h', 'review', $4, $5::jsonb)`,
+        [parentId, source, OWNER, resourceKey, JSON.stringify(initialPayload)],
+      );
+      const firstLease = await acquire(resourceKey, parentId);
+      if (!firstLease.acquired) throw new Error("expected initial parent lease");
+      await expect(
+        claimWorkForExecution(pool, parentId, firstLease.leaseEpoch),
+      ).resolves.toMatchObject({
+        resumed: false,
+      });
+      const parent = await getWorkItem(pool, parentId);
+      if (parent?.type !== "review") throw new Error("expected parent review");
+      const first = await createReviewRescheduleWorkItem(pool, parent, firstLease.leaseEpoch);
+      const child = await getWorkItem(pool, first.replacementWorkItemId);
+      if (child?.type !== "review") throw new Error("expected replacement review");
+      expect(child.payload).toEqual({ ...initialPayload, staleHeadRescheduled: true });
+      expect(child.status).toBe("queued");
+      expect(child.headSha).toBe(DEFERRED_HEAD_SHA);
+
+      await releasePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        leaseEpoch: firstLease.leaseEpoch,
+      });
+      const retryLease = await acquire(resourceKey, parentId);
+      if (!retryLease.acquired) throw new Error("expected resumed parent lease");
+      expect(retryLease.leaseEpoch).not.toBe(firstLease.leaseEpoch);
+      await expect(
+        claimWorkForExecution(pool, parentId, retryLease.leaseEpoch),
+      ).resolves.toMatchObject({
+        resumed: true,
+      });
+      await pool.query(
+        `UPDATE agent_work_items SET payload = payload || '{"repositorySizeKb":642}'::jsonb
+        WHERE id = $1`,
+        [parentId],
+      );
+      const resumed = await getWorkItem(pool, parentId);
+      if (resumed?.type !== "review") throw new Error("expected resumed parent review");
+      expect(resumed.payload.staleHeadReplacement?.replacementWorkItemId).toBe(child.id);
+
+      const patch = {
+        publishDegraded: true,
+        userSupplement: "saved replacement supplement",
+        ackTargets: [{ kind: "reviewComment", commentId: 643 }],
+      };
+      const mutator = await pool.connect();
+      const observer = await pool.connect();
+      let mutatorOpen = false;
+      let retry: ReturnType<typeof createReviewRescheduleWorkItem> | undefined;
+      try {
+        await mutator.query("BEGIN");
+        mutatorOpen = true;
+        await mutator.query(
+          "UPDATE agent_work_items SET payload = payload || $2::jsonb WHERE id = $1",
+          [child.id, JSON.stringify(patch)],
+        );
+        if (schedule === "committed") {
+          await mutator.query("COMMIT");
+          mutatorOpen = false;
+        }
+        retry = createReviewRescheduleWorkItem(pool, resumed, retryLease.leaseEpoch);
+        if (schedule === "blocked") {
+          const { rows } = await mutator.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+          const mutatorPid = rows[0]?.pid;
+          if (mutatorPid == null) throw new Error("missing mutator backend pid");
+          await expect
+            .poll(async () => {
+              const waiting = await observer.query<{ count: number }>(
+                `SELECT COUNT(*)::int AS count FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND wait_event_type = 'Lock'
+                  AND query LIKE '%INSERT INTO agent_work_items%'
+                  AND $1::int = ANY(pg_blocking_pids(pid))`,
+                [mutatorPid],
+              );
+              return waiting.rows[0]?.count ?? 0;
+            })
+            .toBeGreaterThan(0);
+          await mutator.query("COMMIT");
+          mutatorOpen = false;
+        }
+        await expect(retry).resolves.toEqual(first);
+        const merged = await getWorkItem(pool, child.id);
+        if (merged?.type !== "review") throw new Error("expected merged replacement review");
+        expect(merged.payload).toEqual({
+          ...child.payload,
+          ...patch,
+          repositorySizeKb: 642,
+        });
+        expect({ ...merged, payload: child.payload }).toEqual(child);
+        await expect(
+          createReviewRescheduleWorkItem(pool, resumed, retryLease.leaseEpoch),
+        ).resolves.toEqual(first);
+        expect(await getWorkItem(pool, child.id)).toEqual(merged);
+        const siblings = await pool.query<{ id: string }>(
+          "SELECT id FROM agent_work_items WHERE resource_key = $1 AND id <> $2",
+          [resourceKey, parentId],
+        );
+        expect(siblings.rows).toEqual([{ id: child.id }]);
+        console.info(
+          "replacement-payload-retry-evidence",
+          JSON.stringify({
+            source,
+            schedule,
+            mutationPreserved: true,
+            incomingFieldAdded: true,
+            identityReused: true,
+            payloadIdempotent: true,
+            epochChanged: true,
+            blockingObserved: schedule === "blocked",
+          }),
+        );
+      } finally {
+        if (mutatorOpen) await mutator.query("ROLLBACK");
+        await retry?.catch(() => undefined);
+        mutator.release();
+        observer.release();
+      }
+    },
+  );
 
   it("records the acquired epoch on the work item row at claim time", async () => {
     const resourceKey = `${OWNER}/record-${randomUUID().slice(0, 8)}#1`;

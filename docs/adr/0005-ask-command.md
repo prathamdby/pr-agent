@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0006](0006-durable-agent-work.md) for execution, concurrency, and webhook response timing. Production uses pg-boss workers only. Bare thread replies without an `@bot` mention do not enqueue ask work. Durable admission limits for both triggers are defined in [ADR 0031](0031-ask-admission-quotas.md).
+Accepted. Superseded in part by [ADR 0006](0006-durable-agent-work.md) for execution, concurrency, and webhook response timing. Production uses pg-boss workers only. Bare thread replies without an `@bot` mention do not enqueue ask work. Durable admission limits for both triggers are defined in [ADR 0031](0031-ask-admission-quotas.md). Amended for #658: intake admits one run per triggering mention (decision 9).
 
 ## Context
 
@@ -29,6 +29,8 @@ This repo already runs reviews through a Pi-AI tool loop over a local PR workspa
 7. **Failure handling** — One retry nudge, then text-only fallback, then an honest short failure reply if still stuck. The terminal hook treats only a completed `ask_reply` publish record or a recovered comment id as a delivered answer. An `outcome_unknown` answer mutation does not suppress the failure. An undelivered ask posts exactly one failure reply through the `ask:failure_reply` operation-intent key.
 
 8. **Style** — System prompt requires simple, humane prose with no em dashes and no AI-tell openers; enforcement is prompt-only (no post-processing).
+
+9. **One run per triggering mention** (added for #658) — Canonical intake resolves the mention identity (installation, PR resource, comment surface, and comment ID) under a transaction-scoped advisory lock before quota admission. A retained ask item for that mention, in any status, is joined quietly: no sibling item, ack, reservation, or queue job. Only a redelivery of the same webhook event under the recover policy re-enqueues the retained item with its original job IDs. The coexistence assumption this discharges: two live ask runs for one mention cannot be created by upgraded intake, so per-work-item publish markers never meet a sibling. The bound is the retained evidence itself — once retention deletes the item, a new accepted delivery for that comment can be admitted again. Sibling rows admitted before this decision (or by an unupgraded web replica) are not repaired.
 
 ## Consequences
 

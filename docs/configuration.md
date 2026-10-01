@@ -77,7 +77,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Slash command allowlist       | `SLASH_ALLOWED_ASSOCIATIONS`              | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub comment author associations allowed to run slash commands; valid values: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `NONE`, `MANNEQUIN`; set `*` to allow all |
 | Maintainer decision allowlist | `MAINTAINER_DECISION_ASSOCIATIONS`        | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub author associations whose non-bot inline replies may support a dismissal; missing user or association metadata fails closed; `*` is not allowed                                                               |
 | Review worker concurrency     | `REVIEW_CONCURRENCY`                      | `2`                         | pg-boss review queue workers                                                                                                                                                                                                         |
-| Ask worker concurrency        | `ASK_CONCURRENCY`                         | `1`                         | pg-boss ask queue workers                                                                                                                                                                                                            |
+| Ask worker concurrency        | `ASK_CONCURRENCY`                         | `1`                         | pg-boss ask queue workers; worker parallelism only — same-mention deduplication across replicas comes from ask intake, not this knob                                                                                                 |
 | Ask actor outstanding         | `ASK_ACTOR_MAX_OUTSTANDING`               | `2`                         | maximum queued or running asks for one actor in one installation                                                                                                                                                                     |
 | Ask repository outstanding    | `ASK_REPOSITORY_MAX_OUTSTANDING`          | `8`                         | maximum queued or running asks for one repository                                                                                                                                                                                    |
 | Ask installation outstanding  | `ASK_INSTALLATION_MAX_OUTSTANDING`        | `32`                        | maximum queued or running asks across one installation                                                                                                                                                                               |
@@ -103,11 +103,11 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Queue polling interval        | `QUEUE_POLLING_INTERVAL_SECONDS`          | `0.5`                       | pg-boss worker poll interval in seconds; min 0.5                                                                                                                                                                                     |
 | Job retention                 | `QUEUE_RETENTION_SECONDS`                 | `1209600`                   |                                                                                                                                                                                                                                      |
 | Job delete after              | `QUEUE_DELETE_AFTER_SECONDS`              | `604800`                    |                                                                                                                                                                                                                                      |
-| Shutdown drain budget         | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`          | `25`                        | graceful pg-boss stop wait (s) on SIGTERM/SIGINT, then in-flight handlers settle before the pool closes                                                                                                                              |
+| Shutdown drain budget         | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`          | `25`                        | graceful pg-boss stop wait (s) on SIGTERM/SIGINT, then handlers settle and durable work dispatches get one more `SHUTDOWN_SETTLE_TIMEOUT_MS` window before the pool closes                                                           |
 | Webhook event retention       | `WEBHOOK_EVENTS_RETENTION_SECONDS`        | `2592000`                   | delete aged webhook_events and their replay rows, plus duplicate-arrival metadata by its own received_at (30d); disabled scheduled retention leaves evidence unpurged                                                                |
 | PR actor lease TTL            | `PR_ACTOR_LEASE_TTL_SECONDS`              | `900`                       | lease validity window; a crashed holder's lease becomes stealable after this                                                                                                                                                         |
 | PR actor lease renewal        | `PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS` | `120`                       | holder renewal cadence; must be less than `PR_ACTOR_LEASE_TTL_SECONDS` (startup validation)                                                                                                                                          |
-| Agent work retention          | `AGENT_WORK_RETENTION_SECONDS`            | `2592000`                   | delete terminal agent_work_items older than this                                                                                                                                                                                     |
+| Agent work retention          | `AGENT_WORK_RETENTION_SECONDS`            | `2592000`                   | delete terminal agent_work_items older than this; also bounds same-mention ask deduplication, since the retained ask row is the join evidence                                                                                        |
 | Retention schedule            | `RETENTION_CRON`                          | `17 3 * * *`                | cron for the worker cleanup sweep                                                                                                                                                                                                    |
 | Retention enabled             | `RETENTION_ENABLED`                       | `true`                      | toggle the scheduled cleanup sweep. Accepts only `true`/`false` (empty → default); legacy `1`/`yes`/`TRUE` fail startup.                                                                                                             |
 | Log level                     | `LOG_LEVEL`                               | `info`                      |                                                                                                                                                                                                                                      |
@@ -428,7 +428,15 @@ cleanup retain their existing fences; requests already in flight cannot be withd
 
 A failed stale review's pending replacement is cancelled even if its claim wins
 concurrently. This uses the replacement's recorded lease epoch, not a new setting.
-Unconfirmed cancellation is logged as an error.
+Queue deliveries cannot veto pending cancellation; successful handoff remains
+exempt. Unconfirmed cancellation is logged as an error.
+
+Stale-head replacement creation shares the review intake lock and reads persistent
+lifecycle state after acquiring it. Accepted close/merge blocks replacement work
+and progress ownership transfer. This adds no mode, setting or polling interval.
+Retrying a stale review keeps changes already saved on its replacement.
+Incoming-only fields are added; stored values win collisions. This needs no new
+setting or polling interval.
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
@@ -656,20 +664,20 @@ Source-boundary recognition is linear in each line. File eligibility, content ha
 intake commit. A timeout remains a real intake failure (`503` and redelivery),
 not an already-in-progress acknowledgement. No timeout defaults change.
 
-| Symbol                                    | Default | Role                                                                  |
-| ----------------------------------------- | ------- | --------------------------------------------------------------------- |
-| `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                         |
-| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`                                      |
-| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`                                   |
-| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                                                      |
-| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                                                       |
-| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                                                 |
-| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay                                           |
-| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout                                |
-| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout                                   |
-| `PG_BOSS_EVENT_LOG_WINDOW_MS`             | 60000   | one pg-boss error/warning log per key per window; repeats are counted |
-| `SHUTDOWN_SETTLE_TIMEOUT_MS`              | 5000    | wait for in-flight queue handlers after pg-boss drain                 |
-| `ANALYTICS_SHUTDOWN_TIMEOUT_MS`           | 5000    | PostHog flush bound during shutdown                                   |
+| Symbol                                    | Default | Role                                                                                                           |
+| ----------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                                                                  |
+| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`                                                                               |
+| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`                                                                            |
+| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                                                                                               |
+| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                                                                                                |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                                                                                          |
+| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay                                                                                    |
+| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout                                                                         |
+| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout                                                                            |
+| `PG_BOSS_EVENT_LOG_WINDOW_MS`             | 60000   | one pg-boss error/warning log per key per window; repeats are counted                                          |
+| `SHUTDOWN_SETTLE_TIMEOUT_MS`              | 5000    | wait for in-flight queue handlers after pg-boss drain; also the extra durable-work-only window that follows it |
+| `ANALYTICS_SHUTDOWN_TIMEOUT_MS`           | 5000    | PostHog flush bound during shutdown; on the worker it runs concurrently with the durable dispatch window       |
 
 ### Other
 

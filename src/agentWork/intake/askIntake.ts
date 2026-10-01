@@ -7,6 +7,7 @@ import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/par
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { ASK_THROTTLED_BODY, ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import type { AckJobData, AckTarget, JobCorrelation, PrRef } from "../types.js";
+import { prResourceKey } from "../types.js";
 import {
   admitAsk,
   releaseAskQuotaReservation,
@@ -36,9 +37,11 @@ export type AskIntakeInput = {
 };
 
 /**
- * Policy when `createAskWorkItem` finds an existing ask for this webhook event:
+ * Policy when an existing ask matches this intake:
  * - `skip` — slash/mention webhook path: work was already ensured; do not re-enqueue
- * - `recover` — retry path: re-enqueue ack/ask idempotently for the existing id
+ * - `recover` — retry path for the same webhook event: re-enqueue ack/ask
+ *   idempotently for the existing id. A retained ask for the same mention but a
+ *   different event is always a quiet join, never a re-enqueue.
  */
 export type ExistingAskWorkItemPolicy = "skip" | "recover";
 
@@ -57,6 +60,57 @@ function askRef(input: AskIntakeInput): PrRef {
     headSha: DEFERRED_HEAD_SHA,
     repositorySizeKb: input.repositorySizeKb,
   };
+}
+
+type RetainedAskMention = {
+  readonly id: string;
+  readonly webhookEventId: string | null;
+};
+
+function askMentionLockKey(input: AskIntakeInput): string {
+  return JSON.stringify([
+    "ask_mention_intake",
+    input.installationId,
+    prResourceKey(input.owner, input.repo, input.prNumber),
+    input.replyTarget.kind,
+    input.commentId,
+  ]);
+}
+
+/**
+ * All production ask creation resolves the triggering mention under the
+ * caller's transaction: the advisory lock is held until the outer commit or
+ * rollback, and the lookup runs as a separate statement so READ COMMITTED sees
+ * a same-mention winner that has just committed. Retained rows of every status
+ * join, so one mention gets one answer until retention removes the evidence.
+ */
+async function findRetainedAskForMention(
+  client: PoolClient,
+  input: AskIntakeInput,
+): Promise<RetainedAskMention | null> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    askMentionLockKey(input),
+  ]);
+  const { rows } = await client.query<{ id: string; webhook_event_id: string | null }>(
+    `SELECT id, webhook_event_id
+       FROM agent_work_items
+      WHERE type = 'ask'
+        AND installation_id = $1
+        AND resource_key = $2
+        AND payload->'replyTarget'->>'kind' = $3
+        AND payload->>'commentId' = $4
+      ORDER BY CASE WHEN webhook_event_id = $5::uuid THEN 0 ELSE 1 END, created_at, id
+      LIMIT 1`,
+    [
+      input.installationId,
+      prResourceKey(input.owner, input.repo, input.prNumber),
+      input.replyTarget.kind,
+      String(input.commentId),
+      input.webhookEventId,
+    ],
+  );
+  const row = rows[0];
+  return row ? { id: row.id, webhookEventId: row.webhook_event_id } : null;
 }
 
 function baseAck(input: AskIntakeInput): AckJobData {
@@ -121,6 +175,27 @@ export async function promoteAskFromWebhookEvent(
   }
 
   const ref = askRef(input);
+  const retained = await findRetainedAskForMention(client, input);
+  if (retained) {
+    if (retained.webhookEventId !== input.webhookEventId) {
+      return { kind: "already_exists_skipped", workItemId: retained.id };
+    }
+    switch (existingWorkItemPolicy) {
+      case "skip":
+        return { kind: "already_exists_skipped", workItemId: retained.id };
+      case "recover": {
+        const workItemId = retained.id;
+        await enqueueAskAckIdempotent(boss, client, { ...ack, workItemId }, input.webhookEventId);
+        await enqueueAsk(boss, client, ref, workItemId, input.correlation);
+        return { kind: "promoted", workItemId, created: false };
+      }
+      default: {
+        const exhaustive: never = existingWorkItemPolicy;
+        return exhaustive;
+      }
+    }
+  }
+
   const reservedWorkItemId = crypto.randomUUID();
   const admission = await admitAsk(
     client,

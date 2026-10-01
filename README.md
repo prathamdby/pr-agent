@@ -59,20 +59,23 @@ Slash commands are case-sensitive. The command must be the first non-empty line 
 Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it.
 
 `/cancel` blocks new review output when the worker's final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
-If a stale review fails before handing off its replacement, that pending replacement is cancelled even if it has just started. Unconfirmed cancellation is logged as an error.
+If a stale review fails before handing off its replacement, that pending replacement is cancelled even if it has just started or a delivery races the abort. Successfully handed-off replacements remain unchanged. Unconfirmed cancellation is logged as an error.
+Retrying a stale review keeps changes already saved on its replacement.
 
 `/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.
 
 After an interrupted publish, PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with `/review` guidance. Failed or incomplete evidence reads can retry.
 
 After PR Agent accepts a close or merge, automated review requests and `/review`
-(including `force`) cannot start another review. A closed command receives a
+(including `force`) and stale-head replacements cannot start another review. A closed command receives a
 reply asking you to reopen first; a merged command is refused. A newer
 provider-observed reopen permits review but does not start one automatically.
 Equal close/reopen timestamps stay closed. Coverage begins with an accepted
 close after upgrade, not historical PR state. See [operations.md](docs/operations.md).
 
 Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged without duplicate active slash work. A cancellation racing that decision no longer causes a missing-winner intake failure. A cancellation or completion that finishes first can allow a fresh run.
+
+Asking the same comment twice does not post twice. Repeat deliveries of one `/ask` or App-bot mention join the retained run — queued, running, or finished — without a second answer or quota charge. Post a new comment to ask again.
 
 Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags. Set `FEATURE_DESCRIBE=off`, `FEATURE_ASK=off`, and similar when you want those features to stop calling the model.
 
@@ -133,6 +136,7 @@ Paste the GitHub App private key as one line with `\n` for newlines, or as base6
 - Compose overrides `ROLE` and `DATABASE_URL` for each service. Web and worker use hostname `postgres` on the compose network. The `DATABASE_URL` in `.env.example` (`localhost:5432`) is for host integration tests and optional host processes. [Local development](#local-development) publishes that port from `docker-compose.dev.yml`. Production Compose does not.
 - Default HTTP port is `7224` (Compose and `.env.example`). Maintainer-local Compose also publishes worker `7225`. Bare `nub src/index.ts` without `PORT` falls back to `3000`.
 - `.env.example` sets `LOG_PRETTY=true` for a laptop. On a public host, set `LOG_PRETTY=false` or drop the line so production defaults apply. Change the default Postgres password if the host is reachable.
+- On shutdown the worker stops taking jobs, waits briefly for in-flight work to record its outcome, and exits. Work that outlives that window is recovered by a later worker. Details: [docs/operations.md](docs/operations.md).
 - Full env catalog: [docs/configuration.md](docs/configuration.md). Feature switches: [docs/features.md](docs/features.md).
 
 </details>

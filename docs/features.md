@@ -26,7 +26,9 @@ the cancellation. Requests already in flight cannot be withdrawn. The cancellati
 notice and check closure still run. There is no additional feature mode.
 
 A failed stale review's pending replacement is cancelled even if it has just
-started. Unconfirmed cancellation is logged as an error.
+started or a delivery races the abort. Successfully handed-off replacements remain
+unchanged. Unconfirmed cancellation is logged as an error.
+Retrying a stale review keeps changes already saved on its replacement.
 
 `/review force` cancels any queued or running review and starts a fresh one on
 the latest commit. Concurrent restarts are applied in intake order, not
@@ -34,7 +36,7 @@ treated as already-in-progress requests. Ordinary `/review` still deduplicates
 against active slash reviews.
 
 After PR Agent accepts a close or merge, automated review intake and `/review`
-(including `force`) cannot start another review. Commands reply on their original
+(including `force`) and stale-head replacements cannot start another review. Commands reply on their original
 thread: reopen a closed PR before retrying; a merged PR cannot be reviewed.
 A newer provider-observed reopen restores admission but starts no automatic
 review. Equal close/reopen timestamps remain closed. Other features keep their
@@ -44,7 +46,13 @@ Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are
 acknowledged without duplicate active slash work. A cancellation racing that
 decision no longer causes a missing-winner intake failure. A cancellation or
 completion that finishes first can allow a fresh run. `/ask` and `/help` do
-not use this active-work gate.
+not use this active-work gate. Ask instead deduplicates per triggering
+comment: repeated accepted deliveries of the same `/ask` or App-bot mention
+(same installation, PR, comment surface, and comment ID) join the retained
+run in any status without a second answer, ack, quota charge, or queue job.
+A new comment is a new question, even with identical text in the same
+thread. The join lasts until the work item is purged by
+`AGENT_WORK_RETENTION_SECONDS`.
 
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

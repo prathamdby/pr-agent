@@ -154,7 +154,9 @@ work or transfer progress ownership; slash commands receive an explanatory reply
 Only a newer provider-observed reopen restores admission, without automatically
 starting a review. Terminal state wins timestamp ties; merged never reopens.
 The marker outlives webhook/work retention. Worker-side stale-head replacement
-insertion is a separate contract tracked by #662, not covered by this intake gate.
+insertion takes the same intake lock and reads lifecycle in a subsequent statement,
+before locking the parent lease and item. Closed/merged refusal cannot transfer
+progress ownership; close sees any replacement committed before it acquires the lock.
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
@@ -166,8 +168,16 @@ blocks feature output even before the observer aborts the signal. Terminal notic
 and verdict cleanup retain their existing signal and epoch fences. A request
 already in flight cannot be withdrawn.
 
+Stale-head replacement retries merge incoming defaults with the stored child
+payload in the conflict statement. Stored values win collisions, including across
+lease epochs, so retry cannot erase another writer's changes. A new replacement
+still receives the complete original source and slash-command context.
+
 Terminal parent failure cancels a pending stale-head replacement even when its
-claim wins concurrently. After a queued miss, cancellation fixes the replacement's
+claim wins concurrently or a delivery races the abort. Queue existence cannot veto
+the state-predicated cancellation write. Successful in-attempt enqueue and the
+terminal fallback's persisted enqueued marker remain exempt. Leftover deliveries
+for cancelled work cannot publish feature output. After a queued miss, cancellation fixes the replacement's
 recorded epoch and locks its lease before updating the item. It never follows a
 newer epoch or clears a holder. Unconfirmed cancellation emits
 `agent_work_replacement_cancel_failed` at error level and rejects.
@@ -186,7 +196,7 @@ flowchart LR
   Surface --> GitHub
 ```
 
-The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. `check_run` and `status` deliveries write `pr_head_ci_state` in the same transaction as `webhook_events` and enqueue a debounced `ci-projection` job. `pull_request` `opened`, `synchronize`, and `reopened` enqueue that job when the head row is missing or `seeded_at` is null. Ack, ticks, and publish enqueue after they write the comment when the head still needs a seed or the row version moved. The worker consumes that queue and renders CI cells from the row; missing or unseeded heads wait, and a complete seeded empty snapshot shows no-CI copy. After seed, a pending or `unknown` head takes one Checks listing per later job and pending-refreshes durable facts ([ADR 0035](docs/adr/0035-head-ci-state-projection.md)). Verification activate/clear advances the head revision only on an effective transition and enqueues projection in the same transaction. `workflow_run` and `check_suite` completed deliveries enqueue the same projection without writing facts. Ask work is deliberately unleased and relies on publish-record idempotency. Triage may push a branch and uses separate publish records for thread actions.
+The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. `check_run` and `status` deliveries write `pr_head_ci_state` in the same transaction as `webhook_events` and enqueue a debounced `ci-projection` job. `pull_request` `opened`, `synchronize`, and `reopened` enqueue that job when the head row is missing or `seeded_at` is null. Ack, ticks, and publish enqueue after they write the comment when the head still needs a seed or the row version moved. The worker consumes that queue and renders CI cells from the row; missing or unseeded heads wait, and a complete seeded empty snapshot shows no-CI copy. After seed, a pending or `unknown` head takes one Checks listing per later job and pending-refreshes durable facts ([ADR 0035](docs/adr/0035-head-ci-state-projection.md)). Verification activate/clear advances the head revision only on an effective transition and enqueues projection in the same transaction. `workflow_run` and `check_suite` completed deliveries enqueue the same projection without writing facts. Ask work is deliberately unleased and relies on publish-record idempotency. Canonical ask intake resolves the triggering mention — installation, PR resource, comment surface, and comment ID — under a transaction-scoped advisory lock before quota admission, so repeated accepted deliveries of one mention quietly join its retained work item in any status instead of creating a sibling; the agreement ends when retention deletes the item. Triage may push a branch and uses separate publish records for thread actions.
 
 A slash `/review`, `/describe`, `/triage`, or `/verify` that reaches insertion
 resolves active work in one value-preserving UPSERT. Its conflict row stays
@@ -214,6 +224,16 @@ commits in the intake transaction; a missing target or failed attribution write
 rolls back intake. The original top-level correlation remains the worker log
 identity. Projection still renders from head state. Inspection and retention:
 [the queue runbook](docs/agent-work-ops.md#ci-projection-delivery-attribution).
+
+Worker shutdown is ordered and bounded. Intake closes first, pg-boss drains on
+`SHUTDOWN_DRAIN_TIMEOUT_SECONDS`, all in-flight queue handlers settle for
+`SHUTDOWN_SETTLE_TIMEOUT_MS`, and the five durable work queues then get one more
+`SHUTDOWN_SETTLE_TIMEOUT_MS` window, concurrent with the bounded analytics
+flush, before the Postgres pool ends. A dispatch still running at that cutoff
+logs `agent_worker_shutdown_incomplete`; the cutoff ends the wait, not the
+dispatch, so its late terminal write fails against the ended pool. A later
+worker recovers the row through the existing watchdog chain or lost-running
+sweep.
 
 Lost-running diagnostics are advisory. The sweeper rechecks the item age,
 lease expiry, and matching live job in the conditional failure write. Only an
