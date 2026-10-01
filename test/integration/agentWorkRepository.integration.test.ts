@@ -672,11 +672,22 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
             : { kind: "published", findings: [], summary: "losing verdict" },
         });
         await Promise.race([second, timeout]);
+        const apply = vi.fn(async () => true);
+        await expect(
+          closeRepository.withOwnVerdictClose(pool, params, apply),
+        ).resolves.toBeUndefined();
+        expect(apply).not.toHaveBeenCalled();
+        expect(finishSpy).toHaveBeenCalledTimes(1);
+        expect(statusSpy).not.toHaveBeenCalled();
       } finally {
         release();
         await Promise.allSettled([first, ...(second == null ? [] : [second])]);
         clearTimeout(timer);
       }
+      await closeOwnVerdict({
+        ...params,
+        outcome: { kind: "crashed", summary: "post-release contender" },
+      });
       expect(finishSpy).toHaveBeenCalledTimes(1);
       expect(statusSpy).toHaveBeenCalledTimes(1);
       expect(finishSpy).toHaveBeenCalledWith(
@@ -1047,6 +1058,22 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       [1, 2].map(() => reserveReviewCheckRun(pool, { ...params, detail: { status: "starting" } })),
     );
     expect(reserves.toSorted((a, b) => Number(a) - Number(b))).toEqual([false, true]);
+    await claimOwnVerdict(pool, {
+      ...params,
+      selected: { conclusion: "success", summary: "late claim during creation" },
+    });
+    const starting = await pool.query(
+      "SELECT id, github_id, detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    expect(starting.rows[0]).toMatchObject({
+      id: before.rows[0].id,
+      github_id: null,
+      detail: {
+        status: "starting",
+        selectedOwnVerdict: { conclusion: "failure", summary: "winner" },
+      },
+    });
     expect(
       await releaseUnstartedReviewCheckRunReservation(pool, {
         ...params,
@@ -1062,6 +1089,9 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       githubId: 111,
       detail: { status: "in_progress" },
     });
+    expect(await reserveReviewCheckRun(pool, { ...params, detail: { status: "starting" } })).toBe(
+      false,
+    );
     const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
     const finish = vi.spyOn(surface, "finishReviewCheck");
     await closeOwnVerdict({
@@ -1138,68 +1168,215 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     }
   });
 
-  it("own verdict check-only completion preserves output when full-close status is attached", async () => {
-    const { completeReviewCheckRun } = await import("../../src/agentWork/reviewCheckRun.js");
-    const id = await insertWorkItem({ status: "completed" });
-    const resourceKey = `repo-it-${id}`;
-    const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-    await recordReviewCheckRun(pool, {
-      workItemId: id,
-      resourceKey,
-      reviewLens: "review",
-      githubId: 111,
-      detail: { status: "in_progress" },
-    });
-    const params = {
-      prSurface: surface,
-      owner: OWNER,
-      repo: "r",
-      prNumber: 1,
-      workItemId: id,
-      resourceKey,
-      reviewLens: "review" as const,
-      leaseEpoch: null,
-    };
-    await expect(
-      completeReviewCheckRun(pool, {
+  it.each([
+    { conclusion: "failure", state: "failure" },
+    { conclusion: "success", state: "success" },
+    { conclusion: "neutral", state: "error" },
+    { conclusion: "cancelled", state: "error" },
+    { conclusion: "action_required", state: "error" },
+  ] as const)(
+    "own verdict check-only $conclusion keeps output when status is attached",
+    async ({ conclusion, state }) => {
+      const { completeReviewCheckRun } = await import("../../src/agentWork/reviewCheckRun.js");
+      const id = await insertWorkItem({ status: "completed" });
+      const resourceKey = `repo-it-${id}`;
+      const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: 111,
+        detail: { status: "in_progress" },
+      });
+      const params = {
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review" as const,
+        leaseEpoch: null,
+      };
+      await expect(
+        completeReviewCheckRun(pool, {
+          ...params,
+          conclusion,
+          summary: "check-only winner",
+        }),
+      ).resolves.toBe(true);
+      const status = vi
+        .spyOn(surface, "setReviewCommitStatus")
+        .mockRejectedValueOnce(Object.assign(new Error("rejected"), { accepted: false }));
+      await closeOwnVerdict({
         ...params,
-        conclusion: "failure",
-        summary: "check-only winner",
-      }),
-    ).resolves.toBe(true);
-    const status = vi
-      .spyOn(surface, "setReviewCommitStatus")
-      .mockRejectedValueOnce(Object.assign(new Error("rejected"), { accepted: false }));
-    await closeOwnVerdict({
-      ...params,
-      pool,
-      headSha: "h",
-      commitStatusEnabled: true,
-      outcome: { kind: "cancelled" },
-    });
-    const open = await pool.query(
-      "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
-      [id],
-    );
-    expect(open.rows[0].detail.status).toBe("in_progress");
-    await closeOwnVerdict({
-      ...params,
-      pool,
-      headSha: "h",
-      commitStatusEnabled: true,
-      outcome: { kind: "published", findings: [] },
-    });
-    expect(status).toHaveBeenLastCalledWith(
-      "h",
-      expect.objectContaining({ state: "failure", description: "check-only winner" }),
-    );
-    expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(1);
-    const closed = await pool.query(
-      "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
-      [id],
-    );
-    expect(closed.rows[0].detail.status).toBe("completed");
-  });
+        pool,
+        headSha: "h",
+        commitStatusEnabled: true,
+        outcome: { kind: "cancelled" },
+      });
+      const open = await pool.query(
+        "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+        [id],
+      );
+      expect(open.rows[0].detail.status).toBe("in_progress");
+      await closeOwnVerdict({
+        ...params,
+        pool,
+        headSha: "h",
+        commitStatusEnabled: true,
+        outcome: { kind: "published", findings: [] },
+      });
+      expect(status).toHaveBeenLastCalledWith(
+        "h",
+        expect.objectContaining({ state, description: "check-only winner" }),
+      );
+      expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
+        expect.objectContaining({ conclusion }),
+      ]);
+      const closed = await pool.query(
+        "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+        [id],
+      );
+      expect(closed.rows[0].detail.status).toBe("completed");
+    },
+  );
+
+  it.each([
+    {
+      shape: "saved_result",
+      childStatus: "pending",
+      childDetail: { __result: null },
+      parentStatus: "pending",
+      applied: true,
+      calls: 0,
+    },
+    {
+      shape: "exact_reconciled",
+      childStatus: "reconciled",
+      childDetail: {},
+      parentStatus: "pending",
+      applied: true,
+      calls: 0,
+    },
+    {
+      shape: "exact_reconciled_false",
+      childStatus: "reconciled",
+      childDetail: { reconciledFromPublishRecord: false },
+      parentStatus: "pending",
+      applied: true,
+      calls: 0,
+    },
+    {
+      shape: "ledger_reconciled",
+      childStatus: "reconciled",
+      childDetail: { reconciledFromPublishRecord: true },
+      parentStatus: "pending",
+      applied: false,
+      calls: 0,
+    },
+    {
+      shape: "failed_unknown_parent",
+      childStatus: "failed",
+      childDetail: {},
+      parentStatus: "pending",
+      applied: false,
+      calls: 0,
+    },
+    {
+      shape: "failed_retryable_parent",
+      childStatus: "failed",
+      childDetail: {},
+      parentStatus: "failed",
+      applied: true,
+      calls: 1,
+    },
+  ] as const)(
+    "own verdict recovers delegated child $shape without remutating uncertainty",
+    async ({ childStatus, childDetail, parentStatus, applied, calls }) => {
+      const id = await insertWorkItem({ status: "completed" });
+      const resourceKey = `repo-it-${id}`;
+      const identity = {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review" as const,
+        leaseEpoch: null,
+      };
+      await recordReviewCheckRun(pool, {
+        ...identity,
+        githubId: 111,
+        detail: { status: "in_progress" },
+      });
+      await closeRepository.claimOwnVerdict(pool, {
+        ...identity,
+        selected: { conclusion: "failure", summary: "winner" },
+      });
+      const parentKey = closeRepository.ownVerdictCloseOperationKey(identity);
+      await pool.query(
+        `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+       VALUES ($1, $2, $3, 'github.review_check_run_close', $4, $5::jsonb),
+              ($6, $2, $7, 'github.pr_surface.finishReviewCheck', $8, $9::jsonb)`,
+        [
+          randomUUID(),
+          id,
+          parentKey,
+          parentStatus,
+          JSON.stringify({
+            resourceKey,
+            reviewLens: "review",
+            __mutating: true,
+            delegationEntered: true,
+          }),
+          randomUUID(),
+          `${parentKey}:surface:finishReviewCheck:seeded-child`,
+          childStatus,
+          JSON.stringify({
+            parentOperationKey: parentKey,
+            surfaceMethod: "finishReviewCheck",
+            ...childDetail,
+          }),
+        ],
+      );
+      const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      const finish = vi.spyOn(surface, "finishReviewCheck");
+      for (let attempt = 0; attempt < 2; attempt += 1)
+        await closeOwnVerdict({
+          ...identity,
+          pool,
+          prSurface: surface,
+          owner: OWNER,
+          repo: "r",
+          prNumber: 1,
+          headSha: "h",
+          commitStatusEnabled: false,
+          outcome: { kind: "cancelled" },
+        });
+      expect(finish).toHaveBeenCalledTimes(calls);
+      if (calls > 0)
+        expect(finish).toHaveBeenCalledWith(
+          expect.objectContaining({ conclusion: "failure", summary: "winner" }),
+        );
+      const record = await closeRepository.getOwnVerdictCloseRecord(pool, identity);
+      expect(record?.checkApplied).toBe(applied);
+      expect(record?.selected).toMatchObject({ conclusion: "failure", summary: "winner" });
+      const parent = await pool.query(
+        "SELECT status, detail FROM operation_intents WHERE work_item_id = $1 AND operation_key = $2",
+        [id, parentKey],
+      );
+      expect(parent.rows[0].status).toBe(applied ? "reconciled" : "outcome_unknown");
+      if (!applied) expect(parent.rows[0].detail.unknownResolution).toBe("terminal");
+      console.log(
+        "own-verdict-child-evidence",
+        JSON.stringify({
+          childStatus,
+          childDetail,
+          parentStatus,
+          applied: record?.checkApplied,
+          finishCalls: finish.mock.calls.length,
+        }),
+      );
+    },
+  );
 
   it.each(["before_lock", "application", "unlock"] as const)(
     "own verdict releases connection admission and mutex after %s failure",
