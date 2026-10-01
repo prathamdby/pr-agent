@@ -4,7 +4,6 @@ import { Effect, Fiber, Layer } from "effect";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import { PgBoss } from "pg-boss";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import { REVIEW_QUEUE } from "../../src/settings/index.js";
 import * as postgres from "../../src/db/postgres.js";
 import * as bossModule from "../../src/agentWork/boss.js";
 import * as executionTrackerModule from "../../src/agentWork/executionTracker.js";
