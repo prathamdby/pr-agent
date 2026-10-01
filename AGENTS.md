@@ -26,6 +26,8 @@ nub run test
 nub run build
 ```
 
+PR commits must satisfy the /commit conventional rules: the `commit-messages` CI job runs `nub run check:commit-messages` over the PR range.
+
 A red check is a finding about your code. Never weaken a rule, delete a
 lock, or grow a baseline count to merge. New `escape()` calls need a
 baseline bump plus maintainer review.

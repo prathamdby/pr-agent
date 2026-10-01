@@ -211,6 +211,7 @@ Web listens on `7224`. Worker listens on `7225`. Caddy site names are `web.local
 | `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`                                                                                          |
 | `nub run check:effect-versions`        | Verify pinned Effect deps                                                                                                   |
 | `nub run check:prod-deps`              | Production dependency graph guard                                                                                           |
+| `nub run check:commit-messages`        | Lint PR commits against /commit conventional rules (`--base`, `--head`)                                                     |
 | `nub run test`                         | Vitest unit suite (`test/**/*.test.ts` except `test/integration/**`)                                                        |
 | `nub run test:watch`                   | Vitest watch mode                                                                                                           |
 | `nub run test:integration`             | Vitest integration suite (requires Postgres; fails fast if unreachable)                                                     |
