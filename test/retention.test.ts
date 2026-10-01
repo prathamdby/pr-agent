@@ -35,6 +35,7 @@ describe("runRetention batched delete loop", () => {
           }
           return { rowCount: batch };
         }
+        if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
         if (text.includes("agent_resume_snapshots")) {
           return { rowCount: 4 };
         }
@@ -81,6 +82,7 @@ describe("runRetention batched delete loop", () => {
           webhookCalls += 1;
           return { rowCount: 0 };
         }
+        if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
         if (text.includes("agent_resume_snapshots")) {
           return { rowCount: 0 };
         }
@@ -115,6 +117,7 @@ describe("runRetention batched delete loop", () => {
     const query = vi.fn(async (text: string) => {
       if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
       if (text.includes("webhook_events")) return { rowCount: 0 };
+      if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
       if (text.includes("agent_resume_snapshots")) return { rowCount: 0 };
       if (text.includes("code_index_snapshots")) return { rowCount: 0 };
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
@@ -145,6 +148,7 @@ describe("runRetention batched delete loop", () => {
     const query = vi.fn(async (text: string) => {
       if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
       if (text.includes("webhook_events")) return { rowCount: 0 };
+      if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
       if (text.includes("agent_resume_snapshots")) return { rowCount: 0 };
       if (text.includes("code_index_snapshots")) return { rowCount: 0 };
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };

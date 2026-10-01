@@ -17,7 +17,7 @@ type FeatureItem = {
 export const HERO_HEADING = "PR Agent: AI PR reviews on your own servers";
 
 export const HERO_SUPPORT =
-  "Same first pass every PR gets, without a per-seat bill. You run the service and Postgres, and you own the GitHub App credentials and model keys. Model-backed work sends the review context to the provider you configure.";
+  "Same first pass every PR gets, without a per-seat bill. You run the service and Postgres, and you own the GitHub App credentials and model keys. Duplicate-delivery metadata stays on your infrastructure. Model-backed work sends the review context to the provider you configure.";
 
 export const HERO_CTA_NOTE = "MIT licensed. Hosting and AI usage on you.";
 

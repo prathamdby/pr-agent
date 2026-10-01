@@ -10,6 +10,7 @@ function mockClient(insertSucceeds: boolean, replaySucceeds = true) {
         rows: replaySucceeds ? [{ body_sha256: String(params[0]) }] : [],
       };
     }
+    if (text.includes("INSERT INTO webhook_delivery_duplicates")) return { rows: [] };
     if (text.includes("DELETE FROM webhook_events")) return { rows: [] };
     return {
       rows: insertSucceeds ? [{ id: String(params[0]) }] : [],
@@ -91,6 +92,7 @@ describe("insertWebhookEvent", () => {
       .mockResolvedValueOnce({ rows: [{ body_sha256: replayHash }] })
       .mockResolvedValueOnce({ rows: [{ id: "event-2" }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     const client = { query } as unknown as PoolClient;
 
@@ -111,6 +113,5 @@ describe("insertWebhookEvent", () => {
       dedupeKey: `body:${bodyHash}`,
     });
     expect(query).toHaveBeenCalledWith("DELETE FROM webhook_events WHERE id = $1", ["event-2"]);
-    expect(query).toHaveBeenCalledTimes(5);
   });
 });

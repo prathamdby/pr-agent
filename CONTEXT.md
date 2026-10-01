@@ -3,6 +3,7 @@
 This file is **domain language only** — not a specification of how the system is implemented.
 
 - **Webhook delivery** — A single signed HTTP POST from GitHub to your app, identified by the `X-GitHub-Delivery` header (or deduplicated by raw body hash when that header is missing). Under the durable-queue design, every accepted delivery is recorded in durable storage before the HTTP response; duplicate deliveries are rejected by that record, not an in-memory map. A burst of deliveries must not be dropped at intake because workers are busy.
+- **Duplicate-delivery evidence** — A compact record of each rejected arrival's incoming delivery ID, body fingerprint, and dedupe guard reason. It creates no work or jobs. Repeated IDs and identical bodies under different IDs are observable patterns, not proof of malicious intent.
 - **Automated intake decision** — The `webhook_events.processing_decision` label describes the automated plan, not whether a worker ran. Review or approval-review plans record `automated_review_enqueued`; otherwise a supersede plan records `automated_review_supersede_requested`, even when no active review needs replacement; other automated work records `automated_work_enqueued`. CI-only decisions apply only when the automated plan is empty.
 - **PR conversation** — The main pull request discussion timeline (GitHub models this as comments on an issue).
 - **Inline review thread** — A thread anchored to a specific line/diff review comment on a pull request.
