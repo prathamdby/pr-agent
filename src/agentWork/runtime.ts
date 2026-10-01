@@ -11,14 +11,13 @@ import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
 
-export class AgentWorkPool extends Context.Tag("AgentWorkPool")<AgentWorkPool, Pool>() {}
-export class AgentWorkBoss extends Context.Tag("AgentWorkBoss")<AgentWorkBoss, PgBoss>() {}
-export class AgentWorkExecutions extends Context.Tag("AgentWorkExecutions")<
-  AgentWorkExecutions,
-  ExecutionTracker
->() {}
+export class AgentWorkPool extends Context.Service<AgentWorkPool, Pool>()("AgentWorkPool") {}
+export class AgentWorkBoss extends Context.Service<AgentWorkBoss, PgBoss>()("AgentWorkBoss") {}
+export class AgentWorkExecutions extends Context.Service<AgentWorkExecutions, ExecutionTracker>()(
+  "AgentWorkExecutions",
+) {}
 
-export const AgentWorkExecutionsLive = Layer.scoped(
+export const AgentWorkExecutionsLive = Layer.effect(
   AgentWorkExecutions,
   Effect.acquireRelease(
     Effect.sync(() => createExecutionTracker()),
@@ -53,7 +52,7 @@ export const AgentWorkExecutionsLive = Layer.scoped(
 );
 
 export const AgentWorkPoolLive = (cfg: Config) =>
-  Layer.scoped(
+  Layer.effect(
     AgentWorkPool,
     Effect.acquireRelease(
       Effect.tryPromise({
@@ -76,7 +75,7 @@ export const AgentWorkBossLive = (
   cfg: Config,
   options?: { readonly shutdownAnalytics?: boolean },
 ) =>
-  Layer.scoped(
+  Layer.effect(
     AgentWorkBoss,
     Effect.acquireRelease(
       Effect.tryPromise({

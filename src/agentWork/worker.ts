@@ -163,7 +163,7 @@ export const AgentWorkerLive = (
   boss: PgBoss,
   executions: ExecutionTracker,
 ) =>
-  Layer.scopedDiscard(
+  Layer.effectDiscard(
     Effect.acquireRelease(
       Effect.tryPromise({
         try: async () => {
@@ -374,7 +374,7 @@ export const AgentWorkerLive = (
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),
-    ).pipe(Effect.zipRight(Effect.never)),
+    ).pipe(Effect.andThen(Effect.never)),
   );
 
 /**
@@ -384,7 +384,7 @@ export const AgentWorkerLive = (
  * A draining handler can still record its outcome while the Pool is alive.
  */
 export const agentWorkWorkerLive = (cfg: Config) =>
-  Layer.scopedDiscard(
+  Layer.effectDiscard(
     Effect.gen(function* () {
       const pool = yield* AgentWorkPool;
       const boss = yield* AgentWorkBoss;

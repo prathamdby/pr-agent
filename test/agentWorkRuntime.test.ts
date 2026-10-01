@@ -105,9 +105,9 @@ describe("agent work runtime teardown", () => {
       await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig({ role: "worker" });
 
-    const Worker = Context.GenericTag<"Worker", void>("Worker");
+    const Worker = Context.Service<"Worker", void>("Worker");
     // Same provide order as worker.ts: Boss, executions, then Pool → pool.end last.
-    const workerLive = Layer.scoped(
+    const workerLive = Layer.effect(
       Worker,
       Effect.acquireRelease(
         Effect.sync(() => {
@@ -160,8 +160,8 @@ describe("agent work runtime teardown", () => {
       runtimeMocks.trace.push("analytics.done");
     });
 
-    const Worker = Context.GenericTag<"Worker", void>("Worker");
-    const workerLive = Layer.scoped(
+    const Worker = Context.Service<"Worker", void>("Worker");
+    const workerLive = Layer.effect(
       Worker,
       Effect.acquireRelease(
         Effect.gen(function* () {
@@ -228,8 +228,8 @@ describe("agent work runtime teardown", () => {
         resolve();
       };
     });
-    const Worker = Context.GenericTag<"Worker", void>("Worker");
-    const workerLive = Layer.scoped(
+    const Worker = Context.Service<"Worker", void>("Worker");
+    const workerLive = Layer.effect(
       Worker,
       Effect.acquireRelease(
         Effect.gen(function* () {
@@ -257,7 +257,11 @@ describe("agent work runtime teardown", () => {
 
     expect(poolEndedBeforeRelease).toBe(false);
     expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) expect([...Cause.defects(exit.cause)]).toContain(analyticsError);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect)).toContain(
+        analyticsError,
+      );
+    }
     expect(runtimeMocks.trace).toEqual([
       "boss.stop",
       "analytics.failed",
@@ -281,8 +285,8 @@ describe("agent work runtime teardown", () => {
       releaseDurable = resolve;
     });
 
-    const Worker = Context.GenericTag<"Worker", void>("Worker");
-    const workerLive = Layer.scoped(
+    const Worker = Context.Service<"Worker", void>("Worker");
+    const workerLive = Layer.effect(
       Worker,
       Effect.acquireRelease(
         Effect.gen(function* () {

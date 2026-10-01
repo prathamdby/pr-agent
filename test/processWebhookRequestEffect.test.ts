@@ -137,6 +137,82 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 401, body: "invalid signature" });
   });
 
+  it.each([true, false])(
+    "rejects malformed JSON before admission with validSignature=%s",
+    async (validSignature) => {
+      const body = Buffer.from("{");
+      const decisions: string[] = [];
+      const slashCalls: Parameters<typeof slashGateLayer>[1] = [];
+      const out = await Effect.runPromise(
+        runWithIntake(
+          {
+            headers: {
+              "x-hub-signature-256": validSignature ? sign(body) : "sha256=bad",
+              "x-github-event": "ping",
+            },
+            rawBody: body,
+          },
+          slashGateLayer(decisions, slashCalls),
+        ),
+      );
+      expect(out).toEqual(
+        validSignature
+          ? { status: 400, body: "invalid json" }
+          : { status: 401, body: "invalid signature" },
+      );
+      expect(decisions).toEqual([]);
+      expect(slashCalls).toEqual([]);
+    },
+  );
+
+  it("waits for successful admission before returning 200", async () => {
+    let releaseAdmission: () => void = () => undefined;
+    const admission = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    let entered = false;
+    let responded = false;
+    const schedulerLayer = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: () =>
+          Effect.promise(() => {
+            entered = true;
+            return admission;
+          }),
+        submitAutomatedReview: () => Effect.void,
+        submitSlashCommand: () => Effect.void,
+        submitCiRefresh: () => Effect.void,
+        submitCiState: () => Effect.void,
+        ping: () => Effect.succeed(true),
+      }),
+    );
+    const layer = Layer.mergeAll(
+      schedulerLayer,
+      WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)),
+    );
+    const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
+    const response = Effect.runPromise(
+      runWithIntake(
+        {
+          headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+          rawBody: body,
+        },
+        layer,
+      ),
+    ).then((out) => {
+      responded = true;
+      return out;
+    });
+    try {
+      await vi.waitFor(() => expect(entered).toBe(true));
+      expect(responded).toBe(false);
+    } finally {
+      releaseAdmission();
+    }
+    await expect(response).resolves.toEqual({ status: 200, body: "ok" });
+  });
+
   it("returns ok for valid webhook", async () => {
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
     const out = await Effect.runPromise(

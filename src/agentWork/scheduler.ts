@@ -18,7 +18,7 @@ import { flushDeferredEvents } from "./intake/deferredEvents.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 import { resolveAskQuotaConfig, type AskQuotaConfig } from "./askQuota.js";
 
-export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
+export class AgentWorkScheduler extends Context.Service<
   AgentWorkScheduler,
   {
     readonly recordIgnored: (
@@ -55,7 +55,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
     ) => Effect.Effect<void, Error>;
     readonly ping: () => Effect.Effect<boolean>;
   }
->() {}
+>()("AgentWorkScheduler") {}
 
 export function makeAgentWorkScheduler(
   pool: Pool,

@@ -45,7 +45,7 @@ type CommentCommandFields = {
       };
 };
 
-export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
+export class WebhookHandlers extends Context.Service<
   WebhookHandlers,
   {
     readonly pullRequest: (
@@ -79,7 +79,7 @@ export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
   }
->() {}
+>()("WebhookHandlers") {}
 
 export const WebhookHandlersCore = Layer.effect(
   WebhookHandlers,

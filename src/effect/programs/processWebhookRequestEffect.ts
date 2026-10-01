@@ -293,7 +293,7 @@ export function processWebhookPostRequestEffect(
     });
     const result: DispatchResult = yield* dispatch.pipe(
       Effect.timeout(Duration.millis(responseBudgetMs)),
-      Effect.catchTag("TimeoutException", () =>
+      Effect.catchTag("TimeoutError", () =>
         Effect.sync(() => {
           recordEvent(
             intakeLog,
@@ -309,7 +309,7 @@ export function processWebhookPostRequestEffect(
           return { kind: "timeout" as const };
         }),
       ),
-      Effect.catchAll((err) =>
+      Effect.catch((err) =>
         Effect.sync(() => {
           const message = err instanceof Error ? err.message : String(err);
           recordEvent(
@@ -456,7 +456,7 @@ export function processWebhookPostRequestEffect(
           emitOperationLogger(intakeLog, {
             event: typeof lastEvent === "string" ? lastEvent : "webhook_request_aborted",
           }),
-        ).pipe(Effect.catchAll(() => Effect.void));
+        ).pipe(Effect.catch(() => Effect.void));
       }),
     ),
   );

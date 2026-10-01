@@ -1,4 +1,4 @@
-import { NodeRuntime } from "@effect/platform-node";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Layer } from "effect";
 import type { Config } from "./config.js";
 import { agentWorkWorkerLive } from "./agentWork/worker.js";
