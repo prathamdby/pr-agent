@@ -85,8 +85,6 @@ export async function executeVerificationJob(
       const orderedThreads = unresolvedThreads.toSorted(
         (a, b) => a.rootCommentId - b.rootCommentId,
       );
-      const inventory = escalatedVerificationInventory(orderedThreads, env.escalation);
-      const inventoryNarrowed = inventory.length < orderedThreads.length;
 
       const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
         if (await shouldSkipWork(pool, item)) {
@@ -120,7 +118,7 @@ export async function executeVerificationJob(
         return undefined;
       };
 
-      if (inventory.length === 0) {
+      if (orderedThreads.length === 0) {
         const terminal = await checkCompletionGate();
         if (terminal) return terminal;
         logInfo("verification_short_circuit_no_open_findings", {
@@ -142,6 +140,9 @@ export async function executeVerificationJob(
         return { kind: "completed" };
       }
 
+      await env.beginAttempt();
+      const inventory = escalatedVerificationInventory(orderedThreads, env.escalation);
+      const inventoryNarrowed = inventory.length < orderedThreads.length;
       const [prFiles, pushedCommits, pushDeltaFiles] = await Promise.all([
         prSurface.listChangedFiles(
           {

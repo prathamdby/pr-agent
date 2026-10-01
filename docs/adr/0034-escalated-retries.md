@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Amends [ADR 0023](0023-pi-native-agent-runtime.md) decision 5 (the in-run fallback restart is deleted; the fallback model is reached through retry escalation). Preserves [ADR 0006](0006-durable-agent-work.md) (pg-boss owns retries) and [ADR 0030](0030-pr-actor-lease.md) (every attempt re-acquires the lease with a fresh epoch). Amended: terminal review outcomes write `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer; a diagnostics sweeper marks lost running items `failed` (`worker_lost`) and closes the crashed verdict. Amended: the retry budget is the durable `agent_work_items.attempt_count`, which every claim increments (crash and deploy resumes included); a claim past `QUEUE_RETRY_LIMIT + 1` fails terminally with `agent_work.attempts_exhausted`, so hop-chain re-execution is bounded. Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
+Accepted. Amends [ADR 0023](0023-pi-native-agent-runtime.md) decision 5 (the in-run fallback restart is deleted; the fallback model is reached through retry escalation). Preserves [ADR 0006](0006-durable-agent-work.md) (pg-boss owns retries) and [ADR 0030](0030-pr-actor-lease.md) (every leased attempt re-acquires the lease with a fresh epoch). Terminal reviews use one `closeOwnVerdict` writer; the diagnostics sweeper retains its lost-running predicate and crashed-verdict repair. Amended: `agent_work_items.attempt_count` advances only at fresh work admission. Lifecycle claims, watchdog hops and recovery-only completion are budget-neutral; substantive running resumes still spend another attempt. Runbook: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 
@@ -12,7 +12,19 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 ## Decision
 
-1. **Three-valued retry disposition.** `retryDispositionFor` replaces the fallback-eligibility predicate. `transient` (provider timeout, auth, quota, rate limit, unknown, and every other classified failure) keeps retrying while budget remains. `deterministic` (a run that ended without its terminal submit after its own repair loops: `verification.missing_submit`, `triage.missing_submit`, `review.specialist_invalid_report`) gets exactly one escalated retry, then is terminal even when pg-boss budget remains. `terminal` (stale-head replacement exhaustion, cancellation, and `agent_work.attempts_exhausted`) never returns to the queue. The budget is the durable attempt count: pg-boss `retryCount` restarts on every lease hop job, so only `agent_work_items.attempt_count` — incremented on every claim, crash and deploy resumes included — bounds re-execution across the hop chain. A claim that arrives already over `QUEUE_RETRY_LIMIT + 1` is marked `failed` with `agent_work.attempts_exhausted` before any provider token is minted, and the terminal path (failure hook, reaction, `agent_work_failed`) runs unchanged.
+1. **Three-valued retry disposition.** `retryDispositionFor` replaces the fallback-eligibility predicate. `transient` (provider timeout, auth, quota, rate limit, unknown, and every other classified failure) keeps retrying while budget remains. `deterministic` (`verification.missing_submit`, `triage.missing_submit`, `review.specialist_invalid_report`) retains the existing one escalated replay after attempt 1, when budget permits; a second failure is terminal. `terminal` (stale-head replacement exhaustion, cancellation, and `agent_work.attempts_exhausted`) never returns to the queue. The durable work budget remains `QUEUE_RETRY_LIMIT + 1`, independent of pg-boss `retryCount` restarting on hop jobs. Lifecycle claim does not increment it. A separate short transaction locks the exact lease, then the running uncancelled item in a later statement, checks the stored limit and increments once for fresh feature work. Fresh admission at the cap selects the existing failed mark, failure hook, reaction and verdict closure. Recovery-only branches remain reachable at the cap.
+
+   Work admission commits before workspace preparation, agent computation or
+   triage bulk patch replay. It is the linearization point, not evidence of a
+   provider call. An interrupted committed admission still counts, even if the
+   process stops before that call. Rollback does not charge. Ambiguous commit
+   acknowledgment never permits a refund or blind in-dispatch retry; a later
+   delivery rereads the durable count. A rolled-back `40P01` start retries once.
+   The runner memoizes the in-flight admission promise per dispatch and updates
+   its read-only claim/escalation views only after acknowledged admission.
+   Actual fresh work resumed from `running` charges again. Before admission,
+   transient auth/head/storage/recovery failures keep the existing pg-boss
+   infrastructure limit and original cause, not work exhaustion.
 
    Completed mutation recovery without a usable result is also `terminal`:
    only `operation_intent.mutation_outcome_unknown` qualified by
@@ -34,7 +46,7 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 5. **No escalation switch.** Escalation always follows the attempt count; queue policy (`standard`), retry limits, epoch fencing, and the lease contract are unchanged. pg-boss remains the single retry scheduler: escalation changes what a retry does, not who schedules it, and the durable attempt count is the single retry budget. Escalation never widens privilege — tool access, workspace path policy, repository-policy trust, and the Code Mode capability boundary are identical on every attempt. Ask is deliberately excluded: it is unleased and governed by its own admission quotas ([ADR 0031](0031-ask-admission-quotas.md)).
 
-6. **Outcome events match completion state.** One `"work completed"` event fires per durable work item that a worker completes (`outcome` in `{published, degraded, failed, superseded, lightweight}`). `"work item retried"` fires when a failed attempt returns to the queue and carries `attempt_count`, `next_attempt`, `retry_disposition`, `escalation_kinds`, and classified failure fields including sanitized `error_message`. GitHub-domain failures also carry `http_status` and `request_path` when those values are known. `cause_chain` stays log-only. Already-published replay, stale-head replacement, no-open-findings short-circuit, and intake supersede of queued items that never run emit no outcome event.
+6. **Outcome events match completion state.** One `"work completed"` event fires per durable work item that a worker completes (`outcome` in `{published, degraded, failed, superseded, lightweight}`). `"work item retried"` fires only when an acknowledged admitted work attempt returns to the queue, with unchanged `attempt_count`, `next_attempt`, `retry_disposition`, `escalation_kinds` and classified failure fields including sanitized `error_message`. Pre-admission infrastructure retries remain log-only in `agent_work_retrying`, with phase, acknowledgment and stored count. Profile flush reads the latest claim. GitHub-domain failures retain known `http_status` and `request_path`. `cause_chain` stays log-only. Already-published replay, stale-head replacement, no-open-findings short-circuit, and intake supersede of queued items that never run emit no outcome event.
 
 7. **Terminal review GitHub outcomes share one writer.** `closeOwnVerdict` is the only path that finishes `PR Agent Review` and optional `pr-agent/review`. Live executions fence on the lease epoch. Unleased callers pass `leaseEpoch: null` and write only after `agent_work_items.status` is terminal. The CI projector is one of those callers ([ADR 0035](0035-head-ci-state-projection.md)): it reconciles an open `check_run` publish record on a terminal item. Crash and unpublished runs conclude the check as `action_required`. Published P0–P2 findings conclude it as `failure`. A leased-type item that stays `running` past `PR_ACTOR_LEASE_TTL_SECONDS + STALE_QUEUED_WORK_GRACE_SECONDS` with a lapsed lease and no live pg-boss job is marked `failed` (`worker_lost`) on the diagnostics tick, then the crashed verdict is closed. The same tick retries close for a terminal review whose recorded check conclusion is still missing. pg-boss retry exhaustion is not enough on its own: a hard crash can leave the row `running` after the job budget is gone.
 
@@ -59,5 +71,11 @@ unreconstructible completion evidence stays unresolved rather than remutated.
 - A required `PR Agent Review` check does not stay in progress after retry exhaustion or a lost worker. Crash and findings are different conclusions.
 
 ## Reversal
+
+Drain/stop affected workers and deploy them together; mixed versions still
+charge lifecycle claims. Web intake and schema do not change. Keep historical
+counts, terminal rows, work, lease, intent, publish and snapshot data without
+refunds or automatic reopening. A coordinated rollback to claim charging
+restores future budget burn and does not preserve the corrected guarantee.
 
 Restore `fallbackClassification.ts` and the orchestrator restart, drop the disposition and escalation plumbing, and re-emit per-feature failure events. This would reintroduce mid-run model switching and failure events for completed work items, so it is not recommended.

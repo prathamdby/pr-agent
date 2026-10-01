@@ -32,6 +32,18 @@ and return `503`.
 
 ## Behaviour and semantics
 
+- **Work retries:** recovering a run does not use another retry unless PR Agent
+  admits fresh feature work. The total remains `QUEUE_RETRY_LIMIT + 1`.
+  Workspace preparation and bulk patch replay count, as does an admitted attempt
+  interrupted before the provider. Claim/resume bookkeeping and recovery-only
+  completion are free. Drain/stop affected workers and upgrade them together;
+  old workers still charge claims. Preserve historical counts, work, lease,
+  intent, publish and snapshot records. Do not refund counts or reopen terminal
+  work. Coordinated code rollback retains data but restores future claim burn.
+  `work item retried` covers acknowledged work admission only; pre-admission
+  infrastructure retries remain in `agent_work_retrying` with `retryPhase`,
+  `workAdmissionAcknowledged`, stored count and the original failure. They use
+  pg-boss's delivery limit, not remaining work attempts. See [the queue runbook](agent-work-ops.md).
 - **Progress ownership conflicts:** a replacement review keeps ownership of the progress comment. Late specialist ticks from the earlier run are skipped or rejected with an ownership warning, even when that writer's actor lease still holds. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
 - **Progress ordering:** late older ticks from the same review do not replace newer progress or its final summary. Revisioned upserts serialize the fresh read, GitHub write, and result record; CI projection and direct comment edits remain separate.
 - **Payload boundary:** each subscribed `X-GitHub-Event` type is validated with minimal Valibot shapes before deduplication. Malformed payloads are logged and skipped without inserting durable dedupe rows (so GitHub retries can succeed after fixes or transient issues).

@@ -10,6 +10,7 @@ import { executeReviewJob } from "../../src/agentWork/executors/reviewExecutor.j
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import {
   claimWorkForExecution,
+  beginWorkAttempt,
   getWorkItem,
   loadReviewExecutorPublishContext,
   recordPublishStep,
@@ -461,7 +462,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           });
           expect(await getWorkItem(pool, workItemId)).toMatchObject({
             status: "queued",
-            attemptCount: 1,
+            attemptCount: 0,
           });
           const lease = await pool.query(
             "SELECT work_item_id FROM pr_actor_leases WHERE resource_key = $1",
@@ -502,6 +503,11 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
               prSurface: fenced,
               headSha: "abc1234",
               leaseEpoch: 1,
+              beginAttempt: async () => {
+                const result = await beginWorkAttempt(pool, workItemId, 1, 4);
+                if (result.kind !== "started") throw new Error("work not admitted");
+                return { ...result.claim, resumed: true };
+              },
               signal: job.signal,
             }),
           ).rejects.toMatchObject({
@@ -509,7 +515,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           });
           expect(await getWorkItem(pool, workItemId)).toMatchObject({
             status: "running",
-            attemptCount: 1,
+            attemptCount: 0,
           });
           const lease = await pool.query(
             "SELECT work_item_id FROM pr_actor_leases WHERE resource_key = $1",
@@ -532,6 +538,11 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         expect(Object.hasOwn(intents.rows[0].detail, "__result")).toBe(false);
         expect(controls.events.filter((event) => event.kind === originalMethod)).toHaveLength(1);
 
+        const attemptCap = cfg.queueRetryLimit + 1;
+        await pool.query("UPDATE agent_work_items SET attempt_count = $2 WHERE id = $1", [
+          workItemId,
+          attemptCap,
+        ]);
         await durableJob.runDurableWorkItem({ ...spec, execute });
         expect(
           controls.events.filter(
@@ -543,7 +554,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         ).toHaveLength(1);
         expect(await getWorkItem(pool, workItemId)).toMatchObject({
           status: method === "replyAt" ? "completed" : "failed",
-          attemptCount: 2,
+          attemptCount: attemptCap,
         });
         const epoch = await pool.query(
           "SELECT execution_epoch FROM agent_work_items WHERE id = $1",
@@ -568,8 +579,17 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         const eventCount = controls.events.length;
         for (let replay = 0; replay < 3; replay++)
           await durableJob.runDurableWorkItem({ ...spec, execute });
-        expect(await getWorkItem(pool, workItemId)).toMatchObject({ attemptCount: 2 });
+        expect(await getWorkItem(pool, workItemId)).toMatchObject({ attemptCount: attemptCap });
         expect(controls.events).toHaveLength(eventCount);
+        console.info(
+          "budget-survival-evidence",
+          JSON.stringify({
+            scenario: `recovery_at_cap:${method}`,
+            originalMutations: 1,
+            status: method === "replyAt" ? "completed" : "failed",
+            quietRedeliveries: 3,
+          }),
+        );
         const outcome = await pool.query(
           "SELECT status, detail FROM operation_intents WHERE work_item_id = $1 AND operation_key = $2",
           [workItemId, intents.rows[0].operation_key],

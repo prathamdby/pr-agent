@@ -67,6 +67,9 @@ thread. The join lasts until the work item is purged by
 
 Notes:
 
+- Recovering a run does not use another retry unless PR Agent starts another
+  work attempt. Interrupted work attempts still count. Previously failed runs
+  are not reopened automatically.
 - After an interrupted publish, PR Agent checks the saved result and available
   evidence. If it cannot confirm the result, it stops that run rather than
   repeat the change. An unpublished review gets the usual failure notice;

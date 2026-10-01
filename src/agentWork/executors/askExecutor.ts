@@ -408,6 +408,7 @@ export async function executeAskJob(
         return { kind: "completed", degradation: ["reply_outcome_unknown"] };
       }
 
+      await env.beginAttempt();
       return withPrRepositoryView(
         buildRepositoryViewParams(
           item,

@@ -29,6 +29,7 @@ import {
   type GithubReactionContent,
 } from "../settings/index.js";
 import {
+  beginWorkAttempt,
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
   type WorkClaim,
@@ -83,10 +84,12 @@ export type DurableExecutionContext = {
   leaseEpoch: number | null;
   /** Combined job/lease signal; aborted when the worker is stopped, cancelled, or fenced. */
   signal: AbortSignal;
-  /** Durable claim timestamps and attempt count from the claim write. */
-  claim?: WorkClaim;
+  /** Admit fresh feature work once per dispatch, before preparing its workspace. */
+  beginAttempt: () => Promise<WorkClaim>;
+  /** Lifecycle timestamps and the latest acknowledged durable work count. */
+  readonly claim?: WorkClaim;
   /** Deterministic escalation for this attempt; undefined on attempt 1. */
-  escalation?: EscalationPlan;
+  readonly escalation?: EscalationPlan;
 };
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
@@ -783,6 +786,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
     workClaim = claimed;
+    const resumed = claimed.resumed;
     enterExecutingPhase(phaseState);
     if (claimed.resumed) {
       logInfo("agent_work_resumed", {
@@ -814,6 +818,67 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
 
     const item = workItem;
+    let workAdmissionAcknowledged = false;
+    let admission: Promise<WorkClaim> | undefined;
+
+    async function admitWork(): Promise<WorkClaim> {
+      if (executionSignal.aborted) {
+        throw (
+          executionSignal.reason ??
+          new AppError({
+            code: "agent.session_aborted",
+            message: "Work admission aborted",
+            context: { workItemId: item.id },
+          })
+        );
+      }
+      const start = () => beginWorkAttempt(spec.pool, item.id, leaseEpoch, maxAttempts(spec.cfg));
+      let result;
+      try {
+        result = await start();
+      } catch (error) {
+        if (!isPostgresDeadlockError(error)) throw error;
+        result = await start();
+      }
+      if (result.kind === "exhausted") {
+        throw new AppError({
+          code: "agent_work.attempts_exhausted",
+          message: `Work item ${item.id} exhausted its ${maxAttempts(spec.cfg)} attempts`,
+          context: {
+            workItemId: item.id,
+            attemptCount: result.attemptCount,
+            maxAttempts: maxAttempts(spec.cfg),
+          },
+        });
+      }
+      if (result.kind === "unavailable") {
+        if (await recheckSkippableAndCancel("start_rejected")) {
+          throw new AppError({
+            code: "agent.session_aborted",
+            message: "Work admission cancelled or fenced",
+            context: { workItemId: item.id },
+          });
+        }
+        throw new AppError({
+          code: "agent_work.admission_unavailable",
+          message: "Work admission unavailable",
+          context: { workItemId: item.id },
+        });
+      }
+      workClaim = { ...result.claim, resumed };
+      workAdmissionAcknowledged = true;
+      if (executionSignal.aborted) {
+        throw (
+          executionSignal.reason ??
+          new AppError({
+            code: "agent.session_aborted",
+            message: "Work admission aborted",
+            context: { workItemId: item.id },
+          })
+        );
+      }
+      return workClaim;
+    }
 
     /** Unleased types have no fencing token; leased types own the row only while their epoch holds. */
     const executionStillOwns = async (): Promise<boolean> =>
@@ -848,7 +913,6 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     async function prepareDurableExecution(
       installationToken: InstallationToken,
-      claim: WorkClaim,
     ): Promise<DurableExecutionContext | undefined> {
       if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
         await markCancelledAndInvokeHook(item, "bot_commenter", leaseEpoch, installationToken);
@@ -877,8 +941,15 @@ export async function runDurableWorkItem<T extends WorkType>(
           pullRequest: resolvedHead.pullRequest,
           leaseEpoch,
           signal: executionSignal,
-          claim,
-          escalation: escalationForAttempt(claim.attemptCount, spec.cfg),
+          beginAttempt: () => (admission ??= admitWork()),
+          get claim() {
+            return workClaim;
+          },
+          get escalation() {
+            return workAdmissionAcknowledged && workClaim
+              ? escalationForAttempt(workClaim.attemptCount, spec.cfg)
+              : undefined;
+          },
         };
       }
 
@@ -985,26 +1056,30 @@ export async function runDurableWorkItem<T extends WorkType>(
           providerErrorKind: classifyProviderError(error),
           pgBossRetryCount: spec.job.retryCount,
           pgBossRetryLimit: spec.job.retryLimit,
-          dbAttemptCount: item.attemptCount,
+          dbAttemptCount: attemptCount,
+          retryPhase: workAdmissionAcknowledged ? "admitted_work" : "pre_admission",
+          workAdmissionAcknowledged,
           ...classifiedFailureLogFields(failure),
         });
         // The next delivery re-reads the row; report the plan it will carry so escalation
         // rate is observable without reading transcripts.
-        const nextEscalation = escalationForAttempt(attemptCount + 1, spec.cfg);
-        captureWorkRetried({
-          workItemId: item.id,
-          installationId: item.installationId,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha: item.headSha,
-          workType: spec.type,
-          attemptCount,
-          nextAttempt: attemptCount + 1,
-          retryDisposition: disposition,
-          escalationKinds: nextEscalation?.kinds ?? [],
-          failure: workFailureReasonFromClassified(failure),
-        });
+        if (workAdmissionAcknowledged) {
+          const nextEscalation = escalationForAttempt(attemptCount + 1, spec.cfg);
+          captureWorkRetried({
+            workItemId: item.id,
+            installationId: item.installationId,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha: item.headSha,
+            workType: spec.type,
+            attemptCount,
+            nextAttempt: attemptCount + 1,
+            retryDisposition: disposition,
+            escalationKinds: nextEscalation?.kinds ?? [],
+            failure: workFailureReasonFromClassified(failure),
+          });
+        }
         throw error;
       }
       await recheckSkippableAndCancel("retry_claim_rejected");
@@ -1065,7 +1140,8 @@ export async function runDurableWorkItem<T extends WorkType>(
       // pg-boss retryCount restarts on every lease hop job, so the durable attempt count
       // is the budget that actually bounds re-execution.
       const budgetRemains =
-        attemptCount < maxAttempts(spec.cfg) && spec.job.retryCount < spec.job.retryLimit;
+        (!workAdmissionAcknowledged || attemptCount < maxAttempts(spec.cfg)) &&
+        spec.job.retryCount < spec.job.retryLimit;
       // Deterministic failures get exactly one escalated replay: after that attempt the
       // work item is terminal even when budget remains.
       const mayRetry =
@@ -1101,7 +1177,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           retryDisposition: disposition,
           pgBossRetryCount: spec.job.retryCount,
           pgBossRetryLimit: spec.job.retryLimit,
-          dbAttemptCount: item.attemptCount,
+          dbAttemptCount: attemptCount,
           skipAnalyticsException: true,
           ...errorLogFields(error),
           ...classifiedFailureLogFields(failure),
@@ -1132,20 +1208,8 @@ export async function runDurableWorkItem<T extends WorkType>(
         });
         return;
       }
-      // Checked after the lease is held: before that, a live holder and a dead one look alike.
-      if (claimed.attemptCount > maxAttempts(spec.cfg)) {
-        throw new AppError({
-          code: "agent_work.attempts_exhausted",
-          message: `Work item ${item.id} exhausted its ${maxAttempts(spec.cfg)} attempts`,
-          context: {
-            workItemId: item.id,
-            attemptCount: claimed.attemptCount,
-            maxAttempts: maxAttempts(spec.cfg),
-          },
-        });
-      }
       seededInstallation = await mintInstallationToken(spec.cfg, item.installationId);
-      const execution = await prepareDurableExecution(seededInstallation, claimed);
+      const execution = await prepareDurableExecution(seededInstallation);
       if (!execution) return;
 
       logInfo("agent_work_started", {

@@ -1393,7 +1393,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       }),
     ).resolves.toBe(true);
     await expect(claimWorkForExecution(pool, newRow!.id)).resolves.toEqual(
-      expect.objectContaining({ attemptCount: 1 }),
+      expect.objectContaining({ attemptCount: 0 }),
     );
     await expect(getReviewQueuePosition(pool, newRow!.id)).resolves.toBeNull();
   });

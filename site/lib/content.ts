@@ -199,7 +199,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "What happens if a publish is interrupted?",
     answer:
-      "PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with /review guidance. An existing published summary is kept. Failed or incomplete evidence reads can still retry.",
+      "PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with /review guidance. An existing published summary is kept. Failed or incomplete evidence reads can still retry. Recovering a run does not use another retry unless PR Agent starts another work attempt. Interrupted work attempts still count; previously failed runs are not reopened automatically.",
   },
   {
     question: "Where should I host PR Agent?",

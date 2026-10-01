@@ -47,6 +47,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   markWorkCancelled: vi.fn(),
   markQueuedWorkCancelled: vi.fn(),
   claimWorkForExecution: vi.fn(),
+  beginWorkAttempt: vi.fn(),
   markWorkCompleted: vi.fn(),
   forceMarkRescheduledParentCompleted: vi.fn(),
   markWorkFailed: vi.fn(),
@@ -106,6 +107,14 @@ describe("durableJob analytics forwarding", () => {
       attemptCount: 1,
       resumed: false,
     });
+    vi.mocked(repo.beginWorkAttempt).mockResolvedValue({
+      kind: "started",
+      claim: {
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        startedAt: new Date("2026-01-01T00:00:05.000Z"),
+        attemptCount: 1,
+      },
+    });
     vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
     vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
@@ -128,6 +137,42 @@ describe("durableJob analytics forwarding", () => {
   afterEach(async () => {
     await shutdownAnalytics();
   });
+
+  it.each([0, 1, cfg.queueRetryLimit + 1])(
+    "#657 keeps pre-admission infrastructure retries out of work retry analytics (%i)",
+    async (attemptCount) => {
+      const item = makeReviewWorkItem({ id: "wi-preparation", installationId: 99 });
+      vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+      vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+      vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
+        createdAt: new Date(),
+        startedAt: new Date(),
+        attemptCount,
+        resumed: attemptCount > 0,
+      });
+      const failure = new Error("synthetic head preparation failure");
+      const execute = vi.fn();
+      await expect(
+        runDurableWorkItem({
+          cfg,
+          pool,
+          boss,
+          type: "review",
+          job: reviewJob(item.id, 0, 3),
+          resolveHeadSha: async () => {
+            throw failure;
+          },
+          execute,
+        }),
+      ).rejects.toBe(failure);
+      expect(execute).not.toHaveBeenCalled();
+      expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, item.id, failure, null);
+      expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "work item retried" }),
+      );
+      expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    },
+  );
 
   it("emits work completed on terminal failure without $exception", async () => {
     const item = makeReviewWorkItem({
@@ -159,7 +204,10 @@ describe("durableJob analytics forwarding", () => {
       boss,
       job,
       resolveHeadSha: async () => ({ headSha: "abc123" }),
-      execute,
+      execute: async (item, env) => {
+        await env.beginAttempt();
+        return execute(item, env);
+      },
     };
 
     await expect(runDurableWorkItem(spec)).resolves.toBeUndefined();
@@ -224,7 +272,10 @@ describe("durableJob analytics forwarding", () => {
         boss,
         job,
         resolveHeadSha: async () => ({ headSha: "abc123" }),
-        execute,
+        execute: async (item, env) => {
+          await env.beginAttempt();
+          return execute(item, env);
+        },
       }),
     ).resolves.toBeUndefined();
 
@@ -289,7 +340,10 @@ describe("durableJob analytics forwarding", () => {
         boss,
         job,
         resolveHeadSha: async () => ({ headSha: "abc123" }),
-        execute: vi.fn().mockRejectedValue(boom),
+        execute: async (_item, env) => {
+          await env.beginAttempt();
+          throw boom;
+        },
       }),
     ).resolves.toBeUndefined();
 
@@ -330,7 +384,10 @@ describe("durableJob analytics forwarding", () => {
         boss,
         job: reviewJob(item.id, 0, 3),
         resolveHeadSha: async () => ({ headSha: "abc123" }),
-        execute: vi.fn().mockRejectedValue(transient),
+        execute: async (_item, env) => {
+          await env.beginAttempt();
+          throw transient;
+        },
       }),
     ).rejects.toBe(transient);
 
@@ -346,7 +403,10 @@ describe("durableJob analytics forwarding", () => {
         boss,
         job: reviewJob(item.id, 1, 3),
         resolveHeadSha: async () => ({ headSha: "abc123" }),
-        execute: vi.fn().mockRejectedValue(deterministic),
+        execute: async (_item, env) => {
+          await env.beginAttempt();
+          throw deterministic;
+        },
       }),
     ).rejects.toBe(deterministic);
 
@@ -409,7 +469,10 @@ describe("durableJob analytics forwarding", () => {
         boss,
         job: reviewJob(item.id, 0, 3),
         resolveHeadSha: async () => ({ headSha: "abc123" }),
-        execute: vi.fn().mockRejectedValue(forbidden),
+        execute: async (_item, env) => {
+          await env.beginAttempt();
+          throw forbidden;
+        },
       }),
     ).rejects.toBe(forbidden);
 
@@ -458,7 +521,10 @@ describe("durableJob analytics forwarding", () => {
         boss,
         job: reviewJob(item.id, 3, 3),
         resolveHeadSha: async () => ({ headSha: "abc123" }),
-        execute: vi.fn().mockRejectedValue(forbidden),
+        execute: async (_item, env) => {
+          await env.beginAttempt();
+          throw forbidden;
+        },
       }),
     ).resolves.toBeUndefined();
 

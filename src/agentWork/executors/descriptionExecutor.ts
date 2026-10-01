@@ -34,6 +34,7 @@ export async function executeDescriptionJob(
       const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
+      await env.beginAttempt();
       return withPrRepositoryView(
         buildRepositoryViewParams(
           item,

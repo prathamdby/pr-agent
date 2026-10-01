@@ -999,6 +999,7 @@ export async function executeTriageJob(
                 message: "Bulk apply reached execution without a parsed preview",
               });
             }
+            await env.beginAttempt();
             return runBulkFromPreview({
               ...resumeParams,
               cfg,
@@ -1013,6 +1014,7 @@ export async function executeTriageJob(
             });
           case "preview":
           case "apply":
+            await env.beginAttempt();
             return runFreshTriageAgent({
               ...resumeParams,
               inventory: currentInventory,

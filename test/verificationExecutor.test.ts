@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
+import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { VerificationJobData } from "../src/agentWork/types.js";
@@ -103,6 +104,7 @@ function mockDurableExecution(workItem = item()): void {
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       leaseEpoch: 1,
+      beginAttempt: async () => mockWorkClaim(),
       signal: new AbortController().signal,
     }),
   );
@@ -450,6 +452,7 @@ describe("executeVerificationJob", () => {
           prSurface: fakeDurablePrSurface(),
           headSha: boundHeadSha,
           leaseEpoch: 1,
+          beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
         });
       });
@@ -521,6 +524,7 @@ describe("executeVerificationJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -570,6 +574,7 @@ describe("executeVerificationJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -613,6 +618,7 @@ describe("executeVerificationJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
         escalation,
       });
@@ -670,6 +676,7 @@ describe("executeVerificationJob", () => {
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         leaseEpoch: 1,
+        beginAttempt: async () => mockWorkClaim(),
         signal: new AbortController().signal,
       });
     });
@@ -752,6 +759,7 @@ describe("executeVerificationJob", () => {
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
           leaseEpoch: 1,
+          beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
         },
       );

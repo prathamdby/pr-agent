@@ -144,6 +144,11 @@ When test changes are already in scope, keep them proportional to the changed co
 
 ## How it works
 
+Lifecycle claims and watchdog hops do not spend work retries. Executors admit
+fresh work through the runner's memoized `beginAttempt`, backed by a short
+lease-first transaction in `workItemStateRepository.ts`. Actual resumed work
+still charges; recovery-only completion remains possible at the cap.
+
 GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. Automatic and slash review intake share a per-PR transaction lock, so concurrent `/review force` requests cancel and replace reviews in intake order. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
 
 Close and reopen also hold the review intake lock. Accepted lifecycle observations

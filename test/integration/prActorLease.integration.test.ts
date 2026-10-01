@@ -8,6 +8,13 @@ import * as postgres from "../../src/db/postgres.js";
 import * as bossModule from "../../src/agentWork/boss.js";
 import * as executionTrackerModule from "../../src/agentWork/executionTracker.js";
 import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.js";
+import { executeDescriptionJob } from "../../src/agentWork/executors/descriptionExecutor.js";
+import { executeVerificationJob } from "../../src/agentWork/executors/verificationExecutor.js";
+import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
+import { AppError } from "../../src/errors/appError.js";
+import { assistantFromText } from "../../src/agentRun/sessionHelpers.js";
+import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
+import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
 import * as retentionModule from "../../src/agentWork/retention.js";
 import * as lostRunningModule from "../../src/agentWork/lostRunningWork.js";
 import * as projectionRepairModule from "../../src/agentWork/projectionRepair.js";
@@ -31,6 +38,7 @@ import * as appAuth from "../../src/github/appAuth.js";
 import * as prSurfaceModule from "../../src/github/prSurface.js";
 import {
   clearDurableAuthCachesForTest,
+  acquireAndClaimWorkItem,
   runDurableWorkItem,
   type DurableJobSpec,
 } from "../../src/agentWork/durableJob.js";
@@ -138,6 +146,468 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       ttlSeconds: TTL_SECONDS,
     });
   }
+
+  it.each([
+    "published",
+    "failed",
+    "deterministic",
+    "running_resume",
+    "admission_gap",
+    "rollback",
+    "admission_ack_lost",
+    "deadlock_retry",
+    "memoized",
+    "cancel_before_start",
+    "takeover_before_start",
+    "recovery_at_cap",
+    "last_slot",
+  ] as const)(
+    "#657 retains real retries after committed claim-only crash loops (%s)",
+    async (outcome) => {
+      const resourceKey = `${OWNER}/budget-${randomUUID()}#1`;
+      const workItemId = await insertAutoQueued(resourceKey, "description");
+      const cfg = makeTestConfig({ queueRetryLimit: 2 });
+      const jobs = Array.from({ length: 5 }, () => ({
+        ...makeDurableJobMetadata(workItemId, 0, 2),
+        id: randomUUID(),
+        data: { kind: "description" as const, workItemId },
+      }));
+      const boss = new PgBoss(cfg.databaseUrl);
+      vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
+      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+      const core = await workRepository.getWorkItemCore(pool, workItemId);
+      if (core?.type !== "description") throw new Error("missing description core");
+      const neutralCycles = ["published", "failed", "deterministic", "rollback"].includes(outcome)
+        ? 4
+        : 0;
+      for (let cycle = 0; cycle < neutralCycles; cycle++) {
+        await expect(
+          acquireAndClaimWorkItem({
+            pool,
+            boss,
+            queue: "agent-work-description",
+            leaseKey: { resourceKey, workType: "description" },
+            core,
+            ttlSeconds: TTL_SECONDS,
+            seededLiveHop: true,
+          }),
+        ).resolves.toMatchObject({ acquired: true });
+        await pool.query(
+          `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
+             WHERE resource_key = $1 AND work_type = 'description'`,
+          [resourceKey],
+        );
+      }
+      clearDurableAuthCachesForTest();
+      vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
+        type: "token",
+        tokenType: "installation",
+        token: "synthetic-installation-token",
+        installationId: 1,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
+        permissions: {},
+        repositorySelection: "all",
+      });
+      const fake = prSurfaceModule.createFakePrSurface(
+        { owner: OWNER, repo: "r", prNumber: 1 },
+        { headSha: "h" },
+      );
+      vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation((params) =>
+        params.mutationBoundary == null
+          ? fake.surface
+          : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
+      );
+      vi.spyOn(prWorkspaceModule, "withPrRepositoryView").mockImplementation(async (_params, run) =>
+        run({
+          agentCwd: "/tmp/pr-agent",
+          workspace: mockLocalPrWorkspace(),
+          preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+        }),
+      );
+      const failure =
+        outcome === "deterministic"
+          ? new AppError({ code: "triage.missing_submit", message: "synthetic missing submit" })
+          : new Error("synthetic transient feature failure");
+      const run = vi.spyOn(descriptionRun, "runFullPrDescription").mockRejectedValue(failure);
+      if (outcome === "recovery_at_cap") {
+        vi.spyOn(boss, "sendDebounced").mockResolvedValue(randomUUID());
+        vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+          userId: 42,
+          login: "synthetic[bot]",
+        });
+        const verificationId = await insertAutoQueued(
+          `${resourceKey}-verification`,
+          "verification",
+        );
+        await pool.query("UPDATE agent_work_items SET attempt_count = 3 WHERE id = $1", [
+          verificationId,
+        ]);
+        await executeVerificationJob(cfg, pool, boss, {
+          ...jobs[0],
+          data: { kind: "verification", workItemId: verificationId },
+        });
+        expect(await getWorkItem(pool, verificationId)).toMatchObject({
+          status: "completed",
+          attemptCount: 3,
+        });
+        expect(prWorkspaceModule.withPrRepositoryView).not.toHaveBeenCalled();
+        expect(run).not.toHaveBeenCalled();
+        console.info(
+          "budget-survival-evidence",
+          JSON.stringify({
+            scenario: outcome,
+            substantiveInvocations: 0,
+            status: "completed",
+            publications: 0,
+          }),
+        );
+        return;
+      }
+      if (outcome === "last_slot") {
+        const claim = await acquireAndClaimWorkItem({
+          pool,
+          boss,
+          core,
+          queue: "agent-work-description",
+          leaseKey: { resourceKey, workType: "description" },
+          ttlSeconds: TTL_SECONDS,
+          seededLiveHop: true,
+        });
+        if (!claim?.acquired) throw new Error("missing race lease");
+        await pool.query("UPDATE agent_work_items SET attempt_count = 2 WHERE id = $1", [
+          workItemId,
+        ]);
+        const holder = await pool.connect();
+        const contenders: Array<ReturnType<typeof workRepository.beginWorkAttempt>> = [];
+        try {
+          await holder.query("BEGIN");
+          const pid = (await holder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid"))
+            .rows[0].pid;
+          await leaseRepository.lockPrActorLeaseForUpdate(holder, workItemId, claim.leaseEpoch);
+          contenders.push(
+            workRepository.beginWorkAttempt(pool, workItemId, claim.leaseEpoch, 3),
+            workRepository.beginWorkAttempt(pool, workItemId, claim.leaseEpoch, 3),
+          );
+          await expect
+            .poll(async () => {
+              const blocked = await pool.query<{ count: number }>(
+                `WITH RECURSIVE waits(pid) AS (
+                 SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))
+                 UNION
+                 SELECT a.pid FROM pg_stat_activity a JOIN waits w ON w.pid = ANY(pg_blocking_pids(a.pid))
+               ) SELECT count(*)::int AS count FROM waits`,
+                [pid],
+              );
+              return blocked.rows[0].count;
+            })
+            .toBe(2);
+          await holder.query("COMMIT");
+          const results = await Promise.all(contenders);
+          expect(results.map((result) => result.kind).toSorted()).toEqual(["exhausted", "started"]);
+          for (const result of results) {
+            if (result.kind === "started") {
+              await expect(
+                descriptionRun.runFullPrDescription({
+                  cfg,
+                  prSurface: fake.surface,
+                  owner: OWNER,
+                  repo: "r",
+                  prNumber: 1,
+                  headSha: "h",
+                  workspace: mockLocalPrWorkspace(),
+                }),
+              ).rejects.toBe(failure);
+            }
+          }
+        } finally {
+          await holder.query("ROLLBACK");
+          holder.release();
+          await Promise.allSettled(contenders);
+        }
+        await pool.query(
+          "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+          [resourceKey],
+        );
+        await executeDescriptionJob(cfg, pool, boss, jobs[1]);
+        expect(run).toHaveBeenCalledOnce();
+        expect((await getWorkItem(pool, workItemId))?.status).toBe("failed");
+        expect(fake.controls.replies).toHaveLength(1);
+        console.info(
+          "budget-survival-evidence",
+          JSON.stringify({
+            scenario: outcome,
+            substantiveInvocations: 1,
+            status: "failed",
+            admitted: 1,
+            refused: 1,
+          }),
+        );
+        return;
+      }
+      let firstLaterJob = 0;
+      if (outcome === "admission_ack_lost" || outcome === "deadlock_retry") {
+        const transact = postgres.inTransaction;
+        vi.spyOn(postgres, "inTransaction")
+          .mockImplementationOnce(transact)
+          .mockImplementationOnce(async (selectedPool, work) => {
+            if (outcome === "deadlock_retry") {
+              throw Object.assign(new Error("synthetic admission deadlock"), { code: "40P01" });
+            }
+            await transact(selectedPool, work);
+            throw failure;
+          });
+        if (outcome === "admission_ack_lost") {
+          await expect(executeDescriptionJob(cfg, pool, boss, jobs[0])).rejects.toBe(failure);
+          expect(prWorkspaceModule.withPrRepositoryView).not.toHaveBeenCalled();
+          expect(run).not.toHaveBeenCalled();
+          expect(await getWorkItem(pool, workItemId)).toMatchObject({
+            status: "queued",
+            attemptCount: 1,
+          });
+          firstLaterJob = 1;
+        }
+      }
+      if (outcome === "rollback") {
+        const transact = postgres.inTransaction;
+        vi.spyOn(postgres, "inTransaction")
+          .mockImplementationOnce(transact)
+          .mockImplementationOnce(async (selectedPool, work) =>
+            transact(selectedPool, async (client) => {
+              await work(client);
+              throw failure;
+            }),
+          );
+        await expect(executeDescriptionJob(cfg, pool, boss, jobs[0])).rejects.toBe(failure);
+        expect(prWorkspaceModule.withPrRepositoryView).not.toHaveBeenCalled();
+        expect(run).not.toHaveBeenCalled();
+      }
+      if (
+        outcome === "memoized" ||
+        outcome === "cancel_before_start" ||
+        outcome === "takeover_before_start"
+      ) {
+        let entered = false;
+        let epoch: number | null = null;
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const held = runDurableWorkItem({
+          cfg,
+          pool,
+          boss,
+          job: jobs[0],
+          type: "description",
+          prActorLease: { queue: "agent-work-description" },
+          resolveHeadSha: async () => ({ headSha: "h" }),
+          execute: async (_item, env) => {
+            entered = true;
+            epoch = env.leaseEpoch;
+            await gate;
+            const first = env.beginAttempt();
+            expect(env.beginAttempt()).toBe(first);
+            await first;
+            await descriptionRun.runFullPrDescription({
+              cfg,
+              prSurface: env.prSurface,
+              owner: OWNER,
+              repo: "r",
+              prNumber: 1,
+              headSha: "h",
+              workspace: mockLocalPrWorkspace(),
+            });
+            return { kind: "completed" };
+          },
+        });
+        const settled = held.then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        try {
+          await expect.poll(() => entered).toBe(true);
+          if (outcome === "cancel_before_start") {
+            await workRepository.markWorkCancelled(pool, workItemId, epoch);
+          } else if (outcome === "takeover_before_start") {
+            await pool.query(
+              "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+              [resourceKey],
+            );
+            const takeover = await acquireFor(resourceKey, "description", workItemId);
+            if (!takeover.acquired) throw new Error("missing takeover");
+            release();
+            expect(await settled).toBeUndefined();
+            expect(await isPrActorLeaseHeld(pool, workItemId, takeover.leaseEpoch)).toBe(true);
+            await pool.query(
+              "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+              [resourceKey],
+            );
+          }
+          release();
+          expect(await settled).toBe(outcome === "memoized" ? failure : undefined);
+          if (outcome === "cancel_before_start") {
+            expect(await getWorkItem(pool, workItemId)).toMatchObject({
+              status: "cancelled",
+              attemptCount: 0,
+            });
+            expect(run).not.toHaveBeenCalled();
+            expect(fake.controls.replies).toHaveLength(0);
+            console.info(
+              "budget-survival-evidence",
+              JSON.stringify({
+                scenario: outcome,
+                substantiveInvocations: 0,
+                status: "cancelled",
+                cancellationWon: true,
+              }),
+            );
+            return;
+          }
+          firstLaterJob = outcome === "memoized" ? 1 : 0;
+        } finally {
+          release();
+          await settled;
+        }
+      }
+      if (outcome === "running_resume" || outcome === "admission_gap") {
+        const releases: Array<() => void> = [];
+        const pending: Promise<void>[] = [];
+        const blocked = outcome === "running_resume" ? 3 : 1;
+        if (outcome === "running_resume") {
+          run.mockImplementation(
+            () => new Promise((_, reject) => releases.push(() => reject(failure))),
+          );
+        } else {
+          vi.mocked(prWorkspaceModule.withPrRepositoryView).mockImplementation(
+            (_params, _run) => new Promise((_, reject) => releases.push(() => reject(failure))),
+          );
+        }
+        try {
+          for (let attempt = 0; attempt < blocked; attempt++) {
+            pending.push(executeDescriptionJob(cfg, pool, boss, jobs[attempt]));
+            await expect.poll(() => releases.length).toBe(attempt + 1);
+            await pool.query(
+              `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
+                 WHERE resource_key = $1 AND work_type = 'description'`,
+              [resourceKey],
+            );
+          }
+          if (outcome === "admission_gap") {
+            vi.mocked(prWorkspaceModule.withPrRepositoryView).mockImplementation(
+              async (_params, work) =>
+                work({
+                  agentCwd: "/tmp/pr-agent",
+                  workspace: mockLocalPrWorkspace(),
+                  preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
+                }),
+            );
+            await expect(executeDescriptionJob(cfg, pool, boss, jobs[1])).rejects.toBe(failure);
+          }
+          const terminal = executeDescriptionJob(cfg, pool, boss, jobs[3]);
+          pending.push(terminal);
+          await expect
+            .poll(async () => (await getWorkItem(pool, workItemId))?.status)
+            .toBe("failed");
+          await terminal;
+          expect(run).toHaveBeenCalledTimes(outcome === "running_resume" ? 3 : 2);
+          expect(fake.controls.replies).toHaveLength(1);
+        } finally {
+          for (const release of releases) release();
+          await Promise.allSettled(pending);
+        }
+        await executeDescriptionJob(cfg, pool, boss, jobs[4]);
+        expect(run).toHaveBeenCalledTimes(outcome === "running_resume" ? 3 : 2);
+        expect(fake.controls.replies).toHaveLength(1);
+        expect((await getWorkItem(pool, workItemId))?.attemptCount).toBe(3);
+        console.info(
+          "budget-survival-evidence",
+          JSON.stringify({
+            scenario: outcome,
+            substantiveInvocations: run.mock.calls.length,
+            status: "failed",
+            notices: fake.controls.replies.length,
+            takeoverWon: true,
+          }),
+        );
+        return;
+      }
+      if (outcome === "published") {
+        run
+          .mockRejectedValueOnce(failure)
+          .mockRejectedValueOnce(failure)
+          .mockImplementationOnce(async (params) => {
+            await params.prSurface.publishDescription(cfg, {
+              title: "Synthetic retry success",
+              type: ["Bug fix"],
+              description: "Synthetic acceptance output",
+            });
+            await params.recordPublishStep?.({ syntheticAcceptance: true });
+            return {
+              published: true,
+              publishSuperseded: false,
+              lastAssistant: assistantFromText(cfg, "", cfg.piProvider),
+            };
+          });
+      }
+      const attempts = outcome === "deterministic" ? 2 : 3;
+      const invocations = outcome === "admission_ack_lost" ? 2 : attempts;
+      for (let attempt = firstLaterJob; attempt < attempts; attempt++) {
+        const dispatch = executeDescriptionJob(cfg, pool, boss, jobs[attempt]);
+        const result = await dispatch.then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        if (run.mock.calls.length === 0) {
+          const item = await getWorkItem(pool, workItemId);
+          console.info(
+            `budget-survival-evidence outcome=${outcome} substantiveInvocations=0 status=${item?.status}`,
+          );
+        }
+        if (attempt < attempts - 1) expect(result).toBe(failure);
+        else expect(result).toBeUndefined();
+        if (outcome === "deterministic" && attempt === 0) {
+          await expect(
+            acquireAndClaimWorkItem({
+              pool,
+              boss,
+              core,
+              queue: "agent-work-description",
+              leaseKey: { resourceKey, workType: "description" },
+              ttlSeconds: TTL_SECONDS,
+              seededLiveHop: true,
+            }),
+          ).resolves.toMatchObject({ acquired: true });
+          await pool.query(
+            "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+            [resourceKey],
+          );
+        }
+      }
+      expect(run).toHaveBeenCalledTimes(invocations);
+      expect((await getWorkItem(pool, workItemId))?.status).toBe(
+        outcome === "published" ? "completed" : "failed",
+      );
+      expect(fake.controls.replies).toHaveLength(outcome === "published" ? 0 : 1);
+      const publications = fake.controls.events.filter(
+        (event) => event.kind === "publishDescription",
+      ).length;
+      expect(publications).toBe(outcome === "published" ? 1 : 0);
+      console.info(
+        "budget-survival-evidence",
+        JSON.stringify({
+          scenario: outcome,
+          neutralCycles: neutralCycles + (outcome === "deterministic" ? 1 : 0),
+          substantiveInvocations: run.mock.calls.length,
+          publications,
+          status: outcome === "published" ? "completed" : "failed",
+          takeoverWon: outcome === "takeover_before_start",
+        }),
+      );
+      await executeDescriptionJob(cfg, pool, boss, jobs[4]);
+      expect(run).toHaveBeenCalledTimes(invocations);
+      expect(fake.controls.replies).toHaveLength(outcome === "published" ? 0 : 1);
+    },
+  );
 
   it.each(["live", "child_result", "local_gate", "unknown"] as const)(
     "own verdict real leased boundary preserves %s on a constrained pool",
@@ -1691,7 +2161,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
     await expect(
       claimWorkForExecution(pool, workItemId, acquisition.leaseEpoch),
-    ).resolves.toMatchObject({ attemptCount: 2 });
+    ).resolves.toMatchObject({ attemptCount: 0 });
     const { rows } = await pool.query<{ execution_epoch: string | number }>(
       `SELECT execution_epoch FROM agent_work_items WHERE id = $1`,
       [workItemId],

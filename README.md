@@ -66,6 +66,8 @@ Retrying a stale review keeps changes already saved on its replacement.
 
 After an interrupted publish, PR Agent checks the saved result and available evidence. If it cannot confirm the result, it stops that run rather than repeat the change. An unpublished review gets the usual failure notice with `/review` guidance. Failed or incomplete evidence reads can retry.
 
+Recovering a run does not use another retry unless PR Agent starts another work attempt. An interrupted work attempt still counts. Previously failed runs are not reopened automatically.
+
 After PR Agent accepts a close or merge, automated review requests and `/review`
 (including `force`) and stale-head replacements cannot start another review. A closed command receives a
 reply asking you to reopen first; a merged command is refused. A newer

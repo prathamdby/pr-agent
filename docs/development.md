@@ -4,6 +4,15 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 
 Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/). This guide indexes areas and links those rules. Do not restate `.mdc` bodies here. Author or refresh them with [`skills/authoring-pr-agent-rules`](../skills/authoring-pr-agent-rules/SKILL.md).
 
+Lifecycle claim and feature admission have separate owners:
+`workItemStateRepository.ts::claimWorkForExecution` records lifecycle ownership
+without charging. `beginWorkAttempt` locks the exact lease, then the item in a
+separate statement, and atomically checks/increments the work budget.
+`durableJob.ts` memoizes `env.beginAttempt()` per dispatch and exposes the latest
+claim/escalation. Every executor calls it before fresh workspace/computation or
+bulk patch work, after its recovery-only branches. No remote work runs under
+the admission transaction. Resumed substantive work charges again.
+
 ## Module layout (production)
 
 | Area                                      | Path                                          | Public entry                                                                                                                                                                                                                                                                             |

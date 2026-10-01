@@ -11,6 +11,7 @@ import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import * as repo from "../src/agentWork/repository.js";
 import {
   fakeDurablePrSurface,
+  mockWorkClaim,
   makeDurableJobMetadata,
   mockFetchedWorkItem,
   resetDurablePrSurface,
@@ -143,6 +144,7 @@ function mockDurableExecution(
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
       leaseEpoch: 1,
+      beginAttempt: async () => mockWorkClaim(),
       signal: new AbortController().signal,
       ...executionEnv,
     });

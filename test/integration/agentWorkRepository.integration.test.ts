@@ -139,35 +139,35 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     expect(claim).not.toBeNull();
     expect(claim?.createdAt).toEqual(createdAt);
     expect(claim?.startedAt.getTime()).toBeGreaterThan(createdAt.getTime());
-    expect(claim?.attemptCount).toBe(1);
+    expect(claim?.attemptCount).toBe(0);
     expect(claim?.resumed).toBe(false);
   });
 
-  it("claims queued work and increments the attempt count", async () => {
+  it("claims queued work without spending a work attempt", async () => {
     const id = await insertWorkItem();
 
     const claim = await claimWorkForExecution(pool, id);
     expect(claim).toEqual({
       createdAt: expect.any(Date),
       startedAt: expect.any(Date),
-      attemptCount: 1,
+      attemptCount: 0,
       resumed: false,
     });
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("running");
-    expect(row.attempt_count).toBe(1);
+    expect(row.attempt_count).toBe(0);
     expect(row.started_at).toBeInstanceOf(Date);
     expect(claim?.startedAt).toEqual(row.started_at);
     expect(claim?.startedAt.getTime()).toBeGreaterThanOrEqual(claim?.createdAt.getTime() ?? 0);
   });
 
-  it("counts a running-row resume as an attempt and flags it", async () => {
+  it("flags a running-row resume without spending a work attempt", async () => {
     const id = await insertWorkItem();
 
     await claimWorkForExecution(pool, id);
     await expect(claimWorkForExecution(pool, id)).resolves.toMatchObject({
-      attemptCount: 2,
+      attemptCount: 0,
       resumed: true,
       createdAt: expect.any(Date),
       startedAt: expect.any(Date),
@@ -175,7 +175,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("running");
-    expect(row.attempt_count).toBe(2);
+    expect(row.attempt_count).toBe(0);
   });
 
   it("does not claim work after cancellation is requested", async () => {
@@ -438,7 +438,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     }
   });
 
-  it("requeues retrying work and increments attempt on the next claim", async () => {
+  it("requeues retrying work without spending an attempt on the next claim", async () => {
     const id = await insertWorkItem({ status: "running", attemptCount: 1 });
 
     await expect(markWorkRetrying(pool, id, new Error("retry me"), null)).resolves.toBe(true);
@@ -449,12 +449,12 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     expect(retrying.last_error).toBe("retry me");
 
     await expect(claimWorkForExecution(pool, id)).resolves.toMatchObject({
-      attemptCount: 2,
+      attemptCount: 1,
       resumed: false,
     });
     await expect(getWorkRow(id)).resolves.toMatchObject({
       status: "running",
-      attempt_count: 2,
+      attempt_count: 1,
     });
   });
 
@@ -524,12 +524,12 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     const attemptCounts = claims
       .map((claim) => claim?.attemptCount)
       .toSorted((left, right) => (left ?? 0) - (right ?? 0));
-    expect(attemptCounts).toEqual([1, 2]);
+    expect(attemptCounts).toEqual([0, 0]);
     expect(claims.filter((claim) => claim?.resumed)).toHaveLength(1);
 
     await expect(getWorkRow(id)).resolves.toMatchObject({
       status: "running",
-      attempt_count: 2,
+      attempt_count: 0,
     });
   });
 
