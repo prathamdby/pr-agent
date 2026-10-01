@@ -95,7 +95,7 @@ export const CAPABILITIES: CapabilityItem[] = [
     title: "Recheck open findings after each push",
     trigger: "Runs after each new push when that option is left on, or when you comment /verify",
     detail:
-      "The default setting uses tokens on every push. Switch it to on-demand if the bill is too high.",
+      "With no open findings, verification skips the agent. An older-head run completes degraded instead of clean. Switch to on-demand to limit token use.",
   },
   {
     id: "triage",
