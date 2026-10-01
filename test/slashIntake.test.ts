@@ -201,7 +201,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO agent_work_items")) {
           workItemInsertSql = sql;
           workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-triage" }] };
+          return { rows: [{ id: "work-triage", created: true }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -248,7 +248,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) {
           workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-triage" }] };
+          return { rows: [{ id: "work-triage", created: true }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -294,7 +294,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) {
           workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-triage" }] };
+          return { rows: [{ id: "work-triage", created: true }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -340,7 +340,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) {
           payloads.push(JSON.parse(String(params?.at(-1))));
-          return { rows: [{ id: "work-triage" }] };
+          return { rows: [{ id: "work-triage", created: true }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -379,7 +379,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) {
           payloads.push(JSON.parse(String(params?.at(-1))));
-          return { rows: [{ id: "work-triage" }] };
+          return { rows: [{ id: "work-triage", created: true }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -420,7 +420,9 @@ describe("applySlashCommandIntake", () => {
           return { rows: [{ body_sha256: "hash" }] };
         }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "active", created: false }] };
+        }
         if (sql.includes("SELECT id, payload")) {
           return {
             rows: [
@@ -436,7 +438,6 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -472,7 +473,9 @@ describe("applySlashCommandIntake", () => {
           return { rows: [{ body_sha256: "hash" }] };
         }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "active", created: false }] };
+        }
         if (sql.includes("SELECT id, payload")) {
           return {
             rows: [
@@ -488,7 +491,6 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -543,7 +545,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("SELECT id, payload")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) {
           workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-triage-scope" }] };
+          return { rows: [{ id: "work-triage-scope", created: true }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -592,7 +594,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("SELECT id, payload")) return { rows: [] };
         if (sql.includes("INSERT INTO agent_work_items")) {
           workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-triage-bulk" }] };
+          return { rows: [{ id: "work-triage-bulk", created: true }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -644,7 +646,9 @@ describe("applySlashCommandIntake", () => {
           return { rows: [{ body_sha256: "hash" }] };
         }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "work-review" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "work-review", created: true }] };
+        }
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -687,13 +691,7 @@ describe("applySlashCommandIntake", () => {
           return { rows: [{ id: "event-1" }] };
         }
         if (sql.includes("INSERT INTO agent_work_items")) {
-          return { rows: [] };
-        }
-        if (sql.includes("staleHeadRescheduled")) {
-          return { rows: [{ id: "winner-review" }] };
-        }
-        if (sql.includes("SELECT id") && sql.includes("review_lens")) {
-          return { rows: [] };
+          return { rows: [{ id: "winner-review", created: false }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -736,13 +734,7 @@ describe("applySlashCommandIntake", () => {
           return { rows: [{ id: "event-1" }] };
         }
         if (sql.includes("INSERT INTO agent_work_items")) {
-          return { rows: [] };
-        }
-        if (sql.includes("type = 'description'")) {
-          return { rows: [] };
-        }
-        if (sql.includes("source = 'slash'")) {
-          return { rows: [{ id: "winner-describe" }] };
+          return { rows: [{ id: "winner-describe", created: false }] };
         }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -988,7 +980,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "wi-new", created: true }] };
+        }
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -1052,7 +1046,9 @@ describe("applySlashCommandIntake", () => {
         }
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "wi-new", created: true }] };
+        }
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -1118,8 +1114,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
-        if (sql.includes("staleHeadRescheduled")) return { rows: [{ id: "winner-review" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "winner-review", created: false }] };
+        }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -1194,7 +1191,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "wi-new", created: true }] };
+        }
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -1270,8 +1269,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
-        if (sql.includes("staleHeadRescheduled")) return { rows: [{ id: "winner-review" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "winner-review", created: false }] };
+        }
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -1327,7 +1327,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "wi-new", created: true }] };
+        }
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -1395,7 +1397,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "wi-new", created: true }] };
+        }
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -1462,7 +1466,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [{ id: "wi-new" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [{ id: "wi-new", created: true }] };
+        }
         if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
         if (sql.includes("pr_actor_leases")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
@@ -1504,7 +1510,7 @@ describe("applySlashCommandIntake", () => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("INSERT INTO agent_work_items")) {
           workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-verify" }] };
+          return { rows: [{ id: "work-verify", created: true }] };
         }
         if (
           sql.includes("type = 'verification'") &&

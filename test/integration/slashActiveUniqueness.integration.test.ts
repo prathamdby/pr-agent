@@ -31,6 +31,7 @@ import {
   getWorkItem,
 } from "../../src/agentWork/repository.js";
 import { inTransaction } from "../../src/db/postgres.js";
+import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import {
@@ -52,6 +53,10 @@ import {
   REVIEW_SUMMARY_SENTINEL,
   SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
   SLASH_REVIEW_FORCE_RESTARTED_BODY,
+  DESCRIPTION_ALREADY_IN_PROGRESS,
+  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
+  TRIAGE_ALREADY_IN_PROGRESS,
+  TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../src/settings/index.js";
@@ -133,6 +138,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     await deleteQueueJobs(boss);
   });
 
@@ -185,6 +191,664 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       replyTarget: { kind: "prConversation" as const, prNumber: 78 },
     };
   }
+
+  it.each(
+    (["review", "description", "triage", "verification"] as const).flatMap((type) =>
+      (["queued", "running"] as const).map((status) => ({ type, status })),
+    ),
+  )("keeps $type intake when its $status winner races cancellation", async ({ type, status }) => {
+    const repo = `winner-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 77);
+    const command = type === "description" ? "describe" : type === "verification" ? "verify" : type;
+    const inputs: SlashCommandInput[] = [0, 1].map((index) => ({
+      headers: {
+        event: EVENT,
+        delivery: `${repo}-${index}`,
+        rawBody: Buffer.from(JSON.stringify({ repo, type, index })),
+      },
+      installationId: 4242,
+      owner: OWNER,
+      repo,
+      prNumber: 77,
+      commentId: 1000 + index,
+      commenterId: 11 + index,
+      body: `/${command}\nRequest ${index}`,
+      command,
+      replyTarget: { kind: "prConversation", prNumber: 77 },
+    }));
+    const a = await pool.connect();
+    const b = await pool.connect();
+    const c = await pool.connect();
+    const observer = await pool.connect();
+    let aOpen = false;
+    let bOpen = false;
+    let cOpen = false;
+    let inserted = false;
+    let cancelled = false;
+    let resume = () => {};
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const query = b.query.bind(b);
+    const spy = vi.spyOn(b, "query").mockImplementation(async (sql: string, values?: unknown[]) => {
+      const result = await query(sql, values);
+      if (sql.includes("INSERT INTO agent_work_items")) {
+        inserted = true;
+        await gate;
+      }
+      return result;
+    });
+    let intake: ReturnType<typeof applySlashCommandIntake> | undefined;
+    let cancellation: Promise<void> | undefined;
+    let winnerId = "";
+    try {
+      for (const client of [a, b, c]) {
+        await client.query("SET lock_timeout = '10s'");
+        await client.query("SET statement_timeout = '15s'");
+      }
+      await a.query("BEGIN");
+      aOpen = true;
+      await b.query("BEGIN");
+      bOpen = true;
+      await c.query("BEGIN");
+      cOpen = true;
+      const bPid = (await query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const cPid = (await c.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      await applySlashCommandIntake(boss, a, inputs[0], testFeatures);
+      await a.query("UPDATE agent_work_items SET status = $2 WHERE resource_key = $1", [
+        resourceKey,
+        status,
+      ]);
+      const before = await a.query<{ id: string; item: unknown }>(
+        "SELECT id, to_jsonb(w) AS item FROM agent_work_items w WHERE resource_key = $1",
+        [resourceKey],
+      );
+      winnerId = before.rows[0].id;
+      const progressBefore = await a.query(
+        "SELECT to_jsonb(p) AS item FROM publish_records p WHERE resource_key = $1",
+        [resourceKey],
+      );
+      intake = applySlashCommandIntake(boss, b, inputs[1], testFeatures);
+      void intake.catch(() => undefined);
+      await expect
+        .poll(
+          async () =>
+            (
+              await observer.query("SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked", [
+                bPid,
+              ])
+            ).rows[0].blocked,
+        )
+        .toBe(true);
+      await a.query("COMMIT");
+      aOpen = false;
+      await expect.poll(() => inserted).toBe(true);
+      expect(
+        (
+          await query("SELECT id, to_jsonb(w) AS item FROM agent_work_items w WHERE id = $1", [
+            winnerId,
+          ])
+        ).rows,
+      ).toEqual(before.rows);
+      expect(
+        (
+          await query("SELECT to_jsonb(p) AS item FROM publish_records p WHERE resource_key = $1", [
+            resourceKey,
+          ])
+        ).rows,
+      ).toEqual(progressBefore.rows);
+      const sibling = {
+        ...inputs[1],
+        repo: `${repo}-sibling`,
+        headers: {
+          event: EVENT,
+          delivery: randomUUID(),
+          rawBody: Buffer.from(JSON.stringify({ repo, sibling: true })),
+        },
+      };
+      await observer.query("BEGIN");
+      try {
+        await applySlashCommandIntake(boss, observer, sibling, testFeatures);
+        await observer.query("COMMIT");
+      } catch (error) {
+        await observer.query("ROLLBACK");
+        throw error;
+      }
+      expect(
+        (
+          await query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+            prResourceKey(OWNER, sibling.repo, 77),
+          ])
+        ).rows,
+      ).toHaveLength(1);
+      cancellation = (async () => {
+        if (type === "review") {
+          await workItemRepository.cancelActiveReviews(c, resourceKey, {
+            kind: "user",
+            login: "alice",
+          });
+        } else if (type === "triage") {
+          await workItemRepository.cancelActiveTriage(
+            c,
+            resourceKey,
+            { kind: "user", login: "alice" },
+            77,
+          );
+        } else {
+          await c.query(
+            "UPDATE agent_work_items SET status = 'completed', completed_at = now(), updated_at = now() WHERE id = $1",
+            [winnerId],
+          );
+        }
+        await c.query("COMMIT");
+        cOpen = false;
+        cancelled = true;
+      })();
+      void cancellation.catch(() => undefined);
+      await expect
+        .poll(
+          async () =>
+            cancelled ||
+            (await observer.query("SELECT $2 = ANY(pg_blocking_pids($1)) AS blocked", [cPid, bPid]))
+              .rows[0].blocked,
+        )
+        .toBe(true);
+      resume();
+      await intake;
+      await b.query("COMMIT");
+      bOpen = false;
+      await cancellation;
+    } finally {
+      resume();
+      if (aOpen) await a.query("ROLLBACK");
+      await intake?.catch(() => undefined);
+      if (bOpen) await b.query("ROLLBACK");
+      await cancellation?.catch(() => undefined);
+      if (cOpen) await c.query("ROLLBACK");
+      spy.mockRestore();
+      for (const client of [a, b, c]) {
+        await client.query("RESET lock_timeout");
+        await client.query("RESET statement_timeout");
+        client.release();
+      }
+      observer.release();
+    }
+    expect(
+      (
+        await pool.query("SELECT id, status FROM agent_work_items WHERE resource_key = $1", [
+          resourceKey,
+        ])
+      ).rows,
+    ).toEqual([
+      { id: winnerId, status: type === "review" || type === "triage" ? "cancelled" : "completed" },
+    ]);
+    const accepted = await pool.query(
+      `SELECT e.id FROM webhook_events e JOIN webhook_event_replays r ON r.webhook_event_id = e.id
+       WHERE e.delivery_id = $1`,
+      [inputs[1].headers.delivery],
+    );
+    expect(accepted.rows).toHaveLength(1);
+    const acks = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter(
+      (job) => job.data.repo === repo,
+    );
+    expect(acks).toHaveLength(2);
+    const losingAck = acks.find((job) => job.data.delivery === inputs[1].headers.delivery)!.data;
+    const expectedBody = {
+      review: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+      description: DESCRIPTION_ALREADY_IN_PROGRESS,
+      triage: TRIAGE_ALREADY_IN_PROGRESS,
+      verification: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
+    }[type];
+    expect(losingAck.reply?.body).toBe(expectedBody);
+    expect(losingAck.workItemId).toBeUndefined();
+    const jobsBefore = await pool.query(
+      "SELECT id FROM pgboss.job WHERE data->>'repo' = $1 OR data->>'workItemId' = $2 ORDER BY id",
+      [repo, winnerId],
+    );
+    expect(jobsBefore.rows).toHaveLength(3);
+    for (const delivery of [inputs[1].headers.delivery, randomUUID()]) {
+      const replay = await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...inputs[1],
+            headers: { ...inputs[1].headers, delivery },
+          },
+          testFeatures,
+        ),
+      );
+      expect(replay.some((event) => event.name === "deduped_delivery")).toBe(true);
+    }
+    expect(
+      (
+        await pool.query(
+          "SELECT id FROM pgboss.job WHERE data->>'repo' = $1 OR data->>'workItemId' = $2 ORDER BY id",
+          [repo, winnerId],
+        )
+      ).rows,
+    ).toEqual(jobsBefore.rows);
+    expect(
+      (
+        await pool.query("SELECT id FROM webhook_events WHERE delivery_id = $1", [
+          inputs[1].headers.delivery,
+        ])
+      ).rows,
+    ).toEqual(accepted.rows);
+    if (type === "review") {
+      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo, prNumber: 77 });
+      const tokenSpy = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "test-token",
+        expiresAtTs: Date.now() + 3_600_000,
+        ttlMs: 3_600_000,
+      });
+      const botSpy = vi
+        .spyOn(appAuth, "getAppBotIdentity")
+        .mockResolvedValue({ userId: 999, login: "test-bot" });
+      const surfaceSpy = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+      try {
+        await executeAckJob(makeTestConfig(), pool, losingAck, boss);
+        expect(fake.controls.replies).toEqual([
+          { target: inputs[1].replyTarget, body: expectedBody },
+        ]);
+      } finally {
+        tokenSpy.mockRestore();
+        botSpy.mockRestore();
+        surfaceSpy.mockRestore();
+      }
+    }
+  });
+
+  it("keeps the triage reply when cancellation races the resolved winner's payload read", async () => {
+    const repo = `triage-winner-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 77);
+    const input: SlashCommandInput = {
+      ...makeDescribeInput(repo, randomUUID(), 1000),
+      command: "triage",
+      body: "/triage",
+    };
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(boss, client, input, testFeatures),
+    );
+    const incoming: SlashCommandInput = {
+      ...input,
+      headers: {
+        event: EVENT,
+        delivery: randomUUID(),
+        rawBody: Buffer.from(JSON.stringify({ repo, inline: true })),
+      },
+      commentId: 1001,
+      triageScope: "thread",
+      threadAnchorCommentId: 1001,
+      replyTarget: { kind: "inlineReviewThread", prNumber: 77, inReplyToCommentId: 1001 },
+    };
+    const b = await pool.connect();
+    const c = await pool.connect();
+    const observer = await pool.connect();
+    let resume = () => {};
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let resolved = false;
+    let cancelled = false;
+    let bOpen = false;
+    let cOpen = false;
+    const create = workItemRepository.createTriageWorkItem;
+    const spy = vi
+      .spyOn(workItemRepository, "createTriageWorkItem")
+      .mockImplementation(async (...args) => {
+        const result = await create(...args);
+        resolved = true;
+        await gate;
+        return result;
+      });
+    let intake: ReturnType<typeof applySlashCommandIntake> | undefined;
+    let cancellation: Promise<void> | undefined;
+    try {
+      for (const client of [b, c]) {
+        await client.query("SET lock_timeout = '10s'");
+        await client.query("SET statement_timeout = '15s'");
+      }
+      await b.query("BEGIN");
+      bOpen = true;
+      await c.query("BEGIN");
+      cOpen = true;
+      const bPid = (await b.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const cPid = (await c.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      intake = applySlashCommandIntake(boss, b, incoming, testFeatures);
+      void intake.catch(() => undefined);
+      await expect.poll(() => resolved).toBe(true);
+      cancellation = (async () => {
+        await workItemRepository.cancelActiveTriage(
+          c,
+          resourceKey,
+          { kind: "user", login: "alice" },
+          77,
+        );
+        await c.query("COMMIT");
+        cOpen = false;
+        cancelled = true;
+      })();
+      void cancellation.catch(() => undefined);
+      await expect
+        .poll(
+          async () =>
+            cancelled ||
+            (await observer.query("SELECT $2 = ANY(pg_blocking_pids($1)) AS blocked", [cPid, bPid]))
+              .rows[0].blocked,
+        )
+        .toBe(true);
+      resume();
+      await intake;
+      await b.query("COMMIT");
+      bOpen = false;
+      await cancellation;
+    } finally {
+      resume();
+      await intake?.catch(() => undefined);
+      if (bOpen) await b.query("ROLLBACK");
+      await cancellation?.catch(() => undefined);
+      if (cOpen) await c.query("ROLLBACK");
+      spy.mockRestore();
+      for (const client of [b, c]) {
+        await client.query("RESET lock_timeout");
+        await client.query("RESET statement_timeout");
+        client.release();
+      }
+      observer.release();
+    }
+    expect(
+      (
+        await pool.query(
+          `SELECT e.id FROM webhook_events e JOIN webhook_event_replays r ON r.webhook_event_id = e.id
+       WHERE e.delivery_id = $1`,
+          [incoming.headers.delivery],
+        )
+      ).rows,
+    ).toHaveLength(1);
+    const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.delivery === incoming.headers.delivery,
+    )!.data;
+    expect(ack.reply).toEqual({ target: incoming.replyTarget, body: TRIAGE_FULL_RUN_IN_PROGRESS });
+    const jobs = await boss.findJobs<{ workItemId: string }>(TRIAGE_QUEUE, {});
+    const work = await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+      resourceKey,
+    ]);
+    expect(work.rows).toHaveLength(1);
+    expect(jobs.filter((job) => job.data.workItemId === work.rows[0].id)).toHaveLength(1);
+    const fake = prSurface.createFakePrSurface({ owner: OWNER, repo, prNumber: 77 });
+    const tokenSpy = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+      token: "test-token",
+      expiresAtTs: Date.now() + 3_600_000,
+      ttlMs: 3_600_000,
+    });
+    const botSpy = vi
+      .spyOn(appAuth, "getAppBotIdentity")
+      .mockResolvedValue({ userId: 999, login: "test-bot" });
+    const surfaceSpy = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+    try {
+      await executeAckJob(makeTestConfig(), pool, ack, boss);
+      expect(fake.controls.replies).toEqual([
+        { target: incoming.replyTarget, body: TRIAGE_FULL_RUN_IN_PROGRESS },
+      ]);
+    } finally {
+      tokenSpy.mockRestore();
+      botSpy.mockRestore();
+      surfaceSpy.mockRestore();
+    }
+  });
+
+  it.each(
+    (["review", "description", "triage", "verification"] as const).flatMap((type) =>
+      [false, true].map((wait) => ({ type, wait })),
+    ),
+  )("creates fresh $type work after a terminal winner (wait=$wait)", async ({ type, wait }) => {
+    const repo = `terminal-first-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 77);
+    const command = type === "description" ? "describe" : type === "verification" ? "verify" : type;
+    const predecessor: SlashCommandInput = {
+      ...makeDescribeInput(repo, randomUUID(), 1000),
+      command,
+      body: `/${command}`,
+    };
+    const incoming: SlashCommandInput = {
+      ...predecessor,
+      commentId: 1001,
+      headers: {
+        event: EVENT,
+        delivery: randomUUID(),
+        rawBody: Buffer.from(JSON.stringify({ repo, incoming: true })),
+      },
+    };
+    const b = await pool.connect();
+    const c = await pool.connect();
+    const observer = await pool.connect();
+    let paused = false;
+    let resume = () => {};
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const query = b.query.bind(b);
+    const spy = vi.spyOn(b, "query").mockImplementation(async (sql: string, values?: unknown[]) => {
+      if (
+        type === "verification" &&
+        sql.includes("SELECT id") &&
+        sql.includes("type = 'verification'")
+      ) {
+        const result = await query<{ id: string }>(sql, values);
+        expect(result.rows).toHaveLength(0);
+        paused = true;
+        await gate;
+        return result;
+      }
+      if (type !== "verification" && sql.includes("INSERT INTO agent_work_items")) {
+        paused = true;
+        await gate;
+      }
+      return query(sql, values);
+    });
+    let intake: ReturnType<typeof applySlashCommandIntake> | undefined;
+    let bOpen = false;
+    let cOpen = false;
+    let predecessorId = "";
+    try {
+      for (const client of [b, c]) {
+        await client.query("SET lock_timeout = '10s'");
+        await client.query("SET statement_timeout = '15s'");
+      }
+      if (type !== "verification") {
+        await inTransaction(pool, (client) =>
+          applySlashCommandIntake(boss, client, predecessor, testFeatures),
+        );
+      }
+      await b.query("BEGIN");
+      bOpen = true;
+      const bPid = (await query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      const cPid = (await c.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+      intake = applySlashCommandIntake(boss, b, incoming, testFeatures);
+      void intake.catch(() => undefined);
+      await expect.poll(() => paused).toBe(true);
+      if (type === "verification") {
+        await inTransaction(pool, (client) =>
+          applySlashCommandIntake(boss, client, predecessor, testFeatures),
+        );
+      }
+      predecessorId = (
+        await observer.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [
+          resourceKey,
+        ])
+      ).rows[0].id;
+      await c.query("BEGIN");
+      cOpen = true;
+      if (type === "review") {
+        await workItemRepository.cancelActiveReviews(c, resourceKey, {
+          kind: "user",
+          login: "alice",
+        });
+      } else if (type === "triage") {
+        await workItemRepository.cancelActiveTriage(
+          c,
+          resourceKey,
+          { kind: "user", login: "alice" },
+          77,
+        );
+      } else {
+        await c.query(
+          "UPDATE agent_work_items SET status = 'completed', completed_at = now(), updated_at = now() WHERE id = $1",
+          [predecessorId],
+        );
+      }
+      if (wait) {
+        resume();
+        await expect
+          .poll(
+            async () =>
+              (
+                await observer.query("SELECT $2 = ANY(pg_blocking_pids($1)) AS blocked", [
+                  bPid,
+                  cPid,
+                ])
+              ).rows[0].blocked,
+          )
+          .toBe(true);
+      }
+      await c.query("COMMIT");
+      cOpen = false;
+      resume();
+      await intake;
+      await b.query("COMMIT");
+      bOpen = false;
+    } finally {
+      resume();
+      if (cOpen) await c.query("ROLLBACK");
+      await intake?.catch(() => undefined);
+      if (bOpen) await b.query("ROLLBACK");
+      spy.mockRestore();
+      for (const client of [b, c]) {
+        await client.query("RESET lock_timeout");
+        await client.query("RESET statement_timeout");
+        client.release();
+      }
+      observer.release();
+    }
+    const items = await pool.query<{ id: string; status: string }>(
+      "SELECT id, status FROM agent_work_items WHERE resource_key = $1",
+      [resourceKey],
+    );
+    expect(items.rows).toHaveLength(2);
+    expect(items.rows.find((item) => item.id === predecessorId)?.status).toBe(
+      type === "review" || type === "triage" ? "cancelled" : "completed",
+    );
+    const fresh = items.rows.find((item) => item.id !== predecessorId)!;
+    expect(fresh.status).toBe("queued");
+    expect(
+      (
+        await pool.query(
+          `SELECT e.id FROM webhook_events e JOIN webhook_event_replays r ON r.webhook_event_id = e.id
+       WHERE e.delivery_id = $1`,
+          [incoming.headers.delivery],
+        )
+      ).rows,
+    ).toHaveLength(1);
+    const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.delivery === incoming.headers.delivery,
+    )!.data;
+    expect(ack.workItemId).toBe(fresh.id);
+    const queue = {
+      review: REVIEW_QUEUE,
+      description: DESCRIPTION_QUEUE,
+      triage: TRIAGE_QUEUE,
+      verification: VERIFICATION_QUEUE,
+    }[type];
+    expect(
+      (await boss.findJobs<{ workItemId: string }>(queue, {})).filter(
+        (job) => job.data.workItemId === fresh.id,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("rolls back a resolved duplicate when its ack send fails and retries normally", async () => {
+    const repo = `winner-rollback-${randomUUID().slice(0, 8)}`;
+    const first = makeDescribeInput(repo, randomUUID(), 1000);
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(boss, client, first, testFeatures),
+    );
+    const incoming = makeDescribeInput(repo, randomUUID(), 1001);
+    const resourceKey = prResourceKey(OWNER, repo, 77);
+    const before = await pool.query(
+      "SELECT to_jsonb(w) AS item FROM agent_work_items w WHERE resource_key = $1",
+      [resourceKey],
+    );
+    const jobsBefore = await pool.query("SELECT id FROM pgboss.job ORDER BY id");
+    const send = boss.send.bind(boss);
+    const spy = vi
+      .spyOn(boss, "send")
+      .mockImplementation(async (...args: Parameters<typeof boss.send>) => {
+        const id = await send(...args);
+        throw new Error(`test ack failure after durable send ${id != null}`);
+      });
+    try {
+      await expect(
+        inTransaction(pool, (client) =>
+          applySlashCommandIntake(boss, client, incoming, testFeatures),
+        ),
+      ).rejects.toThrow("test ack failure after durable send");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(
+      (
+        await pool.query(
+          "SELECT to_jsonb(w) AS item FROM agent_work_items w WHERE resource_key = $1",
+          [resourceKey],
+        )
+      ).rows,
+    ).toEqual(before.rows);
+    expect((await pool.query("SELECT id FROM pgboss.job ORDER BY id")).rows).toEqual(
+      jobsBefore.rows,
+    );
+    expect(
+      (
+        await pool.query("SELECT id FROM webhook_events WHERE delivery_id = $1", [
+          incoming.headers.delivery,
+        ])
+      ).rows,
+    ).toHaveLength(0);
+    const fingerprint = createHash("sha256").update(incoming.headers.rawBody).digest("hex");
+    expect(
+      (
+        await pool.query(
+          "SELECT webhook_event_id FROM webhook_event_replays WHERE body_sha256 = $1",
+          [fingerprint],
+        )
+      ).rows,
+    ).toHaveLength(0);
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(boss, client, incoming, testFeatures),
+    );
+    expect(
+      (
+        await pool.query(
+          "SELECT to_jsonb(w) AS item FROM agent_work_items w WHERE resource_key = $1",
+          [resourceKey],
+        )
+      ).rows,
+    ).toEqual(before.rows);
+    const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.delivery === incoming.headers.delivery,
+    )!.data;
+    expect(ack.reply?.body).toBe(DESCRIPTION_ALREADY_IN_PROGRESS);
+    expect(ack.workItemId).toBeUndefined();
+    expect(
+      (
+        await pool.query(
+          `SELECT e.id FROM webhook_events e JOIN webhook_event_replays r ON r.webhook_event_id = e.id
+       WHERE e.delivery_id = $1`,
+          [incoming.headers.delivery],
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
 
   it("concurrent same-scope /describe deliveries create one work item and one work job", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;

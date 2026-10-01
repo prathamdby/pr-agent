@@ -172,6 +172,14 @@ flowchart LR
 
 The review path runs a recon phase, four specialists for correctness, security, quality, and tests, a judgment phase, then publish and summary updates. Every terminal review path closes `PR Agent Review` and optional `pr-agent/review` through one `closeOwnVerdict` writer. Crash and unpublished runs conclude `action_required`. Findings conclude `failure` or `success`. `check_run` and `status` deliveries write `pr_head_ci_state` in the same transaction as `webhook_events` and enqueue a debounced `ci-projection` job. `pull_request` `opened`, `synchronize`, and `reopened` enqueue that job when the head row is missing or `seeded_at` is null. Ack, ticks, and publish enqueue after they write the comment when the head still needs a seed or the row version moved. The worker consumes that queue and renders CI cells from the row; missing or unseeded heads wait, and a complete seeded empty snapshot shows no-CI copy. After seed, a pending or `unknown` head takes one Checks listing per later job and pending-refreshes durable facts ([ADR 0035](docs/adr/0035-head-ci-state-projection.md)). Verification activate/clear advances the head revision only on an effective transition and enqueues projection in the same transaction. `workflow_run` and `check_suite` completed deliveries enqueue the same projection without writing facts. Ask work is deliberately unleased and relies on publish-record idempotency. Triage may push a branch and uses separate publish records for thread actions.
 
+A slash `/review`, `/describe`, `/triage`, or `/verify` that reaches insertion
+resolves active work in one value-preserving UPSERT. Its conflict row stays
+locked through intake commit, including triage's ID-pinned payload read.
+Cancellation or completion that finishes first allows a fresh item; otherwise
+intake commits the normal in-progress acknowledgement before that transition.
+`/verify` also has an unchanged, nonlocking active-work precheck.
+These row locks are separate from review advisory ordering and execution leases.
+
 Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
 
 Lost-running diagnostics are advisory. The sweeper rechecks the item age,

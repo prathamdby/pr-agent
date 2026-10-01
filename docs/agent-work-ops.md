@@ -106,6 +106,19 @@ lock timeout; failed intake rolls back and uses the existing webhook `503`/redel
 path. Roll out the fix to every web intake replica before relying on serialization;
 unchanged workers need no coordinated upgrade. A code rollback reopens the race.
 
+Slash `/review`, `/describe`, `/triage`, and `/verify` insertion resolves active
+work with a value-preserving UPSERT, holding the conflict row until intake commits.
+Triage's payload read is pinned to that winner ID. Cancellation or completion
+waits if resolution wins; a terminal transition that finishes first permits fresh
+work. `/verify`'s earlier active-work precheck remains nonlocking.
+The conflict update preserves payloads, timestamps, and progress ownership, but
+still creates a physical tuple/WAL update. It uses neither the execution lease
+nor a new retry lane. Same-body redelivery creates no new work, even if the
+winner is now terminal. Real lock timeouts still roll back intake and require
+redelivery. Upgrade every web replica for this protection; worker payloads are
+unchanged. Code-only rollback reopens the missing-winner race without data repair
+or schema reversal.
+
 - Completed mutation recovery without a usable result is `terminal`, not a
   transient unknown. Inspect `operation_intents.detail.unknownResolution`:
   `"terminal"` records a completed fail-closed decision while status remains

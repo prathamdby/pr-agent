@@ -24,7 +24,7 @@ import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
 /**
  * Partial unique index predicate from migrations/014_slash_active_uniqueness.sql.
- * Keep ON CONFLICT inference and winner SELECT in lockstep with that index.
+ * Keep ON CONFLICT inference in lockstep with that index.
  */
 const SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
        AND type IN ('review', 'description', 'triage')
@@ -37,7 +37,7 @@ const SLASH_ACTIVE_CONFLICT_TARGET = `(resource_key, type, review_lens)
 /**
  * Partial unique index predicate from
  * migrations/027_verification_slash_active_uniqueness.sql.
- * Keep ON CONFLICT inference and winner SELECT in lockstep with that index.
+ * Keep ON CONFLICT inference in lockstep with that index.
  */
 const VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
        AND type = 'verification'
@@ -125,47 +125,30 @@ function insertParams(params: AgentWorkInsert): unknown[] {
   ];
 }
 
-/** Insert with optional uniqueness conflict; winner SELECT is a separate query for READ COMMITTED races. */
+/** Resolve atomically and hold the winner through intake commit without changing its domain values. */
 async function insertOnSlashActiveConflict(
   client: PoolClient,
-  params: AgentWorkInsert,
   values: unknown[],
   conflictTarget: string,
-  indexPredicate: string,
 ): Promise<ConflictAwareInsertResult> {
-  const inserted = await client.query<{ id: string }>(
+  const result = await client.query<{ id: string; created: boolean }>(
     `INSERT INTO agent_work_items (
 		   ${AGENT_WORK_INSERT_COLUMNS}
 		 )
 		 VALUES (${AGENT_WORK_INSERT_VALUES})
 		 ON CONFLICT ${conflictTarget}
-		 DO NOTHING
-		 RETURNING id`,
+		 DO UPDATE SET updated_at = agent_work_items.updated_at
+		 RETURNING id, (id = $1::uuid) AS created`,
     values,
   );
-  const createdId = inserted.rows[0]?.id;
-  if (createdId) {
-    return { created: true, id: createdId };
-  }
-  const existing = await client.query<{ id: string }>(
-    `SELECT id
-			   FROM agent_work_items
-			  WHERE resource_key = $1
-			    AND type = $2
-			    AND review_lens IS NOT DISTINCT FROM $3
-			    AND ${indexPredicate}
-			  LIMIT 1`,
-    [params.resourceKey, params.type, params.reviewLens],
-  );
-  const existingId = existing.rows[0]?.id;
-  if (!existingId) {
+  const winner = result.rows[0];
+  if (!winner) {
     throw new AppError({
       code: "agent_work.slash_active_conflict_no_winner",
-      message: `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
-      context: { resourceKey: params.resourceKey, type: params.type },
+      message: "slash active resolution returned no work item",
     });
   }
-  return { created: false, id: existingId };
+  return winner.created ? { created: true, id: winner.id } : { created: false, id: winner.id };
 }
 
 async function insertAgentWorkItem(
@@ -185,21 +168,9 @@ async function insertAgentWorkItem(
       return { created: true, id: params.id };
     }
     case "slash_active":
-      return insertOnSlashActiveConflict(
-        client,
-        params,
-        values,
-        SLASH_ACTIVE_CONFLICT_TARGET,
-        SLASH_ACTIVE_INDEX_PREDICATE,
-      );
+      return insertOnSlashActiveConflict(client, values, SLASH_ACTIVE_CONFLICT_TARGET);
     case "slash_active_verification":
-      return insertOnSlashActiveConflict(
-        client,
-        params,
-        values,
-        VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET,
-        VERIFICATION_SLASH_ACTIVE_INDEX_PREDICATE,
-      );
+      return insertOnSlashActiveConflict(client, values, VERIFICATION_SLASH_ACTIVE_CONFLICT_TARGET);
     case "ask_webhook": {
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO agent_work_items (
@@ -537,15 +508,17 @@ export async function fetchActiveVerificationWorkItem(
 export async function fetchActiveTriageWorkItem(
   client: PoolClient,
   resourceKey: string,
+  winnerId: string,
 ): Promise<{ id: string; payload: TriageWorkPayload } | null> {
   const result = await client.query<{ id: string; payload: unknown }>(
     `SELECT id, payload
 			   FROM agent_work_items
 			  WHERE resource_key = $1
+			    AND id = $2
 			    AND type = 'triage'
-			    AND status IN ('queued', 'running')
+			    AND ${SLASH_ACTIVE_INDEX_PREDICATE}
 			  LIMIT 1`,
-    [resourceKey],
+    [resourceKey, winnerId],
   );
   const row = result.rows[0];
   if (!row) return null;
