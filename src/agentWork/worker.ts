@@ -133,7 +133,10 @@ function registerMetadataQueue<T>(
   return boss.work<T>(queue, workOptions, async ([job]) => {
     await executions.track(() =>
       runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
-        dispatch(job as JobWithMetadata<T>),
+        // The inner durable lane covers the work-item outcome, not the logger
+        // flush: shutdown gives this dispatch a bounded reserve after the
+        // general settle, before the pool may end.
+        executions.track(() => dispatch(job as JobWithMetadata<T>), { durable: true }),
       ),
     );
   });
@@ -377,7 +380,7 @@ export const AgentWorkerLive = (
 /**
  * Worker role: full queue consumers for agent work items.
  * Provide Boss, then executions, then Pool so finalizers run
- * worker → boss drain → handler settle → pool.end.
+ * worker → boss drain → handler settle → durable reserve + analytics → pool.end.
  * A draining handler can still record its outcome while the Pool is alive.
  */
 export const agentWorkWorkerLive = (cfg: Config) =>
@@ -389,7 +392,7 @@ export const agentWorkWorkerLive = (cfg: Config) =>
       yield* Layer.launch(AgentWorkerLive(cfg, pool, boss, executions));
     }),
   ).pipe(
-    Layer.provide(AgentWorkBossLive(cfg)),
+    Layer.provide(AgentWorkBossLive(cfg, { shutdownAnalytics: false })),
     Layer.provide(AgentWorkExecutionsLive),
     Layer.provide(AgentWorkPoolLive(cfg)),
   );

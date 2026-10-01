@@ -5,6 +5,7 @@ import type { Config } from "../config.js";
 import { runMigrations } from "../db/migrations.js";
 import { createPgPool } from "../db/postgres.js";
 import { shutdownAnalytics } from "../analytics/index.js";
+import { logWarn } from "../evlog.js";
 import { SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
@@ -21,7 +22,33 @@ export const AgentWorkExecutionsLive = Layer.scoped(
   AgentWorkExecutions,
   Effect.acquireRelease(
     Effect.sync(() => createExecutionTracker()),
-    (tracker) => Effect.promise(() => tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS)),
+    (tracker) =>
+      Effect.promise(async () => {
+        const outcomes: PromiseSettledResult<unknown>[] = await Promise.allSettled([
+          tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS),
+        ]);
+        // Durable dispatches write terminal work-item marks: give them one more
+        // bounded window before the pool ends, concurrent with the bounded
+        // analytics flush so PostHog cannot delay those marks. Settled handling
+        // keeps the flush running even if a settle branch fails.
+        outcomes.push(
+          ...(await Promise.allSettled([
+            tracker.settle(SHUTDOWN_SETTLE_TIMEOUT_MS, { durableOnly: true }),
+            shutdownAnalytics(),
+          ])),
+        );
+        const remaining = await tracker.settle(0);
+        if (remaining.pendingHandlers > 0 || remaining.pendingDurable > 0) {
+          logWarn("agent_worker_shutdown_incomplete", {
+            pendingHandlers: remaining.pendingHandlers,
+            pendingDurableDispatches: remaining.pendingDurable,
+            settleTimeoutMs: SHUTDOWN_SETTLE_TIMEOUT_MS,
+          });
+        }
+        for (const outcome of outcomes) {
+          if (outcome.status === "rejected") throw outcome.reason;
+        }
+      }),
   ),
 );
 
@@ -45,7 +72,10 @@ export const AgentWorkPoolLive = (cfg: Config) =>
     ),
   );
 
-export const AgentWorkBossLive = (cfg: Config) =>
+export const AgentWorkBossLive = (
+  cfg: Config,
+  options?: { readonly shutdownAnalytics?: boolean },
+) =>
   Layer.scoped(
     AgentWorkBoss,
     Effect.acquireRelease(
@@ -61,7 +91,9 @@ export const AgentWorkBossLive = (cfg: Config) =>
         Effect.tryPromise({
           try: async () => {
             await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
-            await shutdownAnalytics();
+            // The worker flushes analytics from its executions finalizer instead,
+            // so the flush runs concurrently with the durable-dispatch reserve.
+            if (options?.shutdownAnalytics !== false) await shutdownAnalytics();
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),
