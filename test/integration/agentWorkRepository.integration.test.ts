@@ -885,6 +885,64 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     }
   });
 
+  it("own verdict rejects a corrupt selection without overwriting it or publishing", async () => {
+    const id = await insertWorkItem({ status: "completed" });
+    const identity = {
+      workItemId: id,
+      resourceKey: `repo-it-${id}`,
+      reviewLens: "review" as const,
+      leaseEpoch: null,
+    };
+    await recordReviewCheckRun(pool, {
+      ...identity,
+      githubId: 111,
+      detail: {
+        status: "in_progress",
+        selectedOwnVerdict: { conclusion: "invalid", summary: "corrupt winner" },
+      },
+    });
+    const before = await pool.query("SELECT * FROM publish_records WHERE work_item_id = $1", [id]);
+    const error = { code: "agent_work.own_verdict_invalid" };
+    await expect(closeRepository.getOwnVerdictCloseRecord(pool, identity)).rejects.toMatchObject(
+      error,
+    );
+    await expect(
+      closeRepository.claimOwnVerdict(pool, {
+        ...identity,
+        selected: { conclusion: "success", summary: "contender" },
+      }),
+    ).rejects.toMatchObject(error);
+    const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    const finish = vi.spyOn(surface, "finishReviewCheck");
+    const status = vi.spyOn(surface, "setReviewCommitStatus");
+    await expect(
+      closeOwnVerdict({
+        ...identity,
+        pool,
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        headSha: "h",
+        commitStatusEnabled: true,
+        outcome: { kind: "published", findings: [] },
+      }),
+    ).rejects.toMatchObject(error);
+    expect(finish).not.toHaveBeenCalled();
+    expect(status).not.toHaveBeenCalled();
+    expect(controls.events).toEqual([]);
+    const after = await pool.query("SELECT * FROM publish_records WHERE work_item_id = $1", [id]);
+    expect(after.rows).toEqual(before.rows);
+    console.log(
+      "own-verdict-invalid-selection",
+      JSON.stringify({
+        unchanged: true,
+        finishCalls: finish.mock.calls.length,
+        statusCalls: status.mock.calls.length,
+      }),
+    );
+  });
+
   it.each(["check_mismatch", "status_mismatch", "check_without_id"] as const)(
     "own verdict receipt rejects %s without changing the winner row",
     async (mode) => {
@@ -1462,6 +1520,56 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       expect(await closeRepository.withOwnVerdictClose(pool, params, async () => true)).toBe(true);
     },
   );
+
+  it("own verdict destroys the client after a false unlock and restores single-slot admission", async () => {
+    const scopedPool = new Pool({ ...pool.options, max: 1, connectionTimeoutMillis: 1500 });
+    const id = await insertWorkItem({ status: "completed" });
+    const identity = {
+      workItemId: id,
+      resourceKey: `repo-it-${id}`,
+      reviewLens: "review" as const,
+      leaseEpoch: null,
+    };
+    const released = vi.fn();
+    try {
+      const firstPid = await closeRepository.withOwnVerdictClose(
+        scopedPool,
+        identity,
+        async (client) => {
+          const release = client.release.bind(client);
+          vi.spyOn(client, "release").mockImplementation((destroy) => {
+            released(destroy);
+            release(destroy);
+          });
+          const { rows } = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+          const unlocked = await client.query<{ unlocked: boolean }>(
+            "SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS unlocked",
+            [`own-verdict:${id}:review`],
+          );
+          expect(unlocked.rows[0].unlocked).toBe(true);
+          return rows[0].pid;
+        },
+      );
+      expect(released).toHaveBeenCalledExactlyOnceWith(true);
+      const nextPid = await closeRepository.withOwnVerdictClose(
+        scopedPool,
+        identity,
+        async (client) => {
+          const { rows } = await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+          return rows[0].pid;
+        },
+      );
+      expect(firstPid).toEqual(expect.any(Number));
+      expect(nextPid).toEqual(expect.any(Number));
+      expect(nextPid).not.toBe(firstPid);
+      console.log(
+        "own-verdict-false-unlock",
+        JSON.stringify({ destroyed: true, freshBackend: nextPid !== firstPid }),
+      );
+    } finally {
+      await scopedPool.end();
+    }
+  });
 
   it("own verdict numeric lease can close running work but a stale epoch cannot replace it", async () => {
     const id = await insertWorkItem({ status: "running" });
