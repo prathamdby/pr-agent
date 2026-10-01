@@ -20,6 +20,8 @@ import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 
 const mocks = vi.hoisted(() => ({
   lockPrActorLeaseForUpdate: vi.fn(),
+  acquireAutoWorkIntakeLock: vi.fn(),
+  loadReviewLifecycle: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -28,6 +30,13 @@ vi.mock("../src/agentWork/repository.js", () => ({
 }));
 vi.mock("../src/agentWork/prActorLease.js", () => ({
   lockPrActorLeaseForUpdate: mocks.lockPrActorLeaseForUpdate,
+}));
+vi.mock("../src/agentWork/autoWorkEnqueue.js", () => ({
+  acquireAutoWorkIntakeLock: mocks.acquireAutoWorkIntakeLock,
+}));
+vi.mock("../src/agentWork/intake/workItemRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/intake/workItemRepository.js")>()),
+  loadReviewLifecycle: mocks.loadReviewLifecycle,
 }));
 vi.mock("../src/db/postgres.js", () => ({
   inTransaction: async (
@@ -87,6 +96,8 @@ function bossWithReviewJobs(jobs: unknown[] = []): PgBoss {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.lockPrActorLeaseForUpdate.mockResolvedValue(undefined);
+  mocks.acquireAutoWorkIntakeLock.mockResolvedValue(undefined);
+  mocks.loadReviewLifecycle.mockResolvedValue(undefined);
 });
 
 describe("createReviewRescheduleWorkItem", () => {
@@ -589,7 +600,8 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
     expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
   });
 
-  it("skips cancel when a replacement review job is live", async () => {
+  it("cancels pending replacement work despite a live review delivery (#662)", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
     const pool = {} as Pool;
     const boss = bossWithReviewJobs([
       {
@@ -607,7 +619,8 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
       false,
     );
 
-    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", expect.any(Error));
+    expect(boss.findJobs).not.toHaveBeenCalled();
   });
 
   it("rejects and signals an error when replacement cancellation misses (#661)", async () => {

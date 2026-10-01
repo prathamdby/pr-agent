@@ -21,6 +21,11 @@ Accepted. Amends ADR 0006 consequences (the `key_strict_fifo` / `releaseReviewQu
 5. **Intake stops repairing the queue.** Slash `/cancel`, `/review force`, close cancel, and stale-head reschedule terminalize work items and request cooperative cancellation exactly as before, but no longer find, cancel, or delete pg-boss jobs. Review cancel clears any `pr_actor_leases` holder whose `(work_item_id, lease_epoch)` matches the cancelled rows' recorded epochs, so a force replacement can acquire immediately instead of waiting for cooperative release or TTL; auto supersede and triage-cancel clear the same way (#663). The slot-release module, the singleton-key helpers, the stranded-work reaper, and the blocked-keys diagnostics are deleted.
 
    Pending stale-head replacement cleanup also covers a concurrent claim (#661).
+   Queue existence cannot veto the state-predicated work-item cancellation write.
+   Successful in-attempt enqueue and the terminal fallback's persisted enqueued
+   marker retain their exemptions. Sends may leave terminal deliveries behind;
+   durable cancellation and the publication boundary, not queue absence, prevent
+   new feature output.
    After a queued miss, the first positive recorded replacement epoch stays fixed
    across rereads and epoch-equal queued retries. Those item-only statements
    finish before the running fallback locks the exact lease and updates the item,

@@ -6,7 +6,11 @@ import { AppError, isAppError } from "../errors/appError.js";
 import { logError, logInfo } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
-import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
+import { acquireAutoWorkIntakeLock } from "./autoWorkEnqueue.js";
+import {
+  loadReviewLifecycle,
+  transferProgressCommentOwnership,
+} from "./intake/workItemRepository.js";
 import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
 import {
@@ -55,11 +59,11 @@ export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppErr
 /**
  * Cancel a pending stale-head replacement, including one that won a concurrent claim.
  * Uses the known replacement id from the reschedule result — no payload re-fetch/re-parse.
- * No-ops when enqueue succeeded in this attempt or a replacement review job is live.
+ * No-ops when enqueue succeeded in this attempt; queue traffic cannot veto cancellation.
  */
 export async function cancelUnenqueuedStaleHeadReplacement(
   pool: Pool,
-  boss: PgBoss,
+  _boss: PgBoss,
   parent: ReviewWorkItem,
   replacementWorkItemId: string,
   error: unknown,
@@ -67,7 +71,6 @@ export async function cancelUnenqueuedStaleHeadReplacement(
 ): Promise<void> {
   if (replacementEnqueued) return;
   try {
-    if (await replacementReviewJobExists(boss, replacementWorkItemId)) return;
     if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
       throw new AppError({
         code: "agent_work.replacement_cancel_rejected",
@@ -170,6 +173,15 @@ export async function createReviewRescheduleWorkItem(
   leaseEpoch: number,
 ): Promise<ReviewRescheduleWorkItem> {
   return inTransaction(pool, async (client) => {
+    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey: item.resourceKey });
+    const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
+    if (lifecycle?.state === "closed" || lifecycle?.state === "merged") {
+      throw new AppError({
+        code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+        message: `Pull request is ${lifecycle.state}; stale-head replacement is not permitted`,
+        context: { workItemId: item.id, resourceKey: item.resourceKey },
+      });
+    }
     await lockPrActorLeaseForUpdate(client, item.id, leaseEpoch);
     const parentLive = await client.query<{ id: string }>(
       `SELECT id FROM agent_work_items
@@ -294,14 +306,6 @@ async function markStaleHeadReplacementEnqueued(
        AND ${STALE_HEAD_REPLACEMENT_ID_SQL} = $3`,
     [parentId, JSON.stringify({ staleHeadReplacement: enqueued }), replacementWorkItemId],
   );
-}
-
-async function replacementReviewJobExists(boss: PgBoss, workItemId: string): Promise<boolean> {
-  const jobs = await boss.findJobs<ReviewJobData>(REVIEW_QUEUE, { id: workItemId });
-  return jobs.some((job) => {
-    const state = job.state as string;
-    return state !== "cancelled" && state !== "completed" && state !== "failed";
-  });
 }
 
 async function ensureDeterministicJob(

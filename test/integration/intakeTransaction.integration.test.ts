@@ -13,6 +13,13 @@ import { createAskWorkItem } from "../../src/agentWork/intake/workItemRepository
 import { defaultAskQuotaConfig } from "../../src/agentWork/askQuota.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
+import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/repository.js";
+import {
+  createReviewRescheduleWorkItem,
+  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+} from "../../src/agentWork/reviewReschedule.js";
+import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
 import type {
   AckJobData,
   CiProjectionJobData,
@@ -1173,6 +1180,185 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       for (const action of triggers) AUTO_TRIGGER_ACTIONS.review.add(action);
     }
   });
+
+  it.each(["replacement-first", "close-first"] as const)(
+    "orders stale-head replacement and production close (#662): %s",
+    async (order) => {
+      const ref = makePrRef();
+      const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+      const cfg = makeTestConfig({
+        features: { ...intakeCfg.features, review: "auto", describe: "off", verification: "off" },
+      });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        cfg,
+      );
+      const {
+        rows: [row],
+      } = await pool.query<{ id: string }>(
+        "SELECT id FROM agent_work_items WHERE resource_key = $1 AND type = 'review'",
+        [key],
+      );
+      const acquisition = await acquirePrActorLease(pool, {
+        resourceKey: key,
+        workType: "review",
+        workItemId: row.id,
+        holderId: "replacement-close-662",
+        ttlSeconds: 900,
+      });
+      if (!acquisition.acquired) throw new Error("expected parent lease");
+      await claimWorkForExecution(pool, row.id, acquisition.leaseEpoch);
+      const parent = await getWorkItem(pool, row.id);
+      if (parent?.type !== "review") throw new Error("expected running parent");
+      const progressBefore = (
+        await pool.query(
+          "SELECT work_item_id, detail FROM publish_records WHERE resource_key = $1 AND step = 'progress_comment'",
+          [key],
+        )
+      ).rows;
+      let resume!: () => void;
+      let paused!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      const ready = new Promise<void>((resolve) => {
+        paused = resolve;
+      });
+      let producerPid: number | undefined;
+      const transfer = workItemRepository.transferProgressCommentOwnership;
+      const cancel = workItemRepository.cancelActiveReviews;
+      const pause =
+        order === "replacement-first"
+          ? vi
+              .spyOn(workItemRepository, "transferProgressCommentOwnership")
+              .mockImplementationOnce(async (client, params) => {
+                await transfer(client, params);
+                producerPid = (await client.query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+                paused();
+                await gate;
+              })
+          : vi
+              .spyOn(workItemRepository, "cancelActiveReviews")
+              .mockImplementationOnce(async (...args) => {
+                const cancelled = await cancel(...args);
+                producerPid = (await args[0].query("SELECT pg_backend_pid() AS pid")).rows[0].pid;
+                paused();
+                await gate;
+                return cancelled;
+              });
+      const close = () =>
+        applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("closed", randomUUID()),
+          ref,
+          "closed",
+          intakeLog(),
+          cfg,
+          { lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:02Z" } },
+        );
+      let insertion: ReturnType<typeof createReviewRescheduleWorkItem> | undefined;
+      let closing: Promise<void> | undefined;
+      try {
+        if (order === "replacement-first")
+          insertion = createReviewRescheduleWorkItem(pool, parent, acquisition.leaseEpoch);
+        else closing = close();
+        await ready;
+        if (order === "replacement-first") closing = close();
+        else insertion = createReviewRescheduleWorkItem(pool, parent, acquisition.leaseEpoch);
+        void insertion?.catch(() => undefined);
+        void closing?.catch(() => undefined);
+        await expect
+          .poll(
+            async () =>
+              (
+                await pool.query<{ blocked: boolean }>(
+                  "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))) AS blocked",
+                  [producerPid],
+                )
+              ).rows[0].blocked,
+            { timeout: 5000 },
+          )
+          .toBe(true);
+        const other = makePrRef();
+        await applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("opened", randomUUID()),
+          other,
+          "opened",
+          intakeLog(),
+          cfg,
+        );
+        expect(
+          (
+            await pool.query(
+              "SELECT status FROM agent_work_items WHERE resource_key = $1 AND type = 'review'",
+              [prResourceKey(other.owner, other.repo, other.prNumber)],
+            )
+          ).rows,
+        ).toEqual([{ status: "queued" }]);
+        resume();
+        if (order === "replacement-first") await insertion;
+        else {
+          await expect(insertion).rejects.toMatchObject({
+            code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+          });
+          const persisted = await getWorkItem(pool, parent.id);
+          if (persisted?.type !== "review") throw new Error("expected review parent");
+          expect(persisted.payload.staleHeadReplacement).toBeUndefined();
+          expect(
+            (
+              await pool.query(
+                "SELECT work_item_id, detail FROM publish_records WHERE resource_key = $1 AND step = 'progress_comment'",
+                [key],
+              )
+            ).rows,
+          ).toEqual(progressBefore);
+        }
+        await closing;
+        expect(
+          (await pool.query("SELECT state FROM pr_review_lifecycle WHERE resource_key = $1", [key]))
+            .rows,
+        ).toEqual([{ state: "closed" }]);
+        const work = (
+          await pool.query<{ id: string; status: string }>(
+            "SELECT id, status FROM agent_work_items WHERE resource_key = $1 AND type = 'review'",
+            [key],
+          )
+        ).rows;
+        console.info(
+          "replacement-close-evidence",
+          JSON.stringify({
+            order,
+            lifecycle: "closed",
+            statuses: work.map(({ status }) => status),
+            activeReviews: work.filter(({ status }) => status === "queued" || status === "running")
+              .length,
+          }),
+        );
+        expect(work.filter(({ status }) => status === "queued" || status === "running")).toEqual(
+          [],
+        );
+        expect(work).toHaveLength(order === "replacement-first" ? 2 : 1);
+        const ack = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+          ({ data }) => data.repo === ref.repo && data.cancelProgress != null,
+        );
+        expect(ack?.data.cancelProgress).toMatchObject({
+          attribution: { kind: "closed" },
+        });
+      } finally {
+        resume();
+        await Promise.allSettled([insertion, closing].filter((run) => run != null));
+        pause.mockRestore();
+      }
+    },
+  );
 
   it.each(["closed", "merged"] as const)(
     "zero-work %s blocks slash review/force with actual replies; duplicates add no jobs",
