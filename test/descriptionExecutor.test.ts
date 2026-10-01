@@ -132,6 +132,8 @@ function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<Descrip
     sourceId: null,
     sourceCreatedOn: null,
     sourceRetryCount: null,
+    sourceOutput: null,
+    sourceRootId: null,
   };
 }
 
