@@ -851,8 +851,11 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     } finally {
       receiptSpy.mockRestore();
     }
+    const saved = await closeRepository.getOwnVerdictCloseRecord(pool, params);
     await closeOwnVerdict({
       ...params,
+      headSha: "h",
+      commitStatusEnabled: true,
       outcome: { kind: "published", findings: [], summary: "loser" },
     });
     const accepted = controls.events.filter((event) => event.kind === "finishReviewCheck");
@@ -874,7 +877,64 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     expect(rows).toHaveLength(1);
     if (mode !== "no_check" && mode !== "check_unknown")
       expect(rows[0].detail).toMatchObject({ status: "completed", conclusion: "failure" });
+    if (["deferred", "empty", "flag_off"].includes(mode)) {
+      expect(status).not.toHaveBeenCalled();
+      expect(rows[0].detail.selectedOwnVerdict).toEqual(saved?.selected);
+      expect(rows[0].detail.ownCheckApplied).toBe(true);
+      expect(rows[0].detail.ownStatusApplied).not.toBe(true);
+    }
   });
+
+  it.each(["check_mismatch", "status_mismatch", "check_without_id"] as const)(
+    "own verdict receipt rejects %s without changing the winner row",
+    async (mode) => {
+      const id = await insertWorkItem({ status: "completed" });
+      const identity = {
+        workItemId: id,
+        resourceKey: `repo-it-${id}`,
+        reviewLens: "review" as const,
+        leaseEpoch: null,
+      };
+      if (mode !== "check_without_id")
+        await recordReviewCheckRun(pool, {
+          ...identity,
+          githubId: 111,
+          detail: { status: "in_progress" },
+        });
+      const selected = {
+        conclusion: "failure" as const,
+        summary: "winner",
+        status: { headSha: "h", enabled: true, state: "failure" as const },
+      };
+      await closeRepository.claimOwnVerdict(pool, { ...identity, selected });
+      const before = await pool.query("SELECT * FROM publish_records WHERE work_item_id = $1", [
+        id,
+      ]);
+      await expect(
+        closeRepository.recordOwnVerdictSurfaceApplied(
+          pool,
+          {
+            ...identity,
+            selected:
+              mode === "check_without_id"
+                ? selected
+                : {
+                    conclusion: "success",
+                    summary: "loser",
+                    status: { headSha: "h", enabled: true, state: "success" },
+                  },
+          },
+          mode === "status_mismatch" ? "status" : "check",
+        ),
+      ).rejects.toMatchObject({ code: "agent_work.own_verdict_receipt_rejected" });
+      const after = await pool.query("SELECT * FROM publish_records WHERE work_item_id = $1", [id]);
+      expect(after.rows).toEqual(before.rows);
+      expect(after.rows[0].detail.selectedOwnVerdict).toEqual(selected);
+      expect(after.rows[0].detail.ownCheckApplied).toBeUndefined();
+      expect(after.rows[0].detail.ownStatusApplied).toBeUndefined();
+      console.log("own-verdict-rejected-receipt", JSON.stringify({ mode, unchanged: true }));
+    },
+  );
 
   it.each(["completed", "unknown", "mutating", "saved_result", "rejected"] as const)(
     "own verdict preserves legacy completion evidence %s",
