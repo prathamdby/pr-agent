@@ -62,15 +62,15 @@ jobs:
   # with `if: always()`, jobs `needs` omits default to skipped, which the
   # loop below treats as success.
   gate:
-    needs: [changes, check, integration, docker, site]
+    needs: [changes, check, commit-messages, integration, docker, site]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - run: |
-          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }}"
+          echo "changes=${{ needs.changes.result }} check=${{ needs.check.result }} commit-messages=${{ needs.commit-messages.result }} integration=${{ needs.integration.result }} docker=${{ needs.docker.result }} site=${{ needs.site.result }}"
           if [ "${{ needs.changes.result }}" != "success" ]; then echo "gate: failing on changes=${{ needs.changes.result }}"; exit 1; fi
-          for r in "${{ needs.check.result }}" "${{ needs.integration.result }}" "${{ needs.docker.result }}" "${{ needs.site.result }}"; do
+          for r in "${{ needs.check.result }}" "${{ needs.commit-messages.result }}" "${{ needs.integration.result }}" "${{ needs.docker.result }}" "${{ needs.site.result }}"; do
             case "$r" in success|skipped) ;; *) echo "gate: failing on $r"; exit 1;; esac
           done
           echo "gate green"
@@ -93,6 +93,23 @@ jobs:
       - run: nub run check:guards
       - run: nub run test
       - run: nub run build
+
+  commit-messages:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch base branch
+        run: git fetch --no-tags origin "$BASE_REF"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+      - name: Check PR commit messages
+        run: node scripts/check-commit-messages.mjs --base "origin/$BASE_REF" --head HEAD
+        env:
+          BASE_REF: ${{ github.base_ref }}
 
   integration:
     needs: changes
