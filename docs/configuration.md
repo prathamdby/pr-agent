@@ -335,7 +335,7 @@ Work item retries are scheduled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RET
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                                                                                                        |
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                                                                                                              |
 | `PR_ACTOR_LEASE_DEFER_SECONDS`             | 15, delay between lease attempts. Arming needs a created/retry successor. Terminal current/next slots are reconciled before one guarded resend, without an extra wait. Lives in `src/agentWork/prActorLease.ts`, not settings.               |
-| `STALE_QUEUED_WORK_GRACE_SECONDS`          | 300, age after which a queued leased-type work item with no live lease and no live pg-boss job is logged as `agent_work_queued_stale` (delivery chain dead). Added to `PR_ACTOR_LEASE_TTL_SECONDS` for the lost-running sweeper.             |
+| `STALE_QUEUED_WORK_GRACE_SECONDS`          | 300, queued leased-type dead-chain warning age when no lease/job is live (`agent_work_queued_stale`). Added to `PR_ACTOR_LEASE_TTL_SECONDS` for lost-running marks, which recheck age and liveness.                                          |
 | `ESCALATED_TOOL_ROUNDS_MULTIPLIER`         | 2, factor applied to a base structured-loop tool-round budget on an escalated attempt (attempt 2 and later)                                                                                                                                  |
 | `ESCALATED_TOOL_ROUNDS_CAP`                | 64, ceiling on any escalated tool-round budget                                                                                                                                                                                               |
 
@@ -407,6 +407,12 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `AGENT_INSTRUCTION_FILENAMES`                                                                                                                      | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` (repo-root load order)                                                      |
 | `MAX_AGENT_INSTRUCTION_BYTES`                                                                                                                      | 65536 (aggregate content across accepted root files)                                                              |
 | `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                                                 | 32768                                                                                                             |
+
+`REVIEW_CANCEL_POLL_INTERVAL_MS` remains the cooperative signal-observation
+backstop. Leased execution surfaces also reread durable cancellation in the final
+mutation callback and then reassert lease ownership. This adds no knob and blocks
+new feature output when cancellation is visible. Cancellation notices and verdict
+cleanup retain their existing fences; requests already in flight cannot be withdrawn.
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 

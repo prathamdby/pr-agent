@@ -148,6 +148,12 @@ GitHub sends a signed webhook to the web role. The web role verifies and parses 
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
+Leased execution surfaces reread durable cancellation at entry and immediately
+before each mutation callback, then reassert lease ownership. Visible cancellation
+blocks feature output even before the observer aborts the signal. Terminal notices
+and verdict cleanup retain their existing signal and epoch fences. A request
+already in flight cannot be withdrawn.
+
 ```mermaid
 flowchart LR
   GitHub[GitHub webhook] --> Web[ROLE=web /webhooks]
@@ -171,6 +177,11 @@ Cancellation or completion that finishes first allows a fresh item; otherwise
 intake commits the normal in-progress acknowledgement before that transition.
 `/verify` also has an unchanged, nonlocking active-work precheck.
 These row locks are separate from review advisory ordering and execution leases.
+
+Lost-running diagnostics are advisory. The sweeper rechecks the item age,
+lease expiry, and matching live job in the conditional failure write. Only an
+applied mark permits a candidate's crashed verdict close; revived work stays
+running. Terminal reviews with open checks still have a separate repair lane.
 
 Progress publish records remain owner-gated independently of the actor lease.
 A zero-row progress write rechecks the lease, then warns and raises

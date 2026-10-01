@@ -54,6 +54,8 @@ Review runs four specialists (correctness, security, quality, tests) under one o
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`). Mention matching uses the App bot login, not the word `@bot`. `/ask` and `/help` do not need a mention.
 
+`/cancel` blocks new review output when the worker's final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
+
 `/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.
 
 Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged without duplicate active slash work. A cancellation racing that decision no longer causes a missing-winner intake failure. A cancellation or completion that finishes first can allow a fresh run.
@@ -214,6 +216,8 @@ Then open a small PR on an **installed** repo. Comment `/help` as an owner, memb
 | `## PR Agent Review` progress comment       | PR conversation (auto review or `/review`) |
 | Inline findings on the Files tab            | When the bot can anchor them               |
 | Final summary replaces the progress comment | Same conversation comment                  |
+
+Crash recovery rechecks a review's lease and live jobs in the failure write. A renewed lease or restarted job keeps the review running instead of reporting a crash.
 
 Default `FEATURE_VERIFICATION=auto` spends tokens on every push. Switch it to `manual` or `off` if that bill is too high.
 
