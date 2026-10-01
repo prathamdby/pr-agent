@@ -19,6 +19,7 @@ import {
 import { collectQueueDiagnostics } from "../../src/agentWork/workerHealth.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { inTransaction } from "../../src/db/postgres.js";
+import * as evlog from "../../src/evlog.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as prSurface from "../../src/github/prSurface.js";
 import {
@@ -715,11 +716,44 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
   it.each(["item", "lease", "missing lease", "unrelated job"] as const)(
     "defers on %s contention and recovers after it ends",
     async (block) => {
-      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: 1800 });
+      const cfg = makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: true },
+      });
+      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
       await pool.query(
         "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
         [id],
       );
+      const fake = prSurface.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      const token = vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "synthetic-integration-token",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      });
+      const factory = vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+      const check = await fake.surface.startReviewCheck("h", id, "Running");
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: check.id,
+        detail: { status: "in_progress" },
+      });
+      const finish = fake.surface.finishReviewCheck.bind(fake.surface);
+      vi.spyOn(fake.surface, "finishReviewCheck").mockImplementation(async (...args) => {
+        expect(
+          (
+            await pool.query(
+              "SELECT status, last_error, completed_at FROM agent_work_items WHERE id = $1",
+              [id],
+            )
+          ).rows,
+        ).toEqual([
+          { status: "failed", last_error: "worker_lost", completed_at: expect.any(Date) },
+        ]);
+        return finish(...args);
+      });
       if (block !== "missing lease") {
         await acquirePrActorLease(pool, {
           resourceKey,
@@ -733,7 +767,28 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           [id],
         );
       }
+      const snapshot = await collectQueueDiagnostics({
+        boss,
+        pool,
+        now: new Date(),
+        diagnosticQueues: [],
+        dlqQueues: [],
+        lostRunningMinAgeSeconds: minAgeSeconds,
+      });
+      const items = snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id);
+      expect(items).toHaveLength(1);
       const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+      const checkBefore = await pool.query(
+        "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+        [id],
+      );
+      const outcomes: boolean[] = [];
+      const mark = workState.markLostRunningWorkFailed;
+      vi.spyOn(workState, "markLostRunningWorkFailed").mockImplementation(async (...args) => {
+        const result = await mark(...args);
+        outcomes.push(result);
+        return result;
+      });
       const blocker = await pool.connect();
       let open = false;
       try {
@@ -770,7 +825,8 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           );
         }
         const started = performance.now();
-        expect(await workState.markLostRunningWorkFailed(pool, id, 1200)).toBe(false);
+        await reconcileLostRunningWork({ cfg, pool, items });
+        expect(outcomes).toEqual([false]);
         console.info("lost-running contention duration", {
           block,
           durationMs: performance.now() - started,
@@ -778,11 +834,131 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         expect(
           (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
         ).toEqual(before.rows);
+        expect(
+          (
+            await pool.query(
+              "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+              [id],
+            )
+          ).rows,
+        ).toEqual(checkBefore.rows);
+        expect(token).not.toHaveBeenCalled();
+        expect(factory).not.toHaveBeenCalled();
+        expect(
+          fake.controls.events.filter(
+            (event) => event.kind === "finishReviewCheck" || event.kind === "setReviewCommitStatus",
+          ),
+        ).toEqual([]);
         await blocker.query("ROLLBACK");
         open = false;
-        expect(await workState.markLostRunningWorkFailed(pool, id, 1200)).toBe(true);
+        await reconcileLostRunningWork({ cfg, pool, items });
+        expect(outcomes).toEqual([false, true]);
+        await reconcileLostRunningWork({ cfg, pool, items });
+        expect(outcomes).toEqual([false, true]);
+        expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
+          expect.objectContaining({ conclusion: "action_required" }),
+        ]);
+        expect(
+          fake.controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
+        ).toEqual([
+          expect.objectContaining({ status: expect.objectContaining({ state: "error" }) }),
+        ]);
       } finally {
         if (open) await blocker.query("ROLLBACK");
+        blocker.release();
+      }
+    },
+  );
+
+  it.each(["55P03", "57014"] as const)(
+    "propagates an early routing error %s and warns during reconciliation",
+    async (code) => {
+      const cfg = makeTestConfig();
+      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
+      await pool.query(
+        "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
+        [id],
+      );
+      const snapshot = await collectQueueDiagnostics({
+        boss,
+        pool,
+        now: new Date(),
+        diagnosticQueues: [],
+        dlqQueues: [],
+        lostRunningMinAgeSeconds: minAgeSeconds,
+      });
+      const items = snapshot.lostRunningWorkItems.filter((item) => item.workItemId === id);
+      expect(items).toHaveLength(1);
+      const before = await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id]);
+      const blocker = await pool.connect();
+      const sweeper = await pool.connect();
+      const read = sweeper.query.bind(sweeper);
+      const release = sweeper.release.bind(sweeper);
+      const defaults = await read(
+        `SELECT current_setting('statement_timeout') AS statement,
+                current_setting('idle_in_transaction_session_timeout') AS idle`,
+      );
+      const warn = vi.spyOn(evlog, "logWarn");
+      const mark = workState.markLostRunningWorkFailed;
+      vi.spyOn(workState, "markLostRunningWorkFailed").mockImplementation(async (...args) => {
+        const connect = vi.spyOn(pool, "connect").mockImplementationOnce(async () => sweeper);
+        try {
+          return await mark(...args);
+        } finally {
+          connect.mockRestore();
+        }
+      });
+      vi.spyOn(sweeper, "release").mockImplementation(() => undefined);
+      const query = vi.spyOn(sweeper, "query").mockImplementation(async (text, values) => {
+        if (
+          typeof text === "string" &&
+          text.includes("SELECT resource_key, type") &&
+          values?.[0] === id
+        ) {
+          if (code === "55P03") {
+            await read("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE NOWAIT", [id]);
+          } else {
+            await read("SELECT pg_sleep(5)");
+          }
+        }
+        return read(text, values);
+      });
+      let open = false;
+      try {
+        await blocker.query("BEGIN");
+        open = true;
+        await blocker.query("SELECT id FROM agent_work_items WHERE id = $1 FOR UPDATE", [id]);
+        await expect(
+          workState.markLostRunningWorkFailed(pool, id, minAgeSeconds),
+        ).rejects.toMatchObject({
+          code,
+        });
+        await reconcileLostRunningWork({ cfg, pool, items });
+        expect(warn).toHaveBeenCalledWith(
+          "lost_running_work_reconcile_failed",
+          expect.objectContaining({ workItemId: id, message: expect.any(String) }),
+        );
+        expect(
+          (await pool.query("SELECT * FROM agent_work_items WHERE id = $1", [id])).rows,
+        ).toEqual(before.rows);
+        expect(
+          (
+            await read(
+              `SELECT current_setting('statement_timeout') AS statement,
+                      current_setting('idle_in_transaction_session_timeout') AS idle`,
+            )
+          ).rows,
+        ).toEqual(defaults.rows);
+        await blocker.query("ROLLBACK");
+        open = false;
+        query.mockRestore();
+        expect(await workState.markLostRunningWorkFailed(pool, id, minAgeSeconds)).toBe(true);
+      } finally {
+        if (open) await blocker.query("ROLLBACK");
+        query.mockRestore();
+        vi.mocked(sweeper.release).mockRestore();
+        release();
         blocker.release();
       }
     },
