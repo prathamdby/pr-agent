@@ -168,6 +168,11 @@ blocks feature output even before the observer aborts the signal. Terminal notic
 and verdict cleanup retain their existing signal and epoch fences. A request
 already in flight cannot be withdrawn.
 
+Stale-head replacement retries merge incoming defaults with the stored child
+payload in the conflict statement. Stored values win collisions, including across
+lease epochs, so retry cannot erase another writer's changes. A new replacement
+still receives the complete original source and slash-command context.
+
 Terminal parent failure cancels a pending stale-head replacement even when its
 claim wins concurrently or a delivery races the abort. Queue existence cannot veto
 the state-predicated cancellation write. Successful in-attempt enqueue and the
