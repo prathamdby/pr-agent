@@ -15,7 +15,13 @@ workers, repositories, or installations.
 
 1. Shared ask intake performs admission before inserting an ask work item. It
    runs in the same Postgres transaction as webhook dedupe, work-item insert,
-   acknowledgement enqueue, and ask enqueue.
+   acknowledgement enqueue, and ask enqueue. Amended for #658: before
+   admission, intake serializes the triggering mention (installation, PR
+   resource, comment surface, and comment ID) on a transaction-scoped
+   advisory lock and joins a retained ask item for that mention in any
+   status, so a duplicate mention never reaches quota admission and cannot be
+   throttled or double-charged. The join guarantee ends when retention
+   deletes the retained item.
 2. Admission locks one durable token bucket for each actor, repository, and
    installation. It checks outstanding work before rate capacity, in the order
    actor, repository, installation. Bucket rows use a fixed lock order to avoid

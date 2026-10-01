@@ -44,7 +44,13 @@ Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are
 acknowledged without duplicate active slash work. A cancellation racing that
 decision no longer causes a missing-winner intake failure. A cancellation or
 completion that finishes first can allow a fresh run. `/ask` and `/help` do
-not use this active-work gate.
+not use this active-work gate. Ask instead deduplicates per triggering
+comment: repeated accepted deliveries of the same `/ask` or App-bot mention
+(same installation, PR, comment surface, and comment ID) join the retained
+run in any status without a second answer, ack, quota charge, or queue job.
+A new comment is a new question, even with identical text in the same
+thread. The join lasts until the work item is purged by
+`AGENT_WORK_RETENTION_SECONDS`.
 
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

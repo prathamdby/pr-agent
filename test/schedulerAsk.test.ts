@@ -36,6 +36,8 @@ function makeSlashInput(body: string) {
 }
 
 function askQuotaQuery(sql: string, params?: unknown[]) {
+  if (sql.includes("pg_advisory_xact_lock")) return { rows: [] };
+  if (sql.includes("payload->'replyTarget'")) return { rows: [] };
   if (sql.includes("INSERT INTO ask_quota_buckets")) return { rows: [] };
   if (sql.includes("FROM ask_quota_buckets") && sql.includes("FOR UPDATE")) {
     return {

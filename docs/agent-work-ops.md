@@ -44,6 +44,27 @@ group by phase order by phase;
 
 A lease block can leave `agent_work_items.status = 'queued'` with no live job in the first seven queries. Inspect `pr_actor_leases` and `operation_intents` before assuming the worker is idle. Ask admission also writes `ask_quota_*` tables.
 
+## Ask Mention Duplicates
+
+Canonical ask intake admits one work item per triggering mention (installation, resource key, comment surface, and comment ID) and quietly joins later accepted deliveries to the retained item in any status. To find duplicate mentions admitted before this agreement existed (or by a mixed old/new web fleet), group ask items by mention identity:
+
+```sql
+select installation_id,
+  resource_key,
+  payload->'replyTarget'->>'kind' as surface,
+  payload->>'commentId' as comment_id,
+  count(*) as items,
+  count(*) filter (where status in ('queued', 'running')) as active,
+  array_agg(id::text || ':' || status order by created_at) as work_items
+from agent_work_items
+where type = 'ask'
+group by 1, 2, 3, 4
+having count(*) > 1
+order by 1, 2, 3, 4;
+```
+
+This is a metadata-only inspection: do not select question text, raw webhook bodies, or full payloads. Existing sibling groups are evidence, not corruption; the intake fix does not cancel, merge, or rewrite them, and their already-posted replies stay. Roll out the fix to every web intake replica before treating a group-free result as complete protection, and note that a code rollback reopens the old admission race. A mention becomes eligible again only after retention (`AGENT_WORK_RETENTION_SECONDS`) deletes the retained item.
+
 Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age counts), `agent_dead_letter_stats`, and `agent_work_item_age`. Empty queues are not treated as unhealthy.
 
 `webhook_events.processing_decision` describes the automated plan in precedence order:
