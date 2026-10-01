@@ -9,6 +9,13 @@ Behaviour semantics, deployment detail, and developer scripts for **pr-agent**. 
 - On **`pull_request_review`** (`submitted` approving reviews only), with `FEATURE_REVIEW=approval`, enqueues one auto **orchestrated review run** for the latest head when the approver is not a bot and their association passes `SLASH_ALLOWED_ASSOCIATIONS`. Repeat approvals are a no-op; other review states, dismissed reviews, and edited reviews are ignored. Workers publish atomic lifecycle reactions (👀 → 👍 / 👎), replies, and reviews after durable intake; the webhook fiber does not perform **PR-surface I/O**.
 - Responds **`200`** after **durable intake** commits to Postgres and pg-boss jobs are enqueued (or **`503`** if intake cannot commit; GitHub may redeliver). Reactions, progress comments, reviews, and ask answers run in **`ROLE=worker`** and may appear seconds after the HTTP response. The webhook does not wait for LLM runs to finish.
 
+CI projection debounce preserves accepted delivery/event pairs on the absorbing
+job in the intake transaction. If attribution cannot be stored, intake rolls
+back and returns `503` instead of accepting an untraceable delivery. CI fact
+acceptance, head revisions, and rendering stay unchanged. Worker logs keep the
+original primary identity; trace an absorbed delivery through
+[the queue runbook](agent-work-ops.md#ci-projection-delivery-attribution).
+
 Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 
 Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged

@@ -95,6 +95,54 @@ Audit-write failure rolls back intake and returns `503`, rather than acknowledgi
 
 Install additive migration `033_webhook_delivery_duplicates.sql` before upgraded web intake or worker retention runs. The normal startup migration runner does this. Upgrade all web instances to establish complete coverage; there is no historical backfill. A code-only rollback leaves the table intact but stops new evidence and its cleanup until upgraded code returns. Do not drop retained evidence as an automatic rollback.
 
+## CI projection delivery attribution
+
+Accepted CI projection intake retains `{webhookEventId, delivery}` pairs in the
+job's `data.correlations` array. A single delivery appears once. On debounce
+absorption, intake atomically appends the incoming pair to the exact next-slot
+job in the same transaction as the event and any CI facts. The job's original
+top-level pair stays unchanged, and worker logs still use that primary identity.
+The projector reads `pr_head_ci_state`, not the correlation list, for CI output.
+
+Bind `agent-work-ci-projection`, owner, repository, head SHA, and delivery ID to
+`$1` through `$5`. Never interpolate webhook headers into SQL.
+
+```sql
+select id, state, created_on, singleton_on,
+       data->>'delivery' as primary_delivery,
+       data->'correlations' as correlations
+from pgboss.job
+where name = $1
+  and data->>'owner' = $2
+  and data->>'repo' = $3
+  and data->>'headSha' = $4
+  and (
+    data->>'delivery' = $5
+    or coalesce(data->'correlations', '[]'::jsonb)
+         @> jsonb_build_array(jsonb_build_object('delivery', $5::text))
+  )
+order by created_on desc
+limit 100;
+```
+
+Attribution errors roll back intake and return `503`; redeliver after storage
+recovers. `agent_work.ci_projection_correlation_missing` means the exact absorbing
+job was missing or did not match the intake head/installation. Do not widen the
+lookup or treat it as accepted. Active, completed, and failed conflicts may gain
+metadata without changing state or scheduling.
+
+This metadata does not depend on `AGENT_EVENTS_ENABLED`. pg-boss job retention
+and deletion bound its lifetime: `QUEUE_RETENTION_SECONDS` defaults to 14 days
+and `QUEUE_DELETE_AFTER_SECONDS` to seven days after completion. Deleting a job
+also deletes its attribution; these settings do not promise indefinite history.
+
+Upgrade every web intake replica before relying on complete attribution. Old
+workers tolerate the additive JSON and continue rendering from head state; this
+metadata-only change needs no migration or queue drain. Legacy jobs gain their
+primary identity in the list on the next coalesce. There is no historical
+backfill for identities already lost. A code rollback leaves existing metadata
+readable but restores first-only attribution for new absorbed arrivals.
+
 ## Retry and Recovery
 
 Automatic and slash review intake share a per-PR transaction lock held through commit

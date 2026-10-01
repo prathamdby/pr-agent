@@ -399,6 +399,8 @@ Library lookup uses the fixed `https://context7.com/api` endpoint. Requests acce
 <details>
 <summary>Logging</summary>
 
+Coalesced CI deliveries keep their identities on your retained projection job. Worker logs still name the original delivery. See [the queue runbook](docs/agent-work-ops.md#ci-projection-delivery-attribution) to trace an absorbed delivery.
+
 If a replacement review owns the progress comment, late specialist ticks from the earlier run are skipped or rejected with an ownership warning.
 
 Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` defaults to true and strips secret-shaped substrings. AppError messages, contexts, raw values, causes, arrays, objects, and circular references are recursively sanitized at log and analytics boundaries; safe codes and identifiers remain available. See [the telemetry redaction policy](docs/operations.md#security).
