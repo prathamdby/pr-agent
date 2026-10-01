@@ -30,6 +30,14 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 ## Consequences
 
+- Slash review, description, triage, and verification insertion resolves active
+  work in one value-preserving UPSERT. A conflict holds the winner's row through
+  intake commit, including triage's ID-pinned payload read; cancellation cannot
+  split resolution and roll back an otherwise valid delivery. A terminal
+  transition that finishes first allows fresh work. Verification's earlier
+  active-work precheck remains nonlocking. This intake protection is separate
+  from review advisory ordering and worker leases. It adds a physical tuple/WAL
+  update on conflict without changing winner fields or replay reservations.
 - GitHub may redeliver if Postgres is unavailable during intake because the app returns `503` instead of acknowledging unpersisted work.
 - Acknowledgement reactions and progress comments are fast but asynchronous; they may appear shortly after the webhook response.
 - ~~`key_strict_fifo` blocks a pull request while a pg-boss review job is failed or an orphan holder remains.~~ Superseded by [ADR 0030](0030-pr-actor-lease.md): per-PR mutual exclusion moved to the `pr_actor_leases` table, all work queues use the `standard` policy, and the slot-release/reaper repair paths are deleted.

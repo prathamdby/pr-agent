@@ -397,7 +397,10 @@ export const APP_FIELDS = [
 ] as const;
 
 export const SLASH_COMMANDS = [
-  { cmd: "/review", tip: "Run a full review on the changes" },
+  {
+    cmd: "/review",
+    tip: "Run a full review; repeated commands acknowledge active work, even when cancellation races intake",
+  },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
   { cmd: "/triage", tip: "Apply fixes and push. Preview is optional." },

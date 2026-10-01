@@ -30,6 +30,12 @@ the latest commit. Concurrent restarts are applied in intake order, not
 treated as already-in-progress requests. Ordinary `/review` still deduplicates
 against active slash reviews.
 
+Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are
+acknowledged without duplicate active slash work. A cancellation racing that
+decision no longer causes a missing-winner intake failure. A cancellation or
+completion that finishes first can allow a fresh run. `/ask` and `/help` do
+not use this active-work gate.
+
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews each PR when opened; `approval` reviews only after a reviewer with standing approves; `/review` is always available.                                                                                 |

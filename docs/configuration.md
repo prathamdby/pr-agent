@@ -636,6 +636,10 @@ Source-boundary recognition is linear in each line. File eligibility, content ha
 
 ### Postgres pool
 
+`POSTGRES_LOCK_TIMEOUT_MS` also bounds waits on slash conflict rows held through
+intake commit. A timeout remains a real intake failure (`503` and redelivery),
+not an already-in-progress acknowledgement. No timeout defaults change.
+
 | Symbol                                    | Default | Role                                                                  |
 | ----------------------------------------- | ------- | --------------------------------------------------------------------- |
 | `POSTGRES_POOL_MAX`                       | 10      | app pool size                                                         |

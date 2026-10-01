@@ -40,7 +40,7 @@ function makeClient(): PoolClient {
         return { rows: [{ id: "event-1" }] };
       }
       if (sql.includes("INSERT INTO agent_work_items")) {
-        return { rows: [{ id: "work-1" }] };
+        return { rows: [{ id: "work-1", created: true }] };
       }
       return { rows: [] };
     }),

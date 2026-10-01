@@ -266,7 +266,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
-    const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
+    const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey, insert.id);
     if (!winner) {
       throw new AppError({
         code: "agent_work.slash_triage_conflict_no_winner",

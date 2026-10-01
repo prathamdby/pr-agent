@@ -60,6 +60,8 @@ Slash commands are case-sensitive. The command must be the first non-empty line 
 
 `/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.
 
+Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged without duplicate active slash work. A cancellation racing that decision no longer causes a missing-winner intake failure. A cancellation or completion that finishes first can allow a fresh run.
+
 Optional labels, commit status, and title rewrite are separate `FEATURE_*` flags. Set `FEATURE_DESCRIBE=off`, `FEATURE_ASK=off`, and similar when you want those features to stop calling the model.
 
 </details>

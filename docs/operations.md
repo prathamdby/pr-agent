@@ -11,6 +11,16 @@ Behaviour semantics, deployment detail, and developer scripts for **pr-agent**. 
 
 Architecture: [ADR 0006](adr/0006-durable-agent-work.md).
 
+Repeated `/review`, `/describe`, `/triage`, and `/verify` commands are acknowledged
+without duplicate active slash work. Their insert resolves its winner atomically
+and holds that row through intake commit; triage reads that winner's payload by ID.
+A cancellation racing resolution no longer causes a missing-winner intake failure.
+A cancellation or completion that finishes first can allow a fresh run.
+`/verify`'s earlier active-work precheck remains nonlocking and can acknowledge
+work that finishes before the reply posts. Review advisory ordering and execution
+leases are separate. Real storage, queue, or lock-timeout failures still roll back
+and return `503`.
+
 ## Behaviour and semantics
 
 - **Progress ownership conflicts:** a replacement review keeps ownership of the progress comment. Late specialist ticks from the earlier run are skipped or rejected with an ownership warning, even when that writer's actor lease still holds. See [the queue runbook](agent-work-ops.md#inspect-queue-health).
