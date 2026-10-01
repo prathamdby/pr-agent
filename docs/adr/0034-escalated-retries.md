@@ -40,6 +40,15 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 ## Consequences
 
+Amendment to decision 7: concurrent closes select one durable review verdict
+before publication, including acknowledgement. Null and omitted epochs require
+terminal work; numeric epochs keep their live fences. Repair retains that
+selection and applies only missing required surfaces. The completion parent can
+recover the exact selected child finish result; proven local/provider
+preacceptance remains retryable. Unknown and cached terminal-unknown outcomes
+are not reopened. Retry budgets and dispositions are unchanged. Legacy
+unreconstructible completion evidence stays unresolved rather than remutated.
+
 - The lost-running failure write rechecks age, lease expiry, and live jobs in a fresh statement after excluding concurrent lease/job writes ([ADR 0030](0030-pr-actor-lease.md)). Contention or a protected-query timeout leaves work unchanged for a later pass. Only a committed mark permits a candidate's crashed verdict close; revived work stays running. Already-terminal reviews retain the separate open-check repair lane.
 - A deterministic failure costs at most one extra attempt; the second identical failure is terminal without waiting out the queue budget.
 - Escalation rate and degradation reasons are observable from PostHog without reading run transcripts.

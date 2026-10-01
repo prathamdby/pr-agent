@@ -120,6 +120,56 @@ using the existing publish recovery path.
 
 Worker readiness is distinct from web probes: `GET /ready` on the worker process returns 200 only when consumers are registered and Postgres/pg-boss respond. Compose healthchecks that endpoint. Web `GET /health` / `GET /ready` remain intake-process probes (liveness / Postgres ping).
 
+## Own-verdict recovery
+
+Concurrent closes keep the first selected verdict on the existing per-work-item
+`check_run` row. `detail.selectedOwnVerdict` records the output, not proof that
+GitHub accepted it. `detail.ownCheckApplied` and `detail.ownStatusApplied` are
+separate acceptance receipts. A selected row stays open until its check and
+applicable status are accepted. Status is applicable only when enabled with a
+nonempty, nondeferred saved head. Check-only completion can attach status later,
+without changing the check output.
+
+Inspect one run with bound parameters:
+
+```sql
+select id, github_id, detail
+from publish_records
+where work_item_id = $1 and step = 'check_run';
+select operation_key, status, detail
+from operation_intents
+where work_item_id = $1
+order by created_at;
+```
+
+The completion intent uses `review:check_run_close:<workItemId>:<reviewLens>`,
+not the check-creation key. An exact selected child finish result can recover a
+missing parent result without another request. Only proven preacceptance is
+retryable. Unknown or cached terminal-unknown results are never reopened.
+Older finish intents with unresolved unknown acceptance (pending, mid-mutation,
+or `outcome_unknown` before the boundary's terminal resolution) or a saved void
+result but no reconstructible verdict log
+`review_own_verdict_legacy_unresolved`. An intent the boundary already resolved
+`outcome_unknown` with `unknownResolution: terminal` is inert and does not block
+the terminal close. Inspect the remote check and saved evidence; do not delete
+an intent or selection to force another close.
+
+A per-work-item session mutex excludes competing application attempts. SQL
+statements commit before HTTP; no transaction stays open. Pool admission retains
+one connection for the leased surface's nested queries. Capacity contenders
+defer without publication. A numeric close on a one-slot pool raises
+`agent_work.own_verdict_capacity` before selecting or entering an intent.
+Connections unlock in `finally`; an uncertain unlock destroys the connection.
+Protected unstarted creation reservations are reclaimed in place under the
+existing stale/lease rules, preserving the winner and accepted check identity.
+An unknown creation intent still cannot restart creation.
+
+Upgrade every review, acknowledgement, projection, and diagnostics worker
+together. Mixed old/new writers do not provide the single-winner guarantee.
+Stop/drain affected workers before rollback and retain selections, receipts,
+work rows, and intents. Reverting code restores the race, not permission to
+clear evidence and replay an ambiguous effect.
+
 ## Duplicate-delivery evidence
 
 `webhook_delivery_duplicates` records each committed duplicate arrival without another payload copy, work item, or job. Inspect incoming IDs, body fingerprints, and `dedupe_reason`: `delivery_key` means a repeated delivery ID, `body_key` means a repeated body without a delivery ID, and `body_replay` means the independent body guard rejected a different delivery key. None proves malicious intent. A repeated ID with a different fingerprint is also evidence of inconsistency, not an attack verdict.

@@ -92,6 +92,8 @@ Notes:
 - `FEATURE_COMMIT_STATUS` and the `PR Agent Review` check run share one writer
   (`closeOwnVerdict`). A crash concludes the check as `action_required`. A
   published P0–P2 finding concludes it as `failure`.
+  Concurrent closes keep the first verdict. A later cancellation or recovery
+  does not replace it. The optional status uses that same verdict.
   Crash recovery serializes its failure decision with lease renewals and
   restarted jobs. Busy or timed-out recovery passes leave work alone and retry later.
 - Invalid values fail startup with the allowed list; typos never silently

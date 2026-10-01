@@ -22,6 +22,23 @@ Webhook delivery is best effort. A head whose checks finished before the App saw
 
 4. **One own-verdict writer.** Terminal `PR Agent Review` and optional `pr-agent/review` writes go through `closeOwnVerdict`. Live executions fence on the lease epoch. The projector and sweeper pass `leaseEpoch: null` and write only after `agent_work_items.status` is terminal. A started `check_run` publish row stays open while `detail.status` is `in_progress` or `detail.conclusion` is missing. Failed reviews close as crashed. A completed review with a `summary_comment` record closes as published or partial from that record. A completed review without a summary closes as unpublished. The sweeper retries that close for terminal reviews, not only `running` rows.
 
+   Amendment to decision 4: acknowledgement's omitted epoch is also unleased
+   and terminal-only. A JSONB compare-and-set on the existing per-work-item
+   check row selects immutable output before HTTP. Separate check/status
+   receipts keep partially applied selections eligible for repair. Disabled
+   status and empty/deferred heads are inapplicable, not missing receipts.
+   Legacy closed checks remain authoritative; older uncertain finish intents
+   cannot be evaded with a new completion key.
+
+   A verdict-only session try-lock spans both selected surface applications,
+   with no open transaction. It is separate from decision 2's CI comment
+   projection, which still holds no advisory lock across HTTP. Per-pool
+   admission reserves nested-query capacity and capacity contenders defer
+   without selection or publication. Unlock failure destroys the client.
+   Roll out every affected worker together; rollback preserves additive detail
+   and intents but restores the old race. See the
+   [recovery runbook](../agent-work-ops.md#own-verdict-recovery).
+
 5. **Completed-run intake is head-scoped.** `workflow_run` and `check_suite` completed deliveries enqueue one debounced `ci-projection` for the head. They do not write facts. Empty `pull_requests[]` still enqueues. Each projection merges stored `pr_numbers` with `agent_work_items` and one `commits/{sha}/pulls` lookup.
 
    Correlated intake jobs retain a deduplicated `correlations` array of
