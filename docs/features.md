@@ -13,7 +13,8 @@ invalid and crashes startup.
 `/review` is available in every review mode on open PRs. Auto triggers are fixed: review and describe fire when
 a PR is `opened`; verification fires on `synchronize` (every push). With
 `FEATURE_REVIEW=approval`, trusted non-bot authors in `SLASH_ALLOWED_ASSOCIATIONS`
-get a review on `opened`. Missing author or association metadata is untrusted.
+get a review on `opened` only when GitHub labels them `User`. Missing author,
+type, or association metadata is untrusted.
 `*` admits every author, including bots, on open, like `auto`.
 External authors wait for a recorded `pull_request` workflow hold
 (`action_required`) followed by the same run starting with a human sender,
@@ -23,6 +24,9 @@ Each PR gets one automatic admission, even after its review finishes or fails.
 Later reviews need `/review`. Waiting creates no review comments, checks, or
 review model calls; description and verification remain independently configured.
 CI facts still refresh, but failing-CI model authoring waits for admission.
+Admission queues a projection even for an already seeded head. Pending heads
+follow provider timestamps across reordered deliveries. An accepted reopen
+refreshes existing pending head metadata without admitting or starting a review.
 The default `approval` mode now spends tokens on trusted PRs when they open.
 A push
 while an auto review is still running cancels that review and replaces it with

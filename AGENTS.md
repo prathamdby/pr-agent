@@ -175,6 +175,10 @@ approve without a hold. Legacy approving reviews admit once without backfill;
 unmatched workflow approvals remain silent. Holds expire after 30 days; open
 admissions survive work retention. See [ADR 0042](docs/adr/0042-review-admission.md).
 CI facts still refresh while pending heads skip failing-CI model authoring.
+Admission queues CI projection for the stored head. Trusted authors require
+`user.type=User` unless the allowlist is `*`. Provider timestamps order pending
+heads; a synchronize before open remains provisional until open is observed.
+A newer accepted reopen refreshes pending head metadata without admitting it.
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 

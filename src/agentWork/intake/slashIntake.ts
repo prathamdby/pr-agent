@@ -40,6 +40,7 @@ import { tryAdmit } from "./reviewAdmission.js";
 import {
   enqueueAck,
   enqueueDescription,
+  enqueueCiProjectionDebounced,
   enqueueReview,
   enqueueTriage,
   enqueueVerification,
@@ -361,7 +362,23 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     commenterId: ctx.input.commenterId,
     ackTargets: ctx.baseAck.targets,
   });
-  await tryAdmit(ctx.client, resourceKey, "slash", ctx.input.commenterId, ctx.eventId);
+  const admission = await tryAdmit(
+    ctx.client,
+    resourceKey,
+    "slash",
+    ctx.input.commenterId,
+    ctx.eventId,
+  );
+  if (typeof admission !== "string") {
+    await enqueueCiProjectionDebounced(ctx.boss, ctx.client, {
+      kind: "ci_projection",
+      installationId: ctx.ref.installationId,
+      owner: ctx.ref.owner,
+      repo: ctx.ref.repo,
+      headSha: admission.admittedHead,
+      ...ctx.correlation,
+    });
+  }
   if (!insert.created) {
     await enqueueSlashAck(ctx, {
       ...(cancelProgress ? { cancelProgress } : {}),

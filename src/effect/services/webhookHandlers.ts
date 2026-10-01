@@ -263,12 +263,13 @@ export const WebhookHandlersCore = Layer.effect(
               authorTrusted:
                 cfg.slashAllowedAssociations.has("*") ||
                 (data.pull_request.user != null &&
-                  data.pull_request.user.type?.toLowerCase() !== "bot" &&
+                  data.pull_request.user.type?.toLowerCase() === "user" &&
                   isSlashAssociationAllowed(
                     cfg.slashAllowedAssociations,
                     data.pull_request.author_association,
                   )),
               authorId: data.pull_request.user?.id,
+              headObservedAt: data.pull_request.updated_at,
               pushBeforeSha: data.before,
               merged: data.pull_request.merged,
               lifecycle:

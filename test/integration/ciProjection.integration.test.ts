@@ -6,7 +6,10 @@ import {
   applyAutomatedPullRequestIntake,
   applyCompletedRunCiIntake,
   applyCiStateIntake,
+  applyWorkflowRunStartedIntake,
 } from "../../src/agentWork/intake/applier.js";
+import { applySlashCommandIntake } from "../../src/agentWork/intake/slashIntake.js";
+import { inTransaction } from "../../src/db/postgres.js";
 import {
   enqueueCiProjectionDebounced,
   enqueueCiProjectionDebouncedStandalone,
@@ -202,6 +205,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     pool = integrationPool();
     await runMigrations(pool);
     await pool.query("DELETE FROM pr_review_admission WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
       ["workflow_run", "check_run", "pull_request"],
     ]);
@@ -217,6 +221,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
 
   afterEach(async () => {
     await pool.query("DELETE FROM pr_review_admission WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM workflow_run_approval_holds WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
       ["workflow_run", "check_run", "pull_request"],
     ]);
@@ -418,9 +423,14 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(rows.map((row) => row.type)).toEqual(["description"]);
   });
 
-  it.each(["approval", "auto"] as const)(
-    "keeps failing-CI authoring silent for pending admission only in %s mode",
-    async (mode) => {
+  it.each([
+    { mode: "approval", via: "review" },
+    { mode: "approval", via: "workflow" },
+    { mode: "approval", via: "slash" },
+    { mode: "auto", via: "review" },
+  ] as const)(
+    "keeps failing-CI authoring silent then queues resumption: %j",
+    async ({ mode, via }) => {
       const headSha = "a3".repeat(20);
       const ref = {
         owner: OWNER,
@@ -463,18 +473,67 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         OWNER,
       ]);
       expect(beforeApproval.rows).toHaveLength(0);
+      await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
 
-      await applyAutomatedPullRequestIntake(
-        boss,
-        pool,
-        headers("pull_request_review", `ci-waiting-approval-${randomUUID()}`),
-        ref,
-        "approval",
-        intakeLog(),
-        approvalCfg,
-        { admittedBy: 123 },
-      );
-      await executeCiProjectionJob(projectionCfg, pool, boss, job, options);
+      if (via === "review") {
+        await applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          headers("pull_request_review", `ci-waiting-approval-${randomUUID()}`),
+          ref,
+          "approval",
+          intakeLog(),
+          approvalCfg,
+          { admittedBy: 123 },
+        );
+      } else if (via === "workflow") {
+        const workflow = {
+          ...ref,
+          runId: 65001,
+          senderId: 123,
+          status: "in_progress",
+          conclusion: null,
+        };
+        await applyCompletedRunCiIntake(
+          boss,
+          pool,
+          headers("workflow_run", randomUUID()),
+          { ...ref, prNumbers: [], approvalHold: { runId: workflow.runId } },
+          intakeLog(),
+        );
+        await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
+        await applyWorkflowRunStartedIntake(
+          boss,
+          pool,
+          headers("workflow_run", randomUUID()),
+          workflow,
+          intakeLog(),
+        );
+      } else {
+        await inTransaction(pool, (client) =>
+          applySlashCommandIntake(
+            boss,
+            client,
+            {
+              headers: headers("issue_comment", randomUUID()),
+              installationId: ref.installationId,
+              owner: OWNER,
+              repo: REPO,
+              prNumber: PR_NUMBER,
+              commenterId: 123,
+              commentId: 999,
+              body: "/review",
+              command: "review",
+              replyTarget: { kind: "prConversation", prNumber: PR_NUMBER },
+            },
+            approvalCfg.features,
+          ),
+        );
+      }
+      const resumed = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
+      expect(resumed).toHaveLength(1);
+      expect(resumed[0]?.data.headSha).toBe(headSha);
+      await executeCiProjectionJob(projectionCfg, pool, boss, resumed[0].data, options);
       expect(calls).toHaveLength(1);
       const admitted = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
       expect(parseCiAuthoredCache(admitted?.authored)?.headline).toBe("❌ authored lint");

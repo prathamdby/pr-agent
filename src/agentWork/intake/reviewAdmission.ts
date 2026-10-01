@@ -9,9 +9,10 @@ import {
 
 type AdmissionVia = "author" | "workflow" | "review" | "slash" | "legacy_review";
 type AdmissionResult =
-  | "admitted"
+  | { readonly admittedHead: string }
   | "already_admitted"
   | "missing"
+  | "awaiting_open"
   | "closed"
   | "merged"
   | "head_changed";
@@ -46,12 +47,27 @@ export async function recordPending(
   ref: PrRef,
   authorId: number | undefined,
   eventId: string,
+  headObservedAt?: string,
+  openedSeen = true,
 ): Promise<void> {
   await client.query(
     `INSERT INTO pr_review_admission
-       (resource_key, owner, repo, pr_number, head_sha, author_id, state, webhook_event_id)
-     VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
-     ON CONFLICT (resource_key) DO NOTHING`,
+       (resource_key, owner, repo, pr_number, head_sha, author_id, state, webhook_event_id,
+        head_observed_at, opened_seen)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8::timestamptz, $9)
+     ON CONFLICT (resource_key) DO UPDATE
+       SET head_sha = CASE
+             WHEN EXCLUDED.head_observed_at > pr_review_admission.head_observed_at
+               OR (NOT EXCLUDED.opened_seen
+                 AND (pr_review_admission.head_observed_at IS NULL
+                   OR EXCLUDED.head_observed_at IS NULL))
+             THEN EXCLUDED.head_sha ELSE pr_review_admission.head_sha END,
+           head_observed_at = GREATEST(
+             pr_review_admission.head_observed_at, EXCLUDED.head_observed_at),
+           opened_seen = pr_review_admission.opened_seen OR EXCLUDED.opened_seen,
+           author_id = COALESCE(pr_review_admission.author_id, EXCLUDED.author_id),
+           webhook_event_id = EXCLUDED.webhook_event_id, updated_at = now()
+     WHERE pr_review_admission.state = 'pending'`,
     [
       prResourceKey(ref.owner, ref.repo, ref.prNumber),
       ref.owner,
@@ -60,21 +76,30 @@ export async function recordPending(
       ref.headSha,
       authorId ?? null,
       eventId,
+      headObservedAt ?? null,
+      openedSeen,
     ],
   );
 }
 
 export async function updatePendingHead(
   client: PoolClient,
-  resourceKey: string,
-  headSha: string,
+  ref: PrRef,
   eventId: string,
+  headObservedAt?: string,
+  createIfMissing = true,
 ): Promise<void> {
+  if (createIfMissing) {
+    await recordPending(client, ref, undefined, eventId, headObservedAt, false);
+    return;
+  }
   await client.query(
     `UPDATE pr_review_admission
-        SET head_sha = $2, webhook_event_id = $3, updated_at = now()
-      WHERE resource_key = $1 AND state = 'pending'`,
-    [resourceKey, headSha, eventId],
+        SET head_sha = $2, head_observed_at = $3::timestamptz,
+            webhook_event_id = $4, updated_at = now()
+      WHERE resource_key = $1 AND state = 'pending'
+        AND (head_observed_at IS NULL OR head_observed_at <= $3::timestamptz)`,
+    [prResourceKey(ref.owner, ref.repo, ref.prNumber), ref.headSha, headObservedAt, eventId],
   );
 }
 
@@ -87,8 +112,12 @@ export async function tryAdmit(
   expectedHead?: string,
 ): Promise<AdmissionResult> {
   await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
-  const admission = await client.query<{ state: "pending" | "admitted"; head_sha: string }>(
-    "SELECT state, head_sha FROM pr_review_admission WHERE resource_key = $1 FOR UPDATE",
+  const admission = await client.query<{
+    state: "pending" | "admitted";
+    head_sha: string;
+    opened_seen: boolean;
+  }>(
+    "SELECT state, head_sha, opened_seen FROM pr_review_admission WHERE resource_key = $1 FOR UPDATE",
     [resourceKey],
   );
   const row = admission.rows[0];
@@ -96,6 +125,7 @@ export async function tryAdmit(
   const lifecycle = await loadReviewLifecycle(client, resourceKey);
   if (lifecycle != null && lifecycle.state !== "open") return lifecycle.state;
   if (row.state === "admitted") return "already_admitted";
+  if (via === "workflow" && !row.opened_seen) return "awaiting_open";
   if (expectedHead != null && row.head_sha !== expectedHead) return "head_changed";
   await client.query(
     `UPDATE pr_review_admission
@@ -104,7 +134,7 @@ export async function tryAdmit(
       WHERE resource_key = $1`,
     [resourceKey, via, by, eventId],
   );
-  return "admitted";
+  return { admittedHead: row.head_sha };
 }
 
 export async function recordAuthorAdmitted(
@@ -112,8 +142,9 @@ export async function recordAuthorAdmitted(
   ref: PrRef,
   authorId: number | undefined,
   eventId: string,
+  headObservedAt?: string,
 ): Promise<AdmissionResult> {
-  await recordPending(client, ref, authorId, eventId);
+  await recordPending(client, ref, authorId, eventId, headObservedAt);
   return tryAdmit(
     client,
     prResourceKey(ref.owner, ref.repo, ref.prNumber),
@@ -153,13 +184,22 @@ export async function markHoldApproved(
   return (result.rowCount ?? 0) > 0;
 }
 
-/** Caller holds the head lock; each candidate is reread under its review lock. */
+/** Workflow holds the head lock; PR-side discovery holds its resource's review lock. */
 export async function reconcileForHead(
   client: PoolClient,
   head: AdmissionHead & { readonly installationId: number },
   eventId: string,
   resourceKey?: string,
 ): Promise<PrRef[]> {
+  if (resourceKey != null) {
+    const current = await client.query<{ head_sha: string }>(
+      "SELECT head_sha FROM pr_review_admission WHERE resource_key = $1 AND state = 'pending'",
+      [resourceKey],
+    );
+    const row = current.rows[0];
+    if (!row) return [];
+    head = { ...head, headSha: row.head_sha };
+  }
   const approved = await client.query<{ approved_by: string }>(
     `SELECT approved_by FROM workflow_run_approval_holds
       WHERE owner = $1 AND repo = $2 AND head_sha = $3 AND state = 'approved'
@@ -186,7 +226,7 @@ export async function reconcileForHead(
       eventId,
       head.headSha,
     );
-    if (result === "admitted") admitted.push({ ...head, prNumber: row.pr_number });
+    if (typeof result !== "string") admitted.push({ ...head, prNumber: row.pr_number });
   }
   return admitted;
 }

@@ -63,6 +63,10 @@ discovery visits PRs in resource-key order; PR-side reconciliation only visits i
 own admission. `tryAdmit` rereads the row under `FOR UPDATE` and checks lifecycle.
 `applier.ts` shares deferred-head approval dispatch between workflow and review
 triggers. See [ADR 0042](adr/0042-review-admission.md).
+Admission also queues CI projection for its retained head in the same transaction.
+Provider head time orders pending updates; `opened_seen` prevents a provisional
+synchronize row admitting through workflow approval before open is observed.
+Accepted reopen refreshes pending metadata without admission.
 
 `gitGrepWorkspace` in `src/prWorkspace/localPrWorkspace.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 

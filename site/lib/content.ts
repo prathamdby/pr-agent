@@ -32,7 +32,7 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "A pull request opens on your project",
     detail:
-      "Trusted authors start a review on open in the default approval mode. External authors wait for workflow or review approval, or /review. Your team sees a reaction when review work begins.",
+      "Trusted authors labeled User by GitHub start a review on open in the default approval mode. Missing author type waits for approval. External authors wait for workflow or review approval, or /review. Your team sees a reaction when review work begins.",
     cue: "Trusted authors on open; external authors after approval",
     summary: "Automated AI pull request reviews",
   },

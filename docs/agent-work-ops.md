@@ -49,10 +49,12 @@ A lease block can leave `agent_work_items.status = 'queued'` with no live job in
 Trusted non-bot authors in `SLASH_ALLOWED_ASSOCIATIONS` start reviews on open.
 External authors wait without review comments, checks, or review model calls.
 CI facts still refresh; pending heads skip failing-CI model authoring.
+Admission queues another projection for the retained head, even when already
+seeded. Inspect provider head time and whether open was observed:
 Description and verification are separate features. Inspect metadata only:
 
 ```sql
-select resource_key, head_sha, author_id, state, admitted_via, admitted_by,
+select resource_key, head_sha, head_observed_at, opened_seen, author_id, state, admitted_via, admitted_by,
        webhook_event_id, created_at, updated_at
 from pr_review_admission where resource_key = $1;
 
@@ -82,7 +84,7 @@ Do not edit admission or hold rows to manufacture approval.
 Hold eligibility and retention both stop at 30 days. Admission retention removes
 rows only after a known closed/merged PR's admission and lifecycle marker both
 age past `AGENT_WORK_RETENTION_SECONDS`; open admissions survive. Upgrade every
-web replica with migration 035 before relying on one automatic admission.
+web replica with migrations 035 and 036 before relying on one automatic admission.
 Rollback leaves the additive tables intact but restores the older approval behavior.
 See [ADR 0042](adr/0042-review-admission.md).
 

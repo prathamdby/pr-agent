@@ -12,6 +12,14 @@ Concurrent attempts to finish a review keep the first verdict. A later cancellat
 - On **`workflow_run`** (`requested`, `in_progress`), approval mode accepts only `event=pull_request` and a human sender. `action_required` status or conclusion records an awaiting hold. A later started state (`queued` or `in_progress`, no conclusion) approves the same run's hold and reconciles pending PRs by repository and head. PR-first and approved-hold-first arrival converge under head and review intake locks. Ordinary CI reruns cannot approve without a hold. Missing metadata, bot senders, and `pull_request_target` fail closed. Completed `action_required` runs record their hold in the existing CI-projection intake transaction, with one accepted event. Other completed runs keep their CI refresh behavior. No live same-run approval pair was captured for this change; unavailable transitions recover through an approving review or `/review`. Details: [ADR 0042](adr/0042-review-admission.md).
 - Responds **`200`** after **durable intake** commits to Postgres and pg-boss jobs are enqueued (or **`503`** if intake cannot commit; GitHub may redeliver). Reactions, progress comments, reviews, and ask answers run in **`ROLE=worker`** and may appear seconds after the HTTP response. The webhook does not wait for LLM runs to finish.
 
+Approval-mode pending heads use provider timestamps so older deliveries cannot
+replace newer head metadata. A synchronize before open retains provisional
+metadata but cannot admit through a workflow until open is observed.
+A newer accepted reopen refreshes an existing pending head without starting a
+review. Every admission queues CI projection for its stored head, including
+already seeded heads, so paused failing-CI authoring resumes without a new event.
+Automatic author trust requires GitHub's `User` type unless the allowlist is `*`.
+
 CI projection debounce preserves accepted delivery/event pairs on the absorbing
 job in the intake transaction. If attribution cannot be stored, intake rolls
 back and returns `503` instead of accepting an untraceable delivery. CI fact

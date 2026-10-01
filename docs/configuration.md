@@ -116,7 +116,8 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 `SLASH_ALLOWED_ASSOCIATIONS` accepts `OWNER`, `MEMBER`, `COLLABORATOR`,
 `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `NONE`, and `MANNEQUIN`.
-Missing author or association fails closed. `*` admits every PR author on open,
+Automatic author admission requires `user.type=User`. Missing author, type, or
+association fails closed. `*` admits every PR author on open,
 including bots, like `auto`; review approvers and workflow senders must still be
 non-bots.
 

@@ -1380,6 +1380,8 @@ describe("processWebhookPostRequestEffect", () => {
   it.each([
     { user: { id: 7, login: "author", type: "User" }, association: "OWNER", trusted: true },
     { user: { id: 7, login: "author", type: "Bot" }, association: "OWNER", trusted: false },
+    { user: { id: 7, login: "author" }, association: "OWNER", trusted: false },
+    { user: { id: 7, login: "author", type: "Unknown" }, association: "OWNER", trusted: false },
     { user: { id: 7, login: "author", type: "User" }, association: undefined, trusted: false },
     { user: undefined, association: "OWNER", trusted: false },
     { user: { id: 7, login: "author", type: "User" }, association: "CONTRIBUTOR", trusted: false },

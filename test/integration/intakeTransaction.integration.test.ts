@@ -2650,6 +2650,142 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     },
   });
 
+  it("keeps the newest pending head when synchronize precedes opened", async () => {
+    const opened = makePrRef();
+    const current = { ...opened, headSha: "current-head" };
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", randomUUID()),
+      current,
+      "synchronize",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { headObservedAt: "2026-10-01T00:00:03Z" },
+    );
+    const workflow = {
+      ...current,
+      runId: 55010,
+      senderId: 7,
+      status: "in_progress",
+      conclusion: null,
+    };
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("hold", randomUUID()),
+      { ...workflow, prNumbers: [], approvalHold: { runId: workflow.runId } },
+      intakeLog(),
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      workflow,
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(0);
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", randomUUID()),
+      { ...opened, headSha: "older-push" },
+      "synchronize",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { headObservedAt: "2026-10-01T00:00:02Z" },
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      opened,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { authorId: 8, headObservedAt: "2026-10-01T00:00:01Z" },
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+    const admission = await pool.query(
+      "SELECT head_sha, admitted_via FROM pr_review_admission WHERE owner = $1",
+      [OWNER],
+    );
+    expect(admission.rows).toEqual([{ head_sha: current.headSha, admitted_via: "workflow" }]);
+  });
+
+  it("refreshes a pending head on accepted reopen without starting a review", async () => {
+    const ref = makePrRef();
+    const reopened = { ...ref, headSha: "reopened-head" };
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { headObservedAt: "2026-10-01T00:00:01Z" },
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("closed", randomUUID()),
+      ref,
+      "closed",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:02Z" } },
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("reopened", randomUUID()),
+      reopened,
+      "reopened",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { lifecycle: { state: "open", observedAt: "2026-10-01T00:00:04Z" } },
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("reopened", randomUUID()),
+      { ...ref, headSha: "stale-reopen" },
+      "reopened",
+      intakeLog(),
+      approvalAdmissionCfg,
+      { lifecycle: { state: "open", observedAt: "2026-10-01T00:00:03Z" } },
+    );
+    await expect(countWorkItems()).resolves.toBe(0);
+    const pending = await pool.query(
+      "SELECT head_sha, state FROM pr_review_admission WHERE owner = $1",
+      [OWNER],
+    );
+    expect(pending.rows).toEqual([{ head_sha: reopened.headSha, state: "pending" }]);
+    const workflow = {
+      ...reopened,
+      runId: 55011,
+      senderId: 7,
+      status: "in_progress",
+      conclusion: null,
+    };
+    await applyCompletedRunCiIntake(
+      boss,
+      pool,
+      headers("hold", randomUUID()),
+      { ...workflow, prNumbers: [], approvalHold: { runId: workflow.runId } },
+      intakeLog(),
+    );
+    await applyWorkflowRunStartedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      workflow,
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+  });
+
   it.each(["opened-first", "workflow-first", "concurrent"])(
     "workflow approval and pending PR converge: %s",
     async (order) => {

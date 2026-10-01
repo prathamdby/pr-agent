@@ -113,6 +113,7 @@ async function dispatchApprovalReview(
   correlation: JobCorrelation,
 ): Promise<DeferredIntakeEvent[]> {
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  await enqueueHeadCiProjection(boss, client, ref, correlation);
   const prior = await client.query<{ id: string }>(
     `SELECT id FROM agent_work_items
       WHERE resource_key = $1 AND type = 'review' AND status IN ('queued', 'running')
@@ -246,9 +247,16 @@ async function applyPlannedAutomatedPullRequestIntake(
     }
   }
 
+  let reviewRef = ref;
   if (plan.kinds.includes("admissionAuthor")) {
-    const result = await recordAuthorAdmitted(client, ref, opts?.authorId, event.id);
-    if (result !== "admitted") {
+    const result = await recordAuthorAdmitted(
+      client,
+      ref,
+      opts?.authorId,
+      event.id,
+      opts?.headObservedAt,
+    );
+    if (typeof result === "string") {
       plan = { kinds: plan.kinds.filter((kind) => kind !== "review") };
       await client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
         event.id,
@@ -258,13 +266,16 @@ async function applyPlannedAutomatedPullRequestIntake(
         name: IGNORED_REVIEW_ALREADY_ADMITTED,
         fields: { resourceKey, ...correlation },
       });
+    } else {
+      reviewRef = { ...ref, headSha: result.admittedHead };
+      await enqueueHeadCiProjection(boss, client, reviewRef, correlation);
     }
   }
   if (plan.kinds.includes("admissionPending")) {
-    await recordPending(client, ref, opts?.authorId, event.id);
+    await recordPending(client, ref, opts?.authorId, event.id, opts?.headObservedAt);
   }
   if (plan.kinds.includes("admissionHead")) {
-    await updatePendingHead(client, resourceKey, ref.headSha, event.id);
+    await updatePendingHead(client, ref, event.id, opts?.headObservedAt);
   }
 
   if (plan.kinds.includes("review")) {
@@ -278,11 +289,11 @@ async function applyPlannedAutomatedPullRequestIntake(
         createWorkItem: () =>
           createReviewWorkItem(client, {
             webhookEventId: event.id,
-            ref,
+            ref: reviewRef,
             source: "auto",
             ackTargets,
           }),
-        enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
+        enqueue: (workItemId) => enqueueReview(boss, client, reviewRef, workItemId, correlation),
         eventType: "review",
         enqueueAck: async (workItemId) => {
           const ackData: AckJobData = {
@@ -295,7 +306,7 @@ async function applyPlannedAutomatedPullRequestIntake(
             targets: ackTargets,
             progress: {
               lens: "review",
-              headSha: ref.headSha,
+              headSha: reviewRef.headSha,
               source: "auto",
             },
             ...correlation,
@@ -381,8 +392,16 @@ async function applyPlannedAutomatedPullRequestIntake(
         event.id,
       );
     }
-    if (result === "admitted") {
-      events.push(...(await dispatchApprovalReview(boss, client, ref, event.id, correlation)));
+    if (typeof result !== "string") {
+      events.push(
+        ...(await dispatchApprovalReview(
+          boss,
+          client,
+          { ...ref, headSha: result.admittedHead },
+          event.id,
+          correlation,
+        )),
+      );
     } else {
       await client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
         event.id,
@@ -557,6 +576,7 @@ export type AutomatedPullRequestIntakeOpts = {
   readonly lifecycle?: ReviewLifecycleObservation;
   readonly authorTrusted?: boolean;
   readonly authorId?: number;
+  readonly headObservedAt?: string;
   readonly admittedBy?: number;
 };
 
@@ -600,6 +620,7 @@ async function applyPullRequestCiSeedIntake(
   intakeLog: RequestLogger,
   action: string,
   observation?: ReviewLifecycleObservation,
+  approvalMode = false,
 ): Promise<DeferredIntakeEvent[]> {
   const seedCandidate = isHeadCiSeedPullRequest(action, ref.headSha);
   if (!seedCandidate && action !== "reopened") {
@@ -630,6 +651,7 @@ async function applyPullRequestCiSeedIntake(
   const events: DeferredIntakeEvent[] = [];
   if (action === "reopened" && observation != null) {
     const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    if (approvalMode) await acquireReviewAdmissionHeadLock(client, ref);
     await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
     const applied = await recordReviewLifecycleObservation(
       client,
@@ -637,6 +659,9 @@ async function applyPullRequestCiSeedIntake(
       observation,
       event.id,
     );
+    if (applied && approvalMode) {
+      await updatePendingHead(client, ref, event.id, observation.observedAt, false);
+    }
     const lifecycleDecision = applied
       ? "pr_review_lifecycle_applied"
       : "ignored_stale_pr_lifecycle";
@@ -684,7 +709,16 @@ export async function applyAutomatedPullRequestIntake<Action extends string>(
 
   if (plan.kinds.length === 0) {
     const events = await inTransaction(pool, (client) =>
-      applyPullRequestCiSeedIntake(boss, client, headers, ref, intakeLog, action, opts?.lifecycle),
+      applyPullRequestCiSeedIntake(
+        boss,
+        client,
+        headers,
+        ref,
+        intakeLog,
+        action,
+        opts?.lifecycle,
+        cfg.features.review === "approval",
+      ),
     );
     flushDeferredEvents(intakeLog, events);
     return;

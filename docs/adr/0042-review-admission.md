@@ -16,7 +16,8 @@ independent of whether a work item is still active or retained.
 ## Decision
 
 - Reuse `SLASH_ALLOWED_ASSOCIATIONS` for trusted non-bot PR authors. Trusted
-  authors admit on open. Missing author or association is untrusted. `*` makes
+  authors admit on open only with `user.type=User`. Missing author, type, or
+  association is untrusted. `*` makes
   author admission match auto, including bots. Workflow senders and review
   approvers still fail closed for bots.
 - Store `pr_review_admission` keyed by resource, with a pending head and immutable
@@ -25,7 +26,8 @@ independent of whether a work item is still active or retained.
   Description and verification retain their independent feature modes.
 - CI projection continues refreshing facts and independently configured output,
   but skips failing-CI model authoring while the head has any pending admission.
-  Once admitted, the next projection can author those facts. Shared-head CI
+  Every admission queues a projection transactionally for its stored head,
+  including workflow, approving-review, and slash admission. Shared-head CI
   authoring waits while any PR on that head remains pending.
 - Store workflow `action_required` observations by run ID. Only `event=pull_request`
   and a human sender are eligible. A later `requested`/`in_progress` delivery
@@ -38,6 +40,12 @@ independent of whether a work item is still active or retained.
   Reread admission `FOR UPDATE` and lifecycle after acquiring review exclusion.
   Admission, accepted delivery, acknowledgement, and pg-boss enqueue commit
   together. Queue failure rolls back admission and hold approval.
+- Migration 036 adds provider-observed head time and an opened observation bit.
+  A synchronize received before open retains a provisional pending head but
+  cannot admit through a workflow until open is observed. Older timestamped
+  deliveries cannot replace newer heads. Open reconciles the stored head, not
+  its stale payload head. A newer accepted reopen refreshes existing pending
+  admission only; it never admits or starts a review.
 - Without a row, an approving review retains legacy behavior once and writes an
   admitted row. Workflow approval cannot map a PR without pending admission.
   `/review` consumes an existing pending row; there is no historical backfill.
@@ -66,6 +74,6 @@ Default `FEATURE_REVIEW=approval` now spends tokens on trusted PRs at open.
 Waiting adds no review output or review model calls. Decision labels and the
 two tables provide inspection without parsing PR text.
 
-Migration 035 is additive. Upgrade all web replicas together; mixed old intake
+Migrations 035 and 036 are additive. Upgrade all web replicas together; mixed old intake
 can bypass the once-per-PR decision. Rollback ignores the new tables and restores
 old behavior without undoing admitted work. Preserve the tables on rollback.
