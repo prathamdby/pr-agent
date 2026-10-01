@@ -432,6 +432,9 @@ exempt. Unconfirmed cancellation is logged as an error.
 Stale-head replacement creation shares the review intake lock and reads persistent
 lifecycle state after acquiring it. Accepted close/merge blocks replacement work
 and progress ownership transfer. This adds no mode, setting or polling interval.
+Retrying a stale review keeps changes already saved on its replacement.
+Incoming-only fields are added; stored values win collisions. This needs no new
+setting or polling interval.
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 

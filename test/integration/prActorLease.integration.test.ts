@@ -15,6 +15,7 @@ import * as workerHealthModule from "../../src/agentWork/workerHealth.js";
 import * as prWorkspaceModule from "../../src/prWorkspace/index.js";
 import { agentWorkWorkerLive } from "../../src/agentWork/worker.js";
 import {
+  DEFERRED_HEAD_SHA,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
@@ -1377,6 +1378,149 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       observer.release();
     }
   });
+
+  it.each([
+    ["auto", "committed"],
+    ["auto", "blocked"],
+    ["slash", "committed"],
+    ["slash", "blocked"],
+  ] as const)(
+    "preserves replacement payload across %s %s retries (#642)",
+    async (source, schedule) => {
+      const resourceKey = `${OWNER}/replacement-payload-${randomUUID()}#1`;
+      const parentId = randomUUID();
+      const initialPayload = {
+        mode: "review",
+        source,
+        userSupplement: "initial supplement",
+        ackTargets: [{ kind: "issueComment", commentId: 642 }],
+      };
+      await pool.query(
+        `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, payload
+       )
+       VALUES ($1, 'review', $2, 'queued', $3, 'r', 1, 1, 'h', 'review', $4, $5::jsonb)`,
+        [parentId, source, OWNER, resourceKey, JSON.stringify(initialPayload)],
+      );
+      const firstLease = await acquire(resourceKey, parentId);
+      if (!firstLease.acquired) throw new Error("expected initial parent lease");
+      await expect(
+        claimWorkForExecution(pool, parentId, firstLease.leaseEpoch),
+      ).resolves.toMatchObject({
+        resumed: false,
+      });
+      const parent = await getWorkItem(pool, parentId);
+      if (parent?.type !== "review") throw new Error("expected parent review");
+      const first = await createReviewRescheduleWorkItem(pool, parent, firstLease.leaseEpoch);
+      const child = await getWorkItem(pool, first.replacementWorkItemId);
+      if (child?.type !== "review") throw new Error("expected replacement review");
+      expect(child.payload).toEqual({ ...initialPayload, staleHeadRescheduled: true });
+      expect(child.status).toBe("queued");
+      expect(child.headSha).toBe(DEFERRED_HEAD_SHA);
+
+      await releasePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        leaseEpoch: firstLease.leaseEpoch,
+      });
+      const retryLease = await acquire(resourceKey, parentId);
+      if (!retryLease.acquired) throw new Error("expected resumed parent lease");
+      expect(retryLease.leaseEpoch).not.toBe(firstLease.leaseEpoch);
+      await expect(
+        claimWorkForExecution(pool, parentId, retryLease.leaseEpoch),
+      ).resolves.toMatchObject({
+        resumed: true,
+      });
+      await pool.query(
+        `UPDATE agent_work_items SET payload = payload || '{"repositorySizeKb":642}'::jsonb
+        WHERE id = $1`,
+        [parentId],
+      );
+      const resumed = await getWorkItem(pool, parentId);
+      if (resumed?.type !== "review") throw new Error("expected resumed parent review");
+      expect(resumed.payload.staleHeadReplacement?.replacementWorkItemId).toBe(child.id);
+
+      const patch = {
+        publishDegraded: true,
+        userSupplement: "saved replacement supplement",
+        ackTargets: [{ kind: "reviewComment", commentId: 643 }],
+      };
+      const mutator = await pool.connect();
+      const observer = await pool.connect();
+      let mutatorOpen = false;
+      let retry: ReturnType<typeof createReviewRescheduleWorkItem> | undefined;
+      try {
+        await mutator.query("BEGIN");
+        mutatorOpen = true;
+        await mutator.query(
+          "UPDATE agent_work_items SET payload = payload || $2::jsonb WHERE id = $1",
+          [child.id, JSON.stringify(patch)],
+        );
+        if (schedule === "committed") {
+          await mutator.query("COMMIT");
+          mutatorOpen = false;
+        }
+        retry = createReviewRescheduleWorkItem(pool, resumed, retryLease.leaseEpoch);
+        if (schedule === "blocked") {
+          const { rows } = await mutator.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+          const mutatorPid = rows[0]?.pid;
+          if (mutatorPid == null) throw new Error("missing mutator backend pid");
+          await expect
+            .poll(async () => {
+              const waiting = await observer.query<{ count: number }>(
+                `SELECT COUNT(*)::int AS count FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND wait_event_type = 'Lock'
+                  AND query LIKE '%INSERT INTO agent_work_items%'
+                  AND $1::int = ANY(pg_blocking_pids(pid))`,
+                [mutatorPid],
+              );
+              return waiting.rows[0]?.count ?? 0;
+            })
+            .toBeGreaterThan(0);
+          await mutator.query("COMMIT");
+          mutatorOpen = false;
+        }
+        await expect(retry).resolves.toEqual(first);
+        const merged = await getWorkItem(pool, child.id);
+        if (merged?.type !== "review") throw new Error("expected merged replacement review");
+        expect(merged.payload).toEqual({
+          ...child.payload,
+          ...patch,
+          repositorySizeKb: 642,
+        });
+        expect({ ...merged, payload: child.payload }).toEqual(child);
+        await expect(
+          createReviewRescheduleWorkItem(pool, resumed, retryLease.leaseEpoch),
+        ).resolves.toEqual(first);
+        expect(await getWorkItem(pool, child.id)).toEqual(merged);
+        const siblings = await pool.query<{ id: string }>(
+          "SELECT id FROM agent_work_items WHERE resource_key = $1 AND id <> $2",
+          [resourceKey, parentId],
+        );
+        expect(siblings.rows).toEqual([{ id: child.id }]);
+        console.info(
+          "replacement-payload-retry-evidence",
+          JSON.stringify({
+            source,
+            schedule,
+            mutationPreserved: true,
+            incomingFieldAdded: true,
+            identityReused: true,
+            payloadIdempotent: true,
+            epochChanged: true,
+            blockingObserved: schedule === "blocked",
+          }),
+        );
+      } finally {
+        if (mutatorOpen) await mutator.query("ROLLBACK");
+        await retry?.catch(() => undefined);
+        mutator.release();
+        observer.release();
+      }
+    },
+  );
 
   it("records the acquired epoch on the work item row at claim time", async () => {
     const resourceKey = `${OWNER}/record-${randomUUID().slice(0, 8)}#1`;

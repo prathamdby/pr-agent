@@ -28,6 +28,7 @@ notice and check closure still run. There is no additional feature mode.
 A failed stale review's pending replacement is cancelled even if it has just
 started or a delivery races the abort. Successfully handed-off replacements remain
 unchanged. Unconfirmed cancellation is logged as an error.
+Retrying a stale review keeps changes already saved on its replacement.
 
 `/review force` cancels any queued or running review and starts a fresh one on
 the latest commit. Concurrent restarts are applied in intake order, not
