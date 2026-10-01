@@ -12,7 +12,7 @@ The concept already existed in the product under another name: a triage run veri
 
 ## Decision
 
-1. **Fifth work type: verification run.** Enqueued on every `synchronize` when `FEATURE_VERIFICATION=auto`. The worker short-circuits without an agent run or publish when the PR has no unresolved open PR Agent finding threads.
+1. **Fifth work type: verification run.** Enqueued on every `synchronize` when `FEATURE_VERIFICATION=auto`. When the PR has no unresolved open PR Agent finding threads, the worker checks cancellation/supersession and bound/live head equality before short-circuiting without an agent run or publish. A stale empty inventory completes degraded and does not clear an existing verification failure signal.
 
 2. **Strictly read-only.** No writable PR checkout, no code edits, no new findings, no full review. It re-checks each open finding against the new head and emits a triage verdict per finding (shared vocabulary with `/triage`: fixed, already-resolved, skipped, dismissed). A dismissed verdict requires an authorized non-bot maintainer decision matching that finding thread; reply text and unauthorized replies are untrusted evidence. Publish policy is refined in [ADR 0015](0015-verification-silent-resolve.md): silent resolve for fixed/already-resolved; thread replies only for still-open and dismissed.
 
@@ -26,7 +26,7 @@ The concept already existed in the product under another name: a triage run veri
 - Amended 2026-09: a `synchronize` push now also cancels an in-flight auto review and enqueues one deferred-head replacement (`reviewSupersede` intake kind). This still does not reverse PR #164 — a push never _starts_ a review; it only redirects work that is already spending, and a push after the review finishes schedules verification only.
 - A `/triage` push fires `synchronize`, so triage fixes get independently confirmed by a verification run. Not a loop: verification never pushes.
 - Needs its own queue lane and work-item type; finding open/closed state must be readable from stored publish records and thread replies.
-- Amended 2026-09: a stale-head skip at the verification publish gate is a degraded completion (`publishDegraded`). Clean `completed` remains reserved for a run that checked its bound head.
+- Amended 2026-09: a stale-head skip at the verification completion gate is a degraded completion (`publishDegraded`), including when the finding inventory is empty or all threads are resolved. Clean empty completion requires matching bound/live heads at that check. The non-empty path keeps its existing late pre-publish check.
 
 ## Reversal
 
