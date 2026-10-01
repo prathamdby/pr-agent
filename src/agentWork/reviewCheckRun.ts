@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { AppError } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
@@ -23,6 +22,7 @@ import {
 } from "./repository.js";
 import {
   claimOwnVerdict,
+  getDelegatedOwnVerdictFinish,
   getOwnVerdictCloseRecord,
   ownVerdictCloseOperationKey,
   recordOwnVerdictSurfaceApplied,
@@ -30,7 +30,6 @@ import {
   type SelectedOwnVerdict,
 } from "./publishRecordRepository.js";
 import {
-  getOperationIntent,
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
@@ -374,25 +373,7 @@ async function applyReviewCheckRunCompletion(
     detailsUrl: selected.detailsUrl,
     name: reviewCheckRunName(),
   };
-  // Match the boundary's stable encoding for this fixed, primitive-only input.
-  const encoded = `[{${Object.entries(output)
-    .toSorted(([a], [b]) => a.localeCompare(b))
-    .map(
-      ([key, value]) =>
-        `${JSON.stringify(key)}:${typeof value === "number" ? `number:${value}` : value === undefined ? "undefined" : JSON.stringify(value)}`,
-    )
-    .join(",")}}]`;
-  const inputHash = crypto.createHash("sha256").update(encoded).digest("hex");
-  const childKey = `${operationKey}:surface:finishReviewCheck:${inputHash}`;
-  const childEvidence = async () => {
-    const child = await getOperationIntent(client, params.workItemId, childKey);
-    return child?.mutationKind === "github.pr_surface.finishReviewCheck" &&
-      child.detail.parentOperationKey === operationKey &&
-      child.detail.surfaceMethod === "finishReviewCheck" &&
-      child.detail.inputHash === inputHash
-      ? child
-      : null;
-  };
+  const childEvidence = () => getDelegatedOwnVerdictFinish(client, params);
   let delegated = false;
   let provenNoAcceptance = false;
   try {
@@ -405,7 +386,6 @@ async function applyReviewCheckRunCompletion(
         resourceKey: params.resourceKey,
         reviewLens: params.reviewLens,
         delegationEntered: false,
-        childKey,
       },
     });
     if (parent.status === "failed")

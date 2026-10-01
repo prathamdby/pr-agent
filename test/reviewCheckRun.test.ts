@@ -18,6 +18,7 @@ vi.mock("../src/evlog.js", () => ({
 vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>();
+  const { memoryOperationIntentStore } = await import("./setup/operationIntent-memory.js");
   const records = new Map<
     string,
     {
@@ -50,6 +51,14 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
       async (_client, params) => records.get(params.workItemId) ?? null,
     ),
     hasLegacyOwnVerdictCompletion: vi.fn(async () => false),
+    getDelegatedOwnVerdictFinish: vi.fn(async (_client, params) => {
+      const row = memoryOperationIntentStore.findChildByParent(
+        params.workItemId,
+        "github.pr_surface.finishReviewCheck",
+        actual.ownVerdictCloseOperationKey(params),
+      );
+      return row ? { status: row.status, detail: row.detail } : null;
+    }),
     resetOwnVerdictRecords: () => records.clear(),
   };
 });

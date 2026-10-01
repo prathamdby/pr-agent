@@ -20,6 +20,7 @@ import {
 } from "../settings/index.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { isRecord } from "../util/typeGuards.js";
+import type { OperationIntentRow } from "./operationIntentRepository.js";
 import { assertPrActorLeaseHeld } from "./prActorLease.js";
 
 export type PublishLens =
@@ -339,6 +340,27 @@ export async function getOwnVerdictCloseRecord(
 
 export function ownVerdictCloseOperationKey(params: OwnVerdictIdentity): string {
   return `review:check_run_close:${params.workItemId}:${params.reviewLens}`;
+}
+
+/**
+ * The finish mutation delegated under this close's parent intent, if any. The
+ * parent key is unique to the lane, so the boundary child is found by
+ * parentage instead of replicating the boundary's input-hash encoding.
+ */
+export async function getDelegatedOwnVerdictFinish(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity,
+): Promise<Pick<OperationIntentRow, "status" | "detail"> | null> {
+  return queryOne<Pick<OperationIntentRow, "status" | "detail">>(
+    client,
+    `SELECT status, detail FROM operation_intents
+      WHERE work_item_id = $1
+        AND mutation_kind = 'github.pr_surface.finishReviewCheck'
+        AND detail->>'parentOperationKey' = $2
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [params.workItemId, ownVerdictCloseOperationKey(params)],
+  );
 }
 
 /**
