@@ -163,7 +163,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       "/triage: apply-mode fix for open bot findings. The report stamps a CI rollup marker the projector patches. /triage preview renders would-be diffs without push. /triage all replays those stored hunks (refused without a matching preview on this head).",
       "/triage preview: render the would-be unified diff. No commits, no push.",
       "/triage all: replay the stored preview hunks (optional exclude <thread ids>). Refused without a matching preview on this head. Does not start a second agent run.",
-      "/cancel: cancel a queued or running orchestrated review.",
+      "/cancel: cancel a queued or running orchestrated review. The final publication check rereads durable cancellation and blocks new review output when it is visible. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.",
       "/verify: recheck open findings against the current pull request head.",
       "/help: list available commands.",
     ]),
