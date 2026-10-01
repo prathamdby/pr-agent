@@ -28,6 +28,20 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 8. **Publish idempotency** — `publish_records` tracks progress comments, inline review publishing, summary comments, and label sync so at-least-once job execution can resume safely.
 
+9. **Review lifecycle admission** — Close/reopen observations and automated/slash
+   review admission share the existing review transaction advisory lock.
+   `pr_review_lifecycle` persists provider-ordered open/closed/merged state in the
+   accepted-event transaction. Admission reads it in a subsequent statement after
+   acquiring the lock. Close terminalizes observed active reviews; late intake
+   cannot create a new review, transfer progress ownership or enqueue progress
+   work while terminal state holds. Slash refusal commits an explanatory reply.
+   Only a newer reopen restores admission, without starting automatic work.
+   Terminal wins timestamp ties; merged cannot reopen. Marker retention is
+   independent of webhook/work retention, with no backfill or expiry. This is
+   distinct from execution leases and excludes worker-side stale-head replacement
+   insertion (#662). Migration 034 and all upgraded web replicas are required;
+   code rollback leaves data intact but removes the admission guarantee.
+
 ## Consequences
 
 - Slash review, description, triage, and verification insertion resolves active

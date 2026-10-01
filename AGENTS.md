@@ -146,6 +146,16 @@ When test changes are already in scope, keep them proportional to the changed co
 
 GitHub sends a signed webhook to the web role. The web role verifies and parses it, deduplicates the delivery in Postgres, writes an `agent_work_items` row, and enqueues a pg-boss job. Automatic and slash review intake share a per-PR transaction lock, so concurrent `/review force` requests cancel and replace reviews in intake order. For leased work types, the worker acquires the applicable PR actor lease before it claims the durable item. The executor then runs and publishes through `PrSurface`. Lease epochs fence stale executions, and deferred deliveries retry after a lease is held or a worker crashes.
 
+Close and reopen also hold the review intake lock. Accepted lifecycle observations
+write `pr_review_lifecycle` in the same transaction as cancellation or admission.
+Automated and slash review intake read that predicate in a separate statement
+after acquiring the lock. Known closed or merged PRs cannot create intake review
+work or transfer progress ownership; slash commands receive an explanatory reply.
+Only a newer provider-observed reopen restores admission, without automatically
+starting a review. Terminal state wins timestamp ties; merged never reopens.
+The marker outlives webhook/work retention. Worker-side stale-head replacement
+insertion is a separate contract tracked by #662, not covered by this intake gate.
+
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 
 After an interrupted mutation, the intent boundary checks saved results and exact evidence. Completed recovery without a usable result selects terminal failure through the existing feature hook; the intent stays `outcome_unknown` and is never remutated. Failed or incomplete evidence reads remain transient. A cached terminal resolution skips repeated recovery reads, and terminal work-item redelivery cannot claim again.

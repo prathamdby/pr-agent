@@ -19,6 +19,8 @@ select * from webhook_event_replays order by accepted_at desc limit 20;
 select * from webhook_delivery_duplicates order by received_at desc limit 20;
 select * from publish_records order by updated_at desc limit 20;
 select * from pr_actor_leases order by expires_at desc limit 20;
+select resource_key, state, observed_at, updated_at, webhook_event_id
+from pr_review_lifecycle where resource_key = $1;
 select * from operation_intents order by updated_at desc limit 20;
 select * from agent_resume_snapshots order by updated_at desc limit 20;
 ```
@@ -52,7 +54,15 @@ Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age count
 | Otherwise `reviewSupersede`    | `automated_review_supersede_requested` |
 | Otherwise other automated work | `automated_work_enqueued`              |
 
-A supersede request may create no replacement when no auto review is active. Existing delivery labels are unchanged. CI-only decisions below apply to an empty automated plan, not to description-only or verification-only work.
+A supersede request may create no replacement when no auto review is active.
+Labels describe the effective plan after the review admission gate. A review-only
+refusal records `ignored_review_pr_closed` or `ignored_review_pr_merged`; slash
+refusals record `ignored_slash_review_pr_closed` or `ignored_slash_review_pr_merged`.
+Mixed plans keep their remaining work label and log `review_intake_refused` with
+accepted event/delivery correlation. Obsolete lifecycle observations record
+`ignored_stale_pr_lifecycle`; an independently scheduled reopen CI seed keeps
+`ci_projection_enqueued`. CI-only decisions otherwise apply to an empty plan,
+not description-only or verification-only work.
 
 If a `publishDegraded` write affects no rows, the worker logs `agent_work_publish_degraded_mark_rejected` at warn with `workItemId`, `leaseEpoch`, and `rowCount`. Inspect the work item and its PR actor lease to identify a fenced-out write or a missing row.
 
@@ -159,6 +169,45 @@ backfill for identities already lost. A code rollback leaves existing metadata
 readable but restores first-only attribution for new absorbed arrivals.
 
 ## Retry and Recovery
+
+### Review admission after close
+
+Install additive migration `034_pr_review_lifecycle.sql` before upgrading every
+web intake replica. Startup migrations install it normally. Old web replicas
+can still bypass the predicate; unchanged worker payloads need no coordinated
+upgrade. A code-only rollback leaves marker data intact but reopens the intake
+race. Do not drop the table or purge markers as an automatic repair.
+
+Close, reopen, automated review admission and slash review admission hold the
+same per-PR transaction lock through commit. The predicate read is a separate
+statement after the lock, so a waiter observes a committed close. Marker,
+cancellation, exact-pair lease release, event evidence and jobs roll back together
+on failure. Refusal is accepted, not a retryable intake failure. No review,
+progress acknowledgement or ownership transfer is created; `/review` and
+`/review force` receive a reply on the original command thread.
+
+`observed_at` comes from validated provider `pull_request.updated_at`, not local
+arrival time. Newer observations win, terminal state wins ties, and merged never
+reopens. A same-second reopen can remain refused; inspect state and provider
+observations before retrying. A genuinely newer reopen restores admission even
+in manual mode or with already-seeded CI, without automatically starting a review.
+User `/cancel`, force, approval, synchronize and late `opened` never clear state.
+
+Markers have no time-based expiry and survive accepted-event/work retention;
+the nullable evidence link becomes null when its event expires. No historical
+backfill is possible from existing metadata. Missing state means not known
+closed, not a live GitHub read. Coverage starts with accepted lifecycle observations
+after all web replicas upgrade; missed and pre-upgrade closes are not covered.
+
+Redelivery can seed state after rolled-back intake or naturally expired replay
+reservations. An already accepted pre-upgrade close still reserved by delivery/body
+guards remains a duplicate. A fresh provider lifecycle transition can establish
+coverage. Never forge a body/delivery, purge reservations or bypass replay guards.
+
+This gate covers automated and slash intake writers, not worker-side stale-head
+replacement insertion tracked by #662. Existing execution/publish fences remain;
+a request already delegated to GitHub cannot be withdrawn. Other work types keep
+their existing admission policies.
 
 Automatic and slash review intake share a per-PR transaction lock held through commit
 or rollback. Concurrent `/review force` requests cancel and replace the preceding

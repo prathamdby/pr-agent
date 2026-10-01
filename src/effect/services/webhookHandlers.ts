@@ -254,6 +254,19 @@ export const WebhookHandlersCore = Layer.effect(
             {
               pushBeforeSha: data.before,
               merged: data.pull_request.merged,
+              lifecycle:
+                (data.action === "closed" || data.action === "reopened") &&
+                data.pull_request.updated_at != null
+                  ? {
+                      state:
+                        data.action === "reopened"
+                          ? "open"
+                          : data.pull_request.merged
+                            ? "merged"
+                            : "closed",
+                      observedAt: data.pull_request.updated_at,
+                    }
+                  : undefined,
             },
           );
         }),

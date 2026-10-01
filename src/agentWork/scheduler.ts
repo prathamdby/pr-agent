@@ -10,6 +10,7 @@ import {
   applyCompletedRunCiIntake,
   applyCiStateIntake,
   type CiStateFactInput,
+  type AutomatedPullRequestIntakeOpts,
   recordIgnoredWebhook,
 } from "./intake/applier.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./intake/slashIntake.js";
@@ -30,7 +31,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       ref: PrRef,
       action: string,
       intakeLog: RequestLogger,
-      opts?: { readonly pushBeforeSha?: string; readonly merged?: boolean },
+      opts?: AutomatedPullRequestIntakeOpts,
     ) => Effect.Effect<void, Error>;
     readonly submitCiRefresh: (
       headers: WebhookHeaders,

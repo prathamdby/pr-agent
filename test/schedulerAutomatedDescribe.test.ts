@@ -36,7 +36,7 @@ function makePrRef() {
 }
 
 function headCiStateSelect(sql: string): { rows: unknown[] } | null {
-  if (sql.includes("FROM pr_head_ci_state")) {
+  if (sql.includes("FROM pr_head_ci_state") || sql.includes("FROM pr_review_lifecycle")) {
     return { rows: [] };
   }
   return null;

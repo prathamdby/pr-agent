@@ -50,6 +50,9 @@ import {
   createDescriptionWorkItem,
   createReviewWorkItem,
   createVerificationWorkItem,
+  loadReviewLifecycle,
+  recordReviewLifecycleObservation,
+  type ReviewLifecycleObservation,
 } from "./workItemRepository.js";
 
 type AutomatedKindDispatchDescriptor = {
@@ -106,6 +109,7 @@ export async function recordIgnoredWebhook(
 
 type PlannedAutomatedIntakeResult = {
   readonly duplicate: boolean;
+  readonly reviewRefused?: "closed" | "merged";
   readonly correlation: JobCorrelation;
   readonly events: DeferredIntakeEvent[];
 };
@@ -132,6 +136,36 @@ async function applyPlannedAutomatedPullRequestIntake(
   }
   const correlation = jobCorrelation(event.id, headers);
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  let reviewRefused: "closed" | "merged" | undefined;
+  if (
+    plan.kinds.some(
+      (kind) => kind === "review" || kind === "reviewApproval" || kind === "reviewSupersede",
+    )
+  ) {
+    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
+    const lifecycle = await loadReviewLifecycle(client, resourceKey);
+    if (lifecycle != null && lifecycle.state !== "open") {
+      reviewRefused = lifecycle.state;
+      plan = {
+        ...plan,
+        kinds: plan.kinds.filter(
+          (kind) => kind !== "review" && kind !== "reviewApproval" && kind !== "reviewSupersede",
+        ),
+      };
+      const decision =
+        plan.kinds.length === 0
+          ? `ignored_review_pr_${reviewRefused}`
+          : automatedIntakeDecision(plan);
+      await client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
+        event.id,
+        decision,
+      ]);
+      events.push({
+        name: "review_intake_refused",
+        fields: { resourceKey, reason: reviewRefused, source: "auto", ...correlation },
+      });
+    }
+  }
 
   if (plan.kinds.includes("review")) {
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
@@ -343,7 +377,7 @@ async function applyPlannedAutomatedPullRequestIntake(
     );
   }
 
-  return { duplicate: false, correlation, events };
+  return { duplicate: false, reviewRefused, correlation, events };
 }
 
 async function applyReviewCloseCancelIntake(
@@ -351,7 +385,7 @@ async function applyReviewCloseCancelIntake(
   client: PoolClient,
   headers: WebhookHeaders,
   ref: PrRef,
-  merged: boolean,
+  observation: ReviewLifecycleObservation,
 ): Promise<DeferredIntakeEvent[]> {
   const events: DeferredIntakeEvent[] = [];
   const event = await insertWebhookEvent(client, headers, REVIEW_CANCELLED_PR_CLOSED);
@@ -366,7 +400,27 @@ async function applyReviewCloseCancelIntake(
     return events;
   }
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-  const attribution = reviewCancelAttributionForClosedPr(merged);
+  await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
+  const applied = await recordReviewLifecycleObservation(
+    client,
+    resourceKey,
+    observation,
+    event.id,
+  );
+  const correlation = jobCorrelation(event.id, headers);
+  if (!applied) {
+    await client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
+      event.id,
+      "ignored_stale_pr_lifecycle",
+    ]);
+    return [
+      {
+        name: "ignored_stale_pr_lifecycle",
+        fields: { resourceKey, state: observation.state, ...correlation },
+      },
+    ];
+  }
+  const attribution = reviewCancelAttributionForClosedPr(observation.state === "merged");
   const cancelledReviews = await cancelActiveReviews(client, resourceKey, attribution);
   const cancelledTriage = await cancelActiveTriage(client, resourceKey, attribution, ref.prNumber);
   const cancelledReviewWorkItemIds = cancelledReviews.map((row) => row.id);
@@ -375,7 +429,6 @@ async function applyReviewCloseCancelIntake(
   const primaryReview = cancelledReviews[0];
   const primaryTriage = cancelledTriage[0];
   if (primaryReview != null || primaryTriage != null) {
-    const correlation = jobCorrelation(event.id, headers);
     const ackData: AckJobData = {
       kind: "ack",
       installationId: ref.installationId,
@@ -426,7 +479,14 @@ async function applyReviewCloseCancelIntake(
 export type AutomatedPullRequestIntakeOpts = {
   readonly pushBeforeSha?: string;
   readonly merged?: boolean;
+  readonly lifecycle?: ReviewLifecycleObservation;
 };
+
+export type AutomatedPullRequestIntakeArgs<Action extends string> = Action extends
+  | "closed"
+  | "reopened"
+  ? [opts: AutomatedPullRequestIntakeOpts & { readonly lifecycle: ReviewLifecycleObservation }]
+  : [opts?: AutomatedPullRequestIntakeOpts];
 
 async function enqueueHeadCiProjection(
   boss: PgBoss,
@@ -461,17 +521,22 @@ async function applyPullRequestCiSeedIntake(
   ref: PrRef,
   intakeLog: RequestLogger,
   action: string,
+  observation?: ReviewLifecycleObservation,
 ): Promise<DeferredIntakeEvent[]> {
-  if (!isHeadCiSeedPullRequest(action, ref.headSha)) {
+  const seedCandidate = isHeadCiSeedPullRequest(action, ref.headSha);
+  if (!seedCandidate && action !== "reopened") {
     await recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog);
     return [];
   }
-  const row = await loadPrHeadCiState(client, ref.owner, ref.repo, ref.headSha);
-  if (!headCiNeedsSeed(row)) {
-    await recordIgnoredWebhook(client, headers, `ignored_pull_request_${action}`, intakeLog);
-    return [];
-  }
-  const event = await insertWebhookEvent(client, headers, "ci_projection_enqueued");
+  const row = seedCandidate
+    ? await loadPrHeadCiState(client, ref.owner, ref.repo, ref.headSha)
+    : null;
+  const seed = seedCandidate && headCiNeedsSeed(row);
+  const event = await insertWebhookEvent(
+    client,
+    headers,
+    seed ? "ci_projection_enqueued" : `ignored_pull_request_${action}`,
+  );
   if (event.duplicate) {
     return [
       {
@@ -483,32 +548,62 @@ async function applyPullRequestCiSeedIntake(
       },
     ];
   }
-  return [await enqueueHeadCiProjection(boss, client, ref, jobCorrelation(event.id, headers))];
+  const correlation = jobCorrelation(event.id, headers);
+  const events: DeferredIntakeEvent[] = [];
+  if (action === "reopened" && observation != null) {
+    const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
+    const applied = await recordReviewLifecycleObservation(
+      client,
+      resourceKey,
+      observation,
+      event.id,
+    );
+    if (!applied && !seed) {
+      await client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
+        event.id,
+        "ignored_stale_pr_lifecycle",
+      ]);
+    }
+    events.push({
+      name: applied ? "pr_review_lifecycle_applied" : "ignored_stale_pr_lifecycle",
+      fields: { resourceKey, state: observation.state, ...correlation },
+    });
+  }
+  if (seed) events.push(await enqueueHeadCiProjection(boss, client, ref, correlation));
+  return events;
 }
 
-export async function applyAutomatedPullRequestIntake(
+export async function applyAutomatedPullRequestIntake<Action extends string>(
   boss: PgBoss,
   pool: Pool,
   headers: WebhookHeaders,
   ref: PrRef,
-  action: string,
+  action: Action,
   intakeLog: RequestLogger,
   cfg: Pick<Config, "features">,
-  opts?: AutomatedPullRequestIntakeOpts,
+  ...options: AutomatedPullRequestIntakeArgs<Action>
 ): Promise<void> {
-  if (action === "closed") {
-    const events = await inTransaction(pool, (client) =>
-      applyReviewCloseCancelIntake(boss, client, headers, ref, opts?.merged === true),
-    );
-    flushDeferredEvents(intakeLog, events);
-    return;
+  const opts = options[0];
+  if (action === "closed" || action === "reopened") {
+    const observation = opts?.lifecycle;
+    if (observation == null) {
+      throw new Error("Close and reopen require a validated lifecycle observation");
+    }
+    if (action === "closed") {
+      const events = await inTransaction(pool, (client) =>
+        applyReviewCloseCancelIntake(boss, client, headers, ref, observation),
+      );
+      flushDeferredEvents(intakeLog, events);
+      return;
+    }
   }
 
   const plan = planAutomatedPullRequestIntake(action, cfg.features);
 
   if (plan.kinds.length === 0) {
     const events = await inTransaction(pool, (client) =>
-      applyPullRequestCiSeedIntake(boss, client, headers, ref, intakeLog, action),
+      applyPullRequestCiSeedIntake(boss, client, headers, ref, intakeLog, action, opts?.lifecycle),
     );
     flushDeferredEvents(intakeLog, events);
     return;
