@@ -559,14 +559,17 @@ async function applyPullRequestCiSeedIntake(
       observation,
       event.id,
     );
-    if (!applied && !seed) {
+    const lifecycleDecision = applied
+      ? "pr_review_lifecycle_applied"
+      : "ignored_stale_pr_lifecycle";
+    if (!seed) {
       await client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
         event.id,
-        "ignored_stale_pr_lifecycle",
+        lifecycleDecision,
       ]);
     }
     events.push({
-      name: applied ? "pr_review_lifecycle_applied" : "ignored_stale_pr_lifecycle",
+      name: lifecycleDecision,
       fields: { resourceKey, state: observation.state, ...correlation },
     });
   }

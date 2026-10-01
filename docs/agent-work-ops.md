@@ -59,7 +59,8 @@ Labels describe the effective plan after the review admission gate. A review-onl
 refusal records `ignored_review_pr_closed` or `ignored_review_pr_merged`; slash
 refusals record `ignored_slash_review_pr_closed` or `ignored_slash_review_pr_merged`.
 Mixed plans keep their remaining work label and log `review_intake_refused` with
-accepted event/delivery correlation. Obsolete lifecycle observations record
+accepted event/delivery correlation. A reopen that restores admission without a
+CI seed records `pr_review_lifecycle_applied`. Obsolete lifecycle observations record
 `ignored_stale_pr_lifecycle`; an independently scheduled reopen CI seed keeps
 `ci_projection_enqueued`. CI-only decisions otherwise apply to an empty plan,
 not description-only or verification-only work.

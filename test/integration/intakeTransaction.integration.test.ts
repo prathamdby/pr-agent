@@ -624,31 +624,32 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       "INSERT INTO pr_head_ci_state(owner,repo,head_sha,rollup,version,seeded_at) VALUES ($1,$2,$3,'none',1,now()) ON CONFLICT (owner,repo,head_sha) DO UPDATE SET seeded_at = now()",
       [ref.owner, ref.repo, ref.headSha],
     );
-    for (const [action, state, time, expected] of [
-      ["closed", "closed", 2, "closed"],
-      ["reopened", "open", 1, "closed"],
-      ["reopened", "open", 2, "closed"],
-      ["reopened", "open", 3, "open"],
-      ["closed", "closed", 2, "open"],
-      ["closed", "closed", 3, "closed"],
+    for (const [action, state, time, expected, decision] of [
+      ["closed", "closed", 2, "closed", "review_cancelled_pr_closed"],
+      ["reopened", "open", 1, "closed", "ignored_stale_pr_lifecycle"],
+      ["reopened", "open", 2, "closed", "ignored_stale_pr_lifecycle"],
+      ["reopened", "open", 3, "open", "pr_review_lifecycle_applied"],
+      ["reopened", "open", 3, "open", "ignored_stale_pr_lifecycle"],
+      ["closed", "closed", 2, "open", "ignored_stale_pr_lifecycle"],
+      ["closed", "closed", 3, "closed", "review_cancelled_pr_closed"],
     ] as const) {
       const h = headers(action, randomUUID());
       const opts = { lifecycle: { state, observedAt: `2026-10-01T00:00:0${time}Z` } };
+      await applyAutomatedPullRequestIntake(boss, pool, h, ref, action, intakeLog(), cfg, opts);
       await applyAutomatedPullRequestIntake(boss, pool, h, ref, action, intakeLog(), cfg, opts);
       expect(
         (await pool.query("SELECT state FROM pr_review_lifecycle WHERE resource_key = $1", [key]))
           .rows[0].state,
       ).toBe(expected);
-      if (state !== expected) {
-        expect(
-          (
-            await pool.query(
-              "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
-              [h.delivery],
-            )
-          ).rows[0].processing_decision,
-        ).toBe("ignored_stale_pr_lifecycle");
-      }
+      expect(
+        (
+          await pool.query(
+            "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+            [h.delivery],
+          )
+        ).rows[0].processing_decision,
+      ).toBe(decision);
+      await expect(countWebhookRows(h.delivery)).resolves.toBe(1);
     }
     expect(
       (await pool.query("SELECT id FROM agent_work_items WHERE resource_key = $1", [key])).rows,
@@ -1024,6 +1025,13 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         .rows,
     ).toEqual([{ state: "open" }]);
     await expect(countWebhookRows(h.delivery)).resolves.toBe(1);
+    expect(
+      (
+        await pool.query("SELECT processing_decision FROM webhook_events WHERE delivery_id = $1", [
+          h.delivery,
+        ])
+      ).rows[0].processing_decision,
+    ).toBe("ci_projection_enqueued");
   });
 
   it.each(["auto-first", "force-first"] as const)(
