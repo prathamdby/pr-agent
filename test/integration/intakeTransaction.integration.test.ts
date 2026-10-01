@@ -116,6 +116,14 @@ async function deleteQueueJobs(boss: PgBoss): Promise<void> {
       );
     }
   }
+  const projections = await boss.findJobs<{ owner: string }>(CI_PROJECTION_QUEUE, {});
+  const owned = projections.filter((job) => job.data.owner === OWNER);
+  if (owned.length > 0) {
+    await boss.deleteJob(
+      CI_PROJECTION_QUEUE,
+      owned.map((job) => job.id),
+    );
+  }
 }
 
 describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
@@ -127,6 +135,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await runMigrations(pool);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
     await ensureAgentQueues(boss, queueConfig);
     await deleteQueueJobs(boss);
@@ -140,6 +149,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   afterEach(async () => {
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     await deleteQueueJobs(boss);
     initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
@@ -394,32 +404,185 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
   });
 
-  it("dedupes the same body across delivery ids before creating more work", async () => {
-    const ref = makePrRef("body-replay");
-    const rawBody = Buffer.from(JSON.stringify({ action: "synchronize", replay: true }));
+  it.each(["body_replay", "delivery_key", "delivery_key_changed_body"])(
+    "records every rejected arrival without creating work or jobs: %s",
+    async (variant) => {
+      const ref = makePrRef(variant);
+      const original = headers("synchronize", `delivery-${variant}-a`);
+      const duplicate = {
+        ...original,
+        delivery: variant === "body_replay" ? `delivery-${variant}-b` : original.delivery,
+        rawBody:
+          variant === "delivery_key_changed_body"
+            ? headers("synchronize", "changed-body").rawBody
+            : original.rawBody,
+      };
+      const bodySha256 = createHash("sha256").update(duplicate.rawBody).digest("hex");
+      const reason = variant === "body_replay" ? "body_replay" : "delivery_key";
+      const jobsSql = `SELECT id, name FROM pgboss.job
+        WHERE (name = $1 AND data->>'workItemId' IN (
+                 SELECT id::text FROM agent_work_items
+                  WHERE owner = $4 AND repo = $5 AND pr_number = $6))
+           OR (name = $2 AND data->>'owner' = $4 AND data->>'repo' = $5
+                        AND data->>'prNumber' = $6::text)
+           OR (name = $3 AND data->>'owner' = $4 AND data->>'repo' = $5
+                        AND data->>'headSha' = $7)
+        ORDER BY name, id`;
+      const jobParams = [
+        REVIEW_QUEUE,
+        ACK_QUEUE,
+        CI_PROJECTION_QUEUE,
+        ref.owner,
+        ref.repo,
+        ref.prNumber,
+        ref.headSha,
+      ];
+      expect((await pool.query(jobsSql, jobParams)).rows).toEqual([]);
+      let acceptedJobs: Array<{ id: string; name: string }> = [];
 
+      for (const [index, requestHeaders] of [original, duplicate, duplicate].entries()) {
+        await applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          requestHeaders,
+          ref,
+          "synchronize",
+          intakeLog(),
+          intakeCfg,
+        );
+        const jobs = await pool.query<{ id: string; name: string }>(jobsSql, jobParams);
+        if (index === 0) {
+          acceptedJobs = jobs.rows;
+          expect(acceptedJobs.map((job) => job.name).toSorted()).toEqual(
+            [ACK_QUEUE, REVIEW_QUEUE, CI_PROJECTION_QUEUE].toSorted(),
+          );
+        } else {
+          expect(jobs.rows).toEqual(acceptedJobs);
+        }
+        await expect(countWebhookRows()).resolves.toBe(1);
+        await expect(countWorkItems()).resolves.toBe(1);
+        const { rows } = await pool.query<{
+          id: string;
+          received_at: Date;
+          delivery_id: string;
+          body_sha256: string;
+          dedupe_key: string;
+          dedupe_reason: string;
+        }>(
+          `SELECT id, received_at, delivery_id, body_sha256, dedupe_key, dedupe_reason
+             FROM webhook_delivery_duplicates WHERE event_name = $1 ORDER BY received_at, id`,
+          [EVENT],
+        );
+        expect(rows).toHaveLength(index);
+        expect(new Set(rows.map((row) => row.id)).size).toBe(index);
+        for (const row of rows) {
+          expect(row).toEqual({
+            id: expect.any(String),
+            received_at: expect.any(Date),
+            delivery_id: duplicate.delivery,
+            body_sha256: bodySha256,
+            dedupe_key:
+              reason === "body_replay" ? `body:${bodySha256}` : `delivery:${duplicate.delivery}`,
+            dedupe_reason: reason,
+          });
+        }
+        if (variant === "body_replay") {
+          await expect(countWebhookRows(duplicate.delivery)).resolves.toBe(0);
+        }
+      }
+    },
+  );
+
+  it("rejects failed duplicate evidence and records a subsequent retry", async () => {
+    const ref = makePrRef("audit-failure");
+    const original = headers("synchronize", "delivery-audit-original");
+    const duplicate = { ...original, delivery: "delivery-audit-duplicate" };
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      { ...headers("synchronize", "delivery-body-a"), rawBody },
+      original,
       ref,
       "synchronize",
       intakeLog(),
       intakeCfg,
     );
-    await applyAutomatedPullRequestIntake(
-      boss,
-      pool,
-      { ...headers("synchronize", "delivery-body-b"), rawBody },
-      ref,
-      "synchronize",
-      intakeLog(),
-      intakeCfg,
-    );
-
+    const jobsSql = `SELECT id FROM pgboss.job
+      WHERE (name = $1 AND data->>'workItemId' IN (
+               SELECT id::text FROM agent_work_items
+                WHERE owner = $4 AND repo = $5 AND pr_number = $6))
+         OR (name = $2 AND data->>'owner' = $4 AND data->>'repo' = $5
+                      AND data->>'prNumber' = $6::text)
+         OR (name = $3 AND data->>'owner' = $4 AND data->>'repo' = $5
+                      AND data->>'headSha' = $7)
+      ORDER BY id`;
+    const jobParams = [
+      REVIEW_QUEUE,
+      ACK_QUEUE,
+      CI_PROJECTION_QUEUE,
+      ref.owner,
+      ref.repo,
+      ref.prNumber,
+      ref.headSha,
+    ];
+    const jobsBefore = await pool.query(jobsSql, jobParams);
+    const client = await pool.connect();
+    const originalQuery = client.query.bind(client);
+    const querySpy = vi
+      .spyOn(client, "query")
+      .mockImplementation((...args: Parameters<typeof client.query>) => {
+        if (
+          typeof args[0] === "string" &&
+          args[0].includes("INSERT INTO webhook_delivery_duplicates")
+        ) {
+          return Promise.reject(new Error("injected duplicate audit failure"));
+        }
+        return originalQuery(...args);
+      });
+    const connectSpy = vi.spyOn(pool, "connect").mockImplementationOnce(async () => client);
+    try {
+      await expect(
+        applyAutomatedPullRequestIntake(
+          boss,
+          pool,
+          duplicate,
+          ref,
+          "synchronize",
+          intakeLog(),
+          intakeCfg,
+        ),
+      ).rejects.toThrow("injected duplicate audit failure");
+    } finally {
+      querySpy.mockRestore();
+      connectSpy.mockRestore();
+    }
+    expect(
+      (
+        await pool.query("SELECT id FROM webhook_delivery_duplicates WHERE event_name = $1", [
+          EVENT,
+        ])
+      ).rows,
+    ).toHaveLength(0);
     await expect(countWebhookRows()).resolves.toBe(1);
     await expect(countWorkItems()).resolves.toBe(1);
-    await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+    await expect(countReplayRows(original.rawBody)).resolves.toBe(1);
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      duplicate,
+      ref,
+      "synchronize",
+      intakeLog(),
+      intakeCfg,
+    );
+    expect(
+      (
+        await pool.query(
+          "SELECT delivery_id FROM webhook_delivery_duplicates WHERE event_name = $1",
+          [EVENT],
+        )
+      ).rows,
+    ).toEqual([{ delivery_id: duplicate.delivery }]);
+    expect((await pool.query(jobsSql, jobParams)).rows).toEqual(jobsBefore.rows);
   });
 
   it("supersede flow: second delivery supersedes the work item and enqueues a fresh job", async () => {

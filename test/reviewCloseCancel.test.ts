@@ -589,6 +589,7 @@ describe("applyAutomatedPullRequestIntake close cancel", () => {
 
   it("short-circuits duplicate merge-cancel deliveries before cancel SQL", async () => {
     const clientQuery = vi.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO webhook_delivery_duplicates")) return { rows: [] };
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [] };
       }

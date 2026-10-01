@@ -12,7 +12,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 ## Decision
 
-1. **Durable intake** — Webhook dispatch records `webhook_events`, `webhook_event_replays`, `agent_work_items`, and pg-boss jobs in one Postgres transaction. The HTTP response is sent only after the transaction commits.
+1. **Durable intake** — Accepted webhook dispatch records `webhook_events`, `webhook_event_replays`, `agent_work_items`, and pg-boss jobs in one Postgres transaction. Duplicate arrivals instead record compact metadata in `webhook_delivery_duplicates` in that transaction, without new work or jobs. The HTTP response is sent only after the transaction commits; audit-write failure also rejects intake. Evidence never participates in deduplication and expires by its own arrival age under `WEBHOOK_EVENTS_RETENTION_SECONDS`.
 
 2. **Postgres + pg-boss** — Use Postgres for app-owned workflow state and pg-boss for delivery, retries, heartbeat, expiration, and dead-letter retention. Per-PR mutual exclusion is the **PR actor lease** ([ADR 0030](0030-pr-actor-lease.md)); work queues use the `standard` policy.
 
