@@ -2,7 +2,7 @@
 
 This file describes how the landing page in `site/` looks and why, so a later change keeps the same design. It is the reference for tokens, class recipes, and the rules behind them. Read it before touching `site/app/globals.css`, anything under `site/components/`, or the copy in `site/lib/content.ts`.
 
-The page is a TanStack Start app (React 19, Tailwind v4). Tailwind’s stock palette is switched off, so every colour utility on the page comes from the semantic tokens in `site/app/globals.css`. Everything below is copied from the real files. When a file and this document disagree, fix one of them in the same PR.
+The page is a TanStack Start app (React 19, Tailwind v4). Tailwind’s stock palette is switched off, so every colour utility on the page comes from the semantic tokens in `site/app/globals.css`. Everything below is copied from the real files. When a file and this document disagree, fix one of them in the same PR, subject to the site-copy permission gate below.
 
 ## Contents
 
@@ -579,7 +579,9 @@ The only hand-drawn SVGs on the page are illustration, not icons: the dashed rai
 
 ## Content and voice
 
-- All page copy lives in `site/lib/content.ts` and is shared by the HTML sections, the markdown page (`site/lib/pageMarkdown.ts`), and `renderLlmsTxt` in `site/lib/llmsKnowledge.ts`. Change the constant, never the JSX, and check `site/public/llms.txt` still equals `renderLlmsTxt()` after a build.
+- AI agents must not edit the main site's human-facing copy without explicit user approval under `AGENTS.md` (Non-negotiables and Public documentation). This includes components, shared constants, metadata, and the landing page's markdown twin. Propose the exact wording and stop until the user approves it. A behaviour change, review finding, or docs rule does not grant permission, and an approval does not authorize future rewrites. Preserve the tone and wording; propose only factual corrections needed for current feature parity.
+- README, `docs/`, and agent-facing documentation, including `site/lib/llmsKnowledge.ts` and generated `site/public/llms.txt`, stay current with development without separate copy approval. Do not use these updates to change shared constants or helpers that alter the main site's human-facing wording.
+- Once approved, change page copy in `site/lib/content.ts`, which is shared by the HTML sections, the markdown page (`site/lib/pageMarkdown.ts`), and `renderLlmsTxt` in `site/lib/llmsKnowledge.ts`. Change the constant, never the JSX, and check `site/public/llms.txt` still equals `renderLlmsTxt()` after a build.
 - Machine-readable URLs come from `site/lib/agentResources.ts`; the footer, 404, head links, sitemap, and OpenAPI all read that list.
 - Operator voice. Speak to the reader as “you”: “Your GitHub credentials and AI keys stay in your account.”
 - Sentence case for every heading, tab, button, and table header.
@@ -587,7 +589,7 @@ The only hand-drawn SVGs on the page are illustration, not icons: the dashed rai
 - No em dashes in site copy. Use a full stop, a comma, or a colon. En dashes only for ranges (`P0–P2`), the ellipsis character for elided arguments (`/ask …`), middle dots for inline lists (`Your servers · your keys`), and curly quotes when quoting.
 - Real product words, not marketing ones: `/review`, `/describe`, `/ask`, `/triage`, `FEATURE_*`, “pull request”, “GitHub App”.
 - Competitor claims stay factual and come from each product’s public pages. A hosted reviewer with a self-host tier counts as “partial” for the ownership rows. Do not add a criterion you cannot source.
-- The public docs rules in `AGENTS.md` (Public documentation) apply to the site as well: a behaviour, env, feature-mode, host, or privacy change updates `content.ts`, `llmsKnowledge.ts`, and `site/public/llms.txt` in the same PR as the README.
+- The public docs rules in `AGENTS.md` (Public documentation) apply to the site as well. Update `llmsKnowledge.ts` and regenerate `site/public/llms.txt` in the same PR as relevant README and docs changes. If the human page also needs a factual correction, propose its exact wording and wait for explicit user approval without blocking the documentation updates.
 
 ## Do and don’t
 
@@ -631,7 +633,7 @@ Run these before calling a site change done. They are the checks the maintainer 
    nub run --node site:build
    ```
 
-   `check:code` runs the typecheck, `oxlint`, and `oxfmt --check`. The site build runs `vite build` and two `tsc --noEmit` passes, and its `emitLlmsTxt` plugin rewrites `site/public/llms.txt`; `git status site/public/llms.txt` must be clean afterwards, or the regenerated file belongs in the same commit. Run `nub run fmt` if the format check fails.
+   `check:code` runs the typecheck, `oxlint`, and `oxfmt --check`. The site build runs `vite build` and two `tsc --noEmit` passes, and its `emitLlmsTxt` plugin rewrites `site/public/llms.txt`. Include regenerated agent documentation in the same commit without separate approval, and check it equals `renderLlmsTxt()`. Generation does not authorize changes to the main site's human-facing source wording. Run `nub run fmt` if the format check fails.
 
 2. Screenshots at three widths. Start the dev server (`nub run site:dev`, port 3000), note its process id so you stop only what you started, then drive it with Playwright. Playwright is not a repository dependency, so install it into a throwaway directory and point `NODE_PATH` at it (`npx -p playwright node -e` does not resolve the module from the repo). `playwright install chromium` is instant when that build is already in `~/.cache/ms-playwright`:
 

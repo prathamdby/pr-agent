@@ -32,8 +32,8 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "A pull request opens on your project",
     detail:
-      "PR Agent notices and starts a review. Your team sees a reaction on the pull request so everyone knows work has begun.",
-    cue: "Starts when a pull request opens",
+      "PR Agent starts a review on opening or approval, depending on your settings. Your team sees a reaction on the pull request so everyone knows work has begun.",
+    cue: "Starts on opening or approval",
     summary: "Automated AI pull request reviews",
   },
   {
@@ -73,14 +73,13 @@ export const CAPABILITIES: CapabilityItem[] = [
     id: "review",
     title: "Catch basics before a human opens the change",
     trigger:
-      "Runs when a pull request opens (auto), on approval (approval mode), or when you comment /review",
-    detail:
-      "Comments land next to the lines that need attention. After PR Agent accepts a close or merge, automated review intake, /review (including force) and stale-head replacements cannot start another review. Closed commands ask you to reopen first; merged commands are refused. A newer reopen permits review but does not start one automatically. Late older ticks from the same review do not replace newer progress or its final summary. A replacement review owns the progress comment; late specialist ticks from the earlier run are skipped or rejected with an ownership warning. Crash recovery serializes its failure decision with live work. Busy or timed-out recovery passes leave your review alone and retry later. Coalesced CI deliveries keep their identities on your retained projection job. A failed stale review's pending replacement is cancelled even if it has just started or a delivery races the abort. Successfully handed-off replacements remain unchanged; unconfirmed cancellation is logged as an error. Retrying a stale review keeps changes already saved on its replacement.",
+      "Runs on opening or approval, depending on your settings, or when you comment /review on an open pull request",
+    detail: "Comments land next to the lines that need attention.",
   },
   {
     id: "describe",
     title: "Turn a blank PR body into a readable summary",
-    trigger: "Runs when a pull request opens, or when you comment /describe",
+    trigger: "Runs when a pull request opens in auto mode, or when you comment /describe",
     detail:
       "Summary bullets and optional visual sketches go into the PR body when the diff proves them.",
   },
@@ -164,7 +163,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Is PR Agent a self-hosted alternative to CodeRabbit?",
     answer:
-      "Yes. It reviews pull requests when they open, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.",
+      "Yes. It reviews pull requests, leaves comments on the changes, writes summaries, and responds to commands in GitHub. Unlike CodeRabbit’s hosted product, PR Agent runs on your servers with your credentials and your AI keys.",
   },
   {
     question: "How does PR Agent compare to Greptile?",
@@ -391,7 +390,7 @@ export const APP_FIELDS = [
   {
     label: "Subscribe to",
     value:
-      "Pull requests, issue comments, pull request review comments, workflow runs, check suites, check runs, and statuses",
+      "Pull requests, issue comments, pull request review comments, workflow runs, check suites, check runs, and statuses. Add pull request reviews for approval mode.",
     mono: false,
   },
   {
@@ -408,6 +407,10 @@ export const SLASH_COMMANDS = [
     tip: "Run a full review; repeated commands acknowledge active work, even when cancellation races intake",
   },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
+  { cmd: "/verify", tip: "Recheck open findings" },
+  { cmd: "/cancel", tip: "Cancel a queued or running review" },
+  { cmd: "/review force", tip: "Restart the review on the latest commit" },
+  { cmd: "/help", tip: "List available commands" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
   { cmd: "/triage", tip: "Apply fixes and push. Preview is optional." },
   { cmd: "/triage preview", tip: "Show the would-be unified diff. Nothing is pushed." },
