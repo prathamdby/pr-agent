@@ -228,4 +228,41 @@ describe("in-flight handler settle", () => {
     release();
     await hanging;
   });
+
+  it("tracks durable dispatches in their own lane and reports both outstanding counts", async () => {
+    const tracker = createExecutionTracker();
+    let releaseDurable: () => void = () => undefined;
+    let releasePlain: () => void = () => undefined;
+    const durableDone = tracker.track(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseDurable = resolve;
+        }),
+      { durable: true },
+    );
+    const plainDone = tracker.track(
+      () =>
+        new Promise<void>((resolve) => {
+          releasePlain = resolve;
+        }),
+    );
+
+    await expect(tracker.settle(30)).resolves.toEqual({ pendingHandlers: 1, pendingDurable: 1 });
+
+    const reserveStarted = Date.now();
+    const reserve = tracker.settle(5_000, { durableOnly: true });
+    releaseDurable();
+    await reserve;
+    expect(Date.now() - reserveStarted).toBeLessThan(1_000);
+
+    // A plain callback still in flight does not block the durable-only wait.
+    await expect(tracker.settle(30, { durableOnly: true })).resolves.toEqual({
+      pendingHandlers: 1,
+      pendingDurable: 0,
+    });
+
+    releasePlain();
+    await Promise.all([durableDone, plainDone]);
+    await expect(tracker.settle(0)).resolves.toEqual({ pendingHandlers: 0, pendingDurable: 0 });
+  });
 });

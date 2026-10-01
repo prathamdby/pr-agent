@@ -131,6 +131,7 @@ Paste the GitHub App private key as one line with `\n` for newlines, or as base6
 - Compose overrides `ROLE` and `DATABASE_URL` for each service. Web and worker use hostname `postgres` on the compose network. The `DATABASE_URL` in `.env.example` (`localhost:5432`) is for host integration tests and optional host processes. [Local development](#local-development) publishes that port from `docker-compose.dev.yml`. Production Compose does not.
 - Default HTTP port is `7224` (Compose and `.env.example`). Maintainer-local Compose also publishes worker `7225`. Bare `nub src/index.ts` without `PORT` falls back to `3000`.
 - `.env.example` sets `LOG_PRETTY=true` for a laptop. On a public host, set `LOG_PRETTY=false` or drop the line so production defaults apply. Change the default Postgres password if the host is reachable.
+- On shutdown the worker stops taking jobs, waits briefly for in-flight work to record its outcome, and exits. Work that outlives that window is recovered by a later worker. Details: [docs/operations.md](docs/operations.md).
 - Full env catalog: [docs/configuration.md](docs/configuration.md). Feature switches: [docs/features.md](docs/features.md).
 
 </details>

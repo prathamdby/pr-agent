@@ -205,6 +205,15 @@ rolls back intake. The original top-level correlation remains the worker log
 identity. Projection still renders from head state. Inspection and retention:
 [the queue runbook](docs/agent-work-ops.md#ci-projection-delivery-attribution).
 
+Worker shutdown is ordered and bounded. Intake closes first, pg-boss drains on
+`SHUTDOWN_DRAIN_TIMEOUT_SECONDS`, all in-flight queue handlers settle for
+`SHUTDOWN_SETTLE_TIMEOUT_MS`, and the five durable work queues then get one more
+`SHUTDOWN_SETTLE_TIMEOUT_MS` window, concurrent with the bounded analytics
+flush, before the Postgres pool ends. A dispatch still running at that cutoff
+logs `agent_worker_shutdown_incomplete` and never writes against an ended pool;
+a later worker recovers its row through the existing watchdog chain or
+lost-running sweep.
+
 Lost-running diagnostics are advisory. The sweeper rechecks the item age,
 lease expiry, and matching live job in the conditional failure write. Only an
 applied mark permits a candidate's crashed verdict close; revived work stays
