@@ -32,6 +32,19 @@ const AGENT_FILES = AGENT_RESOURCES.filter(
 const linkClassName =
   "inline-flex min-h-8 items-center rounded-xs text-sm text-text-secondary transition-colors duration-150 hover:text-text";
 
+export function UsefulShelfBadge() {
+  return (
+    <a
+      href="https://usefulshelf.co/?utm_source=pr-agent-site.vercel.app&utm_medium=referral&utm_campaign=badge&utm_content=text"
+      target="_blank"
+      rel="noopener"
+      className="hit-area rounded-xs transition-colors duration-150 hover:text-text"
+    >
+      Featured on UsefulShelf
+    </a>
+  );
+}
+
 export function Footer() {
   const year = new Date().getFullYear();
   return (
@@ -154,6 +167,9 @@ export function Footer() {
               >
                 llms.txt
               </a>
+            </li>
+            <li>
+              <UsefulShelfBadge />
             </li>
           </ul>
         </div>

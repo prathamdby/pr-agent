@@ -86,6 +86,11 @@ describe("collectQueueDiagnostics", () => {
         activeCount: 3,
         failedCount: 0,
         totalCount: 5,
+        completedDelta: null,
+        failedDelta: null,
+        createdDelta: null,
+        deltaSeconds: null,
+        deltaOn: null,
         capturedOn: now,
       },
     ]);
