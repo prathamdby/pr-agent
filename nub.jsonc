@@ -4,6 +4,11 @@
   "install": {
     "minimumReleaseAge": "7d",
     "minimumReleaseAgeExclude": [
+      "effect@4.0.0",
+      "@effect/platform-node@4.0.0",
+      "@effect/platform-node-shared@4.0.0",
+      "ws@8.22.0",
+      "undici@8.11.2",
       "pg-cloudflare",
       "typescript",
       "@types/*",

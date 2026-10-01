@@ -53,5 +53,5 @@ Recorded against `@jitl/quickjs-wasmfile-release-sync` 0.32.0 (`engineRevision` 
 - **Keep the Acorn walker.** Rejected: AST fuel does not preempt native regex or a tight loop as reliably as the QuickJS interrupt, and the cell blocks the consumer.
 - **Always `child_process` + SIGKILL.** Rejected: Phase 0 kill was fast, but worker threads reuse the WASM module and keep capabilities on the host. Hard kill remains available if a future engine ignores the interrupt.
 - **Embed OpenCode core / `opencode serve`.** Rejected: Bun FFI, node-pty, SQLite, and a second control plane.
-- **Import `@opencode/codemode` as the interpreter.** Rejected: the package is not on npm, its walker targets Effect 4 RC (pr-agent is Effect 3.22), and it meters wall-clock / tool-call / output bytes only. MIT license notes live in `src/agent/codemode/vendor/`.
+- **Import `@opencode/codemode` as the interpreter.** Rejected: the package is not on npm, its walker targets Effect 4 RC (pr-agent pins effect@4.0.0), and it meters wall-clock / tool-call / output bytes only. MIT license notes live in `src/agent/codemode/vendor/`.
 - **V8 isolate or `eval`.** Rejected: harder to meter synchronous loops and native allocations on Node 22 without native add-ons.

@@ -16,6 +16,7 @@ vi.mock("../src/settings/index.js", async (importOriginal) => {
 
 import { Effect, Fiber, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import type { WebhookHeaders } from "../src/agentWork/types.js";
 import type { Config } from "../src/config.js";
 import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
@@ -25,16 +26,21 @@ const testCfg = makeTestConfig({
   webhookSecret: "secret",
 });
 
-function get(port: number, path: string): Promise<{ status: number; body: string }> {
+function get(
+  port: number,
+  path: string,
+  method = "GET",
+): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     http
-      .get({ hostname: "127.0.0.1", port, path }, (res) => {
+      .get({ hostname: "127.0.0.1", port, path, method }, (res) => {
         const chunks: Buffer[] = [];
         res.on("data", (c) => chunks.push(Buffer.from(c)));
         res.on("end", () => {
           resolve({
             status: res.statusCode ?? 0,
             body: Buffer.concat(chunks).toString("utf8"),
+            headers: res.headers,
           });
         });
       })
@@ -191,7 +197,7 @@ function signBody(secret: string, body: Buffer): string {
   return `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
 }
 
-type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
+type Handle = { server: http.Server; fiber: Fiber.Fiber<void, unknown> };
 
 function startEffectServer({
   pingResult = true,
@@ -200,7 +206,7 @@ function startEffectServer({
 }: {
   readonly pingResult?: boolean;
   readonly cfg?: Config;
-  readonly recordIgnored?: () => Effect.Effect<void>;
+  readonly recordIgnored?: (headers: WebhookHeaders) => Effect.Effect<void>;
 } = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
@@ -252,32 +258,41 @@ describe("effect webhook server (end-to-end)", () => {
     handle = undefined;
   });
 
-  it("returns 200 plain ok for GET /health", async () => {
+  it.each(["/health", "/health?probe=1"])("returns 200 plain ok for GET %s", async (path) => {
     handle = await startEffectServer();
     const addr = handle.server.address();
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/health");
+    const res = await get(addr.port, path);
     expect(res.status).toBe(200);
     expect(res.body).toBe("ok");
+    expect(res.headers["content-type"]).toBe("text/plain; charset=utf-8");
   });
 
-  it("returns 200 ready for GET /ready when the DB ping succeeds", async () => {
-    handle = await startEffectServer({ pingResult: true });
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/ready");
-    expect(res.status).toBe(200);
-    expect(res.body).toBe("ready");
-  });
+  it.each(["/ready", "/ready?probe=1"])(
+    "returns 200 ready for GET %s when the DB ping succeeds",
+    async (path) => {
+      handle = await startEffectServer({ pingResult: true });
+      const addr = handle.server.address();
+      if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+      const res = await get(addr.port, path);
+      expect(res.status).toBe(200);
+      expect(res.body).toBe("ready");
+      expect(res.headers["content-type"]).toBe("text/plain; charset=utf-8");
+    },
+  );
 
-  it("returns 503 not ready for GET /ready when the DB ping fails", async () => {
-    handle = await startEffectServer({ pingResult: false });
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
-    const res = await get(addr.port, "/ready");
-    expect(res.status).toBe(503);
-    expect(res.body).toBe("not ready");
-  });
+  it.each(["/ready", "/ready?probe=1"])(
+    "returns 503 not ready for GET %s when the DB ping fails",
+    async (path) => {
+      handle = await startEffectServer({ pingResult: false });
+      const addr = handle.server.address();
+      if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+      const res = await get(addr.port, path);
+      expect(res.status).toBe(503);
+      expect(res.body).toBe("not ready");
+      expect(res.headers["content-type"]).toBe("text/plain; charset=utf-8");
+    },
+  );
 
   it("returns 404 for unknown GET path", async () => {
     handle = await startEffectServer();
@@ -285,21 +300,73 @@ describe("effect webhook server (end-to-end)", () => {
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
     const res = await get(addr.port, "/nope");
     expect(res.status).toBe(404);
+    expect(res.body).toBe("");
   });
 
-  it("accepts a signed ping webhook end-to-end and returns 200 ok", async () => {
+  it.each([
+    ["HEAD", "/health"],
+    ["OPTIONS", "/health"],
+    ["POST", "/health"],
+    ["POST", "/ready"],
+    ["GET", "/webhooks"],
+    ["GET", "/"],
+    ["GET", "/nope?probe=1"],
+  ])("returns an empty 404 for %s %s", async (method, path) => {
     handle = await startEffectServer();
     const addr = handle.server.address();
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const res = await get(addr.port, path, method);
+    expect(res.status).toBe(404);
+    expect(res.body).toBe("");
+  });
 
-    const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
-    const res = await postSigned(addr.port, "/webhooks", body, {
+  it.each(["/webhooks", "/webhooks?delivery=1"])(
+    "accepts a signed ping at %s and returns 200 ok",
+    async (path) => {
+      handle = await startEffectServer();
+      const addr = handle.server.address();
+      if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+
+      const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
+      const res = await postSigned(addr.port, path, body, {
+        "x-hub-signature-256": signBody(testCfg.webhookSecret, body),
+        "x-github-event": "ping",
+        "x-github-delivery": "e2e-ping-1",
+      });
+      expect(res.status).toBe(200);
+      expect(res.body).toBe("ok");
+    },
+  );
+
+  it.each([false, true])("accepts the exact UTF-8 byte cap with chunked=%s", async (chunked) => {
+    const body = Buffer.from(JSON.stringify({ zen: "é", installation: { id: 1 } }));
+    settingsOverrides.webhookMaxBodyBytes = body.length;
+    const intake: WebhookHeaders[] = [];
+    handle = await startEffectServer({
+      recordIgnored: (headers) =>
+        Effect.sync(() => {
+          intake.push(headers);
+        }),
+    });
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const headers = {
       "x-hub-signature-256": signBody(testCfg.webhookSecret, body),
       "x-github-event": "ping",
-      "x-github-delivery": "e2e-ping-1",
-    });
+      "x-github-delivery": "exact-byte-cap",
+    };
+    const split = body.indexOf(Buffer.from("é")) + 1;
+    const res = chunked
+      ? await postChunked(
+          addr.port,
+          "/webhooks",
+          [body.subarray(0, split), body.subarray(split)],
+          headers,
+        )
+      : await postSigned(addr.port, "/webhooks", body, headers);
     expect(res.status).toBe(200);
     expect(res.body).toBe("ok");
+    expect(intake).toEqual([{ delivery: "exact-byte-cap", event: "ping", rawBody: body }]);
   });
 
   it("rejects an unsigned POST with 401 end-to-end", async () => {
@@ -372,7 +439,7 @@ describe("effect webhook server (end-to-end)", () => {
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
 
     const body = Buffer.from(JSON.stringify({ zen: "dup-headers" }));
-    // Real sig under the correct secret + a second junk sig. @effect/platform's Headers
+    // Real sig under the correct secret + a second junk sig. Node's headers
     // coalesces duplicates with `, ` so the verifier sees a garbage value and returns 401
     // without throwing on `.startsWith()`.
     const realSig = signBody(testCfg.webhookSecret, body);

@@ -1,5 +1,7 @@
-import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
-import { NodeHttpServer, NodeHttpServerRequest, NodeRuntime } from "@effect/platform-node";
+import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
+import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
+import * as NodeHttpServerRequest from "@effect/platform-node/NodeHttpServerRequest";
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
@@ -89,67 +91,66 @@ function readNodeRawBody(req: IncomingMessage, maxBodyBytes: number): Promise<Bo
 }
 
 function buildEffectWebhookApp(cfg: Config) {
-  return HttpRouter.empty.pipe(
-    HttpRouter.all(
-      "*",
-      Effect.gen(function* () {
-        const req = yield* HttpServerRequest.HttpServerRequest;
-        const path = req.url.split("?")[0] ?? req.url;
+  return HttpRouter.add(
+    "*",
+    "*",
+    Effect.gen(function* () {
+      const req = yield* HttpServerRequest.HttpServerRequest;
+      const path = req.url.split("?")[0] ?? req.url;
 
-        if (req.method === "GET" && path === "/health") {
-          return HttpServerResponse.text("ok", {
-            status: 200,
-            contentType: "text/plain; charset=utf-8",
-          });
-        }
-
-        if (req.method === "GET" && path === "/ready") {
-          const scheduler = yield* AgentWorkScheduler;
-          const ready = yield* scheduler.ping();
-          return HttpServerResponse.text(ready ? "ready" : "not ready", {
-            status: ready ? 200 : 503,
-            contentType: "text/plain; charset=utf-8",
-          });
-        }
-
-        if (req.method !== "POST" || path !== "/webhooks") {
-          return HttpServerResponse.text("", { status: 404 });
-        }
-
-        const body = yield* readRawBody(req, WEBHOOK_MAX_BODY_BYTES);
-        if (body.kind === "too_large") {
-          return HttpServerResponse.text("payload too large", {
-            status: 413,
-            contentType: "text/plain; charset=utf-8",
-          });
-        }
-
-        const intakeLog = createOperationLogger({
-          method: req.method,
-          path,
-          requestId: singleHeader(req.headers["x-github-delivery"]) ?? crypto.randomUUID(),
-          context: { role: "web" },
+      if (req.method === "GET" && path === "/health") {
+        return HttpServerResponse.text("ok", {
+          status: 200,
+          contentType: "text/plain; charset=utf-8",
         });
+      }
 
-        const result = yield* processWebhookPostRequestEffect(
-          cfg,
-          {
-            headers: {
-              "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
-              "x-github-event": singleHeader(req.headers["x-github-event"]),
-              "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
-            },
-            rawBody: body.rawBody,
+      if (req.method === "GET" && path === "/ready") {
+        const scheduler = yield* AgentWorkScheduler;
+        const ready = yield* scheduler.ping();
+        return HttpServerResponse.text(ready ? "ready" : "not ready", {
+          status: ready ? 200 : 503,
+          contentType: "text/plain; charset=utf-8",
+        });
+      }
+
+      if (req.method !== "POST" || path !== "/webhooks") {
+        return HttpServerResponse.text("", { status: 404 });
+      }
+
+      const body = yield* readRawBody(req, WEBHOOK_MAX_BODY_BYTES);
+      if (body.kind === "too_large") {
+        return HttpServerResponse.text("payload too large", {
+          status: 413,
+          contentType: "text/plain; charset=utf-8",
+        });
+      }
+
+      const intakeLog = createOperationLogger({
+        method: req.method,
+        path,
+        requestId: singleHeader(req.headers["x-github-delivery"]) ?? crypto.randomUUID(),
+        context: { role: "web" },
+      });
+
+      const result = yield* processWebhookPostRequestEffect(
+        cfg,
+        {
+          headers: {
+            "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
+            "x-github-event": singleHeader(req.headers["x-github-event"]),
+            "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
           },
-          intakeLog,
-        );
+          rawBody: body.rawBody,
+        },
+        intakeLog,
+      );
 
-        return HttpServerResponse.text(result.body, {
-          status: result.status,
-          contentType: result.contentType,
-        });
-      }),
-    ),
+      return HttpServerResponse.text(result.body, {
+        status: result.status,
+        contentType: result.contentType,
+      });
+    }),
   );
 }
 
@@ -163,11 +164,11 @@ export function buildEffectWebhookLayer(
     WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)),
   );
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
-  return buildEffectWebhookApp(cfg).pipe(
-    HttpServer.serve(),
-    Layer.provide(serverLayer),
-    Layer.provide(appLayer),
-  );
+  return Layer.unwrap(
+    Effect.map(HttpRouter.toHttpEffect(buildEffectWebhookApp(cfg)), (handler) =>
+      HttpServer.serve(handler),
+    ),
+  ).pipe(Layer.provide(serverLayer), Layer.provide(appLayer));
 }
 
 export function startEffectWebhookServer(cfg: Config): void {

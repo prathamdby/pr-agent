@@ -214,11 +214,32 @@ Both lint scripts pass `--deny-warnings`. `nub run check:guards` locks suppressi
 
 ### Effect version gate
 
-`nub run check:effect-versions` enforces pinned versions:
+`nub run check:effect-versions` enforces direct pins and installed shell versions:
 
-- `effect@3.22.0`
-- `@effect/platform@0.97.0`
-- `@effect/platform-node@0.108.0`
+- `effect@4.0.0`
+- `@effect/platform-node@4.0.0`
+
+The Node adapter's installed `effect` and transitive
+`@effect/platform-node-shared` must also be `4.0.0`. `@effect/platform`
+must not be a direct dependency.
+
+The migration temporarily excludes these exact versions from the seven-day
+release-age check in `nub.jsonc`. The global `minimumReleaseAge: "7d"` and
+unrelated exclusions stay unchanged:
+
+| Exact exclusion                      | Required by                                      | Published UTC           |
+| ------------------------------------ | ------------------------------------------------ | ----------------------- |
+| `effect@4.0.0`                       | Direct shell dependency                          | 2026-10-01 03:11:28.537 |
+| `@effect/platform-node@4.0.0`        | Direct Node adapter dependency                   | 2026-10-01 01:48:35.463 |
+| `@effect/platform-node-shared@4.0.0` | `@effect/platform-node@4.0.0`                    | 2026-10-01 01:47:33.378 |
+| `ws@8.22.0`                          | Node adapter → shared adapter → `ws`             | 2026-09-26 15:00:57.748 |
+| `undici@8.11.2`                      | `@effect/platform-node@4.0.0` → `undici:^8.11.2` | 2026-09-24 08:37:55.067 |
+
+The installer rejected `undici@8.11.2` before its October 1 cooling cutoff;
+it was the only version satisfying the adapter's range. Its exact exception
+follows the same removal date as the four planned exceptions. Remove only
+these five entries on **2026-10-08 after 03:11:28.537 UTC**, once all five
+versions are at least seven days old. Keep unrelated exclusions.
 
 `nub run test` runs this gate before Vitest (`pretest`).
 
