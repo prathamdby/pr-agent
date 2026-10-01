@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { logWarn } from "../evlog.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import type { PrSurface } from "../github/prSurface.js";
@@ -15,6 +15,12 @@ import {
 } from "./reviewCheckRun.js";
 import { getSummaryCommentGithubId, getWorkItemCore } from "./repository.js";
 import type { WorkStatus } from "./types.js";
+import {
+  claimOwnVerdict,
+  ownVerdictStatusApplicable,
+  recordOwnVerdictSurfaceApplied,
+  withOwnVerdictClose,
+} from "./publishRecordRepository.js";
 import { reviewCommitStatusOperationKey, withOperationIntent } from "./withOperationIntent.js";
 
 export type ReviewCommitStatusState = "pending" | "success" | "failure" | "error";
@@ -112,14 +118,14 @@ export type CloseOwnVerdictParams = {
   /**
    * Live execution fence. Null means the projector or sweeper: no epoch exists,
    * so the write is allowed only after `agent_work_items` is terminal.
-   * Omit on unleased ack so cancel still lands.
+   * Omitted epochs follow the same terminal-only rule.
    */
   readonly leaseEpoch?: number | null;
   readonly detailsUrl?: string;
 };
 
 type OwnCommitStatusParams = {
-  readonly pool: Pool;
+  readonly pool: Pool | PoolClient;
   readonly prSurface: PrSurface;
   readonly workItemId: string;
   readonly resourceKey: string;
@@ -133,8 +139,8 @@ type OwnCommitStatusParams = {
   readonly leaseEpoch?: number | null;
 };
 
-async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<void> {
-  if (params.headSha === DEFERRED_HEAD_SHA || params.headSha.length === 0) return;
+async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<boolean> {
+  if (params.headSha === DEFERRED_HEAD_SHA || params.headSha.length === 0) return false;
   const status = {
     state: params.state,
     description: params.description,
@@ -175,6 +181,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<void
       isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
       mutate: () => params.prSurface.setReviewCommitStatus(params.headSha, status),
     });
+    return true;
   } catch (error) {
     logWarn("review_commit_status_failed", {
       owner: params.owner,
@@ -184,6 +191,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<void
       state: params.state,
       message: error instanceof Error ? error.message : String(error),
     });
+    return false;
   }
 }
 
@@ -213,6 +221,7 @@ export async function postOwnVerdictPending(params: {
 async function completeOwnCheckRun(
   params: CloseOwnVerdictParams,
   surfaces: OwnVerdictSurfaces,
+  closeClient: PoolClient,
 ): Promise<void> {
   if (surfaces.checkRun === "cancelled") {
     await cancelReviewCheckRun(params.pool, {
@@ -227,6 +236,7 @@ async function completeOwnCheckRun(
       headSha: params.headSha,
       detailsUrl: params.detailsUrl,
       summary: surfaces.summary,
+      closeClient,
     });
     return;
   }
@@ -242,33 +252,64 @@ async function completeOwnCheckRun(
     conclusion: surfaces.checkRun,
     summary: surfaces.summary,
     detailsUrl: params.detailsUrl,
+    closeClient,
   });
 }
 
 export async function closeOwnVerdict(params: CloseOwnVerdictParams): Promise<void> {
-  if (params.leaseEpoch === null) {
+  const leaseEpoch = params.leaseEpoch ?? null;
+  if (leaseEpoch === null) {
     const core = await getWorkItemCore(params.pool, params.workItemId);
     if (core == null || !isTerminalWorkStatus(core.status)) return;
   }
 
   const surfaces = ownVerdictSurfaces(params.outcome);
-  await completeOwnCheckRun(params, surfaces);
-  if (params.commitStatusEnabled) {
-    await writeOwnCommitStatus({
-      pool: params.pool,
+  await withOwnVerdictClose(params.pool, { ...params, leaseEpoch }, async (client) => {
+    const record = await claimOwnVerdict(client, {
+      ...params,
+      leaseEpoch,
+      selected: {
+        conclusion: surfaces.checkRun,
+        summary: surfaces.summary,
+        ...(params.detailsUrl == null ? {} : { detailsUrl: params.detailsUrl }),
+        status: {
+          headSha: params.headSha,
+          enabled: params.commitStatusEnabled,
+          state: surfaces.commitStatus,
+        },
+      },
+    });
+    const selected = record?.selected;
+    if (record == null || selected == null) return;
+    if (!record.checkApplied)
+      await completeOwnCheckRun(
+        { ...params, leaseEpoch, detailsUrl: selected.detailsUrl },
+        {
+          checkRun: selected.conclusion,
+          commitStatus: selected.status?.state ?? surfaces.commitStatus,
+          summary: selected.summary,
+        },
+        client,
+      );
+    if (!ownVerdictStatusApplicable(selected) || record.statusApplied || selected.status == null)
+      return;
+    const applied = await writeOwnCommitStatus({
+      pool: client,
       prSurface: params.prSurface,
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       owner: params.owner,
       repo: params.repo,
       prNumber: params.prNumber,
-      headSha: params.headSha,
-      state: surfaces.commitStatus,
-      description: surfaces.summary,
-      targetUrl: params.detailsUrl,
-      leaseEpoch: params.leaseEpoch,
+      headSha: selected.status.headSha,
+      state: selected.status.state,
+      description: selected.summary,
+      targetUrl: selected.detailsUrl,
+      leaseEpoch,
     });
-  }
+    if (applied)
+      await recordOwnVerdictSurfaceApplied(client, { ...params, leaseEpoch, selected }, "status");
+  });
 }
 
 export async function closeOwnVerdictsForWorkItems(
@@ -305,6 +346,7 @@ export async function closeOwnVerdictsForWorkItems(
           headSha: core.headSha,
           outcome: params.outcome,
           commitStatusEnabled: params.commitStatusEnabled,
+          leaseEpoch: null,
           detailsUrl: reviewCheckDetailsUrl(
             params.owner,
             params.repo,

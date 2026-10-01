@@ -190,6 +190,16 @@ intake commits the normal in-progress acknowledgement before that transition.
 `/verify` also has an unchanged, nonlocking active-work precheck.
 These row locks are separate from review advisory ordering and execution leases.
 
+Concurrent own-verdict closes select the first output by CAS on the existing
+per-work-item check row. A verdict-only session try-lock spans check/status
+application, with autocommitted SQL and separate acceptance receipts. Pool
+admission retains a connection for leased surface queries; unsafe unlock
+destroys the client. Null and omitted epochs are terminal-only, including ack.
+Repair uses saved selection and exact child acceptance, never guessed success
+from check creation. Unknown intents stay fail-closed. Upgrade affected workers
+together and preserve selections/intents on rollback
+([recovery](docs/agent-work-ops.md#own-verdict-recovery)).
+
 Verification checks cancellation/supersession and bound/live head equality before its empty-inventory completion, as well as at the existing late non-empty publish gate. Stale empty work completes degraded without clearing a verification failure signal.
 
 CI projection intake retains accepted delivery/event pairs in the job's

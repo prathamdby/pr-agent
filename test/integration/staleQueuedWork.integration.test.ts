@@ -452,7 +452,9 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           githubId: check.id,
           detail: { status: "in_progress" },
         });
-        finish.mockRejectedValueOnce(new Error("Synthetic close failure"));
+        finish.mockRejectedValueOnce(
+          Object.assign(new Error("Synthetic close failure"), { accepted: false }),
+        );
       }
       await pool.query(
         `INSERT INTO pgboss.job (id, name, state, data)

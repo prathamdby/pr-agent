@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { Pool, PoolClient, QueryResultRow } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { PgBoss } from "pg-boss";
 import * as postgres from "../../src/db/postgres.js";
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
@@ -46,6 +46,7 @@ import {
   updateRunningWorkHeadSha,
 } from "../../src/agentWork/repository.js";
 import { hasDatabase, integrationPool } from "./db.js";
+import { closeOwnVerdict } from "../../src/agentWork/closeOwnVerdict.js";
 
 const OWNER = "lease-it";
 const TTL_SECONDS = 900;
@@ -113,6 +114,166 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       ttlSeconds: TTL_SECONDS,
     });
   }
+
+  it.each(["live", "child_result", "local_gate", "unknown"] as const)(
+    "own verdict real leased boundary preserves %s on a constrained pool",
+    async (mode) => {
+      const scopedPool = new Pool({ ...pool.options, max: 2, connectionTimeoutMillis: 1500 });
+      const resourceKey = `${OWNER}/own-verdict-${randomUUID()}#1`;
+      const workItemId = await insertAutoQueued(resourceKey, "review");
+      const boss = new PgBoss(makeTestConfig().databaseUrl);
+      const fake = prSurfaceModule.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      const finish = vi.spyOn(fake.surface, "finishReviewCheck");
+      if (mode === "unknown") finish.mockRejectedValueOnce(new Error("synthetic unknown response"));
+      clearDurableAuthCachesForTest();
+      vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
+      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+      vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
+        type: "token",
+        tokenType: "installation",
+        token: "synthetic-installation-token",
+        installationId: 1,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        createdAt: new Date().toISOString(),
+        permissions: {},
+        repositorySelection: "all",
+      });
+      vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation((params) =>
+        params.mutationBoundary == null
+          ? fake.surface
+          : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
+      );
+      const merge = intentRepository.mergeOperationIntentDetail;
+      let armed = false;
+      let injected = false;
+      vi.spyOn(intentRepository, "mergeOperationIntentDetail").mockImplementation(
+        async (...args) => {
+          if (
+            mode === "child_result" &&
+            !injected &&
+            args[1].operationKey.startsWith("review:check_run_close:") &&
+            !args[1].operationKey.includes(":surface:") &&
+            Object.hasOwn(args[1].detail, "__result")
+          ) {
+            injected = true;
+            throw new Error("synthetic parent result stash failure");
+          }
+          const result = await merge(...args);
+          if (
+            args[1].operationKey.includes(":surface:finishReviewCheck:") &&
+            args[1].detail.__mutating === true
+          )
+            armed = true;
+          return result;
+        },
+      );
+      const skip = workRepository.shouldSkipWork;
+      vi.spyOn(workRepository, "shouldSkipWork").mockImplementation(async (...args) => {
+        if (mode === "local_gate" && armed && !injected) {
+          injected = true;
+          throw new Error("synthetic final local gate failure");
+        }
+        return skip(...args);
+      });
+      const now = new Date();
+      const job: DurableJobSpec<"review">["job"] = {
+        id: randomUUID(),
+        name: "review",
+        data: { workItemId },
+        signal: new AbortController().signal,
+        expireInSeconds: 600,
+        heartbeatSeconds: null,
+        priority: 0,
+        state: "active",
+        retryLimit: 2,
+        retryCount: 0,
+        retryDelay: 0,
+        retryBackoff: false,
+        startAfter: now,
+        startedOn: now,
+        singletonKey: null,
+        singletonOn: null,
+        deleteAfterSeconds: 600,
+        createdOn: now,
+        completedOn: null,
+        keepUntil: now,
+        policy: "standard",
+        heartbeatOn: null,
+        blocked: false,
+        blocking: false,
+        pendingDependencies: 0,
+        deadLetter: "",
+        output: {},
+        sourceName: null,
+        sourceId: null,
+        sourceCreatedOn: null,
+        sourceRetryCount: null,
+      };
+      try {
+        await workRepository.recordReviewCheckRun(scopedPool, {
+          workItemId,
+          resourceKey,
+          reviewLens: "review",
+          githubId: 111,
+          detail: { status: "in_progress" },
+        });
+        await runDurableWorkItem({
+          cfg: makeTestConfig(),
+          pool: scopedPool,
+          boss,
+          type: "review",
+          prActorLease: { queue: "review" },
+          job,
+          resolveHeadSha: async () => ({ headSha: "h" }),
+          execute: async (_item, env) => {
+            await closeOwnVerdict({
+              pool: scopedPool,
+              prSurface: env.prSurface,
+              owner: OWNER,
+              repo: "r",
+              prNumber: 1,
+              workItemId,
+              resourceKey,
+              reviewLens: "review",
+              headSha: "h",
+              leaseEpoch: env.leaseEpoch,
+              commitStatusEnabled: false,
+              outcome: { kind: "published", findings: [{ severity: "P1" }], summary: "winner" },
+            });
+            return { kind: "completed" };
+          },
+        });
+        if (mode === "local_gate") expect(finish).not.toHaveBeenCalled();
+        else expect(finish).toHaveBeenCalledOnce();
+        await closeOwnVerdict({
+          pool: scopedPool,
+          prSurface: fake.surface,
+          owner: OWNER,
+          repo: "r",
+          prNumber: 1,
+          workItemId,
+          resourceKey,
+          reviewLens: "review",
+          headSha: "h",
+          leaseEpoch: null,
+          commitStatusEnabled: false,
+          outcome: { kind: "cancelled" },
+        });
+        expect(finish).toHaveBeenCalledOnce();
+        expect(finish).toHaveBeenCalledWith(
+          expect.objectContaining({ conclusion: "failure", summary: "winner" }),
+        );
+        const result = await scopedPool.query(
+          "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+          [workItemId],
+        );
+        expect(result.rows[0].detail.status).toBe(mode === "unknown" ? "in_progress" : "completed");
+        if (mode === "local_gate" || mode === "child_result") expect(injected).toBe(true);
+      } finally {
+        await scopedPool.end();
+      }
+    },
+  );
 
   it.each([
     "late_cancel",

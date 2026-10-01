@@ -1,4 +1,6 @@
-import type { Pool } from "pg";
+import crypto from "node:crypto";
+import type { Pool, PoolClient } from "pg";
+import { AppError } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
@@ -19,6 +21,20 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "./repository.js";
+import {
+  claimOwnVerdict,
+  getOwnVerdictCloseRecord,
+  ownVerdictCloseOperationKey,
+  recordOwnVerdictSurfaceApplied,
+  withOwnVerdictClose,
+  type SelectedOwnVerdict,
+} from "./publishRecordRepository.js";
+import {
+  getOperationIntent,
+  mergeOperationIntentDetail,
+  persistOperationIntent,
+  reconcileOperationIntent,
+} from "./operationIntentRepository.js";
 import {
   reviewCheckOperationKey,
   throwIfExecutionAborted,
@@ -340,22 +356,119 @@ type CompleteReviewCheckRunParams = {
   conclusion: ReviewCheckRunConclusion;
   summary: string;
   detailsUrl?: string;
+  /** Only the combined writer passes the client while it owns the close mutex. */
+  closeClient?: PoolClient;
 };
 
 async function applyReviewCheckRunCompletion(
-  pool: Pool,
+  client: Pool | PoolClient,
   params: CompleteReviewCheckRunParams,
   checkRunId: number,
+  selected: SelectedOwnVerdict,
 ): Promise<boolean> {
-  const completedAt = new Date().toISOString();
-  const name = reviewCheckRunName();
+  const operationKey = ownVerdictCloseOperationKey(params);
+  const output = {
+    checkRunId,
+    conclusion: selected.conclusion,
+    summary: selected.summary,
+    detailsUrl: selected.detailsUrl,
+    name: reviewCheckRunName(),
+  };
+  // Match the boundary's stable encoding for this fixed, primitive-only input.
+  const encoded = `[{${Object.entries(output)
+    .toSorted(([a], [b]) => a.localeCompare(b))
+    .map(
+      ([key, value]) =>
+        `${JSON.stringify(key)}:${typeof value === "number" ? `number:${value}` : value === undefined ? "undefined" : JSON.stringify(value)}`,
+    )
+    .join(",")}}]`;
+  const inputHash = crypto.createHash("sha256").update(encoded).digest("hex");
+  const childKey = `${operationKey}:surface:finishReviewCheck:${inputHash}`;
+  const childEvidence = async () => {
+    const child = await getOperationIntent(client, params.workItemId, childKey);
+    return child?.mutationKind === "github.pr_surface.finishReviewCheck" &&
+      child.detail.parentOperationKey === operationKey &&
+      child.detail.surfaceMethod === "finishReviewCheck" &&
+      child.detail.inputHash === inputHash
+      ? child
+      : null;
+  };
+  let delegated = false;
+  let provenNoAcceptance = false;
   try {
-    await params.prSurface.finishReviewCheck({
-      checkRunId,
-      conclusion: params.conclusion,
-      summary: params.summary,
-      detailsUrl: params.detailsUrl,
-      name,
+    const parent = await persistOperationIntent(client, {
+      workItemId: params.workItemId,
+      operationKey,
+      mutationKind: "github.review_check_run_close",
+      leaseEpoch: params.leaseEpoch,
+      detail: {
+        resourceKey: params.resourceKey,
+        reviewLens: params.reviewLens,
+        delegationEntered: false,
+        childKey,
+      },
+    });
+    if (parent.status === "failed")
+      await mergeOperationIntentDetail(client, {
+        workItemId: params.workItemId,
+        operationKey,
+        leaseEpoch: params.leaseEpoch,
+        detail: { delegationEntered: false, __mutating: false },
+      });
+    if (
+      parent.status === "pending" &&
+      parent.detail.__mutating === true &&
+      parent.detail.delegationEntered === false &&
+      !Object.hasOwn(parent.detail, "__result")
+    ) {
+      await reconcileOperationIntent(client, {
+        workItemId: params.workItemId,
+        operationKey,
+        leaseEpoch: params.leaseEpoch,
+        status: "failed",
+        detail: { __mutating: false },
+      });
+    }
+    await withOperationIntent<void>({
+      client,
+      workItemId: params.workItemId,
+      operationKey,
+      mutationKind: "github.review_check_run_close",
+      leaseEpoch: params.leaseEpoch,
+      allowsUndefinedResult: true,
+      recover: async () => {
+        const child = await childEvidence();
+        return child != null &&
+          (Object.hasOwn(child.detail, "__result") ||
+            (child.status === "reconciled" && child.detail.reconciledFromPublishRecord !== true))
+          ? { kind: "reconciled", value: undefined }
+          : { kind: "absent" };
+      },
+      isKnownNoAcceptanceError: (error) =>
+        !delegated || provenNoAcceptance || isKnownNoAcceptanceMutationError(error),
+      mutate: async () => {
+        const marked = await mergeOperationIntentDetail(client, {
+          workItemId: params.workItemId,
+          operationKey,
+          leaseEpoch: params.leaseEpoch,
+          detail: { delegationEntered: true },
+        });
+        if (marked == null)
+          throw new AppError({
+            code: "operation_intent.reconcile_no_row",
+            message: "Own verdict delegation marker returned no row",
+            context: { workItemId: params.workItemId },
+          });
+        delegated = true;
+        try {
+          await params.prSurface.finishReviewCheck(output);
+        } catch (error) {
+          const child = await childEvidence();
+          provenNoAcceptance =
+            child?.status === "failed" && !Object.hasOwn(child.detail, "__result");
+          throw error;
+        }
+      },
     });
   } catch (e) {
     logCheckRunWarning("review_check_run_complete_failed", e, {
@@ -364,26 +477,13 @@ async function applyReviewCheckRunCompletion(
       pr: params.prNumber,
       reviewLens: params.reviewLens,
       checkRunId,
-      conclusion: params.conclusion,
+      conclusion: selected.conclusion,
     });
     return false;
   }
 
   try {
-    await recordReviewCheckRun(pool, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      githubId: checkRunId,
-      ...leaseEpochParam(params.leaseEpoch),
-      detail: {
-        status: "completed",
-        externalId: params.workItemId,
-        conclusion: params.conclusion,
-        completedAt,
-        detailsUrl: params.detailsUrl,
-      },
-    });
+    await recordOwnVerdictSurfaceApplied(client, { ...params, selected }, "check");
   } catch (e) {
     logWarn("review_check_run_complete_record_failed", {
       owner: params.owner,
@@ -391,7 +491,7 @@ async function applyReviewCheckRunCompletion(
       pr: params.prNumber,
       reviewLens: params.reviewLens,
       checkRunId,
-      conclusion: params.conclusion,
+      conclusion: selected.conclusion,
       message: e instanceof Error ? e.message : String(e),
     });
   }
@@ -402,13 +502,43 @@ export async function completeReviewCheckRun(
   pool: Pool,
   params: CompleteReviewCheckRunParams,
 ): Promise<boolean> {
+  if (params.closeClient != null) return completeSelectedCheck(params.closeClient, params);
   const checkRunId = await waitForReviewCheckRunGithubId(
     pool,
     params.workItemId,
     params.reviewLens,
   );
   if (checkRunId == null) return false;
-  return applyReviewCheckRunCompletion(pool, params, checkRunId);
+  return (
+    (await withOwnVerdictClose(pool, params, async (client) => {
+      const record = await claimOwnVerdict(client, {
+        ...params,
+        selected: {
+          conclusion: params.conclusion,
+          summary: params.summary,
+          ...(params.detailsUrl == null ? {} : { detailsUrl: params.detailsUrl }),
+        },
+      });
+      if (record == null) return false;
+      return completeSelectedCheck(client, params, checkRunId);
+    })) ?? false
+  );
+}
+
+async function completeSelectedCheck(
+  client: Pool | PoolClient,
+  params: CompleteReviewCheckRunParams,
+  checkRunId?: number,
+): Promise<boolean> {
+  const record = await getOwnVerdictCloseRecord(client, params);
+  if (record?.legacyClosed || record?.checkApplied) return true;
+  if (record?.selected == null) return false;
+  const id =
+    record.githubId ??
+    checkRunId ??
+    (await getReviewCheckRunGithubId(client, params.workItemId, params.reviewLens));
+  if (id == null) return false;
+  return applyReviewCheckRunCompletion(client, params, id, record.selected);
 }
 
 /** Finish the review check as `cancelled` from the stored publish record. */
@@ -426,25 +556,42 @@ export async function cancelReviewCheckRun(
     headSha?: string;
     detailsUrl?: string;
     summary?: string;
+    closeClient?: PoolClient;
   },
 ): Promise<boolean> {
-  const checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-  if (checkRunId == null) return false;
-  return applyReviewCheckRunCompletion(
-    pool,
-    {
-      prSurface: params.prSurface,
-      owner: params.owner,
-      repo: params.repo,
-      prNumber: params.prNumber,
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      ...leaseEpochParam(params.leaseEpoch),
+  if (params.closeClient != null)
+    return completeSelectedCheck(params.closeClient, {
+      ...params,
       conclusion: "cancelled",
       summary: params.summary ?? REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
-      detailsUrl: params.detailsUrl,
-    },
-    checkRunId,
+    });
+  const checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+  if (checkRunId == null) return false;
+  const completion = {
+    prSurface: params.prSurface,
+    owner: params.owner,
+    repo: params.repo,
+    prNumber: params.prNumber,
+    workItemId: params.workItemId,
+    resourceKey: params.resourceKey,
+    reviewLens: params.reviewLens,
+    ...leaseEpochParam(params.leaseEpoch),
+    conclusion: "cancelled",
+    summary: params.summary ?? REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
+    detailsUrl: params.detailsUrl,
+  } satisfies CompleteReviewCheckRunParams;
+  return (
+    (await withOwnVerdictClose(pool, params, async (client) => {
+      const record = await claimOwnVerdict(client, {
+        ...params,
+        selected: {
+          conclusion: completion.conclusion,
+          summary: completion.summary,
+          ...(completion.detailsUrl == null ? {} : { detailsUrl: completion.detailsUrl }),
+        },
+      });
+      if (record == null) return false;
+      return completeSelectedCheck(client, completion, checkRunId);
+    })) ?? false
   );
 }

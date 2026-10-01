@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { Pool } from "pg";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { Pool } from "pg";
+import { createFakePrSurface } from "../../src/github/prSurface.js";
+import * as closeRepository from "../../src/agentWork/publishRecordRepository.js";
+import {
+  closeOwnVerdict,
+  closeOwnVerdictsForWorkItems,
+} from "../../src/agentWork/closeOwnVerdict.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import {
@@ -48,6 +54,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE 'repo-it-%'");
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
   });
@@ -367,4 +374,713 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       { work_item_id: second, github_id: "222" },
     ]);
   });
+
+  it.each([false, true])(
+    "own verdict concurrent null epoch keeps the first conclusion (same outcome: %s)",
+    async (sameOutcome) => {
+      const id = await insertWorkItem({ status: "completed" });
+      const resourceKey = `repo-it-${id}`;
+      const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      const check = await surface.startReviewCheck("h", id);
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: check.id,
+        detail: { status: "in_progress" },
+      });
+      let entered!: () => void;
+      const entry = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      let release!: () => void;
+      const barrier = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const finish = surface.finishReviewCheck.bind(surface);
+      const finishSpy = vi
+        .spyOn(surface, "finishReviewCheck")
+        .mockImplementationOnce(async (output) => {
+          entered();
+          await barrier;
+          await finish(output);
+        });
+      const statusSpy = vi.spyOn(surface, "setReviewCommitStatus");
+      const params = {
+        pool,
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review" as const,
+        headSha: "h",
+        commitStatusEnabled: true,
+        leaseEpoch: null,
+        outcome: {
+          kind: "published" as const,
+          findings: [{ severity: "P1" as const }],
+          summary: "first verdict",
+        },
+      };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("own verdict contender did not settle")), 3000);
+      });
+      const first = closeOwnVerdict(params);
+      let second: Promise<void> | undefined;
+      try {
+        await Promise.race([entry, timeout]);
+        second = closeOwnVerdict({
+          ...params,
+          outcome: sameOutcome
+            ? params.outcome
+            : { kind: "published", findings: [], summary: "losing verdict" },
+        });
+        await Promise.race([second, timeout]);
+      } finally {
+        release();
+        await Promise.allSettled([first, ...(second == null ? [] : [second])]);
+        clearTimeout(timer);
+      }
+      expect(finishSpy).toHaveBeenCalledTimes(1);
+      expect(statusSpy).toHaveBeenCalledTimes(1);
+      expect(finishSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          checkRunId: check.id,
+          conclusion: "failure",
+          summary: "first verdict",
+        }),
+      );
+      expect(statusSpy).toHaveBeenCalledWith(
+        "h",
+        expect.objectContaining({
+          state: "failure",
+          description: "first verdict",
+        }),
+      );
+      const { rows } = await pool.query(
+        "SELECT github_id, detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+        [id],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        github_id: String(check.id),
+        detail: { status: "completed", conclusion: "failure" },
+      });
+    },
+  );
+
+  it("own verdict acknowledgement keeps an already closed verdict", async () => {
+    const id = await insertWorkItem({ status: "completed" });
+    const resourceKey = `repo-it-${id}`;
+    const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    await recordReviewCheckRun(pool, {
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review",
+      githubId: 111,
+      detail: { status: "in_progress" },
+    });
+    const finish = vi.spyOn(surface, "finishReviewCheck");
+    const status = vi.spyOn(surface, "setReviewCommitStatus");
+    await closeOwnVerdict({
+      pool,
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review",
+      headSha: "h",
+      commitStatusEnabled: true,
+      leaseEpoch: null,
+      outcome: { kind: "published", findings: [] },
+    });
+    const before = await pool.query(
+      "SELECT id, detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    await closeOwnVerdictsForWorkItems(pool, {
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      workItemIds: [id],
+      commitStatusEnabled: true,
+      outcome: { kind: "cancelled" },
+    });
+    expect(finish).toHaveBeenCalledTimes(1);
+    expect(status).toHaveBeenCalledTimes(1);
+    const after = await pool.query(
+      "SELECT id, detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    expect(after.rows).toEqual(before.rows);
+  });
+
+  it.each(["queued", "running"] as const)(
+    "own verdict unleased close cannot finish %s work",
+    async (workStatus) => {
+      const id = await insertWorkItem({ status: workStatus });
+      const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey: `repo-it-${id}`,
+        reviewLens: "review",
+        githubId: 111,
+        detail: { status: "in_progress" },
+      });
+      for (const leaseEpoch of [null, undefined]) {
+        await closeOwnVerdict({
+          pool,
+          prSurface: surface,
+          owner: OWNER,
+          repo: "r",
+          prNumber: 1,
+          workItemId: id,
+          resourceKey: `repo-it-${id}`,
+          reviewLens: "review",
+          headSha: "h",
+          commitStatusEnabled: true,
+          leaseEpoch,
+          outcome: { kind: "cancelled" },
+        });
+      }
+      expect(controls.events).toEqual([]);
+    },
+  );
+
+  it.each([
+    "check_rejected",
+    "status_rejected",
+    "check_unknown",
+    "receipt_failure",
+    "no_check",
+    "deferred",
+    "empty",
+    "flag_off",
+  ] as const)("own verdict repairs only the selected missing surfaces after %s", async (mode) => {
+    const id = await insertWorkItem({ status: "completed" });
+    const resourceKey = `repo-it-${id}`;
+    const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    if (mode !== "no_check")
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: 111,
+        detail: { status: "in_progress" },
+      });
+    const finish = vi.spyOn(surface, "finishReviewCheck");
+    const status = vi.spyOn(surface, "setReviewCommitStatus");
+    if (mode === "check_rejected")
+      finish.mockRejectedValueOnce(Object.assign(new Error("rejected"), { accepted: false }));
+    if (mode === "status_rejected")
+      status.mockRejectedValueOnce(Object.assign(new Error("rejected"), { accepted: false }));
+    if (mode === "check_unknown") finish.mockRejectedValueOnce(new Error("response lost"));
+    const params = {
+      pool,
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review" as const,
+      headSha: mode === "deferred" ? "deferred-to-worker" : mode === "empty" ? "" : "h",
+      commitStatusEnabled: mode !== "flag_off",
+      leaseEpoch: null,
+      outcome: {
+        kind: "published" as const,
+        findings: [{ severity: "P1" as const }],
+        summary: "winner",
+      },
+    };
+    const receiptSpy = vi.spyOn(closeRepository, "recordOwnVerdictSurfaceApplied");
+    if (mode === "receipt_failure")
+      receiptSpy.mockRejectedValueOnce(new Error("synthetic receipt failure"));
+    try {
+      await closeOwnVerdict(params);
+    } finally {
+      receiptSpy.mockRestore();
+    }
+    await closeOwnVerdict({
+      ...params,
+      outcome: { kind: "published", findings: [], summary: "loser" },
+    });
+    const accepted = controls.events.filter((event) => event.kind === "finishReviewCheck");
+    if (mode === "check_unknown" || mode === "no_check") expect(accepted).toEqual([]);
+    else expect(accepted).toEqual([expect.objectContaining({ conclusion: "failure" })]);
+    expect(finish).toHaveBeenCalledTimes(
+      mode === "check_rejected" ? 2 : mode === "no_check" ? 0 : 1,
+    );
+    for (const [output] of finish.mock.calls)
+      expect(output).toMatchObject({ conclusion: "failure", summary: "winner" });
+    const statuses = controls.events.filter((event) => event.kind === "setReviewCommitStatus");
+    expect(statuses).toHaveLength(["deferred", "empty", "flag_off"].includes(mode) ? 0 : 1);
+    for (const [, output] of status.mock.calls)
+      expect(output).toMatchObject({ state: "failure", description: "winner" });
+    const { rows } = await pool.query(
+      "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    expect(rows).toHaveLength(1);
+    if (mode !== "no_check" && mode !== "check_unknown")
+      expect(rows[0].detail).toMatchObject({ status: "completed", conclusion: "failure" });
+  });
+
+  it.each(["completed", "unknown", "mutating", "saved_result", "rejected"] as const)(
+    "own verdict preserves legacy completion evidence %s",
+    async (mode) => {
+      const id = await insertWorkItem({ status: "completed" });
+      const resourceKey = `repo-it-${id}`;
+      const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      await recordReviewCheckRun(pool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: 111,
+        detail:
+          mode === "completed"
+            ? { status: "completed", conclusion: "success" }
+            : { status: "in_progress" },
+      });
+      if (mode !== "completed")
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+         VALUES ($1, $2, 'pr-surface:finishReviewCheck:legacy', 'github.pr_surface.finishReviewCheck', $3, $4::jsonb)`,
+          [
+            randomUUID(),
+            id,
+            mode === "unknown" ? "outcome_unknown" : mode === "rejected" ? "failed" : "pending",
+            JSON.stringify({
+              surfaceMethod: "finishReviewCheck",
+              ...(mode === "saved_result"
+                ? { __result: null }
+                : mode === "mutating"
+                  ? { __mutating: true }
+                  : {}),
+            }),
+          ],
+        );
+      await closeOwnVerdict({
+        pool,
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        headSha: "h",
+        commitStatusEnabled: true,
+        leaseEpoch: null,
+        outcome: { kind: "cancelled" },
+      });
+      expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
+        mode === "rejected" ? 1 : 0,
+      );
+      expect(
+        controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
+      ).toHaveLength(mode === "rejected" ? 1 : 0);
+    },
+  );
+
+  it("own verdict two-client CAS returns the immutable visible winner", async () => {
+    const { claimOwnVerdict } = await import("../../src/agentWork/publishRecordRepository.js");
+    const id = await insertWorkItem({ status: "completed" });
+    const resourceKey = `repo-it-${id}`;
+    await recordReviewCheckRun(pool, {
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review",
+      githubId: 111,
+      detail: { status: "in_progress" },
+    });
+    const clients = await Promise.all([pool.connect(), pool.connect()]);
+    let contender: ReturnType<typeof claimOwnVerdict> | undefined;
+    try {
+      const initial = await Promise.all(
+        clients.map((client) =>
+          client.query(
+            "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+            [id],
+          ),
+        ),
+      );
+      for (const result of initial)
+        expect(result.rows[0].detail.selectedOwnVerdict).toBeUndefined();
+      const { rows: pids } = await clients[0].query<{ pid: number }>(
+        "SELECT pg_backend_pid() AS pid",
+      );
+      await clients[1].query("BEGIN");
+      const winner = await claimOwnVerdict(clients[1], {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        leaseEpoch: null,
+        selected: {
+          conclusion: "success",
+          summary: "first writer",
+          status: { headSha: "h", enabled: true, state: "success" },
+        },
+      });
+      contender = claimOwnVerdict(clients[0], {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        leaseEpoch: null,
+        selected: {
+          conclusion: "failure",
+          summary: "loser",
+          status: { headSha: "h", enabled: true, state: "failure" },
+        },
+      });
+      // Observe the real write conflict, not a sleep that might miss the race.
+      await expect
+        .poll(
+          async () => {
+            const result = await pool.query(
+              "SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1",
+              [pids[0].pid],
+            );
+            return result.rows[0]?.wait_event_type;
+          },
+          { timeout: 3000 },
+        )
+        .toBe("Lock");
+      await clients[1].query("COMMIT");
+      const outputs = [await contender, winner];
+      expect(outputs[0]?.selected).toEqual(outputs[1]?.selected);
+      const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      const finish = vi.spyOn(surface, "finishReviewCheck");
+      const status = vi.spyOn(surface, "setReviewCommitStatus");
+      await closeOwnVerdict({
+        pool,
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        headSha: "h",
+        leaseEpoch: null,
+        commitStatusEnabled: true,
+        outcome: { kind: "cancelled" },
+      });
+      expect(finish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conclusion: outputs[0]?.selected?.conclusion,
+          summary: outputs[0]?.selected?.summary,
+        }),
+      );
+      expect(status).toHaveBeenCalledWith(
+        "h",
+        expect.objectContaining({
+          state: outputs[0]?.selected?.status?.state,
+          description: outputs[0]?.selected?.summary,
+        }),
+      );
+    } finally {
+      await clients[1].query("ROLLBACK");
+      if (contender != null) await Promise.allSettled([contender]);
+      for (const client of clients) client.release();
+    }
+  });
+
+  it("own verdict protects and reclaims a creation reservation on the same row", async () => {
+    const { claimOwnVerdict, reserveReviewCheckRun, releaseUnstartedReviewCheckRunReservation } =
+      await import("../../src/agentWork/publishRecordRepository.js");
+    const id = await insertWorkItem({ status: "completed" });
+    const params = {
+      workItemId: id,
+      resourceKey: `repo-it-${id}`,
+      reviewLens: "review" as const,
+      leaseEpoch: null,
+    };
+    await claimOwnVerdict(pool, {
+      ...params,
+      selected: { conclusion: "failure", summary: "winner" },
+    });
+    const before = await pool.query(
+      "SELECT id FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    const reserves = await Promise.all(
+      [1, 2].map(() => reserveReviewCheckRun(pool, { ...params, detail: { status: "starting" } })),
+    );
+    expect(reserves.toSorted((a, b) => Number(a) - Number(b))).toEqual([false, true]);
+    expect(
+      await releaseUnstartedReviewCheckRunReservation(pool, {
+        ...params,
+        staleBefore: new Date(0),
+      }),
+    ).toBe(false);
+    expect(await releaseUnstartedReviewCheckRunReservation(pool, params)).toBe(true);
+    expect(await reserveReviewCheckRun(pool, { ...params, detail: { status: "starting" } })).toBe(
+      true,
+    );
+    await recordReviewCheckRun(pool, {
+      ...params,
+      githubId: 111,
+      detail: { status: "in_progress" },
+    });
+    const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    const finish = vi.spyOn(surface, "finishReviewCheck");
+    await closeOwnVerdict({
+      ...params,
+      pool,
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      headSha: "h",
+      commitStatusEnabled: false,
+      outcome: { kind: "cancelled" },
+    });
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({ conclusion: "failure", summary: "winner" }),
+    );
+    const after = await pool.query(
+      "SELECT id, github_id, detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    expect(after.rows[0]).toMatchObject({
+      id: before.rows[0].id,
+      github_id: "111",
+      detail: { conclusion: "failure", status: "completed" },
+    });
+  });
+
+  it("own verdict single-slot pool closes unleased work and rejects leased entry before selection", async () => {
+    const scopedPool = new Pool({ ...pool.options, max: 1, connectionTimeoutMillis: 1500 });
+    const id = await insertWorkItem({ status: "completed" });
+    const resourceKey = `repo-it-${id}`;
+    const leaseEpoch = await acquireReviewLease(id, resourceKey);
+    const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    const finish = vi.spyOn(surface, "finishReviewCheck");
+    const params = {
+      pool: scopedPool,
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review" as const,
+      headSha: "h",
+      commitStatusEnabled: false,
+      outcome: { kind: "published" as const, findings: [] },
+    };
+    try {
+      await recordReviewCheckRun(scopedPool, {
+        workItemId: id,
+        resourceKey,
+        reviewLens: "review",
+        githubId: 111,
+        detail: { status: "in_progress" },
+      });
+      await expect(closeOwnVerdict({ ...params, leaseEpoch })).rejects.toMatchObject({
+        code: "agent_work.own_verdict_capacity",
+      });
+      expect(finish).not.toHaveBeenCalled();
+      const before = await scopedPool.query(
+        "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+        [id],
+      );
+      expect(before.rows[0].detail.selectedOwnVerdict).toBeUndefined();
+      const intents = await scopedPool.query(
+        "SELECT id FROM operation_intents WHERE work_item_id = $1",
+        [id],
+      );
+      expect(intents.rows).toEqual([]);
+      await closeOwnVerdict({ ...params, leaseEpoch: null });
+      expect(finish).toHaveBeenCalledOnce();
+    } finally {
+      await scopedPool.end();
+    }
+  });
+
+  it("own verdict check-only completion preserves output when full-close status is attached", async () => {
+    const { completeReviewCheckRun } = await import("../../src/agentWork/reviewCheckRun.js");
+    const id = await insertWorkItem({ status: "completed" });
+    const resourceKey = `repo-it-${id}`;
+    const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    await recordReviewCheckRun(pool, {
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review",
+      githubId: 111,
+      detail: { status: "in_progress" },
+    });
+    const params = {
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review" as const,
+      leaseEpoch: null,
+    };
+    await expect(
+      completeReviewCheckRun(pool, {
+        ...params,
+        conclusion: "failure",
+        summary: "check-only winner",
+      }),
+    ).resolves.toBe(true);
+    const status = vi
+      .spyOn(surface, "setReviewCommitStatus")
+      .mockRejectedValueOnce(Object.assign(new Error("rejected"), { accepted: false }));
+    await closeOwnVerdict({
+      ...params,
+      pool,
+      headSha: "h",
+      commitStatusEnabled: true,
+      outcome: { kind: "cancelled" },
+    });
+    const open = await pool.query(
+      "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    expect(open.rows[0].detail.status).toBe("in_progress");
+    await closeOwnVerdict({
+      ...params,
+      pool,
+      headSha: "h",
+      commitStatusEnabled: true,
+      outcome: { kind: "published", findings: [] },
+    });
+    expect(status).toHaveBeenLastCalledWith(
+      "h",
+      expect.objectContaining({ state: "failure", description: "check-only winner" }),
+    );
+    expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(1);
+    const closed = await pool.query(
+      "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+      [id],
+    );
+    expect(closed.rows[0].detail.status).toBe("completed");
+  });
+
+  it.each(["before_lock", "application", "unlock"] as const)(
+    "own verdict releases connection admission and mutex after %s failure",
+    async (mode) => {
+      const id = await insertWorkItem({ status: "completed" });
+      const params = {
+        workItemId: id,
+        resourceKey: `repo-it-${id}`,
+        reviewLens: "review" as const,
+        leaseEpoch: null,
+      };
+      if (mode === "before_lock") {
+        vi.spyOn(pool, "connect").mockRejectedValueOnce(new Error("synthetic close failure"));
+      }
+      await expect(
+        closeRepository.withOwnVerdictClose(pool, params, async (client) => {
+          if (mode === "application") throw new Error("synthetic close failure");
+          if (mode === "unlock")
+            vi.spyOn(client, "query").mockRejectedValueOnce(new Error("synthetic close failure"));
+          return true;
+        }),
+      ).rejects.toThrow("synthetic close failure");
+      expect(await closeRepository.withOwnVerdictClose(pool, params, async () => true)).toBe(true);
+    },
+  );
+
+  it("own verdict numeric lease can close running work but a stale epoch cannot replace it", async () => {
+    const id = await insertWorkItem({ status: "running" });
+    const resourceKey = `repo-it-${id}`;
+    const leaseEpoch = await acquireReviewLease(id, resourceKey);
+    const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    const finish = vi.spyOn(surface, "finishReviewCheck");
+    await recordReviewCheckRun(pool, {
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review",
+      githubId: 111,
+      leaseEpoch,
+      detail: { status: "in_progress" },
+    });
+    const params = {
+      pool,
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review" as const,
+      headSha: "h",
+      commitStatusEnabled: false,
+      outcome: { kind: "published" as const, findings: [] },
+    };
+    await expect(closeOwnVerdict({ ...params, leaseEpoch: leaseEpoch + 1 })).rejects.toMatchObject({
+      code: "agent_work.pr_actor_lease_lost",
+    });
+    expect(finish).not.toHaveBeenCalled();
+    await closeOwnVerdict({ ...params, leaseEpoch });
+    await expect(
+      closeOwnVerdict({ ...params, leaseEpoch: leaseEpoch + 1, outcome: { kind: "cancelled" } }),
+    ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+    expect(finish).toHaveBeenCalledOnce();
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "success" }));
+  });
+
+  it.each(["pending", "outcome_unknown"] as const)(
+    "own verdict handles no-delegation evidence without reopening %s",
+    async (intentStatus) => {
+      const id = await insertWorkItem({ status: "completed" });
+      const params = {
+        workItemId: id,
+        resourceKey: `repo-it-${id}`,
+        reviewLens: "review" as const,
+        leaseEpoch: null,
+      };
+      await recordReviewCheckRun(pool, {
+        ...params,
+        githubId: 111,
+        detail: { status: "in_progress" },
+      });
+      await closeRepository.claimOwnVerdict(pool, {
+        ...params,
+        selected: { conclusion: "failure", summary: "winner" },
+      });
+      await pool.query(
+        `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+         VALUES ($1, $2, $3, 'github.review_check_run_close', $4, $5::jsonb)`,
+        [
+          randomUUID(),
+          id,
+          closeRepository.ownVerdictCloseOperationKey(params),
+          intentStatus,
+          JSON.stringify({
+            __mutating: true,
+            delegationEntered: false,
+            ...(intentStatus === "outcome_unknown" ? { unknownResolution: "terminal" } : {}),
+          }),
+        ],
+      );
+      const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      await closeOwnVerdict({
+        ...params,
+        pool,
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        headSha: "h",
+        commitStatusEnabled: false,
+        outcome: { kind: "cancelled" },
+      });
+      expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
+        intentStatus === "pending" ? 1 : 0,
+      );
+    },
+  );
 });

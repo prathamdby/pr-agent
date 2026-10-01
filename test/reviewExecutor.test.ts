@@ -62,7 +62,16 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getProgressCommentOwner: mocks.getProgressCommentOwner,
   getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   getWorkItem: mocks.getWorkItem,
+  getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
+
+vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+  const { createOwnVerdictCloseMock } = await import("./helpers/publishReviewTestSetup.js");
+  return {
+    ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+    ...createOwnVerdictCloseMock(),
+  };
+});
 
 vi.mock("../src/agentWork/prActorLease.js", () => ({
   isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),

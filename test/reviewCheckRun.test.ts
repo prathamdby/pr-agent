@@ -15,6 +15,45 @@ vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
 }));
 
+vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>();
+  const records = new Map<
+    string,
+    {
+      selected: import("../src/agentWork/publishRecordRepository.js").SelectedOwnVerdict;
+      checkApplied: boolean;
+      statusApplied: boolean;
+      githubId: null;
+    }
+  >();
+  return {
+    ...actual,
+    withOwnVerdictClose: vi.fn(async (client, _params, apply) => apply(client)),
+    claimOwnVerdict: vi.fn(async (_client, params) => {
+      const existing = records.get(params.workItemId);
+      if (existing) return existing;
+      const record = {
+        selected: params.selected,
+        checkApplied: false,
+        statusApplied: false,
+        githubId: null,
+      };
+      records.set(params.workItemId, record);
+      return record;
+    }),
+    recordOwnVerdictSurfaceApplied: vi.fn(async (_client, params, surface) => {
+      const record = records.get(params.workItemId);
+      if (record && surface === "check") record.checkApplied = true;
+    }),
+    getOwnVerdictCloseRecord: vi.fn(
+      async (_client, params) => records.get(params.workItemId) ?? null,
+    ),
+    hasLegacyOwnVerdictCompletion: vi.fn(async () => false),
+    resetOwnVerdictRecords: () => records.clear(),
+  };
+});
+
 vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/agentWork/prActorLease.js")>()),
   assertPrActorLeaseHeld: vi.fn(async () => undefined),
@@ -31,6 +70,7 @@ import {
 import { logWarn } from "../src/evlog.js";
 import { AppError } from "../src/errors/appError.js";
 import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
+import * as closeRepository from "../src/agentWork/publishRecordRepository.js";
 import {
   closeOwnVerdictsForWorkItems,
   ownVerdictSurfaces,
@@ -87,7 +127,21 @@ function startParams(prSurface = makePrSurface()) {
 describe("review check run lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (
+      closeRepository as typeof closeRepository & { resetOwnVerdictRecords: () => void }
+    ).resetOwnVerdictRecords();
     vi.mocked(assertPrActorLeaseHeld).mockResolvedValue(undefined);
+    vi.mocked(getWorkItemCore).mockImplementation(
+      async (_pool, workItemId) =>
+        ({
+          id: workItemId,
+          type: "review",
+          status: "completed",
+          reviewLens: "review",
+          resourceKey: "o/r#1",
+          headSha: "sha",
+        }) as never,
+    );
   });
 
   const leaseLost = () =>
@@ -558,7 +612,9 @@ describe("review check run lifecycle", () => {
 
   it("returns true and logs a DB record warning when GitHub completion succeeds", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
-    vi.mocked(recordReviewCheckRun).mockRejectedValueOnce(new Error("db unavailable"));
+    vi.mocked(closeRepository.recordOwnVerdictSurfaceApplied).mockRejectedValueOnce(
+      new Error("db unavailable"),
+    );
     const prSurface = makePrSurface();
 
     await expect(
@@ -650,7 +706,9 @@ describe("review check run lifecycle", () => {
 
   it("returns true and logs a DB record warning when cancel GitHub completion succeeds", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
-    vi.mocked(recordReviewCheckRun).mockRejectedValueOnce(new Error("db unavailable"));
+    vi.mocked(closeRepository.recordOwnVerdictSurfaceApplied).mockRejectedValueOnce(
+      new Error("db unavailable"),
+    );
     const prSurface = makePrSurface();
 
     await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
@@ -700,13 +758,9 @@ describe("review check run lifecycle", () => {
     await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
     await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
 
-    expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(2);
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(1);
     expect(prSurface.finishReviewCheck).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ checkRunId: 123, conclusion: "cancelled" }),
-    );
-    expect(prSurface.finishReviewCheck).toHaveBeenNthCalledWith(
-      2,
       expect.objectContaining({ checkRunId: 123, conclusion: "cancelled" }),
     );
   });
@@ -750,6 +804,7 @@ describe("review check run lifecycle", () => {
       .mockResolvedValueOnce({
         id: "wi-a",
         type: "review",
+        status: "cancelled",
         reviewLens: "review",
         resourceKey: "o/r#1",
         headSha: "sha-a",
@@ -757,6 +812,7 @@ describe("review check run lifecycle", () => {
       .mockResolvedValueOnce({
         id: "wi-b",
         type: "review",
+        status: "cancelled",
         reviewLens: "review",
         resourceKey: "o/r#1",
         headSha: "sha-b",
@@ -807,6 +863,7 @@ describe("review check run lifecycle", () => {
           return {
             id: "wi-a",
             type: "review",
+            status: "cancelled",
             reviewLens: "review",
             resourceKey: "o/r#1:a",
             headSha: "sha-a",
@@ -815,6 +872,7 @@ describe("review check run lifecycle", () => {
           return {
             id: "wi-b",
             type: "review",
+            status: "cancelled",
             reviewLens: "review",
             resourceKey: "o/r#1:b",
             headSha: "sha-b",
@@ -873,6 +931,7 @@ describe("review check run lifecycle", () => {
         return {
           id: "wi-b",
           type: "review",
+          status: "cancelled",
           reviewLens: "review",
           resourceKey: "o/r#1",
           headSha: "sha-b",

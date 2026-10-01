@@ -56,6 +56,8 @@ Review runs four specialists (correctness, security, quality, tests) under one o
 
 Slash commands are case-sensitive. The command must be the first non-empty line of a **new** (`created`) comment. Who may run them is controlled by `SLASH_ALLOWED_ASSOCIATIONS` (default `OWNER,MEMBER,COLLABORATOR`). Mention matching uses the App bot login, not the word `@bot`. `/ask` and `/help` do not need a mention.
 
+Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it.
+
 `/cancel` blocks new review output when the worker's final publication check sees the cancellation. Requests already in flight cannot be withdrawn. The cancellation notice and check closure still run.
 
 `/review force` cancels the active review and starts a fresh one on the latest commit. Concurrent restarts are applied in sequence, not treated as already-in-progress requests.

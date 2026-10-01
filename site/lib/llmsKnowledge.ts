@@ -186,6 +186,7 @@ export const KNOWLEDGE_CHUNKS: readonly KnowledgeChunk[] = [
       `${FEATURE_KEYS[4]}: off | manual. Default manual. /triage autofix, plus /triage preview then /triage all.`,
       `${FEATURE_KEYS[5]}: off | size | size+security. Default size. Size and security labels. off still syncs Category labels. No model tokens.`,
       `${FEATURE_KEYS[6]}: false | true. Default false. Posts pr-agent/review: pending when the check starts, success or failure from published findings, error on cancel, crash, stale head, unpublished, or partial coverage. No model tokens.`,
+      "Concurrent attempts to finish a review keep the first verdict. A later cancellation or recovery does not replace it. The check and optional commit status use that same verdict. Ambiguous publication stays fail-closed.",
       `${FEATURE_KEYS[7]}: false | true. Default true. Allows /describe to rewrite the PR title using make-pr default title rules. Set false to keep the existing title.`,
       "Landing-page capability copy:",
       ...CAPABILITIES.map((item) => `- ${item.title}. ${item.trigger}. ${item.detail}`),
