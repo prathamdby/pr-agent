@@ -1,5 +1,4 @@
 import { createPublishContext } from "../../src/agentWork/publishOnce.js";
-import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../../src/agent/description/descriptionSchema.js";
 import {
   operationIntentMarker,
   runInOperationIntentFrame,
@@ -213,14 +212,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             }),
         ],
         ["editReviewComment", () => surface.editReviewComment(10, "body")],
-        [
-          "publishDescription",
-          () =>
-            surface.publishDescription(
-              { features: makeTestConfig().features },
-              DESCRIPTION_PAYLOAD_BASE_EXAMPLE,
-            ),
-        ],
+        ["updatePullRequest", () => surface.updatePullRequest({ title: "title", body: "body" })],
       ];
 
       for (const [, attempt] of attempts) {
@@ -242,7 +234,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             "startReviewCheck",
             "finishReviewCheck",
             "editReviewComment",
-            "publishDescription",
+            "updatePullRequest",
           ].includes(event.kind),
         ),
       ).toHaveLength(0);
@@ -288,10 +280,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         ["getHeadSha", () => surface.getHeadSha()],
         ["findProgressComment", () => surface.findProgressComment("sentinel")],
         ["resolveProgressComment", () => surface.resolveProgressComment("sentinel")],
-        ["listPullRequestReviewComments", () => surface.listPullRequestReviewComments()],
-        ["fetchPriorInlineFeedback", () => surface.fetchPriorInlineFeedback(1, "review")],
-        ["fetchBotFindingThreads", () => surface.fetchBotFindingThreads(1)],
-        ["fetchReviewCommentParentGraph", () => surface.fetchReviewCommentParentGraph()],
+        ["listReviewComments", () => surface.listReviewComments()],
+        ["listPullRequestReviews", () => surface.listPullRequestReviews()],
         ["listInlineReviewThreads", () => surface.listInlineReviewThreads()],
         [
           "listChangedFiles",
@@ -307,18 +297,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         ["listPullsForHead", () => surface.listPullsForHead("head")],
         ["listFailingActionsJobs", () => surface.listFailingActionsJobs("head")],
         ["downloadActionsJobLogs", () => surface.downloadActionsJobLogs(1)],
-        ["listCheckRunAnnotations", () => surface.listCheckRunAnnotations(1)],
         ["gitCredentialAuth", () => surface.gitCredentialAuth()],
         ["listConversationComments", () => surface.listConversationComments()],
-        ["listInlineReviewComments", () => surface.listInlineReviewComments()],
-        ["getPullRequestBody", () => surface.getPullRequestBody()],
-        ["getPullRequestBranchInfo", () => surface.getPullRequestBranchInfo()],
         ["listPushedCommits", () => surface.listPushedCommits()],
         ["lookupGitHubUser", () => surface.lookupGitHubUser(1)],
       ];
 
       for (const [, read] of reads) await expect(read()).resolves.not.toBeUndefined();
-      expect(surface.isRateLimitCircuitOpen()).toBe(false);
       expect(runCalled).toBe(false);
       expect(controls.events.map((event) => event.kind)).toEqual(
         expect.arrayContaining(reads.map(([kind]) => kind)),
@@ -464,12 +449,18 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       });
       const marker = operationIntentMarker("verification:thread:3", "wi-1");
       controls.setReviewCommentBody(8, "prior");
-      controls.setInlineReviewComments([
+      controls.setReviewComments([
         {
           id: 8,
           inReplyToId: 3,
+          pullRequestReviewId: null,
+          userId: null,
           authorLogin: "pr-agent[bot]",
           body: `${marker}\n**Verification**: Still open`,
+          path: null,
+          line: null,
+          originalLine: null,
+          htmlUrl: "",
         },
       ]);
       controls.setThreads(new Map([[3, { threadNodeId: "thread-node", isResolved: true }]]));
@@ -1208,10 +1199,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           .mockRejectedValueOnce(failure)
           .mockRejectedValueOnce(failure)
           .mockImplementationOnce(async (params) => {
-            await params.prSurface.publishDescription(cfg, {
+            await params.prSurface.updatePullRequest({
               title: "Synthetic retry success",
-              type: ["Bug fix"],
-              description: "Synthetic acceptance output",
+              body: "Synthetic acceptance output",
             });
             await params.recordPublishStep?.({ syntheticAcceptance: true });
             return {
@@ -1266,7 +1256,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       );
       expect(fake.controls.replies).toHaveLength(outcome === "published" ? 0 : 1);
       const publications = fake.controls.events.filter(
-        (event) => event.kind === "publishDescription",
+        (event) => event.kind === "updatePullRequest",
       ).length;
       expect(publications).toBe(outcome === "published" ? 1 : 0);
       console.info(

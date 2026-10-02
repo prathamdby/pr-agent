@@ -10,7 +10,7 @@ import {
 import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
 import { reviewVerdict, summaryCommentVerdictMeta } from "../../agentWork/reviewVerdict.js";
 import { logDebug, logWarn } from "../../evlog.js";
-import type { PrSurface } from "../../github/prSurface.js";
+import type { PrReviewComment } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
@@ -27,7 +27,6 @@ import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.js";
 import { createReviewSummaryComment } from "./reviewSummaryComment.js";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
-import type { PublishedReviewComment } from "../../github/reviewPublish.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
 export type PublishSummaryOnlyResult =
@@ -76,12 +75,11 @@ export async function publishReviewSummaryOnly(
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
   );
-  let reviewComments: Awaited<ReturnType<PrSurface["listPullRequestReviewComments"]>>["comments"] =
-    [];
+  let reviewComments: readonly PublishedReviewComment[] = [];
   if (placementsNeedingUrls) {
     try {
-      const listed = await session.prSurface.listPullRequestReviewComments();
-      reviewComments = listed.comments;
+      const listed = await session.prSurface.listReviewComments();
+      reviewComments = publishedReviewComments(listed.comments);
       if (listed.truncated) {
         logWarn("review_inline_comment_urls_truncated", {
           mode,
@@ -336,6 +334,25 @@ export async function publishReviewSummaryOnly(
   }
 
   return finishPublished(summary.id);
+}
+
+type PublishedReviewComment = {
+  readonly path: string;
+  readonly line: number;
+  readonly id: number;
+  readonly url: string;
+};
+
+function publishedReviewComments(
+  comments: readonly Pick<PrReviewComment, "path" | "line" | "id" | "htmlUrl">[],
+): PublishedReviewComment[] {
+  return comments
+    .flatMap((comment) =>
+      comment.path == null || comment.line == null
+        ? []
+        : [{ path: comment.path, line: comment.line, id: comment.id, url: comment.htmlUrl }],
+    )
+    .toSorted((a, b) => a.id - b.id);
 }
 
 function reviewCommentAnchorKey(path: string, line: number): string {

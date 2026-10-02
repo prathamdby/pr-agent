@@ -2,6 +2,7 @@ import type { ReplyTarget } from "../agentWork/types.js";
 import type {
   ListPullRequestFilesLimits,
   ListPullRequestFilesResult,
+  PullRequestBranchInfo,
   PullRequestForFileList,
 } from "./listPullRequestFiles.js";
 import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
@@ -14,18 +15,15 @@ import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
   PrConversationComment,
-  PublishedBatch,
+  PrReview,
+  PrReviewComment,
   PrSurface,
   PrSurfaceMutationBoundary,
-  PullRequestBranchInfo,
+  PullRequestUpdate,
   PushedCommitSummary,
-  ReviewCommentParentNode,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
 import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
-import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
-import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
 import type { ReviewCheckRunConclusion } from "./reviewPublish.js";
 
@@ -50,7 +48,8 @@ export type FakePrSurfaceEvent =
       readonly sentinel: string;
       readonly knownExisting?: { readonly id: number; readonly url: string } | null;
     }
-  | { readonly kind: "listPullRequestReviewComments" }
+  | { readonly kind: "listReviewComments" }
+  | { readonly kind: "listPullRequestReviews" }
   | {
       readonly kind: "setReviewCommitStatus";
       readonly headSha: string;
@@ -60,19 +59,6 @@ export type FakePrSurfaceEvent =
         readonly targetUrl?: string;
       };
     }
-  | {
-      readonly kind: "fetchPriorInlineFeedback";
-      readonly botUserId: number;
-      readonly currentLens: AnyReviewLens;
-      readonly maintainerDecisionAssociations?: ReadonlySet<string>;
-    }
-  | {
-      readonly kind: "fetchBotFindingThreads";
-      readonly botUserId: number;
-      readonly publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>;
-      readonly maintainerDecisionAssociations?: ReadonlySet<string>;
-    }
-  | { readonly kind: "fetchReviewCommentParentGraph" }
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
   | { readonly kind: "publishThreadBatch"; readonly review: ThreadBatchReview }
   | { readonly kind: "listInlineReviewThreads" }
@@ -96,14 +82,14 @@ export type FakePrSurfaceEvent =
   | { readonly kind: "listPullsForHead"; readonly headSha: string }
   | { readonly kind: "listFailingActionsJobs"; readonly headSha: string }
   | { readonly kind: "downloadActionsJobLogs"; readonly jobId: number }
-  | { readonly kind: "listCheckRunAnnotations"; readonly checkRunId: number }
   | { readonly kind: "gitCredentialAuth" }
   | { readonly kind: "listConversationComments" }
-  | { readonly kind: "listInlineReviewComments" }
   | { readonly kind: "editReviewComment"; readonly commentId: number; readonly body: string }
-  | { readonly kind: "getPullRequestBody" }
-  | { readonly kind: "getPullRequestBranchInfo" }
-  | { readonly kind: "publishDescription" }
+  | {
+      readonly kind: "updatePullRequest";
+      readonly update: PullRequestUpdate;
+      readonly operationMarker?: string;
+    }
   | { readonly kind: "listPushedCommits" }
   | { readonly kind: "lookupGitHubUser"; readonly userId: number };
 
@@ -118,7 +104,6 @@ export type FakePrSurfaceControls = {
   readonly setHeadSha: (headSha: string) => void;
   readonly setPullRequest: (pullRequest: PullRequestForFileList) => void;
   readonly setLabels: (labels: readonly string[]) => void;
-  readonly setRateLimitOpen: (open: boolean) => void;
   readonly setCredentialToken: (token: string) => void;
   readonly setCredentialAuth: (auth: {
     readonly token: string;
@@ -152,23 +137,9 @@ export type FakePrSurfaceControls = {
   ) => void;
   readonly setJobLogs: (jobId: number, text: string) => void;
   readonly setThreads: (threads: Map<number, ReviewThreadResolution>) => void;
-  readonly setPriorInlineFeedback: (
-    threads: Array<{
-      readonly path: string;
-      readonly startLine: number;
-      readonly endLine: number;
-      readonly botTitleSnippet: string;
-      readonly humanReplies: readonly string[];
-      readonly authorizedReplies?: readonly string[];
-      readonly untrustedReplies?: readonly string[];
-      readonly replies?: readonly ReviewThreadReply[];
-      readonly threadUrl: string;
-    }>,
-  ) => void;
-  readonly setBotFindingThreads: (threads: readonly BotFindingThread[]) => void;
-  readonly setReviewCommentParentGraph: (nodes: readonly ReviewCommentParentNode[]) => void;
+  readonly setReviewComments: (comments: readonly PrReviewComment[]) => void;
+  readonly setPullRequestReviews: (reviews: readonly PrReview[]) => void;
   readonly setConversationComments: (comments: readonly PrConversationComment[]) => void;
-  readonly setInlineReviewComments: (comments: readonly PrConversationComment[]) => void;
   readonly setPullRequestBody: (body: string | null) => void;
   readonly setPullRequestBranchInfo: (info: PullRequestBranchInfo) => void;
   readonly setPushedCommits: (commits: readonly PushedCommitSummary[]) => void;
@@ -202,7 +173,6 @@ type FakePrSurfaceOptions = {
   readonly pullRequest?: PullRequestForFileList;
   readonly labels?: readonly string[];
   readonly credentialToken?: string;
-  readonly rateLimitOpen?: boolean;
   readonly mutationBoundary?: PrSurfaceMutationBoundary;
 };
 
@@ -220,7 +190,8 @@ function defaultPullRequest(headSha: string): PullRequestForFileList {
     state: "open",
     merged: false,
     merged_at: null,
-    head: { sha: headSha },
+    head: { sha: headSha, ref: "branch", repo: { full_name: "o/r" } },
+    base: { repo: { full_name: "o/r" } },
   };
 }
 
@@ -247,7 +218,6 @@ export function createFakePrSurface(
   >();
   const progressBySentinel = new Map<string, number>();
   let labels = [...(options?.labels ?? [])];
-  let rateLimitOpen = options?.rateLimitOpen ?? false;
   let credentialToken = options?.credentialToken ?? "fake-git-token";
   let credentialExpiresAtTs = Date.now() + 3_600_000;
   let ciStatusError: unknown;
@@ -280,24 +250,9 @@ export function createFakePrSurface(
     }>
   >();
   const jobLogs = new Map<number, string>();
-  let priorInlineFeedback: Array<{
-    readonly path: string;
-    readonly startLine: number;
-    readonly endLine: number;
-    readonly botTitleSnippet: string;
-    readonly humanReplies: readonly string[];
-    readonly authorizedReplies?: readonly string[];
-    readonly untrustedReplies?: readonly string[];
-    readonly replies?: readonly ReviewThreadReply[];
-    readonly threadUrl: string;
-  }> = [];
-  let botFindingThreads: BotFindingThread[] = [];
-  let reviewCommentParentGraph: ReviewCommentParentNode[] = [];
-  let reviewComments: Array<{ path: string; line: number; id: number; url: string }> = [];
+  let reviewComments: PrReviewComment[] = [];
+  let seededReviews: PrReview[] = [];
   let conversationComments: PrConversationComment[] = [];
-  let inlineReviewComments: PrConversationComment[] = [];
-  let pullRequestBody: string | null = null;
-  let pullRequestBranchInfo: PullRequestBranchInfo = { headRef: "branch", sameRepo: true };
   let pushedCommits: PushedCommitSummary[] = [];
   const githubUsers = new Map<
     number,
@@ -329,7 +284,7 @@ export function createFakePrSurface(
     threadBatches,
     setHeadSha(next) {
       headSha = next;
-      pullRequest = { ...pullRequest, head: { sha: next } };
+      pullRequest = { ...pullRequest, head: { ...pullRequest.head, sha: next } };
     },
     setPullRequest(next) {
       pullRequest = next;
@@ -337,9 +292,6 @@ export function createFakePrSurface(
     },
     setLabels(next) {
       labels = [...next];
-    },
-    setRateLimitOpen(open) {
-      rateLimitOpen = open;
     },
     setCredentialToken(token) {
       credentialToken = token;
@@ -397,26 +349,29 @@ export function createFakePrSurface(
         threads.set(key, value);
       }
     },
-    setPriorInlineFeedback(next) {
-      priorInlineFeedback = [...next];
+    setReviewComments(next) {
+      reviewComments = [...next];
     },
-    setBotFindingThreads(nextThreads) {
-      botFindingThreads = [...nextThreads];
-    },
-    setReviewCommentParentGraph(nodes) {
-      reviewCommentParentGraph = [...nodes];
+    setPullRequestReviews(next) {
+      seededReviews = [...next];
     },
     setConversationComments(next) {
       conversationComments = [...next];
     },
-    setInlineReviewComments(next) {
-      inlineReviewComments = [...next];
-    },
     setPullRequestBody(body) {
-      pullRequestBody = body;
+      pullRequest = { ...pullRequest, body };
     },
     setPullRequestBranchInfo(info) {
-      pullRequestBranchInfo = info;
+      const baseRepo = pullRequest.base?.repo?.full_name ?? "o/r";
+      pullRequest = {
+        ...pullRequest,
+        head: {
+          ...pullRequest.head,
+          ref: info.headRef,
+          repo: { full_name: info.sameRepo ? baseRepo : `fork/${baseRepo}` },
+        },
+        base: { ...pullRequest.base, repo: { full_name: baseRepo } },
+      };
     },
     setPushedCommits(commits) {
       pushedCommits = [...commits];
@@ -492,11 +447,18 @@ export function createFakePrSurface(
       const commentId = nextCommentId++;
       if (target.kind === "inlineReviewThread") {
         reviewCommentBodies.set(commentId, body);
-        inlineReviewComments.push({
+        reviewComments.push({
           id: commentId,
           inReplyToId: target.inReplyToCommentId,
+          pullRequestReviewId: null,
+          userId: null,
           authorLogin: "pr-agent[bot]",
+          authorAssociation: null,
           body,
+          path: null,
+          line: null,
+          originalLine: null,
+          htmlUrl: "",
         });
       }
       issueComments.set(commentId, {
@@ -567,38 +529,28 @@ export function createFakePrSurface(
       return { id: commentId, updated: false };
     },
 
-    async listPullRequestReviewComments() {
-      events.push({ kind: "listPullRequestReviewComments" });
-      return { comments: reviewComments, truncated: false };
+    async listReviewComments() {
+      events.push({ kind: "listReviewComments" });
+      return { comments: [...reviewComments], truncated: false };
+    },
+
+    async listPullRequestReviews() {
+      events.push({ kind: "listPullRequestReviews" });
+      return [
+        ...seededReviews,
+        ...publishedThreadBatches.map((batch): PrReview => ({
+          id: batch.id,
+          userId: null,
+          authorLogin: batch.authorLogin,
+          body: batch.review.body,
+          commitId: batch.review.commitId ?? null,
+          htmlUrl: batch.url,
+        })),
+      ];
     },
 
     async setReviewCommitStatus(headShaArg, status) {
       events.push({ kind: "setReviewCommitStatus", headSha: headShaArg, status });
-    },
-
-    async fetchPriorInlineFeedback(botUserId, currentLens, maintainerDecisionAssociations) {
-      events.push({
-        kind: "fetchPriorInlineFeedback",
-        botUserId,
-        currentLens,
-        ...(maintainerDecisionAssociations != null ? { maintainerDecisionAssociations } : {}),
-      });
-      return priorInlineFeedback;
-    },
-
-    async fetchBotFindingThreads(botUserId, publishRecordLenses, maintainerDecisionAssociations) {
-      events.push({
-        kind: "fetchBotFindingThreads",
-        botUserId,
-        publishRecordLenses,
-        ...(maintainerDecisionAssociations != null ? { maintainerDecisionAssociations } : {}),
-      });
-      return botFindingThreads;
-    },
-
-    async fetchReviewCommentParentGraph() {
-      events.push({ kind: "fetchReviewCommentParentGraph" });
-      return reviewCommentParentGraph;
     },
 
     async editComment(commentId, body) {
@@ -624,21 +576,6 @@ export function createFakePrSurface(
         reviewId,
         reviewUrl,
       };
-    },
-
-    async findPublishedThreadBatch(marker, commitId): Promise<PublishedBatch | null> {
-      for (let index = publishedThreadBatches.length - 1; index >= 0; index -= 1) {
-        const review = publishedThreadBatches[index];
-        if (
-          review != null &&
-          review.authorLogin === "pr-agent[bot]" &&
-          review.review.body.includes(marker) &&
-          (commitId == null || review.review.commitId === commitId)
-        ) {
-          return { reviewId: review.id, reviewUrl: review.url };
-        }
-      }
-      return null;
     },
 
     async listInlineReviewThreads() {
@@ -736,11 +673,6 @@ export function createFakePrSurface(
       return { ok: true as const, text };
     },
 
-    async listCheckRunAnnotations(checkRunId) {
-      events.push({ kind: "listCheckRunAnnotations", checkRunId });
-      return [];
-    },
-
     async gitCredentialAuth() {
       events.push({ kind: "gitCredentialAuth" });
       return { token: credentialToken, expiresAtTs: credentialExpiresAtTs };
@@ -761,11 +693,6 @@ export function createFakePrSurface(
       return [...comments.values()];
     },
 
-    async listInlineReviewComments() {
-      events.push({ kind: "listInlineReviewComments" });
-      return inlineReviewComments;
-    },
-
     async editReviewComment(commentId, body) {
       events.push({ kind: "editReviewComment", commentId, body });
       if (!reviewCommentBodies.has(commentId)) return false;
@@ -773,19 +700,14 @@ export function createFakePrSurface(
       return true;
     },
 
-    async getPullRequestBody() {
-      events.push({ kind: "getPullRequestBody" });
-      return pullRequestBody;
-    },
-
-    async getPullRequestBranchInfo() {
-      events.push({ kind: "getPullRequestBranchInfo" });
-      return pullRequestBranchInfo;
-    },
-
-    async publishDescription(_cfg, _payload: DescriptionPayload, _operationMarker?: string) {
-      events.push({ kind: "publishDescription" });
-      return { prNumber: params.prNumber, titleUpdated: false, bodyUpdated: true };
+    async updatePullRequest(update, operationMarker) {
+      events.push({
+        kind: "updatePullRequest",
+        update,
+        ...(operationMarker != null ? { operationMarker } : {}),
+      });
+      pullRequest = { ...pullRequest, title: update.title, body: update.body };
+      return { prNumber: params.prNumber };
     },
 
     async listPushedCommits() {
@@ -796,10 +718,6 @@ export function createFakePrSurface(
     async lookupGitHubUser(userId) {
       events.push({ kind: "lookupGitHubUser", userId });
       return githubUsers.get(userId) ?? null;
-    },
-
-    isRateLimitCircuitOpen() {
-      return rateLimitOpen;
     },
   };
 

@@ -226,8 +226,12 @@ Concrete modules own the M1 interfaces. Workspace callers import
 Code Mode imports execution sessions, pooling, and marshalling from their concrete
 execution modules; cross-worker halt codes and encoding live in
 `src/agent/execution/hostHalt.ts`. `PrResource`, `PrRef`, and `ReplyTarget` live in
-`src/agentWork/types.ts`. `PrSurface` requires bot-login, published-batch, and
+`src/agentWork/types.ts`. `PrSurface` requires bot-login, review-list, and
 review-check reads; implementations cannot omit those recovery capabilities.
+It exposes raw GitHub reads (`getHead`, `listReviewComments`,
+`listPullRequestReviews`) and one `updatePullRequest` write; prior-feedback
+thread assembly lives in `reviewPriorFeedback.ts` and description merging in
+`src/agent/description/descriptionPublishPlan.ts`.
 Review status phrases live in `src/review/statusCopy.ts`, CI action phrases in
 `src/review/ci/ciSummaryCell.ts`, and specialist prompt selection in
 `src/review/orchestrator/specialistRun.ts`. Helpers with one owner stay private

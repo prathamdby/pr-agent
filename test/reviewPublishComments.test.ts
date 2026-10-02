@@ -7,6 +7,27 @@ import { makeTestConfig } from "./helpers/config.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
+import type { PrReviewComment } from "../src/github/prSurface.js";
+
+function reviewComment(c: {
+  path: string;
+  line: number;
+  id: number;
+  url: string;
+}): PrReviewComment {
+  return {
+    id: c.id,
+    inReplyToId: null,
+    pullRequestReviewId: null,
+    userId: null,
+    body: "",
+    path: c.path,
+    line: c.line,
+    originalLine: c.line,
+    htmlUrl: c.url,
+    authorLogin: "pr-agent[bot]",
+  };
+}
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -50,6 +71,7 @@ describe("published inline comment links", () => {
       repo: "widgets",
       prNumber: 42,
     });
+    controls.setReviewComments(comments.map(reviewComment));
     await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
@@ -59,10 +81,7 @@ describe("published inline comment links", () => {
         headSha: "abc",
         hasDescriptionReviewMap: false,
       },
-      prSurface: {
-        ...surface,
-        listPullRequestReviewComments: async () => ({ comments, truncated: false }),
-      },
+      prSurface: surface,
       payload: makeReviewPayload({ findings: placements.map((p) => p.finding) }),
       ledger: createFindingLedger({
         accepted: placements.map((p) => ({
@@ -101,6 +120,7 @@ describe("published inline comment links", () => {
       repo: "widgets",
       prNumber: 42,
     });
+    controls.setReviewComments(comments.map(reviewComment));
     await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
@@ -110,10 +130,7 @@ describe("published inline comment links", () => {
         headSha: "abc",
         hasDescriptionReviewMap: false,
       },
-      prSurface: {
-        ...surface,
-        listPullRequestReviewComments: async () => ({ comments, truncated: false }),
-      },
+      prSurface: surface,
       payload: makeReviewPayload({ findings: placements.map((p) => p.finding) }),
       ledger: createFindingLedger({
         accepted: placements.map((p) => ({
@@ -147,6 +164,7 @@ describe("published inline comment links", () => {
       repo: "widgets",
       prNumber: 42,
     });
+    controls.setReviewComments(comments.map(reviewComment));
     await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
@@ -156,10 +174,7 @@ describe("published inline comment links", () => {
         headSha: "abc",
         hasDescriptionReviewMap: false,
       },
-      prSurface: {
-        ...surface,
-        listPullRequestReviewComments: async () => ({ comments, truncated: false }),
-      },
+      prSurface: surface,
       payload: makeReviewPayload({ findings: placements.map((p) => p.finding) }),
       ledger: createFindingLedger({
         accepted: placements.map((p) => ({

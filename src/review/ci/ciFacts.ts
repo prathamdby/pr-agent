@@ -58,15 +58,6 @@ export type CiCheckRunSnapshot = {
   readonly completedAt?: string | null;
 };
 
-export type CiCheckAnnotation = {
-  readonly path: string;
-  readonly startLine: number | null;
-  readonly endLine: number | null;
-  readonly title: string | null;
-  readonly message: string;
-  readonly annotationLevel: string;
-};
-
 export type CiLegacyStatus = {
   readonly context: string;
   readonly state: string;

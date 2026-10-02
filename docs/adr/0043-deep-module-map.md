@@ -882,6 +882,92 @@ two `fetchCiAuthorContext` cases moved from `ciFacts` to `ciAuthor`. The two
 `ciAuthor` gained one case that drives a huge download through
 `fetchCiAuthorContext`. No test file is new. The unsafe assertion baseline stays 78.
 
+## M16 failure modes
+
+Recorded before the narrowing:
+
+1. A removed read changes its bytes when its caller composes it: prior-feedback
+   threads, bot finding threads, thread-root resolution, review-comment links, or
+   the published-batch lookup change a lens decision, a reply, a cap, or an order.
+2. The bot-authored filter is lost when `findPublishedThreadBatch` stops being a
+   surface method, so recovery adopts a human review that carries the marker.
+3. A truncated comment listing reads as complete: the review-comment cap stops
+   being reported once three methods share one listing.
+4. Description publication changes its request: title, body, the
+   `titleRewrite` decision, the operation-marker suffix, or the skip-when-equal
+   rule differs from the old merge-and-write.
+5. Retained description identity breaks: a row persisted under `publishDescription`
+   no longer resolves its key, recovery lookup, or identity once the method is
+   renamed, or a second row is written for the same marker.
+6. The exhaustive mutation switch stops being exhaustive, so a new write skips the
+   intent boundary or recovery.
+7. A leased read becomes fenced, or a removed method leaves a caller that now
+   crosses the boundary.
+8. A dead method survives in the fake or the real surface, so tests keep passing
+   against behavior production no longer has (`listCheckRunAnnotations`,
+   `isRateLimitCircuitOpen`, `rateLimitCircuit`).
+
+`PrSurface` goes from 40 to 32 methods (20 reads, 12 mutations). The surface keeps
+raw reads and writes; feature assembly moved to its owner.
+
+Removed methods, former callers, replacements:
+
+| Removed                                                       | Former callers                                                                                            | Replacement                                                                                                           |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `fetchPriorInlineFeedback`                                    | `reviewTrustedContext` (via `runReviewForWorkItem`)                                                       | `reviewPriorFeedback.fetchPriorInlineFeedback(prSurface, ...)` over `listReviewComments` and `listPullRequestReviews` |
+| `fetchBotFindingThreads`                                      | `triageExecutor`, `verificationExecutor`                                                                  | `reviewPriorFeedback.fetchBotFindingThreads(prSurface, ...)`                                                          |
+| `fetchReviewCommentParentGraph`                               | `triageExecutor`                                                                                          | `listReviewComments` plus `resolveReviewThreadRootId`                                                                 |
+| `findPublishedThreadBatch`                                    | `publishFindingBatch`, `recoverPrSurfaceMutation`                                                         | `prSurfaceHelpers.findPublishedThreadBatch(surface, ...)` over `getBotLogin` and `listPullRequestReviews`             |
+| `listInlineReviewComments`                                    | `askThreadContext`, `recoverAskReply`, `publishTriage`, `publishVerification`, `recoverPrSurfaceMutation` | `listReviewComments`                                                                                                  |
+| `listPullRequestReviewComments`                               | `publishSummaryOnly`                                                                                      | `listReviewComments`                                                                                                  |
+| `getPullRequestBody`                                          | `submitDescriptionTool`, `descriptionExecutor`, `recoverPrSurfaceMutation`                                | `getHead().pullRequest.body`                                                                                          |
+| `getPullRequestBranchInfo`                                    | `triageExecutor`, `publishTriage`                                                                         | `getHead` plus `pullRequestBranchInfo` in `listPullRequestFiles.ts`                                                   |
+| `publishDescription`                                          | `submitDescriptionTool`                                                                                   | `updatePullRequest({title, body}, marker?)`; merge in `descriptionPublishPlan.ts`                                     |
+| `listCheckRunAnnotations`                                     | none in production                                                                                        | deleted with its Octokit reader and constants                                                                         |
+| `isRateLimitCircuitOpen` and the `rateLimitCircuit` parameter | none in production                                                                                        | deleted                                                                                                               |
+
+`reviewPriorFeedbackIo.ts` and the review-comment, review-marker, and annotation
+readers in `reviewPublish.ts` and `ciStatus.ts` are deleted. The shared
+`listReviewComments` result carries `truncated`; the cap is unchanged.
+
+Description wire identity: `updatePullRequest` persists under `publishDescription`
+for the operation-key segment, `mutationKind`, and `surfaceMethod`
+(`PR_SURFACE_WIRE_NAMES`, one table that also drives recovery). The retained-identity
+lookup, the golden retained-child cases, and recovery by marker are unchanged.
+This is a deviation from "child hashes keep their bytes": the argument is now
+`({title, body}, marker)` instead of `(Config, payload, marker)`, so a new
+description child hashes to `4e5225fc7e449cdf82f2658758e5890a83f86ce5b6aa6a8e85479d492c437f0c`
+for the golden input (was `bf162594f55498fbf415bfab2fe1436e1dc15c53221dc7a4b34fa0eed967bb33`).
+The M5 full-Config hash shim is removed with the argument it served. A retry of a
+description publish that started before deploy still resolves its row by exact
+parent, work item, name, and marker, so the old key and hash are reused and no
+second request is sent. The request bytes (`pulls.update` title and body) and the
+persisted marker are unchanged.
+
+Coverage migration: `fakePrSurface` shrinks from 813 to 731 lines. It drops the
+events and controls of every removed method (`setRateLimitOpen`,
+`setPriorInlineFeedback`, `setBotFindingThreads`, `setReviewCommentParentGraph`,
+`setInlineReviewComments`) and gains `setReviewComments`, `setPullRequestReviews`,
+and `updatePullRequest`; published batches appear as bot reviews. Existing suites
+migrated without new files: `reviewPriorFeedback` and `triagePriorFeedback` call
+the feature functions through the real surface over mocked Octokit pages, so
+pagination, mapping, lens, and authorization cases still run end to end;
+`reviewTrustedContext` seeds raw comments instead of canned threads;
+`triageExecutor` and `verificationExecutor` seed raw listings through two
+functions added to the existing `executorDurableHarness.ts`
+(`seedBotFindingThreads`, `seedReviewCommentGraph`); `reviewPublish` moves the
+bot-author filter case to `findPublishedThreadBatch`; `submitDescriptionTool`
+asserts the title and body passed to `updatePullRequest` in place of the payload
+passed to `publishDescription`; `githubPrSurface` gains one request-shape case for
+`updatePullRequest`. The `prActorLease` read and mutation inventories, the
+`publishRecordBatches` golden table, and the `ciProjection` race seed follow the
+new method names. Deleted assertions: the `isRateLimitCircuitOpen` check and the
+`listCheckRunAnnotations`, `listInlineReviewComments`, `getPullRequestBody`, and
+`getPullRequestBranchInfo` rows in the read inventory. The thread-root-resolution
+failure case now fails the second real listing instead of using an empty canned
+graph. Triage fixtures that replace the pull request now carry `head.ref` and repository
+names, since branch info comes from `getHead`. The unsafe assertion baseline stays at 78.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay
@@ -901,6 +987,7 @@ The surface hash builder retains removed defaults only as deliberate compatibili
 metadata for new full-Config arguments (identified by `piThinkingCeiling`).
 Narrowed Pick arguments are unchanged and explicitly supplied old properties win.
 This does not claim that defaults recreate historical non-default hashes.
+M16 removes this shim; see the M16 section for the new description hash.
 
 Before persisting any description surface child, the durable intent boundary
 looks up its retained identity by work item, exact parent frame (including no

@@ -23,7 +23,7 @@ export type PublishReviewTestHarness = {
   readonly surface: PrSurface;
   readonly controls: FakePrSurfaceControls;
   readonly publishThreadBatch: Mock<PrSurface["publishThreadBatch"]>;
-  readonly listPullRequestReviewComments: Mock<PrSurface["listPullRequestReviewComments"]>;
+  readonly listReviewComments: Mock<PrSurface["listReviewComments"]>;
   readonly upsertProgressComment: Mock<PrSurface["upsertProgressComment"]>;
   readonly resolveProgressComment: Mock<PrSurface["resolveProgressComment"]>;
   readonly findProgressComment: Mock<PrSurface["findProgressComment"]>;
@@ -41,15 +41,21 @@ export function createPublishReviewTestHarness(options?: {
   );
   let nextReviewId = 1;
 
-  const listPullRequestReviewComments = vi
-    .spyOn(bundle.surface, "listPullRequestReviewComments")
+  const listReviewComments = vi
+    .spyOn(bundle.surface, "listReviewComments")
     .mockImplementation(async () => ({
       comments: [
         {
+          id: 99,
+          inReplyToId: null,
+          pullRequestReviewId: null,
+          userId: null,
+          body: "",
           path: "src/x.ts",
           line: 4,
-          id: 99,
-          url: "https://github.com/o/r/pull/1#discussion_r99",
+          originalLine: 4,
+          htmlUrl: "https://github.com/o/r/pull/1#discussion_r99",
+          authorLogin: "pr-agent[bot]",
         },
       ],
       truncated: false,
@@ -77,7 +83,7 @@ export function createPublishReviewTestHarness(options?: {
     surface: bundle.surface,
     controls: bundle.controls,
     publishThreadBatch,
-    listPullRequestReviewComments,
+    listReviewComments,
     upsertProgressComment,
     resolveProgressComment,
     findProgressComment,

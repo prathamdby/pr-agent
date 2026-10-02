@@ -28,12 +28,14 @@ vi.mock("../src/github/appAuth.js", () => ({
 import {
   assembleBotReviewThreads,
   classifyReviewLensFromPointerBody,
+  fetchBotFindingThreads as fetchBotFindingThreadsFromSurface,
   mapAssembledThreadsToBotFindings,
   parseReviewPointerLensMarker,
   priorFeedbackLensesForSelection,
   type ReviewThreadComment,
 } from "../src/review/run/reviewPriorFeedback.js";
-import { fetchBotFindingThreads } from "../src/github/reviewPriorFeedbackIo.js";
+import { createPrSurface } from "../src/github/prSurface.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { MAX_PRIOR_INLINE_REPLY_CHARS } from "../src/settings/index.js";
 
 describe("classifyReviewLensFromPointerBody", () => {
@@ -71,6 +73,25 @@ describe("parseReviewPointerLensMarker", () => {
     }
   });
 });
+
+function fetchBotFindingThreads(
+  botUserId: number,
+  publishRecordLenses?: Parameters<
+    typeof fetchBotFindingThreadsFromSurface
+  >[1]["publishRecordLenses"],
+) {
+  return fetchBotFindingThreadsFromSurface(
+    createPrSurface({
+      cfg: makeTestConfig(),
+      installationId: 1,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      installation: { token: "tok", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
+    }),
+    { botUserId, publishRecordLenses },
+  );
+}
 
 describe("fetchBotFindingThreads", () => {
   beforeEach(() => {
@@ -123,7 +144,7 @@ describe("fetchBotFindingThreads", () => {
       ],
     });
 
-    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([
+    await expect(fetchBotFindingThreads(99)).resolves.toEqual([
       expect.objectContaining({
         rootCommentId: 1,
         lens: "review",
@@ -160,7 +181,7 @@ describe("fetchBotFindingThreads", () => {
     });
 
     const publishRecords = new Map<number, "review-security">([[20, "review-security"]]);
-    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99, publishRecords)).resolves.toEqual([
+    await expect(fetchBotFindingThreads(99, publishRecords)).resolves.toEqual([
       expect.objectContaining({
         rootCommentId: 4,
         lens: "review-security",
@@ -188,7 +209,7 @@ describe("fetchBotFindingThreads", () => {
       ],
     });
 
-    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([]);
+    await expect(fetchBotFindingThreads(99)).resolves.toEqual([]);
   });
 
   it("prefers the newest marked verification stub over older marked stubs", async () => {
@@ -233,7 +254,7 @@ describe("fetchBotFindingThreads", () => {
       ],
     });
 
-    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([
+    await expect(fetchBotFindingThreads(99)).resolves.toEqual([
       expect.objectContaining({
         rootCommentId: 1,
         verificationStubCommentId: 22,
@@ -283,7 +304,7 @@ describe("fetchBotFindingThreads", () => {
       ],
     });
 
-    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([
+    await expect(fetchBotFindingThreads(99)).resolves.toEqual([
       expect.objectContaining({
         rootCommentId: 1,
         verificationStubCommentId: 22,
@@ -322,7 +343,7 @@ describe("fetchBotFindingThreads", () => {
       ],
     });
 
-    const threads = await fetchBotFindingThreads("tok", "o", "r", 1, 99);
+    const threads = await fetchBotFindingThreads(99);
     expect(threads).toEqual([
       expect.objectContaining({
         rootCommentId: 1,
@@ -396,7 +417,7 @@ describe("fetchBotFindingThreads", () => {
       ],
     });
 
-    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([
+    await expect(fetchBotFindingThreads(99)).resolves.toEqual([
       expect.objectContaining({
         rootCommentId: 1,
         path: "src/a.ts",

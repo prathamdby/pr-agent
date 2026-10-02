@@ -1,6 +1,5 @@
 import type { PrResource } from "../agentWork/types.js";
 import type { Config } from "../config.js";
-import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
 import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
 import type { ReplyTarget } from "../agentWork/types.js";
@@ -14,14 +13,8 @@ import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
 import type { DownloadActionsJobLogsResult, ListFailingActionsJobsResult } from "./actionsLogs.js";
 import type { ListReviewThreadResolutionResult } from "./reviewThreadResolution.js";
 import type { InlineReviewComment, ReviewCheckRunConclusion } from "./reviewPublish.js";
-import type { RateLimitCircuit } from "./rateLimitCircuit.js";
-import type {
-  CiCheckAnnotation,
-  CiCheckRunSnapshot,
-  CiLegacyStatus,
-} from "../review/ci/ciFacts.js";
-import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
+import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
+import type { ReviewThreadComment } from "../review/run/reviewPriorFeedback.js";
 import type { GithubReactionContent } from "../settings/index.js";
 
 export type AcknowledgementTarget =
@@ -41,31 +34,25 @@ export type IssueCommentRef = {
   readonly body?: string;
 };
 export type ProgressCommentUpsert = { readonly id: number; readonly updated: boolean };
-export type PublishedReviewCommentRef = {
-  readonly path: string;
-  readonly line: number;
-  readonly id: number;
-  readonly url: string;
-};
-export type ListPullRequestReviewCommentsResult = {
-  readonly comments: readonly PublishedReviewCommentRef[];
+/** One pull request review comment as GitHub returns it, with bounded pagination. */
+export type PrReviewComment = ReviewThreadComment & { readonly authorLogin: string };
+export type ListReviewCommentsResult = {
+  readonly comments: readonly PrReviewComment[];
+  /** True when the provider pagination cap stopped the listing early. */
   readonly truncated: boolean;
+};
+export type PrReview = {
+  readonly id: number;
+  readonly userId: number | null;
+  readonly authorLogin: string | null;
+  readonly body: string | null;
+  readonly commitId: string | null;
+  readonly htmlUrl: string;
 };
 export type ReviewCommitStatusParams = {
   readonly state: "success" | "failure" | "error" | "pending";
   readonly description: string;
   readonly targetUrl?: string;
-};
-export type PriorInlineFeedbackEntry = {
-  readonly path: string;
-  readonly startLine: number;
-  readonly endLine: number;
-  readonly botTitleSnippet: string;
-  readonly humanReplies: readonly string[];
-  readonly authorizedReplies?: readonly string[];
-  readonly untrustedReplies?: readonly string[];
-  readonly replies?: readonly ReviewThreadReply[];
-  readonly threadUrl: string;
 };
 export type ThreadBatchReview = {
   readonly body: string;
@@ -96,11 +83,6 @@ export type PrConversationComment = {
   readonly body: string;
 };
 
-export type PullRequestBranchInfo = {
-  readonly headRef: string;
-  readonly sameRepo: boolean;
-};
-
 export type PushedCommitSummary = {
   readonly sha: string;
   readonly subject: string;
@@ -114,15 +96,9 @@ export type GithubUserProfile = {
   readonly type: string;
 };
 
-export type PublishDescriptionSurfaceResult = {
-  readonly prNumber: number;
-  readonly bodyUpdated: boolean;
-  readonly titleUpdated?: boolean;
-};
-
-export type ReviewCommentParentNode = {
-  readonly id: number;
-  readonly inReplyToId: number | null;
+export type PullRequestUpdate = {
+  readonly title: string;
+  readonly body: string;
 };
 
 /**
@@ -154,7 +130,6 @@ export type CreatePrSurfaceParams = PrResource & {
   readonly installationId: number;
   /** Seed token when already minted (strictly fewer mint lookups). */
   readonly installation?: InstallationToken;
-  readonly rateLimitCircuit?: RateLimitCircuit;
   readonly mutationBoundary?: PrSurfaceMutationBoundary;
 };
 
@@ -178,11 +153,10 @@ export type PrSurfaceMutationMethods = {
   startReviewCheck(headSha: string, externalId: string, summary?: string): Promise<CheckRef>;
   finishReviewCheck(outcome: ReviewCheckOutcome): Promise<void>;
   editReviewComment(commentId: number, body: string): Promise<boolean>;
-  publishDescription(
-    cfg: Pick<Config, "features">,
-    payload: DescriptionPayload,
+  updatePullRequest(
+    update: PullRequestUpdate,
     operationMarker?: string,
-  ): Promise<PublishDescriptionSurfaceResult>;
+  ): Promise<{ readonly prNumber: number }>;
 };
 
 /** Read-only methods remain callable while a leased execution is fenced. */
@@ -195,19 +169,8 @@ export type PrSurfaceReadMethods = PrResource & {
     sentinel: string,
     hintCommentId?: number | null,
   ): Promise<IssueCommentRef | null>;
-  listPullRequestReviewComments(): Promise<ListPullRequestReviewCommentsResult>;
-  fetchPriorInlineFeedback(
-    botUserId: number,
-    currentLens: AnyReviewLens,
-    maintainerDecisionAssociations?: ReadonlySet<string>,
-  ): Promise<readonly PriorInlineFeedbackEntry[]>;
-  fetchBotFindingThreads(
-    botUserId: number,
-    publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
-    maintainerDecisionAssociations?: ReadonlySet<string>,
-  ): Promise<readonly BotFindingThread[]>;
-  fetchReviewCommentParentGraph(): Promise<readonly ReviewCommentParentNode[]>;
-  findPublishedThreadBatch(marker: string, commitId?: string): Promise<PublishedBatch | null>;
+  listReviewComments(): Promise<ListReviewCommentsResult>;
+  listPullRequestReviews(): Promise<readonly PrReview[]>;
   listInlineReviewThreads(): Promise<ListReviewThreadResolutionResult>;
   listChangedFiles(
     caps: ListPullRequestFilesLimits,
@@ -220,15 +183,10 @@ export type PrSurfaceReadMethods = PrResource & {
   listPullsForHead(headSha: string): Promise<readonly { readonly number: number }[]>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;
-  listCheckRunAnnotations(checkRunId: number): Promise<readonly CiCheckAnnotation[]>;
   gitCredentialAuth(): Promise<{ readonly token: string; readonly expiresAtTs: number }>;
   listConversationComments(): Promise<readonly PrConversationComment[]>;
-  listInlineReviewComments(): Promise<readonly PrConversationComment[]>;
-  getPullRequestBody(): Promise<string | null>;
-  getPullRequestBranchInfo(): Promise<PullRequestBranchInfo>;
   listPushedCommits(): Promise<readonly PushedCommitSummary[]>;
   lookupGitHubUser(userId: number): Promise<GithubUserProfile | null>;
-  isRateLimitCircuitOpen(): boolean;
 };
 
 export type PrSurface = PrSurfaceReadMethods & PrSurfaceMutationMethods;

@@ -10,6 +10,7 @@ import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
   resetDurablePrSurface,
+  seedBotFindingThreads,
 } from "./helpers/executorDurableHarness.js";
 
 const mocks = vi.hoisted(() => ({
@@ -189,7 +190,7 @@ describe("verification work definition", () => {
     configureDefaultPrFiles();
     configureVerificationThreads([[1, { threadNodeId: "node", isResolved: false }]]);
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
-    durablePrSurfaceControls().setBotFindingThreads([]);
+    seedBotFindingThreads([]);
     mocks.withPrRepositoryView.mockImplementation(
       async (_params: unknown, run: (view: unknown) => Promise<unknown>) =>
         run({
@@ -215,7 +216,7 @@ describe("verification work definition", () => {
   });
 
   it("short-circuits quietly when there are no open findings", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([]);
+    seedBotFindingThreads([]);
 
     await runExecution();
 
@@ -227,7 +228,7 @@ describe("verification work definition", () => {
   });
 
   it("short-circuits when all findings are already resolved", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     configureVerificationThreads([[1, { threadNodeId: "node", isResolved: true }]]);
 
     await runExecution();
@@ -238,7 +239,7 @@ describe("verification work definition", () => {
   });
 
   it("runs the verification agent and publishes when there are open findings", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -286,7 +287,7 @@ describe("verification work definition", () => {
         payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
       }),
     );
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
@@ -344,7 +345,7 @@ describe("verification work definition", () => {
   });
 
   it("uses an empty changedFilePaths set when pushBeforeSha is absent", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
@@ -393,7 +394,7 @@ describe("verification work definition", () => {
   });
 
   it("throws when the agent does not submit a payload", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: false,
       payload: null,
@@ -439,7 +440,7 @@ describe("verification work definition", () => {
     async ({ source, liveHeadSha, expected, publishes }) => {
       const boundHeadSha = "a".repeat(40);
       const workItem = item({ source });
-      durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+      seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
       mocks.runVerification.mockResolvedValue({
         submitted: true,
         payload: {
@@ -494,7 +495,7 @@ describe("verification work definition", () => {
   );
 
   it("does not publish when cancel was requested before publish", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -517,7 +518,7 @@ describe("verification work definition", () => {
   });
 
   it("returns publish degradation reasons and emits no failure event", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -572,11 +573,7 @@ describe("verification work definition", () => {
   });
 
   it("orders the inventory oldest-first and binds one value to prompt and publish", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
-      findingThread(3),
-      findingThread(1),
-      findingThread(2),
-    ]);
+    seedBotFindingThreads([findingThread(3), findingThread(1), findingThread(2)]);
     configureVerificationThreads([
       [3, { threadNodeId: "node-3", isResolved: false }],
       [1, { threadNodeId: "node-1", isResolved: false }],
@@ -620,7 +617,7 @@ describe("verification work definition", () => {
 
   it("narrows the escalated attempt inventory once and reports inventory_narrowed", async () => {
     const ids = [12, 3, 8, 1, 10, 5, 2, 11, 7, 4, 9, 6];
-    durablePrSurfaceControls().setBotFindingThreads(ids.map((id) => findingThread(id)));
+    seedBotFindingThreads(ids.map((id) => findingThread(id)));
     configureVerificationThreads(
       ids.map((id) => [id, { threadNodeId: `node-${id}`, isResolved: false }] as const),
     );
@@ -664,7 +661,7 @@ describe("verification work definition", () => {
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     durablePrSurfaceControls().setThreadResolutionStatus(
       "permission_denied",
       "grant Pull requests read for reviewThreads",
@@ -734,7 +731,7 @@ describe("verification work definition", () => {
         payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
       }),
     );
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     durablePrSurfaceControls().setChangedFilesResult({
       files: [
         { filename: "src/app.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
@@ -805,7 +802,7 @@ describe("verification work definition", () => {
   });
 
   it("does not publish a failure signal on a successful run", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    seedBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
 
     await runExecution();
 

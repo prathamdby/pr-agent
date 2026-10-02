@@ -83,6 +83,8 @@ import {
   durablePrSurfaceControls,
   fakeDurablePrSurface,
   resetDurablePrSurface,
+  seedBotFindingThreads,
+  seedReviewCommentGraph,
 } from "./helpers/executorDurableHarness.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
 import * as prActorLease from "../src/agentWork/prActorLease.js";
@@ -249,7 +251,7 @@ describe("triage work definition", () => {
     mockDurableExecution();
     configureDefaultThreads([[1, { threadNodeId: "node", isResolved: false }]]);
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -329,7 +331,7 @@ describe("triage work definition", () => {
     mocks.done.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
-    durablePrSurfaceControls().setReviewCommentParentGraph([]);
+    seedReviewCommentGraph([]);
     durablePrSurfaceControls().setGithubUser(42, {
       id: 42,
       login: "alice",
@@ -548,9 +550,7 @@ describe("triage work definition", () => {
       code: "triage.cancelled",
     });
 
-    expect(
-      durablePrSurfaceControls().events.some((event) => event.kind === "getPullRequestBranchInfo"),
-    ).toBe(false);
+    expect(durablePrSurfaceControls().events.some((event) => event.kind === "getHead")).toBe(false);
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.publishTriageReportOnly).not.toHaveBeenCalled();
   });
@@ -569,7 +569,7 @@ describe("triage work definition", () => {
   });
 
   it("stops before publishing an empty-inventory report when cancellation arrives", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([]);
+    seedBotFindingThreads([]);
     configureDefaultThreads([]);
     mocks.shouldSkipWork
       .mockResolvedValueOnce(false)
@@ -888,7 +888,7 @@ describe("triage work definition", () => {
   });
 
   it("runs a fresh agent pass when cross-work-item push detail misses current inventory", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -949,7 +949,7 @@ describe("triage work definition", () => {
   });
 
   it("filters inventory to one thread when scope is thread", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -975,7 +975,7 @@ describe("triage work definition", () => {
       [1, { threadNodeId: "node-1", isResolved: false }],
       [2, { threadNodeId: "node-2", isResolved: false }],
     ]);
-    durablePrSurfaceControls().setReviewCommentParentGraph([
+    seedReviewCommentGraph([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
     ]);
@@ -1005,12 +1005,12 @@ describe("triage work definition", () => {
       }),
     );
     expect(
-      durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
-    ).toBe(true);
+      durablePrSurfaceControls().events.filter((e) => e.kind === "listReviewComments"),
+    ).toHaveLength(2);
   });
 
   it("falls back to the original inline parent when thread-root resolution fails", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 9,
         lens: "review",
@@ -1023,7 +1023,14 @@ describe("triage work definition", () => {
       },
     ]);
     configureDefaultThreads([[9, { threadNodeId: "node-9", isResolved: false }]]);
-    vi.spyOn(durablePrSurfaceControls(), "setReviewCommentParentGraph");
+    const surface = fakeDurablePrSurface();
+    const listReviewComments = surface.listReviewComments.bind(surface);
+    let listings = 0;
+    vi.spyOn(surface, "listReviewComments").mockImplementation(async () => {
+      listings += 1;
+      if (listings === 2) throw new Error("listing unavailable");
+      return listReviewComments();
+    });
     mockDurableExecution(
       item({
         payload: {
@@ -1052,7 +1059,7 @@ describe("triage work definition", () => {
   });
 
   it("reports ineligible thread scope without running the agent", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -1064,7 +1071,7 @@ describe("triage work definition", () => {
         threadUrl: "https://github.test/1",
       },
     ]);
-    durablePrSurfaceControls().setReviewCommentParentGraph([{ id: 99, inReplyToId: null }]);
+    seedReviewCommentGraph([{ id: 99, inReplyToId: null }]);
     mockDurableExecution(
       item({
         payload: {
@@ -1092,7 +1099,7 @@ describe("triage work definition", () => {
   });
 
   it("reports already-resolved scoped thread without calling it ineligible", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -1105,7 +1112,7 @@ describe("triage work definition", () => {
       },
     ]);
     configureDefaultThreads([[1, { threadNodeId: "node-1", isResolved: true }]]);
-    durablePrSurfaceControls().setReviewCommentParentGraph([
+    seedReviewCommentGraph([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
     ]);
@@ -1140,7 +1147,7 @@ describe("triage work definition", () => {
   });
 
   it("does not fall back to full PR triage when thread scope lacks an anchor", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -1170,8 +1177,8 @@ describe("triage work definition", () => {
     await runExecution();
 
     expect(
-      durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
-    ).toBe(false);
+      durablePrSurfaceControls().events.filter((e) => e.kind === "listReviewComments"),
+    ).toHaveLength(1);
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(TRIAGE_THREAD_NOT_ELIGIBLE),
@@ -1415,7 +1422,7 @@ describe("triage work definition", () => {
   });
 
   it("bulk with exclude replays only the remaining preview hunks", async () => {
-    durablePrSurfaceControls().setBotFindingThreads([
+    seedBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",

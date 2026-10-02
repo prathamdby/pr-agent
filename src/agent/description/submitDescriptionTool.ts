@@ -5,7 +5,7 @@ import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
-import type { PublishDescriptionSurfaceResult } from "../../github/prSurface.js";
+import { planDescriptionPublish } from "./descriptionPublishPlan.js";
 import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
@@ -30,6 +30,12 @@ import {
   publishOnce,
 } from "../../agentWork/publishOnce.js";
 import { DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
+
+type DescriptionPublishResult = {
+  readonly prNumber: number;
+  readonly bodyUpdated: boolean;
+  readonly titleUpdated?: boolean;
+};
 
 export type SubmitDescriptionState = {
   published: boolean;
@@ -157,13 +163,32 @@ export function buildSubmitDescriptionTool(params: {
             descriptionPrBodyOperationKey(operationIntent.resourceKey),
             operationIntent.workItemId,
           );
-    const publish = () =>
-      params.prSurface.publishDescription(params.cfg, payload, operationMarker ?? undefined);
+    const publish = async (): Promise<DescriptionPublishResult> => {
+      const { pullRequest } = await params.prSurface.getHead();
+      const plan = planDescriptionPublish({
+        cfg: params.cfg,
+        pullRequest,
+        resource: { owner: params.owner, repo: params.repo, prNumber: params.prNumber },
+        payload,
+        operationMarker: operationMarker ?? undefined,
+      });
+      if (plan.titleUpdated || plan.bodyUpdated) {
+        await params.prSurface.updatePullRequest(
+          { title: plan.title, body: plan.body },
+          operationMarker ?? undefined,
+        );
+      }
+      return {
+        prNumber: params.prNumber,
+        titleUpdated: plan.titleUpdated,
+        bodyUpdated: plan.bodyUpdated,
+      };
+    };
 
     const result =
       params.operationIntent == null
         ? await publish()
-        : await publishOnce<PublishDescriptionSurfaceResult>({
+        : await publishOnce<DescriptionPublishResult>({
             client: params.operationIntent.client,
             workItemId: params.operationIntent.workItemId,
             operationKey:
@@ -177,8 +202,8 @@ export function buildSubmitDescriptionTool(params: {
               ...(operationMarker == null ? {} : { operationMarker }),
             },
             recover: async () => {
-              const body = await params.prSurface.getPullRequestBody();
-              return body?.includes(operationMarker ?? "\u0000")
+              const { pullRequest } = await params.prSurface.getHead();
+              return pullRequest.body?.includes(operationMarker ?? "\u0000")
                 ? {
                     kind: "reconciled" as const,
                     value: { prNumber: params.prNumber, bodyUpdated: true },

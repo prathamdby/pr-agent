@@ -7,10 +7,12 @@ import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import type { BotIdentity } from "../../github/appAuth.js";
+import { pullRequestBranchInfo } from "../../github/listPullRequestFiles.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import {
+  fetchBotFindingThreads,
   resolveReviewThreadRootId,
   type BotFindingThread,
 } from "../../review/run/reviewPriorFeedback.js";
@@ -137,10 +139,8 @@ async function resolveScopedThreadRootId(params: {
   readonly anchorCommentId: number;
 }): Promise<number> {
   try {
-    const commentGraph = await params.prSurface.fetchReviewCommentParentGraph();
-    return (
-      resolveReviewThreadRootId(commentGraph, params.anchorCommentId) ?? params.anchorCommentId
-    );
+    const { comments } = await params.prSurface.listReviewComments();
+    return resolveReviewThreadRootId(comments, params.anchorCommentId) ?? params.anchorCommentId;
   } catch (error) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
     logWarn("triage_thread_root_resolution_failed", {
@@ -238,11 +238,11 @@ async function resolveInventoryAndScope(params: {
     params.item.resourceKey,
   );
   const [threads, resolutionResult] = await Promise.all([
-    params.prSurface.fetchBotFindingThreads(
-      botIdentity.userId,
-      eligibleReviews,
-      params.cfg.maintainerDecisionAssociations,
-    ),
+    fetchBotFindingThreads(params.prSurface, {
+      botUserId: botIdentity.userId,
+      publishRecordLenses: eligibleReviews,
+      maintainerDecisionAssociations: params.cfg.maintainerDecisionAssociations,
+    }),
     params.prSurface.listInlineReviewThreads(),
   ]);
   warnReviewThreadResolutionDegraded(resolutionResult, {
@@ -709,7 +709,7 @@ export function createTriageWorkExecution({
         const { prSurface } = env;
         const headSha = env.headSha;
         await ensureTriageNotCancelled(env);
-        const branch = await prSurface.getPullRequestBranchInfo();
+        const branch = pullRequestBranchInfo((await prSurface.getHead()).pullRequest);
         await ensureTriageNotCancelled(env);
         if (!branch.sameRepo && mode !== "preview") {
           return handleForkPrReport({

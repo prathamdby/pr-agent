@@ -294,7 +294,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/agentWork/workItemTransitions.ts` owns `transition()`, the only work item status writer.
 - `src/agentWork/publishOnce.ts` owns mutation-intent sequencing and identity-scoped completion evidence. Its step table preserves ask/work and shared/resource scopes, progress ownership, and inline batches. Postgres and in-process publication adapters share those contracts. Triage retains its push plan before delegation and recovers only exact evidence, without a fabricated checkout.
 - `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and publication. `ci/ciFacts.ts`, `ci/ciAuthor.ts`, `ci/ciSummaryCell.ts` own CI facts, author, and cell.
-- `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
+- `src/github/` owns Octokit, installation tokens, and the narrow `PrSurface` seam; features assemble raw reads.
 - `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.

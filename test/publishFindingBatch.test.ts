@@ -1,4 +1,5 @@
 import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import type { ThreadBatchReview } from "../src/github/prSurface.js";
 const publishStoreState = vi.hoisted(() => {
   let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
   return {
@@ -833,14 +834,27 @@ describe("publishFindingBatch", () => {
       reviewUrl: "https://github.com/o/r/pull/1#pullrequestreview-77",
     };
     let recoveryCalls = 0;
-    harness.publishThreadBatch.mockImplementation(async () => {
+    let lostReview: ThreadBatchReview | undefined;
+    harness.publishThreadBatch.mockImplementation(async (review) => {
+      lostReview = review;
       throw Object.assign(new Error("response lost after GitHub accepted review"), {
         status: 503,
       });
     });
-    vi.spyOn(harness.surface, "findPublishedThreadBatch").mockImplementation(async () => {
+    vi.spyOn(harness.surface, "listPullRequestReviews").mockImplementation(async () => {
       recoveryCalls += 1;
-      return recoveryCalls === 1 ? null : remoteReview;
+      return recoveryCalls === 1 || lostReview == null
+        ? []
+        : [
+            {
+              id: remoteReview.reviewId,
+              userId: null,
+              authorLogin: "pr-agent[bot]",
+              body: lostReview.body,
+              commitId: lostReview.commitId ?? null,
+              htmlUrl: remoteReview.reviewUrl,
+            },
+          ];
     });
 
     await expect(

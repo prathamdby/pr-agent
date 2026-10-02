@@ -74,7 +74,7 @@ describe("publishReview core", () => {
     const reviewBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.body;
     expect(reviewBody).toContain("Here's what the review found.");
     expect(reviewBody).not.toContain(REVIEW_POINTER_BODY);
-    expect(harness.listPullRequestReviewComments).toHaveBeenCalled();
+    expect(harness.listReviewComments).toHaveBeenCalled();
     expect(harness.upsertProgressComment).toHaveBeenCalled();
     const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r99");
@@ -299,7 +299,7 @@ describe("publishReview core", () => {
     });
 
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    expect(harness.listPullRequestReviewComments).toHaveBeenCalledTimes(1);
+    expect(harness.listReviewComments).toHaveBeenCalledTimes(1);
     expect(publishState.inlineReviewIds).toEqual([41, 42]);
     const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0] ?? "";
     expect(summaryBody.match(/Bug/g)).toHaveLength(1);

@@ -5,6 +5,7 @@ import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import { loadRepoPolicy } from "../../review/repoPolicy.js";
+import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
 import {
@@ -42,11 +43,11 @@ export function createVerificationWorkExecution({
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
       const [threads, resolutionResult] = await Promise.all([
-        prSurface.fetchBotFindingThreads(
-          botIdentity.userId,
-          eligibleReviews,
-          cfg.maintainerDecisionAssociations,
-        ),
+        fetchBotFindingThreads(prSurface, {
+          botUserId: botIdentity.userId,
+          publishRecordLenses: eligibleReviews,
+          maintainerDecisionAssociations: cfg.maintainerDecisionAssociations,
+        }),
         prSurface.listInlineReviewThreads(),
       ]);
 

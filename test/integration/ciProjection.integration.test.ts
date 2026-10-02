@@ -77,7 +77,10 @@ import {
 } from "../../src/settings/index.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { makeVerificationWorkItem } from "../helpers/agentWorkItems.js";
-import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
+import {
+  makeDurableJobMetadata,
+  seedBotFindingThreads,
+} from "../helpers/executorDurableHarness.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "ci-projection-it";
@@ -2379,18 +2382,21 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       { headSha: scenario === "stale" || scenario === "resolved-stale" ? latestHeadSha : headSha },
     );
     if (scenario.startsWith("resolved-")) {
-      fake.controls.setBotFindingThreads([
-        {
-          rootCommentId: 71,
-          lens: "review",
-          path: "src/app.ts",
-          line: 1,
-          severity: "P1",
-          titleSnippet: "P1 · Bug",
-          humanReplies: [],
-          threadUrl: "https://github.test/thread/71",
-        },
-      ]);
+      seedBotFindingThreads(
+        [
+          {
+            rootCommentId: 71,
+            lens: "review",
+            path: "src/app.ts",
+            line: 1,
+            severity: "P1",
+            titleSnippet: "P1 · Bug",
+            humanReplies: [],
+            threadUrl: "https://github.test/thread/71",
+          },
+        ],
+        fake.controls,
+      );
       fake.controls.setThreads(new Map([[71, { threadNodeId: "thread-71", isResolved: true }]]));
     }
     await publishVerificationFailure({
@@ -2432,9 +2438,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         .mockRejectedValue(new Error("Unexpected empty verification agent"));
       const log = vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
       if (scenario === "race" || scenario === "cancel") {
-        const fetchThreads = fake.surface.fetchBotFindingThreads.bind(fake.surface);
-        vi.spyOn(fake.surface, "fetchBotFindingThreads").mockImplementationOnce(async (...args) => {
-          const threads = await fetchThreads(...args);
+        const listReviews = fake.surface.listPullRequestReviews.bind(fake.surface);
+        vi.spyOn(fake.surface, "listPullRequestReviews").mockImplementationOnce(async () => {
+          const threads = await listReviews();
           fake.controls.setHeadSha(latestHeadSha);
           if (scenario === "cancel") {
             await pool.query(

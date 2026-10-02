@@ -14,7 +14,10 @@ import { formatSymbolIndexStatusLine } from "../../prWorkspace/symbolIndex.js";
 import type { CodeIndexPrepareResult } from "../../codeIndex/buildJob.js";
 import { formatCodeIndexStatusLine } from "../../codeIndex/buildJob.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { formatPriorInlineFeedbackBlock } from "../run/reviewPriorFeedback.js";
+import {
+  fetchPriorInlineFeedback,
+  formatPriorInlineFeedbackBlock,
+} from "../run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export function buildTrustedReviewContextForReview(params: {
@@ -72,11 +75,11 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
   onPriorFeedbackError?: (error: unknown) => void;
 }): Promise<string | undefined> {
   try {
-    const threads = await params.prSurface.fetchPriorInlineFeedback(
-      params.botUserId,
-      params.reviewLens,
-      params.maintainerDecisionAssociations,
-    );
+    const threads = await fetchPriorInlineFeedback(params.prSurface, {
+      botUserId: params.botUserId,
+      currentLens: params.reviewLens,
+      maintainerDecisionAssociations: params.maintainerDecisionAssociations,
+    });
     return (
       formatPriorInlineFeedbackBlock(
         threads.map((thread) => ({

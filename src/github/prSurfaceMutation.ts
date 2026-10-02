@@ -4,6 +4,7 @@ import { AppError, isAppError, toAppError } from "../errors/appError.js";
 import {
   extractPrSurfaceRecoverDetail,
   isPrSurfaceMutationMethod,
+  prSurfaceWireName,
   recoverPrSurfaceMutation,
 } from "./recoverPrSurfaceMutation.js";
 import type {
@@ -103,7 +104,7 @@ function voidPrSurfaceMutationMethod(method: keyof PrSurfaceMutationMethods): bo
     case "publishThreadBatch":
     case "startReviewCheck":
     case "editReviewComment":
-    case "publishDescription":
+    case "updatePullRequest":
       return false;
     default: {
       const _exhaustive: never = method;
@@ -117,34 +118,18 @@ function mutation(
   input: unknown,
   surface: PrSurface,
 ): PrSurfaceMutation {
-  // M0 pins full-Config description inputs, including removed snapshot defaults.
-  // This is new-input compatibility metadata, not historical hash reconstruction.
-  // publishOnce selects retained children by exact parent/work/marker.
-  // Narrowed Pick arguments stay intact.
   const args = Array.isArray(input) ? input : [];
-  const descriptionConfig = args[0];
-  const hashInput =
-    method === "publishDescription" &&
-    descriptionConfig != null &&
-    typeof descriptionConfig === "object" &&
-    "piThinkingCeiling" in descriptionConfig
-      ? [
-          {
-            agentResumeSnapshotKey: "",
-            agentResumeSnapshotMarginSeconds: 600,
-            ...descriptionConfig,
-          },
-          ...args.slice(1),
-        ]
-      : input;
-  const hash = inputHash(hashInput);
+  const hash = inputHash(input);
+  const wireName = prSurfaceWireName(method);
   const parentKey = currentOperationIntentKey();
   return {
     operationKey:
-      parentKey != null ? `${parentKey}:surface:${method}:${hash}` : `pr-surface:${method}:${hash}`,
-    mutationKind: `github.pr_surface.${method}`,
+      parentKey != null
+        ? `${parentKey}:surface:${wireName}:${hash}`
+        : `pr-surface:${wireName}:${hash}`,
+    mutationKind: `github.pr_surface.${wireName}`,
     detail: {
-      surfaceMethod: method,
+      surfaceMethod: wireName,
       inputHash: hash,
       ...(parentKey != null ? { parentOperationKey: parentKey } : {}),
       ...extractPrSurfaceRecoverDetail(method, args),

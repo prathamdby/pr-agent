@@ -38,6 +38,7 @@ import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";
 import { isDefinitelyNoAcceptanceReviewError } from "../../github/reviewErrors.js";
+import { findPublishedThreadBatch } from "../../github/prSurfaceHelpers.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -310,7 +311,8 @@ export async function publishFindingBatch(
         },
         recover: async () => {
           if (operationMarker == null) return { kind: "absent" as const };
-          const found = await session.prSurface.findPublishedThreadBatch(
+          const found = await findPublishedThreadBatch(
+            session.prSurface,
             operationMarker,
             session.ctx.headSha,
           );

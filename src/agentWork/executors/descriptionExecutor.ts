@@ -94,8 +94,8 @@ export function createDescriptionWorkExecution({
       if (!prSurface) return;
       const payload = item.payload;
       if (payload.source !== "slash") {
-        const body = await prSurface.getPullRequestBody();
-        if (prBodyHasAgentDescriptionBlock(body)) return;
+        const { pullRequest } = await prSurface.getHead();
+        if (prBodyHasAgentDescriptionBlock(pullRequest.body)) return;
       }
       await prSurface.replyAt(
         { kind: "prConversation", prNumber: item.prNumber },

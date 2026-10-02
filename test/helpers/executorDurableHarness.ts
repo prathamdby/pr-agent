@@ -1,7 +1,14 @@
 import { vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
 import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
-import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
+import {
+  createFakePrSurface,
+  type FakePrSurfaceControls,
+  type PrReviewComment,
+} from "../../src/github/prSurface.js";
+import { VERIFICATION_STUB_MARKER } from "../../src/settings/index.js";
+import { renderReviewPointerLensMarker } from "../../src/review/run/reviewRender.js";
+import type { BotFindingThread } from "../../src/review/run/reviewPriorFeedback.js";
 import * as repo from "../../src/agentWork/workItemStateRepository.js";
 import type { WorkClaim } from "../../src/agentWork/workItemStateRepository.js";
 
@@ -13,6 +20,7 @@ let durableSurfaceBundle = createFakePrSurface(
 export function resetDurablePrSurface(
   params: { owner?: string; repo?: string; prNumber?: number; headSha?: string } = {},
 ) {
+  seededComments = [];
   durableSurfaceBundle = createFakePrSurface(
     {
       owner: params.owner ?? "o",
@@ -26,6 +34,103 @@ export function resetDurablePrSurface(
 
 export function durablePrSurfaceControls(): FakePrSurfaceControls {
   return durableSurfaceBundle.controls;
+}
+
+const SEEDED_BOT_USER_ID = 999;
+let seededComments: PrReviewComment[] = [];
+
+function seedComment(
+  comment: Partial<PrReviewComment> & Pick<PrReviewComment, "id" | "body">,
+): PrReviewComment {
+  return {
+    inReplyToId: null,
+    pullRequestReviewId: null,
+    userId: null,
+    authorLogin: "someone",
+    authorAssociation: null,
+    path: null,
+    line: null,
+    originalLine: null,
+    htmlUrl: "",
+    ...comment,
+  };
+}
+
+/** Seed raw GitHub listings so the production thread assembly yields these bot findings. */
+export function seedBotFindingThreads(
+  threads: readonly BotFindingThread[],
+  controls: FakePrSurfaceControls = durablePrSurfaceControls(),
+): void {
+  seededComments = [];
+  controls.setPullRequestReviews(
+    threads.map((thread) => ({
+      id: 10_000 + thread.rootCommentId,
+      userId: SEEDED_BOT_USER_ID,
+      authorLogin: "pr-agent[bot]",
+      body: renderReviewPointerLensMarker(thread.lens),
+      commitId: null,
+      htmlUrl: "",
+    })),
+  );
+  let nextReplyId = 100_000;
+  for (const thread of threads) {
+    const titleMatch = /^(P[0-3]) · (.*)$/.exec(thread.titleSnippet);
+    seededComments.push(
+      seedComment({
+        id: thread.rootCommentId,
+        userId: SEEDED_BOT_USER_ID,
+        authorLogin: "pr-agent[bot]",
+        pullRequestReviewId: 10_000 + thread.rootCommentId,
+        path: thread.path,
+        line: thread.line,
+        originalLine: thread.line,
+        htmlUrl: thread.threadUrl,
+        body: titleMatch ? `**${titleMatch[1]}** · **${titleMatch[2]}**` : thread.titleSnippet,
+      }),
+    );
+    for (const reply of thread.humanReplies) {
+      seededComments.push(
+        seedComment({
+          id: nextReplyId++,
+          inReplyToId: thread.rootCommentId,
+          userId: 7,
+          body: reply,
+        }),
+      );
+    }
+    if (thread.hasTriageReply === true) {
+      seededComments.push(
+        seedComment({
+          id: nextReplyId++,
+          inReplyToId: thread.rootCommentId,
+          userId: SEEDED_BOT_USER_ID,
+          body: "**Triage**: handled",
+        }),
+      );
+    }
+    if (thread.verificationStubCommentId != null) {
+      seededComments.push(
+        seedComment({
+          id: thread.verificationStubCommentId,
+          inReplyToId: thread.rootCommentId,
+          userId: SEEDED_BOT_USER_ID,
+          body: `${VERIFICATION_STUB_MARKER}\n**Verification**: stub`,
+        }),
+      );
+    }
+  }
+  controls.setReviewComments(seededComments);
+}
+
+/** Add reply-graph nodes for thread-root resolution without disturbing seeded findings. */
+export function seedReviewCommentGraph(
+  nodes: readonly { readonly id: number; readonly inReplyToId: number | null }[],
+): void {
+  for (const node of nodes) {
+    if (seededComments.some((comment) => comment.id === node.id)) continue;
+    seededComments.push(seedComment({ id: node.id, inReplyToId: node.inReplyToId, body: "" }));
+  }
+  durablePrSurfaceControls().setReviewComments(seededComments);
 }
 
 export function fakeDurablePrSurface(

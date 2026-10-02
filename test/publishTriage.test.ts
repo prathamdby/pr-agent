@@ -1383,7 +1383,8 @@ describe("publishTriage push outcomes", () => {
       state: "closed",
       merged: true,
       merged_at: "2026-01-01T00:00:00Z",
-      head: { sha: "abcdef123456" },
+      head: { sha: "abcdef123456", ref: "main", repo: { full_name: "o/r" } },
+      base: { repo: { full_name: "o/r" } },
     });
 
     const result = await publishTriage({

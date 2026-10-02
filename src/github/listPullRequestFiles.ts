@@ -42,12 +42,25 @@ export type PullRequestForFileList = {
   readonly merged_at?: string | null;
   readonly head?: {
     readonly sha?: string | null;
+    readonly ref?: string;
     readonly repo?: { readonly full_name?: string | null } | null;
   } | null;
   readonly base?: {
     readonly repo?: { readonly full_name?: string | null } | null;
   } | null;
 };
+
+export type PullRequestBranchInfo = {
+  readonly headRef: string;
+  readonly sameRepo: boolean;
+};
+
+export function pullRequestBranchInfo(pullRequest: PullRequestForFileList): PullRequestBranchInfo {
+  return {
+    headRef: pullRequest.head?.ref ?? "",
+    sameRepo: pullRequest.head?.repo?.full_name === pullRequest.base?.repo?.full_name,
+  };
+}
 
 /**
  * A triage checkout may write only while GitHub still considers the PR open and

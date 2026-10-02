@@ -61,23 +61,23 @@ import { createFakePrSurface } from "../src/github/prSurface.js";
 
 function configuredSummarySurface() {
   const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-  vi.spyOn(bundle.surface, "listPullRequestReviewComments").mockResolvedValue({
-    comments: [
-      {
-        path: "src/a.ts",
-        line: 10,
-        id: 41,
-        url: "https://github.com/o/r/pull/1#discussion_r41",
-      },
-      {
-        path: "src/a.ts",
-        line: 20,
-        id: 42,
-        url: "https://github.com/o/r/pull/1#discussion_r42",
-      },
-    ],
-    truncated: false,
-  });
+  bundle.controls.setReviewComments(
+    [
+      [10, 41],
+      [20, 42],
+    ].map(([line, id]) => ({
+      id,
+      inReplyToId: null,
+      pullRequestReviewId: null,
+      userId: null,
+      body: "",
+      path: "src/a.ts",
+      line,
+      originalLine: line,
+      htmlUrl: `https://github.com/o/r/pull/1#discussion_r${id}`,
+      authorLogin: "pr-agent[bot]",
+    })),
+  );
   vi.spyOn(bundle.surface, "finishReviewCheck");
   const upsertProgressComment = vi
     .spyOn(bundle.surface, "upsertProgressComment")
@@ -92,23 +92,6 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
   return {
     ...actual,
-    listPullRequestReviewComments: vi.fn(async () => ({
-      comments: [
-        {
-          path: "src/a.ts",
-          line: 10,
-          id: 41,
-          url: "https://github.com/o/r/pull/1#discussion_r41",
-        },
-        {
-          path: "src/a.ts",
-          line: 20,
-          id: 42,
-          url: "https://github.com/o/r/pull/1#discussion_r42",
-        },
-      ],
-      truncated: false,
-    })),
     findIssueCommentBySentinel: vi.fn(async () => null),
     resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
     upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),

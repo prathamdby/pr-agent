@@ -7,6 +7,7 @@ import { createPublishContext } from "../../agentWork/publishOnce.js";
 import type { TriageScope } from "../../agentWork/types.js";
 import type { Pool } from "pg";
 import * as v from "valibot";
+import { pullRequestBranchInfo } from "../../github/listPullRequestFiles.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
@@ -295,7 +296,7 @@ async function findMarkedComment(
   rootCommentId?: number,
 ): Promise<{ readonly id: number } | null> {
   const botLogin = await prSurface.getBotLogin();
-  const comments = await prSurface.listInlineReviewComments();
+  const { comments } = await prSurface.listReviewComments();
   const id = findCommentIdByMarker(
     comments,
     marker,
@@ -517,7 +518,7 @@ export async function recoverTriagePublication(
         recover: async () => {
           const pushed = await params.prSurface.listPushedCommits();
           const liveHead = await params.prSurface.getHeadSha();
-          const branch = await params.prSurface.getPullRequestBranchInfo();
+          const branch = pullRequestBranchInfo((await params.prSurface.getHead()).pullRequest);
           await assertTriagePublicationActive(params);
           return branch.sameRepo &&
             branch.headRef === push.headRef &&
@@ -695,7 +696,7 @@ async function publishTriageBody(
           if (plan == null) return { kind: "absent" as const };
           const pushed = await params.prSurface.listPushedCommits();
           const liveHead = await params.prSurface.getHeadSha();
-          const branch = await params.prSurface.getPullRequestBranchInfo();
+          const branch = pullRequestBranchInfo((await params.prSurface.getHead()).pullRequest);
           await assertTriagePublicationActive(params);
           return branch.sameRepo &&
             branch.headRef === plan.headRef &&

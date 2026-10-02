@@ -97,7 +97,7 @@ export async function loadAskThreadTranscript(params: {
   const { prSurface, replyTarget, commentId } = params;
   try {
     if (replyTarget.kind === "inlineReviewThread") {
-      const all = await prSurface.listInlineReviewComments();
+      const { comments: all } = await prSurface.listReviewComments();
       const thread = commentsInThread(all, replyTarget.inReplyToCommentId);
       return formatThreadTranscript(thread);
     }

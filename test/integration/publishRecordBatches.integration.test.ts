@@ -2,7 +2,6 @@ import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
 import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import type { PrSurfaceMutation } from "../../src/github/prSurface.js";
-import type { DescriptionPayload } from "../../src/agent/description/descriptionSchema.js";
 import {
   createPublishContext,
   publishStepSpecs,
@@ -461,7 +460,8 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           state: "closed",
           merged: false,
           merged_at: null,
-          head: { sha: pushedHeadSha },
+          head: { sha: pushedHeadSha, ref: "branch", repo: { full_name: "o/r" } },
+          base: { repo: { full_name: "o/r" } },
         });
       fake.controls.setPushedCommits(
         (scenario === "partial" ? commits.slice(0, 1) : commits).map((commit) => ({
@@ -1243,11 +1243,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         parent == null
           ? `pr-surface:publishDescription:${hash}`
           : `${parent}:surface:publishDescription:${hash}`;
-      const payload = {
-        title: "Golden title",
-        type: ["Enhancement"],
-        description: "Golden description",
-      } satisfies DescriptionPayload;
+      const update = { title: "Golden title", body: "Golden description" };
       const result = { prNumber: 7, bodyUpdated: true };
       const detail = {
         surfaceMethod: "publishDescription",
@@ -1326,10 +1322,8 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         );
         const replay = () =>
           parent == null
-            ? surface.publishDescription(makeTestConfig(), payload, marker)
-            : runInOperationIntentFrame(parent, () =>
-                surface.publishDescription(makeTestConfig(), payload, marker),
-              );
+            ? surface.updatePullRequest(update, marker)
+            : runInOperationIntentFrame(parent, () => surface.updatePullRequest(update, marker));
         if (status === "pending" || status === "outcome_unknown") {
           await expect(replay()).rejects.toMatchObject({
             code: "operation_intent.mutation_outcome_unknown",
@@ -1338,10 +1332,10 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
             code: "operation_intent.mutation_outcome_unknown",
           });
         } else {
-          await expect(replay()).resolves.toMatchObject(result);
-          await expect(replay()).resolves.toMatchObject(result);
+          await expect(replay()).resolves.toMatchObject({ prNumber: 7 });
+          await expect(replay()).resolves.toMatchObject({ prNumber: 7 });
         }
-        expect(controls.events.filter((event) => event.kind === "publishDescription")).toHaveLength(
+        expect(controls.events.filter((event) => event.kind === "updatePullRequest")).toHaveLength(
           status === "failed" ? 1 : 0,
         );
         const rows = (
@@ -1428,14 +1422,13 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         );
         await expect(
           runInOperationIntentFrame(parent, () =>
-            surface.publishDescription(
-              makeTestConfig(),
-              { title: "Golden title", type: ["Enhancement"], description: "Golden description" },
+            surface.updatePullRequest(
+              { title: "Golden title", body: "Golden description" },
               marker,
             ),
           ),
         ).rejects.toMatchObject({ code: "operation_intent.description_identity_conflict" });
-        expect(controls.events.filter((event) => event.kind === "publishDescription")).toHaveLength(
+        expect(controls.events.filter((event) => event.kind === "updatePullRequest")).toHaveLength(
           0,
         );
         expect(
@@ -1504,9 +1497,8 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
             summary: "Golden finish",
           });
           await surface.editReviewComment(70, "Golden inline edit");
-          await surface.publishDescription(
-            makeTestConfig(),
-            { title: "Golden title", type: ["Enhancement"], description: "Golden description" },
+          await surface.updatePullRequest(
+            { title: "Golden title", body: "Golden description" },
             "golden-marker",
           );
         });
@@ -1535,7 +1527,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         ["startReviewCheck", "cfcc743c2af2b8d92ddc6236b2f8fdc06d1d86b28ed469ea2674f085ade619c2"],
         ["finishReviewCheck", "843928f34a07ccf776768e11f5f7d20ea6a94eaa9fb6db0b505f92e90a0cbb3f"],
         ["editReviewComment", "b2e5dded37008c066689bb3a605ba1576271ea11ea15cdac0b736d7d2907f90e"],
-        ["publishDescription", "bf162594f55498fbf415bfab2fe1436e1dc15c53221dc7a4b34fa0eed967bb33"],
+        ["publishDescription", "4e5225fc7e449cdf82f2658758e5890a83f86ce5b6aa6a8e85479d492c437f0c"],
       ] as const;
       const intents = await pool.query(
         `SELECT operation_key, mutation_kind, status,

@@ -5,6 +5,8 @@ import {
 } from "../src/review/prompts/reviewTrustedContext.js";
 import { renderRepoPolicyBlock } from "../src/review/repoPolicy.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
 import type { CheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
 
 const sparseCoverage: CheckoutCoverage = {
@@ -110,20 +112,53 @@ describe("buildTrustedReviewContextForReview", () => {
 });
 
 describe("fetchPriorInlineFeedbackBlockForReview", () => {
-  it("passes the current lens through the PrSurface seam and formats the block", async () => {
-    const { surface, controls } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-    controls.setPriorInlineFeedback([
+  function seedThread(
+    controls: ReturnType<typeof createFakePrSurface>["controls"],
+    pointerBody: string,
+    path: string,
+  ) {
+    controls.setPullRequestReviews([
+      { id: 100, userId: 99, authorLogin: null, body: pointerBody, commitId: null, htmlUrl: "" },
+    ]);
+    const base = {
+      pullRequestReviewId: null,
+      authorLogin: "someone",
+      path,
+      line: 4,
+      originalLine: 4,
+      htmlUrl: "https://github.com/o/r/pull/1#discussion_r1",
+    };
+    controls.setReviewComments([
       {
-        path: "src/a.ts",
-        startLine: 4,
-        endLine: 4,
-        botTitleSnippet: "P1 · Missing await",
-        humanReplies: ["False positive", "ordinary commenter text"],
-        authorizedReplies: ["False positive"],
-        untrustedReplies: ["ordinary commenter text"],
-        threadUrl: "https://github.com/o/r/pull/1#discussion_r1",
+        ...base,
+        id: 1,
+        inReplyToId: null,
+        pullRequestReviewId: 100,
+        userId: 99,
+        body: "**P1** · **Missing await**",
+      },
+      {
+        ...base,
+        id: 2,
+        inReplyToId: 1,
+        userId: 7,
+        authorAssociation: "OWNER",
+        body: "False positive",
+      },
+      {
+        ...base,
+        id: 3,
+        inReplyToId: 1,
+        userId: 8,
+        authorAssociation: "NONE",
+        body: "ordinary commenter text",
       },
     ]);
+  }
+
+  it("reads the raw review listings and formats the block with maintainer authority", async () => {
+    const { surface, controls } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    seedThread(controls, REVIEW_POINTER_BODY, "src/a.ts");
 
     const block = await fetchPriorInlineFeedbackBlockForReview({
       prSurface: surface,
@@ -132,35 +167,42 @@ describe("fetchPriorInlineFeedbackBlockForReview", () => {
       maintainerDecisionAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
     });
 
-    expect(controls.events).toContainEqual({
-      kind: "fetchPriorInlineFeedback",
-      botUserId: 99,
-      currentLens: "review",
-      maintainerDecisionAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
-    });
     expect(block).toContain("Prior inline review feedback");
+    expect(block).toContain("Authorized maintainer decision (user-provided):");
     expect(block).toContain("False positive");
     expect(block).toContain("ordinary commenter text");
   });
 
-  it("carries an exact legacy lens so the seam can apply mismatch policy", async () => {
+  it("applies the exact legacy lens mismatch policy", async () => {
     const { surface, controls } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-    await fetchPriorInlineFeedbackBlockForReview({
-      prSurface: surface,
-      botUserId: 7,
-      reviewLens: "review-security",
-    });
-    expect(controls.events).toContainEqual({
-      kind: "fetchPriorInlineFeedback",
-      botUserId: 7,
-      currentLens: "review-security",
-    });
+    seedThread(controls, LEGACY_REVIEW_POINTER_BODIES[1], "src/a.ts");
+    await expect(
+      fetchPriorInlineFeedbackBlockForReview({
+        prSurface: surface,
+        botUserId: 7,
+        reviewLens: "review-security",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      fetchPriorInlineFeedbackBlockForReview({
+        prSurface: surface,
+        botUserId: 99,
+        reviewLens: "review-security",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      fetchPriorInlineFeedbackBlockForReview({
+        prSurface: surface,
+        botUserId: 99,
+        reviewLens: "review-quality",
+      }),
+    ).resolves.toContain("src/a.ts");
   });
 
   it("fails soft when the GitHub read throws", async () => {
     const errors: unknown[] = [];
     const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-    surface.fetchPriorInlineFeedback = async () => {
+    surface.listReviewComments = async () => {
       throw new Error("github unavailable");
     };
 
