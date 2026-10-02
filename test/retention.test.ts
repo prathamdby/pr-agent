@@ -16,8 +16,10 @@ describe("runRetention batched delete loop", () => {
     // batch then an empty short batch. Each loop must issue exactly two queries.
     const workBatches = [RETENTION_DELETE_BATCH_SIZE, 2];
     const webhookBatches = [RETENTION_DELETE_BATCH_SIZE, 0];
+    const approvalBatches = [RETENTION_DELETE_BATCH_SIZE, 3];
     let workCalls = 0;
     let webhookCalls = 0;
+    let approvalCalls = 0;
 
     const pool = {
       query: vi.fn(async (text: string) => {
@@ -51,7 +53,11 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("DELETE FROM pr_head_ci_state")) {
           return { rowCount: 0 };
         }
-        if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
+        if (text.includes("DELETE FROM pr_review_approvals")) {
+          const batch = approvalBatches[approvalCalls++];
+          if (batch === undefined) throw new Error("unexpected extra pr_review_approvals query");
+          return { rowCount: batch };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -65,8 +71,10 @@ describe("runRetention batched delete loop", () => {
     expect(result.codeIndexSnapshotsDeleted).toBe(0);
     expect(result.askQuotaBucketsDeleted).toBe(0);
     expect(result.prHeadCiStateDeleted).toBe(0);
+    expect(result.reviewApprovalsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 3);
     expect(workCalls).toBe(2);
     expect(webhookCalls).toBe(2);
+    expect(approvalCalls).toBe(2);
   });
 
   it("stops after a single short batch when the table is already small", async () => {

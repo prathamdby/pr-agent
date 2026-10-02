@@ -15,7 +15,10 @@ export async function insertAwaitingApproval(client: PoolClient, ref: PrRef, eve
   const result = await client.query(
     `INSERT INTO pr_review_approvals
        (resource_key, owner, repo, pr_number, head_sha, state, webhook_event_id)
-     VALUES ($1, $2, $3, $4, $5, 'awaiting', $6)
+     SELECT $1, $2, $3, $4, $5, 'awaiting', $6
+     WHERE NOT EXISTS (
+       SELECT 1 FROM agent_work_items WHERE resource_key = $1 AND type = 'review'
+     )
      ON CONFLICT DO NOTHING RETURNING resource_key`,
     [
       prResourceKey(ref.owner, ref.repo, ref.prNumber),

@@ -137,8 +137,10 @@ from pr_review_approvals where resource_key = $1;
 ```
 
 The first matching PR workflow start, authorized approving PR review, or `/review`
-changes `awaiting` to `approved` under the review intake lock. Workflow starts
-must be `in_progress`, `event=pull_request`, and match the awaiting head.
+changes `awaiting` to `approved` under the review intake lock. A delayed open
+cannot create awaiting state after a retained review work item, including a
+completed slash review. Workflow starts must be `in_progress`,
+`event=pull_request`, and match the awaiting head.
 Empty fork `pull_requests` arrays resolve through the awaiting-head index.
 Pushes move the awaiting head. Close/merge withdraws the row and queues the
 existing closed/merged notice. Delayed waiting acknowledgements reread state

@@ -2471,6 +2471,62 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     expect(rows[0]?.processing_decision).toBe("ignored_pull_request_labeled");
   });
 
+  it.each(["queued", "completed"] as const)(
+    "delayed untrusted open cannot await approval after a %s slash review",
+    async (status) => {
+      const ref = makePrRef();
+      const cfg = makeTestConfig({
+        features: { ...intakeCfg.features, review: "approval", describe: "off" },
+      });
+      await inTransaction(pool, (client) =>
+        applySlashCommandIntake(
+          boss,
+          client,
+          {
+            ...ref,
+            headers: headers("review", randomUUID()),
+            command: "review",
+            body: "/review",
+            commentId: 900,
+            commenterId: 7,
+            replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+          },
+          cfg.features,
+        ),
+      );
+      await pool.query("UPDATE agent_work_items SET status = $2 WHERE owner = $1", [OWNER, status]);
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        cfg,
+        { authorTrust: "awaiting_approval" },
+      );
+      expect(
+        (
+          await pool.query("SELECT state FROM pr_review_approvals WHERE resource_key = $1", [
+            prResourceKey(ref.owner, ref.repo, ref.prNumber),
+          ])
+        ).rows,
+      ).toEqual([]);
+      expect(
+        (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter((job) => job.data.awaitingApproval),
+      ).toHaveLength(0);
+      await applyReviewApprovedIntake(
+        boss,
+        pool,
+        headers("submitted", randomUUID()),
+        { kind: "pull_request_review", ref },
+        intakeLog(),
+      );
+      await expect(countWorkItems()).resolves.toBe(1);
+      await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+    },
+  );
+
   it.each(["manual", "auto", "approval"] as const)(
     "signed workflow signals filter unsafe starts and respect %s mode",
     async (mode) => {
@@ -2618,10 +2674,34 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ),
     ]);
     await expect(countWorkItems()).resolves.toBe(2);
+    for (const target of [ref, other]) {
+      await expect(reviewJobsFor(target)).resolves.toHaveLength(1);
+      expect(
+        (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter(
+          (job) => job.data.progress && job.data.prNumber === target.prNumber,
+        ),
+      ).toHaveLength(1);
+    }
     const states = (
       await pool.query("SELECT state FROM pr_review_approvals WHERE owner = $1", [OWNER])
     ).rows;
     expect(states).toEqual([{ state: "approved" }, { state: "approved" }]);
+    const unknown = headers("in_progress", randomUUID());
+    await applyReviewApprovedIntake(
+      boss,
+      pool,
+      unknown,
+      { kind: "workflow_run", ...ref, prNumbers: [other.prNumber + 1] },
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(2);
+    expect(
+      (
+        await pool.query("SELECT processing_decision FROM webhook_events WHERE delivery_id = $1", [
+          unknown.delivery,
+        ])
+      ).rows,
+    ).toEqual([{ processing_decision: "ignored_review_approval_not_awaiting" }]);
     console.log(
       "approval-race-evidence",
       JSON.stringify({

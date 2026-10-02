@@ -19,6 +19,9 @@ associated as `OWNER`, `MEMBER`, `COLLABORATOR`, or `CONTRIBUTOR` start the norm
 automatic review immediately. Missing association or a deleted fork is untrusted.
 Untrusted PRs insert one `pr_review_approvals` row with `ON CONFLICT DO NOTHING`.
 Only a new row queues the awaiting NOTE, with no work item or reaction.
+An opened delivery arriving after a retained review work item cannot create
+awaiting state, even when that review has finished. The review intake lock orders
+this check with slash and automatic admission.
 
 An awaiting row can transition once, under the existing review intake lock:
 

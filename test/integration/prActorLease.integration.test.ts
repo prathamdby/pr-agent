@@ -851,6 +851,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         sourceId: null,
         sourceCreatedOn: null,
         sourceRetryCount: null,
+        sourceOutput: null,
+        sourceRootId: null,
       };
       try {
         await workRepository.recordReviewCheckRun(scopedPool, {
@@ -1171,6 +1173,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         sourceId: null,
         sourceCreatedOn: null,
         sourceRetryCount: null,
+        sourceOutput: null,
+        sourceRootId: null,
       },
       resolveHeadSha: async () => ({ headSha: "h" }),
       execute: async (item, env) => {

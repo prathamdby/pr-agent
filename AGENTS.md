@@ -15,6 +15,10 @@ Same PR: update every pointer whose branch matched the change.
 
 ## Check
 
+Check against the committed lockfile. If installed dependencies differ, run
+`nub ci --filter pr-agent... --filter pr-agent-landing...` before interpreting
+typecheck failures or changing dependency-shaped fixtures.
+
 Before every push, run the backend check job from [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 ```bash
