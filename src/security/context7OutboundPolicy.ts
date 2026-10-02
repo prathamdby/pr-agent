@@ -54,7 +54,8 @@ const CONVERSATION_CONTENT_PATTERNS: readonly RegExp[] = [
 
 function rejectContext7Input(field: string, reason: Context7PolicyReason): never {
   throw new AppError({
-    code: "context7.outbound_policy_rejected",
+    domain: "context7",
+    kind: "outbound_policy_rejected",
     message: `Context7 ${field} rejected: ${reason.replaceAll("_", " ")}`,
     context: { field, reason },
   });

@@ -11,6 +11,7 @@ import {
   POSTGRES_STATEMENT_TIMEOUT_MS,
 } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export function createPgPool(cfg: Pick<Config, "runtime">): Pool {
   const pool = new Pool({
@@ -65,7 +66,7 @@ export async function inTransaction<T>(
     } catch (error) {
       rollbackError = error;
       logWarn("postgres_rollback_failed", {
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
     throw e;

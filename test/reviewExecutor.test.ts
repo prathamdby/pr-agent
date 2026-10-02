@@ -663,7 +663,7 @@ describe("review work definition", () => {
     });
 
     await expect(runExecution()).rejects.toMatchObject({
-      code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
+      code: "review.stale_head_replacement_exhausted",
     });
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
@@ -825,7 +825,7 @@ describe("review work definition", () => {
             getEscalation: () => undefined,
           }),
         ),
-      ).rejects.toMatchObject({ code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED });
+      ).rejects.toMatchObject({ code: "review.stale_head_replacement_exhausted" });
     });
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();

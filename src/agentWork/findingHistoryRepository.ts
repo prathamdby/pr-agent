@@ -3,6 +3,7 @@ import type { Config } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
 import { parseStoredInlineBatches } from "./publishRecordRepository.js";
 import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type FindingHistoryOutcome = "open" | "fixed" | "already-resolved" | "dismissed" | "skipped";
 
@@ -258,7 +259,7 @@ export function safeUpsertFindingHistoryOpen(
       owner: scope.owner,
       repo: scope.repo,
       count: fingerprints.length,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   });
 }
@@ -288,7 +289,7 @@ export function safeRecordThreadFindingHistoryOutcome(
         owner: params.scope.owner,
         repo: params.scope.repo,
         outcome: params.outcome,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     });
 }
@@ -305,7 +306,7 @@ export async function safeLoadCrossPrSuppressionFingerprints(
     logWarn("finding_history_suppression_load_failed", {
       owner: scope.owner,
       repo: scope.repo,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return [];
   }
@@ -323,7 +324,7 @@ export async function safeLoadFindingHistoryCandidates(
     logWarn("finding_history_candidates_load_failed", {
       owner: scope.owner,
       repo: scope.repo,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return [];
   }

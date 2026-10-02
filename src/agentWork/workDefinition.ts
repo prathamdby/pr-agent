@@ -25,6 +25,7 @@ import { createDescriptionWorkExecution } from "./executors/descriptionExecutor.
 import { createReviewWorkExecution } from "./executors/reviewExecutor.js";
 import { createTriageWorkExecution } from "./executors/triageExecutor.js";
 import { createVerificationWorkExecution } from "./executors/verificationExecutor.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type WorkExecution<T extends WorkType> = Pick<
   DurableJobSpec<T>,
@@ -61,7 +62,7 @@ async function resolveReviewHead(prSurface: PrSurface, item: ReviewWorkItem) {
       owner: item.owner,
       repo: item.repo,
       pr: item.prNumber,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return resolved;
   }

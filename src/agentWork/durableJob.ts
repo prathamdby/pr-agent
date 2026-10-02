@@ -58,6 +58,7 @@ import {
   type PreparePrRepositoryViewParams,
   type PrRepositoryView,
 } from "../prWorkspace/prRepositoryView.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type DurableExecutionContext = {
   readonly job: JobWithMetadata<{ workItemId: string }>;
@@ -269,7 +270,8 @@ async function finishRescheduledParentWorkItem(
     return;
   }
   throw new AppError({
-    code: "agent_work.rescheduled_parent_complete_failed",
+    domain: "agent_work",
+    kind: "rescheduled_parent_complete_failed",
     message: `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
     context: { workItemId: itemId },
   });
@@ -363,7 +365,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         type: spec.type,
         workItemId: itemCore.id,
         reason,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -435,7 +437,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           type: spec.type,
           workItemId: core.id,
           leaseEpoch,
-          message: markError instanceof Error ? markError.message : String(markError),
+          message: errorMessage(markError),
         });
       }
       throw error;
@@ -449,7 +451,8 @@ export async function runDurableWorkItem<T extends WorkType>(
         throw (
           executionSignal.reason ??
           new AppError({
-            code: "agent.session_aborted",
+            domain: "agent",
+            kind: "session_aborted",
             message: "Work admission aborted",
             context: { workItemId: item.id },
           })
@@ -458,7 +461,8 @@ export async function runDurableWorkItem<T extends WorkType>(
       const result = await opened.mark.beginAttempt(item.id, maxAttempts(spec.cfg));
       if (result.kind === "exhausted") {
         throw new AppError({
-          code: "agent_work.attempts_exhausted",
+          domain: "agent_work",
+          kind: "attempts_exhausted",
           message: `Work item ${item.id} exhausted its ${maxAttempts(spec.cfg)} attempts`,
           context: {
             workItemId: item.id,
@@ -470,13 +474,15 @@ export async function runDurableWorkItem<T extends WorkType>(
       if (result.kind === "unavailable") {
         if (await recheckSkippableAndCancel("start_rejected")) {
           throw new AppError({
-            code: "agent.session_aborted",
+            domain: "agent",
+            kind: "session_aborted",
             message: "Work admission cancelled or fenced",
             context: { workItemId: item.id },
           });
         }
         throw new AppError({
-          code: "agent_work.admission_unavailable",
+          domain: "agent_work",
+          kind: "admission_unavailable",
           message: "Work admission unavailable",
           context: { workItemId: item.id },
         });
@@ -487,7 +493,8 @@ export async function runDurableWorkItem<T extends WorkType>(
         throw (
           executionSignal.reason ??
           new AppError({
-            code: "agent.session_aborted",
+            domain: "agent",
+            kind: "session_aborted",
             message: "Work admission aborted",
             context: { workItemId: item.id },
           })
@@ -595,7 +602,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           type: spec.type,
           workItemId: item.id,
           reaction: content,
-          message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+          message: sanitizeLogMessage(errorMessage(error)),
         });
       }
     }
@@ -616,7 +623,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         logWarn("agent_work_completion_telemetry_failed", {
           type: spec.type,
           workItemId: item.id,
-          message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+          message: sanitizeLogMessage(errorMessage(error)),
         });
       }
     }
@@ -714,7 +721,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         logWarn("agent_work_terminal_failure_hook_failed", {
           type: spec.type,
           workItemId: item.id,
-          message: surfaceError instanceof Error ? surfaceError.message : String(surfaceError),
+          message: errorMessage(surfaceError),
         });
       }
       try {
@@ -723,7 +730,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         logWarn("agent_work_terminal_failure_hook_failed", {
           type: spec.type,
           workItemId: item.id,
-          message: publishError instanceof Error ? publishError.message : String(publishError),
+          message: errorMessage(publishError),
         });
       }
     }
@@ -751,7 +758,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         return;
       }
       if (await recheckSkippableAndCancel("skipped_after_error")) return;
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       const disposition = retryDispositionFor(error);
       const attemptCount = workClaim?.attemptCount ?? item.attemptCount;
       // pg-boss retryCount restarts on every lease hop job, so the durable attempt count

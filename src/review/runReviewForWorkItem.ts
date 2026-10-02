@@ -93,6 +93,7 @@ import { createAskPathGate } from "../agent/ask/askSafety.js";
 import { prepareCodeIndexForReview } from "../codeIndex/buildJob.js";
 import type { ReviewProfileFields, WorkCompletion } from "../analytics/workCompleted.js";
 import type { ReviewRunMetricsSnapshot } from "./run/reviewRunMetrics.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 type ReviewDegradationReason = "publish_not_completed";
 
@@ -165,7 +166,8 @@ async function scheduleStaleHeadReplacement(args: {
 }): Promise<StaleReviewRescheduleResult | undefined> {
   if (args.leaseEpoch == null) {
     throw new AppError({
-      code: "agent_work.pr_actor_lease_lost",
+      domain: "agent_work",
+      kind: "pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
       context: { workItemId: args.item.id },
     });
@@ -394,7 +396,7 @@ async function buildPriorInlineFeedbackPromise(args: {
       repo: item.repo,
       pr: item.prNumber,
       reviewLens,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   };
   try {

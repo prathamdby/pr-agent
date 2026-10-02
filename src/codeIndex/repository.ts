@@ -3,6 +3,7 @@ import { AppError } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { CODE_INDEX_CHUNKER_VERSION } from "../settings/index.js";
 import type { CodeIndexChunk } from "./chunker.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 type CodeIndexSnapshotStatus = "building" | "ready" | "failed" | "superseded";
 
@@ -93,7 +94,8 @@ export async function ensureBuildingSnapshot(
   const row = rows[0];
   if (!row) {
     throw new AppError({
-      code: "code_index.snapshot_upsert_failed",
+      domain: "code_index",
+      kind: "snapshot_upsert_failed",
       message: "INSERT did not return a snapshot row",
     });
   }
@@ -226,7 +228,7 @@ export async function safeDeleteExpiredCodeIndexSnapshots(
     return await deleteExpiredCodeIndexSnapshots(pool, retentionSeconds, batchSize);
   } catch (error) {
     logWarn("code_index_retention_failed", {
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return 0;
   }

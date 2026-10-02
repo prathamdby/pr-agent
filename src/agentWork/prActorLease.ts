@@ -184,7 +184,8 @@ export async function lockPrActorLeaseForUpdate(
   );
   if (row != null) return;
   throw new AppError({
-    code: "agent_work.pr_actor_lease_lost",
+    domain: "agent_work",
+    kind: "pr_actor_lease_lost",
     message: "PR actor lease is no longer held by this execution",
     context: { workItemId, leaseEpoch },
   });
@@ -198,7 +199,8 @@ export async function assertPrActorLeaseHeld(
 ): Promise<void> {
   if (await isPrActorLeaseHeld(db, workItemId, leaseEpoch)) return;
   throw new AppError({
-    code: "agent_work.pr_actor_lease_lost",
+    domain: "agent_work",
+    kind: "pr_actor_lease_lost",
     message: "PR actor lease is no longer held by this execution",
     context: { workItemId, leaseEpoch },
   });
@@ -278,7 +280,8 @@ export async function armLeaseWatchdogHop(
   }
   if (!liveHop && params.onSendFailure === "throw") {
     throw new AppError({
-      code: "agent_work.lease_watchdog_arm_failed",
+      domain: "agent_work",
+      kind: "lease_watchdog_arm_failed",
       message: `pg-boss did not enqueue a lease deferral for work item ${params.workItemId}`,
       context: { workItemId: params.workItemId, queue: params.queue },
     });

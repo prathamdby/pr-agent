@@ -785,7 +785,8 @@ describe("durableJob analytics forwarding", () => {
 
     const token = ["ghp", "1234567890123456789012345678901234"].join("_");
     const boom = new AppError({
-      code: "agent_work.failed",
+      domain: "review",
+      kind: "specialist_failed",
       message: `worker failed Bearer ${token}`,
       context: {
         workItemId: item.id,
@@ -865,7 +866,8 @@ describe("durableJob analytics forwarding", () => {
     ).rejects.toBe(transient);
 
     const deterministic = new AppError({
-      code: "verification.missing_submit",
+      domain: "verification",
+      kind: "missing_submit",
       message: "Verification run ended without submitVerification",
     });
     await expect(

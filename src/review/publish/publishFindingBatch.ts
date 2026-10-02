@@ -151,7 +151,8 @@ function storedPlacement(
 ): StoredInlineBatch["placements"][number] {
   if (placement.inlineLine == null) {
     throw new AppError({
-      code: "review.posted_placement_missing_line",
+      domain: "review",
+      kind: "posted_placement_missing_line",
       message: "Posted inline placement is missing its resolved line",
     });
   }
@@ -178,7 +179,8 @@ export async function publishFindingBatch(
   });
   if (!prepared.ok) {
     throw new AppError({
-      code: "review.finding_batch_invalid",
+      domain: "review",
+      kind: "finding_batch_invalid",
       message: prepared.error,
     });
   }
@@ -235,7 +237,8 @@ export async function publishFindingBatch(
 
   if (session.recordPublishStep && session.workItemId == null) {
     throw new AppError({
-      code: "review.work_item_id_required",
+      domain: "review",
+      kind: "work_item_id_required",
       message: "workItemId is required when recording an inline review batch",
     });
   }
@@ -246,7 +249,8 @@ export async function publishFindingBatch(
   const progressCommentUrl = (await session.resolveProgressCommentUrl())?.trim();
   if (!progressCommentUrl) {
     throw new AppError({
-      code: "review.progress_comment_url_required",
+      domain: "review",
+      kind: "progress_comment_url_required",
       message:
         "Progress comment URL is required before publishing a specialist review batch; the progress stub must exist first",
     });

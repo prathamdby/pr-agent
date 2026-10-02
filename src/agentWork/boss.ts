@@ -23,6 +23,7 @@ import {
 } from "../settings/index.js";
 import { logDebug, logWarn, logError } from "../evlog.js";
 import type { QueueConfig } from "./types.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 type BossConfig = Pick<Config, "runtime">;
 
@@ -193,7 +194,7 @@ export async function retireLeftoverCiRefreshQueues(boss: RetiredQueueBoss): Pro
     } catch (error) {
       logWarn("retired_queue_delete_failed", {
         queue: name,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }

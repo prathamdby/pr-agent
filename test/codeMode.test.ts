@@ -329,7 +329,8 @@ describe("Code Mode", () => {
       capabilities: {
         readWorkspaceFile: async () => {
           throw new AppError({
-            code: "pr_workspace.path_traversal",
+            domain: "pr_workspace",
+            kind: "path_traversal",
             message: "Path traversal attempt detected: ../secret.env",
             context: { path: "../secret.env" },
           });

@@ -262,7 +262,8 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey, insert.id);
     if (!winner) {
       throw new AppError({
-        code: "agent_work.slash_triage_conflict_no_winner",
+        domain: "agent_work",
+        kind: "slash_triage_conflict_no_winner",
         message: `slash triage uniqueness conflict without winner for ${resourceKey}`,
         context: { resourceKey },
       });

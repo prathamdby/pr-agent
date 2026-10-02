@@ -158,7 +158,8 @@ describe("analytics facade", () => {
     const { AppError } = await import("../src/errors/appError.js");
     const { logError } = await import("../src/evlog.js");
     const err = new AppError({
-      code: "agent_work.failed",
+      domain: "review",
+      kind: "specialist_failed",
       message: "boom",
       context: { workItemId: "w1" },
     });
@@ -182,7 +183,7 @@ describe("analytics facade", () => {
     expect(call?.[1]).toBe("installation:42");
     expect(call?.[2]).toMatchObject({
       event: "agent_work_failed",
-      errorCode: "agent_work.failed",
+      errorCode: "review.specialist_failed",
       errorContext: { workItemId: "w1" },
     });
   });
@@ -195,7 +196,8 @@ describe("analytics facade", () => {
     const { logError } = await import("../src/evlog.js");
     const token = ["ghp", "1234567890123456789012345678901234"].join("_");
     const error = new AppError({
-      code: "agent_work.failed",
+      domain: "review",
+      kind: "specialist_failed",
       message: `failed Bearer ${token}`,
       context: {
         workItemId: "w1",
@@ -218,7 +220,7 @@ describe("analytics facade", () => {
     const properties = call?.[2] as Record<string, unknown>;
     expect(forwardedError).not.toBe(error);
     expect(forwardedError.message).toContain("[redacted]");
-    expect(properties.errorCode).toBe("agent_work.failed");
+    expect(properties.errorCode).toBe("review.specialist_failed");
     expect(properties.errorContext).toMatchObject({ workItemId: "w1" });
     const json = JSON.stringify({ forwardedError, properties });
     expect(json).not.toContain(token);

@@ -5,8 +5,12 @@ import {
   escalationForAttempt,
   retryDispositionFor,
 } from "../src/agentWork/retryPolicy.js";
-import { STALE_HEAD_REPLACEMENT_EXHAUSTED } from "../src/agentWork/reviewReschedule.js";
 import { AppError } from "../src/errors/appError.js";
+import {
+  APP_ERROR_KINDS,
+  type AppErrorDomain,
+  type AppErrorShape,
+} from "../src/errors/appErrorCodes.js";
 import {
   classifyFailure,
   classifiedFailureLogFields,
@@ -60,12 +64,40 @@ describe("classifyFailure", () => {
   it("includes AppError code when present", () => {
     const f = classifyFailure(
       new AppError({
-        code: "review.orchestrator_send_failed",
+        domain: "review",
+        kind: "orchestrator_send_failed",
         message: "Insufficient credits for model",
       }),
     );
     expect(f.errorCode).toBe("review.orchestrator_send_failed");
     expect(f.errorKind).toBe("quota");
+  });
+
+  it("classifies every closed code as the pre-table review.* substring rules did", () => {
+    const abortCodes = new Set(["agent.session_aborted", "review.specialist_aborted"]);
+    const legacyKind = (code: string) =>
+      code.startsWith("review.") && /validation/.test(code)
+        ? "validation"
+        : code.startsWith("review.") && /publish/.test(code)
+          ? "publish"
+          : "unknown";
+    for (const domain of Object.keys(APP_ERROR_KINDS) as AppErrorDomain[]) {
+      for (const kind of APP_ERROR_KINDS[domain]) {
+        const error = new AppError({ domain, kind, message: "boom" } as AppErrorShape & {
+          message: string;
+        });
+        const classified = classifyFailure(error);
+        const expected = abortCodes.has(error.code)
+          ? { failureDomain: "provider", errorKind: "cancelled" }
+          : { failureDomain: "internal", errorKind: legacyKind(error.code) };
+        expect([error.code, classified.failureDomain, classified.errorKind]).toEqual([
+          error.code,
+          expected.failureDomain,
+          expected.errorKind,
+        ]);
+        expect(classified.errorCode).toBe(`${domain}.${kind}`);
+      }
+    }
   });
 
   it("maps log fields camelCase and PostHog snake_case", () => {
@@ -107,7 +139,8 @@ describe("classified-failure projections", () => {
 
   const everyOptional = classifyFailure(
     new AppError({
-      code: "review.orchestrator_send_failed",
+      domain: "review",
+      kind: "orchestrator_send_failed",
       message: "Insufficient credits for model",
       cause: new Error("wallet empty", { cause: new Error("ledger miss") }),
     }),
@@ -310,18 +343,25 @@ describe("classified-failure projections", () => {
 describe("retryDispositionFor", () => {
   it("keeps stale-head replacement exhaustion terminal", () => {
     const error = new AppError({
-      code: STALE_HEAD_REPLACEMENT_EXHAUSTED,
+      domain: "review",
+      kind: "stale_head_replacement_exhausted",
       message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
     });
     expect(retryDispositionFor(error)).toBe("terminal");
   });
 
   it.each([
-    ["verification.missing_submit", "Verification run ended without submitVerification"],
-    ["triage.missing_submit", "Triage run ended without submitTriage"],
-    ["review.specialist_invalid_report", "Specialist did not submit a valid report"],
-  ])("classifies repair-exhausted %s as deterministic", (code, message) => {
-    expect(retryDispositionFor(new AppError({ code, message }))).toBe("deterministic");
+    [
+      { domain: "verification", kind: "missing_submit" },
+      "Verification run ended without submitVerification",
+    ],
+    [{ domain: "triage", kind: "missing_submit" }, "Triage run ended without submitTriage"],
+    [
+      { domain: "review", kind: "specialist_invalid_report" },
+      "Specialist did not submit a valid report",
+    ],
+  ] as const)("classifies repair-exhausted %j as deterministic", (shape, message) => {
+    expect(retryDispositionFor(new AppError({ ...shape, message }))).toBe("deterministic");
   });
 
   it.each([
@@ -341,17 +381,21 @@ describe("retryDispositionFor", () => {
     expect(retryDispositionFor(error)).toBe("transient");
   });
 
-  it.each(["agent.session_aborted", "review.specialist_aborted"])(
-    "classifies %s as terminal",
-    (code) => {
-      expect(retryDispositionFor(new AppError({ code, message: "aborted" }))).toBe("terminal");
-    },
-  );
+  it.each([
+    { domain: "agent", kind: "session_aborted" },
+    { domain: "review", kind: "specialist_aborted" },
+  ] as const)("classifies %j as terminal", (shape) => {
+    expect(retryDispositionFor(new AppError({ ...shape, message: "aborted" }))).toBe("terminal");
+  });
 
   it("does not terminalise an unrelated AppError code", () => {
     expect(
       retryDispositionFor(
-        new AppError({ code: "review.orchestrator_send_failed", message: "send failed" }),
+        new AppError({
+          domain: "review",
+          kind: "orchestrator_send_failed",
+          message: "send failed",
+        }),
       ),
     ).toBe("transient");
   });

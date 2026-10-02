@@ -18,6 +18,7 @@ import {
 } from "../../settings/index.js";
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/commentMarkers.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type SummaryCommentCoordination = {
   pool: Pool;
@@ -264,7 +265,8 @@ async function upsertSummaryCommentAtRevision(
       capacityError: (poolMax) =>
         Object.assign(
           new AppError({
-            code: "review.progress_lock_capacity",
+            domain: "review",
+            kind: "progress_lock_capacity",
             message: "Progress publication needs a pool with at least two connections",
             context: { poolMax },
           }),
@@ -272,7 +274,8 @@ async function upsertSummaryCommentAtRevision(
         ),
       timeoutError: Object.assign(
         new AppError({
-          code: "review.progress_lock_timeout",
+          domain: "review",
+          kind: "progress_lock_timeout",
           message: "Progress publication lock acquisition timed out",
           context: { timeoutMs: POSTGRES_LOCK_TIMEOUT_MS },
         }),
@@ -283,7 +286,8 @@ async function upsertSummaryCommentAtRevision(
           error instanceof AppError
             ? error
             : new AppError({
-                code: "review.progress_lock_failed",
+                domain: "review",
+                kind: "progress_lock_failed",
                 message: "Progress publication lock acquisition failed",
                 cause: error,
               }),
@@ -294,7 +298,7 @@ async function upsertSummaryCommentAtRevision(
         logWarn("review_progress_unlock_failed", {
           resourceKey: params.resourceKey,
           reviewLens: params.reviewLens,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       },
     },

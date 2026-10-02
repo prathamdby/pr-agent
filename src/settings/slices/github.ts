@@ -61,7 +61,8 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
     crypto.createPrivateKey(key);
   } catch {
     throw new AppError({
-      code: "config.invalid_github_app_private_key",
+      domain: "config",
+      kind: "invalid_github_app_private_key",
       message:
         "GITHUB_APP_PRIVATE_KEY must be a valid unencrypted PEM private key. Use the GitHub App private key content with real newlines, escaped \\n newlines, or base64-encoded PEM.",
     });
@@ -86,7 +87,8 @@ function readAssociationAllowlist(
   for (const value of values) {
     if (!allowedGithubAuthorAssociations.has(value)) {
       throw new AppError({
-        code: "config.invalid_enum",
+        domain: "config",
+        kind: "invalid_enum",
         message: `${name} must be ${allowWildcard ? '"*" or ' : ""}one or more of ${GITHUB_AUTHOR_ASSOCIATIONS.join(", ")}`,
         context: { name, allowed: GITHUB_AUTHOR_ASSOCIATIONS },
       });

@@ -85,7 +85,8 @@ export function assertPullRequestFilesHeadSha(
 ): void {
   if (prFiles.headSha?.toLowerCase() !== expectedHeadSha.toLowerCase()) {
     throw new AppError({
-      code: "github.head_sha_mismatch",
+      domain: "github",
+      kind: "head_sha_mismatch",
       message: `Pull request head SHA ${prFiles.headSha ?? "unknown"} does not match work item headSha ${expectedHeadSha}`,
     });
   }

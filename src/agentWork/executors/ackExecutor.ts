@@ -29,6 +29,7 @@ import {
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.js";
 import { canPublishApprovalNotice } from "../intake/reviewApprovals.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 /** True when this ack may still write the shared progress comment for its work item. */
 export async function canAckPublishProgress(
@@ -87,7 +88,7 @@ async function publishAckProgress(
     } catch (e) {
       logWarn("ack_queue_position_failed", {
         workItemId: data.workItemId,
-        message: e instanceof Error ? e.message : String(e),
+        message: errorMessage(e),
       });
     }
   }
@@ -170,7 +171,7 @@ async function publishCancelProgress(
     logWarn("ack_cancel_comment_failed", {
       workItemId: data.cancelProgress.workItemId,
       resourceKey,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
 
@@ -213,7 +214,7 @@ export async function executeAckJob(
     if (data.commenterId != null && bot.userId === data.commenterId) return;
   } catch (e) {
     logWarn("ack_bot_identity_check_failed", {
-      message: e instanceof Error ? e.message : String(e),
+      message: errorMessage(e),
     });
   }
   const installation = await productionInstallationSurface.token(cfg, data.installationId);
@@ -258,7 +259,7 @@ export async function executeAckJob(
       logWarn("ack_cancel_progress_failed", {
         workItemId: data.cancelProgress.workItemId,
         resourceKey,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -270,7 +271,7 @@ export async function executeAckJob(
       logWarn("ack_cancel_triage_failed", {
         workItemId: data.cancelTriage.workItemId,
         resourceKey,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }

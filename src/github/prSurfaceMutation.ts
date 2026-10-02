@@ -144,10 +144,11 @@ function throwIfAborted(signal: AbortSignal): void {
   const reason = signal.reason;
   if (isAppError(reason)) throw reason;
   if (reason !== undefined) {
-    throw toAppError(reason, { code: "agent_work.execution_aborted" });
+    throw toAppError(reason, { domain: "agent_work", kind: "execution_aborted" });
   }
   throw new AppError({
-    code: "agent_work.execution_aborted",
+    domain: "agent_work",
+    kind: "execution_aborted",
     message: "PR-surface mutation aborted",
   });
 }

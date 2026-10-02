@@ -28,6 +28,7 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.js"
 import { createReviewSummaryComment } from "./reviewSummaryComment.js";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type PublishSummaryOnlyResult =
   | { readonly kind: "published"; readonly summaryCommentId: number }
@@ -46,7 +47,8 @@ export async function publishReviewSummaryOnly(
   const coverage = input.coverage ?? { kind: "full" };
   if (coverage.kind === "none") {
     throw new AppError({
-      code: "review.summary_coverage_none",
+      domain: "review",
+      kind: "summary_coverage_none",
       message: "Cannot publish a review summary when every specialist failed",
       context: { failedSpecialists: coverage.failed },
     });
@@ -95,7 +97,7 @@ export async function publishReviewSummaryOnly(
         owner,
         repo,
         pr: prNumber,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -328,7 +330,7 @@ export async function publishReviewSummaryOnly(
         owner,
         repo,
         pr: prNumber,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }

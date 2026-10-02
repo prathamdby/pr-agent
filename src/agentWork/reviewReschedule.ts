@@ -22,9 +22,7 @@ import {
   type StaleHeadReplacement,
 } from "./types.js";
 import { STALE_HEAD_REPLACEMENT_ID_SQL } from "./workItemPayloadSchema.js";
-
-export const STALE_HEAD_PARENT_NOT_RESCHEDULABLE = "agent_work.stale_head_parent_not_reschedulable";
-export const STALE_HEAD_REPLACEMENT_EXHAUSTED = "review.stale_head_replacement_exhausted";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type StaleReviewRescheduleResult = {
   readonly kind: "rescheduled";
@@ -38,17 +36,18 @@ type ReviewRescheduleWorkItem = {
 };
 
 export function isStaleHeadParentNotReschedulable(error: unknown): boolean {
-  return isAppError(error) && error.code === STALE_HEAD_PARENT_NOT_RESCHEDULABLE;
+  return isAppError(error) && error.code === "agent_work.stale_head_parent_not_reschedulable";
 }
 
 export function isStaleHeadReplacementExhausted(error: unknown): boolean {
-  return isAppError(error) && error.code === STALE_HEAD_REPLACEMENT_EXHAUSTED;
+  return isAppError(error) && error.code === "review.stale_head_replacement_exhausted";
 }
 
 /** One-shot replacement already consumed; caller should fail with `/review` retry guidance. */
 export function staleHeadReplacementExhaustedError(item: ReviewWorkItem): AppError {
   return new AppError({
-    code: STALE_HEAD_REPLACEMENT_EXHAUSTED,
+    domain: "review",
+    kind: "stale_head_replacement_exhausted",
     message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
     context: { workItemId: item.id, resourceKey: item.resourceKey },
   });
@@ -76,7 +75,8 @@ export async function cancelPendingStaleHeadReplacement(
     replacementWorkItemId = replacement.replacementWorkItemId;
     if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
       throw new AppError({
-        code: "agent_work.replacement_cancel_rejected",
+        domain: "agent_work",
+        kind: "replacement_cancel_rejected",
         message: "Stale-head replacement cancellation was not confirmed.",
         context: { workItemId: parent.id, replacementWorkItemId },
       });
@@ -88,9 +88,7 @@ export async function cancelPendingStaleHeadReplacement(
         type: "review",
         workItemId: parent.id,
         replacementWorkItemId,
-        message: sanitizeLogMessage(
-          cancelError instanceof Error ? cancelError.message : String(cancelError),
-        ),
+        message: sanitizeLogMessage(errorMessage(cancelError)),
       },
       cancelError,
     );
@@ -144,7 +142,8 @@ export async function createReviewRescheduleWorkItem(
     const lifecycle = await loadReviewLifecycle(client, item.resourceKey);
     if (lifecycle?.state === "closed" || lifecycle?.state === "merged") {
       throw new AppError({
-        code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+        domain: "agent_work",
+        kind: "stale_head_parent_not_reschedulable",
         message: `Pull request is ${lifecycle.state}; stale-head replacement is not permitted`,
         context: { workItemId: item.id, resourceKey: item.resourceKey },
       });
@@ -160,7 +159,8 @@ export async function createReviewRescheduleWorkItem(
     );
     if ((parentLive.rowCount ?? 0) === 0) {
       throw new AppError({
-        code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+        domain: "agent_work",
+        kind: "stale_head_parent_not_reschedulable",
         message: `Parent review ${item.id} is no longer running for stale-head reschedule`,
         context: { workItemId: item.id },
       });
@@ -198,7 +198,8 @@ export async function createReviewRescheduleWorkItem(
             : undefined;
         if (!persistedId) {
           throw new AppError({
-            code: "agent_work.stale_head_marker_persist_failed",
+            domain: "agent_work",
+            kind: "stale_head_marker_persist_failed",
             message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
             context: { workItemId: item.id },
           });
@@ -290,7 +291,8 @@ async function ensureDeterministicJob(
   if (jobId != null) return;
 
   throw new AppError({
-    code: "agent_work.reschedule_enqueue_failed",
+    domain: "agent_work",
+    kind: "reschedule_enqueue_failed",
     message: `pg-boss did not enqueue missing ${queue} job for stale-head replacement ${workItemId}`,
     context: { queue, workItemId },
   });

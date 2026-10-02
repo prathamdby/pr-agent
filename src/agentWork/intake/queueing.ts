@@ -42,7 +42,8 @@ async function requireBossJobSend(
   const jobId = await boss.send(queue, data, options);
   if (jobId == null) {
     throw new AppError({
-      code: "agent_work.enqueue_failed",
+      domain: "agent_work",
+      kind: "enqueue_failed",
       message: `pg-boss did not enqueue ${queue} job`,
       context: { queue },
     });

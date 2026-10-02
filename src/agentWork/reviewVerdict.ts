@@ -40,6 +40,7 @@ import {
   reviewCommitStatusOperationKey,
 } from "./publishOnce.js";
 import type { WorkStatus } from "./types.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
@@ -92,7 +93,7 @@ function logCheckRunWarning(
   }
   logWarn(event, {
     ...fields,
-    message: error instanceof Error ? error.message : String(error),
+    message: errorMessage(error),
   });
 }
 
@@ -288,7 +289,7 @@ async function cancelOrphanedCheckRunAfterRecordFailure(
     pr: params.prNumber,
     reviewLens: params.reviewLens,
     checkRunId: check.id,
-    message: recordError instanceof Error ? recordError.message : String(recordError),
+    message: errorMessage(recordError),
   });
 }
 
@@ -413,7 +414,7 @@ async function applyReviewCheckRunCompletion(
       reviewLens: params.reviewLens,
       checkRunId,
       conclusion: selected.conclusion,
-      message: e instanceof Error ? e.message : String(e),
+      message: errorMessage(e),
     });
   }
   return true;
@@ -600,7 +601,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<bool
       pr: params.prNumber,
       headSha: params.headSha,
       state: params.state,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return false;
   }
@@ -689,7 +690,7 @@ export async function closeReviewVerdictsForWorkItems(
           repo: params.repo,
           pr: params.prNumber,
           workItemId,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       }
     }),

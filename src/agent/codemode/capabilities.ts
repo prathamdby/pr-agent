@@ -1,5 +1,6 @@
 import { CODE_MODE_HOST_IN_FLIGHT, CODE_MODE_MAX_TOOL_CALLS } from "../../settings/index.js";
 import { AppError, isAppError } from "../../errors/appError.js";
+import type { AppErrorCode, AppErrorKind } from "../../errors/appErrorCodes.js";
 import { idleAbortSignal } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
 import type { AgentSessionRole } from "../runtime/types.js";
@@ -13,6 +14,7 @@ import {
   boundJsonValue,
 } from "../execution/marshal.js";
 import { utf8ByteLength } from "../execution/json.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type CodeModeCapabilityBridge = {
   readonly invoke: (name: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -22,7 +24,14 @@ export type CodeModeCapabilityBridge = {
   readonly transferredBytes: number;
 };
 
-const ACCESS_DENIED_CODES = new Set([
+const INNER_FAILURE_KIND = {
+  ACCESS_DENIED: "access_denied",
+  FILE_NOT_FOUND: "file_not_found",
+  SEARCH_TRUNCATED: "search_truncated",
+  TOOL_INPUT_INVALID: "tool_input_invalid",
+} as const satisfies Record<CodeModeInnerFailureKind, AppErrorKind<"codemode">>;
+
+const ACCESS_DENIED_CODES = new Set<AppErrorCode>([
   "pr_workspace.path_traversal",
   "ask.sensitive_path_blocked",
   "verification.sensitive_path_blocked",
@@ -40,7 +49,7 @@ export function classifyCapabilityFailure(error: unknown): {
       return { kind: "TOOL_INPUT_INVALID", message: error.message };
     }
   }
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   if (/not found|missing from checkout/i.test(message)) {
     return { kind: "FILE_NOT_FOUND", message };
   }
@@ -119,7 +128,8 @@ export function createCodeModeCapabilityBridge(params: {
     const executor = params.capabilities[name as CodeModeWorkspaceToolName];
     if (!executor) {
       throw new AppError({
-        code: "codemode.tool_failure",
+        domain: "codemode",
+        kind: "tool_failure",
         message: `UNKNOWN: capability ${name} is not available`,
         context: { tool: name, kind: "UNKNOWN" },
       });
@@ -182,10 +192,8 @@ export function createCodeModeCapabilityBridge(params: {
         model: params.model,
       });
       throw new AppError({
-        code:
-          classified.kind === "UNKNOWN"
-            ? "codemode.tool_failure"
-            : `codemode.${classified.kind.toLowerCase()}`,
+        domain: "codemode",
+        kind: classified.kind === "UNKNOWN" ? "tool_failure" : INNER_FAILURE_KIND[classified.kind],
         message: `${classified.kind}: ${classified.message}`,
         context: { tool: name, kind: classified.kind },
         cause: error,

@@ -3,6 +3,7 @@ import { queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.js";
+import { errorMessage } from "../errors/errorMessage.js";
 export type SharedRateLimitCircuitRow = {
   readonly installationId: number;
   readonly openUntil: Date;
@@ -104,7 +105,7 @@ export function openSharedRateLimitCircuitBestEffort(
     logWarn("github_shared_rate_limit_circuit_upsert_failed", {
       installationId: params.installationId,
       kind: params.lastErrorKind,
-      message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+      message: sanitizeLogMessage(errorMessage(error)),
     });
   });
 }

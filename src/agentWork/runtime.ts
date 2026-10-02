@@ -9,6 +9,7 @@ import { logWarn } from "../evlog.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
+import { toError } from "../errors/errorMessage.js";
 
 export class AgentWorkPool extends Context.Service<AgentWorkPool, Pool>()("AgentWorkPool") {}
 export class AgentWorkBoss extends Context.Service<AgentWorkBoss, PgBoss>()("AgentWorkBoss") {}
@@ -60,12 +61,12 @@ export const AgentWorkPoolLive = (cfg: Config) =>
           await runMigrations(pool);
           return pool;
         },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: (e) => toError(e),
       }),
       (pool) =>
         Effect.tryPromise({
           try: () => pool.end(),
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+          catch: (e) => toError(e),
         }).pipe(Effect.orDie),
     ),
   );
@@ -83,7 +84,7 @@ export const AgentWorkBossLive = (
           await ensureAgentQueues(boss, cfg);
           return boss;
         },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: (e) => toError(e),
       }),
       (boss) =>
         Effect.tryPromise({
@@ -93,7 +94,7 @@ export const AgentWorkBossLive = (
             // so the flush runs concurrently with the durable-dispatch reserve.
             if (options?.shutdownAnalytics !== false) await shutdownAnalytics();
           },
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+          catch: (e) => toError(e),
         }).pipe(Effect.orDie),
     ),
   );

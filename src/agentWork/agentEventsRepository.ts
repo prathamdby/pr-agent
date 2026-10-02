@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import type { Config } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type AgentEventInsertRow = {
   readonly workItemId?: string | null;
@@ -130,7 +131,7 @@ export function safeAppendAgentEvents(
     logWarn("agent_events_append_failed", {
       count: rows.length,
       eventKinds: rows.map((row) => row.eventKind),
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   });
 }

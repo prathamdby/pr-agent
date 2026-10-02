@@ -299,7 +299,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.
 - `src/analytics/` owns the optional PostHog facade and event capture.
 - `src/security/` owns outbound, log, and analytics redaction.
-- `src/errors/` owns `AppError` and external-failure classification.
+- `src/errors/` owns closed `AppError` codes and classification.
 - `src/prWorkspace/` owns checkout lifecycle. `repositoryReader.ts` owns pinned and writable repository readers, path policy, and hardened Git execution. `src/agent/tools/workspaceToolset.ts` owns the ordered read-tool profiles; triage retains its write tools and final mutation guards.
 - `src/settings/` owns the `Config` slices, shared constants, feature flags, and queue settings. Single-owner constants stay private to their owner: slash replies in `src/agentWork/intake/slashIntake.ts`, migration settings in `src/db/migrations.ts`.
 - `src/agentWork/types.ts` owns `PrResource`, the durable `PrRef`, and `ReplyTarget`. Import interfaces from concrete modules, not deleted barrels. Execution halt codes live in `src/agent/execution/hostHalt.ts`; review status copy lives in `src/review/statusCopy.ts`.

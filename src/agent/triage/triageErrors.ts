@@ -4,14 +4,14 @@ import type { PrSurface } from "../../github/prSurface.js";
 
 export class TriageCancelledError extends AppError {
   constructor(message = "Triage work was cancelled") {
-    super({ code: "triage.cancelled", message });
+    super({ domain: "triage", kind: "cancelled", message });
     this.name = "TriageCancelledError";
   }
 }
 
 export class TriageClosedPullRequestError extends AppError {
   constructor(message = "Pull request is closed or merged; triage will not write to its branch") {
-    super({ code: "triage.closed_pull_request", message });
+    super({ domain: "triage", kind: "closed_pull_request", message });
     this.name = "TriageClosedPullRequestError";
   }
 }

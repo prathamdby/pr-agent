@@ -96,7 +96,8 @@ export function buildSubmitDescriptionTool(params: {
     if (params.shouldAbortPublish && (await params.shouldAbortPublish())) {
       params.state.publishSuperseded = true;
       throw new AppError({
-        code: "description.publish_superseded",
+        domain: "description",
+        kind: "publish_superseded",
         message: "Description publish aborted because this work item was superseded or cancelled.",
       });
     }
@@ -109,7 +110,8 @@ export function buildSubmitDescriptionTool(params: {
     if (!parsed.ok) {
       params.state.lastValidationError = parsed.error;
       throw new AppError({
-        code: "description.validation_failed",
+        domain: "description",
+        kind: "validation_failed",
         message: params.state.lastValidationError,
       });
     }
@@ -120,7 +122,8 @@ export function buildSubmitDescriptionTool(params: {
     if (visualIssues.length > 0) {
       params.state.lastValidationError = formatDescriptionVisualValidationError(visualIssues);
       throw new AppError({
-        code: "description.validation_failed",
+        domain: "description",
+        kind: "validation_failed",
         message: params.state.lastValidationError,
       });
     }

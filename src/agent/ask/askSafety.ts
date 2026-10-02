@@ -40,7 +40,8 @@ export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
   const normalized = path.replace(/\\/g, "/");
   if (pathAllowedForAsk(normalized, gate)) return;
   throw new AppError({
-    code: "ask.sensitive_path_blocked",
+    domain: "ask",
+    kind: "sensitive_path_blocked",
     message: `getFileContent blocked for sensitive path "${normalized}" (not in this PR's changed files). Ask about files touched by the PR instead.`,
     context: { path: normalized },
   });

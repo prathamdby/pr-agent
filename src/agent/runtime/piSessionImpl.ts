@@ -11,6 +11,7 @@ import {
   type Message,
 } from "@earendil-works/pi-ai";
 import { AppError, toAppError } from "../../errors/appError.js";
+import type { AppErrorCode } from "../../errors/appErrorCodes.js";
 import {
   assertPhaseToolAllowed,
   ORCHESTRATOR_PHASE_TOOLS,
@@ -83,7 +84,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   const model = models.getModel(params.primary.provider, params.primary.model);
   if (!model) {
     throw new AppError({
-      code: "provider.model_not_found",
+      domain: "provider",
+      kind: "model_not_found",
       message: params.cfg.models.jsonPath
         ? `Model not found: ${params.primary.provider}/${params.primary.model} (models.json: ${params.cfg.models.jsonPath})`
         : `Model not found: ${params.primary.provider}/${params.primary.model}`,
@@ -130,7 +132,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     async send(prompt, opts) {
       if (abortPromise) {
         throw new AppError({
-          code: "agent.session_aborted",
+          domain: "agent",
+          kind: "session_aborted",
           message: "Agent runner session aborted",
         });
       }
@@ -309,31 +312,35 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
 
         if (abortPromise) {
           throw new AppError({
-            code: "agent.session_aborted",
+            domain: "agent",
+            kind: "session_aborted",
             message: "Agent runner session aborted",
           });
         }
         activity.assertNotTimedOut();
         if (protocolInvalid) {
           throw new AppError({
-            code: "provider.protocol_invalid",
+            domain: "provider",
+            kind: "protocol_invalid",
             message: "Duplicate tool call id in one assistant message",
           });
         }
         if (loopSignal.aborted && !budget.stopped) {
           throw new AppError({
-            code: "agent.session_aborted",
+            domain: "agent",
+            kind: "session_aborted",
             message: "Agent runner session aborted",
           });
         }
         if (terminalProviderError !== undefined && !budget.stopped) {
           throw new AppError({
-            code: "provider.request_failed",
+            domain: "provider",
+            kind: "request_failed",
             message: terminalProviderError,
           });
         }
         if (loopError !== undefined && !budget.stopped) {
-          throw toAppError(loopError, { code: "provider.request_failed" });
+          throw toAppError(loopError, { domain: "provider", kind: "request_failed" });
         }
         const promptMeta = promptMetadataFromText(prompt);
         const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : undefined;
@@ -376,7 +383,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           provider: params.primary.provider,
           model: params.primary.model,
           ok: false,
-          failureCode: error instanceof AppError ? error.code : "runtime.session_send_failed",
+          failureCode:
+            error instanceof AppError
+              ? error.code
+              : ("runtime.session_send_failed" satisfies AppErrorCode),
           ...(durationMs != null ? { durationMs } : {}),
           ...(aggregatedUsage != null
             ? {

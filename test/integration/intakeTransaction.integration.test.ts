@@ -26,10 +26,7 @@ import { inTransaction } from "../../src/db/postgres.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
-import {
-  createReviewRescheduleWorkItem,
-  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
-} from "../../src/agentWork/reviewReschedule.js";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
 import type {
   AckJobData,
@@ -1847,7 +1844,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         if (order === "replacement-first") await insertion;
         else {
           await expect(insertion).rejects.toMatchObject({
-            code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+            code: "agent_work.stale_head_parent_not_reschedulable",
           });
           const persisted = await getWorkItem(pool, parent.id);
           if (persisted?.type !== "review") throw new Error("expected review parent");

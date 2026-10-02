@@ -2390,7 +2390,8 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       expect(
         retryDispositionFor(
           new AppError({
-            code: "operation_intent.mutation_outcome_unknown",
+            domain: "operation_intent",
+            kind: "mutation_outcome_unknown",
             message: "legacy unknown",
           }),
         ),

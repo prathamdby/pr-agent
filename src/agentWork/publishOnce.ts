@@ -14,12 +14,14 @@ import {
   type AnyReviewLens,
 } from "../settings/index.js";
 import { AppError, errorLogFields, isAppError, toAppError } from "../errors/appError.js";
+import type { AppErrorCode } from "../errors/appErrorCodes.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { type OperationIntentRow } from "./operationIntentRepository.js";
 import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
 import { assertPrActorLeaseHeld } from "./prActorLease.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { httpStatus } from "../github/httpStatus.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
@@ -257,7 +259,8 @@ async function recoverByExactEvidence<T>(
   } catch (error) {
     await assertMutationReady(params);
     throw new AppError({
-      code: "operation_intent.recovery_failed",
+      domain: "operation_intent",
+      kind: "recovery_failed",
       message: "Failed to reconcile an outcome-unknown GitHub mutation",
       cause: error,
       context: {
@@ -318,7 +321,8 @@ function unknownOutcomeError<T>(
   cause?: unknown,
 ): AppError {
   return new AppError({
-    code: "operation_intent.mutation_outcome_unknown",
+    domain: "operation_intent",
+    kind: "mutation_outcome_unknown",
     message,
     cause,
     context: {
@@ -339,7 +343,8 @@ async function recoverAfterMutatingWithoutResult<T>(
     publishRecordId = await findCompletedPublishRecordId(params.client, params.workItemId, intent);
   } catch (error) {
     throw new AppError({
-      code: "operation_intent.publish_record_lookup_failed",
+      domain: "operation_intent",
+      kind: "publish_record_lookup_failed",
       message: "Failed to look up publish_records while recovering after __mutating",
       cause: error,
       context: {
@@ -384,7 +389,7 @@ async function recoverAfterMutatingWithoutResult<T>(
         ...resolveReconcileDetail(params, undefined as T, false),
         [OPERATION_INTENT_MUTATING_KEY]: false,
         ...(observationError == null ? { unknownResolution: "terminal" } : {}),
-        errorCode: "operation_intent.mutation_outcome_unknown",
+        errorCode: "operation_intent.mutation_outcome_unknown" satisfies AppErrorCode,
         errorMessage: UNKNOWN_MUTATION_MESSAGE,
       },
     },
@@ -392,7 +397,8 @@ async function recoverAfterMutatingWithoutResult<T>(
   if (resolved === null) {
     await assertMutationReady(params);
     throw new AppError({
-      code: "operation_intent.reconcile_no_row",
+      domain: "operation_intent",
+      kind: "reconcile_no_row",
       message: "Unknown mutation resolution returned no row",
       context: { workItemId: params.workItemId, operationKey: params.operationKey },
     });
@@ -414,10 +420,11 @@ export function throwIfExecutionAborted(
   const reason = signal.reason;
   if (isAppError(reason)) throw reason;
   if (reason !== undefined) {
-    throw toAppError(reason, { code: "agent_work.execution_aborted", context });
+    throw toAppError(reason, { domain: "agent_work", kind: "execution_aborted", context });
   }
   throw new AppError({
-    code: "agent_work.execution_aborted",
+    domain: "agent_work",
+    kind: "execution_aborted",
     message: "PR-surface mutation was aborted before completion",
     context,
   });
@@ -517,7 +524,8 @@ export async function publishOnce<T>(requested: PublishOnceParams<T>): Promise<T
         );
         if (marked == null)
           throw new AppError({
-            code: "operation_intent.reconcile_no_row",
+            domain: "operation_intent",
+            kind: "reconcile_no_row",
             message: "Own verdict delegation marker returned no row",
             context: { workItemId: params.workItemId },
           });
@@ -648,18 +656,16 @@ async function publishOnceBody<T>(params: PublishOnceParams<T>): Promise<T> {
           // Clear marker only when the provider proved that no mutation landed.
           [OPERATION_INTENT_MUTATING_KEY]: false,
           errorCode: knownNoAcceptance
-            ? "operation_intent.mutation_failed"
-            : "operation_intent.mutation_outcome_unknown",
-          errorMessage: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+            ? ("operation_intent.mutation_failed" satisfies AppErrorCode)
+            : ("operation_intent.mutation_outcome_unknown" satisfies AppErrorCode),
+          errorMessage: sanitizeLogMessage(errorMessage(error)),
         },
       });
     }
     if (isAppError(error)) throw error;
     throw toAppError(error, {
-      code:
-        !mutateSucceeded && knownNoAcceptance
-          ? "operation_intent.mutation_failed"
-          : "operation_intent.mutation_outcome_unknown",
+      domain: "operation_intent",
+      kind: !mutateSucceeded && knownNoAcceptance ? "mutation_failed" : "mutation_outcome_unknown",
       context: {
         workItemId: params.workItemId,
         operationKey: params.operationKey,
@@ -835,7 +841,8 @@ async function recordPublishStep(
   );
   if ((result.rowCount ?? 0) === 0 && params.step === "progress_comment") {
     const error = new AppError({
-      code: "agent_work.progress_comment_ownership_conflict",
+      domain: "agent_work",
+      kind: "progress_comment_ownership_conflict",
       message: "Progress comment publish record was rejected by its ownership gate",
       context: {
         workItemId: params.workItemId,
@@ -953,14 +960,16 @@ export const postgresPublishRecords: PublishRecordStore = {
     if (identity.step === "ask_reply") {
       if (identity.reviewLens !== ASK_PUBLISH_LENS)
         throw new AppError({
-          code: "agent_work.publish_lens_mismatch",
+          domain: "agent_work",
+          kind: "publish_lens_mismatch",
           message: "Ask completion requires the ask lens",
         });
       await recordAskPublishStep(client, { ...identity, step: identity.step });
     } else {
       if (identity.reviewLens === ASK_PUBLISH_LENS)
         throw new AppError({
-          code: "agent_work.publish_lens_mismatch",
+          domain: "agent_work",
+          kind: "publish_lens_mismatch",
           message: "Shared completion cannot use the ask lens",
         });
       await recordPublishStep(client, {
@@ -981,7 +990,8 @@ export function createPublishContext(
   const workItemId = () => {
     if (identity.workItemId == null)
       throw new AppError({
-        code: "agent_work.publish_owner_missing",
+        domain: "agent_work",
+        kind: "publish_owner_missing",
         message: "Publication requires a work-item owner",
       });
     return identity.workItemId;
@@ -992,13 +1002,15 @@ export function createPublishContext(
     const value = input ?? identity;
     if (value.step == null)
       throw new AppError({
-        code: "agent_work.publish_owner_missing",
+        domain: "agent_work",
+        kind: "publish_owner_missing",
         message: "Publication requires a step",
       });
     const spec = publishStepSpecs[value.step];
     if (spec == null || identity.leaseEpoch === undefined)
       throw new AppError({
-        code: "agent_work.publish_owner_missing",
+        domain: "agent_work",
+        kind: "publish_owner_missing",
         message: "Publication requires a step and explicit lease epoch",
       });
     await records.write(client, {
@@ -1050,7 +1062,7 @@ export function createPublishContext(
           detail: {
             __mutating: false,
             unknownResolution: "terminal",
-            errorCode: "operation_intent.mutation_outcome_unknown",
+            errorCode: "operation_intent.mutation_outcome_unknown" satisfies AppErrorCode,
             errorMessage: UNKNOWN_MUTATION_MESSAGE,
           },
         },
@@ -1058,7 +1070,8 @@ export function createPublishContext(
       if (resolved == null) {
         await assertMutationReady(params);
         throw new AppError({
-          code: "operation_intent.reconcile_no_row",
+          domain: "operation_intent",
+          kind: "reconcile_no_row",
           message: "Unknown mutation resolution returned no row",
           context: { workItemId: workItemId(), operationKey: intent.operationKey },
         });

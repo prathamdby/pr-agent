@@ -52,7 +52,8 @@ export async function findReviewCheckRunByName(
   });
   if (truncated) {
     throw new AppError({
-      code: "github.review_check_lookup_incomplete",
+      domain: "github",
+      kind: "review_check_lookup_incomplete",
       message: "Review check lookup was truncated before identity could be confirmed",
       context: { owner, repo, headSha, name, externalId },
     });

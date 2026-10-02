@@ -56,7 +56,8 @@ export function assertSameModelAssignment(
 ): void {
   if (current.provider === next.provider && current.model === next.model) return;
   throw new AppError({
-    code: "runtime.mid_session_model_switch",
+    domain: "runtime",
+    kind: "mid_session_model_switch",
     message: "Healthy Pi sessions keep one model; mid-session model switches are forbidden",
     context: {
       role: context.role,

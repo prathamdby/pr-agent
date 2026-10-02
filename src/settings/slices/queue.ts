@@ -90,7 +90,8 @@ export function readQueueSlice(): QueueSlice {
   );
   if (prActorLeaseRenewalIntervalSeconds >= prActorLeaseTtlSeconds) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: `${ENV.PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS} must be less than ${ENV.PR_ACTOR_LEASE_TTL_SECONDS}`,
       context: {
         name: ENV.PR_ACTOR_LEASE_RENEWAL_INTERVAL_SECONDS,
@@ -105,7 +106,8 @@ export function readQueueSlice(): QueueSlice {
   );
   if (!Number.isFinite(queueHeartbeatSeconds) || queueHeartbeatSeconds < 10) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: "QUEUE_HEARTBEAT_SECONDS must be at least 10",
       context: { name: ENV.QUEUE_HEARTBEAT_SECONDS },
     });
@@ -116,7 +118,8 @@ export function readQueueSlice(): QueueSlice {
   );
   if (!Number.isFinite(queuePollingIntervalSeconds) || queuePollingIntervalSeconds < 0.5) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: "QUEUE_POLLING_INTERVAL_SECONDS must be at least 0.5",
       context: { name: ENV.QUEUE_POLLING_INTERVAL_SECONDS },
     });

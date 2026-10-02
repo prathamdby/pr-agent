@@ -1077,6 +1077,90 @@ reports exactly as before. `AskQuotaConfig` is `Config["ask"]` with the `ask`
 prefix dropped from its field names; `runDelivery` and `makeAgentWorkScheduler`
 read `cfg.ask`.
 
+## M18 failure modes
+
+Recorded before the conversion:
+
+1. A persisted or logged code string drifts. `failure_code`, `errorCode`,
+   `errorReason`, lifecycle `failureCode`, and the `operation_intent` detail
+   `errorCode` all carry `<domain>.<kind>`; a renamed kind rewrites rows other
+   workers still read.
+2. Retry classification drifts. `retryDispositionFor` terminalises
+   `agent_work.attempts_exhausted`, `review.stale_head_replacement_exhausted`, the two
+   abort codes, and a `terminal` `operation_intent.mutation_outcome_unknown`; it
+   marks `verification.missing_submit`, `triage.missing_submit`, and
+   `review.specialist_invalid_report` deterministic. A miss turns a terminal
+   failure into a replay or the reverse.
+3. `classifyFailure` classification drifts. The old rule matched `review.*` codes
+   by substring (`validation` before `publish`); a kind renamed or added without a
+   table row silently falls to `unknown`.
+4. Redaction changes. `serializeAppError` sanitizes message, context, raw value, and
+   cause; moving `code` to a derived field must not skip that path.
+5. An unknown thrown value is wrapped differently. `toAppError` must keep the
+   original as `cause` for an `Error`, and `rawValue` plus a stringified message for
+   anything else.
+6. The cause chain is dropped or reordered. Provider, GitHub, and DB classification
+   (`40P01`, `55P03`, `57014`) read `cause`, `status`, and `code` of non-`AppError`
+   nodes; those stay unwrapped.
+7. Rate-limit and abuse detection moves. `classifyGithubError` and
+   `classifyProviderError` run before the `AppError` branch and still do.
+8. Log field names change. `errorCode`, `errorMessage`, `errorContext`,
+   `errorCause`, `failureDomain`, and `errorKind` keep their names and values.
+9. A dynamic code is typed away. `${profile.kind}.sensitive_path_blocked`, the Code
+   Mode inner-failure kinds, and the `triageWritePolicy` blocks were built from
+   strings at run time.
+10. A user-visible message changes. The seven `throw new Error` sites in
+    `prHeadCiState.ts` become `AppError` with the same message text.
+11. `errorMessage` replaces a ternary that was not the same expression, for
+    example `githubErrorMessage` (reads `message` on plain objects) or the push
+    classifier (appends `stderr`).
+
+`src/errors/appErrorCodes.ts` owns `APP_ERROR_KINDS`, the closed table of 22
+domains and 158 kinds, plus `AppErrorShape` (a union discriminated on `domain`),
+`AppErrorCode`, and `appErrorCode`. `AppError` takes `{ domain, kind, message,
+context?, cause? }`, exposes `domain`, `kind`, and a derived `code` of
+`<domain>.<kind>`, and `toAppError` takes a `{ domain, kind, context? }` fallback.
+The free-form `code: string` is deleted from `AppErrorInit`, from `toAppError`,
+and from the `throwBlocked` and `throwValidationError` helpers. The
+`STALE_HEAD_PARENT_NOT_RESCHEDULABLE`, `STALE_HEAD_REPLACEMENT_EXHAUSTED`, and
+`INSUFFICIENT_FREE_SPACE_CODE` string constants are deleted; callers compare
+`error.code` against the typed literal.
+
+Every code string is the string the code base already emitted, so no persisted or
+logged value moves. Eight kinds had no literal at the old commit because they were
+built at run time or are new: `codemode.access_denied`, `codemode.file_not_found`,
+`codemode.search_truncated`, `codemode.tool_input_invalid` (from
+`classified.kind.toLowerCase()`), `triage.sensitive_path_blocked` (from
+`${profile.kind}.sensitive_path_blocked`), and the three new `ci.head_state_*`
+kinds for the `prHeadCiState.ts` invariants.
+
+`classifyFailure` keys its `AppError` branch on `INTERNAL_ERROR_KIND`, a table typed
+by `{ [domain]: { [kind]?: "validation" | "publish" } }`. It holds the seven
+`review.*` kinds that the old substring rules matched; every other `{domain, kind}`
+is `unknown`. `errorMessage` (88) and `toError` (9) replace 97 inline
+`instanceof Error ? ... : String(...)` ternaries in 45 files.
+
+Inventory (`{domain, kind}` literals in `src/`, 208 at 22 domains): `agent_work`
+44, `review` 40, `pr_workspace` 26, `triage` 18, `config` 15, `operation_intent` 9,
+`agent` 8, `ci` 8, `settings` 8, `provider` 6, `context7` 5, `github` 4,
+`description` 3, `verification` 3, `codemode` 2, `runtime` 2, and one each for
+`ask`, `code_index`, `pi`, `publish_store`, `tool`, `webhook`, and the dynamic
+`repositoryReader` profile.
+
+Coverage migration, no new files. `test/classifiedFailure.test.ts` gains a
+table-driven case that builds an `AppError` for every `APP_ERROR_KINDS` entry and
+compares its classification with the pre-table substring rules and the two abort
+codes; the retry cases read `{ domain, kind }` rows. Test constructors that used
+placeholder codes (`worker.failed`, `x.y`, `agent_work.failed`, `http.status`,
+`triage.stale_head`, `review.publish_exhausted`) take real kinds, and their code
+assertions follow. The stale-head suites assert the literal code in place of the
+deleted constants.
+
+Deviations: the seven `prHeadCiState.ts` failures were plain `Error`; they now
+classify as `internal`/`unknown` with an `errorCode` field instead of
+`unknown`/`unknown` without one. Their messages and the transient retry
+disposition do not change.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

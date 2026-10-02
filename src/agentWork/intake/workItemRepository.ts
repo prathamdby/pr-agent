@@ -199,7 +199,8 @@ async function insertOnSlashActiveConflict(
   const winner = result.rows[0];
   if (!winner) {
     throw new AppError({
-      code: "agent_work.slash_active_conflict_no_winner",
+      domain: "agent_work",
+      kind: "slash_active_conflict_no_winner",
       message: "slash active resolution returned no work item",
     });
   }
@@ -252,7 +253,8 @@ async function insertAgentWorkItem(
       const existingId = existing.rows[0]?.id;
       if (!existingId) {
         throw new AppError({
-          code: "agent_work.ask_conflict_no_row",
+          domain: "agent_work",
+          kind: "ask_conflict_no_row",
           message: "ask work item conflict without existing row",
         });
       }
@@ -261,7 +263,8 @@ async function insertAgentWorkItem(
     default: {
       const exhaustive: never = params;
       throw new AppError({
-        code: "agent_work.unreachable_insert",
+        domain: "agent_work",
+        kind: "unreachable_insert",
         message: `unreachable agent work insert: ${JSON.stringify(exhaustive)}`,
         context: { params: exhaustive },
       });

@@ -22,6 +22,7 @@ import {
 } from "../execution/sessionStore.js";
 import type { CodeModeCapabilityExecutors } from "./types.js";
 import { randomUUID } from "node:crypto";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type ExecutionOutcome = AgentLifecycleExecutionEvent["outcome"];
 
@@ -251,7 +252,7 @@ export async function runCodeModeScript(params: {
         toolCalls,
       });
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     const isToolFailure =
       /ACCESS_DENIED|FILE_NOT_FOUND|SEARCH_TRUNCATED|TOOL_INPUT_INVALID|codemode\./.test(message);
     return finish({

@@ -242,7 +242,8 @@ describe("description work definition", () => {
     });
     vi.mocked(prActorLease.assertPrActorLeaseHeld).mockRejectedValue(
       new AppError({
-        code: "agent_work.pr_actor_lease_lost",
+        domain: "agent_work",
+        kind: "pr_actor_lease_lost",
         message: "PR actor lease is no longer held by this execution",
       }),
     );

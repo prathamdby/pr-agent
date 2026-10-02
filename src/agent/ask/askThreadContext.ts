@@ -3,6 +3,7 @@ import { MAX_ASK_THREAD_TRANSCRIPT_CHARS } from "../../settings/index.js";
 import type { ReplyTarget } from "../../agentWork/types.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type ThreadComment = {
   readonly id: number;
@@ -121,7 +122,7 @@ export async function loadAskThreadTranscript(params: {
       pr: replyTarget.prNumber,
       commentId,
       replyTargetKind: replyTarget.kind,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return { text: "", truncated: false };
   }

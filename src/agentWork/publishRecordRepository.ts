@@ -203,7 +203,8 @@ export async function getOwnVerdictCloseRecord(
       : v.safeParse(selectedOwnVerdictSchema, row.detail.selectedOwnVerdict);
   if (parsed != null && !parsed.success)
     throw new AppError({
-      code: "agent_work.own_verdict_invalid",
+      domain: "agent_work",
+      kind: "own_verdict_invalid",
       message: "Stored own verdict selection is invalid",
       context: { workItemId: params.workItemId, reviewLens: params.reviewLens },
     });
@@ -425,7 +426,8 @@ export async function recordOwnVerdictSurfaceApplied(
   );
   if ((result.rowCount ?? 0) === 0) {
     throw new AppError({
-      code: "agent_work.own_verdict_receipt_rejected",
+      domain: "agent_work",
+      kind: "own_verdict_receipt_rejected",
       message: "Own verdict acceptance receipt did not match its selection",
       context: { workItemId: params.workItemId, surface },
     });
@@ -445,7 +447,8 @@ export async function withOwnVerdictClose<T>(
       unleased: params.leaseEpoch == null,
       capacityError: () =>
         new AppError({
-          code: "agent_work.own_verdict_capacity",
+          domain: "agent_work",
+          kind: "own_verdict_capacity",
           message: "Leased own verdict close requires nested database capacity",
           context: { workItemId: params.workItemId },
         }),

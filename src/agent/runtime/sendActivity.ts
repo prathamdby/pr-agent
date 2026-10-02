@@ -12,7 +12,8 @@ export function createSendActivity(timeoutMs: number, sendAbort: AbortController
   };
   const timeoutError = () =>
     new AppError({
-      code: "pi.prompt_idle_timeout",
+      domain: "pi",
+      kind: "prompt_idle_timeout",
       message: `Provider prompt timeout: no activity for ${timeoutMs}ms`,
     });
   const rejectForIdle = () => {

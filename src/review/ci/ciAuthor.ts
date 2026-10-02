@@ -25,6 +25,7 @@ import {
   type CiSummary,
   type CiSummaryStatus,
 } from "./ciFacts.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 /** Structured fields the CI-summary LLM must return (status/names come from server facts). */
 export const ciSummaryLlmSchema = v.object({
@@ -362,7 +363,8 @@ function extractJsonObject(text: string): unknown {
   const end = candidate.lastIndexOf("}");
   if (start < 0 || end <= start) {
     throw new AppError({
-      code: "ci.summary_no_json",
+      domain: "ci",
+      kind: "summary_no_json",
       message: "CI summary LLM response contained no JSON object",
     });
   }
@@ -452,7 +454,7 @@ export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
       return fields;
     } catch (error) {
       logWarn("review_ci_summary_author_failed", {
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return null;
     } finally {

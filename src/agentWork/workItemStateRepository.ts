@@ -12,6 +12,7 @@ import {
   STALE_HEAD_REPLACEMENT_ID_SQL,
   WorkItemPayloadValidationError,
 } from "./workItemPayloadSchema.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 type AgentWorkRow = {
   id: string;
@@ -212,7 +213,7 @@ export async function getWorkItemPayload(pool: Pool, id: string): Promise<unknow
 }
 
 function sanitizeWorkError(error: unknown): string {
-  return sanitizeLogMessage(error instanceof Error ? error.message : String(error));
+  return sanitizeLogMessage(errorMessage(error));
 }
 
 export type WorkClaim = {

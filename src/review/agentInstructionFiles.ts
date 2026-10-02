@@ -7,6 +7,7 @@ import {
   MAX_AGENT_INSTRUCTION_BYTES,
   MAX_AGENT_INSTRUCTION_FILE_BYTES,
 } from "../settings/index.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 type AgentInstructionFilename = (typeof AGENT_INSTRUCTION_FILENAMES)[number];
 
@@ -45,7 +46,7 @@ async function discoverAgentInstructionFile(
     fileStat = await stat(absolutePath);
   } catch (error) {
     if (errnoCode(error) === "ENOENT") return null;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { filename, kind: "skip", reason: message };
   }
 
@@ -57,7 +58,7 @@ async function discoverAgentInstructionFile(
   try {
     raw = await readFile(absolutePath, "utf8");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { filename, kind: "skip", reason: message };
   }
 
@@ -92,7 +93,7 @@ export async function loadAgentInstructionFiles(
     if (outcome.status === "rejected") {
       logWarn("agent_instruction_file_skipped", {
         path: join(checkoutRoot, filename),
-        reason: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+        reason: errorMessage(outcome.reason),
       });
       continue;
     }

@@ -450,7 +450,8 @@ describe("runDurableWorkItem", () => {
 
   it("retries a deterministic failure exactly once and terminalises the second failure", async () => {
     const boom = new AppError({
-      code: "verification.missing_submit",
+      domain: "verification",
+      kind: "missing_submit",
       message: "Verification run ended without submitVerification",
     });
     vi.mocked(repo.claimWorkForExecution)
@@ -482,7 +483,8 @@ describe("runDurableWorkItem", () => {
   it("terminalises a deterministic failure when the queue has no budget for its one retry", async () => {
     mockFetchedItem(makeItem());
     const boom = new AppError({
-      code: "triage.missing_submit",
+      domain: "triage",
+      kind: "missing_submit",
       message: "Triage run ended without submitTriage",
     });
     const execute = vi.fn().mockRejectedValue(boom);
@@ -601,7 +603,8 @@ describe("runDurableWorkItem", () => {
   it("terminal-fails stale-head replacement exhaustion without durable retry", async () => {
     mockFetchedItem(makeItem());
     const boom = new AppError({
-      code: "review.stale_head_replacement_exhausted",
+      domain: "review",
+      kind: "stale_head_replacement_exhausted",
       message: "Stale-head replacement went stale again. Run /review to retry on the latest head.",
     });
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);

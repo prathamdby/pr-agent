@@ -71,7 +71,8 @@ export async function readModelsSlice(role: "web" | "worker"): Promise<ModelsSli
   const piFallbackModel = optionalEnv(ENV.PI_FALLBACK_MODEL, DEFAULT_PI_FALLBACK_MODEL).trim();
   if ((piFallbackProvider && !piFallbackModel) || (!piFallbackProvider && piFallbackModel)) {
     throw new AppError({
-      code: "config.fallback_model_incomplete",
+      domain: "config",
+      kind: "fallback_model_incomplete",
       message:
         "PI_FALLBACK_PROVIDER and PI_FALLBACK_MODEL must both be set to enable fallback, or both left empty to disable it",
       context: {
@@ -150,7 +151,8 @@ export function readProviderSlice(): ProviderSlice {
   );
   if (piProviderMaxRetryDelayMs >= promptTimeoutMs) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: `${ENV.PI_PROVIDER_MAX_RETRY_DELAY_MS} must be less than ${ENV.PROVIDER_PROMPT_TIMEOUT_MS}`,
       context: {
         name: ENV.PI_PROVIDER_MAX_RETRY_DELAY_MS,

@@ -187,7 +187,8 @@ export function createVerificationWorkExecution({
           });
           if (!runResult.submitted || !runResult.payload) {
             throw new AppError({
-              code: "verification.missing_submit",
+              domain: "verification",
+              kind: "missing_submit",
               message: "Verification run ended without submitVerification",
             });
           }

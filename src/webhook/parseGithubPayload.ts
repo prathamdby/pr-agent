@@ -29,7 +29,8 @@ export class WebhookParseError extends AppError {
 
   constructor(message: string, eventName: string, valibotError?: WebhookSchemaError) {
     super({
-      code: "webhook.parse_failed",
+      domain: "webhook",
+      kind: "parse_failed",
       message,
       context: { eventName },
       cause: valibotError,

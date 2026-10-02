@@ -8,6 +8,7 @@ import {
   MAX_ESCALATED_VERIFICATION_INVENTORY,
 } from "../settings/index.js";
 import { isAppError } from "../errors/appError.js";
+import type { AppErrorCode } from "../errors/appErrorCodes.js";
 import { isStaleHeadReplacementExhausted } from "./reviewReschedule.js";
 
 /** Whether a failed attempt may return to the queue, and under which budget. */
@@ -18,7 +19,7 @@ export type RetryDisposition = "transient" | "deterministic" | "terminal";
  * model already saw the validation error and could not fix it, so an identical replay
  * cannot submit either.
  */
-const DETERMINISTIC_FAILURE_CODES: ReadonlySet<string> = new Set([
+const DETERMINISTIC_FAILURE_CODES: ReadonlySet<AppErrorCode> = new Set([
   "verification.missing_submit",
   "triage.missing_submit",
   "review.specialist_invalid_report",

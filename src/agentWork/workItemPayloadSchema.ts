@@ -188,7 +188,8 @@ export class WorkItemPayloadValidationError extends AppError {
 
   constructor(workType: WorkType, message: string) {
     super({
-      code: "agent_work.invalid_payload",
+      domain: "agent_work",
+      kind: "invalid_payload",
       message,
       context: { workType },
     });

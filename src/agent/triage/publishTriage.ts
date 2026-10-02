@@ -476,7 +476,8 @@ export async function recoverTriagePublication(
   if (push == null || !isRecord(retained)) {
     if (intent != null) return ctx.failClosed(intent);
     throw new AppError({
-      code: "triage.invalid_stored_push",
+      domain: "triage",
+      kind: "invalid_stored_push",
       message: "Stored triage_push detail is invalid",
     });
   }

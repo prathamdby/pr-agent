@@ -69,7 +69,8 @@ export function buildSubmitTriageTool(params: {
     if (!parsed.ok) {
       params.submitState.lastValidationError = parsed.error;
       throw new AppError({
-        code: "triage.validation_failed",
+        domain: "triage",
+        kind: "validation_failed",
         message: params.submitState.lastValidationError,
       });
     }
@@ -85,7 +86,8 @@ export function buildSubmitTriageTool(params: {
     if (issues.length > 0) {
       params.submitState.lastValidationError = formatTriageValidationError(issues);
       throw new AppError({
-        code: "triage.validation_failed",
+        domain: "triage",
+        kind: "validation_failed",
         message: params.submitState.lastValidationError,
       });
     }

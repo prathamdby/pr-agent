@@ -111,13 +111,15 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     });
     if (!parsed.ok) {
       throw new AppError({
-        code: "review.publish_thread_validation_failed",
+        domain: "review",
+        kind: "publish_thread_validation_failed",
         message: parsed.error,
       });
     }
     if (source == null) {
       throw new AppError({
-        code: "review.publish_thread_source_required",
+        domain: "review",
+        kind: "publish_thread_source_required",
         message: "Select the active specialist before calling publish_thread",
       });
     }
@@ -131,7 +133,8 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       });
     } catch (error) {
       throw toAppError(error, {
-        code: "review.publish_thread_failed",
+        domain: "review",
+        kind: "publish_thread_failed",
         context: {
           owner: session.ctx.owner,
           repo: session.ctx.repo,

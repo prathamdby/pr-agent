@@ -66,7 +66,8 @@ export function buildSubmitVerificationTool(params: {
     if (!parsed.ok) {
       params.submitState.lastValidationError = parsed.error;
       throw new AppError({
-        code: "verification.validation_failed",
+        domain: "verification",
+        kind: "validation_failed",
         message: params.submitState.lastValidationError,
       });
     }
@@ -81,7 +82,8 @@ export function buildSubmitVerificationTool(params: {
     if (issues.length > 0) {
       params.submitState.lastValidationError = formatVerificationValidationError(issues);
       throw new AppError({
-        code: "verification.validation_failed",
+        domain: "verification",
+        kind: "validation_failed",
         message: params.submitState.lastValidationError,
       });
     }

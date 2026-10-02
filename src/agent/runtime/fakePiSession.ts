@@ -55,13 +55,15 @@ export function createFakePiSession(
     async send(prompt, opts) {
       if (disposed) {
         throw new AppError({
-          code: "runtime.session_disposed",
+          domain: "runtime",
+          kind: "session_disposed",
           message: "Pi session already disposed",
         });
       }
       if (aborted) {
         throw new AppError({
-          code: "agent.session_aborted",
+          domain: "agent",
+          kind: "session_aborted",
           message: "Agent runner session aborted",
         });
       }

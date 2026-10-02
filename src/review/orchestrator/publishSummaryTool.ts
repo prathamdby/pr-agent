@@ -65,13 +65,11 @@ export function createPublishSummaryState(initial?: {
 
 function throwValidationError(
   state: PublishSummaryState,
-  code:
-    | "review.publish_summary_validation_failed"
-    | "review.publish_summary_semantic_validation_failed",
+  kind: "publish_summary_validation_failed" | "publish_summary_semantic_validation_failed",
   message: string,
 ): never {
   state.lastValidationError = message;
-  throw new AppError({ code, message });
+  throw new AppError({ domain: "review", kind, message });
 }
 
 function reconstructPayload(
@@ -84,7 +82,7 @@ function reconstructPayload(
   if (!parsed.success) {
     throwValidationError(
       state,
-      "review.publish_summary_validation_failed",
+      "publish_summary_validation_failed",
       formatReviewValidationError(parsed.issues).message,
     );
   }
@@ -122,7 +120,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       errorTitle: "publish_summary validation failed:",
     });
     if (!parsed.ok) {
-      throwValidationError(state, "review.publish_summary_validation_failed", parsed.error);
+      throwValidationError(state, "publish_summary_validation_failed", parsed.error);
     }
 
     const ledger = getLedger();
@@ -133,11 +131,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       enforceInlineAnchorValidation: false,
     });
     if (!validation.ok) {
-      throwValidationError(
-        state,
-        "review.publish_summary_semantic_validation_failed",
-        validation.message,
-      );
+      throwValidationError(state, "publish_summary_semantic_validation_failed", validation.message);
     }
 
     state.lastValidationError = null;
@@ -151,7 +145,8 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       });
     } catch (error) {
       throw toAppError(error, {
-        code: "review.publish_summary_failed",
+        domain: "review",
+        kind: "publish_summary_failed",
         context: {
           owner: session.ctx.owner,
           repo: session.ctx.repo,

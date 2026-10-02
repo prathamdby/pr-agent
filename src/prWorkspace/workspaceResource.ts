@@ -12,12 +12,11 @@ import {
   type GitCredentialFiles,
 } from "./gitCredentials.js";
 
-const INSUFFICIENT_FREE_SPACE_CODE = "pr_workspace.insufficient_free_space";
-
 export function assertGitSha(value: string, field: string): void {
   if (!/^[0-9a-f]{40}$/i.test(value)) {
     throw new AppError({
-      code: "pr_workspace.invalid_sha",
+      domain: "pr_workspace",
+      kind: "invalid_sha",
       message: `${field} must be a 40-character SHA`,
       context: { field },
     });
@@ -27,7 +26,8 @@ export function assertGitSha(value: string, field: string): void {
 export function assertGitRepoPart(value: string, field: string): void {
   if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
     throw new AppError({
-      code: "pr_workspace.unsafe_repo_part",
+      domain: "pr_workspace",
+      kind: "unsafe_repo_part",
       message: `${field} is not git-safe`,
       context: { field },
     });
@@ -43,7 +43,8 @@ export async function ensureWorkspaceFreeSpace(
   const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
   if (freeBytes < BigInt(minBytes)) {
     throw new AppError({
-      code: INSUFFICIENT_FREE_SPACE_CODE,
+      domain: "pr_workspace",
+      kind: "insufficient_free_space",
       message,
       context: { minBytes },
     });
@@ -59,7 +60,7 @@ export async function ensureWorkspaceFreeSpaceAfterSweep(
   try {
     await ensureWorkspaceFreeSpace(dir, minBytes, message);
   } catch (error) {
-    if (!(error instanceof AppError && error.code === INSUFFICIENT_FREE_SPACE_CODE)) {
+    if (!(error instanceof AppError && error.code === "pr_workspace.insufficient_free_space")) {
       throw error;
     }
     await sweep();
@@ -222,7 +223,8 @@ export async function allocateWorkspaceResource(
 ): Promise<WorkspaceResource> {
   if (!isWorkspaceRootPrefix(params.prefix)) {
     throw new AppError({
-      code: "pr_workspace.unsafe_root_prefix",
+      domain: "pr_workspace",
+      kind: "unsafe_root_prefix",
       message: "Workspace temp-root prefix is not a known owned prefix",
       context: { prefix: params.prefix },
     });

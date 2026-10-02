@@ -10,6 +10,7 @@ import {
 } from "../publish/reviewSummaryComment.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;
@@ -41,7 +42,7 @@ export async function publishReviewRunFailureNotice(params: {
       owner: params.owner,
       repo: params.repo,
       pr: params.prNumber,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
 }

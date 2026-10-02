@@ -1,3 +1,4 @@
+import { errorMessage } from "../../errors/errorMessage.js";
 export const CODE_MODE_ERROR_CODES = [
   "SYNTAX_ERROR",
   "EXECUTION_BUDGET_EXCEEDED",
@@ -62,7 +63,7 @@ export function encodeHostCallFailure(error: unknown): EncodedHostCallFailure {
   }
   return {
     ok: false,
-    error: error instanceof Error ? error.message : String(error),
+    error: errorMessage(error),
   };
 }
 

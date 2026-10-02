@@ -58,7 +58,8 @@ export function selectRetainedDescriptionSurfaceIdentity(
     (!params.operationMarker && retained.operation_key !== params.operationKey)
   ) {
     throw new AppError({
-      code: "operation_intent.description_identity_conflict",
+      domain: "operation_intent",
+      kind: "description_identity_conflict",
       message: "Retained description mutation identity is ambiguous or cannot be proved",
       context: { workItemId: params.workItemId, operationKey: params.operationKey },
     });
@@ -150,7 +151,8 @@ export async function persistOperationIntent(
   );
   if (!row) {
     throw new AppError({
-      code: "operation_intent.persist_no_row",
+      domain: "operation_intent",
+      kind: "persist_no_row",
       message: "persistOperationIntent returned no row",
       context: {
         workItemId: params.workItemId,

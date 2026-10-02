@@ -19,6 +19,7 @@ import {
   assertTriageWritablePath,
   normalizeRepoRelativePath,
 } from "./triageWritePolicy.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type TriageCommitError = {
   readonly threadRootCommentId: number;
@@ -106,7 +107,8 @@ export function buildTriageWorkspaceTools(params: {
       }
       if (matches > 1) {
         throw new AppError({
-          code: "triage.old_text_ambiguous",
+          domain: "triage",
+          kind: "old_text_ambiguous",
           message: "oldText is ambiguous; include more surrounding context",
           context: { path: rel },
         });
@@ -119,7 +121,8 @@ export function buildTriageWorkspaceTools(params: {
       const hadCrlf = content.includes("\r\n");
       if (!hadBom && !hadCrlf) {
         throw new AppError({
-          code: "triage.old_text_not_found",
+          domain: "triage",
+          kind: "old_text_not_found",
           message: "oldText not found; re-read the file",
           context: { path: rel },
         });
@@ -129,14 +132,16 @@ export function buildTriageWorkspaceTools(params: {
       const normalizedMatches = countOccurrences(normalized, normalizedOldText);
       if (normalizedMatches === 0) {
         throw new AppError({
-          code: "triage.old_text_not_found",
+          domain: "triage",
+          kind: "old_text_not_found",
           message: "oldText not found; re-read the file",
           context: { path: rel },
         });
       }
       if (normalizedMatches > 1) {
         throw new AppError({
-          code: "triage.old_text_ambiguous",
+          domain: "triage",
+          kind: "old_text_ambiguous",
           message: "oldText is ambiguous; include more surrounding context",
           context: { path: rel },
         });
@@ -169,7 +174,8 @@ export function buildTriageWorkspaceTools(params: {
       });
       if (await stat(fullPath).catch(() => null)) {
         throw new AppError({
-          code: "triage.path_exists",
+          domain: "triage",
+          kind: "path_exists",
           message: "Path already exists",
           context: { path: rel },
         });
@@ -196,21 +202,24 @@ export function buildTriageWorkspaceTools(params: {
     run: async ({ threadRootCommentId, files, subject, body }) => {
       if (!inventoryIds.has(threadRootCommentId)) {
         throw new AppError({
-          code: "triage.unknown_thread",
+          domain: "triage",
+          kind: "unknown_thread",
           message: "Unknown threadRootCommentId",
           context: { threadRootCommentId },
         });
       }
       if (params.state.commitByThreadRootCommentId.has(threadRootCommentId)) {
         throw new AppError({
-          code: "triage.commit_fix_duplicate",
+          domain: "triage",
+          kind: "commit_fix_duplicate",
           message: "commitFix already called for this threadRootCommentId",
           context: { threadRootCommentId },
         });
       }
       if (params.state.commitByThreadRootCommentId.size >= MAX_TRIAGE_FIXES_PER_RUN) {
         throw new AppError({
-          code: "triage.fix_budget_reached",
+          domain: "triage",
+          kind: "fix_budget_reached",
           message: "Triage fix budget reached",
         });
       }
@@ -224,7 +233,7 @@ export function buildTriageWorkspaceTools(params: {
         params.state.commitByThreadRootCommentId.set(threadRootCommentId, result.sha);
         return result;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         params.state.commitErrors.push({ threadRootCommentId, error: message });
         throw error;
       }

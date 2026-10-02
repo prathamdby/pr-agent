@@ -23,6 +23,7 @@ import { CodeModeHostHalt, hostCancelHalt, isCodeModeHostHalt } from "./hostHalt
 import type { CodeModeErrorCode } from "./hostHalt.js";
 import { injectLastExpressionReturn } from "./injectReturn.js";
 import { asJsonObject, asJsonValue, type JsonObject, utf8ByteLength } from "./json.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 export type HostCall = (
   name: string,
@@ -261,7 +262,7 @@ function installHostTools(
             if (deferred.alive) deferred.dispose();
             return;
           }
-          const message = error instanceof Error ? error.message : String(error);
+          const message = errorMessage(error);
           const errHandle = vm.newError(message);
           deferred.reject(errHandle);
           errHandle.dispose();
@@ -395,7 +396,7 @@ export async function runQuickJsCell(params: QuickJsCellParams): Promise<QuickJs
     if (params.signal.aborted) {
       return failResult(hostCancelHalt());
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     if (/LIMIT_EXCEEDED/.test(message)) {
       return failResult({ code: "LIMIT_EXCEEDED", message });
     }

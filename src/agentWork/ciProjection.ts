@@ -118,7 +118,8 @@ async function mergeCiProjectionCorrelations(
   );
   if (rows.length !== 1) {
     throw new AppError({
-      code: "agent_work.ci_projection_correlation_missing",
+      domain: "agent_work",
+      kind: "ci_projection_correlation_missing",
       message: "CI projection correlation target is missing",
       context: {
         queue: CI_PROJECTION_QUEUE,

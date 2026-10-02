@@ -46,6 +46,7 @@ import {
 } from "./workerHealth.js";
 import { reconcileLostRunningWork } from "./lostRunningWork.js";
 import { scanProjectionRepairPending } from "./projectionRepair.js";
+import { errorMessage, toError } from "../errors/errorMessage.js";
 
 const AGENT_QUEUE_STATS_QUEUES = [
   ACK_QUEUE,
@@ -210,7 +211,7 @@ export const AgentWorkerLive = (
                   logInfo("retention_cleanup", result);
                 } catch (e) {
                   logError("retention_cleanup_failed", {
-                    message: e instanceof Error ? e.message : String(e),
+                    message: errorMessage(e),
                     ...errorLogFields(e),
                   });
                   throw e;
@@ -256,7 +257,7 @@ export const AgentWorkerLive = (
               });
             } catch (e) {
               logWarn("lost_running_work_sweep_failed", {
-                message: e instanceof Error ? e.message : String(e),
+                message: errorMessage(e),
                 ...errorLogFields(e),
               });
             }
@@ -264,7 +265,7 @@ export const AgentWorkerLive = (
               await cleanupStaleLocalPrWorkspaces();
             } catch (e) {
               logWarn("local_pr_workspace_sweep_failed", {
-                message: e instanceof Error ? e.message : String(e),
+                message: errorMessage(e),
                 ...errorLogFields(e),
               });
             }
@@ -280,7 +281,7 @@ export const AgentWorkerLive = (
               }
             } catch (e) {
               logWarn("ci_projection_repair_scan_failed", {
-                message: e instanceof Error ? e.message : String(e),
+                message: errorMessage(e),
                 ...errorLogFields(e),
               });
             }
@@ -308,7 +309,7 @@ export const AgentWorkerLive = (
 
           return { diagnostics, health };
         },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        catch: (e) => toError(e),
       }),
       (handles) =>
         Effect.tryPromise({
@@ -317,7 +318,7 @@ export const AgentWorkerLive = (
             await handles.health.close().catch(() => undefined);
             await stopWorkerConsumers(boss);
           },
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+          catch: (e) => toError(e),
         }).pipe(Effect.orDie),
     ).pipe(Effect.andThen(Effect.never)),
   );

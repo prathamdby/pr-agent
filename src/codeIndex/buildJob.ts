@@ -22,6 +22,7 @@ import {
   type CodeIndexRepoScope,
   waitForReadySnapshot,
 } from "./repository.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type CodeIndexBuildJobData = {
   readonly installationId: number;
@@ -92,7 +93,7 @@ async function buildCodeIndexFromWorkspace(
         unlockError = error;
         logWarn("code_index_unlock_failed", {
           snapshotId: snapshot.id,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       }
     }
@@ -186,7 +187,7 @@ export async function prepareCodeIndexForReview(args: {
       owner: args.scope.owner,
       repo: args.scope.repo,
       headSha: args.scope.headSha,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   });
 
@@ -202,7 +203,7 @@ export async function prepareCodeIndexForReview(args: {
         owner: args.scope.owner,
         repo: args.scope.repo,
         headSha: args.scope.headSha,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     });
   }

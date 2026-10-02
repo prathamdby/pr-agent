@@ -4,7 +4,8 @@ export function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) {
     throw new AppError({
-      code: "config.missing_env",
+      domain: "config",
+      kind: "missing_env",
       message: `Missing required environment variable: ${name}`,
       context: { name },
     });
@@ -20,7 +21,8 @@ export function readPositiveNumber(name: string, defaultValue: number): number {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isFinite(value) || value < 1) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: `${name} must be a positive number`,
       context: { name },
     });
@@ -32,7 +34,8 @@ export function readNonNegativeNumber(name: string, defaultValue: number): numbe
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isFinite(value) || value < 0) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: `${name} must be zero or a positive number`,
       context: { name },
     });
@@ -44,7 +47,8 @@ export function readPositiveInteger(name: string, defaultValue: number): number 
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: `${name} must be a positive integer`,
       context: { name },
     });
@@ -56,7 +60,8 @@ export function readNonNegativeInteger(name: string, defaultValue: number): numb
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: `${name} must be zero or a non-negative integer`,
       context: { name },
     });
@@ -72,7 +77,8 @@ export function readEnum<T extends string>(
   const value = optionalEnv(name, defaultValue);
   if (!allowed.includes(value as T)) {
     throw new AppError({
-      code: "config.invalid_enum",
+      domain: "config",
+      kind: "invalid_enum",
       message: `${name} must be one of ${allowed.join(", ")}`,
       context: { name, allowed },
     });
@@ -91,7 +97,8 @@ export function readStrictBoolean(name: string, defaultValue: boolean): boolean 
   }
   if (raw !== "true" && raw !== "false") {
     throw new AppError({
-      code: "config.invalid_enum",
+      domain: "config",
+      kind: "invalid_enum",
       message: `${name} must be one of true, false`,
       context: { name, allowed: ["true", "false"] },
     });

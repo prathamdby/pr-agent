@@ -11,6 +11,7 @@ import {
   renderReviewProgressComment,
   type SpecialistTickState,
 } from "../run/progressComment.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 type ProgressTickRevision = 1 | 2 | 3 | 4 | 5 | 6;
 type SpecialistStatusTick = Extract<SpecialistTickState, { readonly kind: "specialists" }>;
@@ -106,7 +107,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
       repo: args.repo,
       pr: args.prNumber,
       progressRevision: args.progressRevision,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
 }
@@ -138,7 +139,7 @@ export async function writeCancelledProgressComment(
       owner: args.owner,
       repo: args.repo,
       pr: args.prNumber,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
 }

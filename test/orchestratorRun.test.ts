@@ -363,7 +363,8 @@ function failed(specialist: SpecialistId, message = `${specialist} failed`): Spe
     specialist,
     durationMs: 1,
     error: new AppError({
-      code: "review.specialist_failed",
+      domain: "review",
+      kind: "specialist_failed",
       message,
       cause: new Error(message),
     }),

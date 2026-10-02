@@ -20,7 +20,8 @@ export async function pumpSpecialistCompletions(args: {
       })
       .catch((error: unknown) => {
         const appError = toAppError(error, {
-          code: "review.specialist_promise_rejected",
+          domain: "review",
+          kind: "specialist_promise_rejected",
         });
         logWarn("review_specialist_promise_rejected", {
           specialist,
@@ -60,7 +61,8 @@ export async function pumpSpecialistCompletions(args: {
       await args.onOutcome(outcome);
     } catch (error) {
       const appError = toAppError(error, {
-        code: "review.orchestrator_outcome_handler_failed",
+        domain: "review",
+        kind: "orchestrator_outcome_handler_failed",
         context: { specialist: outcome.specialist, outcomeKind: outcome.kind },
       });
       logWarn("review_specialist_outcome_handler_failed", {

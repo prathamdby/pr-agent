@@ -117,7 +117,8 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
   const normalized = requestedPath.replace(/\\/g, "/");
   if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
     throw new AppError({
-      code: "pr_workspace.path_traversal",
+      domain: "pr_workspace",
+      kind: "path_traversal",
       message: `Path traversal attempt detected: ${requestedPath}`,
       context: { path: requestedPath },
     });
@@ -125,7 +126,8 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
   const resolved = resolve(root, normalized);
   if (!resolved.startsWith(root + sep) && resolved !== root) {
     throw new AppError({
-      code: "pr_workspace.path_traversal",
+      domain: "pr_workspace",
+      kind: "path_traversal",
       message: `Path traversal attempt detected: ${requestedPath}`,
       context: { path: requestedPath },
     });
@@ -149,7 +151,8 @@ export async function assertContainedWorkspacePath(
   if (entry == null) return fullPath;
   if (entry.isSymbolicLink()) {
     throw new AppError({
-      code: "pr_workspace.symlink_escape",
+      domain: "pr_workspace",
+      kind: "symlink_escape",
       message: `Symlink escape blocked: ${requestedPath}`,
       context: { path: requestedPath },
     });
@@ -158,7 +161,8 @@ export async function assertContainedWorkspacePath(
   const realCandidate = await realpath(fullPath);
   if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
     throw new AppError({
-      code: "pr_workspace.symlink_escape",
+      domain: "pr_workspace",
+      kind: "symlink_escape",
       message: `Symlink escape blocked: ${requestedPath}`,
       context: { path: requestedPath },
     });
@@ -546,7 +550,8 @@ export function createPathPolicy(
     if (profile.kind === "investigation") assertPathAllowedForAsk(normalized, profile.gate);
     else if (!allows(normalized))
       throw new AppError({
-        code: `${profile.kind}.sensitive_path_blocked`,
+        domain: profile.kind,
+        kind: "sensitive_path_blocked",
         message: `Blocked sensitive path "${normalized}"`,
         context: { path: normalized },
       });

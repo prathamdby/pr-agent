@@ -8,6 +8,7 @@ import { AppError } from "../errors/appError.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { noteGithubRequestSuccess } from "./rateLimitCircuit.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
@@ -125,7 +126,7 @@ export function prewarmAppBotIdentity(cfg: Pick<Config, "github">): void {
   void getAppBotIdentity(cfg).catch((error: unknown) => {
     logDebug("app_bot_identity_prewarm_failed", {
       githubAppId: cfg.github.appId,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   });
 }
@@ -168,7 +169,8 @@ async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "github">): Promis
   const { data } = await jwtOctokit.rest.apps.getAuthenticated();
   if (!data?.slug) {
     throw new AppError({
-      code: "github.missing_app_slug",
+      domain: "github",
+      kind: "missing_app_slug",
       message: "GitHub App /app response missing slug (cannot resolve bot user)",
     });
   }

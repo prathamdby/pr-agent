@@ -131,7 +131,8 @@ async function enforceMaxFetchBytes(
   const objectStoreBytes = gitCountObjectsStoreBytes(countObjectsOut);
   if (objectStoreBytes > maxFetchBytes) {
     throw new AppError({
-      code: "pr_workspace.fetch_too_large",
+      domain: "pr_workspace",
+      kind: "fetch_too_large",
       message: `PR fetch object store (${objectStoreBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${maxFetchBytes})`,
       context: { objectStoreBytes, maxFetchBytes },
     });
@@ -310,7 +311,8 @@ async function finishLocalPrWorkspace(
   const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
   if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
     throw new AppError({
-      code: "pr_workspace.head_sha_mismatch",
+      domain: "pr_workspace",
+      kind: "head_sha_mismatch",
       message: `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
       context: { fetchedHead: fetchedHead.trim(), headSha },
     });

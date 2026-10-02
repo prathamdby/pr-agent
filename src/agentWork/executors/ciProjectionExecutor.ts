@@ -54,6 +54,7 @@ import {
 import { getProgressCommentOwner } from "../publishRecordRepository.js";
 import { getWorkItemCore } from "../workItemStateRepository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
@@ -122,7 +123,7 @@ async function reconcileOwnVerdicts(params: {
       logWarn("ci_projection_own_verdict_failed", {
         workItemId: item.id,
         resourceKey: item.resourceKey,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -192,7 +193,7 @@ async function patchTriageRollupComments(params: {
         repo: params.repo,
         pr: params.prNumber,
         commentId: comment.id,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return "retry";
     }
@@ -241,7 +242,7 @@ async function findSupersededSummaryComment(params: {
     logWarn("ci_projection_pr_head_failed", {
       headSha: params.headSha,
       commentId: latest.id,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return "retry";
   }
@@ -306,7 +307,7 @@ async function projectOnePr(params: {
       owner: params.data.owner,
       repo: params.data.repo,
       pr: params.prNumber,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return "retry";
   }
@@ -385,7 +386,7 @@ async function projectOnePr(params: {
         repo: params.data.repo,
         pr: params.prNumber,
         commentId: comment.id,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return "retry";
     }
@@ -424,7 +425,7 @@ async function projectOnePr(params: {
         repo: params.data.repo,
         pr: params.prNumber,
         commentId: comment.id,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return "retry";
     }
@@ -502,7 +503,7 @@ async function applyGithubCiListingIfNeeded(params: {
   try {
     snapshot = await surface.getCiStatus(params.data.headSha);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     if (phase === "seed") {
       logWarn("ci_projection_seed_failed", {
         owner: params.data.owner,
@@ -630,7 +631,7 @@ export async function executeCiProjectionJob(
       owner: data.owner,
       repo: data.repo,
       headSha: data.headSha,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
 

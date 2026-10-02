@@ -319,7 +319,8 @@ export async function runOrchestratedPrReview(
         }
       } catch (error) {
         const appError = toAppError(error, {
-          code: "review.progress_comment_lookup_failed",
+          domain: "review",
+          kind: "progress_comment_lookup_failed",
         });
         logWarn("review_progress_comment_lookup_failed", errorLogFields(appError));
         commentId = params.progressCommentIdHint;
@@ -435,7 +436,8 @@ export async function runOrchestratedPrReview(
         .catch(() => undefined);
       const deadlineFailure = classifyFailure(
         new AppError({
-          code: "review.orchestrator_session_create_deadline",
+          domain: "review",
+          kind: "orchestrator_session_create_deadline",
           message: "Orchestrator session create deadline reached",
           context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
         }),
@@ -458,7 +460,8 @@ export async function runOrchestratedPrReview(
     } else if (creation.kind === "rejected") {
       state.judgment = "degraded";
       const appError = toAppError(creation.error, {
-        code: "review.orchestrator_session_create_failed",
+        domain: "review",
+        kind: "orchestrator_session_create_failed",
         context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
       });
       const failure = classifyFailure(appError, { phase: "recon" });
@@ -474,7 +477,8 @@ export async function runOrchestratedPrReview(
   } catch (error) {
     state.judgment = "degraded";
     const appError = toAppError(error, {
-      code: "review.orchestrator_session_create_failed",
+      domain: "review",
+      kind: "orchestrator_session_create_failed",
       context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
     });
     const failure = classifyFailure(appError, { phase: "recon" });
@@ -549,7 +553,8 @@ export async function runOrchestratedPrReview(
           error:
             firstError ??
             new AppError({
-              code: "review.orchestrator_session_retired",
+              domain: "review",
+              kind: "orchestrator_session_retired",
               message: "Orchestrator session is no longer available",
               context: { phase },
             }),
@@ -567,7 +572,8 @@ export async function runOrchestratedPrReview(
         return {
           kind: "failed",
           error: new AppError({
-            code: "review.orchestrator_model_deadline",
+            domain: "review",
+            kind: "orchestrator_model_deadline",
             message: "Orchestrator model deadline reached",
             context: { phase, attempt },
           }),
@@ -578,7 +584,8 @@ export async function runOrchestratedPrReview(
         return {
           kind: "failed",
           error: new AppError({
-            code: "review.orchestrator_stopped",
+            domain: "review",
+            kind: "orchestrator_stopped",
             message: "Orchestrator stopped before the model send",
             context: { phase, attempt, reason: gate.reason },
           }),
@@ -603,7 +610,8 @@ export async function runOrchestratedPrReview(
           return {
             kind: "failed",
             error: new AppError({
-              code: "review.orchestrator_model_deadline",
+              domain: "review",
+              kind: "orchestrator_model_deadline",
               message: "Orchestrator model deadline reached during send",
               context: { phase, attempt },
             }),
@@ -616,7 +624,8 @@ export async function runOrchestratedPrReview(
           return {
             kind: "failed",
             error: new AppError({
-              code: "agent.session_aborted",
+              domain: "agent",
+              kind: "session_aborted",
               message: "Orchestrator send aborted by host signal",
               context: { phase, attempt },
             }),
@@ -631,7 +640,8 @@ export async function runOrchestratedPrReview(
         return { kind: "sent", text: send.value.text, end: send.value.end };
       } catch (error) {
         const appError = toAppError(error, {
-          code: "review.orchestrator_send_failed",
+          domain: "review",
+          kind: "orchestrator_send_failed",
           context: { phase, attempt },
         });
         firstError ??= appError;
@@ -652,7 +662,8 @@ export async function runOrchestratedPrReview(
     const terminalError =
       firstError ??
       new AppError({
-        code: "review.orchestrator_send_failed",
+        domain: "review",
+        kind: "orchestrator_send_failed",
         message: "Orchestrator send failed twice",
         context: { phase },
       });
@@ -815,7 +826,8 @@ export async function runOrchestratedPrReview(
     if (result.kind === "wrong_phase") {
       publishAttempts += 1;
       throw new AppError({
-        code: result.code,
+        domain: "review",
+        kind: "tool_wrong_phase",
         message: result.error,
         context: { phase: result.phase, allowed: result.allowed },
       });
@@ -851,7 +863,8 @@ export async function runOrchestratedPrReview(
     }
     if (cause.reason === "judgment_failed") {
       const appError = toAppError(cause.error, {
-        code: "review.orchestrator_report_handler_failed",
+        domain: "review",
+        kind: "orchestrator_report_handler_failed",
         context: { specialist: outcome.specialist },
       });
       logWarn("review_orchestrator_report_handler_failed", {
@@ -869,7 +882,8 @@ export async function runOrchestratedPrReview(
       await publishReportDeterministically(outcome);
     } catch (publishError) {
       fatalError = toAppError(publishError, {
-        code: "review.deterministic_finding_publish_failed",
+        domain: "review",
+        kind: "deterministic_finding_publish_failed",
         context: { specialist: outcome.specialist },
       });
       abortSpecialists();
@@ -1112,7 +1126,8 @@ export async function runOrchestratedPrReview(
                 await degradeReport(outcome, {
                   reason: "judgment_failed",
                   error: new AppError({
-                    code: "review.orchestrator_outcome_unhandled",
+                    domain: "review",
+                    kind: "orchestrator_outcome_unhandled",
                     message: "Specialist outcome missed judgment pump",
                     context: { specialist: outcome.specialist },
                   }),
@@ -1267,7 +1282,8 @@ export async function runOrchestratedPrReview(
     abortSpecialists();
     await retireSession();
     throw toAppError(error, {
-      code: "review.orchestrator_run_failed",
+      domain: "review",
+      kind: "orchestrator_run_failed",
       context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
     });
   } finally {

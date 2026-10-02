@@ -22,6 +22,7 @@ import { askFailureReplyOperationKey, askReplyOperationKey, publishOnce } from "
 import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
 import type { AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 function replyTargetKindFromIntentDetail(
   value: unknown,
@@ -110,7 +111,7 @@ async function publishAskAnswer(
       repo: item.repo,
       pr: replyTarget.prNumber,
       inReplyToCommentId: replyTarget.inReplyToCommentId,
-      message: e instanceof Error ? e.message : String(e),
+      message: errorMessage(e),
       ...classifiedFailureLogFields(failure),
     });
     if (!isKnownNoAcceptanceMutationError(e)) throw e;
@@ -275,7 +276,7 @@ async function finalizeAskReplyPublish(params: {
       repo: item.repo,
       pr: item.prNumber,
       workItemId: item.id,
-      message: e instanceof Error ? e.message : String(e),
+      message: errorMessage(e),
       ...classifiedFailureLogFields(failure),
     });
     return "degraded";
@@ -469,7 +470,7 @@ export function createAskWorkExecution({
                 repo: item.repo,
                 pr: item.prNumber,
                 workItemId: item.id,
-                message: e instanceof Error ? e.message : String(e),
+                message: errorMessage(e),
                 ...classifiedFailureLogFields(failure),
               });
               return {

@@ -3,6 +3,7 @@ import { decodeHostCallFailure, hostCancelHalt, type CodeModeHostHaltPayload } f
 import { runQuickJsCell } from "./quickjsCell.js";
 import type { JsonObject } from "./json.js";
 import type { QuickJsCellResult } from "./quickjsCell.js";
+import { errorMessage, toError } from "../../errors/errorMessage.js";
 
 if (!parentPort) {
   throw new Error("executorWorker must run as a worker thread");
@@ -84,7 +85,7 @@ parentPort.on("message", (message: HostMessage) => {
       .catch((error: unknown) => {
         abortByExecution.delete(message.executionId);
         for (const waiter of pending.values()) {
-          waiter.reject(error instanceof Error ? error : new Error(String(error)));
+          waiter.reject(toError(error));
         }
         pending.clear();
         parentPort?.postMessage({
@@ -93,7 +94,7 @@ parentPort.on("message", (message: HostMessage) => {
             ok: false,
             error: {
               code: "EXECUTION_ERROR",
-              message: error instanceof Error ? error.message : String(error),
+              message: errorMessage(error),
             },
           },
           // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Worker-thread ports have no origin.

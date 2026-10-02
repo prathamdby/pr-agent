@@ -13,6 +13,7 @@ import {
   type RepoPolicyRule,
 } from "../repoPolicy.js";
 import type { ReviewFinding } from "../reviewSchema.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 const BOUND_POLICY_JUDGE_TIMEOUT_MS = 20_000;
 const BOUND_POLICY_SNIPPET_MAX_CHARS = 1_500;
@@ -218,7 +219,7 @@ export async function resolveBoundPolicyFooters(params: {
     yesIds = await params.judge(judgePairs);
   } catch (error) {
     logWarn("bound_policy_judge_failed", {
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return new Map();
   }
@@ -246,7 +247,7 @@ export function createBoundPolicyJudge(cfg: Config): BoundPolicyJudge {
       return parseBoundPolicyYesIds(turn.text, askedIds);
     } catch (error) {
       logWarn("bound_policy_judge_failed", {
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
       return [];
     } finally {

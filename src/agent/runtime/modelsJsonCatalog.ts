@@ -68,7 +68,8 @@ export type ModelsJsonCatalog = {
 
 function invalidSchema(detail: string): AppError {
   return new AppError({
-    code: "settings.models_json_load_error",
+    domain: "settings",
+    kind: "models_json_load_error",
     message: `Invalid models.json schema: ${detail}`,
   });
 }
@@ -258,7 +259,8 @@ export async function loadModelsJsonCatalog(path: string): Promise<ModelsJsonCat
   } catch (error) {
     if (error instanceof AppError) throw error;
     throw new AppError({
-      code: "settings.models_json_load_error",
+      domain: "settings",
+      kind: "models_json_load_error",
       message: "Invalid models.json schema",
       context: { modelsJsonPath: path },
       cause: error,

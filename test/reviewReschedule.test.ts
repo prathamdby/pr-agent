@@ -8,8 +8,6 @@ import {
   cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
-  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
-  STALE_HEAD_REPLACEMENT_EXHAUSTED,
   isStaleHeadReplacementExhausted,
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
@@ -96,7 +94,8 @@ beforeEach(() => {
 describe("createReviewRescheduleWorkItem", () => {
   it("rejects a stale lease epoch before marker persistence", async () => {
     const leaseLost = new AppError({
-      code: "agent_work.pr_actor_lease_lost",
+      domain: "agent_work",
+      kind: "pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
     });
     mocks.lockPrActorLeaseForUpdate.mockRejectedValue(leaseLost);
@@ -212,7 +211,7 @@ describe("createReviewRescheduleWorkItem", () => {
     await expect(
       createReviewRescheduleWorkItem(pool, makeItem(), LEASE_EPOCH),
     ).rejects.toMatchObject({
-      code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+      code: "agent_work.stale_head_parent_not_reschedulable",
     });
     expect(query).toHaveBeenCalledTimes(1);
   });
@@ -338,7 +337,7 @@ describe("stale-head shared helpers", () => {
 
   it("staleHeadReplacementExhaustedError uses the shared exhausted code", () => {
     const error = staleHeadReplacementExhaustedError(makeItem());
-    expect(error.code).toBe(STALE_HEAD_REPLACEMENT_EXHAUSTED);
+    expect(error.code).toBe("review.stale_head_replacement_exhausted");
     expect(error.message).toMatch(/\/review/);
     expect(isStaleHeadReplacementExhausted(error)).toBe(true);
     expect(isStaleHeadReplacementExhausted(new Error("other"))).toBe(false);
@@ -348,7 +347,8 @@ describe("stale-head shared helpers", () => {
 describe("enqueueReviewReschedule", () => {
   it("rejects a stale lease epoch before deterministic enqueue", async () => {
     const leaseLost = new AppError({
-      code: "agent_work.pr_actor_lease_lost",
+      domain: "agent_work",
+      kind: "pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
     });
     mocks.lockPrActorLeaseForUpdate.mockRejectedValue(leaseLost);

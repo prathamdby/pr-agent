@@ -23,7 +23,8 @@ export function resolveModelsJsonPath(
     const path = isAbsolute(explicit) ? explicit : join(cwd, explicit);
     if (!existsSync(path)) {
       throw new AppError({
-        code: "settings.models_json_path_not_found",
+        domain: "settings",
+        kind: "models_json_path_not_found",
         message: `MODELS_JSON_PATH "${path}" does not exist`,
         context: { path },
       });

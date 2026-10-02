@@ -60,7 +60,8 @@ function isKnownApi(api: string): api is KnownApi {
 function streamsForApi(api: string): ProviderStreams {
   if (!isKnownApi(api)) {
     throw new AppError({
-      code: "settings.models_json_load_error",
+      domain: "settings",
+      kind: "models_json_load_error",
       message: `Invalid models.json schema: unknown provider api: ${api}`,
     });
   }
@@ -170,7 +171,8 @@ function builtinPiApi(piProvider: string, piModel: string): string {
   const fallback = getBuiltinModels(piProvider as never)[0];
   if (fallback?.api) return fallback.api;
   throw new AppError({
-    code: "settings.models_json_unresolvable_api",
+    domain: "settings",
+    kind: "models_json_unresolvable_api",
     message: `PI_PROVIDER "${piProvider}" has no resolvable API type`,
     context: { piProvider },
   });
@@ -194,7 +196,8 @@ export async function assertPiModelSelection(options: {
     if (!providers.includes(piProvider)) {
       const lookedFor = options.catalogCandidatePath ?? defaultModelsJsonCandidatePath();
       throw new AppError({
-        code: "settings.models_json_unknown_provider_no_catalog",
+        domain: "settings",
+        kind: "models_json_unknown_provider_no_catalog",
         message: `PI_PROVIDER "${piProvider}" is unknown and no models.json catalog was loaded (looked for ${lookedFor}). Mount or copy ${MODELS_JSON_FILENAME} into the process cwd, or set MODELS_JSON_PATH. Built-ins: ${providers.slice(0, 12).join(", ")}…`,
         context: {
           piProvider,
@@ -212,7 +215,8 @@ export async function assertPiModelSelection(options: {
     const model = models.getModel(piProvider, piModel);
     if (!model) {
       throw new AppError({
-        code: "settings.models_json_model_not_found",
+        domain: "settings",
+        kind: "models_json_model_not_found",
         message: `PI_PROVIDER/PI_MODEL "${piProvider}/${piModel}" not found in ${MODELS_JSON_FILENAME} or the built-in catalog`,
         context: { piProvider, piModel },
       });
@@ -221,7 +225,8 @@ export async function assertPiModelSelection(options: {
   } catch (error) {
     if (isAppError(error)) throw error;
     throw new AppError({
-      code: "settings.models_json_load_error",
+      domain: "settings",
+      kind: "models_json_load_error",
       message: "Invalid models.json schema",
       context: { modelsJsonPath },
       cause: error,

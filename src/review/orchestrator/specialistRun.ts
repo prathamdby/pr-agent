@@ -61,14 +61,16 @@ type SubmissionState = {
 
 function timeoutError(): AppError {
   return new AppError({
-    code: "review.specialist_timeout",
+    domain: "review",
+    kind: "specialist_timeout",
     message: "Specialist timeout deadline exceeded",
   });
 }
 
 function externalAbortError(): AppError {
   return new AppError({
-    code: "review.specialist_aborted",
+    domain: "review",
+    kind: "specialist_aborted",
     message: "Specialist run aborted by external signal",
   });
 }
@@ -77,7 +79,8 @@ function assertCanContinue(params: RunSpecialistParams, deadlineMs: number): voi
   if (params.signal?.aborted) throw externalAbortError();
   if (!params.shouldContinue()) {
     throw new AppError({
-      code: "review.specialist_stopped",
+      domain: "review",
+      kind: "specialist_stopped",
       message: "Specialist run stopped before completion",
     });
   }
@@ -331,7 +334,8 @@ async function runAttempt(
     if (!state.report) {
       assertCanContinue(params, deadlineMs);
       throw new AppError({
-        code: "review.specialist_invalid_report",
+        domain: "review",
+        kind: "specialist_invalid_report",
         message: state.validationError ?? "Specialist did not submit a valid report",
       });
     }
@@ -353,7 +357,8 @@ function failureOutcome(params: {
     specialist: params.specialist,
     durationMs: Date.now() - params.startedAtMs,
     error: new AppError({
-      code: "review.specialist_failed",
+      domain: "review",
+      kind: "specialist_failed",
       message: `${params.specialist} specialist failed after ${params.attempts} attempt(s)`,
       context: {
         specialist: params.specialist,
@@ -371,7 +376,8 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
   let attempts = 0;
   let ordinaryRetryUsed = false;
   let lastError: unknown = new AppError({
-    code: "review.specialist_not_started",
+    domain: "review",
+    kind: "specialist_not_started",
     message: "Specialist did not start",
   });
   let classification: ProviderErrorKind = "unknown";

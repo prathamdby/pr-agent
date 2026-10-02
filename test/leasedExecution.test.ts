@@ -862,7 +862,8 @@ describe("leased execution", () => {
     mockFetchedItem(item);
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValue(true);
     const mismatch = new AppError({
-      code: "github.head_sha_mismatch",
+      domain: "github",
+      kind: "head_sha_mismatch",
       message: "Pull request head SHA new does not match work item headSha old",
     });
     const execute = vi.fn().mockRejectedValue(mismatch);
@@ -884,7 +885,8 @@ describe("leased execution", () => {
   it("swallows lease-lost errors without terminalising", async () => {
     mockFetchedItem(makeItem());
     const boom = new AppError({
-      code: "agent_work.pr_actor_lease_lost",
+      domain: "agent_work",
+      kind: "pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
     });
     const execute = vi.fn().mockRejectedValue(boom);
@@ -935,7 +937,8 @@ describe("leased execution", () => {
       vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
       await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
       throw new AppError({
-        code: "agent.session_aborted",
+        domain: "agent",
+        kind: "session_aborted",
         message: "Session aborted",
       });
     });
@@ -959,7 +962,8 @@ describe("leased execution", () => {
       vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
       await vi.waitFor(() => expect(env.signal.aborted).toBe(true));
       throw new AppError({
-        code: "agent.session_aborted",
+        domain: "agent",
+        kind: "session_aborted",
         message: "Session aborted",
       });
     });

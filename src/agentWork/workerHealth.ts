@@ -19,6 +19,7 @@ import {
 } from "../settings/index.js";
 import { AGENT_DEAD_LETTER_QUEUES } from "./boss.js";
 import { lostRunningWorkLivenessSql } from "./workItemTransitions.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 /** Queues that must have registered consumers for worker readiness. */
 export const WORKER_CONSUMER_QUEUES = [
@@ -373,7 +374,7 @@ export function startPeriodicQueueDiagnostics(params: {
       .tick(params.now())
       .catch((error) => {
         logWarn("agent_queue_diagnostics_failed", {
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       })
       .finally(() => {
@@ -412,7 +413,7 @@ export function startWorkerHealthServer(params: {
         })
         .catch((error) => {
           res.writeHead(503, { "content-type": "text/plain; charset=utf-8" });
-          res.end(`not ready: ${error instanceof Error ? error.message : String(error)}`);
+          res.end(`not ready: ${errorMessage(error)}`);
         });
       return;
     }

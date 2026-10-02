@@ -168,7 +168,8 @@ async function lockAndRefillBucket(
   const row = result.rows[0];
   if (!row) {
     throw new AppError({
-      code: "agent_work.ask_quota_bucket_missing",
+      domain: "agent_work",
+      kind: "ask_quota_bucket_missing",
       message: `Ask quota bucket ${params.scope}/${params.key} was not created`,
       context: { scope: params.scope },
     });
@@ -223,7 +224,8 @@ function bucketByScope(buckets: readonly AskQuotaBucket[], scope: AskQuotaScope)
   const bucket = buckets.find((candidate) => candidate.scope === scope);
   if (!bucket) {
     throw new AppError({
-      code: "agent_work.ask_quota_scope_missing",
+      domain: "agent_work",
+      kind: "ask_quota_scope_missing",
       message: `Ask quota scope ${scope} was not loaded`,
       context: { scope },
     });
@@ -341,7 +343,8 @@ async function decrementOutstanding(
   );
   if ((result.rowCount ?? 0) === 0) {
     throw new AppError({
-      code: "agent_work.ask_quota_bucket_missing_on_release",
+      domain: "agent_work",
+      kind: "ask_quota_bucket_missing_on_release",
       message: `Ask quota bucket ${scope}/${key} was missing during release`,
       context: { scope },
     });
@@ -460,7 +463,8 @@ export async function recordAskProviderUsage(
   if (totalTokens == null || !Number.isFinite(totalTokens) || totalTokens < 0) return;
   if (params.executionId.length === 0) {
     throw new AppError({
-      code: "agent_work.ask_quota_execution_id_missing",
+      domain: "agent_work",
+      kind: "ask_quota_execution_id_missing",
       message: "Ask quota usage recording requires an execution id",
       context: { workItemId: params.workItemId },
     });
@@ -491,7 +495,8 @@ export async function recordAskProviderUsage(
     if (prior) {
       if (numberValue(prior.provider_tokens_used) !== actualTokens) {
         throw new AppError({
-          code: "agent_work.ask_quota_execution_conflict",
+          domain: "agent_work",
+          kind: "ask_quota_execution_conflict",
           message: "Ask quota execution received a conflicting final usage report",
           context: { workItemId: params.workItemId },
         });
@@ -510,7 +515,8 @@ export async function recordAskProviderUsage(
     );
     if (!bucket.rows[0]) {
       throw new AppError({
-        code: "agent_work.ask_quota_provider_bucket_missing",
+        domain: "agent_work",
+        kind: "ask_quota_provider_bucket_missing",
         message: "Ask provider quota bucket was missing while recording usage",
       });
     }
@@ -569,7 +575,8 @@ export async function recordAskProviderUsage(
       default: {
         const _exhaustive: never = application;
         throw new AppError({
-          code: "agent_work.ask_quota_receipt_application_unknown",
+          domain: "agent_work",
+          kind: "ask_quota_receipt_application_unknown",
           message: "Ask quota receipt application was not recognized",
           context: { workItemId: params.workItemId, kind: _exhaustive },
         });

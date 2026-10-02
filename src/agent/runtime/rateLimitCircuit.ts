@@ -9,6 +9,7 @@ import {
   getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
+import { errorMessage } from "../../errors/errorMessage.js";
 
 /**
  * Per-run GitHub rate-limit circuit shared by ask and review. A tripped circuit is
@@ -49,7 +50,7 @@ export async function openRunRateLimitCircuit(params: {
   } catch (error) {
     logWarn("github_shared_rate_limit_circuit_read_failed", {
       ...logIdentity,
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
   }
   return circuit;

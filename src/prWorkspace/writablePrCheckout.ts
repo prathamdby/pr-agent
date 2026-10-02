@@ -66,7 +66,7 @@ export type WritablePrCheckout = {
 
 export class StaleHeadPushError extends AppError {
   constructor(message = "Pull request head moved before triage push") {
-    super({ code: "triage.stale_head_push", message });
+    super({ domain: "triage", kind: "stale_head_push", message });
     this.name = "StaleHeadPushError";
   }
 }
@@ -100,7 +100,8 @@ function validateGitPerson(person: GitPerson, field: string): void {
   const email = person.email.trim();
   if (!name || name.includes("<") || name.includes(">") || gitPersonHasForbiddenChars(name)) {
     throw new AppError({
-      code: "pr_workspace.commit_identity_invalid",
+      domain: "pr_workspace",
+      kind: "commit_identity_invalid",
       message: `${field} name is invalid`,
       context: { field },
     });
@@ -112,7 +113,8 @@ function validateGitPerson(person: GitPerson, field: string): void {
     gitPersonHasForbiddenChars(email)
   ) {
     throw new AppError({
-      code: "pr_workspace.commit_identity_invalid",
+      domain: "pr_workspace",
+      kind: "commit_identity_invalid",
       message: `${field} email is invalid`,
       context: { field },
     });
@@ -133,7 +135,8 @@ function assertHeadRef(value: string): void {
     value.split("/").some((part) => part.length === 0 || part.endsWith(".lock"))
   ) {
     throw new AppError({
-      code: "pr_workspace.unsafe_head_ref",
+      domain: "pr_workspace",
+      kind: "unsafe_head_ref",
       message: "headRef is not git-safe",
       context: { headRef: value },
     });
@@ -143,14 +146,16 @@ function assertHeadRef(value: string): void {
 function validateSubject(subject: string): void {
   if (subject.length > TRIAGE_COMMIT_SUBJECT_MAX_CHARS) {
     throw new AppError({
-      code: "pr_workspace.commit_subject_too_long",
+      domain: "pr_workspace",
+      kind: "commit_subject_too_long",
       message: `Commit subject exceeds ${TRIAGE_COMMIT_SUBJECT_MAX_CHARS} characters`,
       context: { maxChars: TRIAGE_COMMIT_SUBJECT_MAX_CHARS },
     });
   }
   if (subject.endsWith(".")) {
     throw new AppError({
-      code: "pr_workspace.commit_subject_trailing_period",
+      domain: "pr_workspace",
+      kind: "commit_subject_trailing_period",
       message: "Commit subject must not end with a period",
     });
   }
@@ -158,7 +163,8 @@ function validateSubject(subject: string): void {
   const match = new RegExp(`^(${types}): ([^A-Z].*)$`).exec(subject);
   if (!match) {
     throw new AppError({
-      code: "pr_workspace.commit_subject_invalid",
+      domain: "pr_workspace",
+      kind: "commit_subject_invalid",
       message: "Commit subject does not match the triage commit contract",
     });
   }
@@ -168,7 +174,8 @@ function validateBody(body: readonly string[] | undefined): string | undefined {
   if (!body || body.length === 0) return undefined;
   if (body.length > TRIAGE_COMMIT_BODY_MAX_BULLETS) {
     throw new AppError({
-      code: "pr_workspace.commit_body_too_many_bullets",
+      domain: "pr_workspace",
+      kind: "commit_body_too_many_bullets",
       message: `Commit body accepts at most ${TRIAGE_COMMIT_BODY_MAX_BULLETS} bullets`,
       context: { maxBullets: TRIAGE_COMMIT_BODY_MAX_BULLETS },
     });
@@ -176,20 +183,23 @@ function validateBody(body: readonly string[] | undefined): string | undefined {
   for (const line of body) {
     if (!line.startsWith("- ")) {
       throw new AppError({
-        code: "pr_workspace.commit_body_invalid_prefix",
+        domain: "pr_workspace",
+        kind: "commit_body_invalid_prefix",
         message: "Commit body lines must start with '- '",
       });
     }
     if (line.endsWith(".")) {
       throw new AppError({
-        code: "pr_workspace.commit_body_trailing_period",
+        domain: "pr_workspace",
+        kind: "commit_body_trailing_period",
         message: "Commit body bullets must not end with a period",
       });
     }
     const firstWord = line.slice(2).trim().split(/\s+/, 1)[0] ?? "";
     if (!/^[A-Z]/.test(firstWord)) {
       throw new AppError({
-        code: "pr_workspace.commit_body_capitalization",
+        domain: "pr_workspace",
+        kind: "commit_body_capitalization",
         message: "Commit body bullet first word must be capitalized",
       });
     }
@@ -236,13 +246,15 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
   const normalized = [...new Set(files.map((file) => file.replace(/\\/g, "/")))];
   if (normalized.length === 0) {
     throw new AppError({
-      code: "pr_workspace.commit_fix_no_files",
+      domain: "pr_workspace",
+      kind: "commit_fix_no_files",
       message: "commitFix requires at least one file",
     });
   }
   if (normalized.length > TRIAGE_COMMIT_MAX_FILES) {
     throw new AppError({
-      code: "pr_workspace.commit_fix_too_many_files",
+      domain: "pr_workspace",
+      kind: "commit_fix_too_many_files",
       message: `commitFix accepts at most ${TRIAGE_COMMIT_MAX_FILES} files`,
       context: { maxFiles: TRIAGE_COMMIT_MAX_FILES },
     });
@@ -254,7 +266,8 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
       isTriageControlPath(file)
     ) {
       throw new AppError({
-        code: "pr_workspace.sensitive_path",
+        domain: "pr_workspace",
+        kind: "sensitive_path",
         message: `commitFix blocked sensitive path "${file}"`,
         context: { path: file },
       });
@@ -344,7 +357,8 @@ export async function withWritablePrCheckout<T>(
     );
     if (gitCountObjectsStoreBytes(objectStats) > LOCAL_WORKSPACE_MAX_FETCH_BYTES) {
       throw new AppError({
-        code: "pr_workspace.fetch_too_large",
+        domain: "pr_workspace",
+        kind: "fetch_too_large",
         message: `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${LOCAL_WORKSPACE_MAX_FETCH_BYTES})`,
         context: { maxFetchBytes: LOCAL_WORKSPACE_MAX_FETCH_BYTES },
       });
@@ -353,7 +367,8 @@ export async function withWritablePrCheckout<T>(
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
       throw new AppError({
-        code: "pr_workspace.head_sha_mismatch",
+        domain: "pr_workspace",
+        kind: "head_sha_mismatch",
         message: `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
         context: { fetchedHead: fetchedHead.trim(), headSha },
       });
@@ -386,7 +401,8 @@ export async function withWritablePrCheckout<T>(
         if (changedLineCount(diff) > TRIAGE_MAX_COMMIT_DIFF_LINES) {
           await git(["reset"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
           throw new AppError({
-            code: "pr_workspace.commit_diff_not_minimal",
+            domain: "pr_workspace",
+            kind: "commit_diff_not_minimal",
             message: "commitFix rejected: staged diff is not minimal",
           });
         }

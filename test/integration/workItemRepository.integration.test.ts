@@ -26,10 +26,7 @@ import {
   recordReviewLifecycleObservation,
 } from "../../src/agentWork/intake/workItemRepository.js";
 import { acquireAutoWorkIntakeLock } from "../../src/agentWork/autoWorkEnqueue.js";
-import {
-  createReviewRescheduleWorkItem,
-  STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
-} from "../../src/agentWork/reviewReschedule.js";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
 import {
   getReviewQueuePosition,
   getWorkItem,
@@ -759,7 +756,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
           }
         } else replacement = createReviewRescheduleWorkItem(pool, parent, leaseEpoch);
         await expect(replacement).rejects.toMatchObject({
-          code: STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
+          code: "agent_work.stale_head_parent_not_reschedulable",
         });
         expect((await getWorkItem(pool, parentId))?.payload).toEqual(originalPayload);
         expect(await getProgressCommentOwner(pool, resourceKey, "review")).toEqual({

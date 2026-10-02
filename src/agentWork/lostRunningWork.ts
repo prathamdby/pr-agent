@@ -17,6 +17,7 @@ import {
 } from "./reviewVerdict.js";
 import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export async function listTerminalReviewsWithOpenOwnChecks(
   pool: Pool,
@@ -126,7 +127,7 @@ export async function reconcileLostRunningWork(params: {
         workItemId: item.workItemId,
         resourceKey: item.resourceKey,
         workType: item.workType,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }
@@ -136,7 +137,7 @@ export async function reconcileLostRunningWork(params: {
     extra = await listTerminalReviewsWithOpenOwnChecks(params.pool);
   } catch (error) {
     logWarn("lost_running_work_open_check_list_failed", {
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     });
     return;
   }
@@ -158,7 +159,7 @@ export async function reconcileLostRunningWork(params: {
         workItemId: item.workItemId,
         resourceKey: item.resourceKey,
         workType: item.workType,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }

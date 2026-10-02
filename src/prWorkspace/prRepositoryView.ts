@@ -20,6 +20,7 @@ import {
   selectLocalPrWorkspaceCheckoutMode,
   type LocalPrWorkspace,
 } from "./localPrWorkspace.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;
@@ -190,7 +191,7 @@ async function releasePrRepositoryView(
         repo: params.repo,
         pr: params.prNumber,
         headSha: params.headSha,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     });
   }, PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);

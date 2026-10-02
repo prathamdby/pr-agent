@@ -41,13 +41,14 @@ describe("classifyProviderError", () => {
   it("classifies host-signal abort as cancelled, not timeout", () => {
     expect(
       classifyProviderError(
-        new AppError({ code: "agent.session_aborted", message: "Session aborted" }),
+        new AppError({ domain: "agent", kind: "session_aborted", message: "Session aborted" }),
       ),
     ).toBe("cancelled");
     expect(
       classifyProviderError(
         new AppError({
-          code: "review.specialist_aborted",
+          domain: "review",
+          kind: "specialist_aborted",
           message: "Specialist run aborted by external signal",
         }),
       ),

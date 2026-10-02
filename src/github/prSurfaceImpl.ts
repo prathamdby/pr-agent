@@ -49,6 +49,7 @@ import type {
   ReviewCheckOutcome,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 async function listConversationCommentsForPr(
   token: string,
@@ -381,7 +382,7 @@ async function reactOnAckTargets(
           repo,
           targetKind: target.kind,
           reaction: content,
-          message: e instanceof Error ? e.message : String(e),
+          message: errorMessage(e),
         });
       }
     }),
@@ -496,7 +497,7 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         installationId,
         owner,
         repo,
-        message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+        message: sanitizeLogMessage(errorMessage(error)),
       });
       botUserId = undefined;
     }

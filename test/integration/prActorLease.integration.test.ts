@@ -665,7 +665,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               );
               expect(await acquire(resourceKey, workItemId)).toMatchObject({ acquired: true });
               throw new AppError({
-                code: "agent_work.pr_actor_lease_lost",
+                domain: "agent_work",
+                kind: "pr_actor_lease_lost",
                 message: "Synthetic interruption before verdict close",
               });
             }
@@ -840,7 +841,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       );
       const failure =
         outcome === "deterministic"
-          ? new AppError({ code: "triage.missing_submit", message: "synthetic missing submit" })
+          ? new AppError({
+              domain: "triage",
+              kind: "missing_submit",
+              message: "synthetic missing submit",
+            })
           : new Error("synthetic transient feature failure");
       const run = vi.spyOn(descriptionRun, "runFullPrDescription").mockRejectedValue(failure);
       if (outcome === "recovery_at_cap") {

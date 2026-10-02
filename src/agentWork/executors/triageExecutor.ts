@@ -58,6 +58,7 @@ import { listTriageEligibleInlineReviews } from "../publishRecordRepository.js";
 import { type DurableExecutionContext, type DurableExecutionResult } from "../durableJob.js";
 import type { EscalationPlan } from "../retryPolicy.js";
 import { triageMode, type TriageWorkPayload, type AgentWorkItem } from "../types.js";
+import { toError } from "../../errors/errorMessage.js";
 
 type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
 
@@ -142,7 +143,7 @@ async function resolveScopedThreadRootId(params: {
     const { comments } = await params.prSurface.listReviewComments();
     return resolveReviewThreadRootId(comments, params.anchorCommentId) ?? params.anchorCommentId;
   } catch (error) {
-    const errorObj = error instanceof Error ? error : new Error(String(error));
+    const errorObj = toError(error);
     logWarn("triage_thread_root_resolution_failed", {
       owner: params.owner,
       repo: params.repo,
@@ -396,7 +397,7 @@ async function resolveTriggererGitPerson(params: {
     if (data == null) return null;
     return gitPersonFromGithubUser(data);
   } catch (error) {
-    const errorObj = error instanceof Error ? error : new Error(String(error));
+    const errorObj = toError(error);
     logWarn("triage_commit_identity_lookup_failed", {
       commenterId: params.commenterId,
       message: errorObj.message,
@@ -454,7 +455,8 @@ async function runFreshTriageAgent(params: {
       beforePush: preview
         ? async () => {
             throw new AppError({
-              code: "triage.preview_push_blocked",
+              domain: "triage",
+              kind: "preview_push_blocked",
               message: "Triage preview cannot push",
             });
           }
@@ -516,7 +518,8 @@ async function runFreshTriageAgent(params: {
       const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
       if (!result.submitted || !result.payload) {
         const error = new AppError({
-          code: "triage.missing_submit",
+          domain: "triage",
+          kind: "missing_submit",
           message: "Triage run ended without submitTriage",
         });
         throw error;
@@ -887,7 +890,8 @@ export function createTriageWorkExecution({
           case "bulk":
             if (storedPreview == null || approval == null) {
               throw new AppError({
-                code: "triage.invalid_preview",
+                domain: "triage",
+                kind: "invalid_preview",
                 message: "Bulk apply reached execution without a parsed preview",
               });
             }

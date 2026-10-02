@@ -32,7 +32,8 @@ function copyDetail(detail: Record<string, unknown>): Record<string, unknown> {
   const copied: unknown = JSON.parse(JSON.stringify(detail));
   if (!isRecord(copied))
     throw new AppError({
-      code: "publish_store.invalid_detail",
+      domain: "publish_store",
+      kind: "invalid_detail",
       message: "Publication detail must serialize to a JSON object",
     });
   return copied;
@@ -222,7 +223,8 @@ export function createFakePublishRecords(
     write: async (client, identity) => {
       if ((identity.step === "ask_reply") !== (identity.reviewLens === ASK_PUBLISH_LENS))
         throw new AppError({
-          code: "agent_work.publish_lens_mismatch",
+          domain: "agent_work",
+          kind: "publish_lens_mismatch",
           message:
             identity.step === "ask_reply"
               ? "Ask completion requires the ask lens"
@@ -277,7 +279,8 @@ export function createFakePublishRecords(
       );
       if (!written) {
         const error = new AppError({
-          code: "agent_work.progress_comment_ownership_conflict",
+          domain: "agent_work",
+          kind: "progress_comment_ownership_conflict",
           message: "Progress comment publish record was rejected by its ownership gate",
           context: {
             workItemId: identity.workItemId,

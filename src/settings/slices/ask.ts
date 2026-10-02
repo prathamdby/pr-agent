@@ -80,7 +80,8 @@ export function readAskSlice(): AskSlice {
   );
   if (askProviderBudgetTokens > 0 && askProviderReservationTokens > askProviderBudgetTokens) {
     throw new AppError({
-      code: "config.invalid_number",
+      domain: "config",
+      kind: "invalid_number",
       message: `${ENV.ASK_PROVIDER_RESERVATION_TOKENS} must not exceed ${ENV.ASK_PROVIDER_BUDGET_TOKENS} when the provider budget is enabled`,
       context: {
         name: ENV.ASK_PROVIDER_RESERVATION_TOKENS,

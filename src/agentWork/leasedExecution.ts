@@ -32,6 +32,7 @@ import {
   type WorkAttemptResult,
   type WorkClaim,
 } from "./workItemStateRepository.js";
+import { errorMessage } from "../errors/errorMessage.js";
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
 const leaseHolderId = `${os.hostname()}:${process.pid}`;
@@ -73,7 +74,7 @@ export function startLeaseRenewal(
           resourceKey: key.resourceKey,
           workType: key.workType,
           leaseEpoch,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       },
     );
@@ -112,7 +113,7 @@ export function startCancelObserve(params: {
       logWarn("agent_work_cancel_observe_failed", {
         workItemId: params.workItemId,
         leaseEpoch: params.leaseEpoch,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   };
@@ -249,7 +250,8 @@ function createLeaseMutationBoundary(params: {
       (await shouldSkipWork(params.pool, { id: params.workItemId }))
     ) {
       throw new AppError({
-        code: "agent_work.execution_aborted",
+        domain: "agent_work",
+        kind: "execution_aborted",
         message: "Durable execution was cancelled before a PR mutation",
         context: { workItemId: params.workItemId, operationKey },
       });
@@ -402,7 +404,7 @@ export async function openLeasedExecution(
       logWarn("agent_work_lease_watchdog_seed_failed", {
         type,
         workItemId: core.id,
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
     const atomic = await acquireAndClaimWorkItem({
@@ -439,7 +441,8 @@ export async function openLeasedExecution(
     stopLeaseRenewal = runtime.startLeaseRenewal(pool, cfg, key, core.id, epoch, () => {
       abortController.abort(
         new AppError({
-          code: "agent_work.pr_actor_lease_lost",
+          domain: "agent_work",
+          kind: "pr_actor_lease_lost",
           message: "PR actor lease renewal lost ownership",
           context: { workItemId: core.id, leaseEpoch: epoch },
         }),
@@ -457,7 +460,8 @@ export async function openLeasedExecution(
   const requireLeaseEpoch = (itemId: string): number => {
     if (leaseEpoch == null) {
       throw new AppError({
-        code: "agent_work.pr_actor_lease_lost",
+        domain: "agent_work",
+        kind: "pr_actor_lease_lost",
         message: "PR actor lease is no longer held by this execution",
         context: { workItemId: itemId },
       });
@@ -541,7 +545,7 @@ export async function openLeasedExecution(
           workItemId: job.data.workItemId,
           resourceKey: key.resourceKey,
           leaseEpoch: epoch,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       }
     },
