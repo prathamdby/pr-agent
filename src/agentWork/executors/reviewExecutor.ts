@@ -793,7 +793,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       return false;
     },
     boss,
-    durability: args.env.durability,
+    sessionContext: args.env.durability,
     signal,
     escalation,
   });

@@ -296,12 +296,87 @@ Unsafe source assertions fell from 87 to 82. No services or provider calls were
 started. The parent still owns the merged full gate, dedicated-database
 integration, disposable-stack verification, deslop, and milestone commit.
 
+## M5 failure modes
+
+Write these before the owner tests and implementation:
+
+1. A capped repair clears the last validation error without submitting, losing
+   both the remaining repair rounds and the final diagnostic.
+2. Sharing a loop changes submit prompts, registered tools, role budgets,
+   checkpoint identities, cancellation checks, or description text selection.
+3. An injected session bypasses role policy or lifecycle projection; disposal
+   must still happen after success, cancellation, and send failure.
+4. Dropping tables with a runtime reader outside the removed subsystem breaks
+   recovery. Search `src`, `scripts`, and `docs` before deletion.
+5. Removing unused snapshots accidentally removes agent events or authoritative
+   operation intents, publish records, leases, and durable work recovery.
+6. Removing configuration fields changes the full-argument description mutation
+   hash pinned by M0. Preserve its current-reader argument shape intentionally.
+7. SDK construction escapes the runtime boundary, or confinement breaks the
+   legitimate prompt-dump tooling caller.
+8. Retention, test hooks, or diagnostic queries continue referencing dropped
+   tables. Existing migrations remain ordered; the current maximum is 035.
+9. Reconstructing defaults misses a retained child that hashed non-default removed
+   settings. Resolve its exact work item, parent frame, surface method, and
+   operation marker before creating another intent. Never select only by method.
+10. Ambiguous or malformed retained identities, missing markers, cancellation,
+    or a lost lease must fail closed before mutation. Reusing a retained key must
+    preserve unknown-outcome refusal and provider-proven failed retry semantics.
+
+### M5 pre-deletion reader evidence
+
+`rg -n 'agent_phase_checkpoints|agent_resume_snapshots' src scripts docs`
+on detached `a8ed38d1` found SQL only in
+`src/agentWork/phaseCheckpointRepository.ts` and
+`src/agentWork/resumeSnapshotRepository.ts`, plus the snapshot diagnostic and
+retention documentation in `docs/agent-work-ops.md`. No script reads either table.
+Repository read APIs are called only by `runtime/sessionDurability.ts`.
+`createFeatureSession.ts` invokes that subsystem during creation and after sends;
+no feature updates its structured state. The remaining repository exports,
+terminal cleanup, and retention are deletion/wiring, not recovery readers.
+Agent events retain their own context and storage. Operation intents remain
+authoritative and are not part of this deletion.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay
 at their strongest boundary. Baselines may only shrink. Web and worker keep the
 same persisted payloads and deploy together when internal contracts move.
 
-ADR 0023 decision 6 remains in force until M5 proves that the checkpoint and
-resume-snapshot tables have no readers outside the deleted subsystem. M5 will
-record that proof and amend the decision in the same commit as migration 036.
+M5 proves that the checkpoint and resume-snapshot tables have no readers outside
+that removed subsystem. ADR 0023 decision 6 now keeps operation intents and
+publish records authoritative without retaining unused session state. Migration
+036 drops only those two tables; earlier migrations are unchanged.
+
+### M5 description input compatibility
+
+M0's `publishDescription` child hash is
+`bf162594f55498fbf415bfab2fe1436e1dc15c53221dc7a4b34fa0eed967bb33`.
+The surface hash builder retains removed defaults only as deliberate compatibility
+metadata for new full-Config arguments (identified by `piThinkingCeiling`).
+Narrowed Pick arguments are unchanged and explicitly supplied old properties win.
+This does not claim that defaults recreate historical non-default hashes.
+
+Before persisting any description surface child, the durable intent boundary
+looks up its retained identity by work item, exact parent frame (including no
+parent), surface method, and exact operation marker. One valid retained row
+supplies the original operation key and input hash, regardless of removed Config
+values or row status. It is selected before entering the child frame, so nested
+mutation keys retain the old parent too. It follows the existing result,
+unknown-outcome, and provider-proven failed retry paths without special status
+handling. No env reader, schema change, global hook, or row rewrite is added.
+
+Multiple matches, malformed key/hash metadata, or an unmarked retained child
+whose key differs from the incoming key fail closed before persistence. Same
+method with another parent or marker is not a match. Abort and lease ownership
+checks precede lookup and still fence the selected intent and each mutation.
+
+The existing publication integration owner first demonstrated 11 failures against
+real task-owned Postgres. It now proves framed and standalone historical children
+in reconciled, pending/__mutating, outcome_unknown, and provider-proven failed
+states, plus ambiguous, malformed, and missing-marker refusal. The legacy fake
+Config used `fake-historical-key` and margin `1234`; its precomputed input hash is
+`50066c7921debb1bef12c704a6c3d26fc43acbd7d647bcb52877a0847fbf08d7`.
+Replays keep that key/hash and create no sibling intent. Reconciled/unknown rows
+never remutate; only the already-retryable failed row may mutate once on the same
+key, then replays quietly. Other scoped rows remain byte-identical.

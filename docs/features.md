@@ -116,3 +116,9 @@ Local Compose (`docker-compose.dev.yml`) boots with these same defaults.
 It does not add a feature key.
 CI enforces that every `FEATURE_*` key is documented here
 ([`test/settingsInventory.test.ts`](../test/settingsInventory.test.ts)).
+
+Description, verification, and triage share bounded submit repairs. If a repair
+hits its tool budget without submitting, the last validation error is retained
+for the next repair and the final diagnostic. Ask remains a direct session run.
+Session computation is in memory; durable work and publication recovery remain
+backed by work items, operation intents, and publish records.

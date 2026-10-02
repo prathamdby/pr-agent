@@ -12,8 +12,7 @@ import {
 } from "../../agent/runtime/agentEventSink.js";
 import { llmSpanFromSession } from "../../analytics/workSpan.js";
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
-import { assistantFromText } from "../../agentRun/sessionHelpers.js";
-import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
+import { assistantFromText, runValidationRepairLoop } from "../../agent/runtime/featureAgent.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { prResourceKey } from "../../agentWork/types.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
@@ -74,7 +73,7 @@ function ownVerdictPublishParams(params: ReviewRunParams): {
 } {
   const coordination = params.recordPublishStep?.summaryCommentCoordination;
   return {
-    workItemId: coordination?.workItemId ?? params.workItemId ?? params.durability?.workItemId,
+    workItemId: coordination?.workItemId ?? params.workItemId ?? params.sessionContext?.workItemId,
     resourceKey:
       coordination?.resourceKey ?? prResourceKey(params.owner, params.repo, params.prNumber),
     leaseEpoch: coordination?.leaseEpoch,
@@ -254,11 +253,11 @@ export async function runOrchestratedPrReview(
     userSupplement: params.userSupplement,
     trustedContext: params.trustedContext,
     workspace: params.workspace,
-    pool: params.durability?.pool,
+    pool: params.sessionContext?.pool,
     codeIndexSnapshotId: params.codeIndexSnapshotId,
-    ...(params.workItemId != null || params.durability?.workItemId != null
+    ...(params.workItemId != null || params.sessionContext?.workItemId != null
       ? {
-          workItemId: params.workItemId ?? params.durability?.workItemId,
+          workItemId: params.workItemId ?? params.sessionContext?.workItemId,
         }
       : {}),
   });
@@ -273,12 +272,12 @@ export async function runOrchestratedPrReview(
   const phaseRef = createOrchestratorPhaseRef("recon");
   const briefTool = buildSpecialistBriefTool(phaseRef);
   const state = initialState();
-  const agentEvents = resolveAgentEventsContext(params.cfg, params.durability);
+  const agentEvents = resolveAgentEventsContext(params.cfg, params.sessionContext);
   const workSpanContext =
-    params.durability != null
+    params.sessionContext != null
       ? {
-          workItemId: params.durability.workItemId,
-          installationId: params.durability.installationId,
+          workItemId: params.sessionContext.workItemId,
+          installationId: params.sessionContext.installationId,
           owner: params.owner,
           repo: params.repo,
           prNumber: params.prNumber,
@@ -362,8 +361,8 @@ export async function runOrchestratedPrReview(
     evidenceLedger: setup.evidenceLedger,
     checkoutCoverage: params.workspace.getCoverage(),
     isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
-    pool: params.durability?.pool,
-    installationId: params.durability?.installationId,
+    pool: params.sessionContext?.pool,
+    installationId: params.sessionContext?.installationId,
     findingHistoryCfg: params.cfg,
     crossPrSuppressionFingerprints: params.crossPrSuppressionFingerprints,
   });
@@ -385,10 +384,10 @@ export async function runOrchestratedPrReview(
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
-    pool: params.durability?.pool,
+    pool: params.sessionContext?.pool,
     ...ownVerdictPublishParams(params),
     boss: params.boss,
-    installationId: params.durability?.installationId,
+    installationId: params.sessionContext?.installationId,
     state: summaryState,
     getLedger: publishThread.getLedger,
     getCoverage: () => coverage(state),
@@ -416,7 +415,7 @@ export async function runOrchestratedPrReview(
       tools: allTools,
       executors: allExecutors,
       attemptModel: params.escalation?.model,
-      durability: params.durability,
+      sessionContext: params.sessionContext,
       hostSignal: params.signal,
     });
     const creation = await settleBefore(
@@ -699,7 +698,7 @@ export async function runOrchestratedPrReview(
       },
       prSurface: setup.prSurface,
       hintCommentId: params.progressCommentIdHint,
-      installationId: params.durability?.installationId,
+      installationId: params.sessionContext?.installationId,
       boss: params.boss,
     });
   };
@@ -767,7 +766,7 @@ export async function runOrchestratedPrReview(
       },
       prSurface: setup.prSurface,
       hintCommentId: params.progressCommentIdHint,
-      installationId: params.durability?.installationId,
+      installationId: params.sessionContext?.installationId,
       boss: params.boss,
     });
   };
@@ -900,10 +899,10 @@ export async function runOrchestratedPrReview(
         shouldLinkToSummary: params.shouldLinkToSummary,
         progressCommentIdHint: params.progressCommentIdHint,
         recordPublishStep: params.recordPublishStep,
-        pool: params.durability?.pool,
+        pool: params.sessionContext?.pool,
         ...ownVerdictPublishParams(params),
         boss: params.boss,
-        installationId: params.durability?.installationId,
+        installationId: params.sessionContext?.installationId,
         coverage: coverage(state),
         shouldAbortPublish: params.shouldAbortPublish,
         publishAbortState: params.publishAbortState,

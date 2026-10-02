@@ -17,6 +17,55 @@ export type OperationIntentRow = {
   readonly detail: Record<string, unknown>;
 };
 
+/** Removed Config fields cannot reconstruct a retained description child's hash. */
+export async function findRetainedDescriptionSurfaceIdentity(
+  client: Pool | PoolClient,
+  params: {
+    readonly workItemId: string;
+    readonly operationKey: string;
+    readonly parentOperationKey?: string;
+    readonly operationMarker?: string;
+  },
+): Promise<{ readonly operationKey: string; readonly inputHash: string } | null> {
+  const { rows } = await client.query<{
+    operation_key: string;
+    detail: Record<string, unknown>;
+  }>(
+    `SELECT operation_key, detail
+       FROM operation_intents
+      WHERE work_item_id = $1
+        AND mutation_kind = 'github.pr_surface.publishDescription'
+        AND detail->>'surfaceMethod' = 'publishDescription'
+        AND detail->>'parentOperationKey' IS NOT DISTINCT FROM $2::text
+        AND detail->>'operationMarker' IS NOT DISTINCT FROM $3::text
+      LIMIT 2`,
+    [params.workItemId, params.parentOperationKey ?? null, params.operationMarker ?? null],
+  );
+  const retained = rows[0];
+  if (retained == null) return null;
+  const inputHash = retained.detail.inputHash;
+  const prefix =
+    params.parentOperationKey == null
+      ? "pr-surface:publishDescription:"
+      : `${params.parentOperationKey}:surface:publishDescription:`;
+  if (
+    rows.length !== 1 ||
+    (retained.detail.parentOperationKey ?? undefined) !== params.parentOperationKey ||
+    (retained.detail.operationMarker ?? undefined) !== params.operationMarker ||
+    typeof inputHash !== "string" ||
+    !/^[a-f0-9]{64}$/.test(inputHash) ||
+    retained.operation_key !== `${prefix}${inputHash}` ||
+    (!params.operationMarker && retained.operation_key !== params.operationKey)
+  ) {
+    throw new AppError({
+      code: "operation_intent.description_identity_conflict",
+      message: "Retained description mutation identity is ambiguous or cannot be proved",
+      context: { workItemId: params.workItemId, operationKey: params.operationKey },
+    });
+  }
+  return { operationKey: retained.operation_key, inputHash };
+}
+
 export async function persistOperationIntent(
   client: Pool | PoolClient,
   params: {

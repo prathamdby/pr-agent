@@ -577,7 +577,7 @@ async function runFreshTriageAgent(params: {
           scope: params.scope,
           refreshBeforeTool: async () => ensureTriageNotCancelled(params.env),
           escalation: params.escalation,
-          durability: params.env.durability,
+          sessionContext: params.env.durability,
           signal: params.signal,
         });
       } catch (error) {

@@ -2,7 +2,7 @@ import { createPiSessionImpl } from "./piSessionImpl.js";
 import type { PiSession, PiSessionCreateParams } from "./types.js";
 
 export type { PiSession, PiSessionCreateParams } from "./types.js";
-export { DEFAULT_THINKING_POLICY, DEFAULT_TOOL_POLICY, EMPTY_STRUCTURED_STATE } from "./types.js";
+export { DEFAULT_THINKING_POLICY, DEFAULT_TOOL_POLICY } from "./types.js";
 export { createFakePiSession } from "./fakePiSession.js";
 export type { FakePiSessionControls, FakePiSessionScript } from "./fakePiSession.js";
 export { compactionPolicyForRole } from "./compactionPolicy.js";

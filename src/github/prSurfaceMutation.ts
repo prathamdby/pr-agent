@@ -117,9 +117,28 @@ function mutation(
   input: unknown,
   surface: PrSurface,
 ): PrSurfaceMutation {
-  const hash = inputHash(input);
-  const parentKey = currentOperationIntentKey();
+  // M0 pins full-Config description inputs, including removed snapshot defaults.
+  // This is new-input compatibility metadata, not historical hash reconstruction.
+  // withOperationIntent selects retained children by exact parent/work/marker.
+  // Narrowed Pick arguments stay intact.
   const args = Array.isArray(input) ? input : [];
+  const descriptionConfig = args[0];
+  const hashInput =
+    method === "publishDescription" &&
+    descriptionConfig != null &&
+    typeof descriptionConfig === "object" &&
+    "piThinkingCeiling" in descriptionConfig
+      ? [
+          {
+            agentResumeSnapshotKey: "",
+            agentResumeSnapshotMarginSeconds: 600,
+            ...descriptionConfig,
+          },
+          ...args.slice(1),
+        ]
+      : input;
+  const hash = inputHash(hashInput);
+  const parentKey = currentOperationIntentKey();
   return {
     operationKey:
       parentKey != null ? `${parentKey}:surface:${method}:${hash}` : `pr-surface:${method}:${hash}`,

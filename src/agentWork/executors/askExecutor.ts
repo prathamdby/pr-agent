@@ -438,7 +438,7 @@ export function createAskWorkExecution({
             threadTranscriptTruncated: transcript.truncated,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
-            durability: env.durability,
+            sessionContext: env.durability,
             pool,
             codeIndexSnapshotId: ready?.id,
             signal: env.signal,

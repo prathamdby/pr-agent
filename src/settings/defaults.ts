@@ -16,9 +16,6 @@ export const DEFAULT_PI_THINKING_CEILING = "high" as const;
 export const DEFAULT_PI_PROVIDER_RETRY_MAX = 2;
 /** Cap (ms) on a provider-requested retry delay (e.g. `Retry-After`); must be < `PROVIDER_PROMPT_TIMEOUT_MS`. */
 export const DEFAULT_PI_PROVIDER_MAX_RETRY_DELAY_MS = 60_000;
-/** Empty disables encrypted resume snapshot persistence. */
-export const DEFAULT_AGENT_RESUME_SNAPSHOT_KEY = "";
-export const DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS = 600;
 export const DEFAULT_AGENT_EVENTS_ENABLED = true;
 export const DEFAULT_FINDING_HISTORY_ENABLED = true;
 export const DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER = 3;

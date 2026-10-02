@@ -8,7 +8,7 @@ import type { ReviewFinding, WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import type { RecordPublishStepWithCoordination } from "../publish/summaryCommentUpsert.js";
-import type { FeatureSessionDurability } from "../../agent/runtime/sessionDurability.js";
+import type { FeatureSessionContext } from "../../agent/runtime/createFeatureSession.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 
 export type ReviewRunParams = {
@@ -37,7 +37,7 @@ export type ReviewRunParams = {
   readonly crossPrSuppressionFingerprints?: readonly string[];
   readonly workItemId?: string;
   readonly resumedPlacements?: readonly AcceptedPlacement[];
-  readonly durability?: FeatureSessionDurability;
+  readonly sessionContext?: FeatureSessionContext;
   readonly boss?: PgBoss;
   readonly reviewSource?: WorkSource;
   readonly staleHeadRescheduled?: boolean;

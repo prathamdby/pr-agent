@@ -103,7 +103,6 @@ import {
   DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
-  EMPTY_STRUCTURED_STATE,
   sessionCacheIdFromIdentity,
 } from "../src/agent/runtime/piSession.js";
 import { toCoreTool } from "../src/agent/runtime/coreTools.js";
@@ -137,7 +136,6 @@ async function createPiRunnerSession(params: {
     compactionPolicy: compactionPolicyForRole(params.role ?? "ask"),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
-    structuredState: EMPTY_STRUCTURED_STATE,
     systemPrompt: params.systemPrompt,
     cwd: params.cwd,
     eventSink: params.eventSink ?? (() => undefined),
@@ -910,7 +908,6 @@ describe("createPiSession prompt cache identity", () => {
       compactionPolicy: compactionPolicyForRole("specialist"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "specialist",
       cwd: "/tmp/pr-agent-specialist-cache",
       eventSink: () => undefined,

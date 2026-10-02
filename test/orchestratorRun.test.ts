@@ -527,8 +527,6 @@ describe("runOrchestratedPrReview", () => {
         dispose: vi.fn(async () => {
           testState.sessionDisposals += 1;
         }),
-        getStructuredState: () => ({ version: 1, payload: {} }),
-        setStructuredState: () => undefined,
       };
       return session;
     });
@@ -1368,7 +1366,7 @@ describe("runOrchestratedPrReview", () => {
     const run = runOrchestratedPrReview({
       ...params(),
       cfg: makeTestConfig({ agentEventsEnabled: true }),
-      durability: {
+      sessionContext: {
         pool: Object.create(null) as Pool,
         workItemId: "wi-1",
         installationId: 1,
@@ -1767,7 +1765,7 @@ describe("runOrchestratedPrReview", () => {
     const run = runOrchestratedPrReview({
       ...params(),
       cfg: makeTestConfig({ agentEventsEnabled: true }),
-      durability: {
+      sessionContext: {
         pool: Object.create(null) as Pool,
         workItemId: "wi-1",
         installationId: 1,

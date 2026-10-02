@@ -46,8 +46,6 @@ import {
   DEFAULT_PI_THINKING_CEILING,
   DEFAULT_PI_PROVIDER_RETRY_MAX,
   DEFAULT_PI_PROVIDER_MAX_RETRY_DELAY_MS,
-  DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
-  DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
   DEFAULT_AGENT_EVENTS_ENABLED,
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   DEFAULT_FINDING_HISTORY_ENABLED,
@@ -301,14 +299,6 @@ async function readPiModelSelection(role: "web" | "worker") {
     ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
     DEFAULT_PI_THINKING_CEILING,
   );
-  const agentResumeSnapshotKey = optionalEnv(
-    ENV.AGENT_RESUME_SNAPSHOT_KEY,
-    DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
-  ).trim();
-  const agentResumeSnapshotMarginSeconds = readNonNegativeNumber(
-    ENV.AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
-    DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
-  );
   const agentEventsEnabled = readStrictBoolean(
     ENV.AGENT_EVENTS_ENABLED,
     DEFAULT_AGENT_EVENTS_ENABLED,
@@ -375,8 +365,6 @@ async function readPiModelSelection(role: "web" | "worker") {
     piFallbackProvider,
     piFallbackModel,
     piThinkingCeiling,
-    agentResumeSnapshotKey,
-    agentResumeSnapshotMarginSeconds,
     agentEventsEnabled,
     agentEventsRetentionSeconds,
     findingHistoryEnabled,
@@ -597,8 +585,6 @@ export async function loadConfig() {
     piFallbackProvider,
     piFallbackModel,
     piThinkingCeiling,
-    agentResumeSnapshotKey,
-    agentResumeSnapshotMarginSeconds,
     agentEventsEnabled,
     agentEventsRetentionSeconds,
     findingHistoryEnabled,
@@ -742,8 +728,6 @@ export async function loadConfig() {
     piThinkingCeiling,
     piProviderRetryMax,
     piProviderMaxRetryDelayMs,
-    agentResumeSnapshotKey,
-    agentResumeSnapshotMarginSeconds,
     agentEventsEnabled,
     agentEventsRetentionSeconds,
     findingHistoryEnabled,

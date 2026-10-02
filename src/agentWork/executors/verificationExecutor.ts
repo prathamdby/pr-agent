@@ -182,7 +182,7 @@ export function createVerificationWorkExecution({
             pushedCommits,
             compareFilesTruncated: changedMembershipTruncated,
             escalation: env.escalation,
-            durability: env.durability,
+            sessionContext: env.durability,
             signal: env.signal,
           });
           if (!runResult.submitted || !runResult.payload) {

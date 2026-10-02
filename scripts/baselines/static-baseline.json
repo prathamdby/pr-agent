@@ -1,6 +1,6 @@
 {
   "no-unsafe-type-assertion(src)": {
-    "count": 82,
+    "count": 78,
     "scope": "src/**"
   },
   "no-unsafe-type-assertion(test)": {

@@ -33,7 +33,6 @@ export function createFakePiSession(
     (async () => {
       return "";
     });
-  let structuredState = params.structuredState;
   let aborted = false;
   let disposed = false;
 
@@ -107,10 +106,6 @@ export function createFakePiSession(
     },
     async dispose() {
       disposed = true;
-    },
-    getStructuredState: () => structuredState,
-    setStructuredState(state) {
-      structuredState = state;
     },
   };
 

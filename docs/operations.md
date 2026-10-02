@@ -38,7 +38,7 @@ and return `503`.
   interrupted before the provider. Claim/resume bookkeeping and recovery-only
   completion are free. Drain/stop affected workers and upgrade them together;
   old workers still charge claims. Preserve historical counts, work, lease,
-  intent, publish and snapshot records. Do not refund counts or reopen terminal
+  intent and publish records. Do not refund counts or reopen terminal
   work. Coordinated code rollback retains data but restores future claim burn.
   `work item retried` covers acknowledged work admission only; pre-admission
   infrastructure retries remain in `agent_work_retrying` with `retryPhase`,
@@ -281,3 +281,11 @@ Agent index: [AGENTS.md](../AGENTS.md).
 - **Prompt cache excellence** — `review_run_completed` includes raw `cacheReadTokens` / `cacheWriteTokens` / optional `cacheWrite1hTokens`, plus derived `cacheHitRate` = `cacheRead / (providerInput + cacheRead + cacheWrite)` and `cacheWriteAmplification` = `cacheWrite / max(cacheRead, 1)`. All four ratio fields are `null` when provider cache usage was never known for the run. High hit rate with low write amplification means the stable system+tools prefix is paying off; high write amplification or null cache fields after a long run usually means provider usage metadata is missing or the prefix is still busting. Policy: [ADR 0025](adr/0025-prompt-cache-stability.md).
 - Structured logging uses [evlog](https://www.evlog.dev) with `service: pr-agent`. `LOG_LEVEL` maps to evlog `minLevel` (default `info`). `LOG_MAX_WIDE_EVENTS` (code constant, default `128`) caps sub-events per webhook/worker operation. `LOG_REDACT` (default true) redacts secret-shaped substrings from logs. `LOG_PRETTY` defaults to off in production (JSON lines).
 - Production logging should stay at `info` unless debugging a specific review run (`LOG_LEVEL=debug`).
+
+## Agent session upgrade
+
+Sessions keep computation in memory. Migration 036 removes unused checkpoint
+and resume-snapshot tables, not work items, leases, operation intents, publish
+records, or metadata-only agent events. Upgrade workers together before resuming
+work; old worker code is not compatible with the dropped tables. Snapshot env
+keys are ignored. Capped submit repairs retain their last validation diagnostic.

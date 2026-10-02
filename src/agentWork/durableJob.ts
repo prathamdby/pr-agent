@@ -70,7 +70,6 @@ import { installationGroupId, isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
 import { withOperationIntent, type WithOperationIntentParams } from "./withOperationIntent.js";
-import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
 import {
   withPrRepositoryView,
   type PreparePrRepositoryViewParams,
@@ -438,12 +437,10 @@ async function isBotCommenter(
 }
 
 async function recordRescheduledParentCompleted(
-  pool: Pool,
   itemId: string,
   type: WorkType,
   replacementWorkItemId: string,
 ): Promise<void> {
-  await clearResumeSnapshotsBestEffort(pool, itemId);
   logInfo("agent_work_completed", {
     type,
     workItemId: itemId,
@@ -460,16 +457,16 @@ async function finishRescheduledParentWorkItem(
   leaseEpoch: number,
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId, leaseEpoch)) {
-    await recordRescheduledParentCompleted(pool, itemId, type, replacementWorkItemId);
+    await recordRescheduledParentCompleted(itemId, type, replacementWorkItemId);
     return;
   }
   const refreshed = await getWorkItem(pool, itemId);
   if (refreshed?.status === "completed") {
-    await recordRescheduledParentCompleted(pool, itemId, type, replacementWorkItemId);
+    await recordRescheduledParentCompleted(itemId, type, replacementWorkItemId);
     return;
   }
   if (await forceMarkRescheduledParentCompleted(pool, itemId, leaseEpoch)) {
-    await recordRescheduledParentCompleted(pool, itemId, type, replacementWorkItemId);
+    await recordRescheduledParentCompleted(itemId, type, replacementWorkItemId);
     return;
   }
   throw new AppError({
@@ -713,7 +710,6 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
     await markWorkCancelled(spec.pool, itemCore.id, cancelLeaseEpoch);
-    await clearResumeSnapshotsBestEffort(spec.pool, itemCore.id);
     await invokeCancelledHook(itemCore, reason, installation);
   }
 
@@ -951,7 +947,6 @@ export async function runDurableWorkItem<T extends WorkType>(
         await markCancelledAndInvokeHook(item, reason, leaseEpoch, seededInstallation);
       } else {
         await markWorkCancelled(spec.pool, item.id, leaseEpoch);
-        await clearResumeSnapshotsBestEffort(spec.pool, item.id);
       }
       return true;
     };
@@ -1093,7 +1088,6 @@ export async function runDurableWorkItem<T extends WorkType>(
             await recheckSkippableAndCancel("completion_race", false);
             return;
           }
-          await clearResumeSnapshotsBestEffort(spec.pool, item.id);
           logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
           await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
           return;
@@ -1221,7 +1215,6 @@ export async function runDurableWorkItem<T extends WorkType>(
         await recheckSkippableAndCancel("failure_race");
         return;
       }
-      await clearResumeSnapshotsBestEffort(spec.pool, item.id);
       await invokeRescheduleAbort(error);
       await invokeTerminalFailureHook(error);
       await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);

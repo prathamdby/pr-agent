@@ -50,7 +50,7 @@ export function createDescriptionWorkExecution({
               resourceKey: item.resourceKey,
               leaseEpoch: env.leaseEpoch,
             },
-            durability: env.durability,
+            sessionContext: env.durability,
             signal: env.signal,
           });
           if (!result.published && !result.publishSuperseded) {

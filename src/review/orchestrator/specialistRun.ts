@@ -11,8 +11,7 @@ import {
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import type { PiSession } from "../../agent/runtime/types.js";
-import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
-import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
+import { runSubmitOnlyRound, runValidationRepairLoop } from "../../agent/runtime/featureAgent.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
@@ -236,8 +235,6 @@ async function createSessionWithinDeadline(
     executors: sessionTools.executors,
     attemptModel: params.escalation?.model,
     hostSignal: params.signal,
-    // Parallel specialists share session_role "specialist"; skip durability so
-    // concurrent checkpoint/snapshot writes cannot overwrite each other.
   });
   return runWithinDeadline({
     run: () => creation,

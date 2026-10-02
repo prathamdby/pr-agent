@@ -3,7 +3,6 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
-import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
 import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
 import { deleteExpiredAskQuotaState } from "./askQuota.js";
 import { deleteExpiredPrHeadCiState } from "./prHeadCiState.js";
@@ -15,7 +14,6 @@ export type RetentionResult = {
   readonly workItemsDeleted: number;
   readonly webhookEventsDeleted: number;
   readonly webhookDuplicatesDeleted: number;
-  readonly resumeSnapshotsDeleted: number;
   readonly agentEventsDeleted: number;
   readonly codeIndexSnapshotsDeleted: number;
   readonly askQuotaBucketsDeleted: number;
@@ -41,7 +39,6 @@ export async function runRetention(
     workItemsDeleted,
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
-    resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,
@@ -103,7 +100,6 @@ export async function runRetention(
       }
       return deleted;
     })(),
-    deleteExpiredResumeSnapshots(pool),
     (async () => {
       if (cfg.agentEventsRetentionSeconds <= 0) return 0;
       let deleted = 0;
@@ -136,7 +132,6 @@ export async function runRetention(
     workItemsDeleted,
     webhookEventsDeleted,
     webhookDuplicatesDeleted,
-    resumeSnapshotsDeleted,
     agentEventsDeleted,
     codeIndexSnapshotsDeleted,
     askQuotaBucketsDeleted,

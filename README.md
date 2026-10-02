@@ -398,6 +398,10 @@ The marketing site under `site/` is a separate workspace package (`pr-agent-land
 
 ## Data privacy
 
+Agent sessions keep computation in memory. Retries start fresh sessions; saved
+work and publication evidence still protect recovery. Unused encrypted session
+snapshots and phase checkpoints are removed by migration 036.
+
 | Topic         | Rule                                                                                                                                                                                  |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.                                                               |

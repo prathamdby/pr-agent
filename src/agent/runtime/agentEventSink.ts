@@ -297,7 +297,7 @@ export function safeEmitEvidenceRejectEvent(
 
 export function resolveAgentEventsContext(
   cfg: Pick<Config, "agentEventsEnabled">,
-  durability?: {
+  sessionContext?: {
     readonly pool: Pool | PoolClient;
     readonly workItemId: string;
     readonly installationId: number;
@@ -306,13 +306,13 @@ export function resolveAgentEventsContext(
     readonly prNumber?: number;
   },
 ): AgentEventsContext | null {
-  if (!cfg.agentEventsEnabled || !durability) return null;
-  const { owner, repo, prNumber } = durability;
+  if (!cfg.agentEventsEnabled || !sessionContext) return null;
+  const { owner, repo, prNumber } = sessionContext;
   if (!owner || !repo || prNumber == null) return null;
   return {
-    pool: durability.pool,
-    workItemId: durability.workItemId,
-    installationId: durability.installationId,
+    pool: sessionContext.pool,
+    workItemId: sessionContext.workItemId,
+    installationId: sessionContext.installationId,
     owner,
     repo,
     prNumber,

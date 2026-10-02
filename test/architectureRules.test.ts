@@ -24,6 +24,11 @@ export type SourceRule = {
 
 const IMPORT_RULES: ImportRule[] = [
   {
+    id: "pi-sdk-under-runtime-only",
+    forbiddenImports: ["@earendil-works/pi-ai", "@earendil-works/pi-agent-core"],
+    allowedImporters: ["src/agent/runtime/**"],
+  },
+  {
     id: "octokit-under-github-only",
     forbiddenImports: ["@octokit"],
     allowedImporters: ["src/github/**"],
@@ -83,7 +88,13 @@ function checkImportRule(rule: ImportRule): string[] {
     for (const forbidden of rule.forbiddenImports) {
       if (forbidden === "@octokit") {
         if (hasForbiddenImportReference(text, "@octokit")) violations.push(`${rule.id}: ${rel}`);
-      } else if (hasValueImportReference(text, forbidden)) {
+      } else if (
+        forbidden.startsWith("@earendil-works/")
+          ? /\b(?:from|import)\s*(?:\(\s*)?["']@earendil-works\//.test(
+              text.replace(/^import\s+type\b[^;]*;/gm, ""),
+            )
+          : hasValueImportReference(text, forbidden)
+      ) {
         violations.push(`${rule.id}: ${rel}`);
       }
     }

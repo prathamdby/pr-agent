@@ -71,20 +71,20 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     };
   }
 
-  const installationId = params.durability?.installationId ?? 0;
-  const durabilityPool = params.durability?.pool;
+  const installationId = params.sessionContext?.installationId ?? 0;
+  const sessionContextPool = params.sessionContext?.pool;
   const circuit = createRateLimitCircuit({
     installationId,
     onOpened: (kind) => {
-      openSharedRateLimitCircuitBestEffort(durabilityPool, {
+      openSharedRateLimitCircuitBestEffort(sessionContextPool, {
         installationId,
         lastErrorKind: kind,
       });
     },
   });
-  if (durabilityPool != null && installationId > 0) {
+  if (sessionContextPool != null && installationId > 0) {
     try {
-      const sharedCircuit = await getSharedRateLimitCircuit(durabilityPool, installationId);
+      const sharedCircuit = await getSharedRateLimitCircuit(sessionContextPool, installationId);
       if (sharedCircuit != null && sharedCircuit.openUntil.getTime() > Date.now()) {
         circuit.hydrateOpenFromShared(
           sharedCircuit.lastErrorKind === "secondary" ? "secondary" : "primary",
@@ -125,7 +125,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       systemPrompt: buildAskSystemPrompt(),
       tools,
       executors,
-      durability: params.durability,
+      sessionContext: params.sessionContext,
       hostSignal: params.signal,
     });
 

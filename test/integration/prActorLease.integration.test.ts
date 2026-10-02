@@ -23,7 +23,7 @@ import * as executionTrackerModule from "../../src/agentWork/executionTracker.js
 import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.js";
 import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
 import { AppError } from "../../src/errors/appError.js";
-import { assistantFromText } from "../../src/agentRun/sessionHelpers.js";
+import { assistantFromText } from "../../src/agent/runtime/featureAgent.js";
 import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
 import { makeDurableJobMetadata } from "../helpers/executorDurableHarness.js";
 import * as retentionModule from "../../src/agentWork/retention.js";

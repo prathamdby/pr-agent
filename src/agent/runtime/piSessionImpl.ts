@@ -41,7 +41,7 @@ import { createSessionModels } from "./sessionModels.js";
 import { createSessionStreamFn } from "./sessionStream.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
 import { compactAgentMessages, compactIfNeeded } from "./transcriptCompaction.js";
-import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
+import type { PiSession, PiSessionCreateParams } from "./types.js";
 
 function isOrchestratorPhaseTool(name: string): name is OrchestratorPhaseTool {
   return (ORCHESTRATOR_PHASE_TOOLS as readonly string[]).includes(name);
@@ -143,7 +143,6 @@ function absorbProducedMessages(
 }
 
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
-  let structuredState: AuthoritativeStructuredState = params.structuredState;
   const emit = createSanitizedEventSink(params.eventSink);
   const sessionAbort = new AbortController();
   // pi-agent-core no longer takes a separate systemPrompt on AgentContext: the
@@ -723,10 +722,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     abort,
     async dispose() {
       sessionAbort.abort();
-    },
-    getStructuredState: () => structuredState,
-    setStructuredState(state) {
-      structuredState = state;
     },
   };
 

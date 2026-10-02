@@ -1,15 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
-const { appendAgentEvents, getAgentPhaseCheckpoint, fakePiSession } = vi.hoisted(() => {
+const { appendAgentEvents, fakePiSession } = vi.hoisted(() => {
   function fakePiSession(): {
     role: "orchestrator";
     primary: { provider: "openai"; model: "gpt-4o-mini" };
     send: ReturnType<typeof vi.fn>;
     abort: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
-    getStructuredState: () => { version: number; payload: Record<string, never> };
-    setStructuredState: () => undefined;
   } {
     return {
       role: "orchestrator",
@@ -17,28 +15,13 @@ const { appendAgentEvents, getAgentPhaseCheckpoint, fakePiSession } = vi.hoisted
       send: vi.fn(),
       abort: vi.fn(async () => undefined),
       dispose: vi.fn(async () => undefined),
-      getStructuredState: () => ({ version: 1, payload: {} }),
-      setStructuredState: () => undefined,
     };
   }
   return {
     appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
-    getAgentPhaseCheckpoint: vi.fn(async () => null),
     fakePiSession,
   };
 });
-
-vi.mock("../src/agentWork/phaseCheckpointRepository.js", () => ({
-  upsertAgentPhaseCheckpoint: vi.fn(),
-  getAgentPhaseCheckpoint,
-}));
-
-vi.mock("../src/agentWork/resumeSnapshotRepository.js", () => ({
-  upsertResumeSnapshot: vi.fn(),
-  loadResumeSnapshot: vi.fn(async () => ({ ok: false, reason: "disabled" })),
-  deleteResumeSnapshotsForWorkItem: vi.fn(),
-  deleteResumeSnapshot: vi.fn(),
-}));
 
 vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/agentEventsRepository.js")>();
@@ -69,7 +52,6 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
     return fakePiSession();
   }),
   DEFAULT_TOOL_POLICY: {},
-  EMPTY_STRUCTURED_STATE: { version: 1, payload: {} },
 }));
 
 import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
@@ -81,7 +63,7 @@ describe("createFeaturePiSession agent events", () => {
     vi.clearAllMocks();
   });
 
-  const durability = {
+  const sessionContext = {
     pool: {} as never,
     workItemId: "wi-1",
     installationId: 99,
@@ -98,7 +80,7 @@ describe("createFeaturePiSession agent events", () => {
       systemPrompt: "system",
       tools: [],
       executors: {},
-      durability,
+      sessionContext,
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -115,7 +97,7 @@ describe("createFeaturePiSession agent events", () => {
       systemPrompt: "system",
       tools: [],
       executors: {},
-      durability,
+      sessionContext,
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).not.toHaveBeenCalled();
@@ -132,7 +114,7 @@ describe("createFeaturePiSession agent events", () => {
         systemPrompt: "system",
         tools: [],
         executors: {},
-        durability,
+        sessionContext,
       }),
     ).resolves.toBeDefined();
 
@@ -154,7 +136,7 @@ describe("createFeaturePiSession agent events", () => {
           return { ok: true };
         },
       },
-      durability,
+      sessionContext,
     });
     const wrappedExecute = vi.mocked(createPiSession).mock.calls.at(-1)?.[0]?.executors?.execute;
     expect(typeof wrappedExecute).toBe("function");

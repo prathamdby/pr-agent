@@ -7,6 +7,7 @@ import {
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
+  findRetainedDescriptionSurfaceIdentity,
   type OperationIntentRow,
 } from "./operationIntentRepository.js";
 import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
@@ -409,6 +410,31 @@ async function assertMutationReady<T>(params: WithOperationIntentParams<T>): Pro
 }
 
 export async function withOperationIntent<T>(params: WithOperationIntentParams<T>): Promise<T> {
+  if (
+    params.mutationKind === "github.pr_surface.publishDescription" &&
+    params.detail?.surfaceMethod === "publishDescription"
+  ) {
+    await assertMutationReady(params);
+    const retained = await findRetainedDescriptionSurfaceIdentity(params.client, {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      parentOperationKey:
+        typeof params.detail.parentOperationKey === "string"
+          ? params.detail.parentOperationKey
+          : undefined,
+      operationMarker:
+        typeof params.detail.operationMarker === "string"
+          ? params.detail.operationMarker
+          : undefined,
+    });
+    if (retained != null) {
+      params = {
+        ...params,
+        operationKey: retained.operationKey,
+        detail: { ...params.detail, inputHash: retained.inputHash },
+      };
+    }
+  }
   return runInOperationIntentFrame(params.operationKey, () => withOperationIntentBody(params));
 }
 

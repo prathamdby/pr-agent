@@ -1,6 +1,8 @@
 import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
 import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
+import type { PrSurfaceMutation } from "../../src/github/prSurface.js";
+import type { DescriptionPayload } from "../../src/agent/description/descriptionSchema.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -308,6 +310,236 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       },
     ]);
   });
+
+  it.each([
+    ["reconciled", true],
+    ["pending", true],
+    ["outcome_unknown", true],
+    ["failed", true],
+    ["reconciled", false],
+    ["pending", false],
+    ["outcome_unknown", false],
+    ["failed", false],
+  ] as const)(
+    "reuses the retained non-default description child in %s (parent frame: %s)",
+    async (status, framed) => {
+      const workItemId = randomUUID();
+      const parent = framed ? "golden:historical-description" : undefined;
+      const marker = "golden-historical-marker";
+      // Precomputed from the legacy full fake Config, including the removed values.
+      const hash = "50066c7921debb1bef12c704a6c3d26fc43acbd7d647bcb52877a0847fbf08d7";
+      const key =
+        parent == null
+          ? `pr-surface:publishDescription:${hash}`
+          : `${parent}:surface:publishDescription:${hash}`;
+      const payload = {
+        title: "Golden title",
+        type: ["Enhancement"],
+        description: "Golden description",
+      } satisfies DescriptionPayload;
+      const result = { prNumber: 7, bodyUpdated: true };
+      const detail = {
+        surfaceMethod: "publishDescription",
+        inputHash: hash,
+        ...(parent == null ? {} : { parentOperationKey: parent }),
+        operationMarker: marker,
+        __mutating: true,
+        ...(status === "reconciled" ? { __result: result } : {}),
+        ...(status === "failed" ? { errorCode: "operation_intent.mutation_failed" } : {}),
+      };
+      await pool.query(
+        `INSERT INTO agent_work_items (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, resource_key)
+      VALUES ($1, 'description', 'slash', 'running', 'golden', 'repo', 7, 42, 'abc1234', $2)`,
+        [workItemId, `golden/${workItemId}#7`],
+      );
+      try {
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+        VALUES ($1, $2, $3, 'github.pr_surface.publishDescription', $4, $5::jsonb)`,
+          [randomUUID(), workItemId, key, status, JSON.stringify(detail)],
+        );
+        // Same method/marker in a different parent scope must remain untouched.
+        const otherKey = `other:surface:publishDescription:${hash}`;
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+        VALUES ($1, $2, $3, 'github.pr_surface.publishDescription', 'pending', $4::jsonb)`,
+          [
+            randomUUID(),
+            workItemId,
+            otherKey,
+            JSON.stringify({ ...detail, parentOperationKey: "other", __result: null }),
+          ],
+        );
+        const otherMarkerHash = "a".repeat(64);
+        const otherMarkerKey =
+          parent == null
+            ? `pr-surface:publishDescription:${otherMarkerHash}`
+            : `${parent}:surface:publishDescription:${otherMarkerHash}`;
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+           VALUES ($1, $2, $3, 'github.pr_surface.publishDescription', 'pending', $4::jsonb)`,
+          [
+            randomUUID(),
+            workItemId,
+            otherMarkerKey,
+            JSON.stringify({
+              ...detail,
+              inputHash: otherMarkerHash,
+              operationMarker: "another-description-marker",
+            }),
+          ],
+        );
+        const before = (
+          await pool.query(
+            "SELECT * FROM operation_intents WHERE work_item_id=$1 AND operation_key IN ($2,$3) ORDER BY operation_key",
+            [workItemId, otherKey, otherMarkerKey],
+          )
+        ).rows;
+        const { surface, controls } = createFakePrSurface(
+          { owner: "golden", repo: "repo", prNumber: 7 },
+          {
+            mutationBoundary: {
+              signal: new AbortController().signal,
+              run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
+                withOperationIntent<T>({
+                  client: pool,
+                  workItemId,
+                  operationKey: mutation.operationKey,
+                  mutationKind: mutation.mutationKind,
+                  detail: mutation.detail,
+                  recover: (intent) => recoverPrSurfaceMutation<T>(surface, intent),
+                  mutate,
+                }),
+            },
+          },
+        );
+        const replay = () =>
+          parent == null
+            ? surface.publishDescription(makeTestConfig(), payload, marker)
+            : runInOperationIntentFrame(parent, () =>
+                surface.publishDescription(makeTestConfig(), payload, marker),
+              );
+        if (status === "pending" || status === "outcome_unknown") {
+          await expect(replay()).rejects.toMatchObject({
+            code: "operation_intent.mutation_outcome_unknown",
+          });
+          await expect(replay()).rejects.toMatchObject({
+            code: "operation_intent.mutation_outcome_unknown",
+          });
+        } else {
+          await expect(replay()).resolves.toMatchObject(result);
+          await expect(replay()).resolves.toMatchObject(result);
+        }
+        expect(controls.events.filter((event) => event.kind === "publishDescription")).toHaveLength(
+          status === "failed" ? 1 : 0,
+        );
+        const rows = (
+          await pool.query(
+            "SELECT operation_key, status, detail FROM operation_intents WHERE work_item_id=$1 AND operation_key NOT IN ($2,$3)",
+            [workItemId, otherKey, otherMarkerKey],
+          )
+        ).rows;
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          operation_key: key,
+          status:
+            status === "pending" || status === "outcome_unknown" ? "outcome_unknown" : "reconciled",
+          detail: { inputHash: hash, surfaceMethod: "publishDescription", operationMarker: marker },
+        });
+        expect(
+          (
+            await pool.query(
+              "SELECT * FROM operation_intents WHERE work_item_id=$1 AND operation_key IN ($2,$3) ORDER BY operation_key",
+              [workItemId, otherKey, otherMarkerKey],
+            )
+          ).rows,
+        ).toEqual(before);
+      } finally {
+        await pool.query("DELETE FROM agent_work_items WHERE id=$1", [workItemId]);
+      }
+    },
+  );
+
+  it.each(["ambiguous", "malformed", "missing-marker"])(
+    "refuses %s retained description identity without touching rows",
+    async (mode) => {
+      const workItemId = randomUUID();
+      const parent = "golden:historical-description";
+      const marker = mode === "missing-marker" ? undefined : "golden-historical-marker";
+      const hash = "50066c7921debb1bef12c704a6c3d26fc43acbd7d647bcb52877a0847fbf08d7";
+      await pool.query(
+        `INSERT INTO agent_work_items (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, resource_key)
+      VALUES ($1, 'description', 'slash', 'running', 'golden', 'repo', 7, 42, 'abc1234', $2)`,
+        [workItemId, `golden/${workItemId}#7`],
+      );
+      try {
+        for (const identity of mode === "ambiguous" ? [hash, "a".repeat(64)] : [hash]) {
+          await pool.query(
+            `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+          VALUES ($1, $2, $3, 'github.pr_surface.publishDescription', 'pending', $4::jsonb)`,
+            [
+              randomUUID(),
+              workItemId,
+              `${parent}:surface:publishDescription:${identity}`,
+              JSON.stringify({
+                surfaceMethod: "publishDescription",
+                parentOperationKey: parent,
+                inputHash: mode === "malformed" ? "wrong" : identity,
+                ...(marker == null ? {} : { operationMarker: marker }),
+                __mutating: true,
+              }),
+            ],
+          );
+        }
+        const before = (
+          await pool.query(
+            "SELECT * FROM operation_intents WHERE work_item_id=$1 ORDER BY operation_key",
+            [workItemId],
+          )
+        ).rows;
+        const { surface, controls } = createFakePrSurface(
+          { owner: "golden", repo: "repo", prNumber: 7 },
+          {
+            mutationBoundary: {
+              signal: new AbortController().signal,
+              run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
+                withOperationIntent<T>({
+                  client: pool,
+                  workItemId,
+                  operationKey: mutation.operationKey,
+                  mutationKind: mutation.mutationKind,
+                  detail: mutation.detail,
+                  recover: (intent) => recoverPrSurfaceMutation<T>(surface, intent),
+                  mutate,
+                }),
+            },
+          },
+        );
+        await expect(
+          runInOperationIntentFrame(parent, () =>
+            surface.publishDescription(
+              makeTestConfig(),
+              { title: "Golden title", type: ["Enhancement"], description: "Golden description" },
+              marker,
+            ),
+          ),
+        ).rejects.toMatchObject({ code: "operation_intent.description_identity_conflict" });
+        expect(controls.events.filter((event) => event.kind === "publishDescription")).toHaveLength(
+          0,
+        );
+        expect(
+          (
+            await pool.query(
+              "SELECT * FROM operation_intents WHERE work_item_id=$1 ORDER BY operation_key",
+              [workItemId],
+            )
+          ).rows,
+        ).toEqual(before);
+      } finally {
+        await pool.query("DELETE FROM agent_work_items WHERE id=$1", [workItemId]);
+      }
+    },
+  );
 
   it("persists golden child mutation identities and publish steps, then replays quietly", async () => {
     const workItemId = randomUUID();
