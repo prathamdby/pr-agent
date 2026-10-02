@@ -314,6 +314,20 @@ primary identity in the list on the next coalesce. There is no historical
 backfill for identities already lost. A code rollback leaves existing metadata
 readable but restores first-only attribution for new absorbed arrivals.
 
+## CI log intake
+
+A failing head authors its CI cell from Actions job logs. `downloadActionsJobLogs`
+in `src/github/actionsLogs.ts` returns the downloaded log as text, `empty`, or
+`actions_permission`; it does not bound or inspect it. `ciAuthor.ts` bounds the raw
+tail (`REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS` times
+`REVIEW_CI_SUMMARY_LOG_RAW_TAIL_MULTIPLE`, keeping the last failure line), condenses
+it, redacts it, and applies the global `REVIEW_CI_SUMMARY_LOG_MAX_BYTES` budget
+before the author turn. A failed or unparsable author turn logs
+`review_ci_summary_author_failed` and the cell falls back to the facts-only
+failing summary. The authored cache is keyed by `hashCiFacts`; a stale hash never
+renders. No migration or queue change; the rendered cell and prompt bytes are
+unchanged.
+
 ## Retry and Recovery
 
 ### Review admission after close

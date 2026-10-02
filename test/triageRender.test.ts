@@ -19,7 +19,7 @@ import {
 import {
   renderCiRollupMarker,
   replaceCiRollupMarkerIfNewer,
-} from "../src/review/ci/ciRollupMarker.js";
+} from "../src/review/ci/ciSummaryCell.js";
 
 function thread(
   rootCommentId: number,

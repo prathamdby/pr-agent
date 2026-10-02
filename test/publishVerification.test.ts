@@ -65,7 +65,7 @@ import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js"
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.js";
 import type { VerificationPayload } from "../src/review/triageSchema.js";
 import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_STUB_MARKER } from "../src/settings/index.js";
-import { renderCiSummaryCell } from "../src/review/ci/renderCiSummary.js";
+import { renderCiSummaryCell } from "../src/review/ci/ciSummaryCell.js";
 import {
   publishTestPrSurface,
   resolveThreadIds,

@@ -19,7 +19,7 @@ import type {
   CiCheckAnnotation,
   CiCheckRunSnapshot,
   CiLegacyStatus,
-} from "../review/ci/ciSummaryTypes.js";
+} from "../review/ci/ciFacts.js";
 import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { GithubReactionContent } from "../settings/index.js";

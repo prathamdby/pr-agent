@@ -824,6 +824,64 @@ Remaining module mocks in `orchestratorRun.test.ts` (`specialistRun`,
 needs a database-backed pool and a diff-indexed fake surface to run for real. They
 are a recorded follow-up, not part of this milestone.
 
+## M15 failure modes
+
+Recorded before moving code:
+
+1. A stale head renders another head's cell. The head-and-version guard in
+   `replaceCiSummaryCellIfNewer` and the `supersededHead` option must move
+   byte-for-byte.
+2. An unseeded head renders passing or none. The `unknown` rollup and the
+   incomplete-listing summary (`REVIEW_CI_SUMMARY_INCOMPLETE`) keep their
+   branches; waiting copy stays `WAITING_FOR_CI_SUMMARY`.
+3. A pending or `unknown` head spends more than one Checks listing per job. The
+   seed and pending-refresh code in `prHeadCiState.ts` and the projector are
+   untouched; `prHeadCiState` keeps its keep verdict and is not folded.
+4. Truncated logs lose their failure line. `boundRawLogIntake` moves verbatim.
+   It is idempotent, and `condenseJobLogText` already applies it with the same
+   default cap, so removing the bound from `actionsLogs` leaves the condensed
+   bytes identical.
+5. The LLM author fails or returns junk. `createAgentCiSummaryAuthor` still
+   returns `null` after `review_ci_summary_author_failed`, and `ciAuthoring`
+   still falls back to `factsOnlyFailingSummary`.
+6. Log excerpts leak credentials. `redactReviewText` still runs at the
+   per-job condense, merge, and byte-bound steps and on merged headlines,
+   reasons, and fix hints.
+7. A lower layer imports upward. `src/github/actionsLogs.ts` imported
+   `review/ci/rawLogIntake`; it now returns the raw log and imports nothing
+   from `src/review/`.
+8. Version races. `shouldReplaceCiRollupMarker`, the cell and action-phrase
+   decision, and the verification-block injection keep their predicates; the
+   duplicated cell regex, end marker, and attribute parser become one copy.
+9. Prompt bytes drift. `CI_SUMMARY_SYSTEM_PROMPT` and `buildCiContextUserMessage`
+   move verbatim; the M0 prompt dump is compared byte-for-byte.
+10. Re-export shims keep dead names alive. `renderCiSummary`, `condenseCiLogs`,
+    and `analyzeCi` re-exported other modules; importers now use the owner.
+
+### M15 ownership and coverage
+
+`src/review/ci/` holds three files. `ciFacts.ts` owns the snapshot and fact
+types, `classifySnapshot` and merge rules, the facts-only summary, the authored
+cache (`hashCiFacts`, `parseCiAuthoredCache`), and `ciSummaryFromFacts`.
+`ciAuthor.ts` owns the LLM schema and prompt, raw intake bounding, condensing,
+context selection, `fetchCiAuthorContext`, and the author turn.
+`ciSummaryCell.ts` owns cell rendering, the CI, rollup, and verification-failure
+markers, and the head and version replacement rule. `reviewMetaParse.ts` moved
+to `run/commentMarkers.ts` beside the other marker codecs. `agentWork/ciAuthoring.ts`
+stays in `agentWork/` because it writes `pr_head_ci_state`.
+
+Coverage migration: `analyzeCi.test.ts` became `ciFacts.test.ts`,
+`condenseCiLogs.test.ts` became `ciAuthor.test.ts`, and `renderCiSummary.test.ts`
+became `ciSummaryCell.test.ts`; the rendered-cell cases are unchanged except for
+import paths. `ciSummarySchema.test.ts` split into those suites (nine author
+cases to `ciAuthor`, five facts and cache cases to `ciFacts`) and was deleted, as
+was `reviewMetaParse.test.ts` (two cases moved to `progressComment.test.ts`). The
+two `fetchCiAuthorContext` cases moved from `ciFacts` to `ciAuthor`. The two
+`actionsLogs` raw-bound cases duplicated the `boundRawLogIntake` cases in
+`ciAuthor`; they became one case that asserts the log is returned unbounded, and
+`ciAuthor` gained one case that drives a huge download through
+`fetchCiAuthorContext`. No test file is new. The unsafe assertion baseline stays 78.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

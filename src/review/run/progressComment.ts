@@ -28,8 +28,8 @@ import {
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
-import type { CiSummary } from "../ci/ciSummaryTypes.js";
-import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
+import type { CiSummary } from "../ci/ciFacts.js";
+import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/ciSummaryCell.js";
 import type { ReviewQueuePosition } from "../../agentWork/workItemStateRepository.js";
 import {
   SPECIALIST_IDS,

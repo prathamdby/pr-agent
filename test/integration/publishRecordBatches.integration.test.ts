@@ -69,10 +69,12 @@ import {
   renderReviewPointerLensMarker,
   renderStaleReviewMetadataComment,
 } from "../../src/review/run/reviewRender.js";
-import { renderCiRollupMarker } from "../../src/review/ci/ciRollupMarker.js";
-import { renderCiActionPhrase } from "../../src/review/ci/ciSummaryCell.js";
-import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
-import { renderClearedVerificationFailureStub } from "../../src/review/ci/verificationFailureBlock.js";
+import {
+  renderCiRollupMarker,
+  renderCiActionPhrase,
+  renderCiSummaryCell,
+  renderClearedVerificationFailureStub,
+} from "../../src/review/ci/ciSummaryCell.js";
 import { wrapDescriptionAgentBlock } from "../../src/agent/description/descriptionBodyMerge.js";
 import { makeTestConfig } from "../helpers/config.js";
 import {

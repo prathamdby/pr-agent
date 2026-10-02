@@ -119,7 +119,7 @@ docker compose -f docker-compose.dev.yml up -d --build
 
 That file starts Postgres (published on `127.0.0.1:5432`), Caddy, web (`7224`), worker (`7225`), and a Cloudflare quick tunnel to the web process. `dev/mock.env` has fake App id and webhook secret. The boot script generates a throwaway PEM at process start. Those values are not a real App. Print the public webhook URL with `node dev/print-public-webhook-url.cjs` and paste it on the GitHub App. For live deliveries, fill `.env` and pass `PR_AGENT_ENV_FILE=.env`.
 
-`docker compose up` remains the self-host path. It starts containerized web and worker without Caddy or a tunnel and does not publish Postgres. Do not run both Compose files at once. `docker compose up -d postgres` from the base file still does not open host port `5432`.
+`docker compose up` remains the self-host path. It starts containerized web and worker without Caddy or a tunnel and does not publish Postgres. Do not run both Compose files at once.
 
 Host Nub is optional on the maintainer-local path. Pin it to `@nubjs/nub@0.7.2` when you install it globally. Use `nub watch` only when you want host hot reload instead of an image rebuild.
 
@@ -293,7 +293,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `leasedExecution.ts::openLeasedExecution` owns watchdog seeding, lease acquire-and-claim, renewal, fenced terminal marks, and release. `durableJob.ts` owns retry policy, the context factory (admitted read-only views, session identity, publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work and code-index builds.
 - `src/agentWork/workItemTransitions.ts` owns `transition()`, the only work item status writer.
 - `src/agentWork/publishOnce.ts` owns mutation-intent sequencing and identity-scoped completion evidence. Its step table preserves ask/work and shared/resource scopes, progress ownership, and inline batches. Postgres and in-process publication adapters share those contracts. Triage retains its push plan before delegation and recovers only exact evidence, without a fabricated checkout.
-- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and publication.
+- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and publication. `ci/ciFacts.ts`, `ci/ciAuthor.ts`, `ci/ciSummaryCell.ts` own CI facts, author, and cell.
 - `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
 - `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.

@@ -26,7 +26,7 @@ import { withPrSurfaceMutationBoundary } from "./prSurfaceMutation.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { BotFindingThread, ReviewThreadReply } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
+import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
 import type { ReviewCheckRunConclusion } from "./reviewPublish.js";
 
 export type FakePrSurfaceEvent =

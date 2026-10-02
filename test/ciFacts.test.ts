@@ -4,15 +4,15 @@ import {
   isOwnCommitStatusContext,
   summarizeCiFacts,
   summarizeCiSnapshot,
-} from "../src/review/ci/analyzeCi.js";
-import {
   applyCiCheckFact,
   classifySnapshot,
+  hashCiFacts,
+  parseCiAuthoredCache,
+  ciSummaryFromFacts,
+  WAITING_FOR_CI_SUMMARY,
   type CiCheckFact,
-} from "../src/review/ci/classifySnapshot.js";
-import type { CiCheckRunSnapshot } from "../src/review/ci/ciSummaryTypes.js";
-import { fetchCiAuthorContext } from "../src/review/ci/fetchCiAuthorContext.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+  type CiCheckRunSnapshot,
+} from "../src/review/ci/ciFacts.js";
 import { REVIEW_CI_SUMMARY_INCOMPLETE } from "../src/settings/index.js";
 
 function completedCheck(id: number, name: string, conclusion: string): CiCheckRunSnapshot {
@@ -28,7 +28,7 @@ function completedCheck(id: number, name: string, conclusion: string): CiCheckRu
   };
 }
 
-describe("analyzeCi", () => {
+describe("summarizeCiSnapshot", () => {
   it("identifies the own check by App id or work-item external id", () => {
     const identity = { githubAppId: "99", workItemId: "wi-1" };
     expect(isOwnCiCheck(identity, { app_id: 99, external_id: null })).toBe(true);
@@ -209,85 +209,6 @@ describe("analyzeCi", () => {
     expect(summary.status).toBe("failing");
     expect(summary.headline).toContain("lint");
   });
-
-  it("downloads Actions logs by check_run_id before listing workflow jobs", async () => {
-    const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-    fake.controls.setJobLogs(
-      11,
-      ["Format issues found in above 1 files.", "Error: Process completed with exit code 1."].join(
-        "\n",
-      ),
-    );
-    fake.controls.setFailingJobs("abc", [{ id: 99, name: "other", conclusion: "failure" }]);
-    const context = await fetchCiAuthorContext({
-      prSurface: fake.surface,
-      headSha: "abc",
-      checks: {
-        lint: {
-          name: "lint",
-          source: "check_run",
-          status: "completed",
-          conclusion: "failure",
-          url: "https://github.com/o/r/actions/runs/1",
-          external_id: null,
-          app_id: 1,
-          check_run_id: 11,
-          observed_at: "2026-01-01T00:00:00.000Z",
-        },
-      },
-    });
-    expect(context.condensedLogs).toContain("Format issues found");
-    expect(fake.controls.events.filter((event) => event.kind === "downloadActionsJobLogs")).toEqual(
-      [{ kind: "downloadActionsJobLogs", jobId: 11 }],
-    );
-    expect(fake.controls.events.some((event) => event.kind === "listFailingActionsJobs")).toBe(
-      false,
-    );
-  });
-
-  it("lists failing Actions jobs when check_run_id logs are empty", async () => {
-    const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
-    fake.controls.setFailingJobs("abc", [
-      {
-        id: 99,
-        name: "lint",
-        conclusion: "failure",
-        htmlUrl: "https://github.com/o/r/actions/runs/99",
-      },
-    ]);
-    fake.controls.setJobLogs(
-      99,
-      ["Format issues found in above 1 files.", "Error: Process completed with exit code 1."].join(
-        "\n",
-      ),
-    );
-    const context = await fetchCiAuthorContext({
-      prSurface: fake.surface,
-      headSha: "abc",
-      checks: {
-        lint: {
-          name: "lint",
-          source: "check_run",
-          status: "completed",
-          conclusion: "failure",
-          url: "https://github.com/o/r/actions/runs/1",
-          external_id: null,
-          app_id: 1,
-          check_run_id: 11,
-          observed_at: "2026-01-01T00:00:00.000Z",
-        },
-      },
-    });
-    expect(context.condensedLogs).toContain("Format issues found");
-    expect(
-      fake.controls.events
-        .filter((event) => event.kind === "downloadActionsJobLogs")
-        .map((event) => (event.kind === "downloadActionsJobLogs" ? event.jobId : null)),
-    ).toEqual([11, 99]);
-    expect(fake.controls.events.some((event) => event.kind === "listFailingActionsJobs")).toBe(
-      true,
-    );
-  });
 });
 
 describe("classifySnapshot and applyCiCheckFact", () => {
@@ -391,5 +312,118 @@ describe("classifySnapshot and applyCiCheckFact", () => {
     expect(result.accepted).toBe(true);
     expect(result.truncated).toBe(true);
     expect(Object.keys(result.checks).toSorted()).toEqual(["mid", "new"]);
+  });
+});
+
+function factWith(overrides: Partial<CiCheckFact> = {}): CiCheckFact {
+  return {
+    name: "lint",
+    source: "check_run",
+    status: "completed",
+    conclusion: "failure",
+    url: "https://github.com/o/r/runs/1",
+    external_id: null,
+    app_id: 9,
+    check_run_id: 77,
+    observed_at: "2026-09-13T00:00:02.000Z",
+    ...overrides,
+  };
+}
+
+describe("head state rendering and authored cache", () => {
+  it("hashes facts by name, source, status, and conclusion only", () => {
+    const left = {
+      lint: factWith(),
+      unit: factWith({
+        name: "unit",
+        conclusion: "success",
+        observed_at: "2026-09-13T00:00:01.000Z",
+      }),
+    };
+    const right = {
+      unit: factWith({
+        name: "unit",
+        conclusion: "success",
+        url: "https://github.com/o/r/runs/99",
+        observed_at: "2026-09-13T00:00:09.000Z",
+      }),
+      lint: factWith({
+        url: "https://github.com/o/r/runs/2",
+        observed_at: "2026-09-13T00:00:08.000Z",
+      }),
+    };
+    expect(hashCiFacts(left)).toBe(hashCiFacts(right));
+    expect(hashCiFacts(left)).not.toBe(hashCiFacts({ lint: factWith({ conclusion: "success" }) }));
+  });
+
+  it("rejects authored cache junk", () => {
+    expect(parseCiAuthoredCache(null)).toBeNull();
+    expect(parseCiAuthoredCache({})).toBeNull();
+    expect(
+      parseCiAuthoredCache({ factsHash: "", headline: "x", failures: [], authoredAt: "t" }),
+    ).toBeNull();
+    expect(
+      parseCiAuthoredCache({
+        factsHash: "abc",
+        headline: "❌ CI failing — lint",
+        failures: [{ name: "lint", reason: "fmt", fixHint: "oxfmt" }],
+        authoredAt: "2026-09-13T00:00:00.000Z",
+      }),
+    ).toMatchObject({ factsHash: "abc", headline: "❌ CI failing — lint" });
+  });
+
+  it("renders authored cache only when the failing facts hash matches", () => {
+    const failing = { lint: factWith() };
+    const cache = {
+      factsHash: hashCiFacts(failing),
+      headline: "❌ authored lint",
+      failures: [{ name: "lint", reason: "oxfmt failed", fixHint: "run oxfmt" }],
+      authoredAt: "2026-09-13T00:00:00.000Z",
+    };
+    const hit = ciSummaryFromFacts(failing, 4, cache);
+    expect(hit.version).toBe(4);
+    expect(hit.summary.status).toBe("failing");
+    expect(hit.summary.headline).toBe("❌ authored lint");
+    expect(hit.summary.failures[0]?.reason).toBe("oxfmt failed");
+
+    const stale = ciSummaryFromFacts(failing, 4, { ...cache, factsHash: "other" });
+    expect(stale.summary.headline).toContain("CI failing");
+    expect(stale.summary.headline).not.toBe("❌ authored lint");
+
+    const passing = { lint: factWith({ conclusion: "success" }) };
+    const passingCache = {
+      factsHash: hashCiFacts(passing),
+      headline: "❌ authored lint",
+      failures: cache.failures,
+      authoredAt: cache.authoredAt,
+    };
+    const ignored = ciSummaryFromFacts(passing, 2, passingCache);
+    expect(ignored.summary.status).toBe("passing");
+    expect(ignored.summary.headline).toContain("All CI is passing");
+
+    expect(ciSummaryFromFacts({}, 0).summary).toEqual({
+      status: "none",
+      headline: "No CI checks on this head",
+      failures: [],
+    });
+  });
+
+  it("keeps incomplete empty listings unavailable while complete empty is none", () => {
+    expect(ciSummaryFromFacts({}, 1).summary.status).toBe("none");
+    expect(ciSummaryFromFacts({}, 1).summary.headline).toBe("No CI checks on this head");
+    expect(WAITING_FOR_CI_SUMMARY.status).toBe("pending");
+  });
+
+  it("renders an incomplete listing as unavailable instead of waiting or passing", () => {
+    const incompleteEmpty = ciSummaryFromFacts({}, 3, undefined, { checkRunsComplete: false });
+    expect(incompleteEmpty.summary.status).toBe("unavailable");
+    expect(incompleteEmpty.summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
+
+    const passing = { lint: factWith({ conclusion: "success" }) };
+    const incompletePassing = ciSummaryFromFacts(passing, 3, undefined, {
+      checkRunsComplete: false,
+    });
+    expect(incompletePassing.summary.status).toBe("unavailable");
+    expect(incompletePassing.summary.headline).toBe(REVIEW_CI_SUMMARY_INCOMPLETE);
   });
 });

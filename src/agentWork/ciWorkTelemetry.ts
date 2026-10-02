@@ -1,7 +1,6 @@
 import type { Pool } from "pg";
 import type { CiWorkTelemetry } from "../analytics/workCompleted.js";
-import { parseCiAuthoredCache } from "../review/ci/ciAuthoredCache.js";
-import { isCheckFactFailing } from "../review/ci/classifySnapshot.js";
+import { parseCiAuthoredCache, isCheckFactFailing } from "../review/ci/ciFacts.js";
 import { loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
 
 export function ciWorkTelemetryFromRow(row: PrHeadCiStateRow | null): CiWorkTelemetry {

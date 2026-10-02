@@ -10,17 +10,15 @@ import {
   renderCiSummaryCell,
   shouldIncludeCiInAgentFixPrompt,
   shouldRenderCiSummaryRow,
-} from "../src/review/ci/renderCiSummary.js";
-import {
   applyCiProjectionBodyUpdate,
   parseCiSummaryMarker,
   replaceCiSummaryCellIfNewer,
   renderCiActionPhrase,
+  renderVerificationFailureBlock,
+  formatReviewActionLineCiStatus,
 } from "../src/review/ci/ciSummaryCell.js";
-import type { CiSummary } from "../src/review/ci/ciSummaryTypes.js";
-import { renderVerificationFailureBlock } from "../src/review/ci/verificationFailureBlock.js";
+import type { CiSummary } from "../src/review/ci/ciFacts.js";
 import { VERIFICATION_FAILURE_TEXT } from "../src/settings/index.js";
-import { formatReviewActionLineCiStatus } from "../src/review/ci/ciSummaryCell.js";
 
 describe("renderCiSummary", () => {
   it("formats failing CI fields as plain text for the agent fix prompt", () => {

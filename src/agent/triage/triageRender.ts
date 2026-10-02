@@ -4,8 +4,8 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.js";
 import { renderPolicySuggestionForDismissed } from "../../review/repoPolicy.js";
 import { TRIAGE_PREVIEW_SENTINEL, TRIAGE_SUMMARY_SENTINEL } from "../../settings/index.js";
-import type { CiRollup } from "../../review/ci/classifySnapshot.js";
-import { renderCiRollupMarker } from "../../review/ci/ciRollupMarker.js";
+import type { CiRollup } from "../../review/ci/ciFacts.js";
+import { renderCiRollupMarker } from "../../review/ci/ciSummaryCell.js";
 
 export type TriagePreviewHunk = {
   readonly threadRootCommentId: number;

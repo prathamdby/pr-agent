@@ -20,7 +20,7 @@ import { buildAskSystemPrompt } from "../src/agent/ask/askPrompt.js";
 import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
 import { triageSystemPrompt } from "../src/agent/triage/triagePrompt.js";
 import { verificationSystemPrompt } from "../src/agent/verification/verificationPrompt.js";
-import { CI_SUMMARY_SYSTEM_PROMPT } from "../src/review/ci/ciGatePrompt.js";
+import { CI_SUMMARY_SYSTEM_PROMPT } from "../src/review/ci/ciAuthor.js";
 import { BOUND_POLICY_JUDGE_SYSTEM_PROMPT } from "../src/review/publish/boundPolicyJudge.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildUnavailableCodeIndexTools } from "../src/agent/tools/codeIndexTools.js";

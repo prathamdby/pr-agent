@@ -39,18 +39,16 @@ import {
   renderReviewRunFooter,
   type ReviewRunFooterMeta,
 } from "./reviewRunFooter.js";
-import type { CiSummary } from "../ci/ciSummaryTypes.js";
+import type { CiSummary } from "../ci/ciFacts.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import {
   formatReviewActionLineCiStatus,
   renderReviewActionLineCiStatus,
-} from "../ci/ciSummaryCell.js";
-import {
   formatCiSummaryPlainText,
   renderCiSummaryCell,
   shouldIncludeCiInAgentFixPrompt,
   shouldRenderCiSummaryRow,
-} from "../ci/renderCiSummary.js";
+} from "../ci/ciSummaryCell.js";
 
 export type RenderContext = ReviewPublishContext;
 

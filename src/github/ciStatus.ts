@@ -6,7 +6,7 @@ import type {
   CiCheckAnnotation,
   CiCheckRunSnapshot,
   CiLegacyStatus,
-} from "../review/ci/ciSummaryTypes.js";
+} from "../review/ci/ciFacts.js";
 
 const ANNOTATIONS_PAGE_SIZE = 50;
 const ANNOTATIONS_MAX_PAGES = 2;

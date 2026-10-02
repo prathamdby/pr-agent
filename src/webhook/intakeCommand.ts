@@ -12,7 +12,7 @@ import {
   IGNORED_UNAUTHORIZED_SLASH,
   OWN_COMMIT_STATUS_CONTEXT,
 } from "../settings/index.js";
-import { isOwnCiCheck, observedAtFromGithub } from "../review/ci/classifySnapshot.js";
+import { isOwnCiCheck, observedAtFromGithub } from "../review/ci/ciFacts.js";
 import type { ParsedGithubEvent } from "./parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "./payloads/pullRequestReviewCommentEvent.js";
 import { prNumbersForCiHead, toCiHeadSourceFromCompletedRun } from "./payloads/ciHeadSource.js";

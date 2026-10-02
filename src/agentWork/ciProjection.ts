@@ -7,7 +7,7 @@ import {
   headCiFactsAreComplete,
   waitingCiSummary,
   type RenderableHeadCi,
-} from "../review/ci/ciFromHeadState.js";
+} from "../review/ci/ciFacts.js";
 import { AUTOMATED_PR_ACTIONS, CI_PROJECTION_QUEUE, DEFERRED_HEAD_SHA } from "../settings/index.js";
 import { headCiNeedsSeed, loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
 import { installationGroupId, type CiProjectionJobData, type JobCorrelation } from "./types.js";

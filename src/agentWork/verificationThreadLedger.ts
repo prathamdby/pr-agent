@@ -1,6 +1,6 @@
 import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
-import type { VerificationFailureSurface } from "../review/ci/verificationFailureBlock.js";
+import type { VerificationFailureSurface } from "../review/ci/ciSummaryCell.js";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";

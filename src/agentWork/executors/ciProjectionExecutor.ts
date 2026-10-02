@@ -12,21 +12,20 @@ import {
 import {
   injectVerificationFailureIntoCiCell,
   renderVerificationFailureBlock,
-} from "../../review/ci/verificationFailureBlock.js";
-import {
   applyCiProjectionBodyUpdate,
   decideCiProjectionBodyUpdate,
-} from "../../review/ci/ciSummaryCell.js";
-import {
   renderCiRollupMarker,
   replaceCiRollupMarkerIfNewer,
-} from "../../review/ci/ciRollupMarker.js";
-import type { CiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
-import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFromHeadState.js";
-import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
-import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
-import { formatReviewActionLineCiStatus } from "../../review/ci/ciSummaryCell.js";
-import { parseProgressRevisionState } from "../../review/run/commentMarkers.js";
+  renderCiSummaryCell,
+  shouldRenderCiSummaryRow,
+  formatReviewActionLineCiStatus,
+} from "../../review/ci/ciSummaryCell.js";
+import type { CiSummaryAuthor } from "../../review/ci/ciAuthor.js";
+import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFacts.js";
+import {
+  parseReviewMetaFromCommentBody,
+  parseProgressRevisionState,
+} from "../../review/run/commentMarkers.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
   TRIAGE_SUMMARY_SENTINEL,

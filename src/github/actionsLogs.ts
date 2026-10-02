@@ -1,8 +1,4 @@
-import { boundRawLogIntake } from "../review/ci/rawLogIntake.js";
-import {
-  REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
-  REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
-} from "../settings/index.js";
+import { REVIEW_CI_SUMMARY_LOG_MAX_JOBS } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 import { classifyGithubError } from "./githubErrors.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
@@ -124,7 +120,7 @@ export async function downloadActionsJobLogs(
     if (text == null || text.trim().length === 0) {
       return { ok: false, reason: "empty" };
     }
-    return { ok: true, text: boundRawLogIntake(text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS) };
+    return { ok: true, text };
   } catch (error) {
     if (isMissingActionsPermissionError(error)) {
       return { ok: false, reason: "actions_permission" };

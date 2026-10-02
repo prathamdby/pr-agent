@@ -52,7 +52,7 @@ import {
   shouldSeedHeadCiFromPullRequest,
 } from "../ciProjection.js";
 import { applyPrHeadCiFact, headCiNeedsSeed, loadPrHeadCiState } from "../prHeadCiState.js";
-import type { CiCheckFact } from "../../review/ci/classifySnapshot.js";
+import type { CiCheckFact } from "../../review/ci/ciFacts.js";
 import {
   cancelActiveTriage,
   cancelActiveReviews,

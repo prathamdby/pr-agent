@@ -6,9 +6,10 @@ import {
   mergeGithubSnapshotIntoChecks,
   type CiCheckFact,
   type CiRollup,
-} from "../review/ci/classifySnapshot.js";
-import type { CiAuthoredCache } from "../review/ci/ciAuthoredCache.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
+  type CiAuthoredCache,
+  type CiCheckRunSnapshot,
+  type CiLegacyStatus,
+} from "../review/ci/ciFacts.js";
 import {
   CI_STATE_MAX_CHECKS,
   DEFERRED_HEAD_SHA,
