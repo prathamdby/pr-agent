@@ -7,17 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
 import { LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB } from "../src/settings/index.js";
 
-const settingsOverrides: { maxFetchBytes?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get LOCAL_WORKSPACE_MAX_FETCH_BYTES() {
-      return settingsOverrides.maxFetchBytes ?? actual.LOCAL_WORKSPACE_MAX_FETCH_BYTES;
-    },
-  };
-});
-
 const credentialHooks = { failAfterWrite: false };
 const allocatedWorkspaceRoots: string[] = [];
 vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
@@ -36,7 +25,6 @@ vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
 });
 
 afterEach(() => {
-  delete settingsOverrides.maxFetchBytes;
   credentialHooks.failAfterWrite = false;
   allocatedWorkspaceRoots.length = 0;
 });
@@ -340,7 +328,6 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        settingsOverrides.maxFetchBytes = 1;
 
         await expect(
           prepareLocalPrWorkspace({
@@ -351,6 +338,7 @@ describe("local PR workspace", () => {
             installationToken: "unused",
             prFiles,
             remoteUrlOverride: remote,
+            maxFetchBytes: 1,
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 
@@ -387,7 +375,6 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        settingsOverrides.maxFetchBytes = 1;
 
         await expect(
           prepareLocalPrWorkspace({
@@ -399,6 +386,7 @@ describe("local PR workspace", () => {
             prFiles,
             repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
             remoteUrlOverride: remote,
+            maxFetchBytes: 1,
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
 

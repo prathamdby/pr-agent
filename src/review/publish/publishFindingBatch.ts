@@ -9,7 +9,6 @@ import {
   renderReviewPointerLensMarker,
   renderSpecialistReviewBody,
 } from "../run/reviewRender.js";
-import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import { fingerprintCandidates } from "../findings/reviewFindingFingerprint.js";
 import {
@@ -184,7 +183,10 @@ export async function publishFindingBatch(
     });
   }
 
-  const remainingInline = Math.max(0, MAX_INLINE_REVIEW_COMMENTS - input.ledger.postedInlineCount);
+  const remainingInline = Math.max(
+    0,
+    session.cfg.review.maxInlineComments - input.ledger.postedInlineCount,
+  );
   const targets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
     cachedDiffIndex: session.cachedDiffIndex,
@@ -196,7 +198,7 @@ export async function publishFindingBatch(
 
   if (
     input.ledger.threadBudgetExhausted ||
-    input.ledger.threadCallCount >= MAX_THREAD_PUBLISH_CALLS
+    input.ledger.threadCallCount >= session.cfg.review.maxThreadPublishCalls
   ) {
     const accepted = acceptedSummaryPlacements({
       targets: targets.placements,

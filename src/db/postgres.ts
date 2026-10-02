@@ -1,8 +1,7 @@
 import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
 import type { Db } from "pg-boss";
-import type { Config } from "../config.js";
-import { logWarn } from "../evlog.js";
 import {
+  type Config,
   POSTGRES_CONNECTION_TIMEOUT_MS,
   POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
   POSTGRES_IDLE_TIMEOUT_MS,
@@ -11,10 +10,11 @@ import {
   POSTGRES_POOL_MAX,
   POSTGRES_STATEMENT_TIMEOUT_MS,
 } from "../settings/index.js";
+import { logWarn } from "../evlog.js";
 
-export function createPgPool(cfg: Pick<Config, "databaseUrl" | "role">): Pool {
+export function createPgPool(cfg: Pick<Config, "runtime">): Pool {
   const pool = new Pool({
-    connectionString: cfg.databaseUrl,
+    connectionString: cfg.runtime.databaseUrl,
     max: POSTGRES_POOL_MAX,
     idleTimeoutMillis: POSTGRES_IDLE_TIMEOUT_MS,
     connectionTimeoutMillis: POSTGRES_CONNECTION_TIMEOUT_MS,
@@ -23,7 +23,7 @@ export function createPgPool(cfg: Pick<Config, "databaseUrl" | "role">): Pool {
     keepAliveInitialDelayMillis: POSTGRES_KEEPALIVE_INITIAL_DELAY_MS,
     lock_timeout: POSTGRES_LOCK_TIMEOUT_MS,
     idle_in_transaction_session_timeout: POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
-    application_name: `pr-agent-${cfg.role}`,
+    application_name: `pr-agent-${cfg.runtime.role}`,
   });
   // A Postgres restart fails idle sockets, which reach the pool's "error" event;
   // without a listener that is an uncaught exception and the process exits.

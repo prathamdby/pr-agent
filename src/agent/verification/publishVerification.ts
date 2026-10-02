@@ -10,7 +10,11 @@ import {
 } from "../../review/repoPolicy.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
-import { VERIFICATION_STUB_MARKER, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
+import {
+  VERIFICATION_STUB_MARKER,
+  VERIFICATION_PUBLISH_LENS,
+  type Config,
+} from "../../settings/index.js";
 import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
@@ -27,7 +31,6 @@ import {
   safeRecordThreadFindingHistoryOutcome,
   type FindingHistoryOutcome,
 } from "../../agentWork/findingHistoryRepository.js";
-import type { Config } from "../../config.js";
 import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.js";
 
 type PublishVerificationParams = {
@@ -47,7 +50,7 @@ type PublishVerificationParams = {
   /** When true, changedFilePaths is incomplete (GitHub compare 300-file cap). */
   readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
-  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly findingHistoryCfg?: Pick<Config, "findingHistory">;
   readonly leaseEpoch: number | null;
 };
 

@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
@@ -40,6 +40,7 @@ export function buildVerificationRunSetup(params: {
   const submitState = createSubmitVerificationState();
   const workspaceTools = hideWorkspaceToolsBehindCodeMode(
     buildWorkspaceTools({ profile: "verification", reader: params.workspace.reader }),
+    { executorKind: params.cfg.codeMode.executorKind },
   );
   const submitTool = buildSubmitVerificationTool({
     owner: params.owner,

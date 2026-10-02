@@ -1,13 +1,13 @@
 import { isCancelAbortError } from "../agent/providers/providerErrors.js";
 import { resolveModelPolicy } from "../agent/runtime/modelPolicy.js";
 import type { ModelAssignment } from "../agent/runtime/types.js";
-import type { Config } from "../config.js";
-import { isAppError } from "../errors/appError.js";
 import {
+  type Config,
   ESCALATED_TOOL_ROUNDS_CAP,
   ESCALATED_TOOL_ROUNDS_MULTIPLIER,
   MAX_ESCALATED_VERIFICATION_INVENTORY,
 } from "../settings/index.js";
+import { isAppError } from "../errors/appError.js";
 import { isStaleHeadReplacementExhausted } from "./reviewReschedule.js";
 
 /** Whether a failed attempt may return to the queue, and under which budget. */
@@ -45,8 +45,8 @@ export function retryDispositionFor(error: unknown): RetryDisposition {
 }
 
 /** Durable claim budget per work item: the first attempt plus `QUEUE_RETRY_LIMIT` retries. */
-export function maxAttempts(cfg: Pick<Config, "queueRetryLimit">): number {
-  return cfg.queueRetryLimit + 1;
+export function maxAttempts(cfg: Pick<Config, "queue">): number {
+  return cfg.queue.retryLimit + 1;
 }
 
 export type EscalationKind = "tool_rounds" | "fallback_model";

@@ -1,4 +1,4 @@
-import type { Config } from "../../config.js";
+import { type Config, MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
@@ -13,7 +13,6 @@ import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession
 import type { PiSession } from "../../agent/runtime/types.js";
 import { runSubmitOnlyRound, runValidationRepairLoop } from "../../agent/runtime/featureAgent.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
-import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.js";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";

@@ -20,7 +20,7 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
 const recordPublishStep = publicationWrites.write;
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { Config } from "../src/config.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
 import type { AckJobData } from "../src/agentWork/types.js";
 import {
@@ -138,7 +138,7 @@ import {
 } from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
 
-const cfg = { features: { commitStatus: false } } as Config;
+const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
 const pool = {} as Pool;
 
 function ackData(): AckJobData {

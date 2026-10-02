@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Config } from "../config.js";
+import type { Config } from "../settings/index.js";
 import { getAppBotIdentity, type BotIdentity, type InstallationToken } from "../github/appAuth.js";
 import {
   mintInstallationToken,
@@ -7,7 +7,7 @@ import {
 } from "../github/installationToken.js";
 import { createPrSurface } from "../github/prSurface.js";
 
-type AppConfig = Pick<Config, "githubAppId" | "githubAppPrivateKey">;
+type AppConfig = Pick<Config, "github">;
 
 export type InstallationSurfaceDependencies = {
   readonly mintToken: typeof mintInstallationToken;
@@ -18,7 +18,7 @@ export type InstallationSurfaceDependencies = {
 
 const identityKey = (cfg: AppConfig) =>
   createHash("sha256")
-    .update(JSON.stringify([cfg.githubAppId, cfg.githubAppPrivateKey]))
+    .update(JSON.stringify([cfg.github.appId, cfg.github.privateKey]))
     .digest("hex");
 
 /** One adapter owns credentials, concurrent cold lookups, and freshness policy. */

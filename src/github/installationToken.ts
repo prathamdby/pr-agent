@@ -1,14 +1,14 @@
-import type { Config } from "../config.js";
-import { mintInstallationAuth, type InstallationToken } from "./appAuth.js";
 import {
+  type Config,
   INSTALLATION_TOKEN_FALLBACK_TTL_MS,
   TOKEN_FRESHNESS_BUFFER_MS,
 } from "../settings/index.js";
+import { mintInstallationAuth, type InstallationToken } from "./appAuth.js";
 
 export type { InstallationToken };
 
 export async function mintInstallationToken(
-  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+  cfg: Pick<Config, "github">,
   installationId: number,
 ): Promise<InstallationToken> {
   const auth = await mintInstallationAuth(cfg, installationId);

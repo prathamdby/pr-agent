@@ -9,7 +9,7 @@ import {
 import { createLoggerStorage } from "evlog/toolkit";
 import { captureException, isAnalyticsEnabled } from "./analytics/index.js";
 import { errorAnalyticsFields, sanitizeErrorForTelemetry } from "./errors/appError.js";
-import type { Config } from "./config.js";
+import type { Config } from "./settings/index.js";
 import { sanitizeTelemetryRecord } from "./security/sanitizeTelemetryValue.js";
 
 export type { RequestLogger };
@@ -190,7 +190,7 @@ export type OperationLoggerMeta = {
 };
 
 export function initEvlog(
-  logLevel: Config["logLevel"],
+  logLevel: Config["logging"]["level"],
   options?: {
     silent?: boolean;
     suppressDrainWarning?: boolean;

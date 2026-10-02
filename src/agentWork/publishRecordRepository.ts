@@ -13,8 +13,7 @@ import {
   type FindingSource,
 } from "../review/orchestrator/orchestratorTypes.js";
 import { reviewFindingSchema, type ReviewFinding } from "../review/reviewSchema.js";
-import { DEFERRED_HEAD_SHA } from "../settings/index.js";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
+import { DEFERRED_HEAD_SHA, type AnyReviewLens } from "../settings/index.js";
 import { isRecord } from "../util/typeGuards.js";
 import type { OperationIntentRow } from "./operationIntentRepository.js";
 

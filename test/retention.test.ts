@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { runRetention } from "../src/agentWork/retention.js";
 import { RETENTION_DELETE_BATCH_SIZE } from "../src/settings/index.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const RETENTION = {
-  agentWorkRetentionSeconds: 30 * 86_400,
-  webhookEventsRetentionSeconds: 30 * 86_400,
-  agentEventsRetentionSeconds: 0,
-  codeIndexRetentionSeconds: 30 * 86_400,
-};
+const RETENTION = makeTestConfig({
+  retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },
+  agentEvents: { retentionSeconds: 0 },
+  codeIndex: { retentionSeconds: 30 * 86_400 },
+});
 
 describe("runRetention batched delete loop", () => {
   it("keeps deleting until a short batch is returned, accumulating row counts", async () => {
@@ -137,7 +137,7 @@ describe("runRetention batched delete loop", () => {
 
     const result = await runRetention(pool, {
       ...RETENTION,
-      agentEventsRetentionSeconds: 86_400,
+      agentEvents: { ...RETENTION.agentEvents, retentionSeconds: 86_400 },
     });
 
     expect(result.agentEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 7);

@@ -968,6 +968,115 @@ failure case now fails the second real listing instead of using an empty canned
 graph. Triage fixtures that replace the pull request now carry `head.ref` and repository
 names, since branch info comes from `getHead`. The unsafe assertion baseline stays at 78.
 
+## M17 failure modes
+
+Recorded before the split:
+
+1. An env parse error changes its message, code, or context: a slice reader
+   rewords `must be a positive number`, the retry-delay-versus-timeout check, the
+   ask reservation-versus-budget check, or the feature-mode rejection (`off`
+   crashes review, `auto` aborts ask and triage).
+2. A default drifts while a reader moves. Every default still comes from
+   `defaults.ts`; a slice that inlines a literal changes a deployed value without a
+   diff in `docs/configuration.md`.
+3. Feature-mode validation runs on a different env snapshot or order, so a
+   deployment that failed fast at boot starts, or the reverse.
+4. A secret reaches a log through the new shape: `github.privateKey`,
+   `webhook.secret`, `models.providerKeys`, `context7.apiKey`, and
+   `posthog.projectToken` become reachable as a whole slice, so a slice passed to
+   `logWarn` would print them. No slice is logged; redaction stays in
+   `src/security/`.
+5. The `models.json` path or catalog failure changes: a missing explicit path, an
+   unknown provider, or an unknown model must still fail boot on the worker with
+   the same code, and web must still skip validation and never load the Pi SDK.
+6. Code Mode picks the wrong executor: a compiled worker silently runs in-process
+   (no interrupt isolation), or a TypeScript source run tries to start a worker
+   file that does not exist. The decision is `import.meta.url` of the slice
+   module; the `VITEST` read is gone.
+7. A parameterized executor kind is dropped on one path: review, ask, and
+   verification each build their `execute` tool from `cfg.codeMode.executorKind`;
+   a missed caller would default silently if the parameter were optional, so it is
+   required.
+8. The test builder drifts from production: `makeTestConfig` carries a different
+   default than `loadConfig` for a field a suite relies on, or a partial
+   per-slice override replaces a whole slice and drops its siblings.
+9. A fixture cast hides a renamed field. Four suites cast a partial object to
+   `Config` or `never` and read a flat name; after the rename the read yields
+   `undefined` and the case fails far from the cause (or, worse, a default
+   masks it).
+10. A test-only mock of the settings barrel is replaced by a constant that is
+    still read directly, so the override silently stops applying.
+
+`Config` is now nested slices behind the single settings barrel:
+
+| Slice                                                                                                           | Reader file          |
+| --------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `github`, `webhook`, `associations`                                                                             | `slices/github.ts`   |
+| `ask`                                                                                                           | `slices/ask.ts`      |
+| `queue`, `concurrency`, `retention`                                                                             | `slices/queue.ts`    |
+| `models`, `provider`                                                                                            | `slices/models.ts`   |
+| `features`                                                                                                      | `slices/features.ts` |
+| `runtime`, `agentEvents`, `findingHistory`, `codeIndex`, `codeMode`, `review`, `context7`, `posthog`, `logging` | `slices/service.ts`  |
+
+`envReaders.ts` holds the typed readers (`requireEnv`, `optionalEnv`,
+`readPositive*`, `readNonNegative*`, `readEnum`, `readStrictBoolean`) and
+`isProductionNodeEnv()`, the only `NODE_ENV` read. `config.ts` composes the slices;
+`loadConfig` is exported from the barrel. `src/config.ts` and the
+`settings/modelsJson.ts` re-export shim are deleted. Every import of settings goes
+through `settings/index.js`; `legacyReviewLenses`, `reviewConstants`,
+`sessionConstants`, and `queueConstants` importers were rewritten and duplicate
+imports merged.
+
+Moves: `modelsJsonPath.ts` and `modelsJsonCatalog.ts` go from `src/settings/` to
+`src/agent/runtime/`, next to `modelsJson.ts` which already lived there. The
+worker-role models slice reaches them through one dynamic import, so the web
+runtime graph still never loads the Pi catalog statically.
+
+Code Mode: `resolveCodeModeExecutorKind` is deleted. `executorKind` is a required
+parameter of `hideWorkspaceToolsBehindCodeMode`, `buildCodeModeExecuteTool`,
+`runCodeModeScript`, and `acquireExecutor`; pool waiters keep the kind they were
+queued with. Review, ask, and verification pass `cfg.codeMode.executorKind`;
+`scripts/dump-prompt.ts` and `test/codeMode.test.ts` pass `in_process`.
+
+Settings mocks: the seven `vi.mock(".../settings/index.js")` sites are gone.
+`webhook.timeoutMs` and `webhook.maxBodyBytes` are read from `cfg` in
+`processWebhookPostRequestEffect` and `server.ts`; `review.maxInlineComments` and
+`review.maxThreadPublishCalls` are read from `session.cfg` in `publishFindingBatch`
+(`ReviewPublishConfig` gains `review`); `prepareLocalPrWorkspace` takes
+`maxFetchBytes` and `cleanupStaleLocalPrWorkspaces` takes `staleAgeSeconds`
+(also threaded into `sweepStaleOwnedWorkspaces`). The `writablePrCheckout` stale
+mock was not dead: it shortened the sweep age for the stale-triage-dir case and the
+heartbeat interval of every writable checkout; the case now passes
+`staleAgeSeconds: 1`.
+
+`process.env` allowlist: `src/config.ts` becomes `src/settings/envReaders.ts`,
+`src/settings/modelsJsonCatalog.ts` becomes `src/agent/runtime/modelsJsonCatalog.ts`,
+and the `src/settings/codeModeConstants.ts` row is removed with its `VITEST` read.
+No row is added and no pattern widens.
+
+Coverage migration, no new files. `test/helpers/config.ts` takes per-slice partial
+overrides (`models.providerKeys` is itself partial) with an explicit non-cast
+merge. The 688 flat-field renames across about 86 files were mechanical;
+33 slice-literal fixtures are wrapped in `makeTestConfig`. `configValidation`
+keeps its cases and reads slice paths; its defaults case also asserts
+`codeMode.executorKind` is `in_process` under Vitest, replacing the deleted
+`codeMode` case "keeps Vitest execute cells in-process". The architecture test's
+web-graph case asserts `modelsJson.ts` is absent from the static-only graph
+(`runtimeImportGraph(..., { staticOnly: true })`), because the worker-only dynamic
+import is now reachable through the barrel's `loadConfig`. Cast fixtures in
+`ackExecutor`, `codeIndexPrepare`, `agentLifecycleEvents`,
+`createFeatureSession.events`, and `durableJob` now build slices; the ask quota
+override in `intakeTransaction.integration` used prefixed names that the spread
+silently ignored and now uses the slice names.
+
+Deviations: with several required env vars missing at once, the first reported name
+can differ. The old order was `PORT`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`,
+`WEBHOOK_SECRET`, `DATABASE_URL`, `ROLE`; the new order is `PORT`, `DATABASE_URL`,
+`ROLE`, then the GitHub and webhook slices. A single missing or invalid variable
+reports exactly as before. `AskQuotaConfig` is `Config["ask"]` with the `ask`
+prefix dropped from its field names; `runDelivery` and `makeAgentWorkScheduler`
+read `cfg.ask`.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

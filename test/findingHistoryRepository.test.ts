@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { makeTestConfig } from "./helpers/config.js";
 import type { Pool } from "pg";
 import {
   formatFindingHistoryTrustedBlock,
@@ -17,11 +18,9 @@ vi.mock("../src/evlog.js", async (importOriginal) => {
 
 import { logWarn } from "../src/evlog.js";
 
-const cfg = {
-  findingHistoryEnabled: true,
-  findingHistoryDismissSuppressAfter: 3,
-  findingHistoryLookbackDays: 180,
-};
+const cfg = makeTestConfig({
+  findingHistory: { enabled: true, dismissSuppressAfter: 3, lookbackDays: 180 },
+});
 
 const openScope = {
   installationId: 9,
@@ -41,7 +40,12 @@ describe("safeUpsertFindingHistoryOpen", () => {
   it("does not query when finding history is disabled", () => {
     const { query, pool } = mockPool();
 
-    safeUpsertFindingHistoryOpen(pool, { findingHistoryEnabled: false }, openScope, ["fp-a"]);
+    safeUpsertFindingHistoryOpen(
+      pool,
+      makeTestConfig({ findingHistory: { enabled: false } }),
+      openScope,
+      ["fp-a"],
+    );
 
     expect(query).not.toHaveBeenCalled();
   });
@@ -53,7 +57,12 @@ describe("safeUpsertFindingHistoryOpen", () => {
     const pool = { query } as unknown as Pool;
 
     expect(() =>
-      safeUpsertFindingHistoryOpen(pool, { findingHistoryEnabled: true }, openScope, ["fp-a"]),
+      safeUpsertFindingHistoryOpen(
+        pool,
+        makeTestConfig({ findingHistory: { enabled: true } }),
+        openScope,
+        ["fp-a"],
+      ),
     ).not.toThrow();
     await expect(query.mock.results[0]?.value).rejects.toThrow("db down");
   });
@@ -99,7 +108,7 @@ describe("safeRecordThreadFindingHistoryOutcome", () => {
     expect(() =>
       safeRecordThreadFindingHistoryOutcome(
         pool,
-        { findingHistoryEnabled: true },
+        makeTestConfig({ findingHistory: { enabled: true } }),
         {
           scope: { ...openScope, workItemId: "wi-1" },
           resourceKey: "acme/app#12",
@@ -173,7 +182,7 @@ describe("safeLoadCrossPrSuppressionFingerprints", () => {
     const pool = { query } as unknown as Pool;
     const result = await safeLoadCrossPrSuppressionFingerprints(
       pool,
-      { ...cfg, findingHistoryEnabled: false },
+      { ...cfg, findingHistory: { ...cfg.findingHistory, enabled: false } },
       { installationId: 1, owner: "o", repo: "r" },
     );
     expect(result).toEqual([]);

@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { AgentToolCallContext, AgentRunnerToolExecutor } from "../providers/interface.js";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../ask/askSafety.js";

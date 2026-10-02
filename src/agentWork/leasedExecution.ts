@@ -1,13 +1,12 @@
 import os from "node:os";
 import type { Pool, PoolClient } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
+import { type Config, REVIEW_CANCEL_POLL_INTERVAL_MS } from "../settings/index.js";
 import { AppError } from "../errors/appError.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../github/prSurface.js";
 import { inTransaction } from "../db/postgres.js";
-import { REVIEW_CANCEL_POLL_INTERVAL_MS } from "../settings/index.js";
 import {
   acquirePrActorLease,
   armLeaseWatchdogHop,
@@ -54,7 +53,7 @@ export function startLeaseRenewal(
       ...key,
       workItemId,
       leaseEpoch,
-      ttlSeconds: cfg.prActorLeaseTtlSeconds,
+      ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
     }).then(
       (renewed) => {
         if (!renewed) {
@@ -78,7 +77,7 @@ export function startLeaseRenewal(
         });
       },
     );
-  }, cfg.prActorLeaseRenewalIntervalSeconds * 1000);
+  }, cfg.queue.prActorLeaseRenewalIntervalSeconds * 1000);
   timer.unref();
   return () => clearInterval(timer);
 }
@@ -412,7 +411,7 @@ export async function openLeasedExecution(
       queue: params.prActorLease.queue,
       leaseKey: key,
       core,
-      ttlSeconds: cfg.prActorLeaseTtlSeconds,
+      ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
       priority: job.priority,
       seededLiveHop,
       transact: (fn) => runtime.transaction(pool, fn),

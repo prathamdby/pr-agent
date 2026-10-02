@@ -53,10 +53,9 @@ const SOURCE_RULES: SourceRule[] = [
     id: "process-env-allowlist",
     pattern: /\bprocess\.env\b/,
     allowedPaths: [
-      "src/config.ts",
+      "src/settings/envReaders.ts",
       "src/evlog.ts",
-      "src/settings/modelsJsonCatalog.ts",
-      "src/settings/codeModeConstants.ts",
+      "src/agent/runtime/modelsJsonCatalog.ts",
       "src/github/appAuth.ts",
       "src/github/installationToken.ts",
       "src/prWorkspace/repositoryReader.ts",
@@ -120,7 +119,7 @@ function checkSourceRule(rule: SourceRule): string[] {
   return violations;
 }
 
-function runtimeImportGraph(entry: string): Set<string> {
+function runtimeImportGraph(entry: string, options: { staticOnly?: boolean } = {}): Set<string> {
   const seen = new Set<string>();
   const queue = [entry];
   while (queue.length > 0) {
@@ -137,6 +136,7 @@ function runtimeImportGraph(entry: string): Set<string> {
     for (const match of stripped.matchAll(
       /(?:\bfrom\s+["'](\.[^"']+)["']|\bimport\s*\(\s*["'](\.[^"']+)["']\s*\))/g,
     )) {
+      if (options.staticOnly && match[1] == null) continue;
       let spec = match[1] ?? match[2];
       if (spec.endsWith(".js")) spec = `${spec.slice(0, -3)}.ts`;
       else if (!spec.endsWith(".ts")) spec = `${spec}.ts`;
@@ -199,6 +199,9 @@ describe("architecture rules", () => {
     expect(graph.has("src/agentWork/executors/reviewExecutor.ts")).toBe(false);
     expect(graph.has("src/review/orchestrator/orchestratorRun.ts")).toBe(false);
     expect(graph.has("src/agent/runtime/piSession.ts")).toBe(false);
-    expect(graph.has("src/settings/modelsJson.ts")).toBe(false);
+    // loadConfig reaches the Pi catalog through a worker-only dynamic import.
+    expect(runtimeImportGraph("src/effect/server.ts", { staticOnly: true })).not.toContain(
+      "src/agent/runtime/modelsJson.ts",
+    );
   });
 });

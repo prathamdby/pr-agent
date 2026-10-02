@@ -11,8 +11,8 @@ import {
   DESCRIPTION_PUBLISH_LENS,
   TRIAGE_PUBLISH_LENS,
   VERIFICATION_PUBLISH_LENS,
+  type AnyReviewLens,
 } from "../settings/index.js";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { AppError, errorLogFields, isAppError, toAppError } from "../errors/appError.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { type OperationIntentRow } from "./operationIntentRepository.js";

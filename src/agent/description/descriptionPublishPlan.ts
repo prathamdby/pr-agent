@@ -1,5 +1,5 @@
 import type { PrResource } from "../../agentWork/types.js";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import type { PullRequestForFileList } from "../../github/listPullRequestFiles.js";
 import { mergeDescriptionIntoPrBody } from "./descriptionBodyMerge.js";
 import { renderDescriptionAgentBlock } from "./descriptionRender.js";

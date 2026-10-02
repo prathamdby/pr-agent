@@ -7,14 +7,14 @@ import {
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   RETENTION_DELETE_BATCH_SIZE,
 } from "../../src/settings/index.js";
+import { makeTestConfig } from "../helpers/config.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
-const RETENTION = {
-  agentWorkRetentionSeconds: 30 * 86_400,
-  webhookEventsRetentionSeconds: 30 * 86_400,
-  agentEventsRetentionSeconds: 0,
-  codeIndexRetentionSeconds: 30 * 86_400,
-};
+const RETENTION = makeTestConfig({
+  retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },
+  agentEvents: { retentionSeconds: 0 },
+  codeIndex: { retentionSeconds: 30 * 86_400 },
+});
 const OWNER = "retention-it";
 const EVENT = "retention-it";
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
@@ -193,7 +193,10 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
 
     const deleted = await runRetention(pool, {
       ...RETENTION,
-      agentEventsRetentionSeconds: DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+      agentEvents: {
+        ...RETENTION.agentEvents,
+        retentionSeconds: DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+      },
     });
     expect(deleted.agentEventsDeleted).toBeGreaterThanOrEqual(1);
 

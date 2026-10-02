@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { makeTestConfig } from "./helpers/config.js";
 import { agentAuditRecordFromLifecycleEvent } from "../src/agent/runtime/agentAudit.js";
 import { sanitizeAgentLifecycleEvent } from "../src/agent/runtime/lifecycleSanitizer.js";
 
@@ -19,10 +20,10 @@ vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
     appendAgentEvents: analyticsMocks.appendAgentEvents,
     safeAppendAgentEvents: (
       client: unknown,
-      cfg: { agentEventsEnabled: boolean },
+      cfg: { agentEvents: { enabled: boolean } },
       rows: unknown[],
     ) => {
-      if (!cfg.agentEventsEnabled || rows.length === 0) return;
+      if (!cfg.agentEvents.enabled || rows.length === 0) return;
       void analyticsMocks.appendAgentEvents(client, rows);
     },
   };
@@ -345,7 +346,7 @@ describe("durable lifecycle span sink", () => {
     pool: {} as AgentEventsContext["pool"],
     ...spanContext,
   };
-  const cfg = { agentEventsEnabled: true };
+  const cfg = makeTestConfig({ agentEvents: { enabled: true } });
 
   beforeEach(() => {
     analyticsMocks.captureEvent.mockClear();
@@ -583,7 +584,10 @@ describe("cache token telemetry round-trip", () => {
       pool: {} as AgentEventsContext["pool"],
       ...spanContext,
     };
-    const sink = createDurableLifecycleEventSink(sinkContext, { agentEventsEnabled: true });
+    const sink = createDurableLifecycleEventSink(
+      sinkContext,
+      makeTestConfig({ agentEvents: { enabled: true } }),
+    );
     const completion = sanitizeAgentLifecycleEvent({
       kind: "completion",
       role: "orchestrator",

@@ -11,11 +11,8 @@ import {
   AgentWorkPool,
   AgentWorkPoolLive,
 } from "./runtime.js";
-import type { Config } from "../config.js";
-import { errorLogFields } from "../errors/appError.js";
-import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
-import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/localPrWorkspace.js";
 import {
+  type Config,
   ACK_QUEUE,
   ASK_QUEUE,
   CI_PROJECTION_QUEUE,
@@ -29,6 +26,9 @@ import {
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
+import { errorLogFields } from "../errors/appError.js";
+import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
+import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/localPrWorkspace.js";
 import { executeAckJob } from "./executors/ackExecutor.js";
 import { executeCiProjectionJob } from "./executors/ciProjectionExecutor.js";
 import { executeCodeIndexBuildJob, type CodeIndexBuildJobData } from "../codeIndex/buildJob.js";
@@ -156,14 +156,14 @@ export const AgentWorkerLive = (
     Effect.acquireRelease(
       Effect.tryPromise({
         try: async () => {
-          const heartbeatRefresh = Math.max(1, Math.floor(cfg.queueHeartbeatSeconds / 2));
+          const heartbeatRefresh = Math.max(1, Math.floor(cfg.queue.heartbeatSeconds / 2));
           const durableQueueOptions = {
-            groupConcurrency: cfg.installationGroupConcurrency,
+            groupConcurrency: cfg.concurrency.installationGroup,
             heartbeatRefreshSeconds: heartbeatRefresh,
-            pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
+            pollingIntervalSeconds: cfg.queue.pollingIntervalSeconds,
           };
           const fastQueueOptions = {
-            pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
+            pollingIntervalSeconds: cfg.queue.pollingIntervalSeconds,
           };
           const registeredQueues = new Set<string>();
           await ensureRetentionSchedule(boss, cfg);
@@ -172,7 +172,7 @@ export const AgentWorkerLive = (
               boss,
               executions,
               ACK_QUEUE,
-              { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
+              { localConcurrency: cfg.concurrency.ack, ...fastQueueOptions },
               (job) => executeAckJob(cfg, pool, job.data, boss),
               (data) => data,
             ).then(() => {
@@ -182,7 +182,7 @@ export const AgentWorkerLive = (
               boss,
               executions,
               CI_PROJECTION_QUEUE,
-              { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
+              { localConcurrency: cfg.concurrency.ack, ...fastQueueOptions },
               (job) => executeCiProjectionJob(cfg, pool, boss, job.data),
               (data) => data,
             ).then(() => {
@@ -231,12 +231,12 @@ export const AgentWorkerLive = (
           ]);
           logInfo("agent_worker_started", {
             queues: [...WORKER_CONSUMER_QUEUES],
-            reviewConcurrency: cfg.reviewConcurrency,
-            askConcurrency: cfg.askConcurrency,
-            ackConcurrency: cfg.ackConcurrency,
-            descriptionConcurrency: cfg.descriptionConcurrency,
-            triageConcurrency: cfg.triageConcurrency,
-            verificationConcurrency: cfg.verificationConcurrency,
+            reviewConcurrency: cfg.concurrency.review,
+            askConcurrency: cfg.concurrency.ask,
+            ackConcurrency: cfg.concurrency.ack,
+            descriptionConcurrency: cfg.concurrency.description,
+            triageConcurrency: cfg.concurrency.triage,
+            verificationConcurrency: cfg.concurrency.verification,
           });
 
           const runDiagnostics = async (now: Date): Promise<void> => {
@@ -245,7 +245,7 @@ export const AgentWorkerLive = (
               pool,
               now,
               lostRunningMinAgeSeconds:
-                cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
+                cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
             });
             logQueueDiagnosticsReport(report);
             try {
@@ -294,7 +294,7 @@ export const AgentWorkerLive = (
           });
 
           const health = startWorkerHealthServer({
-            port: cfg.port,
+            port: cfg.runtime.port,
             getReadiness: async () => {
               const deps = await probeWorkerDependencies(pool, boss);
               return evaluateWorkerReadiness({

@@ -21,15 +21,15 @@ const PR_NUMBER = 481;
 
 const BASE_QUOTA: AskQuotaConfig = {
   ...defaultAskQuotaConfig(),
-  askActorMaxOutstanding: 2,
-  askRepositoryMaxOutstanding: 20,
-  askInstallationMaxOutstanding: 20,
-  askActorBurst: 100,
-  askRepositoryBurst: 100,
-  askInstallationBurst: 100,
-  askActorRefillSeconds: 100_000,
-  askRepositoryRefillSeconds: 100_000,
-  askInstallationRefillSeconds: 100_000,
+  actorMaxOutstanding: 2,
+  repositoryMaxOutstanding: 20,
+  installationMaxOutstanding: 20,
+  actorBurst: 100,
+  repositoryBurst: 100,
+  installationBurst: 100,
+  actorRefillSeconds: 100_000,
+  repositoryRefillSeconds: 100_000,
+  installationRefillSeconds: 100_000,
 };
 
 describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
@@ -103,7 +103,7 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("compensates a webhook insertion conflict without an orphan quota reservation", async () => {
     const workItemId = randomUUID();
     const loserId = randomUUID();
-    const quota = { ...BASE_QUOTA, askProviderBudgetTokens: 100, askProviderReservationTokens: 4 };
+    const quota = { ...BASE_QUOTA, providerBudgetTokens: 100, providerReservationTokens: 4 };
     await admitAndInsert(workItemId, 7, quota);
     const webhookEventId = (
       await pool.query("SELECT webhook_event_id FROM agent_work_items WHERE id = $1", [workItemId])
@@ -238,8 +238,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("releases a quota reservation only once across terminal updates", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     };
     const workItemId = randomUUID();
     await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
@@ -316,8 +316,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("keeps provider reservations safe for exact and unknown usage", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     };
     const firstId = randomUUID();
     const first = await admitAndInsert(firstId, 7, config);
@@ -355,8 +355,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("rolls an expired provider window under concurrent admissions", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 4,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 4,
     };
     const straddlerId = randomUUID();
     await expect(admitAndInsert(straddlerId, 7, config)).resolves.toMatchObject({
@@ -369,7 +369,7 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
           SET provider_tokens_used = 8,
               provider_window_started_at = now() - ($1::bigint * interval '1 second')
         WHERE scope = 'installation' AND scope_key = $2`,
-      [config.askProviderBudgetWindowSeconds, `installation:${INSTALLATION_ID}`],
+      [config.providerBudgetWindowSeconds, `installation:${INSTALLATION_ID}`],
     );
 
     const admissions = await Promise.all([
@@ -423,8 +423,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("accounts distinct executions once and refuses a later reservation", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     };
     const workItemId = randomUUID();
     await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
@@ -478,8 +478,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("serializes duplicate receipts and counts distinct concurrent executions", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 20,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 20,
+      providerReservationTokens: 6,
     };
     const duplicateId = randomUUID();
     const distinctId = randomUUID();
@@ -538,8 +538,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("rejects a conflicting final report without changing the prior charge", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     };
     const workItemId = randomUUID();
     const executionId = createAskExecutionId();
@@ -572,8 +572,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("reconciles a delayed receipt without reopening outstanding work", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     };
     const workItemId = randomUUID();
     await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
@@ -634,8 +634,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("keeps a conservative charge in an expired window off the new window", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     };
     const workItemId = randomUUID();
     await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
@@ -685,8 +685,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("adds a new execution on top of a legacy known charge", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 20,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 20,
+      providerReservationTokens: 6,
     };
     const workItemId = randomUUID();
     await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({
@@ -719,8 +719,8 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
   it("does not apply usage to another installation", async () => {
     const config: AskQuotaConfig = {
       ...BASE_QUOTA,
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     };
     const workItemId = randomUUID();
     await expect(admitAndInsert(workItemId, 7, config)).resolves.toMatchObject({

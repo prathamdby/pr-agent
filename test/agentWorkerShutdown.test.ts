@@ -106,7 +106,7 @@ describe("in-flight handler settle", () => {
           const executions = yield* AgentWorkExecutions;
           yield* Layer.launch(
             AgentWorkerLive(
-              makeTestConfig({ role: "worker" }),
+              makeTestConfig({ runtime: { role: "worker" } }),
               {} as never,
               boss as never,
               executions,

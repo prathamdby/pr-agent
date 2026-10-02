@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { Config } from "../config.js";
-import { inTransaction } from "../db/postgres.js";
-import { createAskWorkItem } from "./intake/workItemRepository.js";
-import { prResourceKey } from "./types.js";
-import { AppError } from "../errors/appError.js";
-import type { AgentRunnerUsageMetadata } from "../agent/providers/usageMetadata.js";
 import {
+  type Config,
   DEFAULT_ASK_ACTOR_BURST,
   DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
   DEFAULT_ASK_ACTOR_REFILL_SECONDS,
@@ -20,37 +15,28 @@ import {
   DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
   DEFAULT_ASK_REPOSITORY_REFILL_SECONDS,
 } from "../settings/index.js";
+import { inTransaction } from "../db/postgres.js";
+import { createAskWorkItem } from "./intake/workItemRepository.js";
+import { prResourceKey } from "./types.js";
+import { AppError } from "../errors/appError.js";
+import type { AgentRunnerUsageMetadata } from "../agent/providers/usageMetadata.js";
 
-export type AskQuotaConfig = Pick<
-  Config,
-  | "askActorMaxOutstanding"
-  | "askRepositoryMaxOutstanding"
-  | "askInstallationMaxOutstanding"
-  | "askActorBurst"
-  | "askRepositoryBurst"
-  | "askInstallationBurst"
-  | "askActorRefillSeconds"
-  | "askRepositoryRefillSeconds"
-  | "askInstallationRefillSeconds"
-  | "askProviderBudgetTokens"
-  | "askProviderBudgetWindowSeconds"
-  | "askProviderReservationTokens"
->;
+export type AskQuotaConfig = Config["ask"];
 
 export function defaultAskQuotaConfig(): AskQuotaConfig {
   return {
-    askActorMaxOutstanding: DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
-    askRepositoryMaxOutstanding: DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
-    askInstallationMaxOutstanding: DEFAULT_ASK_INSTALLATION_MAX_OUTSTANDING,
-    askActorBurst: DEFAULT_ASK_ACTOR_BURST,
-    askRepositoryBurst: DEFAULT_ASK_REPOSITORY_BURST,
-    askInstallationBurst: DEFAULT_ASK_INSTALLATION_BURST,
-    askActorRefillSeconds: DEFAULT_ASK_ACTOR_REFILL_SECONDS,
-    askRepositoryRefillSeconds: DEFAULT_ASK_REPOSITORY_REFILL_SECONDS,
-    askInstallationRefillSeconds: DEFAULT_ASK_INSTALLATION_REFILL_SECONDS,
-    askProviderBudgetTokens: DEFAULT_ASK_PROVIDER_BUDGET_TOKENS,
-    askProviderBudgetWindowSeconds: DEFAULT_ASK_PROVIDER_BUDGET_WINDOW_SECONDS,
-    askProviderReservationTokens: DEFAULT_ASK_PROVIDER_RESERVATION_TOKENS,
+    actorMaxOutstanding: DEFAULT_ASK_ACTOR_MAX_OUTSTANDING,
+    repositoryMaxOutstanding: DEFAULT_ASK_REPOSITORY_MAX_OUTSTANDING,
+    installationMaxOutstanding: DEFAULT_ASK_INSTALLATION_MAX_OUTSTANDING,
+    actorBurst: DEFAULT_ASK_ACTOR_BURST,
+    repositoryBurst: DEFAULT_ASK_REPOSITORY_BURST,
+    installationBurst: DEFAULT_ASK_INSTALLATION_BURST,
+    actorRefillSeconds: DEFAULT_ASK_ACTOR_REFILL_SECONDS,
+    repositoryRefillSeconds: DEFAULT_ASK_REPOSITORY_REFILL_SECONDS,
+    installationRefillSeconds: DEFAULT_ASK_INSTALLATION_REFILL_SECONDS,
+    providerBudgetTokens: DEFAULT_ASK_PROVIDER_BUDGET_TOKENS,
+    providerBudgetWindowSeconds: DEFAULT_ASK_PROVIDER_BUDGET_WINDOW_SECONDS,
+    providerReservationTokens: DEFAULT_ASK_PROVIDER_RESERVATION_TOKENS,
   };
 }
 
@@ -129,23 +115,23 @@ function scopeParams(
     {
       scope: "installation",
       key: installationScopeKey(input.installationId),
-      maxOutstanding: config.askInstallationMaxOutstanding,
-      burst: config.askInstallationBurst,
-      refillSeconds: config.askInstallationRefillSeconds,
+      maxOutstanding: config.installationMaxOutstanding,
+      burst: config.installationBurst,
+      refillSeconds: config.installationRefillSeconds,
     },
     {
       scope: "repository",
       key: repositoryScopeKey(input.installationId, input.owner, input.repo),
-      maxOutstanding: config.askRepositoryMaxOutstanding,
-      burst: config.askRepositoryBurst,
-      refillSeconds: config.askRepositoryRefillSeconds,
+      maxOutstanding: config.repositoryMaxOutstanding,
+      burst: config.repositoryBurst,
+      refillSeconds: config.repositoryRefillSeconds,
     },
     {
       scope: "actor",
       key: actorScopeKey(input.installationId, input.commenterId),
-      maxOutstanding: config.askActorMaxOutstanding,
-      burst: config.askActorBurst,
-      refillSeconds: config.askActorRefillSeconds,
+      maxOutstanding: config.actorMaxOutstanding,
+      burst: config.actorBurst,
+      refillSeconds: config.actorRefillSeconds,
     },
   ];
 }
@@ -205,8 +191,8 @@ async function lockAndRefillBucket(
   // would double-count it at settlement.
   if (
     params.scope === "installation" &&
-    config.askProviderBudgetTokens > 0 &&
-    now - providerWindowStartedAt.getTime() >= config.askProviderBudgetWindowSeconds * 1000
+    config.providerBudgetTokens > 0 &&
+    now - providerWindowStartedAt.getTime() >= config.providerBudgetWindowSeconds * 1000
   ) {
     providerTokensUsed = 0;
     providerWindowStartedAt = new Date(now);
@@ -289,13 +275,13 @@ async function reserveAskQuota(
 
   const installation = bucketByScope(buckets, "installation");
   const providerReservationTokens =
-    config.askProviderBudgetTokens > 0 ? config.askProviderReservationTokens : 0;
+    config.providerBudgetTokens > 0 ? config.providerReservationTokens : 0;
   if (
     providerReservationTokens > 0 &&
     installation.providerTokensUsed +
       installation.providerTokensReserved +
       providerReservationTokens >
-      config.askProviderBudgetTokens
+      config.providerBudgetTokens
   ) {
     return { kind: "throttled", reason: "provider_budget" };
   }

@@ -1,4 +1,4 @@
-/** Environment variable names loaded by `loadConfig()` (see `src/config.ts`). */
+/** Environment variable names loaded by `loadConfig()` (see `src/settings/config.ts`). */
 export const ENV = {
   PORT: "PORT",
   ROLE: "ROLE",

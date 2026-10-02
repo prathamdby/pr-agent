@@ -1,8 +1,7 @@
-import type { Config } from "../config.js";
+import type { Config, ReviewCancelAttribution } from "../settings/index.js";
 import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
-import type { ReviewCancelAttribution } from "../settings/reviewConstants.js";
 
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
 export const WORK_STATUSES = [
@@ -282,18 +281,7 @@ export function isWorkItemType(item: AgentWorkItem | AgentWorkItemCore, type: Wo
   return item.type === type;
 }
 
-export type QueueConfig = Pick<
-  Config,
-  | "queueRetryLimit"
-  | "queueRetryDelaySeconds"
-  | "queueRetryDelayMaxSeconds"
-  | "queueExpireInSeconds"
-  | "queueHeartbeatSeconds"
-  | "queuePollingIntervalSeconds"
-  | "queueRetentionSeconds"
-  | "queueDeleteAfterSeconds"
-  | "installationGroupConcurrency"
->;
+export type QueueConfig = Pick<Config, "queue" | "concurrency">;
 
 export function prResourceKey(owner: string, repo: string, prNumber: number): string {
   return `${owner}/${repo}#${prNumber}`;

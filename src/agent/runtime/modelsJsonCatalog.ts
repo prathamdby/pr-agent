@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { AppError } from "../errors/appError.js";
-import { isPlainObject } from "../util/typeGuards.js";
+import { AppError } from "../../errors/appError.js";
+import { isPlainObject } from "../../util/typeGuards.js";
 
 const PROVIDER_KEYS = new Set([
   "name",

@@ -3,7 +3,19 @@ import { productionInstallationSurface } from "../installationSurface.js";
 import { createPublishContext } from "../publishOnce.js";
 import type { Pool } from "pg";
 
-import type { Config } from "../../config.js";
+import {
+  type Config,
+  TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
+  TRIAGE_BULK_PREVIEW_STALE,
+  TRIAGE_BULK_REQUIRES_PREVIEW,
+  TRIAGE_CLOSED_PR_NOTICE,
+  TRIAGE_FAILURE_MESSAGE,
+  TRIAGE_FORK_PR_NOTICE,
+  TRIAGE_NO_ELIGIBLE_FINDINGS,
+  TRIAGE_PUBLISH_LENS,
+  TRIAGE_THREAD_NOT_ELIGIBLE,
+  TRIAGE_SUMMARY_SENTINEL,
+} from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import type { BotIdentity } from "../../github/appAuth.js";
@@ -36,18 +48,6 @@ import {
   type PublishTriageResult,
   type StoredTriagePreviewDetail,
 } from "../../agent/triage/publishTriage.js";
-import {
-  TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
-  TRIAGE_BULK_PREVIEW_STALE,
-  TRIAGE_BULK_REQUIRES_PREVIEW,
-  TRIAGE_CLOSED_PR_NOTICE,
-  TRIAGE_FAILURE_MESSAGE,
-  TRIAGE_FORK_PR_NOTICE,
-  TRIAGE_NO_ELIGIBLE_FINDINGS,
-  TRIAGE_PUBLISH_LENS,
-  TRIAGE_THREAD_NOT_ELIGIBLE,
-  TRIAGE_SUMMARY_SENTINEL,
-} from "../../settings/index.js";
 import { withWritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import {
   buildTriageCommitAttribution,
@@ -241,7 +241,7 @@ async function resolveInventoryAndScope(params: {
     fetchBotFindingThreads(params.prSurface, {
       botUserId: botIdentity.userId,
       publishRecordLenses: eligibleReviews,
-      maintainerDecisionAssociations: params.cfg.maintainerDecisionAssociations,
+      maintainerDecisionAssociations: params.cfg.associations.maintainerDecision,
     }),
     params.prSurface.listInlineReviewThreads(),
   ]);

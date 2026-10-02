@@ -294,7 +294,7 @@ export async function withWritablePrCheckout<T>(
     tmpdir(),
     LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
     "Insufficient free space for writable checkout",
-    cleanupStaleLocalPrWorkspaces,
+    () => cleanupStaleLocalPrWorkspaces(),
   );
 
   const resource = await allocateWorkspaceResource({

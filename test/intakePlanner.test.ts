@@ -57,7 +57,7 @@ describe("pure intake commands", () => {
   it("allows the star association policy", () => {
     expect(
       toIntakeCommand(
-        makeTestConfig({ slashAllowedAssociations: new Set(["*"]) }),
+        makeTestConfig({ associations: { slashAllowed: new Set(["*"]) } }),
         headers,
         commentEvent("/review", false, undefined, "NONE"),
         bot,

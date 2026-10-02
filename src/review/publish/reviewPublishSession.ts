@@ -2,9 +2,8 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import type { OperationIntentContext } from "../../agentWork/publishOnce.js";
-import type { Config } from "../../config.js";
+import type { Config, AnyReviewLens } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import type { ReviewPublishContext } from "../reviewSchema.js";
 import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.js";
@@ -13,7 +12,7 @@ export type PublishStopReason = "superseded" | "stale_head";
 
 export type ReviewPublishConfig = Pick<
   Config,
-  "piModel" | "features" | "agentEventsEnabled" | "findingHistoryEnabled"
+  "models" | "features" | "agentEvents" | "findingHistory" | "review"
 >;
 
 type VerdictTarget = {

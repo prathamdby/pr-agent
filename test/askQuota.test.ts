@@ -220,15 +220,15 @@ class FakeQuotaClient {
 function config(overrides: Partial<AskQuotaConfig> = {}): AskQuotaConfig {
   return {
     ...defaultAskQuotaConfig(),
-    askActorMaxOutstanding: 2,
-    askRepositoryMaxOutstanding: 10,
-    askInstallationMaxOutstanding: 20,
-    askActorBurst: 100,
-    askRepositoryBurst: 100,
-    askInstallationBurst: 100,
-    askActorRefillSeconds: 100_000,
-    askRepositoryRefillSeconds: 100_000,
-    askInstallationRefillSeconds: 100_000,
+    actorMaxOutstanding: 2,
+    repositoryMaxOutstanding: 10,
+    installationMaxOutstanding: 20,
+    actorBurst: 100,
+    repositoryBurst: 100,
+    installationBurst: 100,
+    actorRefillSeconds: 100_000,
+    repositoryRefillSeconds: 100_000,
+    installationRefillSeconds: 100_000,
     ...overrides,
   };
 }
@@ -270,9 +270,9 @@ describe("ask admission quotas", () => {
   it("keeps actor, repository, and installation limits isolated and ordered", async () => {
     const client = new FakeQuotaClient();
     const limited = config({
-      askActorMaxOutstanding: 1,
-      askRepositoryMaxOutstanding: 2,
-      askInstallationMaxOutstanding: 3,
+      actorMaxOutstanding: 1,
+      repositoryMaxOutstanding: 2,
+      installationMaxOutstanding: 3,
     });
     const admit = (id: string, commenterId: number, repo: string) =>
       admitAsk(
@@ -303,12 +303,12 @@ describe("ask admission quotas", () => {
     vi.setSystemTime(new Date("2026-08-25T00:00:00.000Z"));
     try {
       const limited = config({
-        askActorBurst: 3,
-        askRepositoryBurst: 3,
-        askInstallationBurst: 3,
-        askActorRefillSeconds: 60,
-        askRepositoryRefillSeconds: 60,
-        askInstallationRefillSeconds: 60,
+        actorBurst: 3,
+        repositoryBurst: 3,
+        installationBurst: 3,
+        actorRefillSeconds: 60,
+        repositoryRefillSeconds: 60,
+        installationRefillSeconds: 60,
       });
       const client = new FakeQuotaClient();
       const emptyBucket = (scope: string, scopeKey: string): Bucket => ({
@@ -402,8 +402,8 @@ describe("ask admission quotas", () => {
     try {
       const client = new FakeQuotaClient();
       const budget = config({
-        askProviderBudgetTokens: 10,
-        askProviderReservationTokens: 4,
+        providerBudgetTokens: 10,
+        providerReservationTokens: 4,
       });
       const straddlerId = "ask-provider-straddler";
       const windowStartedAt = new Date(Date.now());
@@ -430,7 +430,7 @@ describe("ask admission quotas", () => {
         released_at: null,
       });
 
-      vi.advanceTimersByTime(budget.askProviderBudgetWindowSeconds * 1000);
+      vi.advanceTimersByTime(budget.providerBudgetWindowSeconds * 1000);
 
       await expect(
         admission(client, "ask-provider-next-window", 8, "app", budget),
@@ -467,8 +467,8 @@ describe("ask admission quotas", () => {
     try {
       const client = new FakeQuotaClient();
       const budget = config({
-        askProviderBudgetTokens: 10,
-        askProviderReservationTokens: 6,
+        providerBudgetTokens: 10,
+        providerReservationTokens: 6,
       });
       client.buckets.set("installation:installation:9", {
         scope: "installation",
@@ -481,7 +481,7 @@ describe("ask admission quotas", () => {
         provider_window_started_at: new Date(Date.now()),
       });
 
-      vi.advanceTimersByTime(budget.askProviderBudgetWindowSeconds * 1000);
+      vi.advanceTimersByTime(budget.providerBudgetWindowSeconds * 1000);
 
       await expect(
         admission(client, "ask-provider-edge-1", 8, "app", budget),
@@ -506,8 +506,8 @@ describe("ask admission quotas", () => {
   it("reserves provider budget and reconciles exact usage", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
 
     const first = await admitAsk(
@@ -565,8 +565,8 @@ describe("ask admission quotas", () => {
   it("floors exact provider usage and ignores unknown usage", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const exactId = "ask-provider-floor";
     const executionId = createAskExecutionId();
@@ -648,8 +648,8 @@ describe("ask admission quotas", () => {
   it("adds distinct execution usage and rejects a later reservation", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-two-executions";
 
@@ -721,8 +721,8 @@ describe("ask admission quotas", () => {
   it("reconciles a delayed receipt after conservative terminal release", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-delayed";
     await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
@@ -772,8 +772,8 @@ describe("ask admission quotas", () => {
   it("leaves expired-window conservative charges off later delayed receipts", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 10,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 10,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-expired-window";
     await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({
@@ -816,8 +816,8 @@ describe("ask admission quotas", () => {
   it("adds a later execution after a legacy known charge without a receipt", async () => {
     const client = new FakeQuotaClient();
     const budget = config({
-      askProviderBudgetTokens: 20,
-      askProviderReservationTokens: 6,
+      providerBudgetTokens: 20,
+      providerReservationTokens: 6,
     });
     const workItemId = "ask-provider-legacy";
     await expect(admission(client, workItemId, 7, "app", budget)).resolves.toMatchObject({

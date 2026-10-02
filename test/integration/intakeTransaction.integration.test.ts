@@ -6,7 +6,7 @@ import {
   type AutomatedPullRequestIntakeOpts,
   type ReviewApprovalSignal,
 } from "../../src/agentWork/intake/delivery.js";
-import type { Config } from "../../src/config.js";
+import type { Config } from "../../src/settings/index.js";
 import type { RequestLogger } from "../../src/evlog.js";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
@@ -56,17 +56,6 @@ vi.mock("../../src/agent/ask/askRun.js", () => ({
   })),
 }));
 
-const webhookBudget = vi.hoisted(() => ({ ms: undefined as number | undefined }));
-vi.mock("../../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/settings/index.js")>();
-  return {
-    ...actual,
-    get WEBHOOK_TIMEOUT_MS() {
-      return webhookBudget.ms ?? actual.WEBHOOK_TIMEOUT_MS;
-    },
-  };
-});
-
 const intakeCfg = makeTestConfig({
   features: { ...makeTestConfig().features, describe: "off", verification: "off" },
 });
@@ -97,17 +86,19 @@ const ASK_INSTALLATION_ID = 6589001;
 const DATABASE_URL = process.env.DATABASE_URL!;
 const CLEANUP_QUEUES = [ACK_QUEUE, REVIEW_QUEUE, CI_PROJECTION_QUEUE] as const;
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 function headers(action: string, delivery: string): WebhookHeaders {
   return {
@@ -202,7 +193,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       `${OWNER}-approval-%`,
     ]);
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
     await deleteQueueJobs(boss);
   });
@@ -214,7 +207,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    webhookBudget.ms = undefined;
     await deleteQueueJobs(boss);
     if (
       (await pool.query("SELECT to_regclass('public.pr_review_lifecycle') AS relation")).rows[0]
@@ -263,16 +255,15 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       }),
     );
     const log = intakeLog();
-    webhookBudget.ms = 1;
     const result = Effect.runPromise(
       processWebhookPostRequestEffect(
-        cfg,
+        { ...cfg, webhook: { ...cfg.webhook, timeoutMs: 1 } },
         {
           rawBody,
           headers: {
             "x-github-event": "pull_request",
             "x-github-delivery": delivery,
-            "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhookSecret).update(rawBody).digest("hex")}`,
+            "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
           },
         },
         log,
@@ -354,7 +345,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
             headers: {
               "x-github-event": "pull_request_review",
               "x-github-delivery": delivery,
-              "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhookSecret).update(rawBody).digest("hex")}`,
+              "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
             },
           },
           intakeLog(),
@@ -415,7 +406,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
                   status: "completed",
                   conclusion: "failure",
                   name: "PR Agent Review",
-                  app: { id: own ? Number(cfg.githubAppId) : Number(cfg.githubAppId) + 1 },
+                  app: { id: own ? Number(cfg.github.appId) : Number(cfg.github.appId) + 1 },
                   pull_requests: [{ number: ref.prNumber, head: { sha: ref.headSha } }],
                 },
               };
@@ -428,7 +419,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
               headers: {
                 "x-github-event": name,
                 "x-github-delivery": delivery,
-                "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhookSecret).update(rawBody).digest("hex")}`,
+                "x-hub-signature-256": `sha256=${createHmac("sha256", cfg.webhook.secret).update(rawBody).digest("hex")}`,
               },
             },
             intakeLog(),
@@ -1083,9 +1074,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const base = { ...makePrRef(), installationId: ASK_INSTALLATION_ID };
     const quota = {
       ...defaultAskQuotaConfig(),
-      askActorMaxOutstanding: 8,
-      askRepositoryMaxOutstanding: 8,
-      askInstallationMaxOutstanding: 8,
+      actorMaxOutstanding: 8,
+      repositoryMaxOutstanding: 8,
+      installationMaxOutstanding: 8,
     };
     const variants = [
       base,
@@ -3133,7 +3124,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
           }),
         );
         const delivery = `${OWNER}-approval-${randomUUID()}`;
-        const signature = `sha256=${createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`;
+        const signature = `sha256=${createHmac("sha256", cfg.webhook.secret).update(body).digest("hex")}`;
         const response = await Effect.runPromise(
           processWebhookPostRequestEffect(
             cfg,

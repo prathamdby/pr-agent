@@ -1,4 +1,10 @@
-import type { Config } from "../config.js";
+import {
+  type Config,
+  IGNORED_BOT_SLASH_COMMAND,
+  IGNORED_REVIEW_APPROVAL_NOT_ENABLED,
+  IGNORED_UNAUTHORIZED_SLASH,
+  OWN_COMMIT_STATUS_CONTEXT,
+} from "../settings/index.js";
 import type { BotIdentity } from "../github/appAuth.js";
 import type { IntakeCommand } from "../agentWork/intake/delivery.js";
 import type { SlashCommandInput } from "../agentWork/intake/slashIntake.js";
@@ -6,12 +12,6 @@ import type { WebhookHeaders } from "../agentWork/types.js";
 import { parseSlashCommand } from "../commands/parseSlashCommand.js";
 import { commentMentionsBot } from "../commands/parseBotMention.js";
 import { isSlashAssociationAllowed, reviewAuthorTrust } from "../commands/slashAssociation.js";
-import {
-  IGNORED_BOT_SLASH_COMMAND,
-  IGNORED_REVIEW_APPROVAL_NOT_ENABLED,
-  IGNORED_UNAUTHORIZED_SLASH,
-  OWN_COMMIT_STATUS_CONTEXT,
-} from "../settings/index.js";
 import { isOwnCiCheck, observedAtFromGithub } from "../review/ci/ciFacts.js";
 import type { ParsedGithubEvent } from "./parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "./payloads/pullRequestReviewCommentEvent.js";
@@ -19,7 +19,7 @@ import { prNumbersForCiHead, toCiHeadSourceFromCompletedRun } from "./payloads/c
 
 /** Missing identity is explicit. The caller resolves it, then repeats this pure mapping. */
 export function toIntakeCommand(
-  cfg: Pick<Config, "features" | "slashAllowedAssociations" | "githubAppId">,
+  cfg: Pick<Config, "features" | "associations" | "github">,
   headers: WebhookHeaders,
   event: ParsedGithubEvent,
   bot?: BotIdentity,
@@ -29,7 +29,7 @@ export function toIntakeCommand(
     if (type?.toLowerCase() === "bot") return ignored(IGNORED_BOT_SLASH_COMMAND);
     if (bot == null) return { kind: "auth_required" } as const;
     if (id === bot.userId) return ignored(IGNORED_BOT_SLASH_COMMAND);
-    if (!isSlashAssociationAllowed(cfg.slashAllowedAssociations, association)) {
+    if (!isSlashAssociationAllowed(cfg.associations.slashAllowed, association)) {
       return ignored(IGNORED_UNAUTHORIZED_SLASH);
     }
     return bot;
@@ -178,7 +178,7 @@ export function toIntakeCommand(
       if (
         event.name === "check_suite" &&
         isOwnCiCheck(
-          { githubAppId: cfg.githubAppId },
+          { githubAppId: cfg.github.appId },
           { app_id: event.data.check_suite.app?.id ?? null, external_id: null },
         )
       )
@@ -205,7 +205,7 @@ export function toIntakeCommand(
       const run = data.check_run;
       if (
         isOwnCiCheck(
-          { githubAppId: cfg.githubAppId },
+          { githubAppId: cfg.github.appId },
           { app_id: run.app?.id ?? null, external_id: run.external_id ?? null },
         )
       )

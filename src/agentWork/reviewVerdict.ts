@@ -7,8 +7,8 @@ import type { PrSurface } from "../github/prSurface.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
 import { checkRunFindingsSummary } from "../review/statusCopy.js";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
+  type AnyReviewLens,
   DEFERRED_HEAD_SHA,
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,

@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import type { ReplyTarget } from "../../agentWork/types.js";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";

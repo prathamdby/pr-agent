@@ -7,7 +7,7 @@ import {
   type AutomatedPullRequestIntakeOpts,
   type CiStateFactInput,
 } from "../../src/agentWork/intake/delivery.js";
-import type { Config } from "../../src/config.js";
+import type { Config } from "../../src/settings/index.js";
 import type { RequestLogger } from "../../src/evlog.js";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -89,17 +89,19 @@ const PR_NUMBER = 7;
 const DATABASE_URL = process.env.DATABASE_URL!;
 const cfg = makeTestConfig();
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 function headers(event: string, delivery: string): WebhookHeaders {
   return {
@@ -206,7 +208,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await pool.query("DELETE FROM webhook_events WHERE event_name = ANY($1::text[])", [
       ["workflow_run", "check_run", "pull_request"],
     ]);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
     await deleteQueueJobs(boss, CI_PROJECTION_QUEUE);
   });
@@ -2906,7 +2910,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         checkRunSnapshot({
           id: 99,
           name: "PR Agent Review",
-          appId: Number(cfg.githubAppId),
+          appId: Number(cfg.github.appId),
           startedAt: "2026-09-13T00:00:01.000Z",
           completedAt: "2026-09-13T00:00:10.000Z",
         }),

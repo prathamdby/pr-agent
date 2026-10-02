@@ -1,4 +1,8 @@
-import { CODE_MODE_MAX_OUTPUT_BYTES, CODE_MODE_TIMEOUT_MS } from "../../settings/index.js";
+import {
+  CODE_MODE_MAX_OUTPUT_BYTES,
+  CODE_MODE_TIMEOUT_MS,
+  type CodeModeExecutorKind,
+} from "../../settings/index.js";
 import type {
   AgentLifecycleEvent,
   AgentLifecycleExecutionEvent,
@@ -107,6 +111,7 @@ function boundExecuteOutput(output: unknown): {
 
 export async function runCodeModeScript(params: {
   readonly code: string;
+  readonly executorKind: CodeModeExecutorKind;
   readonly capabilities: CodeModeCapabilityExecutors;
   readonly signal?: AbortSignal;
   readonly emit?: (event: AgentLifecycleEvent) => void;
@@ -165,7 +170,7 @@ export async function runCodeModeScript(params: {
   const capabilityNames = Object.keys(params.capabilities);
   const executionId = randomUUID();
   try {
-    const lease = await acquireExecutor(signal);
+    const lease = await acquireExecutor(signal, params.executorKind);
     try {
       const cell = await lease.run({
         code: params.code,

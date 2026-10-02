@@ -64,6 +64,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly prFiles: ListPullRequestFilesResult;
   readonly repositorySizeKb?: number;
   readonly remoteUrlOverride?: string;
+  readonly maxFetchBytes?: number;
 };
 
 /** Remove symbolic links under a checkout tree. Skips `.git` so object stores stay intact. */
@@ -179,7 +180,7 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): st
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
-async function cleanupStalePiAgentDirs(): Promise<void> {
+async function cleanupStalePiAgentDirs(staleAgeSeconds: number): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;
@@ -187,15 +188,18 @@ async function cleanupStalePiAgentDirs(): Promise<void> {
     const entryStat = await statIfPresent(full);
     if (!entryStat) continue;
     const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
+    if (ageMs > staleAgeSeconds * 1000) {
       await rm(full, { recursive: true, force: true }).catch(() => undefined);
     }
   }
 }
 
-export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
-  await cleanupStalePiAgentDirs();
-  await sweepStaleOwnedWorkspaces();
+export async function cleanupStaleLocalPrWorkspaces(
+  options: { readonly staleAgeSeconds?: number } = {},
+): Promise<void> {
+  const staleAgeSeconds = options.staleAgeSeconds ?? LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS;
+  await cleanupStalePiAgentDirs(staleAgeSeconds);
+  await sweepStaleOwnedWorkspaces({ staleAgeSeconds });
 }
 
 export async function prepareLocalPrWorkspace(
@@ -209,7 +213,7 @@ export async function prepareLocalPrWorkspace(
     tmpdir(),
     LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
     "Insufficient free space for local PR workspace",
-    cleanupStaleLocalPrWorkspaces,
+    () => cleanupStaleLocalPrWorkspaces(),
   );
 
   const resource = await allocateWorkspaceResource({
@@ -300,7 +304,7 @@ async function finishLocalPrWorkspace(
   await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
   await enforceMaxFetchBytes(
     git,
-    LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+    params.maxFetchBytes ?? LOCAL_WORKSPACE_MAX_FETCH_BYTES,
     LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   );
   const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);

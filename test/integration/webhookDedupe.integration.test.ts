@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { makeTestConfig } from "../helpers/config.js";
 import type { Pool } from "pg";
 import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
 function insertWebhookEvent(
@@ -197,12 +198,14 @@ describe.skipIf(!hasDatabase)("webhook dedupe (integration)", () => {
       [first.id],
     );
 
-    await runRetention(pool, {
-      agentWorkRetentionSeconds: 30 * 86_400,
-      webhookEventsRetentionSeconds: 30 * 86_400,
-      agentEventsRetentionSeconds: 0,
-      codeIndexRetentionSeconds: 30 * 86_400,
-    });
+    await runRetention(
+      pool,
+      makeTestConfig({
+        retention: { agentWorkSeconds: 30 * 86_400, webhookEventsSeconds: 30 * 86_400 },
+        agentEvents: { retentionSeconds: 0 },
+        codeIndex: { retentionSeconds: 30 * 86_400 },
+      }),
+    );
 
     const retry = await insert('{"retained":true}', "delivery-retained-new");
     expect(retry.duplicate).toBe(false);

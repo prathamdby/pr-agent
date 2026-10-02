@@ -78,17 +78,19 @@ const CLEANUP_QUEUES = [
   CI_PROJECTION_QUEUE,
 ] as const;
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 async function deleteQueueJobs(boss: PgBoss): Promise<void> {
   for (const queue of CLEANUP_QUEUES) {
@@ -122,7 +124,9 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     await pool.query("DELETE FROM pr_actor_leases WHERE resource_key LIKE $1", [`${OWNER}/%`]);
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
     await deleteQueueJobs(boss);
   });

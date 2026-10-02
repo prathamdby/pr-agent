@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { PiSessionCreateParams } from "./types.js";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import { combineAbortSignals, type AgentRunnerToolExecutor } from "../providers/interface.js";
 import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.js";
 import { thinkingPolicyFromCeiling } from "./thinkingPolicy.js";
@@ -86,7 +86,7 @@ export async function createFeaturePiSession(params: {
     role: params.role,
     ...(params.specialistId ? { specialistId: params.specialistId } : {}),
     primary,
-    thinkingPolicy: thinkingPolicyFromCeiling(params.cfg.piThinkingCeiling),
+    thinkingPolicy: thinkingPolicyFromCeiling(params.cfg.models.thinkingCeiling),
     compactionPolicy: compactionPolicyForRole(params.role),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,

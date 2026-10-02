@@ -76,29 +76,6 @@ import {
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
 
-const settingsOverrides = vi.hoisted(
-  (): {
-    maxInlineReviewComments: number | undefined;
-    maxThreadPublishCalls: number | undefined;
-  } => ({
-    maxInlineReviewComments: undefined,
-    maxThreadPublishCalls: undefined,
-  }),
-);
-
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get MAX_INLINE_REVIEW_COMMENTS() {
-      return settingsOverrides.maxInlineReviewComments ?? actual.MAX_INLINE_REVIEW_COMMENTS;
-    },
-    get MAX_THREAD_PUBLISH_CALLS() {
-      return settingsOverrides.maxThreadPublishCalls ?? actual.MAX_THREAD_PUBLISH_CALLS;
-    },
-  };
-});
-
 const finding: ReviewFinding = {
   severity: "P1",
   file: "src/a.ts",
@@ -187,8 +164,6 @@ describe("publishFindingBatch", () => {
   beforeEach(() => {
     harness = createPublishReviewTestHarness();
     vi.clearAllMocks();
-    settingsOverrides.maxInlineReviewComments = undefined;
-    settingsOverrides.maxThreadPublishCalls = undefined;
   });
 
   it("returns empty without GitHub writes when the batch has no findings", async () => {
@@ -310,7 +285,7 @@ describe("publishFindingBatch", () => {
       ...batchContext(createFindingLedger(), undefined, {
         pool: { query } as unknown as Pool,
         installationId: 9,
-        cfg: makeTestConfig({ findingHistoryEnabled: true }),
+        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
       }),
     );
 
@@ -335,7 +310,7 @@ describe("publishFindingBatch", () => {
       ...batchContext(createFindingLedger(), undefined, {
         pool: { query } as unknown as Pool,
         installationId: 9,
-        cfg: makeTestConfig({ findingHistoryEnabled: true }),
+        cfg: makeTestConfig({ findingHistory: { enabled: true } }),
       }),
     );
 
@@ -503,7 +478,6 @@ describe("publishFindingBatch", () => {
   });
 
   it("classifies cap downgrades separately from unresolved anchors", async () => {
-    settingsOverrides.maxInlineReviewComments = 1;
     const anchoredKeep = findingAt(10);
     const anchoredCapped = { ...findingAt(20), severity: "P2" as const };
     const unresolved = {
@@ -515,6 +489,7 @@ describe("publishFindingBatch", () => {
     const result = await publishFindingBatch(
       findings,
       ...batchContext(createFindingLedger(), undefined, {
+        cfg: makeTestConfig({ review: { maxInlineComments: 1 } }),
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
         seedFindings: findings,
       }),
@@ -594,11 +569,11 @@ describe("publishFindingBatch", () => {
   });
 
   it("applies the remaining global inline cap", async () => {
-    settingsOverrides.maxInlineReviewComments = 3;
     const findings = [findingAt(10), findingAt(20), findingAt(30), findingAt(40)];
     const result = await publishFindingBatch(
       findings,
       ...batchContext(createFindingLedger({ postedInlineCount: 2 }), undefined, {
+        cfg: makeTestConfig({ review: { maxInlineComments: 3 } }),
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20, 30, 40]),
         seedFindings: findings,
       }),
@@ -710,13 +685,14 @@ describe("publishFindingBatch", () => {
   });
 
   it("downgrades later calls to summary-only after the thread budget", async () => {
-    settingsOverrides.maxThreadPublishCalls = 1;
     const result = await publishFindingBatch(
       [finding],
       ...batchContext(
         createFindingLedger({
           threadCallCount: 1,
         }),
+        undefined,
+        { cfg: makeTestConfig({ review: { maxThreadPublishCalls: 1 } }) },
       ),
     );
 

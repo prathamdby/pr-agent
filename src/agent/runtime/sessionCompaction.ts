@@ -1,5 +1,5 @@
 import type { AgentLoopConfig, AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
-import { SESSION_OVERFLOW_COMPACT_MAX } from "../../settings/sessionConstants.js";
+import { SESSION_OVERFLOW_COMPACT_MAX } from "../../settings/index.js";
 import {
   compactAgentMessages,
   compactIfNeeded,

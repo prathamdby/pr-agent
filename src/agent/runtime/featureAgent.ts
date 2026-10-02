@@ -1,18 +1,17 @@
 import { createFeaturePiSession } from "./createFeatureSession.js";
 import type { PiSessionSendOptions } from "./types.js";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
+import { type Config, SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../../settings/index.js";
 import type { AgentRunnerTurn } from "../providers/interface.js";
 import type { PiSession } from "./types.js";
-import { SUBMIT_ONLY_MAX_TOOL_ROUNDS } from "../../settings/index.js";
 
 export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
     role: "assistant",
     content: text ? [{ type: "text", text }] : [],
-    api: cfg.piApi,
-    provider: provider || cfg.piProvider,
-    model: cfg.piModel,
+    api: cfg.models.api,
+    provider: provider || cfg.models.provider,
+    model: cfg.models.model,
     usage: {
       input: 0,
       output: 0,

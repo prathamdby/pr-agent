@@ -1,10 +1,17 @@
 import crypto from "node:crypto";
-import type { Features } from "../../settings/index.js";
+import {
+  type Features,
+  type Config,
+  DEFERRED_HEAD_SHA,
+  IGNORED_REVIEW_APPROVAL_NOT_AWAITING,
+  REVIEW_APPROVED,
+  REVIEW_CANCELLED_PR_CLOSED,
+  reviewCancelAttributionForClosedPr,
+} from "../../settings/index.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
 import { resolveAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
 import type { ReviewAuthorTrust } from "../../commands/slashAssociation.js";
 import {
@@ -15,13 +22,6 @@ import {
   moveAwaitingHead,
   withdrawAwaiting,
 } from "./reviewApprovals.js";
-import {
-  DEFERRED_HEAD_SHA,
-  IGNORED_REVIEW_APPROVAL_NOT_AWAITING,
-  REVIEW_APPROVED,
-  REVIEW_CANCELLED_PR_CLOSED,
-  reviewCancelAttributionForClosedPr,
-} from "../../settings/index.js";
 import {
   acquireAutoWorkIntakeLock,
   replaceActiveAutoWorkItem,
@@ -939,7 +939,7 @@ export class DeliveryTx {
 export async function runDelivery(
   pool: Pool,
   boss: PgBoss,
-  cfg: Pick<Config, "features"> & Partial<AskQuotaConfig>,
+  cfg: Pick<Config, "features"> & { readonly ask?: Partial<AskQuotaConfig> },
   command: IntakeCommand,
   log: RequestLogger,
 ): Promise<void> {
@@ -972,7 +972,7 @@ export async function runDelivery(
           tx,
           command.input,
           cfg.features,
-          resolveAskQuotaConfig(cfg),
+          resolveAskQuotaConfig(cfg.ask),
         );
         break;
       default:

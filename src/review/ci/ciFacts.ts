@@ -4,7 +4,7 @@ import {
   OWN_COMMIT_STATUS_CONTEXT,
   REVIEW_CI_SUMMARY_INCOMPLETE,
   REVIEW_CI_SUMMARY_UNAVAILABLE,
-} from "../../settings/reviewConstants.js";
+} from "../../settings/index.js";
 
 /**
  * CI gate for the review summary / progress stub (not part of ReviewPayload).

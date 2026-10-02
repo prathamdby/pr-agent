@@ -243,8 +243,8 @@ export async function runOrchestratedPrReview(
 ): Promise<ReviewRunResult> {
   const reviewMode = params.mode ?? "review";
   initReviewRunMetrics({
-    provider: params.cfg.piProvider,
-    model: params.cfg.piModel,
+    provider: params.cfg.models.provider,
+    model: params.cfg.models.model,
     mode: reviewMode,
   });
   const setup = buildReviewRunSetup({
@@ -296,8 +296,8 @@ export async function runOrchestratedPrReview(
         context: workSpanContext,
         phase: `specialist_${outcome.specialist}`,
         sessionRole: "specialist",
-        provider: params.cfg.piProvider,
-        model: params.cfg.piModel,
+        provider: params.cfg.models.provider,
+        model: params.cfg.models.model,
         latencyMs: outcome.durationMs,
         isError: outcome.kind === "error",
         ...(outcome.kind === "error" ? { errorReason: outcome.error.code } : {}),
@@ -1008,7 +1008,7 @@ export async function runOrchestratedPrReview(
               workspaceTools: setup.workspaceTools,
               timeoutMs: Math.max(
                 0,
-                Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
+                Math.min(params.cfg.review.specialistTimeoutMs, params.timing.remainingModelMs()),
               ),
               shouldContinue: () => state.lifecycle.kind === "running",
               signal: combineAbortSignals([params.signal, controller.signal]),
@@ -1322,7 +1322,7 @@ export async function runOrchestratedPrReview(
   const lastAssistant: AssistantMessage = assistantFromText(
     params.cfg,
     lastText,
-    params.cfg.piProvider,
+    params.cfg.models.provider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
   const runCoverage = coverage(state);

@@ -28,6 +28,7 @@ import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
+  type Config,
 } from "../../settings/index.js";
 import {
   assertTriagePullRequestWritable,
@@ -45,7 +46,6 @@ import {
   throwIfExecutionAborted,
 } from "../../agentWork/publishOnce.js";
 import { safeRecordThreadFindingHistoryOutcome } from "../../agentWork/findingHistoryRepository.js";
-import type { Config } from "../../config.js";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
@@ -80,7 +80,7 @@ type PublishTriageParams = {
   readonly previouslyResolvedCount: number;
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
-  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly findingHistoryCfg?: Pick<Config, "findingHistory">;
   readonly leaseEpoch: number | null;
   readonly signal?: AbortSignal;
   readonly bulkOutcomes?: ReadonlyMap<number, TriageBulkOutcome>;

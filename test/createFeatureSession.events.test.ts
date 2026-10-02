@@ -30,10 +30,10 @@ vi.mock("../src/agentWork/agentEventsRepository.js", async (importOriginal) => {
     appendAgentEvents,
     safeAppendAgentEvents: (
       client: unknown,
-      cfg: { agentEventsEnabled: boolean },
+      cfg: { agentEvents: { enabled: boolean } },
       rows: unknown[],
     ) => {
-      if (!cfg.agentEventsEnabled || rows.length === 0) return;
+      if (!cfg.agentEvents.enabled || rows.length === 0) return;
       void appendAgentEvents(client, rows).catch(() => undefined);
     },
   };
@@ -73,7 +73,7 @@ describe("createFeaturePiSession agent events", () => {
   };
 
   it("wires durable lifecycle sink when enabled and context is complete", async () => {
-    const cfg = makeTestConfig({ agentEventsEnabled: true });
+    const cfg = makeTestConfig({ agentEvents: { enabled: true } });
     await createFeaturePiSession({
       role: "orchestrator",
       cfg,
@@ -90,7 +90,7 @@ describe("createFeaturePiSession agent events", () => {
   });
 
   it("skips durable sink when agent events are disabled", async () => {
-    const cfg = makeTestConfig({ agentEventsEnabled: false });
+    const cfg = makeTestConfig({ agentEvents: { enabled: false } });
     await createFeaturePiSession({
       role: "orchestrator",
       cfg,
@@ -105,7 +105,7 @@ describe("createFeaturePiSession agent events", () => {
 
   it("does not throw when writer fails", async () => {
     appendAgentEvents.mockRejectedValueOnce(new Error("db down"));
-    const cfg = makeTestConfig({ agentEventsEnabled: true });
+    const cfg = makeTestConfig({ agentEvents: { enabled: true } });
 
     await expect(
       createFeaturePiSession({
@@ -123,7 +123,7 @@ describe("createFeaturePiSession agent events", () => {
   });
 
   it("wires execute abort through session.abort", async () => {
-    const cfg = makeTestConfig({ agentEventsEnabled: false });
+    const cfg = makeTestConfig({ agentEvents: { enabled: false } });
     let seenSignal: AbortSignal | undefined;
     const session = await createFeaturePiSession({
       role: "orchestrator",
@@ -155,7 +155,7 @@ describe("safeAppendAgentEvents isolation", () => {
       }),
     };
     expect(() =>
-      safeAppendAgentEvents(pool as never, { agentEventsEnabled: true }, [
+      safeAppendAgentEvents(pool as never, makeTestConfig({ agentEvents: { enabled: true } }), [
         {
           eventKind: "failure",
           provider: "openai",

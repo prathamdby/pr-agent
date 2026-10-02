@@ -2,7 +2,7 @@ import * as v from "valibot";
 import { noToolsTurnGuidance } from "../../agent/prompts/harnessProtocol.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import { logWarn } from "../../evlog.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";

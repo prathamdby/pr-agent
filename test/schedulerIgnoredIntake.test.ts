@@ -7,24 +7,14 @@ import * as evlog from "../src/evlog.js";
 import * as appAuth from "../src/github/appAuth.js";
 import { makeTestConfig } from "./helpers/config.js";
 
-const settingsOverrides: { timeout?: number } = {};
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get WEBHOOK_TIMEOUT_MS() {
-      return settingsOverrides.timeout ?? actual.WEBHOOK_TIMEOUT_MS;
-    },
-  };
-});
-const cfg = makeTestConfig({ webhookSecret: "secret" });
+const cfg = makeTestConfig({ webhook: { secret: "secret" } });
 function request(event: string, body: Buffer, signature = true) {
   return {
     headers: {
       "x-github-event": event,
       "x-github-delivery": "d1",
       "x-hub-signature-256": signature
-        ? `sha256=${crypto.createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`
+        ? `sha256=${crypto.createHmac("sha256", cfg.webhook.secret).update(body).digest("hex")}`
         : "sha256=bad",
     },
     rawBody: body,
@@ -33,10 +23,11 @@ function request(event: string, body: Buffer, signature = true) {
 function run(
   req: Parameters<typeof processWebhookPostRequestEffect>[1],
   submit: AgentWorkScheduler["Service"]["submit"],
+  runCfg = cfg,
 ) {
   return Effect.runPromise(
     processWebhookPostRequestEffect(
-      cfg,
+      runCfg,
       req,
       evlog.createOperationLogger({ method: "POST", path: "/webhooks" }),
     ).pipe(
@@ -49,7 +40,6 @@ function run(
 describe("webhook request admission boundary", () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    delete settingsOverrides.timeout;
   });
   it.each([
     ["ping", "{}", false, 401, "invalid signature"],
@@ -140,9 +130,11 @@ describe("webhook request admission boundary", () => {
     ).toBe(true);
   });
   it("returns 503 and the existing timeout fields", async () => {
-    settingsOverrides.timeout = 1;
     const record = vi.spyOn(evlog, "recordEvent");
-    expect(await run(request("ping", Buffer.from("{}")), () => Effect.sleep("20 millis"))).toEqual({
+    const tightCfg = makeTestConfig({ webhook: { secret: "secret", timeoutMs: 1 } });
+    expect(
+      await run(request("ping", Buffer.from("{}")), () => Effect.sleep("20 millis"), tightCfg),
+    ).toEqual({
       status: 503,
       body: "service unavailable",
     });

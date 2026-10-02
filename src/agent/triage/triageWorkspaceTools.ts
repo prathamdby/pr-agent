@@ -3,14 +3,14 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import type { Config } from "../../config.js";
-import { AppError } from "../../errors/appError.js";
-import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import {
+  type Config,
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
   TRIAGE_NEW_FILE_MAX_BYTES,
   MAX_TRIAGE_FIXES_PER_RUN,
 } from "../../settings/index.js";
+import { AppError } from "../../errors/appError.js";
+import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { defineLocalTool } from "../tools/defineWorkspaceTool.js";
 import { normalizeTextFileEncoding } from "../tools/readWorkspaceTextFile.js";

@@ -24,9 +24,9 @@ import {
   REVIEW_PROGRESS_SOURCE_SLASH,
   reviewProgressCancelledNote,
   type ReviewCancelAttribution,
+  type AnyReviewLens,
 } from "../../settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { CiSummary } from "../ci/ciFacts.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/ciSummaryCell.js";

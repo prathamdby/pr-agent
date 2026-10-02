@@ -14,8 +14,8 @@ import type { IssueCommentRef, PrSurface } from "../../github/prSurface.js";
 import {
   POSTGRES_LOCK_TIMEOUT_MS,
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
+  type AnyReviewLens,
 } from "../../settings/index.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/commentMarkers.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 

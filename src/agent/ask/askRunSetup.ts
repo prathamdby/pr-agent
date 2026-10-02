@@ -13,6 +13,7 @@ export function buildAskRunSetup(params: AskRunParams) {
       pathGate,
       extraAllowedPaths,
     }),
+    { executorKind: params.cfg.codeMode.executorKind },
   );
   const codeIndex =
     params.pool && params.codeIndexSnapshotId

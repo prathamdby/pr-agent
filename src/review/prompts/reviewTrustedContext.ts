@@ -18,7 +18,7 @@ import {
   fetchPriorInlineFeedback,
   formatPriorInlineFeedbackBlock,
 } from "../run/reviewPriorFeedback.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { AnyReviewLens } from "../../settings/index.js";
 
 export function buildTrustedReviewContextForReview(params: {
   preflight: ReviewPreflightMetadata;

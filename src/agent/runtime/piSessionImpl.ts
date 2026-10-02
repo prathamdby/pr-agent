@@ -84,13 +84,13 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   if (!model) {
     throw new AppError({
       code: "provider.model_not_found",
-      message: params.cfg.modelsJsonPath
-        ? `Model not found: ${params.primary.provider}/${params.primary.model} (models.json: ${params.cfg.modelsJsonPath})`
+      message: params.cfg.models.jsonPath
+        ? `Model not found: ${params.primary.provider}/${params.primary.model} (models.json: ${params.cfg.models.jsonPath})`
         : `Model not found: ${params.primary.provider}/${params.primary.model}`,
       context: {
         piProvider: params.primary.provider,
         piModel: params.primary.model,
-        ...(params.cfg.modelsJsonPath ? { modelsJsonPath: params.cfg.modelsJsonPath } : {}),
+        ...(params.cfg.models.jsonPath ? { modelsJsonPath: params.cfg.models.jsonPath } : {}),
       },
     });
   }
@@ -104,9 +104,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   const { streamFn } = createSessionStreamFn(models, {
     cacheRetention: params.promptCachePolicy.retention,
     sessionId: sessionCacheId,
-    timeoutMs: params.cfg.providerPromptTimeoutMs,
-    maxRetries: params.cfg.piProviderRetryMax,
-    maxRetryDelayMs: params.cfg.piProviderMaxRetryDelayMs,
+    timeoutMs: params.cfg.provider.promptTimeoutMs,
+    maxRetries: params.cfg.provider.retryMax,
+    maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
   });
 
   let abortPromise: Promise<void> | undefined;
@@ -147,7 +147,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       let terminalProviderError: string | undefined;
       let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
       const activity = createSendActivity(
-        opts.deadlineMs ?? params.cfg.providerPromptTimeoutMs,
+        opts.deadlineMs ?? params.cfg.provider.promptTimeoutMs,
         sendAbort,
       );
       const compaction = createSessionCompaction(params.compactionPolicy, {
@@ -186,9 +186,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         },
         cacheRetention: params.promptCachePolicy.retention,
         sessionId: sessionCacheId,
-        timeoutMs: params.cfg.providerPromptTimeoutMs,
-        maxRetries: params.cfg.piProviderRetryMax,
-        maxRetryDelayMs: params.cfg.piProviderMaxRetryDelayMs,
+        timeoutMs: params.cfg.provider.promptTimeoutMs,
+        maxRetries: params.cfg.provider.retryMax,
+        maxRetryDelayMs: params.cfg.provider.maxRetryDelayMs,
         ...(thinking === "off" ? {} : { reasoning: thinking }),
         finishTurn: budget.finishTurn,
         beforeToolCall: async ({ assistantMessage, toolCall }) => {

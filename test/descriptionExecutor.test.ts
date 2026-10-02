@@ -103,7 +103,7 @@ function configureExecution(
     );
 }
 
-const cfg = makeTestConfig({ piModel: "test" });
+const cfg = makeTestConfig({ models: { model: "test" } });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 

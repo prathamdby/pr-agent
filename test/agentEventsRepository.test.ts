@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { makeTestConfig } from "./helpers/config.js";
 import type { Pool } from "pg";
 import {
   appendAgentEvents,
@@ -57,7 +58,7 @@ describe("safeAppendAgentEvents", () => {
   it("does nothing when disabled", () => {
     const query = vi.fn();
     const pool = { query } as unknown as Pool;
-    safeAppendAgentEvents(pool, { agentEventsEnabled: false }, [sampleRow()]);
+    safeAppendAgentEvents(pool, makeTestConfig({ agentEvents: { enabled: false } }), [sampleRow()]);
     expect(query).not.toHaveBeenCalled();
   });
 
@@ -66,7 +67,7 @@ describe("safeAppendAgentEvents", () => {
       throw new Error("db down");
     });
     const pool = { query } as unknown as Pool;
-    safeAppendAgentEvents(pool, { agentEventsEnabled: true }, [sampleRow()]);
+    safeAppendAgentEvents(pool, makeTestConfig({ agentEvents: { enabled: true } }), [sampleRow()]);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(query).toHaveBeenCalledTimes(1);
   });

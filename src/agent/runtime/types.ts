@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { PromptCachePolicy } from "./promptCachePolicy.js";

@@ -130,7 +130,7 @@ function configureExecution(
     );
 }
 
-const cfg = makeTestConfig({ piModel: "test" });
+const cfg = makeTestConfig({ models: { model: "test" } });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
@@ -260,7 +260,7 @@ describe("ask work definition", () => {
 
   it("passes a ready code-index snapshot to runAskRun when CODE_INDEX_MODE=fts", async () => {
     mocks.waitForReadySnapshot.mockResolvedValue({ id: "snap-ready" });
-    const ftsCfg = makeTestConfig({ piModel: "test", codeIndexMode: "fts" });
+    const ftsCfg = makeTestConfig({ models: { model: "test" }, codeIndex: { mode: "fts" } });
 
     await createWorkDefinitions({
       cfg: ftsCfg,

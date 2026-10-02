@@ -196,8 +196,7 @@ describe("runSpecialist", () => {
 
   it("raises the tool-round budget and attempts the fallback model on an escalated run", async () => {
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
 
@@ -235,8 +234,7 @@ describe("runSpecialist", () => {
 
   it("grants an escalated attempt the same tools, prompt, and trust inputs", async () => {
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
     await runSpecialist(specialistArgs({ cfg }));
@@ -261,8 +259,7 @@ describe("runSpecialist", () => {
 
   it("keeps the evidence gate authoritative on an escalated attempt", async () => {
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     runnerMocks.behaviors.push({ kind: "report", report: findingsReport });
     const evidenceLedger = createTestEvidenceLedger();

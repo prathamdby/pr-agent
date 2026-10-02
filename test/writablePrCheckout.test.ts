@@ -17,10 +17,6 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const credentialHooks = { failAfterWrite: false };
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return { ...actual, LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS: 1 };
-});
 vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/prWorkspace/gitCredentials.js")>();
   return {
@@ -576,7 +572,7 @@ describe("writable PR checkout", () => {
       const old = new Date(Date.now() - 10_000);
       await utimes(staleDir, old, old);
 
-      await cleanupStaleLocalPrWorkspaces();
+      await cleanupStaleLocalPrWorkspaces({ staleAgeSeconds: 1 });
 
       await expect(stat(staleDir)).rejects.toThrow();
     } finally {

@@ -1,14 +1,14 @@
 import { productionInstallationSurface } from "./installationSurface.js";
 import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
-import type { Config } from "../config.js";
-import { logWarn } from "../evlog.js";
 import {
+  type Config,
   DEFERRED_HEAD_SHA,
   STALE_QUEUED_WORK_BATCH_SIZE,
   STALE_QUEUED_WORK_GRACE_SECONDS,
+  isAnyReviewLens,
 } from "../settings/index.js";
-import { isAnyReviewLens } from "../settings/legacyReviewLenses.js";
+import { logWarn } from "../evlog.js";
 import {
   reviewVerdict,
   asTerminalOwnCheckStatus,
@@ -111,7 +111,7 @@ export async function reconcileLostRunningWork(params: {
       const marked = await markLostRunningWorkFailed(
         params.pool,
         item.workItemId,
-        params.cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
+        params.cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS,
       );
       if (!marked) continue;
       if (core.type !== "review") continue;

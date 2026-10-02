@@ -1,6 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../settings/index.js";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
+import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS, type AnyReviewLens } from "../settings/index.js";
 
 // Both retained-session lanes reserve from the same pool budget.
 const reservations = new WeakMap<Pool, { count: number }>();

@@ -222,7 +222,7 @@ function defaultMocks() {
   vi.mocked(repo.beginWorkAttempt).mockImplementation(async () => {
     const claim = await vi.mocked(repo.claimWorkForExecution).mock.results.at(-1)?.value;
     if (!claim) throw new Error("missing mocked lifecycle claim");
-    return claim.attemptCount > cfg.queueRetryLimit + 1
+    return claim.attemptCount > cfg.queue.retryLimit + 1
       ? { kind: "exhausted", attemptCount: claim.attemptCount }
       : { kind: "started", claim };
   });
@@ -497,8 +497,7 @@ describe("runDurableWorkItem", () => {
     const item = makeItem();
     const escalationCfg = {
       ...cfg,
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { ...cfg.models, fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     };
     vi.mocked(prActorLease.acquirePrActorLease)
       .mockResolvedValueOnce({ acquired: true, leaseEpoch: 1 })
@@ -548,7 +547,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       startedAt: new Date("2026-01-01T00:00:05.000Z"),
-      attemptCount: cfg.queueRetryLimit + 2,
+      attemptCount: cfg.queue.retryLimit + 2,
       resumed: true,
     });
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
@@ -576,7 +575,7 @@ describe("runDurableWorkItem", () => {
       expect.objectContaining({
         type: "review",
         workItemId: "wi-1",
-        attemptCount: cfg.queueRetryLimit + 2,
+        attemptCount: cfg.queue.retryLimit + 2,
       }),
     );
   });
@@ -586,7 +585,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue({
       createdAt: new Date("2026-01-01T00:00:00.000Z"),
       startedAt: new Date("2026-01-01T00:00:05.000Z"),
-      attemptCount: cfg.queueRetryLimit + 1,
+      attemptCount: cfg.queue.retryLimit + 1,
       resumed: true,
     });
     const boom = new Error("transient");

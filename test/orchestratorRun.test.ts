@@ -548,8 +548,7 @@ describe("runOrchestratedPrReview", () => {
   it("escalates recon and judgment budgets, the attempt model, and the specialist plan", async () => {
     runner.createSession.mockClear();
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     const escalation = escalationForAttempt(2, cfg);
     testState.judgmentBySource.set("correctness", [finding("correctness")]);
@@ -593,8 +592,7 @@ describe("runOrchestratedPrReview", () => {
   it("grants an escalated attempt the same tools, prompt, cwd, and no model restart", async () => {
     runner.createSession.mockClear();
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
 
     const baseline = runOrchestratedPrReview(params());
@@ -632,8 +630,7 @@ describe("runOrchestratedPrReview", () => {
     runner.createSession.mockClear();
     testState.judgmentFailuresRemaining = 2;
     const cfg = makeTestConfig({
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
     });
     const run = runOrchestratedPrReview({
       ...params(),
@@ -1369,7 +1366,7 @@ describe("runOrchestratedPrReview", () => {
     testState.synthesisPublishesSummary = false;
     const run = runOrchestratedPrReview({
       ...params(),
-      cfg: makeTestConfig({ agentEventsEnabled: true }),
+      cfg: makeTestConfig({ agentEvents: { enabled: true } }),
       sessionContext: {
         pool: Object.create(null) as Pool,
         workItemId: "wi-1",
@@ -1768,7 +1765,7 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentBySource.set("security", [finding("security")]);
     const run = runOrchestratedPrReview({
       ...params(),
-      cfg: makeTestConfig({ agentEventsEnabled: true }),
+      cfg: makeTestConfig({ agentEvents: { enabled: true } }),
       sessionContext: {
         pool: Object.create(null) as Pool,
         workItemId: "wi-1",

@@ -1,4 +1,4 @@
-import type { Config } from "../../config.js";
+import type { Config, AnyReviewLens } from "../../settings/index.js";
 import {
   classifiedFailureLogFields,
   type ClassifiedFailure,
@@ -10,7 +10,6 @@ import {
 } from "../publish/reviewSummaryComment.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;

@@ -1916,7 +1916,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       const cfg = makeTestConfig();
       const info = vi.spyOn(evlog, "logInfo");
       const failureLog = vi.spyOn(evlog, "logError");
-      const boss = new PgBoss({ connectionString: cfg.databaseUrl });
+      const boss = new PgBoss({ connectionString: cfg.runtime.databaseUrl });
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
@@ -2134,7 +2134,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         expect(Object.hasOwn(intents.rows[0].detail, "__result")).toBe(false);
         expect(controls.events.filter((event) => event.kind === originalMethod)).toHaveLength(1);
 
-        const attemptCap = cfg.queueRetryLimit + 1;
+        const attemptCap = cfg.queue.retryLimit + 1;
         await pool.query("UPDATE agent_work_items SET attempt_count = $2 WHERE id = $1", [
           workItemId,
           attemptCap,
@@ -2423,7 +2423,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       });
       if (!lease.acquired) throw new Error("lease not acquired");
       const cfg = makeTestConfig();
-      const boss = new PgBoss({ connectionString: cfg.databaseUrl });
+      const boss = new PgBoss({ connectionString: cfg.runtime.databaseUrl });
       const { surface, controls } = createFakePrSurface(
         { owner: "o", repo: "r", prNumber: 1 },
         { headSha },

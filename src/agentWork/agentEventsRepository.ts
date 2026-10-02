@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import type { Config } from "../config.js";
+import type { Config } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
 
 export type AgentEventInsertRow = {
@@ -122,10 +122,10 @@ export async function appendAgentEvents(
 /** Fire-and-forget append that never throws into the review hot path. */
 export function safeAppendAgentEvents(
   client: Pool | PoolClient,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   rows: readonly AgentEventInsertRow[],
 ): void {
-  if (!cfg.agentEventsEnabled || rows.length === 0) return;
+  if (!cfg.agentEvents.enabled || rows.length === 0) return;
   void appendAgentEvents(client, rows).catch((error) => {
     logWarn("agent_events_append_failed", {
       count: rows.length,

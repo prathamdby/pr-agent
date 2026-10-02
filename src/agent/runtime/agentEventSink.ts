@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import type { Config } from "../../config.js";
+import type { Config } from "../../settings/index.js";
 import {
   captureWorkSpan,
   llmSpanFromSession,
@@ -191,7 +191,7 @@ export function evidenceRejectEventRow(
 
 export function createDurableLifecycleEventSink(
   context: AgentEventsContext,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
 ): (event: AgentLifecycleEvent) => void {
   return (event) => {
     const record = agentAuditRecordFromLifecycleEvent(event);
@@ -227,7 +227,7 @@ export function createDurableLifecycleEventSink(
 
 export function emitWorkSpan(
   context: AgentEventsContext | null,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   span: WorkSpan,
 ): void {
   captureWorkSpan(span);
@@ -237,7 +237,7 @@ export function emitWorkSpan(
 
 export function safeEmitAgentEvent(
   context: AgentEventsContext,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   row: AgentEventInsertRow,
 ): void {
   safeAppendAgentEvents(context.pool, cfg, [row]);
@@ -245,7 +245,7 @@ export function safeEmitAgentEvent(
 
 export function safeEmitDecisionEvent(
   context: AgentEventsContext,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   params: Parameters<typeof decisionEventRow>[1],
 ): void {
   safeEmitAgentEvent(context, cfg, decisionEventRow(context, params));
@@ -253,7 +253,7 @@ export function safeEmitDecisionEvent(
 
 export function safeEmitPublishEvent(
   context: AgentEventsContext,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   params: Parameters<typeof publishEventRow>[1] & {
     readonly latencyMs: number;
     readonly parentSpanId?: string | null;
@@ -281,7 +281,7 @@ export function safeEmitPublishEvent(
 
 export function safeEmitCoverageEvent(
   context: AgentEventsContext,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   params: Parameters<typeof checkoutCoverageEventRow>[1],
 ): void {
   safeEmitAgentEvent(context, cfg, checkoutCoverageEventRow(context, params));
@@ -289,14 +289,14 @@ export function safeEmitCoverageEvent(
 
 export function safeEmitEvidenceRejectEvent(
   context: AgentEventsContext,
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   params: Parameters<typeof evidenceRejectEventRow>[1],
 ): void {
   safeEmitAgentEvent(context, cfg, evidenceRejectEventRow(context, params));
 }
 
 export function resolveAgentEventsContext(
-  cfg: Pick<Config, "agentEventsEnabled">,
+  cfg: Pick<Config, "agentEvents">,
   sessionContext?: {
     readonly pool: Pool | PoolClient;
     readonly workItemId: string;
@@ -306,7 +306,7 @@ export function resolveAgentEventsContext(
     readonly prNumber?: number;
   },
 ): AgentEventsContext | null {
-  if (!cfg.agentEventsEnabled || !sessionContext) return null;
+  if (!cfg.agentEvents.enabled || !sessionContext) return null;
   const { owner, repo, prNumber } = sessionContext;
   if (!owner || !repo || prNumber == null) return null;
   return {

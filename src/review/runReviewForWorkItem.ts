@@ -3,7 +3,15 @@ import { createPublishContext } from "../agentWork/publishOnce.js";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
+import {
+  type Config,
+  MAX_REPO_POLICY_BYTES,
+  MAX_AGENT_INSTRUCTION_BYTES,
+  REPO_POLICY_DIRNAME,
+  MAX_PR_FILES_LISTED,
+  MAX_PR_FILES_PATCH_BYTES,
+  REVIEW_FINALIZATION_WINDOW_MS,
+} from "../settings/index.js";
 import {
   degradedReasonFromReviewFlags,
   durationMsFromClaim,
@@ -53,14 +61,6 @@ import { attachSummaryCommentCoordination } from "./publish/reviewSummaryComment
 import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.js";
 import type { PrRepositoryView } from "../prWorkspace/prRepositoryView.js";
 import { prBodyHasDescriptionReviewMap } from "../agent/description/descriptionRender.js";
-import {
-  MAX_REPO_POLICY_BYTES,
-  MAX_AGENT_INSTRUCTION_BYTES,
-  REPO_POLICY_DIRNAME,
-  MAX_PR_FILES_LISTED,
-  MAX_PR_FILES_PATCH_BYTES,
-  REVIEW_FINALIZATION_WINDOW_MS,
-} from "../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../agentWork/reviewLightweightCompletion.js";
 import {
   reviewVerdict,
@@ -337,7 +337,7 @@ async function runLightweightCompletionOrSkip(args: {
     reviewLens,
     prSurface,
     preflight,
-    model: cfg.piModel,
+    model: cfg.models.model,
     leaseEpoch,
     boss,
   });
@@ -405,7 +405,7 @@ async function buildPriorInlineFeedbackPromise(args: {
         prSurface,
         botUserId: bot.userId,
         reviewLens,
-        maintainerDecisionAssociations: cfg.maintainerDecisionAssociations,
+        maintainerDecisionAssociations: cfg.associations.maintainerDecision,
         onPriorFeedbackError: logPriorFeedbackError,
       }),
     };
@@ -428,7 +428,7 @@ type ReviewProfileSession = {
 };
 
 function createReviewProfileSession(args: {
-  readonly cfg: Pick<Config, "piProvider" | "piModel">;
+  readonly cfg: Pick<Config, "models">;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
@@ -449,8 +449,8 @@ function createReviewProfileSession(args: {
       const publishStepCount = pending.publishStepCount ?? snapshot?.publishStepCount ?? 0;
       const fields = reviewProfileFields({
         snapshot,
-        provider: args.cfg.piProvider,
-        model: args.cfg.piModel,
+        provider: args.cfg.models.provider,
+        model: args.cfg.models.model,
         reviewLens: args.reviewLens,
         source: args.payload.source,
       });
@@ -916,7 +916,7 @@ async function runClaimedReview(args: {
     );
   const findingHistoryTrustedBlock = formatFindingHistoryTrustedBlock(
     findingHistoryCandidates,
-    cfg.findingHistoryDismissSuppressAfter,
+    cfg.findingHistory.dismissSuppressAfter,
   );
   const prSurface = env.prSurface;
   const headSha = env.headSha;
@@ -1047,8 +1047,8 @@ export async function runReviewForWorkItem(
   const payload = item.payload;
   // Wall-clock starts at worker start (now), never at progress-stub post (queue wait).
   initReviewRunMetrics({
-    provider: cfg.piProvider,
-    model: cfg.piModel,
+    provider: cfg.models.provider,
+    model: cfg.models.model,
     mode: reviewLens,
   });
   const profile = createReviewProfileSession({

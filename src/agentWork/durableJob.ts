@@ -1,6 +1,12 @@
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
-import type { Config } from "../config.js";
+import {
+  type Config,
+  DEFERRED_HEAD_SHA,
+  GITHUB_REACTION_MINUS_ONE,
+  GITHUB_REACTION_PLUS_ONE,
+  type GithubReactionContent,
+} from "../settings/index.js";
 import {
   captureWorkRetried,
   recordWorkCompleted,
@@ -17,12 +23,6 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError, isCancelAbortError } from "../agent/providers/providerErrors.js";
 import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
-import {
-  DEFERRED_HEAD_SHA,
-  GITHUB_REACTION_MINUS_ONE,
-  GITHUB_REACTION_PLUS_ONE,
-  type GithubReactionContent,
-} from "../settings/index.js";
 import {
   getWorkItem,
   getWorkItemCore,

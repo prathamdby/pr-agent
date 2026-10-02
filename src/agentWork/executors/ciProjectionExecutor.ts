@@ -1,6 +1,13 @@
 import { productionInstallationSurface } from "../installationSurface.js";
 import { createPublishContext } from "../publishOnce.js";
-import type { Config } from "../../config.js";
+import {
+  type Config,
+  REVIEW_SUMMARY_SENTINEL,
+  TRIAGE_SUMMARY_SENTINEL,
+  VERIFICATION_PUBLISH_LENS,
+  isAnyReviewLens,
+  LEGACY_REVIEW_SUMMARY_SENTINELS,
+} from "../../settings/index.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logDebug, logWarn } from "../../evlog.js";
@@ -26,15 +33,6 @@ import {
   parseReviewMetaFromCommentBody,
   parseProgressRevisionState,
 } from "../../review/run/commentMarkers.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  TRIAGE_SUMMARY_SENTINEL,
-  VERIFICATION_PUBLISH_LENS,
-} from "../../settings/index.js";
-import {
-  isAnyReviewLens,
-  LEGACY_REVIEW_SUMMARY_SENTINELS,
-} from "../../settings/legacyReviewLenses.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
 import { reviewVerdict, asTerminalOwnCheckStatus } from "../reviewVerdict.js";
@@ -533,7 +531,7 @@ async function applyGithubCiListingIfNeeded(params: {
     headSha: params.data.headSha,
     checkRuns: snapshot.checkRuns,
     legacyStatuses: snapshot.legacyStatuses,
-    githubAppId: params.cfg.githubAppId,
+    githubAppId: params.cfg.github.appId,
     checkRunsComplete: snapshot.checkRunsComplete,
   };
 

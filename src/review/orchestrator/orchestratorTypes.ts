@@ -1,5 +1,5 @@
 import type { AppError } from "../../errors/appError.js";
-import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
+import type { ReviewCancelAttribution } from "../../settings/index.js";
 import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 

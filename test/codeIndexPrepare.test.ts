@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
+import { makeTestConfig } from "./helpers/config.js";
 import { prepareCodeIndexForReview } from "../src/codeIndex/buildJob.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 
@@ -62,7 +63,7 @@ describe("prepareCodeIndexForReview", () => {
     } as unknown as PgBoss;
 
     const result = await prepareCodeIndexForReview({
-      cfg: { codeIndexMode: "fts", codeIndexWaitMs: 50 } as never,
+      cfg: makeTestConfig({ codeIndex: { mode: "fts", waitMs: 50 } }),
       pool: {} as Pool,
       boss,
       scope,
@@ -107,7 +108,7 @@ describe("prepareCodeIndexForReview", () => {
 
     const started = Date.now();
     const result = await prepareCodeIndexForReview({
-      cfg: { codeIndexMode: "fts", codeIndexWaitMs: 40 } as never,
+      cfg: makeTestConfig({ codeIndex: { mode: "fts", waitMs: 40 } }),
       pool,
       boss,
       scope,
@@ -123,7 +124,7 @@ describe("prepareCodeIndexForReview", () => {
 
   it("returns unavailable when mode is off without querying", async () => {
     const result = await prepareCodeIndexForReview({
-      cfg: { codeIndexMode: "off", codeIndexWaitMs: 3_000 } as never,
+      cfg: makeTestConfig({ codeIndex: { mode: "off", waitMs: 3_000 } }),
       pool: { query: vi.fn() } as unknown as Pool,
       scope,
       workspace,

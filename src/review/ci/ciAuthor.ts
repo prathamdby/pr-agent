@@ -1,12 +1,6 @@
 import * as v from "valibot";
-import type { Config } from "../../config.js";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { noToolsTurnGuidance } from "../../agent/prompts/harnessProtocol.js";
-import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
-import { AppError } from "../../errors/appError.js";
-import { logDebug, logWarn } from "../../evlog.js";
-import type { PrSurface } from "../../github/prSurface.js";
 import {
+  type Config,
   REVIEW_CI_SUMMARY_FIX_HINT_MAX_CHARS,
   REVIEW_CI_SUMMARY_GRANT_ACTIONS,
   REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS,
@@ -17,6 +11,12 @@ import {
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_REASON_MAX_CHARS,
 } from "../../settings/index.js";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import { noToolsTurnGuidance } from "../../agent/prompts/harnessProtocol.js";
+import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+import { AppError } from "../../errors/appError.js";
+import { logDebug, logWarn } from "../../evlog.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
 import {
   isCheckFactFailing,

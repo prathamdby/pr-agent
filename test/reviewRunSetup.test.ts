@@ -70,7 +70,7 @@ describe("buildReviewRunSetup", () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
     const setup = buildReviewRunSetup({
-      cfg: makeTestConfig({ context7ApiKey: "" }),
+      cfg: makeTestConfig({ context7: { apiKey: "" } }),
       prSurface,
       owner: "o",
       repo: "r",

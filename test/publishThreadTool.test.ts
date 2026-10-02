@@ -12,20 +12,6 @@ import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { PrSurface } from "../src/github/prSurface.js";
 
-const settingsOverrides = vi.hoisted((): { maxThreadPublishCalls: number | undefined } => ({
-  maxThreadPublishCalls: undefined,
-}));
-
-vi.mock("../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
-  return {
-    ...actual,
-    get MAX_THREAD_PUBLISH_CALLS() {
-      return settingsOverrides.maxThreadPublishCalls ?? actual.MAX_THREAD_PUBLISH_CALLS;
-    },
-  };
-});
-
 let nextReviewId = 100;
 
 function finding(line: number): ReviewFinding {
@@ -40,9 +26,13 @@ function finding(line: number): ReviewFinding {
   };
 }
 
-function threadSession(surface: PrSurface, shouldAbortPublish?: () => Promise<boolean>) {
+function threadSession(
+  surface: PrSurface,
+  shouldAbortPublish?: () => Promise<boolean>,
+  cfg = makeTestConfig(),
+) {
   return createReviewPublishSession({
-    cfg: makeTestConfig(),
+    cfg,
     ctx: {
       owner: "o",
       repo: "r",
@@ -62,6 +52,7 @@ function threadSession(surface: PrSurface, shouldAbortPublish?: () => Promise<bo
 function buildTool(
   shouldAbortPublish?: () => Promise<boolean>,
   publishImpl?: PrSurface["publishThreadBatch"],
+  cfg?: ReturnType<typeof makeTestConfig>,
 ) {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
   const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch").mockImplementation(
@@ -73,7 +64,7 @@ function buildTool(
   );
   const tool = buildPublishThreadTool({
     phaseRef: createOrchestratorPhaseRef("judgment"),
-    session: threadSession(surface, shouldAbortPublish),
+    session: threadSession(surface, shouldAbortPublish, cfg),
     initialLedger: createFindingLedger(),
   });
   return { tool, publishThreadBatch };
@@ -83,7 +74,6 @@ describe("buildPublishThreadTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     nextReviewId = 100;
-    settingsOverrides.maxThreadPublishCalls = undefined;
   });
 
   it("carries the finding ledger across calls and reports same-file published threads", async () => {
@@ -124,8 +114,11 @@ describe("buildPublishThreadTool", () => {
   });
 
   it("retains budget-exhausted findings as summary-only ledger entries", async () => {
-    settingsOverrides.maxThreadPublishCalls = 1;
-    const { tool } = buildTool();
+    const { tool } = buildTool(
+      undefined,
+      undefined,
+      makeTestConfig({ review: { maxThreadPublishCalls: 1 } }),
+    );
     tool.setSource("security");
 
     await tool.executor({ findings: [finding(10)] });

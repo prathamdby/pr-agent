@@ -198,7 +198,7 @@ function defaultMocks() {
   vi.mocked(repo.beginWorkAttempt).mockImplementation(async () => {
     const claim = await vi.mocked(repo.claimWorkForExecution).mock.results.at(-1)?.value;
     if (!claim) throw new Error("missing mocked lifecycle claim");
-    return claim.attemptCount > cfg.queueRetryLimit + 1
+    return claim.attemptCount > cfg.queue.retryLimit + 1
       ? { kind: "exhausted", attemptCount: claim.attemptCount }
       : { kind: "started", claim };
   });
@@ -641,7 +641,7 @@ describe("leased execution", () => {
 
     await expect(
       runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+        cfg: { ...cfg, queue: { ...cfg.queue, prActorLeaseRenewalIntervalSeconds: 0.001 } },
         execute,
       }),
     ).rejects.toBe(claimError);
@@ -729,7 +729,7 @@ describe("leased execution", () => {
 
     await expect(
       runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+        cfg: { ...cfg, queue: { ...cfg.queue, prActorLeaseRenewalIntervalSeconds: 0.001 } },
         execute,
       }),
     ).rejects.toBe(payloadError);
@@ -757,7 +757,7 @@ describe("leased execution", () => {
 
     await expect(
       runReviewWorkItem({
-        cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+        cfg: { ...cfg, queue: { ...cfg.queue, prActorLeaseRenewalIntervalSeconds: 0.001 } },
         execute,
       }),
     ).rejects.toThrow(/Invalid review work item payload/);
@@ -916,7 +916,7 @@ describe("leased execution", () => {
     });
 
     await runReviewWorkItem({
-      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 0.001 },
+      cfg: { ...cfg, queue: { ...cfg.queue, prActorLeaseRenewalIntervalSeconds: 0.001 } },
       execute,
     });
 
@@ -941,7 +941,7 @@ describe("leased execution", () => {
     });
 
     await runReviewWorkItem({
-      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 120 },
+      cfg: { ...cfg, queue: { ...cfg.queue, prActorLeaseRenewalIntervalSeconds: 120 } },
       execute,
     });
 
@@ -965,7 +965,7 @@ describe("leased execution", () => {
     });
 
     await runReviewWorkItem({
-      cfg: { ...cfg, prActorLeaseRenewalIntervalSeconds: 120 },
+      cfg: { ...cfg, queue: { ...cfg.queue, prActorLeaseRenewalIntervalSeconds: 120 } },
       execute,
     });
 

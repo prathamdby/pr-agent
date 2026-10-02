@@ -1,8 +1,7 @@
 import { Context, Duration, Effect } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
-import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
+import { type Config, HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
 import { toError } from "../errors/errorMessage.js";
 import { runDelivery, type IntakeCommand } from "./intake/delivery.js";
@@ -19,7 +18,7 @@ export class AgentWorkScheduler extends Context.Service<
 export function makeAgentWorkScheduler(
   pool: Pool,
   boss: PgBoss,
-  cfg: Pick<Config, "features"> & Partial<AskQuotaConfig>,
+  cfg: Pick<Config, "features"> & { readonly ask?: Partial<AskQuotaConfig> },
 ) {
   return AgentWorkScheduler.of({
     submit: (command, log) =>

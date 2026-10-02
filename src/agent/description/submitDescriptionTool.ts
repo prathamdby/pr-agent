@@ -1,7 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
-import type { Config } from "../../config.js";
+import { type Config, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
@@ -29,7 +29,6 @@ import {
   type OperationIntentContext,
   publishOnce,
 } from "../../agentWork/publishOnce.js";
-import { DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 
 type DescriptionPublishResult = {
   readonly prNumber: number;

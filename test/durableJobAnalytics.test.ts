@@ -157,8 +157,7 @@ import * as appAuth from "../src/github/appAuth.js";
 let installationSurface = openInstallationSurface();
 
 const cfg = makeTestConfig({
-  piFallbackProvider: "anthropic",
-  piFallbackModel: "claude-sonnet-4",
+  models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
 });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
@@ -602,7 +601,7 @@ describe("durableJob analytics forwarding", () => {
     );
   });
 
-  it.each([0, 1, cfg.queueRetryLimit + 1])(
+  it.each([0, 1, cfg.queue.retryLimit + 1])(
     "#657 keeps pre-admission infrastructure retries out of work retry analytics (%i)",
     async (attemptCount) => {
       const item = makeReviewWorkItem({ id: "wi-preparation", installationId: 99 });

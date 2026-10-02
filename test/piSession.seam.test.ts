@@ -44,7 +44,7 @@ describe("createPiSession seam", () => {
       toolPolicy: DEFAULT_TOOL_POLICY,
       systemPrompt: "orchestrator",
       eventSink: (event) => events.push({ kind: event.kind }),
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -167,7 +167,7 @@ describe("createPiSession seam", () => {
       toolPolicy: DEFAULT_TOOL_POLICY,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -307,7 +307,7 @@ describe("createPiSession seam", () => {
       toolPolicy: DEFAULT_TOOL_POLICY,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -424,7 +424,7 @@ describe("createPiSession seam", () => {
       toolPolicy: DEFAULT_TOOL_POLICY,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });
@@ -590,7 +590,7 @@ describe("createPiSession seam", () => {
       toolPolicy: DEFAULT_TOOL_POLICY,
       systemPrompt: "orchestrator",
       eventSink: () => undefined,
-      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
       tools: [],
       executors: {},
     });

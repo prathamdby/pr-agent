@@ -3,8 +3,7 @@ import type { PgBoss } from "pg-boss";
 import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
 import { logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { ReviewCancelAttribution, AnyReviewLens } from "../../settings/index.js";
 import { createReviewSummaryComment } from "../publish/reviewSummaryComment.js";
 import type { WorkSource } from "../reviewSchema.js";
 import {

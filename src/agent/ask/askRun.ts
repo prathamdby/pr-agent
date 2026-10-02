@@ -77,7 +77,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     const { bundle } = buildAskRunSetup(params);
 
     const ctx7 = buildContext7Tools({
-      apiKey: cfg.context7ApiKey,
+      apiKey: cfg.context7.apiKey,
       maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
     });
     const tools = [...bundle.piTools, ...ctx7.piTools];
@@ -136,7 +136,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       });
 
       logInfo("ask_run_completed", {
-        provider: cfg.piProvider,
+        provider: cfg.models.provider,
         hasAnswer: answer.text.length > 0,
         answerEnd: answer.end,
         metaRefusal: false,

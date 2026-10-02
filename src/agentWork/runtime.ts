@@ -1,12 +1,11 @@
 import { Context, Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
+import { type Config, SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { runMigrations } from "../db/migrations.js";
 import { createPgPool } from "../db/postgres.js";
 import { shutdownAnalytics } from "../analytics/index.js";
 import { logWarn } from "../evlog.js";
-import { SHUTDOWN_SETTLE_TIMEOUT_MS } from "../settings/index.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { createExecutionTracker, type ExecutionTracker } from "./executionTracker.js";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
@@ -89,7 +88,7 @@ export const AgentWorkBossLive = (
       (boss) =>
         Effect.tryPromise({
           try: async () => {
-            await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
+            await stopBoss(boss, cfg.queue.shutdownDrainTimeoutSeconds * 1000);
             // The worker flushes analytics from its executions finalizer instead,
             // so the flush runs concurrently with the durable-dispatch reserve.
             if (options?.shutdownAnalytics !== false) await shutdownAnalytics();

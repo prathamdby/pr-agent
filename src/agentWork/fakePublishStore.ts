@@ -3,7 +3,7 @@ import { fencedWrite } from "./fencedWrite.js";
 import { isRecord } from "../util/typeGuards.js";
 import { logWarn } from "../evlog.js";
 import { AppError, errorLogFields } from "../errors/appError.js";
-import { ASK_PUBLISH_LENS } from "../settings/queueConstants.js";
+import { ASK_PUBLISH_LENS } from "../settings/index.js";
 import crypto from "node:crypto";
 import {
   selectRetainedDescriptionSurfaceIdentity,

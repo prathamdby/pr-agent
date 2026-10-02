@@ -1,17 +1,17 @@
 import { productionInstallationSurface } from "../installationSurface.js";
-import type { Config } from "../../config.js";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
-import { logWarn } from "../../evlog.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
-import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.js";
 import {
+  type Config,
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
   triageCancelledNotice,
 } from "../../settings/index.js";
+import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
+import { logWarn } from "../../evlog.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
+import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.js";
 import { getProgressCommentOwner } from "../publishRecordRepository.js";
 import {
   getReviewQueuePosition,

@@ -176,7 +176,7 @@ function configureExecution(
     );
 }
 
-const cfg = makeTestConfig({ piModel: "test" });
+const cfg = makeTestConfig({ models: { model: "test" } });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 const prFiles = {
@@ -401,8 +401,7 @@ describe("review work definition", () => {
     const escalation = escalationForAttempt(
       2,
       makeTestConfig({
-        piFallbackProvider: "anthropic",
-        piFallbackModel: "claude-sonnet-4",
+        models: { fallbackProvider: "anthropic", fallbackModel: "claude-sonnet-4" },
       }),
     );
     mockDurableExecution("slash", undefined, escalation);

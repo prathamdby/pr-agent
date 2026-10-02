@@ -1,4 +1,5 @@
-import type { Config } from "../../src/config.js";
+import type { Config } from "../../src/settings/index.js";
+import { makeTestConfig } from "./config.js";
 import { reviewCheckDetailsUrl } from "../../src/agentWork/reviewVerdict.js";
 import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 import type { PrSurface } from "../../src/github/prSurface.js";
@@ -57,7 +58,7 @@ export async function runTestPublishFlow(
   params: ReviewPublishContext & {
     prSurface: PrSurface;
     mode?: AnyReviewLens;
-    cfg: Pick<Config, "piModel" | "features">;
+    cfg: Pick<Config, "models" | "features">;
     payload: ReviewPayload;
     dedupedFindingCount?: number;
     publishState: PublishTestState;
@@ -87,7 +88,11 @@ export async function runTestPublishFlow(
   });
   const coordination = params.recordPublishStep?.summaryCommentCoordination;
   const session = createReviewPublishSession({
-    cfg: { agentEventsEnabled: false, findingHistoryEnabled: false, ...params.cfg },
+    cfg: makeTestConfig({
+      agentEvents: { enabled: false },
+      findingHistory: { enabled: false },
+      ...params.cfg,
+    }),
     ctx: params,
     prSurface: params.prSurface,
     mode: params.mode,

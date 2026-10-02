@@ -30,18 +30,15 @@ import {
   type ModelsJsonCompat,
   type ModelsJsonModel,
   type ModelsJsonProvider,
-} from "../../settings/modelsJsonCatalog.js";
-import {
-  defaultModelsJsonCandidatePath,
-  MODELS_JSON_FILENAME,
-} from "../../settings/modelsJsonPath.js";
+} from "./modelsJsonCatalog.js";
+import { defaultModelsJsonCandidatePath, MODELS_JSON_FILENAME } from "./modelsJsonPath.js";
 
 export {
   defaultModelsJsonCandidatePath,
   MODELS_JSON_FILENAME,
   resolveModelsJsonPath,
   type ResolveModelsJsonPathOptions,
-} from "../../settings/modelsJsonPath.js";
+} from "./modelsJsonPath.js";
 
 const KNOWN_API_STREAMS: Record<KnownApi, () => ProviderStreams> = {
   "openai-responses": openAIResponsesApi,

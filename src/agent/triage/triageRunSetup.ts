@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { TriageScope } from "../../agentWork/types.js";
-import type { Config } from "../../config.js";
+import { type Config, MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import { triageSystemPrompt } from "./triagePrompt.js";
@@ -15,7 +15,6 @@ import {
   createSubmitTriageState,
   type SubmitTriageState,
 } from "./submitTriageTool.js";
-import { MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.js";
 
 export type TriageRunSetup = {
   readonly systemPrompt: string;

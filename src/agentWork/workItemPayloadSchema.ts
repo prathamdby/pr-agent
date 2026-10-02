@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { AppError } from "../errors/appError.js";
-import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/legacyReviewLenses.js";
+import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/index.js";
 import { isRecord } from "../util/typeGuards.js";
 import type {
   AgentWorkItem,

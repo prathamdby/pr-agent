@@ -1,16 +1,16 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
-import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.js";
-import type { PrSurface } from "../github/prSurface.js";
-import { logWarn } from "../evlog.js";
 import {
+  type Config,
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
+import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.js";
+import type { PrSurface } from "../github/prSurface.js";
+import { logWarn } from "../evlog.js";
 import type { WorkType, ReviewWorkItem } from "./types.js";
 import {
   runDurableWorkItem,
@@ -99,7 +99,7 @@ export function createWorkDefinitions(
       {
         type: "review",
         queue: REVIEW_QUEUE,
-        concurrency: dependencies.cfg.reviewConcurrency,
+        concurrency: dependencies.cfg.concurrency.review,
         prActorLease: { queue: REVIEW_QUEUE },
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         acceptItem: (item) => item.reviewLens != null,
@@ -111,7 +111,7 @@ export function createWorkDefinitions(
       {
         type: "ask",
         queue: ASK_QUEUE,
-        concurrency: dependencies.cfg.askConcurrency,
+        concurrency: dependencies.cfg.concurrency.ask,
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         resolveHeadSha: resolveWorkItemHead,
       },
@@ -121,7 +121,7 @@ export function createWorkDefinitions(
       {
         type: "description",
         queue: DESCRIPTION_QUEUE,
-        concurrency: dependencies.cfg.descriptionConcurrency,
+        concurrency: dependencies.cfg.concurrency.description,
         prActorLease: { queue: DESCRIPTION_QUEUE },
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         resolveHeadSha: resolveWorkItemHead,
@@ -132,7 +132,7 @@ export function createWorkDefinitions(
       {
         type: "triage",
         queue: TRIAGE_QUEUE,
-        concurrency: dependencies.cfg.triageConcurrency,
+        concurrency: dependencies.cfg.concurrency.triage,
         prActorLease: { queue: TRIAGE_QUEUE },
         contextPolicy: { commenterId: (item) => item.payload.commenterId },
         resolveHeadSha: resolveWorkItemHead,
@@ -143,7 +143,7 @@ export function createWorkDefinitions(
       {
         type: "verification",
         queue: VERIFICATION_QUEUE,
-        concurrency: dependencies.cfg.verificationConcurrency,
+        concurrency: dependencies.cfg.concurrency.verification,
         prActorLease: { queue: VERIFICATION_QUEUE },
         contextPolicy: { commenterId: () => undefined },
         resolveHeadSha: resolveWorkItemHead,

@@ -1,5 +1,11 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
+import {
+  type Config,
+  SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+  VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
+  VERIFICATION_VALIDATION_REPAIR_ROUNDS,
+  MAX_TOOL_ROUNDS_VERIFICATION,
+} from "../../settings/index.js";
 import { logInfo } from "../../evlog.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
@@ -11,12 +17,6 @@ import {
   buildVerificationRunSetup,
   shouldContinueVerificationRun,
 } from "./verificationRunSetup.js";
-import {
-  SUBMIT_ONLY_MAX_TOOL_ROUNDS,
-  VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
-  VERIFICATION_VALIDATION_REPAIR_ROUNDS,
-  MAX_TOOL_ROUNDS_VERIFICATION,
-} from "../../settings/index.js";
 
 export type VerificationRunResult = {
   readonly lastAssistant: AssistantMessage;
@@ -43,7 +43,7 @@ export async function runVerification(params: {
   readonly signal?: AbortSignal;
 }): Promise<VerificationRunResult> {
   const { cfg, owner, repo, prNumber, escalation } = params;
-  const providerName = cfg.piProvider;
+  const providerName = cfg.models.provider;
   const setup = buildVerificationRunSetup(params);
   const { lastText } = await runFeatureAgent(
     {

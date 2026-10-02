@@ -4,8 +4,11 @@ import type { PgBoss } from "pg-boss";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { PrConversationComment } from "../../github/prSurfaceTypes.js";
 import { parseReviewMetaFromCommentBody } from "../../review/run/commentMarkers.js";
-import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
-import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
+import {
+  LEGACY_REVIEW_SUMMARY_SENTINELS,
+  REVIEW_SUMMARY_SENTINEL,
+  VERIFICATION_PUBLISH_LENS,
+} from "../../settings/index.js";
 import { requestHeadCiProjection } from "../../agentWork/ciProjection.js";
 import {
   advancePrHeadCiRevisionForVerificationSignal,

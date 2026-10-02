@@ -3,12 +3,11 @@ import { createAppAuth, type InstallationAccessTokenAuthentication } from "@octo
 import { Octokit } from "@octokit/rest";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
-import type { Config } from "../config.js";
+import { type Config, INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.js";
 import { AppError } from "../errors/appError.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { noteGithubRequestSuccess } from "./rateLimitCircuit.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
@@ -30,12 +29,12 @@ export type InstallationToken = {
 };
 
 export async function mintInstallationAuth(
-  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+  cfg: Pick<Config, "github">,
   installationId: number,
 ): Promise<InstallationAccessTokenAuthentication> {
   const auth = createAppAuth({
-    appId: cfg.githubAppId,
-    privateKey: cfg.githubAppPrivateKey,
+    appId: cfg.github.appId,
+    privateKey: cfg.github.privateKey,
   });
   return auth({
     type: "installation",
@@ -110,12 +109,10 @@ export function createInstallationOctokitCache() {
 
 export const installationOctokit = createInstallationOctokitCache();
 
-async function mintAppJwtToken(
-  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-): Promise<string> {
+async function mintAppJwtToken(cfg: Pick<Config, "github">): Promise<string> {
   const authFn = createAppAuth({
-    appId: cfg.githubAppId,
-    privateKey: cfg.githubAppPrivateKey,
+    appId: cfg.github.appId,
+    privateKey: cfg.github.privateKey,
   });
   const appAuth = await authFn({ type: "app" });
   return appAuth.token;
@@ -124,12 +121,10 @@ async function mintAppJwtToken(
 /**
  * When `GET /user` rejects installation tokens (“Resource not accessible by integration”), resolve bot id via JWT + public {@link https://api.github.com/users/{slug}%5Bbot%5D} profile.
  */
-export function prewarmAppBotIdentity(
-  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-): void {
+export function prewarmAppBotIdentity(cfg: Pick<Config, "github">): void {
   void getAppBotIdentity(cfg).catch((error: unknown) => {
     logDebug("app_bot_identity_prewarm_failed", {
-      githubAppId: cfg.githubAppId,
+      githubAppId: cfg.github.appId,
       message: error instanceof Error ? error.message : String(error),
     });
   });
@@ -138,11 +133,9 @@ export function prewarmAppBotIdentity(
 /** Resolve the app's bot user id without minting an installation token. */
 export function createAppBotIdentityLookup() {
   const appBotIdentityByAppId = new Map<string, BotIdentity | Promise<BotIdentity>>();
-  async function getAppBotIdentity(
-    cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-  ): Promise<BotIdentity> {
+  async function getAppBotIdentity(cfg: Pick<Config, "github">): Promise<BotIdentity> {
     const identityKey = createHash("sha256")
-      .update(JSON.stringify([cfg.githubAppId, cfg.githubAppPrivateKey]))
+      .update(JSON.stringify([cfg.github.appId, cfg.github.privateKey]))
       .digest("hex");
     const cached = appBotIdentityByAppId.get(identityKey);
     if (cached) return cached;
@@ -166,9 +159,7 @@ export function createAppBotIdentityLookup() {
 
 export const getAppBotIdentity = createAppBotIdentityLookup();
 
-async function resolveBotIdentityViaAppSlug(
-  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-): Promise<BotIdentity> {
+async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "github">): Promise<BotIdentity> {
   const jwtToken = await mintAppJwtToken(cfg);
   const jwtOctokit = new ThrottledOctokit({
     auth: jwtToken,

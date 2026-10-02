@@ -3,11 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { inTransaction, queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import {
-  isAnyReviewLens,
-  normalizeReviewLens,
-  type AnyReviewLens,
-} from "../settings/legacyReviewLenses.js";
+import { isAnyReviewLens, normalizeReviewLens, type AnyReviewLens } from "../settings/index.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.js";
 import { lockPrActorLeaseForUpdate } from "./prActorLease.js";
 import { leaseFenceSql, lostRunningWorkLivenessSql, transition } from "./workItemTransitions.js";

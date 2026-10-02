@@ -110,10 +110,7 @@ export function publishReviewTestBaseParams(
     headSha: "sha",
     hasDescriptionReviewMap: false,
     progressCommentIdHint: 99,
-    cfg: {
-      piModel: "gpt-4o-mini",
-      features: { ...makeTestConfig().features, reviewLabels: "off" as const },
-    },
+    cfg: makeTestConfig({ features: { reviewLabels: "off" } }),
     payload: publishReviewTestPayload,
     ...overrides,
   };

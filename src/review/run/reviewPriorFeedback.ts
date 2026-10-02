@@ -4,15 +4,13 @@ import {
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
   VERIFICATION_STUB_MARKER,
-} from "../../settings/index.js";
-import { escapeTablePlainCell } from "../../github/markdownFormat.js";
-import type { PrSurface } from "../../github/prSurfaceTypes.js";
-import {
   LEGACY_REVIEW_LENSES,
   LEGACY_REVIEW_POINTER_BODIES,
   isAnyReviewLens,
   type AnyReviewLens,
-} from "../../settings/legacyReviewLenses.js";
+} from "../../settings/index.js";
+import { escapeTablePlainCell } from "../../github/markdownFormat.js";
+import type { PrSurface } from "../../github/prSurfaceTypes.js";
 
 export type PriorInlineFeedbackThread = {
   readonly path: string;

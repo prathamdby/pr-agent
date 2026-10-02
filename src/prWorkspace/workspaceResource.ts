@@ -120,6 +120,7 @@ type AllocateWorkspaceResourceParams = {
 type SweepStaleOwnedWorkspacesOptions = {
   readonly nowMs?: number;
   readonly isPidAlive?: (pid: number) => boolean;
+  readonly staleAgeSeconds?: number;
 };
 
 /** In-process optimization only. Sweeps must still honor the on-disk marker. */
@@ -294,7 +295,7 @@ export async function sweepStaleOwnedWorkspaces(
 ): Promise<void> {
   const nowMs = options.nowMs ?? Date.now();
   const isPidAlive = options.isPidAlive ?? isWorkspaceOwnerPidAlive;
-  const staleAgeMs = LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000;
+  const staleAgeMs = (options.staleAgeSeconds ?? LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS) * 1000;
   const tmp = tmpdir();
 
   for (const entry of await readdir(tmp, { withFileTypes: true })) {

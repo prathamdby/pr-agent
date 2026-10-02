@@ -1,10 +1,9 @@
 import { Duration, Effect } from "effect";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
-import type { Config } from "../../config.js";
+import { type Config, GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
 import { captureWebhookReceived } from "../../analytics/workCompleted.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
-import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { toIntakeCommand } from "../../webhook/intakeCommand.js";
@@ -122,7 +121,7 @@ export function processWebhookPostRequestEffect(
     });
 
     const sig = req.headers["x-hub-signature-256"];
-    if (!verifyGithubWebhookSignature(cfg.webhookSecret, req.rawBody, sig)) {
+    if (!verifyGithubWebhookSignature(cfg.webhook.secret, req.rawBody, sig)) {
       recordEvent(intakeLog, "invalid_signature", undefined, "warn");
       const response = {
         status: 401,
@@ -163,7 +162,7 @@ export function processWebhookPostRequestEffect(
       return response;
     }
 
-    const responseBudgetMs = Math.max(1, WEBHOOK_TIMEOUT_MS - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
+    const responseBudgetMs = Math.max(1, cfg.webhook.timeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
     const headers = {
       ...(delivery === undefined ? {} : { delivery }),
       event: githubEvent,
@@ -185,7 +184,7 @@ export function processWebhookPostRequestEffect(
             {
               event: githubEvent,
               delivery: logDelivery,
-              budgetMs: WEBHOOK_TIMEOUT_MS,
+              budgetMs: cfg.webhook.timeoutMs,
               responseBudgetMs,
             },
             "warn",
@@ -309,12 +308,12 @@ export function processWebhookPostRequestEffect(
       webhook: {
         status: 200,
         elapsedMs,
-        budgetExceeded: elapsedMs > WEBHOOK_TIMEOUT_MS,
-        budgetMs: WEBHOOK_TIMEOUT_MS,
+        budgetExceeded: elapsedMs > cfg.webhook.timeoutMs,
+        budgetMs: cfg.webhook.timeoutMs,
         responseBudgetMs,
       },
     });
-    if (elapsedMs > WEBHOOK_TIMEOUT_MS) {
+    if (elapsedMs > cfg.webhook.timeoutMs) {
       recordEvent(
         intakeLog,
         "webhook_timeout_budget_exceeded",
@@ -322,7 +321,7 @@ export function processWebhookPostRequestEffect(
           event: githubEvent,
           delivery: logDelivery,
           ms: elapsedMs,
-          budgetMs: WEBHOOK_TIMEOUT_MS,
+          budgetMs: cfg.webhook.timeoutMs,
         },
         "warn",
       );

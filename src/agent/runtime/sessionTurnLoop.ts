@@ -12,10 +12,7 @@ import {
   isRetryableAssistantError,
   type AssistantMessage,
 } from "@earendil-works/pi-ai";
-import {
-  SESSION_TURN_RETRY_BASE_DELAY_MS,
-  SESSION_TURN_RETRY_MAX,
-} from "../../settings/sessionConstants.js";
+import { SESSION_TURN_RETRY_BASE_DELAY_MS, SESSION_TURN_RETRY_MAX } from "../../settings/index.js";
 import { sleepForRetry, type createSendActivity } from "./sendActivity.js";
 import type { createSessionCompaction } from "./sessionCompaction.js";
 import { dropTrailingErrorAssistant } from "./transcriptCompaction.js";

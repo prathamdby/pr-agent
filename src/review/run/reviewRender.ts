@@ -25,12 +25,12 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
+  type AnyReviewLens,
 } from "../../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";

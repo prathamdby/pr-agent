@@ -1,17 +1,17 @@
 import { productionInstallationSurface } from "../agentWork/installationSurface.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { Config } from "../config.js";
+import {
+  type Config,
+  CODE_INDEX_BUILD_QUEUE,
+  CODE_INDEX_MAX_CHUNKS_PER_REPO,
+  LOCAL_WORKSPACE_MAX_FILE_BYTES,
+} from "../settings/index.js";
 import { logWarn } from "../evlog.js";
 import { type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.js";
 import { isIndexableSourcePath } from "../prWorkspace/symbolIndex.js";
 import { pathAllowedForAsk, type AskPathGate } from "../agent/ask/askSafety.js";
-import {
-  CODE_INDEX_BUILD_QUEUE,
-  CODE_INDEX_MAX_CHUNKS_PER_REPO,
-  LOCAL_WORKSPACE_MAX_FILE_BYTES,
-} from "../settings/index.js";
 import { chunkFiles } from "./chunker.js";
 import {
   ensureBuildingSnapshot,
@@ -120,7 +120,7 @@ export async function executeCodeIndexBuildJob(
   pool: Pool,
   data: CodeIndexBuildJobData,
 ): Promise<void> {
-  if (cfg.codeIndexMode !== "fts") return;
+  if (cfg.codeIndex.mode !== "fts") return;
 
   const scope: CodeIndexRepoScope = {
     installationId: data.installationId,
@@ -166,7 +166,7 @@ export async function prepareCodeIndexForReview(args: {
   readonly workspace: LocalPrWorkspace;
   readonly pathGate: AskPathGate;
 }): Promise<CodeIndexPrepareResult> {
-  if (args.cfg.codeIndexMode !== "fts") return { available: false };
+  if (args.cfg.codeIndex.mode !== "fts") return { available: false };
 
   const ready = await waitForReadySnapshot(args.pool, args.scope, 0);
   if (ready) return { available: true, snapshotId: ready.id };
@@ -209,7 +209,7 @@ export async function prepareCodeIndexForReview(args: {
 
   await Promise.race([
     buildPromise,
-    new Promise((resolve) => setTimeout(resolve, args.cfg.codeIndexWaitMs)),
+    new Promise((resolve) => setTimeout(resolve, args.cfg.codeIndex.waitMs)),
   ]);
 
   const afterWait = await waitForReadySnapshot(args.pool, args.scope, 0);

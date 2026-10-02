@@ -14,10 +14,7 @@ import type {
   VerificationWorkPayload,
 } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
-import {
-  reviewCancelLastError,
-  type ReviewCancelAttribution,
-} from "../../settings/reviewConstants.js";
+import { reviewCancelLastError, type ReviewCancelAttribution } from "../../settings/index.js";
 import { prResourceKey, type PrRef } from "../types.js";
 import { releasePrActorLeaseHeldByWorkItems } from "../prActorLease.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";

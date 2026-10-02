@@ -1,5 +1,5 @@
 import type { Pool, PoolClient } from "pg";
-import type { Config } from "../config.js";
+import type { Config } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
 import { parseStoredInlineBatches } from "./publishRecordRepository.js";
 import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
@@ -31,10 +31,7 @@ export type FindingHistoryWriteScope = FindingHistoryRepoScope & {
   readonly headSha?: string | null;
 };
 
-type FindingHistoryConfig = Pick<
-  Config,
-  "findingHistoryEnabled" | "findingHistoryDismissSuppressAfter" | "findingHistoryLookbackDays"
->;
+type FindingHistoryConfig = Pick<Config, "findingHistory">;
 
 function mapFindingHistoryRow(row: {
   fingerprint: string;
@@ -159,7 +156,7 @@ export async function loadCrossPrSuppressionFingerprints(
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly string[]> {
-  if (!cfg.findingHistoryEnabled) return [];
+  if (!cfg.findingHistory.enabled) return [];
   // Lift suppression once last_outcome is no longer dismissed.
   const result = await client.query<{ fingerprint: string }>(
     `SELECT fingerprint
@@ -174,8 +171,8 @@ export async function loadCrossPrSuppressionFingerprints(
       scope.installationId,
       scope.owner,
       scope.repo,
-      cfg.findingHistoryDismissSuppressAfter,
-      String(cfg.findingHistoryLookbackDays),
+      cfg.findingHistory.dismissSuppressAfter,
+      String(cfg.findingHistory.lookbackDays),
     ],
   );
   return result.rows.map((row) => row.fingerprint);
@@ -186,7 +183,7 @@ export async function loadFindingHistoryCandidates(
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly FindingHistoryRow[]> {
-  if (!cfg.findingHistoryEnabled) return [];
+  if (!cfg.findingHistory.enabled) return [];
   const result = await client.query<{
     fingerprint: string;
     last_outcome: FindingHistoryOutcome;
@@ -208,7 +205,7 @@ export async function loadFindingHistoryCandidates(
         AND dismiss_count > 0
         AND last_seen_at >= now() - ($4::text || ' days')::interval
       ORDER BY dismiss_count DESC, last_seen_at DESC`,
-    [scope.installationId, scope.owner, scope.repo, String(cfg.findingHistoryLookbackDays)],
+    [scope.installationId, scope.owner, scope.repo, String(cfg.findingHistory.lookbackDays)],
   );
   return result.rows.map(mapFindingHistoryRow);
 }
@@ -251,11 +248,11 @@ export async function lookupThreadFingerprint(
 /** Fire-and-forget open upsert that never throws into the publish hot path. */
 export function safeUpsertFindingHistoryOpen(
   client: Pool | PoolClient,
-  cfg: Pick<Config, "findingHistoryEnabled">,
+  cfg: Pick<Config, "findingHistory">,
   scope: FindingHistoryWriteScope,
   fingerprints: readonly string[],
 ): void {
-  if (!cfg.findingHistoryEnabled || fingerprints.length === 0) return;
+  if (!cfg.findingHistory.enabled || fingerprints.length === 0) return;
   void upsertFindingHistoryOpen(client, scope, fingerprints).catch((error) => {
     logWarn("finding_history_open_upsert_failed", {
       owner: scope.owner,
@@ -269,7 +266,7 @@ export function safeUpsertFindingHistoryOpen(
 /** Fire-and-forget thread outcome write resolved from publish-record placements. */
 export function safeRecordThreadFindingHistoryOutcome(
   client: Pool | PoolClient,
-  cfg: Pick<Config, "findingHistoryEnabled">,
+  cfg: Pick<Config, "findingHistory">,
   params: {
     readonly scope: FindingHistoryWriteScope;
     readonly resourceKey: string;
@@ -277,7 +274,7 @@ export function safeRecordThreadFindingHistoryOutcome(
     readonly outcome: Exclude<FindingHistoryOutcome, "open">;
   },
 ): void {
-  if (!cfg.findingHistoryEnabled) return;
+  if (!cfg.findingHistory.enabled) return;
   void lookupThreadFingerprint(client, {
     resourceKey: params.resourceKey,
     thread: params.thread,
@@ -301,7 +298,7 @@ export async function safeLoadCrossPrSuppressionFingerprints(
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly string[]> {
-  if (!cfg.findingHistoryEnabled) return [];
+  if (!cfg.findingHistory.enabled) return [];
   try {
     return await loadCrossPrSuppressionFingerprints(client, cfg, scope);
   } catch (error) {
@@ -319,7 +316,7 @@ export async function safeLoadFindingHistoryCandidates(
   cfg: FindingHistoryConfig,
   scope: FindingHistoryRepoScope,
 ): Promise<readonly FindingHistoryRow[]> {
-  if (!cfg.findingHistoryEnabled) return [];
+  if (!cfg.findingHistory.enabled) return [];
   try {
     return await loadFindingHistoryCandidates(client, cfg, scope);
   } catch (error) {

@@ -50,17 +50,19 @@ import { hasDatabase, integrationPool } from "./db.js";
 const OWNER = "stale-queue-it";
 const DATABASE_URL = process.env.DATABASE_URL!;
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () => {
   let pool: Pool;
@@ -69,7 +71,9 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
   });
 
@@ -229,7 +233,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     const cfg = makeTestConfig({
       features: { ...makeTestConfig().features, commitStatus: true },
     });
-    const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
     const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
     await pool.query(
       `UPDATE agent_work_items
@@ -250,7 +254,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         workType,
         workItemId: id,
         holderId: OWNER,
-        ttlSeconds: cfg.prActorLeaseTtlSeconds,
+        ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
       });
       if (!lease.acquired) throw new Error("Expected initial lease");
       epoch = lease.leaseEpoch;
@@ -320,7 +324,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
             workType,
             workItemId: id,
             leaseEpoch: epoch,
-            ttlSeconds: cfg.prActorLeaseTtlSeconds,
+            ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
           }),
         ).toBe(true);
       } else if (revival === "job update") {
@@ -602,7 +606,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       const cfg = makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true },
       });
-      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
       await pool.query(
         "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
@@ -723,7 +727,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       const cfg = makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true },
       });
-      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
       await pool.query(
         "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
@@ -878,7 +882,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     "propagates an early routing error %s and warns during reconciliation",
     async (code) => {
       const cfg = makeTestConfig();
-      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
       await pool.query(
         "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
@@ -1143,7 +1147,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     ),
   )("terminal UPDATE survives $revival for $workType", async ({ workType, revival }) => {
     const cfg = makeTestConfig();
-    const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
     const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
     await pool.query(
       `UPDATE agent_work_items
@@ -1175,7 +1179,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
         workType,
         workItemId: id,
         holderId: "stale-queue-it",
-        ttlSeconds: cfg.prActorLeaseTtlSeconds,
+        ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
       });
       if (!acquisition.acquired) throw new Error("Expected initial lease acquisition");
       leaseEpoch = acquisition.leaseEpoch;
@@ -1216,7 +1220,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
                 workType,
                 workItemId: id,
                 leaseEpoch,
-                ttlSeconds: cfg.prActorLeaseTtlSeconds,
+                ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
               }),
             ).toBe(true);
           } else {
@@ -1259,7 +1263,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           workType,
           workItemId: id,
           holderId: "stale-queue-it-recovered",
-          ttlSeconds: cfg.prActorLeaseTtlSeconds,
+          ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
         });
         if (!acquisition.acquired) throw new Error("Expected resumed lease acquisition");
         expect(await claimWorkForExecution(client, id, acquisition.leaseEpoch)).not.toBeNull();
@@ -1303,7 +1307,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     "preserves running work with a revived $state job matched only by $identity",
     async ({ state, identity }) => {
       const cfg = makeTestConfig();
-      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       const { id } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
       await pool.query(
         "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
@@ -1348,7 +1352,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       const cfg = makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true },
       });
-      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
       await pool.query(
         `UPDATE agent_work_items
@@ -1538,7 +1542,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
     "does not close or overwrite a candidate changed to %s after detection",
     async (status) => {
       const cfg = makeTestConfig();
-      const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       const { id, resourceKey } = await insertAgedQueuedWork({ ageSeconds: minAgeSeconds + 60 });
       await pool.query(
         "UPDATE agent_work_items SET status = 'running', started_at = created_at WHERE id = $1",
@@ -1599,7 +1603,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
 
   it("uses current mark time for an expired lease changed after an older snapshot", async () => {
     const cfg = makeTestConfig();
-    const minAgeSeconds = cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+    const minAgeSeconds = cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
     const now = new Date(Date.now() - 60_000);
     const { id, resourceKey } = await insertAgedQueuedWork({
       ageSeconds: minAgeSeconds + 60,
@@ -1614,7 +1618,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       workType: "description",
       workItemId: id,
       holderId: "stale-queue-it",
-      ttlSeconds: cfg.prActorLeaseTtlSeconds,
+      ttlSeconds: cfg.queue.prActorLeaseTtlSeconds,
     });
     await pool.query(
       "UPDATE pr_actor_leases SET expires_at = $2::timestamptz - interval '1 second' WHERE work_item_id = $1",

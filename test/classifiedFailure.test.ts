@@ -359,10 +359,12 @@ describe("retryDispositionFor", () => {
 
 describe("escalationForAttempt", () => {
   const fallbackCfg = makeTestConfig({
-    piProvider: "openai",
-    piModel: "gpt-4o-mini",
-    piFallbackProvider: "anthropic",
-    piFallbackModel: "claude-sonnet-4",
+    models: {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      fallbackProvider: "anthropic",
+      fallbackModel: "claude-sonnet-4",
+    },
   });
 
   it("leaves the first attempt unchanged", () => {
@@ -389,10 +391,12 @@ describe("escalationForAttempt", () => {
     expect(escalationForAttempt(3, fallbackCfg)?.attempt).toBe(3);
 
     const twinCfg = makeTestConfig({
-      piProvider: "openai",
-      piModel: "gpt-4o-mini",
-      piFallbackProvider: "anthropic",
-      piFallbackModel: "claude-sonnet-4",
+      models: {
+        provider: "openai",
+        model: "gpt-4o-mini",
+        fallbackProvider: "anthropic",
+        fallbackModel: "claude-sonnet-4",
+      },
     });
     expect(escalationForAttempt(3, fallbackCfg)).toEqual(escalationForAttempt(3, twinCfg));
     expect(escalationForAttempt(2, makeTestConfig())).toEqual(

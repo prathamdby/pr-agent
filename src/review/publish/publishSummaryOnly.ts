@@ -131,7 +131,7 @@ export async function publishReviewSummaryOnly(
         : { kind: coverage.kind, failed: coverage.failed },
     runFooter: {
       durationMs,
-      model: session.cfg.piModel,
+      model: session.cfg.models.model,
     },
   });
 

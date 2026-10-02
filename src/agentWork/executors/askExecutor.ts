@@ -366,7 +366,7 @@ export function createAskWorkExecution({
             commentId: payload.commentId,
           });
           const ready =
-            cfg.codeIndexMode === "fts"
+            cfg.codeIndex.mode === "fts"
               ? await waitForReadySnapshot(
                   pool,
                   {

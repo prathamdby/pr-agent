@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { assertPiModelSelection, resolveModelsJsonPath } from "../src/settings/modelsJson.js";
+import { assertPiModelSelection, resolveModelsJsonPath } from "../src/agent/runtime/modelsJson.js";
 import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 const BASE_ENV = {
@@ -236,7 +236,7 @@ describe("loadConfig models.json", () => {
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       ...extra,
     };
-    const { loadConfig } = await import("../src/config.js");
+    const { loadConfig } = await import("../src/settings/index.js");
     return loadConfig();
   }
 
@@ -245,7 +245,7 @@ describe("loadConfig models.json", () => {
       PI_PROVIDER: "openai",
       PI_MODEL: "gpt-4o-mini",
     });
-    expect(cfg.modelsJsonPath).toBeNull();
+    expect(cfg.models.jsonPath).toBeNull();
   });
 
   it("skips Pi catalog validation on ROLE=web", async () => {
@@ -268,10 +268,10 @@ describe("loadConfig models.json", () => {
       PI_PROVIDER: "ollama",
       PI_MODEL: "missing-model",
     });
-    expect(cfg.modelsJsonPath).toBe(join(dir, "models.json"));
-    expect(cfg.piProvider).toBe("ollama");
-    expect(cfg.piModel).toBe("missing-model");
-    expect(cfg.piApi).toBe("web-unvalidated");
+    expect(cfg.models.jsonPath).toBe(join(dir, "models.json"));
+    expect(cfg.models.provider).toBe("ollama");
+    expect(cfg.models.model).toBe("missing-model");
+    expect(cfg.models.api).toBe("web-unvalidated");
   });
 
   it("loads custom provider selection from project models.json on ROLE=worker", async () => {
@@ -294,10 +294,10 @@ describe("loadConfig models.json", () => {
       PI_PROVIDER: "ollama",
       PI_MODEL: "llama3.1:8b",
     });
-    expect(cfg.modelsJsonPath).toBe(join(dir, "models.json"));
-    expect(cfg.piProvider).toBe("ollama");
-    expect(cfg.piModel).toBe("llama3.1:8b");
-    expect(cfg.piApi).toBe("openai-completions");
+    expect(cfg.models.jsonPath).toBe(join(dir, "models.json"));
+    expect(cfg.models.provider).toBe("ollama");
+    expect(cfg.models.model).toBe("llama3.1:8b");
+    expect(cfg.models.api).toBe("openai-completions");
   });
 
   it("loads custom provider via MODELS_JSON_PATH outside cwd on ROLE=worker", async () => {
@@ -323,9 +323,9 @@ describe("loadConfig models.json", () => {
       PI_MODEL: "claude-opus-4-6",
       MODELS_JSON_PATH: catalogPath,
     });
-    expect(cfg.modelsJsonPath).toBe(catalogPath);
-    expect(cfg.piProvider).toBe("agent-router");
-    expect(cfg.piApi).toBe("anthropic-messages");
+    expect(cfg.models.jsonPath).toBe(catalogPath);
+    expect(cfg.models.provider).toBe("agent-router");
+    expect(cfg.models.api).toBe("anthropic-messages");
   });
 
   it("rejects unknown custom PI_PROVIDER with a missing-catalog hint on ROLE=worker", async () => {

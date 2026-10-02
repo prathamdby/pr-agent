@@ -31,8 +31,9 @@ vi.mock("@octokit/rest", () => ({
 
 import { AppError } from "../src/errors/appError.js";
 import { createAppBotIdentityLookup } from "../src/github/appAuth.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const cfg = { githubAppId: "111", githubAppPrivateKey: "k" } as const;
+const cfg = makeTestConfig({ github: { appId: "111", privateKey: "k" } });
 
 function holdAuthenticatedAppResponse(): () => void {
   let release: () => void = () => {
@@ -109,8 +110,8 @@ describe("app bot identity cache", () => {
   });
   it("isolates App and private-key identities", async () => {
     await getAppBotIdentity(cfg);
-    await getAppBotIdentity({ ...cfg, githubAppId: "222" });
-    await getAppBotIdentity({ ...cfg, githubAppPrivateKey: "rotated" });
+    await getAppBotIdentity({ ...cfg, github: { ...cfg.github, appId: "222" } });
+    await getAppBotIdentity({ ...cfg, github: { ...cfg.github, privateKey: "rotated" } });
     expect(getAuthenticated).toHaveBeenCalledTimes(3);
   });
 });

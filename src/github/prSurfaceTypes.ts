@@ -1,5 +1,5 @@
 import type { PrResource } from "../agentWork/types.js";
-import type { Config } from "../config.js";
+import type { Config, GithubReactionContent } from "../settings/index.js";
 import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
 import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
 import type { ReplyTarget } from "../agentWork/types.js";
@@ -15,7 +15,6 @@ import type { ListReviewThreadResolutionResult } from "./reviewThreadResolution.
 import type { InlineReviewComment, ReviewCheckRunConclusion } from "./reviewPublish.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciFacts.js";
 import type { ReviewThreadComment } from "../review/run/reviewPriorFeedback.js";
-import type { GithubReactionContent } from "../settings/index.js";
 
 export type AcknowledgementTarget =
   | { readonly kind: "pr"; readonly prNumber: number }
@@ -126,7 +125,7 @@ export type PrSurfaceMutationBoundary = {
 };
 
 export type CreatePrSurfaceParams = PrResource & {
-  readonly cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">;
+  readonly cfg: Pick<Config, "github">;
   readonly installationId: number;
   /** Seed token when already minted (strictly fewer mint lookups). */
   readonly installation?: InstallationToken;

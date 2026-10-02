@@ -1,6 +1,11 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TriageScope } from "../../agentWork/types.js";
-import type { Config } from "../../config.js";
+import {
+  type Config,
+  TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
+  TRIAGE_VALIDATION_REPAIR_ROUNDS,
+  MAX_TOOL_ROUNDS_TRIAGE,
+} from "../../settings/index.js";
 import { logInfo } from "../../evlog.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { TriagePayload } from "../../review/triageSchema.js";
@@ -9,11 +14,6 @@ import { assistantFromText, runFeatureAgent } from "../runtime/featureAgent.js";
 import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.js";
-import {
-  TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
-  TRIAGE_VALIDATION_REPAIR_ROUNDS,
-  MAX_TOOL_ROUNDS_TRIAGE,
-} from "../../settings/index.js";
 
 export type TriageRunResult = {
   readonly lastAssistant: AssistantMessage;
@@ -50,7 +50,7 @@ export async function runFullPrTriage(params: {
   readonly signal?: AbortSignal;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
-  const providerName = cfg.piProvider;
+  const providerName = cfg.models.provider;
   const setup = buildTriageRunSetup(params);
   const { lastText } = await runFeatureAgent(
     {

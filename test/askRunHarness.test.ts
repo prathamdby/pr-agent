@@ -42,8 +42,7 @@ import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 const cfg = makeTestConfig({
-  reviewConcurrency: 1,
-  askConcurrency: 3,
+  concurrency: { review: 1, ask: 3 },
 });
 
 const { surface: prSurface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 459 });
@@ -130,7 +129,7 @@ describe("runAskRun finalize", () => {
     await runAskRun(askParams);
 
     expect(buildContext7Tools).toHaveBeenCalledWith({
-      apiKey: cfg.context7ApiKey,
+      apiKey: cfg.context7.apiKey,
       maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
     });
   });

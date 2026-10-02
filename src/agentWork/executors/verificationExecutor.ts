@@ -46,7 +46,7 @@ export function createVerificationWorkExecution({
         fetchBotFindingThreads(prSurface, {
           botUserId: botIdentity.userId,
           publishRecordLenses: eligibleReviews,
-          maintainerDecisionAssociations: cfg.maintainerDecisionAssociations,
+          maintainerDecisionAssociations: cfg.associations.maintainerDecision,
         }),
         prSurface.listInlineReviewThreads(),
       ]);

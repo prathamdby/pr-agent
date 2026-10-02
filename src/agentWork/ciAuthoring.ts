@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { Config } from "../config.js";
+import type { Config } from "../settings/index.js";
 import type { PrSurface } from "../github/prSurface.js";
 import {
   createAgentCiSummaryAuthor,

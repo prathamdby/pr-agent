@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { makeTestConfig } from "../helpers/config.js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -39,17 +40,19 @@ import { hasDatabase, integrationPool } from "./db.js";
 
 const DATABASE_URL = process.env.DATABASE_URL!;
 
-const queueConfig: QueueConfig = {
-  queueRetryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
-  queueRetryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
-  queueRetryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
-  queueExpireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
-  queueHeartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
-  queuePollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
-  queueRetentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
-  queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
-  installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
-};
+const queueConfig: QueueConfig = makeTestConfig({
+  queue: {
+    retryLimit: DEFAULT_QUEUE_RETRY_LIMIT,
+    retryDelaySeconds: DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
+    retryDelayMaxSeconds: DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
+    expireInSeconds: DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
+    heartbeatSeconds: DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+    pollingIntervalSeconds: DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
+    retentionSeconds: DEFAULT_QUEUE_RETENTION_SECONDS,
+    deleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
+  },
+  concurrency: { installationGroup: DEFAULT_INSTALLATION_GROUP_CONCURRENCY },
+});
 
 const LEASED_QUEUES = [
   "agent-work-review",
@@ -92,7 +95,9 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
   beforeAll(async () => {
     pool = integrationPool();
     await runMigrations(pool);
-    boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
+    boss = await createStartedBoss(
+      makeTestConfig({ runtime: { databaseUrl: DATABASE_URL, role: "web" } }),
+    );
     await ensureAgentQueues(boss, queueConfig);
   });
 
@@ -696,7 +701,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
         pool,
         workItemId,
         successor.leaseEpoch,
-        queueConfig.queueRetryLimit + 1,
+        queueConfig.queue.retryLimit + 1,
       );
       expect(admitted.kind).toBe("started");
       const fake = createFakePrSurface({ owner: "lease-it", repo: "r", prNumber: 1 });

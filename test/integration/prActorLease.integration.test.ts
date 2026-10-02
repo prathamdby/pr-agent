@@ -605,12 +605,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     async (mode) => {
       const resourceKey = `${OWNER}/lightweight-recovery-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "review");
-      const cfg = makeTestConfig({ queueRetryLimit: 0 });
+      const cfg = makeTestConfig({ queue: { retryLimit: 0 } });
       const job = {
         ...makeDurableJobMetadata(workItemId, 0, 0),
         data: { kind: "review" as const, workItemId },
       };
-      const boss = new PgBoss(cfg.databaseUrl);
+      const boss = new PgBoss(cfg.runtime.databaseUrl);
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "sendDebounced").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
@@ -780,13 +780,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     async (outcome) => {
       const resourceKey = `${OWNER}/budget-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "description");
-      const cfg = makeTestConfig({ queueRetryLimit: 2 });
+      const cfg = makeTestConfig({ queue: { retryLimit: 2 } });
       const jobs = Array.from({ length: 5 }, () => ({
         ...makeDurableJobMetadata(workItemId, 0, 2),
         id: randomUUID(),
         data: { kind: "description" as const, workItemId },
       }));
-      const boss = new PgBoss(cfg.databaseUrl);
+      const boss = new PgBoss(cfg.runtime.databaseUrl);
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
       const core = await workRepository.getWorkItemCore(pool, workItemId);
@@ -1207,7 +1207,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             return {
               published: true,
               publishSuperseded: false,
-              lastAssistant: assistantFromText(cfg, "", cfg.piProvider),
+              lastAssistant: assistantFromText(cfg, "", cfg.models.provider),
             };
           });
       }
@@ -1287,7 +1287,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const scopedPool = new Pool({ ...pool.options, max: 2, connectionTimeoutMillis: 1500 });
       const resourceKey = `${OWNER}/own-verdict-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "review");
-      const boss = new PgBoss(makeTestConfig().databaseUrl);
+      const boss = new PgBoss(makeTestConfig().runtime.databaseUrl);
       const fake = prSurfaceModule.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
       const finish = vi.spyOn(fake.surface, "finishReviewCheck");
       if (mode === "unknown") finish.mockRejectedValueOnce(new Error("synthetic unknown response"));
@@ -1486,8 +1486,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     const controller = new AbortController();
     const cfg = makeTestConfig();
     const boss = realQueue
-      ? await createStartedBoss({ databaseUrl: process.env.DATABASE_URL!, role: "web" })
-      : new PgBoss(cfg.databaseUrl);
+      ? await createStartedBoss(
+          makeTestConfig({ runtime: { databaseUrl: process.env.DATABASE_URL!, role: "web" } }),
+        )
+      : new PgBoss(cfg.runtime.databaseUrl);
     if (realQueue) await ensureAgentQueues(boss, cfg);
     const surfaces: ReturnType<typeof prSurfaceModule.createFakePrSurface>[] = [];
     let executing = false;
@@ -1967,7 +1969,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             REVIEW_QUEUE,
             jobs.map(({ id }) => id),
           );
-        await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
+        await stopBoss(boss, cfg.queue.shutdownDrainTimeoutSeconds * 1000);
       }
     }
   });
@@ -2025,7 +2027,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       databaseUrl = url;
       // pg-boss schema/queues are not app migrations: a real started boss must
       // install them before the lost-running diagnostics can read pgboss.job.
-      diagnosticsBoss = await bossModule.createStartedBoss({ databaseUrl, role: "web" });
+      diagnosticsBoss = await bossModule.createStartedBoss(
+        makeTestConfig({ runtime: { databaseUrl, role: "web" } }),
+      );
       await bossModule.ensureAgentQueues(diagnosticsBoss, makeTestConfig());
     });
 
@@ -2049,7 +2053,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     }): Promise<ShutdownScenario> {
       const resourceKey = `${OWNER}/shutdown-${randomUUID()}#1`;
       const workItemId = await insertAutoQueued(resourceKey, "review");
-      const cfg = makeTestConfig({ role: "worker", databaseUrl });
+      const cfg = makeTestConfig({ runtime: { role: "worker", databaseUrl } });
 
       const handlers = new Map<string, (jobs: readonly unknown[]) => Promise<void>>();
       const controlledBoss = {
@@ -2354,7 +2358,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       // Make only this scenario's data recovery-eligible: age the item, lapse
       // its lease, and keep every matching delivery/watchdog terminal (the
       // controlled boss wrote no pg-boss rows).
-      const minAgeSeconds = scenario.cfg.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
+      const minAgeSeconds =
+        scenario.cfg.queue.prActorLeaseTtlSeconds + STALE_QUEUED_WORK_GRACE_SECONDS;
       await pool.query(
         `UPDATE agent_work_items
             SET started_at = now() - (($2 + 60) * interval '1 second')

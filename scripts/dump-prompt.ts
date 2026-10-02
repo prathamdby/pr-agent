@@ -1,4 +1,5 @@
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { makeTestConfig } from "../test/helpers/config.js";
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
@@ -11,7 +12,7 @@ import {
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
 } from "@earendil-works/pi-agent-core";
-import type { Config } from "../src/config.js";
+import type { Config } from "../src/settings/index.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
@@ -113,7 +114,9 @@ function dumpAll() {
     listCommittedDetails: () => [],
   };
   const local = buildWorkspaceTools(workspace.reader);
-  const codeModeLocal = hideWorkspaceToolsBehindCodeMode(local).piTools;
+  const codeModeLocal = hideWorkspaceToolsBehindCodeMode(local, {
+    executorKind: "in_process",
+  }).piTools;
   const context7 = buildContext7Tools({
     apiKey: "",
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
@@ -135,10 +138,11 @@ function dumpAll() {
     prSurface,
     cachedDiffIndex: workspace.reader.diffIndex,
     resolveProgressCommentUrl: unavailable,
-    cfg: {
-      piModel: "",
-      agentEventsEnabled: false,
-      findingHistoryEnabled: false,
+    cfg: makeTestConfig({
+      models: { model: "" },
+      agentEvents: { enabled: false },
+      findingHistory: { enabled: false },
+
       features: {
         review: "manual",
         describe: "off",
@@ -149,7 +153,7 @@ function dumpAll() {
         commitStatus: false,
         titleRewrite: false,
       },
-    },
+    }),
   });
   const thread = buildPublishThreadTool({ phaseRef, session: publishSession }).piTool;
   const summary = buildPublishSummaryTool({
@@ -223,7 +227,9 @@ function dumpAll() {
       description: [...local.piTools, description],
       triage: [...triageWorkspace, triage],
       verification: [
-        ...hideWorkspaceToolsBehindCodeMode(verificationWorkspace).piTools,
+        ...hideWorkspaceToolsBehindCodeMode(verificationWorkspace, {
+          executorKind: "in_process",
+        }).piTools,
         verification,
       ],
       ciSummary: [],
