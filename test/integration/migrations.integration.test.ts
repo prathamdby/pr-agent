@@ -48,6 +48,7 @@ const EXPECTED_MIGRATIONS = [
   "032_agent_events_recorded_at_index.sql",
   "033_webhook_delivery_duplicates.sql",
   "034_pr_review_lifecycle.sql",
+  "035_pr_review_approvals.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {

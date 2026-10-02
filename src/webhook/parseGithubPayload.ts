@@ -49,6 +49,7 @@ export type ParsedGithubEvent =
       data: PullRequestReviewCommentWebhookPayload;
     }
   | { name: "workflow_run"; data: WorkflowRunWebhookPayload }
+  | { name: "workflow_run_started"; data: WorkflowRunWebhookPayload }
   | { name: "check_suite"; data: CheckSuiteWebhookPayload }
   | { name: "check_run"; data: CheckRunWebhookPayload }
   | { name: "status"; data: StatusWebhookPayload }
@@ -116,14 +117,22 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
         name: "pull_request_review_comment",
         data: parseOrThrow(eventName, pullRequestReviewCommentWebhookSchema, payload),
       };
-    case "workflow_run":
-      if (payloadAction(payload) !== "completed") {
+    case "workflow_run": {
+      const action = payloadAction(payload);
+      if (action !== "completed" && action !== "in_progress") {
         return { name: "ignored", data: payload };
+      }
+      const data = parseOrThrow(eventName, workflowRunWebhookSchema, payload);
+      if (action === "in_progress") {
+        return data.workflow_run.event === "pull_request"
+          ? { name: "workflow_run_started", data }
+          : { name: "ignored", data: payload };
       }
       return {
         name: "workflow_run",
-        data: parseOrThrow(eventName, workflowRunWebhookSchema, payload),
+        data,
       };
+    }
     case "check_suite":
       if (payloadAction(payload) !== "completed") {
         return { name: "ignored", data: payload };

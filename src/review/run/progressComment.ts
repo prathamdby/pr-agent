@@ -15,6 +15,7 @@ import {
 } from "../../github/statusCopy.js";
 import {
   REVIEW_FAILURE_ALERT,
+  REVIEW_AWAITING_APPROVAL_NOTE,
   REVIEW_OVERVIEW_ALERT,
   REVIEW_PROGRESS_NOTE,
   REVIEW_PROGRESS_QUEUE_LABEL,
@@ -268,5 +269,13 @@ export function renderReviewFailureNotice(params: {
       REVIEW_FAILURE_ALERT,
       `Review did not finish. Run \`${params.retryCommand}\` to try again.`,
     ),
+  ].join("\n");
+}
+
+export function renderReviewAwaitingApprovalNotice(): string {
+  return [
+    REVIEW_SUMMARY_SENTINEL,
+    "",
+    renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_AWAITING_APPROVAL_NOTE),
   ].join("\n");
 }

@@ -51,6 +51,7 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("DELETE FROM pr_head_ci_state")) {
           return { rowCount: 0 };
         }
+        if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -95,6 +96,7 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("DELETE FROM pr_head_ci_state")) {
           return { rowCount: 0 };
         }
+        if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -122,6 +124,7 @@ describe("runRetention batched delete loop", () => {
       if (text.includes("code_index_snapshots")) return { rowCount: 0 };
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_head_ci_state")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
       if (text.includes("agent_events")) {
         expect(text).toContain("recorded_at");
         expect(text).toContain("DELETE FROM agent_events");
@@ -153,6 +156,7 @@ describe("runRetention batched delete loop", () => {
       if (text.includes("code_index_snapshots")) return { rowCount: 0 };
       if (text.includes("ask_quota_buckets")) return { rowCount: 0 };
       if (text.includes("agent_events")) return { rowCount: 0 };
+      if (text.includes("DELETE FROM pr_review_approvals")) return { rowCount: 0 };
       if (text.includes("DELETE FROM pr_head_ci_state")) {
         expect(text).toContain("updated_at");
         expect(text).toContain("agent_work_items");

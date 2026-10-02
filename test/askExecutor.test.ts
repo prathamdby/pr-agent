@@ -128,8 +128,6 @@ function askJob(): JobWithMetadata<AskJobData> {
     sourceId: null,
     sourceCreatedOn: null,
     sourceRetryCount: null,
-    sourceOutput: null,
-    sourceRootId: null,
   };
 }
 

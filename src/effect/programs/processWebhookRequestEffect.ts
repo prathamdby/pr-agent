@@ -104,7 +104,8 @@ function dispatchGithubEventEffect(
         yield* handlers.pullRequest(cfg, headers, parsed.data, intakeLog);
         return { kind: "ok" as const };
       case "pull_request_review":
-        yield* handlers.approvalReview(cfg, headers, parsed.data, intakeLog);
+      case "workflow_run_started":
+        yield* handlers.reviewApproved(cfg, headers, parsed, intakeLog);
         return { kind: "ok" as const };
       case "issue_comment":
         yield* handlers.issueComment(cfg, headers, parsed.data, intakeLog);

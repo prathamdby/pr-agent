@@ -1,8 +1,15 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
+import { Effect, Layer } from "effect";
+import { AgentWorkScheduler, makeAgentWorkScheduler } from "../../src/agentWork/scheduler.js";
+import { WebhookHandlersCore } from "../../src/effect/services/webhookHandlers.js";
+import { processWebhookPostRequestEffect } from "../../src/effect/programs/processWebhookRequestEffect.js";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
-import { applyAutomatedPullRequestIntake } from "../../src/agentWork/intake/applier.js";
+import {
+  applyAutomatedPullRequestIntake,
+  applyReviewApprovedIntake,
+} from "../../src/agentWork/intake/applier.js";
 import {
   applySlashCommandIntake,
   type SlashCommandInput,
@@ -47,28 +54,13 @@ vi.mock("../../src/agent/ask/askRun.js", () => ({
   })),
 }));
 
-// These tests exercise the supersede/cancel mechanism on repeated synchronize deliveries,
-// which only auto-runs review on push when the review trigger includes synchronize.
-// Verification stays off so work-item counts only reflect review intake.
-vi.mock("../../src/settings/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/settings/index.js")>();
-  return {
-    ...actual,
-    AUTO_TRIGGER_ACTIONS: {
-      ...actual.AUTO_TRIGGER_ACTIONS,
-      review: new Set(["opened", "synchronize"]),
-    },
-  };
-});
-
 const intakeCfg = makeTestConfig({
-  features: { ...makeTestConfig().features, verification: "off" },
+  features: { ...makeTestConfig().features, describe: "off", verification: "off" },
 });
 import {
   ACK_QUEUE,
   ASK_QUEUE,
   ASK_THROTTLED_BODY,
-  AUTO_TRIGGER_ACTIONS,
   CI_PROJECTION_QUEUE,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
@@ -192,7 +184,11 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ]);
     }
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM pr_review_approvals WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM webhook_events WHERE delivery_id LIKE $1", [
+      `${OWNER}-approval-%`,
+    ]);
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     boss = await createStartedBoss({ databaseUrl: DATABASE_URL, role: "web" });
     await ensureAgentQueues(boss, queueConfig);
@@ -216,11 +212,15 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ]);
     }
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM pr_review_approvals WHERE owner = $1", [OWNER]);
     await pool.query(
       "DELETE FROM ask_quota_buckets WHERE scope_key LIKE $1 OR scope_key LIKE $2 OR scope_key LIKE $3",
       ["installation:658900%", "repository:658900%", "actor:658900%"],
     );
     await pool.query("DELETE FROM webhook_events WHERE event_name = $1", [EVENT]);
+    await pool.query("DELETE FROM webhook_events WHERE delivery_id LIKE $1", [
+      `${OWNER}-approval-%`,
+    ]);
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
@@ -1084,101 +1084,85 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     },
   );
 
-  it("production review admission refuses opened, approval and synchronize until a newer reopen; preserves supersede afterward", async () => {
+  it("production review admission refuses opened and synchronize until a newer reopen; preserves supersede afterward", async () => {
     const ref = makePrRef();
     const key = prResourceKey(ref.owner, ref.repo, ref.prNumber);
     const cfg = makeTestConfig({
       features: { ...intakeCfg.features, review: "auto", describe: "off", verification: "off" },
     });
-    const triggers = [...AUTO_TRIGGER_ACTIONS.review];
-    AUTO_TRIGGER_ACTIONS.review.delete("synchronize");
-    try {
-      await applyAutomatedPullRequestIntake(
-        boss,
-        pool,
-        headers("opened", randomUUID()),
-        ref,
-        "opened",
-        intakeLog(),
-        cfg,
-      );
-      const opts = { lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:02Z" } } as const;
-      await applyAutomatedPullRequestIntake(
-        boss,
-        pool,
-        headers("closed", randomUUID()),
-        ref,
-        "closed",
-        intakeLog(),
-        cfg,
-        opts,
-      );
-      for (const action of ["opened", "approval", "synchronize"]) {
-        const log = intakeLog();
-        const h = headers(action, randomUUID());
-        await applyAutomatedPullRequestIntake(
-          boss,
-          pool,
-          h,
-          ref,
-          action,
-          log,
-          action === "approval" ? { features: { ...cfg.features, review: "approval" } } : cfg,
-        );
-        expect(
-          (
-            await pool.query(
-              "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
-              [h.delivery],
-            )
-          ).rows[0].processing_decision,
-        ).toBe("ignored_review_pr_closed");
-      }
-      expect(
-        (await pool.query("SELECT status FROM agent_work_items WHERE resource_key = $1", [key]))
-          .rows,
-      ).toEqual([{ status: "cancelled" }]);
-      const reopen = { lifecycle: { state: "open", observedAt: "2026-10-01T00:00:03Z" } } as const;
-      await applyAutomatedPullRequestIntake(
-        boss,
-        pool,
-        headers("reopened", randomUUID()),
-        ref,
-        "reopened",
-        intakeLog(),
-        cfg,
-        reopen,
-      );
-      await applyAutomatedPullRequestIntake(
-        boss,
-        pool,
-        headers("opened", randomUUID()),
-        ref,
-        "opened",
-        intakeLog(),
-        cfg,
-      );
-      await applyAutomatedPullRequestIntake(
-        boss,
-        pool,
-        headers("synchronize", randomUUID()),
-        ref,
-        "synchronize",
-        intakeLog(),
-        cfg,
-      );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      cfg,
+    );
+    const opts = { lifecycle: { state: "closed", observedAt: "2026-10-01T00:00:02Z" } } as const;
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("closed", randomUUID()),
+      ref,
+      "closed",
+      intakeLog(),
+      cfg,
+      opts,
+    );
+    for (const action of ["opened", "synchronize"]) {
+      const log = intakeLog();
+      const h = headers(action, randomUUID());
+      await applyAutomatedPullRequestIntake(boss, pool, h, ref, action, log, cfg);
       expect(
         (
           await pool.query(
-            "SELECT status FROM agent_work_items WHERE resource_key = $1 ORDER BY created_at",
-            [key],
+            "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+            [h.delivery],
           )
-        ).rows.map((row) => row.status),
-      ).toEqual(["cancelled", "superseded", "queued"]);
-    } finally {
-      AUTO_TRIGGER_ACTIONS.review.clear();
-      for (const action of triggers) AUTO_TRIGGER_ACTIONS.review.add(action);
+        ).rows[0].processing_decision,
+      ).toBe("ignored_review_pr_closed");
     }
+    expect(
+      (await pool.query("SELECT status FROM agent_work_items WHERE resource_key = $1", [key])).rows,
+    ).toEqual([{ status: "cancelled" }]);
+    const reopen = { lifecycle: { state: "open", observedAt: "2026-10-01T00:00:03Z" } } as const;
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("reopened", randomUUID()),
+      ref,
+      "reopened",
+      intakeLog(),
+      cfg,
+      reopen,
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      cfg,
+    );
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", randomUUID()),
+      ref,
+      "synchronize",
+      intakeLog(),
+      cfg,
+    );
+    expect(
+      (
+        await pool.query(
+          "SELECT status FROM agent_work_items WHERE resource_key = $1 ORDER BY created_at",
+          [key],
+        )
+      ).rows.map((row) => row.status),
+    ).toEqual(["cancelled", "superseded", "queued"]);
   });
 
   it.each(["replacement-first", "close-first"] as const)(
@@ -1793,7 +1777,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     },
   );
 
-  it("zero-work close refuses delayed auto/approval without blocking another repository with the same PR number", async () => {
+  it("zero-work close refuses delayed automatic review without blocking another repository with the same PR number", async () => {
     const ref = makePrRef();
     const cfg = makeTestConfig({
       features: { ...intakeCfg.features, review: "auto", describe: "off", verification: "off" },
@@ -1809,17 +1793,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       cfg,
       close,
     );
-    for (const action of ["opened", "approval"]) {
+    for (const action of ["opened", "synchronize"]) {
       const h = headers(action, randomUUID());
-      await applyAutomatedPullRequestIntake(
-        boss,
-        pool,
-        h,
-        ref,
-        action,
-        intakeLog(),
-        action === "approval" ? { features: { ...cfg.features, review: "approval" } } : cfg,
-      );
+      await applyAutomatedPullRequestIntake(boss, pool, h, ref, action, intakeLog(), cfg);
       await applyAutomatedPullRequestIntake(boss, pool, h, ref, action, intakeLog(), cfg);
     }
     expect(
@@ -2091,9 +2067,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", delivery),
+      headers("opened", delivery),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2111,7 +2087,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   it("rollback atomicity: late send failure rolls back dedupe, work item, and jobs", async () => {
     const ref = makePrRef("rollback");
     const delivery = "delivery-rollback";
-    const requestHeaders = headers("synchronize", delivery);
+    const requestHeaders = headers("opened", delivery);
     const failingBoss = withSendFailOnNth(boss, 2);
     try {
       await expect(
@@ -2120,7 +2096,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
           pool,
           requestHeaders,
           ref,
-          "synchronize",
+          "opened",
           intakeLog(),
           intakeCfg,
         ),
@@ -2140,7 +2116,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       pool,
       requestHeaders,
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2156,13 +2132,13 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     "records every rejected arrival without creating work or jobs: %s",
     async (variant) => {
       const ref = makePrRef(variant);
-      const original = headers("synchronize", `delivery-${variant}-a`);
+      const original = headers("opened", `delivery-${variant}-a`);
       const duplicate = {
         ...original,
         delivery: variant === "body_replay" ? `delivery-${variant}-b` : original.delivery,
         rawBody:
           variant === "delivery_key_changed_body"
-            ? headers("synchronize", "changed-body").rawBody
+            ? headers("opened", "changed-body").rawBody
             : original.rawBody,
       };
       const bodySha256 = createHash("sha256").update(duplicate.rawBody).digest("hex");
@@ -2194,7 +2170,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
           pool,
           requestHeaders,
           ref,
-          "synchronize",
+          "opened",
           intakeLog(),
           intakeCfg,
         );
@@ -2243,14 +2219,14 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
 
   it("rejects failed duplicate evidence and records a subsequent retry", async () => {
     const ref = makePrRef("audit-failure");
-    const original = headers("synchronize", "delivery-audit-original");
+    const original = headers("opened", "delivery-audit-original");
     const duplicate = { ...original, delivery: "delivery-audit-duplicate" };
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
       original,
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2294,7 +2270,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
           pool,
           duplicate,
           ref,
-          "synchronize",
+          "opened",
           intakeLog(),
           intakeCfg,
         ),
@@ -2318,7 +2294,7 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       pool,
       duplicate,
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2339,9 +2315,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-supersede-a"),
+      headers("opened", "delivery-supersede-a"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2389,9 +2365,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-failed-a"),
+      headers("opened", "delivery-failed-a"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2411,9 +2387,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", "delivery-failed-b"),
+      headers("opened", "delivery-failed-b"),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2440,9 +2416,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", delivery),
+      headers("opened", delivery),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2477,9 +2453,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("synchronize", delivery),
+      headers("opened", delivery),
       ref,
-      "synchronize",
+      "opened",
       intakeLog(),
       intakeCfg,
     );
@@ -2495,22 +2471,236 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     expect(rows[0]?.processing_decision).toBe("ignored_pull_request_labeled");
   });
 
-  it("approval mode: first approval enqueues one deferred-head review", async () => {
+  it.each(["manual", "auto", "approval"] as const)(
+    "signed workflow signals filter unsafe starts and respect %s mode",
+    async (mode) => {
+      const ref = makePrRef();
+      const cfg = makeTestConfig({ features: { ...intakeCfg.features, review: mode } });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        { features: { ...cfg.features, review: "approval" } },
+        { authorTrust: "awaiting_approval" },
+      );
+      const scheduler = Layer.succeed(AgentWorkScheduler, makeAgentWorkScheduler(pool, boss, cfg));
+      const runtime = Layer.mergeAll(scheduler, WebhookHandlersCore.pipe(Layer.provide(scheduler)));
+      for (const [action, event] of [
+        ["completed", "pull_request"],
+        ["in_progress", "push"],
+        ["in_progress", "pull_request_target"],
+        ["in_progress", "pull_request"],
+      ] as const) {
+        const body = Buffer.from(
+          JSON.stringify({
+            action,
+            installation: { id: ref.installationId },
+            repository: { owner: { login: ref.owner }, name: ref.repo },
+            workflow_run: {
+              id: 55,
+              event,
+              head_sha: ref.headSha,
+              status: action,
+              conclusion: action === "completed" ? "failure" : null,
+              pull_requests: [],
+            },
+          }),
+        );
+        const delivery = `${OWNER}-approval-${randomUUID()}`;
+        const signature = `sha256=${createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`;
+        const response = await Effect.runPromise(
+          processWebhookPostRequestEffect(
+            cfg,
+            {
+              headers: {
+                "x-github-event": "workflow_run",
+                "x-github-delivery": delivery,
+                "x-hub-signature-256": signature,
+              },
+              rawBody: body,
+            },
+            intakeLog(),
+          ).pipe(Effect.provide(runtime)),
+        );
+        expect(response).toEqual({ status: 200, body: "ok" });
+        const approved =
+          mode === "approval" && action === "in_progress" && event === "pull_request";
+        await expect(countWorkItems()).resolves.toBe(approved ? 1 : 0);
+        if (event === "pull_request" && action === "in_progress") {
+          const decision = (
+            await pool.query(
+              "SELECT processing_decision FROM webhook_events WHERE delivery_id = $1",
+              [delivery],
+            )
+          ).rows[0].processing_decision;
+          expect(decision).toBe(
+            mode === "approval" ? "review_approved" : "ignored_review_approval_not_enabled",
+          );
+        }
+      }
+    },
+  );
+
+  it("approval signal queue failure rolls back approval and can be retried", async () => {
+    const ref = makePrRef();
+    const cfg = makeTestConfig({ features: { ...intakeCfg.features, review: "approval" } });
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", randomUUID()),
+      ref,
+      "opened",
+      intakeLog(),
+      cfg,
+      { authorTrust: "awaiting_approval" },
+    );
+    const h = headers("submitted", randomUUID());
+    const failure = withSendFailOnNth(boss, 2);
+    try {
+      await expect(
+        applyReviewApprovedIntake(boss, pool, h, { kind: "pull_request_review", ref }, intakeLog()),
+      ).rejects.toThrow("injected send failure");
+    } finally {
+      failure.restore();
+    }
+    await expect(countWebhookRows(h.delivery)).resolves.toBe(0);
+    await expect(countWorkItems()).resolves.toBe(0);
+    expect(
+      (
+        await pool.query("SELECT state FROM pr_review_approvals WHERE resource_key = $1", [
+          prResourceKey(ref.owner, ref.repo, ref.prNumber),
+        ])
+      ).rows,
+    ).toEqual([{ state: "awaiting" }]);
+    await applyReviewApprovedIntake(
+      boss,
+      pool,
+      h,
+      { kind: "pull_request_review", ref },
+      intakeLog(),
+    );
+    await expect(countWorkItems()).resolves.toBe(1);
+  });
+
+  it("contending workflow and PR approvals consume multiple same-head records once", async () => {
+    const ref = makePrRef();
+    const other = { ...ref, prNumber: ref.prNumber + 1 };
+    const cfg = makeTestConfig({ features: { ...intakeCfg.features, review: "approval" } });
+    for (const target of [ref, other]) {
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        target,
+        "opened",
+        intakeLog(),
+        cfg,
+        { authorTrust: "awaiting_approval" },
+      );
+    }
+    await Promise.all([
+      applyReviewApprovedIntake(
+        boss,
+        pool,
+        headers("in_progress", randomUUID()),
+        { kind: "workflow_run", ...ref, prNumbers: [other.prNumber, ref.prNumber] },
+        intakeLog(),
+      ),
+      applyReviewApprovedIntake(
+        boss,
+        pool,
+        headers("submitted", randomUUID()),
+        { kind: "pull_request_review", ref },
+        intakeLog(),
+      ),
+    ]);
+    await expect(countWorkItems()).resolves.toBe(2);
+    const states = (
+      await pool.query("SELECT state FROM pr_review_approvals WHERE owner = $1", [OWNER])
+    ).rows;
+    expect(states).toEqual([{ state: "approved" }, { state: "approved" }]);
+    console.log(
+      "approval-race-evidence",
+      JSON.stringify({
+        resourceKeys: [
+          prResourceKey(ref.owner, ref.repo, ref.prNumber),
+          prResourceKey(other.owner, other.repo, other.prNumber),
+        ],
+        workItems: 2,
+      }),
+    );
+  });
+
+  it("approval mode: untrusted open awaits, workflow start approves once across signals and completion", async () => {
     const ref = makePrRef("approval-first");
     const approvalCfg = makeTestConfig({
-      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+      features: { ...intakeCfg.features, review: "approval" },
     });
 
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("approval", "delivery-approval-first"),
+      headers("opened", "delivery-approval-first"),
       ref,
-      "approval",
+      "opened",
       intakeLog(),
       approvalCfg,
+      { authorTrust: "awaiting_approval" },
     );
 
+    await expect(countWorkItems()).resolves.toBe(0);
+    const noticeJobs = await boss.findJobs<AckJobData>(ACK_QUEUE, {});
+    const notice = noticeJobs.find((job) => job.data.awaitingApproval)!.data;
+    expect(notice.targets).toEqual([]);
+    expect(notice.workItemId).toBeUndefined();
+    clearDurableAuthCachesForTest();
+    vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+      token: "test-token",
+      expiresAtTs: Date.now() + 3_600_000,
+      ttlMs: 3_600_000,
+    });
+    vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({ userId: 999, login: "test-bot" });
+    const fake = prSurface.createFakePrSurface(ref, { headSha: ref.headSha });
+    vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+    await executeAckJob(approvalCfg, pool, notice, boss);
+    await executeAckJob(approvalCfg, pool, notice, boss);
+    const waiting = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)!;
+    expect(waiting.body).toContain("> [!NOTE]\n> Review waiting for maintainer approval.");
+    expect(waiting.body).not.toContain("| Head");
+    expect(fake.controls.reactions).toEqual([]);
+    expect(
+      fake.controls.events.filter((entry) => entry.kind === "upsertProgressComment"),
+    ).toHaveLength(1);
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("opened", "delivery-approval-first"),
+      ref,
+      "opened",
+      intakeLog(),
+      approvalCfg,
+      { authorTrust: "awaiting_approval" },
+    );
+    expect(
+      (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).filter((job) => job.data.awaitingApproval),
+    ).toHaveLength(1);
+    await applyReviewApprovedIntake(
+      boss,
+      pool,
+      headers("in_progress", randomUUID()),
+      {
+        kind: "workflow_run",
+        installationId: ref.installationId,
+        owner: ref.owner,
+        repo: ref.repo,
+        headSha: ref.headSha,
+        prNumbers: [],
+      },
+      intakeLog(),
+    );
     await expect(countWorkItems()).resolves.toBe(1);
     const { rows } = await pool.query<{ head_sha: string; status: string }>(
       `SELECT head_sha, status FROM agent_work_items WHERE owner = $1`,
@@ -2519,102 +2709,155 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     expect(rows[0]?.head_sha).toBe("deferred-to-worker");
     expect(rows[0]?.status).toBe("queued");
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
+    const queuedAck = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+      (job) => job.data.progress,
+    )!.data;
+    await executeAckJob(approvalCfg, pool, queuedAck, boss);
+    await executeAckJob(approvalCfg, pool, notice, boss);
+    const queued = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)!;
+    expect(queued.id).toBe(waiting.id);
+    expect(queued.body).toContain("Review queued");
+    expect(queued.body).not.toContain("waiting for maintainer approval");
+    console.log(
+      "approval-notice-evidence",
+      JSON.stringify({ commentId: queued.id, waiting: waiting.body, queued: queued.body }),
+    );
+    await pool.query("UPDATE agent_work_items SET status = 'completed' WHERE owner = $1", [OWNER]);
+    await Promise.all([
+      applyReviewApprovedIntake(
+        boss,
+        pool,
+        headers("submitted", randomUUID()),
+        { kind: "pull_request_review", ref },
+        intakeLog(),
+      ),
+      applyReviewApprovedIntake(
+        boss,
+        pool,
+        headers("in_progress", randomUUID()),
+        {
+          kind: "workflow_run",
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          headSha: ref.headSha,
+          prNumbers: [ref.prNumber],
+        },
+        intakeLog(),
+      ),
+    ]);
+    await expect(countWorkItems()).resolves.toBe(1);
   });
 
-  it("approval mode: repeat approval is a no-op without a second review", async () => {
+  it("approval mode: a trusted open is never approved again", async () => {
     const ref = makePrRef("approval-repeat");
     const approvalCfg = makeTestConfig({
-      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+      features: { ...intakeCfg.features, review: "approval" },
     });
 
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("approval", "delivery-approval-repeat-a"),
+      headers("opened", "delivery-approval-repeat-a"),
       ref,
-      "approval",
+      "opened",
       intakeLog(),
       approvalCfg,
+      { authorTrust: "trusted" },
     );
-    await applyAutomatedPullRequestIntake(
+    await applyReviewApprovedIntake(
       boss,
       pool,
-      headers("approval", "delivery-approval-repeat-b"),
-      ref,
-      "approval",
+      headers("submitted", randomUUID()),
+      { kind: "pull_request_review", ref },
       intakeLog(),
-      approvalCfg,
     );
 
     await expect(countWorkItems()).resolves.toBe(1);
     await expect(reviewJobsFor(ref)).resolves.toHaveLength(1);
     initEvlog("info", { silent: true, suppressDrainWarning: true });
     const secondLog = intakeLog();
-    await applyAutomatedPullRequestIntake(
+    await applyReviewApprovedIntake(
       boss,
       pool,
-      headers("approval", "delivery-approval-repeat-c"),
-      ref,
-      "approval",
+      headers("submitted", randomUUID()),
+      { kind: "pull_request_review", ref },
       secondLog,
-      approvalCfg,
     );
     await expect(countWorkItems()).resolves.toBe(1);
     const dedupEvents = (secondLog.getContext().events ?? []) as Array<{
       event?: string;
     }>;
-    expect(dedupEvents.some((entry) => entry.event === "ignored_approval_review_exists")).toBe(
-      true,
-    );
+    expect(
+      dedupEvents.some((entry) => entry.event === "ignored_review_approval_not_awaiting"),
+    ).toBe(true);
   });
 
-  it("approval mode: approval after a terminal review starts a fresh review", async () => {
+  it("approval mode: slash admission consumes awaiting approval", async () => {
     const ref = makePrRef("approval-terminal");
     const approvalCfg = makeTestConfig({
-      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+      features: { ...intakeCfg.features, review: "approval" },
     });
 
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("approval", "delivery-approval-terminal-a"),
+      headers("opened", "delivery-approval-terminal-a"),
       ref,
-      "approval",
+      "opened",
       intakeLog(),
       approvalCfg,
+      { authorTrust: "awaiting_approval" },
     );
-    await pool.query(
-      `UPDATE agent_work_items SET status = 'completed', completed_at = now(), updated_at = now()
-        WHERE owner = $1`,
-      [OWNER],
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(
+        boss,
+        client,
+        {
+          ...ref,
+          headers: headers("review", randomUUID()),
+          command: "review",
+          body: "/review",
+          commentId: 900,
+          commenterId: 7,
+          replyTarget: { kind: "prConversation", prNumber: ref.prNumber },
+        },
+        approvalCfg.features,
+      ),
     );
-    await applyAutomatedPullRequestIntake(
+    await applyReviewApprovedIntake(
       boss,
       pool,
-      headers("approval", "delivery-approval-terminal-b"),
-      ref,
-      "approval",
+      headers("submitted", randomUUID()),
+      { kind: "pull_request_review", ref },
       intakeLog(),
-      approvalCfg,
     );
 
-    await expect(countWorkItems()).resolves.toBe(2);
+    await expect(countWorkItems()).resolves.toBe(1);
   });
 
   it("approval mode: synchronize supersedes the approval-started review", async () => {
     const ref = makePrRef("approval-push");
     const approvalCfg = makeTestConfig({
-      features: { ...makeTestConfig().features, review: "approval", verification: "off" },
+      features: { ...intakeCfg.features, review: "approval" },
     });
 
     await applyAutomatedPullRequestIntake(
       boss,
       pool,
-      headers("approval", "delivery-approval-push-a"),
+      headers("opened", "delivery-approval-push-a"),
       ref,
-      "approval",
+      "opened",
       intakeLog(),
       approvalCfg,
+      { authorTrust: "awaiting_approval" },
+    );
+    await applyReviewApprovedIntake(
+      boss,
+      pool,
+      headers("submitted", randomUUID()),
+      { kind: "pull_request_review", ref },
+      intakeLog(),
     );
     await applyAutomatedPullRequestIntake(
       boss,
@@ -2632,4 +2875,103 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     );
     expect(workRows.map((row) => row.status).toSorted()).toEqual(["queued", "superseded"]);
   });
+
+  it.each([false, true])(
+    "approval mode: push changes the awaiting head and close/merge withdraws it (%s)",
+    async (merged) => {
+      const ref = makePrRef();
+      const cfg = makeTestConfig({
+        features: { ...intakeCfg.features, review: "approval", describe: "off" },
+      });
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("opened", randomUUID()),
+        ref,
+        "opened",
+        intakeLog(),
+        cfg,
+        { authorTrust: "awaiting_approval" },
+      );
+      const next = { ...ref, headSha: "new-head" };
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("synchronize", randomUUID()),
+        next,
+        "synchronize",
+        intakeLog(),
+        cfg,
+      );
+      await applyReviewApprovedIntake(
+        boss,
+        pool,
+        headers("in_progress", randomUUID()),
+        {
+          kind: "workflow_run",
+          installationId: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          headSha: ref.headSha,
+          prNumbers: [ref.prNumber],
+        },
+        intakeLog(),
+      );
+      await expect(countWorkItems()).resolves.toBe(0);
+      clearDurableAuthCachesForTest();
+      vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
+        token: "test-token",
+        expiresAtTs: Date.now() + 3_600_000,
+        ttlMs: 3_600_000,
+      });
+      vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({ userId: 999, login: "test-bot" });
+      const fake = prSurface.createFakePrSurface(next);
+      vi.spyOn(prSurface, "createPrSurface").mockReturnValue(fake.surface);
+      const waitingAck = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+        (job) => job.data.awaitingApproval,
+      )!.data;
+      await executeAckJob(cfg, pool, waitingAck, boss);
+      const waitingId = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)!.id;
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("closed", randomUUID()),
+        next,
+        "closed",
+        intakeLog(),
+        cfg,
+        { lifecycle: { state: merged ? "merged" : "closed", observedAt: "2026-10-01T00:00:01Z" } },
+      );
+      await applyReviewApprovedIntake(
+        boss,
+        pool,
+        headers("submitted", randomUUID()),
+        { kind: "pull_request_review", ref: next },
+        intakeLog(),
+      );
+      await expect(countWorkItems()).resolves.toBe(0);
+      const { rows } = await pool.query(
+        "SELECT state, head_sha FROM pr_review_approvals WHERE resource_key = $1",
+        [prResourceKey(ref.owner, ref.repo, ref.prNumber)],
+      );
+      expect(rows).toEqual([{ state: "withdrawn", head_sha: "new-head" }]);
+      expect(
+        (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).some((job) => job.data.closedApproval),
+      ).toBe(true);
+      const closedAck = (await boss.findJobs<AckJobData>(ACK_QUEUE, {})).find(
+        (job) => job.data.closedApproval,
+      )!.data;
+      await executeAckJob(cfg, pool, closedAck, boss);
+      await executeAckJob(cfg, pool, waitingAck, boss);
+      const closed = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)!;
+      expect(closed.id).toBe(waitingId);
+      expect(closed.body).toContain(merged ? "PR merged." : "PR closed.");
+      expect(closed.body).toContain("> [!CAUTION]");
+      expect(fake.controls.reactions).toEqual([]);
+      console.log(
+        "approval-close-evidence",
+        JSON.stringify({ merged, commentId: closed.id, body: closed.body }),
+      );
+    },
+  );
 });

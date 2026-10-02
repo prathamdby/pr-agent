@@ -69,13 +69,17 @@ Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age count
 
 `webhook_events.processing_decision` describes the automated plan in precedence order:
 
-| Plan includes                  | Decision                               |
-| ------------------------------ | -------------------------------------- |
-| `review` or `reviewApproval`   | `automated_review_enqueued`            |
-| Otherwise `reviewSupersede`    | `automated_review_supersede_requested` |
-| Otherwise other automated work | `automated_work_enqueued`              |
+| Plan includes                   | Decision                               |
+| ------------------------------- | -------------------------------------- |
+| `review`                        | `automated_review_enqueued`            |
+| Otherwise `reviewAwaitApproval` | `review_awaiting_approval`             |
+| Otherwise `reviewSupersede`     | `automated_review_supersede_requested` |
+| Otherwise other automated work  | `automated_work_enqueued`              |
 
 A supersede request may create no replacement when no auto review is active.
+Approval signals record `review_approved` only for a committed awaiting-to-approved
+transition; otherwise `ignored_review_approval_not_awaiting`. Signals outside
+approval mode record `ignored_review_approval_not_enabled`.
 Labels describe the effective plan after the review admission gate. A review-only
 refusal records `ignored_review_pr_closed` or `ignored_review_pr_merged`; slash
 refusals record `ignored_slash_review_pr_closed` or `ignored_slash_review_pr_merged`.
@@ -119,6 +123,41 @@ or blindly replay the earlier mutation; reconcile exact provider evidence
 using the existing publish recovery path.
 
 Worker readiness is distinct from web probes: `GET /ready` on the worker process returns 200 only when consumers are registered and Postgres/pg-boss respond. Compose healthchecks that endpoint. Web `GET /health` / `GET /ready` remain intake-process probes (liveness / Postgres ping).
+
+## Review approvals
+
+Approval mode reviews trusted authors immediately on open. Untrusted forks have
+one retained `pr_review_approvals` row and one NOTE comment, without a Head table
+or eyes reaction. Inspect metadata with a bound resource key:
+
+```sql
+select resource_key, head_sha, state, approved_by, created_at, updated_at,
+       webhook_event_id
+from pr_review_approvals where resource_key = $1;
+```
+
+The first matching PR workflow start, authorized approving PR review, or `/review`
+changes `awaiting` to `approved` under the review intake lock. Workflow starts
+must be `in_progress`, `event=pull_request`, and match the awaiting head.
+Empty fork `pull_requests` arrays resolve through the awaiting-head index.
+Pushes move the awaiting head. Close/merge withdraws the row and queues the
+existing closed/merged notice. Delayed waiting acknowledgements reread state
+under the progress-publication lock and cannot replace a newer review stub.
+A closed notice uses revision 1 to replace the waiting notice at revision 0.
+An HTTP request already in flight cannot be withdrawn.
+
+Use `/review` to recover a missing or expired record or a missed approval signal.
+Do not change the state manually to replay approval. Retention removes rows by
+`updated_at` after `AGENT_WORK_RETENTION_SECONDS` (30 days by default). There is
+no backfill for already-open PRs and reopen does not recreate waiting.
+
+Install additive migration `035_pr_review_approvals.sql` before upgraded roles
+run. Upgrade web intake first, then workers; old workers ignore the new optional
+notice fields, so waiting notices need upgraded acknowledgement workers.
+Drain old intake before relying on one-time approval across replicas. Rollback
+leaves the unused table intact. Approval is the default: trusted opens now spend
+review tokens; use `manual` to opt out. The trust rule is independent of stricter
+Actions policies that require approval for every external contributor.
 
 ## Own-verdict recovery
 

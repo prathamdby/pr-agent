@@ -45,6 +45,7 @@ describe("WebhookHandlers.pullRequest merged flag", () => {
     const scheduler = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitReviewApproved: () => Effect.void,
         recordIgnored: () => Effect.void,
         submitAutomatedReview: (_headers, _ref, action, _log, opts) =>
           Effect.sync(() => {
@@ -97,6 +98,7 @@ describe("WebhookHandlers.pullRequest merged flag", () => {
     const scheduler = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
+        submitReviewApproved: () => Effect.void,
         recordIgnored: () => Effect.void,
         submitAutomatedReview: (_headers, _ref, action, _log, opts) =>
           Effect.sync(() => {

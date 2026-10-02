@@ -44,10 +44,10 @@ export const STALE_QUEUED_WORK_BATCH_SIZE = 10;
 
 export const IGNORED_BOT_SLASH_COMMAND = "ignored_bot_slash_command";
 export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";
-/** Intake decision when an approval review cannot gate an auto review. */
-export const IGNORED_UNAUTHORIZED_APPROVAL = "ignored_unauthorized_approval";
-/** Intake decision when an approval arrives but the review already exists. */
-export const IGNORED_APPROVAL_REVIEW_EXISTS = "ignored_approval_review_exists";
+export const REVIEW_AWAITING_APPROVAL = "review_awaiting_approval";
+export const REVIEW_APPROVED = "review_approved";
+export const IGNORED_REVIEW_APPROVAL_NOT_AWAITING = "ignored_review_approval_not_awaiting";
+export const IGNORED_REVIEW_APPROVAL_NOT_ENABLED = "ignored_review_approval_not_enabled";
 /** Intake decision + deferred log event when a closed PR cancels active reviews. */
 export const REVIEW_CANCELLED_PR_CLOSED = "review_cancelled_pr_closed";
 

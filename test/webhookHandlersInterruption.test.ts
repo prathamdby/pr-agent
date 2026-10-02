@@ -88,6 +88,7 @@ function slashTraceLayers(
           trace.ignored = true;
         }),
       submitAutomatedReview: () => Effect.void,
+      submitReviewApproved: () => Effect.void,
       submitSlashCommand: (input) =>
         Effect.sync(() => {
           trace.slash = true;
@@ -185,6 +186,7 @@ describe("WebhookHandlers Effect resolution", () => {
       AgentWorkScheduler.of({
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
+        submitReviewApproved: () => Effect.void,
         submitSlashCommand: () => Effect.fail(new Error("scheduler failed")),
         submitCiRefresh: () => Effect.void,
         submitCiState: () => Effect.void,
@@ -235,6 +237,7 @@ describe("WebhookHandlers Effect resolution", () => {
             ignored = true;
           }),
         submitAutomatedReview: () => Effect.void,
+        submitReviewApproved: () => Effect.void,
         submitSlashCommand: () =>
           Effect.sync(() => {
             slash = true;
@@ -287,6 +290,7 @@ describe("WebhookHandlers Effect resolution", () => {
             if (decision === "ignored_bot_slash_command") ignored = true;
           }),
         submitAutomatedReview: () => Effect.void,
+        submitReviewApproved: () => Effect.void,
         submitSlashCommand: () =>
           Effect.sync(() => {
             slash = true;

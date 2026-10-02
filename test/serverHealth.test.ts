@@ -215,6 +215,7 @@ function startEffectServer({
       AgentWorkScheduler.of({
         recordIgnored,
         submitAutomatedReview: () => Effect.void,
+        submitReviewApproved: () => Effect.void,
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
         submitCiState: () => Effect.void,

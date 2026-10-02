@@ -69,6 +69,7 @@ function slashGateLayer(
         Effect.sync(() => {
           decisions.push(decision);
         }),
+      submitReviewApproved: () => Effect.void,
       submitAutomatedReview: () => Effect.void,
       submitSlashCommand: (input) =>
         Effect.sync(() => {
@@ -103,6 +104,7 @@ describe("processWebhookPostRequestEffect", () => {
       AgentWorkScheduler,
       AgentWorkScheduler.of({
         recordIgnored: () => Effect.void,
+        submitReviewApproved: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
@@ -116,7 +118,7 @@ describe("processWebhookPostRequestEffect", () => {
         pullRequest: () => Effect.void,
         issueComment: () => Effect.void,
         pullRequestReviewComment: () => Effect.void,
-        approvalReview: () => Effect.void,
+        reviewApproved: () => Effect.void,
         ciRefresh: () => Effect.void,
       }),
     ),
@@ -180,6 +182,7 @@ describe("processWebhookPostRequestEffect", () => {
             entered = true;
             return admission;
           }),
+        submitReviewApproved: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
@@ -317,6 +320,7 @@ describe("processWebhookPostRequestEffect", () => {
           Effect.sync(() => {
             calls.push("recordIgnored");
           }),
+        submitReviewApproved: () => Effect.void,
         submitAutomatedReview: () =>
           Effect.sync(() => {
             calls.push("submitAutomatedReview");
@@ -351,9 +355,9 @@ describe("processWebhookPostRequestEffect", () => {
           Effect.sync(() => {
             calls.push("pullRequestReviewComment");
           }),
-        approvalReview: () =>
+        reviewApproved: () =>
           Effect.sync(() => {
-            calls.push("approvalReview");
+            calls.push("reviewApproved");
           }),
         ciRefresh: () =>
           Effect.sync(() => {
@@ -812,6 +816,7 @@ describe("processWebhookPostRequestEffect", () => {
       AgentWorkScheduler,
       AgentWorkScheduler.of({
         recordIgnored: () => Effect.void,
+        submitReviewApproved: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: (_headers, data) =>
@@ -1132,6 +1137,7 @@ describe("processWebhookPostRequestEffect", () => {
         AgentWorkScheduler,
         AgentWorkScheduler.of({
           recordIgnored: () => Effect.sleep("20 millis"),
+          submitReviewApproved: () => Effect.void,
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
           submitCiRefresh: () => Effect.void,
@@ -1145,7 +1151,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
-          approvalReview: () => Effect.void,
+          reviewApproved: () => Effect.void,
           ciRefresh: () => Effect.void,
         }),
       ),
@@ -1206,7 +1212,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
-          approvalReview: () => Effect.void,
+          reviewApproved: () => Effect.void,
           ciRefresh: () => Effect.void,
         }),
       ),
@@ -1245,6 +1251,7 @@ describe("processWebhookPostRequestEffect", () => {
         AgentWorkScheduler,
         AgentWorkScheduler.of({
           recordIgnored: () => Effect.fail(new Error("boom")),
+          submitReviewApproved: () => Effect.void,
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
           submitCiRefresh: () => Effect.void,
@@ -1258,7 +1265,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
-          approvalReview: () => Effect.void,
+          reviewApproved: () => Effect.void,
           ciRefresh: () => Effect.void,
         }),
       ),
@@ -1322,9 +1329,10 @@ describe("processWebhookPostRequestEffect", () => {
           Effect.sync(() => {
             decisions.push(decision);
           }),
-        submitAutomatedReview: (_headers, _ref, action) =>
+        submitAutomatedReview: () => Effect.void,
+        submitReviewApproved: (_headers, signal) =>
           Effect.sync(() => {
-            submitted.push(action);
+            submitted.push(signal.kind);
           }),
         submitSlashCommand: () => Effect.void,
         submitCiRefresh: () => Effect.void,
@@ -1349,10 +1357,10 @@ describe("processWebhookPostRequestEffect", () => {
     await Effect.runPromise(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
-        yield* handlers.approvalReview(
+        yield* handlers.reviewApproved(
           runCfg,
           { event: "pull_request_review", delivery, rawBody: Buffer.from("{}") },
-          payload,
+          { name: "pull_request_review", data: payload },
           intakeLog,
         );
       }).pipe(Effect.provide(approvalGateLayer(decisions, submitted))),
@@ -1395,7 +1403,7 @@ describe("processWebhookPostRequestEffect", () => {
       "d-approval-allowlist",
     );
 
-    expect(decisions).toEqual(["ignored_unauthorized_approval"]);
+    expect(decisions).toEqual(["ignored_unauthorized_slash"]);
     expect(submitted).toEqual([]);
   });
 
@@ -1406,7 +1414,7 @@ describe("processWebhookPostRequestEffect", () => {
       "d-approval-wrong-mode",
     );
 
-    expect(decisions).toEqual(["ignored_approval_review_not_enabled"]);
+    expect(decisions).toEqual(["ignored_review_approval_not_enabled"]);
     expect(submitted).toEqual([]);
   });
 
@@ -1418,7 +1426,7 @@ describe("processWebhookPostRequestEffect", () => {
     );
 
     expect(decisions).toEqual([]);
-    expect(submitted).toEqual(["approval"]);
+    expect(submitted).toEqual(["pull_request_review"]);
   });
 
   it("returns 200 before slow emitOperationLogger settles", async () => {

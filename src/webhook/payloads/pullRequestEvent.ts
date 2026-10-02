@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import {
   githubPrNumberSchema,
+  githubSafeIdSchema,
   githubShaSchema,
   installationSchema,
   repositorySchema,
@@ -26,9 +27,14 @@ export const pullRequestWebhookSchema = v.pipe(
     before: v.optional(githubShaSchema),
     pull_request: v.object({
       number: githubPrNumberSchema,
+      author_association: v.nullish(v.string()),
       head: v.object({
         sha: githubShaSchema,
+        repo: v.nullish(v.object({ id: v.nullish(githubSafeIdSchema) })),
       }),
+      base: v.optional(
+        v.object({ repo: v.nullish(v.object({ id: v.nullish(githubSafeIdSchema) })) }),
+      ),
       merged: v.optional(v.boolean(), false),
       state: v.optional(v.picklist(["open", "closed"])),
       updated_at: v.optional(lifecycleTimestampSchema),

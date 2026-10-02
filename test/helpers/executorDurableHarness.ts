@@ -154,7 +154,5 @@ export function makeDurableJobMetadata(
     sourceId: null,
     sourceCreatedOn: null,
     sourceRetryCount: null,
-    sourceOutput: null,
-    sourceRootId: null,
   };
 }

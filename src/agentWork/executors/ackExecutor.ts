@@ -25,11 +25,13 @@ import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import {
   parseProgressRevisionState,
   renderReviewCancelledNotice,
+  renderReviewAwaitingApprovalNotice,
   renderReviewProgressComment,
 } from "../../review/run/progressComment.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.js";
+import { canPublishApprovalNotice } from "../intake/reviewApprovals.js";
 
 /** True when this ack may still write the shared progress comment for its work item. */
 export async function canAckPublishProgress(
@@ -242,7 +244,29 @@ export async function executeAckJob(
   const prSurface = ackPrSurface(cfg, data, installation);
   const resourceKey = prResourceKey(data.owner, data.repo, data.prNumber);
 
-  await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_EYES);
+  if (!data.awaitingApproval && !data.closedApproval) {
+    await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_EYES);
+  }
+
+  if (data.awaitingApproval || data.closedApproval) {
+    await upsertSummaryCommentWithCreationClaim({
+      pool,
+      resourceKey,
+      reviewLens: "review",
+      prSurface,
+      body: data.closedApproval
+        ? renderReviewCancelledNotice({ attribution: data.closedApproval, progressRevision: 1 })
+        : renderReviewAwaitingApprovalNotice(),
+      sentinel: REVIEW_SUMMARY_SENTINEL,
+      progressRevision: data.closedApproval ? 1 : 0,
+      shouldPublish: (client) =>
+        canPublishApprovalNotice(
+          client,
+          resourceKey,
+          data.closedApproval ? "withdrawn" : "awaiting",
+        ),
+    });
+  }
 
   // Cancel before progress: `/review force` acks carry both, and the new run's
   // queued stub must be the final state after the cancelled notice lands.

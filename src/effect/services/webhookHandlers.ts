@@ -5,13 +5,13 @@ import type { RequestLogger } from "../../evlog.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { commentMentionsBot } from "../../commands/parseBotMention.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
-import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
+import { isSlashAssociationAllowed, reviewAuthorTrust } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import {
   IGNORED_BOT_SLASH_COMMAND,
-  IGNORED_UNAUTHORIZED_APPROVAL,
+  IGNORED_REVIEW_APPROVAL_NOT_ENABLED,
   IGNORED_UNAUTHORIZED_SLASH,
 } from "../../settings/index.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
@@ -19,7 +19,10 @@ import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestR
 import { prNumbersForCiHead, type CiHeadSource } from "../../webhook/payloads/ciHeadSource.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
-type PullRequestReviewData = Extract<ParsedGithubEvent, { name: "pull_request_review" }>["data"];
+type ReviewApprovedEvent = Extract<
+  ParsedGithubEvent,
+  { name: "pull_request_review" | "workflow_run_started" }
+>;
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
 type PullRequestReviewCommentData = Extract<
   ParsedGithubEvent,
@@ -54,10 +57,10 @@ export class WebhookHandlers extends Context.Service<
       data: PullRequestData,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
-    readonly approvalReview: (
+    readonly reviewApproved: (
       cfg: Config,
       headers: WebhookHeaders,
-      data: PullRequestReviewData,
+      event: ReviewApprovedEvent,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly issueComment: (
@@ -89,14 +92,19 @@ export const WebhookHandlersCore = Layer.effect(
     /**
      * Bot + association gate. Returns bot identity when intake may proceed, or null when gated.
      */
-    const gateSlashCommand = (
+    const gateMaintainerSignal = (
       cfg: Config,
       headers: WebhookHeaders,
       commenterId: number,
       association: string | null | undefined,
       intakeLog: RequestLogger,
+      userType?: string,
     ): Effect.Effect<BotIdentity | null, Error> =>
       Effect.gen(function* () {
+        if (userType?.toLowerCase() === "bot") {
+          yield* scheduler.recordIgnored(headers, IGNORED_BOT_SLASH_COMMAND, intakeLog);
+          return null;
+        }
         const bot = yield* Effect.tryPromise({
           try: async () => getAppBotIdentity(cfg),
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
@@ -134,7 +142,7 @@ export const WebhookHandlersCore = Layer.effect(
       intakeLog: RequestLogger,
     ): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
-        const bot = yield* gateSlashCommand(
+        const bot = yield* gateMaintainerSignal(
           cfg,
           headers,
           input.commenterId,
@@ -197,7 +205,7 @@ export const WebhookHandlersCore = Layer.effect(
           );
           return;
         }
-        const bot = yield* gateSlashCommand(
+        const bot = yield* gateMaintainerSignal(
           cfg,
           headers,
           data.comment.user.id,
@@ -252,6 +260,7 @@ export const WebhookHandlersCore = Layer.effect(
             data.action ?? "",
             intakeLog,
             {
+              authorTrust: reviewAuthorTrust(data.pull_request),
               pushBeforeSha: data.before,
               merged: data.pull_request.merged,
               lifecycle:
@@ -271,49 +280,55 @@ export const WebhookHandlersCore = Layer.effect(
           );
         }),
 
-      approvalReview: (cfg, headers, data, intakeLog) =>
+      reviewApproved: (cfg, headers, event, intakeLog) =>
         Effect.gen(function* () {
-          // Approval gate: only a submitted approving review from a reviewer
-          // with standing may trigger an approval-mode review. Any bot
-          // (own App or otherwise) and outside associations fail closed.
-          const reviewerType = data.review.user.type?.toLowerCase();
-          if (reviewerType === "bot") {
-            yield* scheduler.recordIgnored(headers, IGNORED_BOT_SLASH_COMMAND, intakeLog);
-            return;
-          }
-          const bot = yield* Effect.tryPromise({
-            try: async () => getAppBotIdentity(cfg),
-            catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-          });
-          if (data.review.user.id === bot.userId) {
-            yield* scheduler.recordIgnored(headers, IGNORED_BOT_SLASH_COMMAND, intakeLog);
-            return;
-          }
-          if (
-            !isSlashAssociationAllowed(cfg.slashAllowedAssociations, data.review.author_association)
-          ) {
-            yield* scheduler.recordIgnored(headers, IGNORED_UNAUTHORIZED_APPROVAL, intakeLog);
-            return;
-          }
           if (cfg.features.review !== "approval") {
-            yield* scheduler.recordIgnored(
+            yield* scheduler.recordIgnored(headers, IGNORED_REVIEW_APPROVAL_NOT_ENABLED, intakeLog);
+            return;
+          }
+          if (event.name === "workflow_run_started") {
+            const data = event.data;
+            yield* scheduler.submitReviewApproved(
               headers,
-              "ignored_approval_review_not_enabled",
+              {
+                kind: "workflow_run",
+                installationId: data.installation.id,
+                owner: data.repository.owner.login,
+                repo: data.repository.name,
+                headSha: data.workflow_run.head_sha,
+                prNumbers: prNumbersForCiHead(
+                  data.workflow_run.head_sha,
+                  data.workflow_run.pull_requests,
+                ),
+              },
               intakeLog,
             );
             return;
           }
-          yield* scheduler.submitAutomatedReview(
+          const data = event.data;
+          const review = data.review;
+          const bot = yield* gateMaintainerSignal(
+            cfg,
+            headers,
+            review.user.id,
+            review.author_association,
+            intakeLog,
+            review.user.type,
+          );
+          if (!bot) return;
+          yield* scheduler.submitReviewApproved(
             headers,
             {
-              owner: data.repository.owner.login,
-              repo: data.repository.name,
-              prNumber: data.pull_request.number,
-              headSha: data.pull_request.head.sha,
-              installationId: data.installation.id,
-              repositorySizeKb: data.repository.size,
+              kind: "pull_request_review",
+              ref: {
+                owner: data.repository.owner.login,
+                repo: data.repository.name,
+                prNumber: event.data.pull_request.number,
+                headSha: event.data.pull_request.head.sha,
+                installationId: data.installation.id,
+                repositorySizeKb: data.repository.size,
+              },
             },
-            "approval",
             intakeLog,
           );
         }),

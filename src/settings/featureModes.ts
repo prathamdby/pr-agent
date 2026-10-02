@@ -31,10 +31,3 @@ export const DEFAULT_FEATURE_TRIAGE: CommandFeatureMode = "manual";
 export const DEFAULT_FEATURE_REVIEW_LABELS: ReviewLabelsMode = "size";
 export const DEFAULT_FEATURE_COMMIT_STATUS = false;
 export const DEFAULT_FEATURE_TITLE_REWRITE = true;
-
-/** `pull_request` actions that fire each capability in `auto` mode. Not configurable on purpose. */
-export const AUTO_TRIGGER_ACTIONS = {
-  review: new Set(["opened"]),
-  describe: new Set(["opened"]),
-  verification: new Set(["synchronize"]),
-} as const;

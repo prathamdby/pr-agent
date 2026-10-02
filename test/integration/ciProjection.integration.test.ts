@@ -386,35 +386,43 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     await expect(webhookDecision(delivery)).resolves.toBe("automated_review_enqueued");
   });
 
-  it("records automated work without review on opened in approval mode", async () => {
-    const delivery = `ci-pr-approval-open-${randomUUID().slice(0, 8)}`;
-    const approvalCfg = makeTestConfig({
-      features: { ...cfg.features, review: "approval" },
-    });
+  it.each(["trusted", "awaiting_approval"] as const)(
+    "records approval-mode opened work for %s authors",
+    async (authorTrust) => {
+      const delivery = `ci-pr-approval-open-${randomUUID().slice(0, 8)}`;
+      const approvalCfg = makeTestConfig({
+        features: { ...cfg.features, review: "approval" },
+      });
 
-    await applyAutomatedPullRequestIntake(
-      boss,
-      pool,
-      headers("pull_request", delivery),
-      {
-        owner: OWNER,
-        repo: REPO,
-        prNumber: PR_NUMBER,
-        installationId: 9001,
-        headSha: "a1".repeat(20),
-      },
-      "opened",
-      intakeLog(),
-      approvalCfg,
-    );
+      await applyAutomatedPullRequestIntake(
+        boss,
+        pool,
+        headers("pull_request", delivery),
+        {
+          owner: OWNER,
+          repo: REPO,
+          prNumber: PR_NUMBER,
+          installationId: 9001,
+          headSha: "a1".repeat(20),
+        },
+        "opened",
+        intakeLog(),
+        approvalCfg,
+        { authorTrust },
+      );
 
-    await expect(webhookDecision(delivery)).resolves.toBe("automated_work_enqueued");
-    const { rows } = await pool.query<{ type: string }>(
-      "SELECT type FROM agent_work_items WHERE owner = $1",
-      [OWNER],
-    );
-    expect(rows.map((row) => row.type)).toEqual(["description"]);
-  });
+      await expect(webhookDecision(delivery)).resolves.toBe(
+        authorTrust === "trusted" ? "automated_review_enqueued" : "review_awaiting_approval",
+      );
+      const { rows } = await pool.query<{ type: string }>(
+        "SELECT type FROM agent_work_items WHERE owner = $1",
+        [OWNER],
+      );
+      expect(rows.map((row) => row.type).toSorted()).toEqual(
+        authorTrust === "trusted" ? ["description", "review"] : ["description"],
+      );
+    },
+  );
 
   it("records a review supersede request on synchronize in approval mode", async () => {
     const delivery = `ci-pr-approval-sync-${randomUUID().slice(0, 8)}`;
