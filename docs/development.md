@@ -28,7 +28,7 @@ before fresh admission. An ordinary or foreign summary cannot select this path.
 | Agent work execution                      | `src/agentWork/executors/`                    | individual executor files imported by `worker.ts`; `closeOwnVerdict.ts` is the only writer for `PR Agent Review` and optional `pr-agent/review`; `prHeadCiState.ts` owns `pr_head_ci_state` reads and writes                                                                             |
 | Web / worker layers                       | `src/agentWork/runtime.ts`, `worker.ts`       | `agentWorkWebLive` (web); `agentWorkWorkerLive` (worker-only import graph)                                                                                                                                                                                                               |
 | Ask / description / verification / triage | `src/agent/`                                  | `ask/askRun.ts`, `description/descriptionRun.ts`, `verification/verificationRun.ts`, `triage/` (executor also under `src/agentWork/executors/`)                                                                                                                                          |
-| Pi session seam                           | `src/agent/runtime/`                          | `piSession.ts` (`createPiSession`, `createFakePiSession`); `createFeaturePiSession` resolves the attempt's model and wraps `send` so sessions keep checkpoint/snapshot persistence — feature harnesses must not import raw Pi SDK sessions or `runAgentLoop`                             |
+| Pi session seam                           | `src/agent/runtime/`                          | `piSession.ts` (`createPiSession`; the fake adapter is not used by feature harnesses); `createFeaturePiSession` resolves the attempt's model and wraps `send` so sessions keep checkpoint/snapshot persistence — feature harnesses must not import raw Pi SDK sessions or `runAgentLoop` |
 | PR surface seam                           | `src/github/`                                 | `prSurface.ts` (`createPrSurface`, `createFakePrSurface`); leased mutation recovery is `recoverPrSurfaceMutation.ts` — worker/feature code must not import `prSurfaceImpl.ts` or thread installation tokens                                                                              |
 | Agent tool outputs                        | `src/agent/tools/`                            | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `codeIndexTools.ts`, `context7Tools.ts`; review sessions fence results with `wrapUntrustedEvidence` in `src/review/run/reviewRunSetup.ts`                                                                                               |
 | Code Mode                                 | `src/agent/codemode/`, `src/agent/execution/` | `execute({ code })` QuickJS cell; `guestCatalogue.ts` generates the installed `tools.*` signatures for the execute description and role prompts; terminal submit/publish tools stay native siblings                                                                                      |
@@ -122,6 +122,15 @@ Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Fiel
 ## Prompt prose
 
 Long investigator prompt blocks stay in prompt modules. Correctness uses `src/review/prompts/reviewSystemPrompt.ts`. Security, quality, and tests personas live under `src/agent/prompts/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc). The correctness persona prompt includes an ordered risk-directed investigation method; its high-signal bug-pattern list remains supporting recognition. Code Mode roles also include a generated guest-capability catalogue from `src/agent/codemode/guestCatalogue.ts` in the stable prefix. That list is the installed `tools.*` set for that role, not the bug-pattern list. Description and triage keep native workspace tools and do not receive `execute`. CI summary and bound-policy judgment are no-tool JSON turns. Inspect a persona's generated prompt with `nub run dump-prompt <persona>` (`scripts/dump-prompt.ts`); prompt changes are proven by inspected prompt output, not `check:code` alone.
+
+`nub run dump-prompt all` emits deterministic JSON for every role's system prompt
+and ordered tool definitions, including native workspace definitions hidden by
+Code Mode and the compaction prompts. It constructs definitions without running
+tools, creating sessions, or contacting providers. Compare its complete output
+before and after a refactor; an empty diff protects the stable prefixes from
+[ADR 0025](adr/0025-prompt-cache-stability.md), not provider cache hit rates.
+The persisted-identity golden cases and module deletion verdicts are recorded in
+[ADR 0043](adr/0043-deep-module-map.md).
 
 ## Static guards and generated maps
 

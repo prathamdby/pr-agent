@@ -1,0 +1,110 @@
+# ADR 0043: Deep module map
+
+## Status
+
+Proposed. M0 establishes the compatibility evidence before implementation.
+
+## Context
+
+Durable intake, execution, publication, and recovery have ordering contracts that
+callers must currently assemble. Moving those contracts is safe only when their
+persisted identities, lease predicates, trusted context, and model-visible bytes
+remain unchanged.
+
+## Decision
+
+Deep modules own ordering behind small interfaces. Delete a module only when it
+has no current caller or product reason. Keep a module when removing its interface
+would expose meaningful policy or complexity. A module that makes callers repeat
+its ordering needs a deepen verdict before the next milestone.
+
+The implementation order is M0, M1, M2, M3, M5, M4, M6, M7, M8, M9, M10, M11,
+M12, M13, M14, M15, M16, M17, M18. Each milestone runs the backend gate, the
+dedicated-database integration suite, disposable-stack verification, and a
+byte-for-byte prompt dump comparison before staged deslop and a scoped commit.
+One pull request targets `main`; no migration or runtime change is authorized
+by this document alone.
+
+Persisted operation keys, child mutation hashes, publish steps, hidden comment
+markers, queue names, log events, and analytics properties keep their existing
+bytes while readers exist. ADR 0025's system and tool prefixes remain unchanged.
+The golden compatibility cases live in the existing
+`test/integration/publishRecordBatches.integration.test.ts`; prompt inspection
+uses `nub run dump-prompt all`.
+
+## M0 failure modes
+
+Write these before changing the tests or implementation:
+
+1. Renaming an operation key or changing its input hashing remutates an accepted
+   GitHub write on replay.
+2. Dropping a parent operation frame makes nested mutations collide or escape
+   the parent's recovery lookup.
+3. Changing a hidden marker leaves an existing comment or mutation unreadable.
+4. Renaming a publish step or lens loses completion evidence or changes its
+   uniqueness scope.
+5. Changing queue identities strands retained jobs.
+6. Changing telemetry names or property values breaks existing consumers.
+7. A prompt dump omits a role, optional tool, or generated tool catalogue and
+   falsely claims stable provider prefixes.
+8. A dump contains timestamps, credentials, paths, or nondeterministic identifiers
+   and cannot support a reproducible comparison.
+9. A shallow module is retained without a caller, or a useful invariant owner is
+   deleted because only its file size was considered.
+10. The dump script is excluded from typechecking and silently keeps a stale
+    execution-outcome shape. Typecheck the script; the judgment renderer accepts
+    report data, not execution status, without changing rendered bytes.
+
+## Deletion verdicts
+
+No deletion candidates. Four modules keep useful boundaries. Three require
+deepening, not removal:
+
+| Module               | Verdict | Current caller and owned or leaked contract                                                                                                                                                                                               |
+| -------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `askQuota`           | Deepen  | `intake/askIntake.ts::applyAskIntake` must reserve quota, insert work, and compensate an insertion conflict in one transaction. Bucket ordering and execution-receipt accounting already belong to `askQuota`.                            |
+| `prHeadCiState`      | Keep    | Intake and CI projection use its locked newer-observation merge, idempotent seed, and material-change revision writers. `publishVerificationFailure.ts::writeVerificationSignal` already owns atomic signal/revision/enqueue composition. |
+| `publishTriage`      | Deepen  | `triageExecutor.ts` parses a stored push, fabricates a checkout, and supplies `priorPush` to avoid pushing again. The publisher already owns intent recovery, push-before-thread-resolution, and report publication.                      |
+| `triageExecutor`     | Deepen  | Fresh and bulk paths separately install commit/push guards. Preview independently refuses push. Recovery and attempt admission must retain their existing order behind one triage execution boundary.                                     |
+| `agentEventSink`     | Keep    | `createFeatureSession.ts` uses its lifecycle-to-event/span projection and shared database/analytics fan-out.                                                                                                                              |
+| `lifecycleSanitizer` | Keep    | `piSessionImpl.ts` wraps the sink with its forbidden-field, role, phase, and event-kind policy. It is a security boundary, not a pass-through.                                                                                            |
+| `localPrWorkspace`   | Keep    | `prRepositoryView.ts` uses its pinned-head preparation, credential removal, symlink removal, read-only tree, bounded search, and failure cleanup. M7 may narrow its returned reader interface without deleting its lifecycle owner.       |
+
+### Proposed milestone amendments
+
+Approve these before M1:
+
+- **M11, atomic ask admission:** keep retained-mention resolution before quota
+  admission. Make admission, work insertion, and insertion-conflict compensation
+  one operation on the delivery transaction. Queue writes remain transactional.
+  Keep terminal reservation release in the existing database trigger.
+- **M8/M13, triage publication recovery:** the publication boundary selects,
+  parses, and validates stored push evidence before recovery-only publication.
+  Do not pass a fabricated checkout or an independently supplied `priorPush`
+  from feature orchestration. Preserve stored bytes, intents, and epochs.
+- **M7/M13, triage write policy:** one triage execution boundary selects preview,
+  apply, or bulk capabilities and installs cancellation/closed-PR mutation
+  guards. Preview cannot push. Recovery precedes fresh-attempt admission.
+
+Failure modes for these additions, before tests or code: a reservation without
+matching work; conflict compensation outside the delivery transaction; mismatched
+stored head or inventory skipping a required push; a fresh branch missing a
+commit/push guard; preview acquiring push authority; recovery spending an attempt.
+The existing ask-intake, triage executor/publication, and durable integration
+suites remain their owner tests. No new test files are proposed.
+
+The golden child table also records that `publishDescription` hashes its complete
+runtime argument, including configuration fields beyond its declared `Pick`.
+M16/M17 must preserve retained mutation identities when narrowing that argument
+or replacing the method. Renaming a TypeScript method is not permission to rename
+the wire mutation kind or the recovery lookup for existing intents.
+
+## Consequences
+
+No new test files or main-site copy changes. Existing invariant owner tests stay
+at their strongest boundary. Baselines may only shrink. Web and worker keep the
+same persisted payloads and deploy together when internal contracts move.
+
+ADR 0023 decision 6 remains in force until M5 proves that the checkpoint and
+resume-snapshot tables have no readers outside the deleted subsystem. M5 will
+record that proof and amend the decision in the same commit as migration 036.

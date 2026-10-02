@@ -19,6 +19,23 @@ import {
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
 import { AppError } from "../../src/errors/appError.js";
 import type { ReviewJobData } from "../../src/agentWork/types.js";
+import { prResourceKey } from "../../src/agentWork/types.js";
+import {
+  claimSummaryCommentCreation,
+  ownVerdictCloseOperationKey,
+  recordAskPublishStep,
+  type PublishStep,
+} from "../../src/agentWork/publishRecordRepository.js";
+import { saveVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
+import { WORKER_CONSUMER_QUEUES, WORKER_DLQ_QUEUES } from "../../src/agentWork/workerHealth.js";
+import * as analytics from "../../src/analytics/index.js";
+import * as evlog from "../../src/evlog.js";
+import {
+  captureCiStateChanged,
+  captureDurableWorkCompleted,
+  captureWebhookReceived,
+  captureWorkRetried,
+} from "../../src/analytics/workCompleted.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as surfaceFactory from "../../src/github/prSurface.js";
 import { withPrSurfaceMutationBoundary } from "../../src/github/prSurfaceMutation.js";
@@ -26,12 +43,37 @@ import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutat
 import { findReviewCheckRunByName } from "../../src/github/reviewPublish.js";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../../src/settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
+import { withProgressRevisionComment } from "../../src/review/run/progressComment.js";
+import {
+  renderReviewPointerLensMarker,
+  renderStaleReviewMetadataComment,
+} from "../../src/review/run/reviewRender.js";
+import { renderCiRollupMarker } from "../../src/review/ci/ciRollupMarker.js";
+import { renderCiActionPhrase } from "../../src/review/ci/ciSummaryCell.js";
+import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
+import { renderClearedVerificationFailureStub } from "../../src/review/ci/verificationFailureBlock.js";
+import { wrapDescriptionAgentBlock } from "../../src/agent/description/descriptionBodyMerge.js";
 import { makeTestConfig } from "../helpers/config.js";
 import {
   runInOperationIntentFrame,
   withOperationIntent,
   operationIntentMarker,
   type WithOperationIntentParams,
+  askReplyOperationKey,
+  askFailureReplyOperationKey,
+  descriptionPrBodyOperationKey,
+  deterministicInlineBatchId,
+  reviewInlineBatchOperationKey,
+  reviewSummaryOperationKey,
+  triagePushOperationKey,
+  triageThreadOperationKey,
+  triageReportOperationKey,
+  triagePreviewOperationKey,
+  verificationThreadOperationKey,
+  verificationFailureOperationKey,
+  reviewCheckOperationKey,
+  reviewCommitStatusOperationKey,
+  reviewLabelsOperationKey,
 } from "../../src/agentWork/withOperationIntent.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -52,6 +94,402 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
   afterEach(() => {
     vi.restoreAllMocks();
     durableJob.clearDurableAuthCachesForTest();
+  });
+
+  it("keeps the golden operation, marker, queue, and telemetry wire identities", () => {
+    const resourceKey = prResourceKey("golden", "repo", 7);
+    const batchId = deterministicInlineBatchId({
+      workItemId: "golden-work",
+      specialist: "correctness",
+      findingFingerprints: ["fp-b", "fp-a"],
+    });
+    const keys = [
+      askReplyOperationKey(resourceKey),
+      askReplyOperationKey(resourceKey, 70),
+      askFailureReplyOperationKey(resourceKey),
+      askFailureReplyOperationKey(resourceKey, 70),
+      descriptionPrBodyOperationKey(resourceKey),
+      reviewInlineBatchOperationKey(batchId),
+      reviewSummaryOperationKey(resourceKey, "review"),
+      triagePushOperationKey(resourceKey),
+      triageThreadOperationKey(70),
+      triageReportOperationKey(resourceKey),
+      triagePreviewOperationKey(resourceKey),
+      verificationThreadOperationKey(70),
+      verificationFailureOperationKey("abc1234"),
+      reviewCheckOperationKey("golden-work"),
+      ownVerdictCloseOperationKey({
+        workItemId: "golden-work",
+        resourceKey,
+        reviewLens: "review",
+      }),
+      ...(["pending", "success", "failure", "error"] as const).map((state) =>
+        reviewCommitStatusOperationKey(resourceKey, "abc1234", state),
+      ),
+      reviewLabelsOperationKey(resourceKey),
+    ];
+    expect(keys).toEqual([
+      "ask:reply:golden/repo#7",
+      "ask:reply:golden/repo#7:70",
+      "ask:failure_reply:golden/repo#7",
+      "ask:failure_reply:golden/repo#7:70",
+      "description:pr_body:golden/repo#7",
+      "review:inline:ac9015646ef60021fd1f416ef9f5c0b4",
+      "review:summary:review:golden/repo#7",
+      "triage:push:golden/repo#7",
+      "triage:thread:70",
+      "triage:report:golden/repo#7",
+      "triage:preview:golden/repo#7",
+      "verification:thread:70",
+      "verification:failure:abc1234",
+      "review:check_run:golden-work",
+      "review:check_run_close:golden-work:review",
+      "review:commit_status:golden/repo#7:abc1234:pending",
+      "review:commit_status:golden/repo#7:abc1234:success",
+      "review:commit_status:golden/repo#7:abc1234:failure",
+      "review:commit_status:golden/repo#7:abc1234:error",
+      "review:labels:golden/repo#7",
+    ]);
+    expect([
+      operationIntentMarker("review:summary:review:golden/repo#7", "golden-work"),
+      withProgressRevisionComment("Golden progress", 7, "golden/work"),
+      withProgressRevisionComment("Legacy progress", 7),
+      renderStaleReviewMetadataComment({ headSha: "abc1234", mode: "review", stale: false }),
+      renderReviewPointerLensMarker("review-security"),
+      renderCiRollupMarker("abc1234", 3, "passing"),
+      renderCiActionPhrase("CI is passing"),
+      renderCiSummaryCell(
+        { status: "passing", headline: "CI is passing", failures: [] },
+        "abc1234",
+        3,
+      ),
+      wrapDescriptionAgentBlock("Golden description"),
+      renderClearedVerificationFailureStub(),
+    ]).toEqual([
+      "<!-- pr-agent:operation-intent dccbbf3d94b8df60ea6d339e -->",
+      "Golden progress\n<!-- pr-agent:progress-revision workItemId=golden%2Fwork value=7 -->",
+      "Legacy progress\n<!-- pr-agent:progress-revision 7 -->",
+      "<!-- pr-agent:review-meta headSha=abc1234 lens=review stale=false -->",
+      "<!-- pr-agent:review-pointer lens=review-security -->",
+      "<!-- pr-agent:ci-rollup head=abc1234 v=3 -->passing<!-- /pr-agent:ci-rollup -->",
+      "<!-- pr-agent:ci-action fmt=1 -->CI is passing<!-- /pr-agent:ci-action -->",
+      "<!-- pr-agent:ci-summary head=abc1234 v=3 fmt=1 -->CI is passing<!-- /pr-agent:ci-summary -->",
+      "<!-- PR_AGENT_DESCRIPTION_BEGIN -->\nGolden description\n<!-- PR_AGENT_DESCRIPTION_END -->",
+      "<!-- pr-agent:verification-failure --><!-- /pr-agent:verification-failure -->",
+    ]);
+    expect([...WORKER_CONSUMER_QUEUES].toSorted()).toEqual([
+      "agent-work-ack",
+      "agent-work-ask",
+      "agent-work-ci-projection",
+      "agent-work-description",
+      "agent-work-retention",
+      "agent-work-review",
+      "agent-work-triage",
+      "agent-work-verification",
+      "code-index-build",
+    ]);
+    expect([...WORKER_DLQ_QUEUES].toSorted()).toEqual([
+      "agent-work-ack-dead",
+      "agent-work-ask-dead",
+      "agent-work-ci-projection-dead",
+      "agent-work-description-dead",
+      "agent-work-review-dead",
+      "agent-work-triage-dead",
+      "agent-work-verification-dead",
+    ]);
+    const capture = vi.spyOn(analytics, "captureEvent").mockImplementation(() => {});
+    const item = {
+      id: "golden-work",
+      installationId: 42,
+      owner: "golden",
+      repo: "repo",
+      prNumber: 7,
+      headSha: "abc1234",
+    };
+    captureDurableWorkCompleted({
+      item,
+      workType: "review",
+      outcome: "published",
+      durationMs: 120,
+      attemptCount: 1,
+      publish: { publishAttempts: 0, publishStepCount: 5 },
+      extras: { reviewLens: "review", source: "slash", findingsCount: 2 },
+      ci: { rollup: "passing", failingCount: 0, authored: false },
+    });
+    captureWebhookReceived({
+      githubEvent: "pull_request",
+      delivery: "golden-delivery",
+      elapsedMs: 10,
+      outcome: "accepted",
+      reason: "automated_review_enqueued",
+    });
+    captureWorkRetried({
+      workItemId: item.id,
+      ...item,
+      workType: "review",
+      attemptCount: 1,
+      nextAttempt: 2,
+      retryDisposition: "transient",
+      escalationKinds: ["tool_rounds"],
+      failure: { failureDomain: "github", errorKind: "rate_limit" },
+    });
+    captureCiStateChanged({
+      ...item,
+      fromRollup: "pending",
+      toRollup: "passing",
+      version: 3,
+    });
+    expect(capture.mock.calls.map(([event]) => event)).toEqual([
+      {
+        distinctId: "installation:42",
+        event: "work completed",
+        properties: {
+          work_item_id: "golden-work",
+          work_type: "review",
+          outcome: "published",
+          reason: "published",
+          duration_ms: 120,
+          attempt_count: 1,
+          owner: "golden",
+          repo: "repo",
+          pr_number: 7,
+          head_sha: "abc1234",
+          publish_attempts: 0,
+          publish_step_count: 5,
+          review_lens: "review",
+          source: "slash",
+          findings_count: 2,
+          ci_rollup: "passing",
+          ci_failing_count: 0,
+          ci_authored: false,
+        },
+      },
+      {
+        distinctId: "server",
+        event: "webhook received",
+        properties: {
+          github_event: "pull_request",
+          delivery: "golden-delivery",
+          elapsed_ms: 10,
+          outcome: "accepted",
+          reason: "automated_review_enqueued",
+        },
+      },
+      {
+        distinctId: "installation:42",
+        event: "work item retried",
+        properties: {
+          work_item_id: "golden-work",
+          work_type: "review",
+          owner: "golden",
+          repo: "repo",
+          pr_number: 7,
+          head_sha: "abc1234",
+          attempt_count: 1,
+          next_attempt: 2,
+          retry_disposition: "transient",
+          escalation_kinds: ["tool_rounds"],
+          failure_domain: "github",
+          error_kind: "rate_limit",
+        },
+      },
+      {
+        distinctId: "installation:42",
+        event: "ci state changed",
+        properties: {
+          owner: "golden",
+          repo: "repo",
+          head_sha: "abc1234",
+          from_rollup: "pending",
+          to_rollup: "passing",
+          version: 3,
+        },
+      },
+    ]);
+  });
+
+  it("persists golden child mutation identities and publish steps, then replays quietly", async () => {
+    const workItemId = randomUUID();
+    const resourceKey = `integration/golden-${randomUUID()}#7`;
+    await pool.query(
+      `INSERT INTO agent_work_items
+         (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+       VALUES ($1, 'review', 'slash', 'running', 'golden', 'repo', 7, 42, 'abc1234', 'review', $2, '{"mode":"review","source":"slash"}')`,
+      [workItemId, resourceKey],
+    );
+    try {
+      const { surface, controls } = createFakePrSurface(
+        { owner: "golden", repo: "repo", prNumber: 7 },
+        {
+          mutationBoundary: {
+            signal: new AbortController().signal,
+            run: (mutation, mutate) =>
+              withOperationIntent({
+                client: pool,
+                workItemId,
+                operationKey: mutation.operationKey,
+                mutationKind: mutation.mutationKind,
+                detail: mutation.detail,
+                allowsUndefinedResult: mutation.allowsUndefinedResult,
+                mutate,
+              }),
+          },
+        },
+      );
+      const publish = () =>
+        runInOperationIntentFrame("golden:publish", async () => {
+          await surface.setAcknowledgementReaction([{ kind: "pr", prNumber: 7 }], "eyes");
+          await surface.replyAt({ kind: "prConversation", prNumber: 7 }, "Golden reply");
+          await surface.upsertProgressComment("Golden progress", "## PR Agent Review", null);
+          await surface.editComment(70, "Golden edit");
+          await surface.setReviewCommitStatus("abc1234", {
+            state: "pending",
+            description: "Golden status",
+          });
+          await surface.publishThreadBatch({
+            body: "Golden batch",
+            event: "COMMENT",
+            commitId: "abc1234",
+          });
+          await surface.resolveInlineReviewThread("thread-70");
+          await surface.setLabels(["size:S"]);
+          await surface.startReviewCheck("abc1234", "golden-work", "Golden check");
+          await surface.finishReviewCheck({
+            checkRunId: 70,
+            conclusion: "success",
+            summary: "Golden finish",
+          });
+          await surface.editReviewComment(70, "Golden inline edit");
+          await surface.publishDescription(
+            makeTestConfig(),
+            { title: "Golden title", type: ["Enhancement"], description: "Golden description" },
+            "golden-marker",
+          );
+        });
+      await publish();
+      const goldenMutations = [
+        [
+          "setAcknowledgementReaction",
+          "4d09ac889232a31e821f810464fb52a090a0a1e05d301a6d2fe33b073dc6db3b",
+        ],
+        ["replyAt", "c0a257e85c86d90e91517cb171256feba89495bdf513c8847cf82a5a893cfd13"],
+        [
+          "upsertProgressComment",
+          "082b4f927fc7fd1166d470f47d6b22c421085d670fa7e9738efa20c80b9abcde",
+        ],
+        ["editComment", "332bd21bd9b63060867ed2f14abba7b0153128d29efe17fa4c1fe6212172bdbc"],
+        [
+          "setReviewCommitStatus",
+          "a7256e87080221c1ae6ea8aa8af01729e2a67e5b3ae40ac01fa46073691a822e",
+        ],
+        ["publishThreadBatch", "1624f184ccd4ad89fb30f0afd9e5ea3dfc2da5ca3c890f937de783f1f510a741"],
+        [
+          "resolveInlineReviewThread",
+          "6644b643cb21bbc999250057a3622cf81f0f1051a8c87dd1723abef1d05f3c5e",
+        ],
+        ["setLabels", "1fc69e3d719739df4222b34dd74e8409741a8a9fd61f7c64c7906eefb5d4cbd6"],
+        ["startReviewCheck", "cfcc743c2af2b8d92ddc6236b2f8fdc06d1d86b28ed469ea2674f085ade619c2"],
+        ["finishReviewCheck", "843928f34a07ccf776768e11f5f7d20ea6a94eaa9fb6db0b505f92e90a0cbb3f"],
+        ["editReviewComment", "b2e5dded37008c066689bb3a605ba1576271ea11ea15cdac0b736d7d2907f90e"],
+        ["publishDescription", "bf162594f55498fbf415bfab2fe1436e1dc15c53221dc7a4b34fa0eed967bb33"],
+      ] as const;
+      const intents = await pool.query(
+        `SELECT operation_key, mutation_kind, status,
+                detail->>'parentOperationKey' AS parent, detail->>'inputHash' AS hash
+           FROM operation_intents WHERE work_item_id = $1 ORDER BY mutation_kind`,
+        [workItemId],
+      );
+      expect(intents.rows).toEqual(
+        goldenMutations
+          .map(([method, hash]) => ({
+            operation_key: `golden:publish:surface:${method}:${hash}`,
+            mutation_kind: `github.pr_surface.${method}`,
+            status: "reconciled",
+            parent: "golden:publish",
+            hash,
+          }))
+          .toSorted((left, right) => left.mutation_kind.localeCompare(right.mutation_kind)),
+      );
+      const effects = controls.events.length;
+      await publish();
+      expect(controls.events).toHaveLength(effects);
+      expect(controls.replies).toHaveLength(1);
+      expect(controls.threadBatches).toHaveLength(1);
+
+      const steps = [
+        ["review", "progress_comment"],
+        ["review", "inline_review"],
+        ["review", "summary_comment"],
+        ["review", "labels"],
+        ["description", "pr_body"],
+        ["triage", "triage_push"],
+        ["triage", "triage_thread_actions"],
+        ["triage", "triage_report"],
+        ["triage", "triage_preview"],
+        ["review", "ci_cell"],
+        ["review", "commit_status"],
+        ["verification", "verification_failure"],
+      ] as const satisfies readonly (readonly [string, PublishStep])[];
+      for (const [reviewLens, step] of steps) {
+        await recordPublishStep(pool, {
+          workItemId,
+          resourceKey,
+          reviewLens,
+          step,
+          leaseEpoch: null,
+          githubId: 70,
+          detail: { golden: true },
+        });
+      }
+      await claimSummaryCommentCreation(pool, workItemId, resourceKey, "review", null);
+      await recordReviewCheckRun(pool, {
+        workItemId,
+        resourceKey,
+        reviewLens: "review",
+        githubId: 70,
+        leaseEpoch: null,
+      });
+      await recordAskPublishStep(pool, {
+        workItemId,
+        resourceKey,
+        step: "ask_reply",
+        githubId: 70,
+        leaseEpoch: null,
+      });
+      await saveVerificationThreadLedger(pool, {
+        workItemId,
+        resourceKey,
+        ledger: { threads: { "70": { lastVerdict: "fixed", terminal: true } } },
+        leaseEpoch: null,
+      });
+      const records = await pool.query(
+        "SELECT review_lens, step, status FROM publish_records WHERE work_item_id = $1 ORDER BY review_lens, step",
+        [workItemId],
+      );
+      expect(records.rows).toEqual(
+        [
+          ["ask", "ask_reply"],
+          ["description", "pr_body"],
+          ["review", "check_run"],
+          ["review", "ci_cell"],
+          ["review", "commit_status"],
+          ["review", "inline_review"],
+          ["review", "labels"],
+          ["review", "progress_comment"],
+          ["review", "summary_comment"],
+          ["review", "summary_comment_claim"],
+          ["triage", "triage_preview"],
+          ["triage", "triage_push"],
+          ["triage", "triage_report"],
+          ["triage", "triage_thread_actions"],
+          ["verification", "verification_failure"],
+          ["verification", "verification_thread_actions"],
+        ].map(([review_lens, step]) => ({ review_lens, step, status: "completed" })),
+      );
+    } finally {
+      await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+      await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+    }
   });
 
   it("publishes distinct nested batches and records each once across retries", async () => {
@@ -340,6 +778,8 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       const workItemId = randomUUID();
       const resourceKey = `integration/unknown-${randomUUID()}#1`;
       const cfg = makeTestConfig();
+      const info = vi.spyOn(evlog, "logInfo");
+      const failureLog = vi.spyOn(evlog, "logError");
       const boss = new PgBoss({ connectionString: cfg.databaseUrl });
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
@@ -544,6 +984,30 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           attemptCap,
         ]);
         await durableJob.runDurableWorkItem({ ...spec, execute });
+        expect(info).toHaveBeenCalledWith("agent_work_started", {
+          type: "review",
+          workItemId,
+          resourceKey,
+          leaseEpoch: 2,
+        });
+        if (method === "replyAt") {
+          expect(info).toHaveBeenCalledWith("agent_work_completed", {
+            type: "review",
+            workItemId,
+          });
+        } else {
+          expect(
+            failureLog.mock.calls.map(([event, fields]) => [
+              event,
+              fields?.errorCode,
+              fields?.retryDisposition,
+            ]),
+          ).toContainEqual([
+            "agent_work_failed",
+            "operation_intent.mutation_outcome_unknown",
+            "terminal",
+          ]);
+        }
         expect(
           controls.events.filter(
             (event) =>

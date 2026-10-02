@@ -6,13 +6,17 @@ import type {
   SpecialistOutcome,
 } from "../orchestratorTypes.js";
 import type { ReviewFinding } from "../../reviewSchema.js";
+import type { SpecialistReport } from "../specialistReport.js";
 import { fingerprintCandidates } from "../../findings/reviewFindingFingerprint.js";
 import { orchestratorHarness } from "../../../agent/prompts/harnessProtocol.js";
 import { ste100WritingGuidance } from "../../../agent/prompts/ste100Guidance.js";
 import { wrapUntrustedEvidence } from "../../../agent/prompts/promptBlocks.js";
 import { causalPublicationContract } from "../../prompts/reviewPromptBlocks.js";
 
-type ReportOutcome = Extract<SpecialistOutcome, { readonly kind: "report" }>;
+type ReportOutcome = {
+  readonly specialist: SpecialistId;
+  readonly report: SpecialistReport;
+};
 
 export const orchestratorSystemPrompt = [
   "You are the review orchestrator for one pull request.",
