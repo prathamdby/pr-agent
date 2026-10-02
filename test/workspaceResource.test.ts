@@ -1,17 +1,13 @@
-import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GIT_TOKEN_FILE_NAME } from "../src/prWorkspace/gitCredentials.js";
 import {
   allocateWorkspaceResource,
-  isRegisteredLiveLocalPrWorkspace,
   READONLY_WORKSPACE_ROOT_PREFIX,
-  readWorkspaceOwnerMarker,
   sweepStaleOwnedWorkspaces,
-  unregisterLiveLocalPrWorkspace,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
-  writeWorkspaceOwnerMarker,
 } from "../src/prWorkspace/workspaceResource.js";
 
 const STALE_AGE_MS = 3_600_000;
@@ -26,7 +22,6 @@ describe("WorkspaceResource", () => {
   afterEach(async () => {
     await Promise.all(
       roots.splice(0).map(async (root) => {
-        unregisterLiveLocalPrWorkspace(root);
         await rm(root, { recursive: true, force: true }).catch(() => undefined);
       }),
     );
@@ -53,7 +48,6 @@ describe("WorkspaceResource", () => {
     await expect(stat(join(leakedRoot as string, GIT_TOKEN_FILE_NAME))).rejects.toMatchObject({
       code: "ENOENT",
     });
-    expect(isRegisteredLiveLocalPrWorkspace(leakedRoot as string)).toBe(false);
     const dirsAfter = await workspaceDirs(READONLY_WORKSPACE_ROOT_PREFIX);
     expect(dirsAfter.every((name) => dirsBefore.has(name))).toBe(true);
   });
@@ -79,17 +73,35 @@ describe("WorkspaceResource", () => {
       installationToken: "unused",
     });
     roots.push(resource.rootDir);
-    expect(isRegisteredLiveLocalPrWorkspace(resource.rootDir)).toBe(true);
-    const marker = await readWorkspaceOwnerMarker(resource.rootDir);
+    const marker = JSON.parse(
+      await readFile(join(resource.rootDir, ".pr-agent-workspace-owner.json"), "utf8"),
+    );
     expect(marker?.pid).toBe(process.pid);
     expect(marker?.heartbeatAtMs).toBeGreaterThan(0);
 
     await resource.release();
     await expect(stat(resource.rootDir)).rejects.toMatchObject({ code: "ENOENT" });
-    expect(isRegisteredLiveLocalPrWorkspace(resource.rootDir)).toBe(false);
 
     await expect(resource.release()).resolves.toBeUndefined();
     await expect(resource.release()).resolves.toBeUndefined();
+  });
+
+  it("protects an allocated live root even with stale marker and directory ages", async () => {
+    const resource = await allocateWorkspaceResource({
+      prefix: READONLY_WORKSPACE_ROOT_PREFIX,
+      installationToken: "unused",
+    });
+    roots.push(resource.rootDir);
+    const stale = new Date(Date.now() - 4 * STALE_AGE_MS);
+    await writeFile(
+      join(resource.rootDir, ".pr-agent-workspace-owner.json"),
+      JSON.stringify({ pid: process.pid, heartbeatAtMs: stale.getTime() }),
+    );
+    await utimes(resource.rootDir, stale, stale);
+    await sweepStaleOwnedWorkspaces({ isPidAlive: () => false });
+    expect((await stat(resource.rootDir)).isDirectory()).toBe(true);
+    await resource.release();
+    await expect(stat(resource.rootDir)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("stale sweep skips another process's marked live root", async () => {
@@ -97,10 +109,13 @@ describe("WorkspaceResource", () => {
     roots.push(rootDir);
     await mkdir(join(rootDir, "checkout"), { recursive: true });
     const stale = new Date(Date.now() - 4 * STALE_AGE_MS);
-    await writeWorkspaceOwnerMarker(rootDir, {
-      pid: process.pid,
-      heartbeatAtMs: Date.now() - 4 * STALE_AGE_MS,
-    });
+    await writeFile(
+      join(rootDir, ".pr-agent-workspace-owner.json"),
+      JSON.stringify({
+        pid: process.pid,
+        heartbeatAtMs: Date.now() - 4 * STALE_AGE_MS,
+      }),
+    );
     await utimes(rootDir, stale, stale);
 
     await sweepStaleOwnedWorkspaces({
@@ -108,16 +123,18 @@ describe("WorkspaceResource", () => {
       isPidAlive: (pid) => pid === process.pid,
     });
     expect((await stat(rootDir)).isDirectory()).toBe(true);
-    expect(isRegisteredLiveLocalPrWorkspace(rootDir)).toBe(false);
   });
 
   it("stale sweep skips a recent heartbeat even when the owner pid is dead", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), WRITABLE_WORKSPACE_ROOT_PREFIX));
     roots.push(rootDir);
-    await writeWorkspaceOwnerMarker(rootDir, {
-      pid: 2_000_000_001,
-      heartbeatAtMs: Date.now(),
-    });
+    await writeFile(
+      join(rootDir, ".pr-agent-workspace-owner.json"),
+      JSON.stringify({
+        pid: 2_000_000_001,
+        heartbeatAtMs: Date.now(),
+      }),
+    );
     const stale = new Date(Date.now() - 4 * STALE_AGE_MS);
     await utimes(rootDir, stale, stale);
 
@@ -131,10 +148,13 @@ describe("WorkspaceResource", () => {
   it("stale sweep deletes a crashed owner's marked root after the grace period", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), READONLY_WORKSPACE_ROOT_PREFIX));
     try {
-      await writeWorkspaceOwnerMarker(rootDir, {
-        pid: 2_000_000_002,
-        heartbeatAtMs: Date.now() - 4 * STALE_AGE_MS,
-      });
+      await writeFile(
+        join(rootDir, ".pr-agent-workspace-owner.json"),
+        JSON.stringify({
+          pid: 2_000_000_002,
+          heartbeatAtMs: Date.now() - 4 * STALE_AGE_MS,
+        }),
+      );
       const stale = new Date(Date.now() - 4 * STALE_AGE_MS);
       await utimes(rootDir, stale, stale);
 
@@ -176,8 +196,9 @@ describe("WorkspaceResource", () => {
     roots.push(resource.rootDir);
 
     await resource.release();
-    expect(isRegisteredLiveLocalPrWorkspace(resource.rootDir)).toBe(false);
-    expect(await readWorkspaceOwnerMarker(resource.rootDir)).toBeNull();
+    await expect(
+      stat(join(resource.rootDir, ".pr-agent-workspace-owner.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     expect((await stat(resource.rootDir)).isDirectory()).toBe(true);
 
     const stale = new Date(Date.now() - 4 * STALE_AGE_MS);

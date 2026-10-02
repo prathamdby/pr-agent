@@ -2,10 +2,8 @@ import { lstat, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  assertContainedWorkspacePath,
-  stripWorkspaceSymlinks,
-} from "../src/prWorkspace/localPrWorkspace.js";
+import { stripWorkspaceSymlinks } from "../src/prWorkspace/localPrWorkspace.js";
+import { assertContainedWorkspacePath } from "../src/prWorkspace/repositoryReader.js";
 
 describe("workspace path containment", () => {
   const roots: string[] = [];

@@ -7,7 +7,7 @@ import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.js";
-import { buildLocalWorkspaceTools } from "../../agent/tools/localWorkspaceTools.js";
+import { buildWorkspaceTools } from "../../agent/tools/workspaceToolset.js";
 import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock, wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
@@ -87,10 +87,10 @@ export function buildReviewRunSetup(params: {
   const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
-    params.workspace.diffIndex ?? createCachedPrDiffIndex();
+    params.workspace.reader.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
-  const localTools = buildLocalWorkspaceTools(params.workspace, {
+  const localTools = buildWorkspaceTools(params.workspace.reader, {
     pathGate,
     headSha,
     ...(params.workItemId != null

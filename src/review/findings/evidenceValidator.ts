@@ -1,4 +1,4 @@
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { ReviewFinding } from "../reviewSchema.js";
 import { normalizeEvidencePath, type EvidenceLedger } from "./evidenceLedger.js";
 

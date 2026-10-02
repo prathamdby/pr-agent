@@ -1,7 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import { dirname, relative, sep } from "node:path";
 import { AppError } from "../../errors/appError.js";
-import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
+import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
 import { SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
 
 /**

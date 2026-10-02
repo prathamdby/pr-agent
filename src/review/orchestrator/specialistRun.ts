@@ -2,7 +2,7 @@ import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import {
   classifyProviderError,
   isCancelAbortError,

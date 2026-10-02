@@ -1,22 +1,26 @@
+import { logDebug } from "../../evlog.js";
+import {
+  createPathPolicy,
+  type CheckoutCoverage,
+  type GitGrepWorkspaceResult,
+  type PathPolicy,
+  type PinnedRepositoryReader,
+  type RepositoryReader,
+} from "../../prWorkspace/repositoryReader.js";
+import { normalizeRepoRelativePath } from "../triage/triageWritePolicy.js";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
-import type { CheckoutCoverage, LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
-import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
-  assertPathAllowedForAsk,
   createAskPathGate,
-  pathAllowedForAsk,
   redactPorcelainBlame,
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "../ask/askSafety.js";
-import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import { defineLocalTool, type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 import {
   MISSING_FROM_CHECKOUT_REASON,
   disposeSpillFile,
-  readBudgetedWorkspaceTextFile,
-  refuseWorkspaceTextFileRead,
   type BudgetedWorkspaceTextFileRead,
   type SpilledWorkspaceTextFileRead,
   type TextSpillScope,
@@ -57,7 +61,7 @@ const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
 };
 
 function primePathGate(
-  workspace: LocalPrWorkspace,
+  workspace: PinnedRepositoryReader,
   pathGate: AskPathGate,
   extraAllowedPaths?: readonly string[],
 ): void {
@@ -84,7 +88,7 @@ function coverageWarning(coverage: CheckoutCoverage): string | undefined {
   return parts.length > 0 ? parts.join("; ") : undefined;
 }
 
-function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
+function changedFileForPath(workspace: PinnedRepositoryReader, path: string) {
   return workspace.changedFileByPath.get(normalizeEvidencePath(path));
 }
 
@@ -177,7 +181,7 @@ function bigramDiceSimilarity(a: string, b: string): number {
 function suggestSimilarPaths(
   normalized: string,
   checkoutPaths: readonly string[],
-  pathGate: AskPathGate,
+  policy: PathPolicy,
 ): string[] {
   const { filename, entries } = sameDirEntries(normalized, checkoutPaths);
   const target = filename.toLowerCase();
@@ -186,10 +190,7 @@ function suggestSimilarPaths(
   for (const entry of entries) {
     if (entry === normalized) continue;
     const score = bigramDiceSimilarity(target, basenameOf(entry).toLowerCase());
-    if (
-      score >= LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY &&
-      pathAllowedForAsk(entry, pathGate)
-    ) {
+    if (score >= LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY && policy.allows(entry)) {
       scored.push({ path: entry, score });
     }
   }
@@ -197,8 +198,8 @@ function suggestSimilarPaths(
   return scored.slice(0, LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS).map((entry) => entry.path);
 }
 
-export function buildLocalWorkspaceTools(
-  workspace: LocalPrWorkspace,
+function buildInvestigationTools(
+  workspace: PinnedRepositoryReader,
   opts?: {
     readonly limits?: LocalWorkspaceToolLimits;
     readonly pathGate?: AskPathGate;
@@ -217,9 +218,10 @@ export function buildLocalWorkspaceTools(
   const evidenceLedger = opts?.evidenceLedger;
   const headSha = opts?.headSha ?? evidenceLedger?.headSha;
   const spillPaths: string[] = [];
+  const policy = createPathPolicy(workspace.agentCwd, { kind: "investigation", gate: pathGate });
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 
-  const listChangedFiles: LocalTool = {
+  const listChangedFiles = defineLocalTool({
     description:
       "Start here: list files changed in this pull request (path, status, presence in the PR head checkout).",
     schema: v.object({}),
@@ -233,9 +235,9 @@ export function buildLocalWorkspaceTools(
       truncated: workspace.stats.truncated,
       ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
     }),
-  };
+  });
 
-  const readWorkspaceFile: LocalTool = {
+  const readWorkspaceFile = defineLocalTool({
     description:
       "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; oversized reads spill to a session file and return a tail with `spilled: true` — the spill file is not read evidence, so re-read the source path with explicit startLine/maxLines before citing any line. On truncated, narrow the range — do not retry the same call unchanged. Missing paths explain why and may include similarPaths; empty files and past-EOF windows return a note — act on it instead of retrying.",
     schema: v.object({
@@ -245,7 +247,7 @@ export function buildLocalWorkspaceTools(
     }),
     run: async ({ path, startLine, maxLines }) => {
       const normalized = normalizeEvidencePath(path);
-      assertPathAllowedForAsk(normalized, pathGate);
+      policy.assertDiff(normalized);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, content: null };
@@ -307,24 +309,17 @@ export function buildLocalWorkspaceTools(
       // Repairing is the tool's job — but only on a single unambiguous match.
       const respondToMissing = async () => {
         const resolved = findUnicodeEquivalentPath(normalized, workspace.sortedCheckoutPaths);
-        if (resolved !== undefined && pathAllowedForAsk(resolved, pathGate)) {
+        if (resolved !== undefined && policy.allows(resolved)) {
           const repairNote = `requested '${normalized}' not found byte-for-byte; resolved to unicode-equivalent '${resolved}'`;
-          const resolvedResult = await readBudgetedWorkspaceTextFile(
-            assertWorkspacePath(workspace.agentCwd, resolved),
-            {
-              maxFileBytes: limits.maxFileBytes,
-              maxResponseBytes: limits.readResponseBytes,
-              window: { startLine, maxLines },
-              ...(opts?.spillScope != null ? { spillScope: opts.spillScope } : {}),
-            },
-          );
+          const resolvedResult = await workspace.readFile(resolved, policy, {
+            maxFileBytes: limits.maxFileBytes,
+            maxResponseBytes: limits.readResponseBytes,
+            window: { startLine, maxLines },
+            ...(opts?.spillScope != null ? { spillScope: opts.spillScope } : {}),
+          });
           return respondWithRead(resolved, resolvedResult, repairNote);
         }
-        const similarPaths = suggestSimilarPaths(
-          normalized,
-          workspace.sortedCheckoutPaths,
-          pathGate,
-        );
+        const similarPaths = suggestSimilarPaths(normalized, workspace.sortedCheckoutPaths, policy);
         return {
           path: normalized,
           refused: true,
@@ -337,23 +332,20 @@ export function buildLocalWorkspaceTools(
       if (!workspace.isPathInCheckout(normalized)) {
         return respondToMissing();
       }
-      const result = await readBudgetedWorkspaceTextFile(
-        assertWorkspacePath(workspace.agentCwd, normalized),
-        {
-          maxFileBytes: limits.maxFileBytes,
-          maxResponseBytes: limits.readResponseBytes,
-          window: { startLine, maxLines },
-          ...(opts?.spillScope != null ? { spillScope: opts.spillScope } : {}),
-        },
-      );
+      const result = await workspace.readFile(normalized, policy, {
+        maxFileBytes: limits.maxFileBytes,
+        maxResponseBytes: limits.readResponseBytes,
+        window: { startLine, maxLines },
+        ...(opts?.spillScope != null ? { spillScope: opts.spillScope } : {}),
+      });
       if (result.refused && result.refusalKind === "missing") {
         return respondToMissing();
       }
       return respondWithRead(normalized, result);
     },
-  };
+  });
 
-  const searchWorkspace: LocalTool = {
+  const searchWorkspace = defineLocalTool({
     description:
       "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. pathsSearched is how many checkout paths were scanned; filesScanned is the distinct matched file count.",
     schema: v.object({
@@ -361,9 +353,7 @@ export function buildLocalWorkspaceTools(
       maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
     }),
     run: async ({ query, maxResults }) => {
-      const allowedPaths = workspace.sortedCheckoutPaths.filter((path) =>
-        pathAllowedForAsk(path, pathGate),
-      );
+      const allowedPaths = workspace.sortedCheckoutPaths.filter((path) => policy.allows(path));
       const pathsSearched = allowedPaths.length;
       if (allowedPaths.length === 0) {
         return { matches: [], truncated: false, pathsSearched: 0, filesScanned: 0 };
@@ -400,15 +390,15 @@ export function buildLocalWorkspaceTools(
         ...(truncated ? { coverage, ...(warning ? { warning } : {}) } : {}),
       };
     },
-  };
+  });
 
-  const getWorkspaceDiff: LocalTool = {
+  const getWorkspaceDiff = defineLocalTool({
     description:
       "After listChangedFiles, read each change's PR unified diff before opening whole files. Path from the changed-file list. Responses are byte-capped; on truncated, narrow the path or follow up with a focused file read.",
     schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => {
       const normalized = normalizeEvidencePath(path);
-      assertPathAllowedForAsk(normalized, pathGate);
+      policy.assertDiff(normalized);
       const diff = await workspace.getDiffForPath(normalized);
       const capped = capTextOutput(diff, limits.diffResponseBytes, "response byte budget exceeded");
       if (evidenceLedger && headSha && capped.content.length > 0) {
@@ -427,15 +417,15 @@ export function buildLocalWorkspaceTools(
         ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
       };
     },
-  };
+  });
 
-  const getWorkspaceBlame: LocalTool = {
+  const getWorkspaceBlame = defineLocalTool({
     description:
       "Best-effort local git blame at PR head. Use only when authorship genuinely decides a finding. Responses are byte-capped; prefer startLine/maxLines on readWorkspaceFile for focused follow-up context.",
     schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
-      assertPathAllowedForAsk(normalized, pathGate);
+      policy.assertDiff(normalized);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, blame: null };
@@ -449,10 +439,7 @@ export function buildLocalWorkspaceTools(
           blame: null,
         };
       }
-      const refusal = await refuseWorkspaceTextFileRead(
-        assertWorkspacePath(workspace.agentCwd, normalized),
-        limits.maxFileBytes,
-      );
+      const refusal = await workspace.refuseFile(normalized, policy, limits.maxFileBytes);
       if (refusal) {
         return {
           path: normalized,
@@ -476,9 +463,9 @@ export function buildLocalWorkspaceTools(
         ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
       });
     },
-  };
+  });
 
-  const resolveSymbol: LocalTool = {
+  const resolveSymbol = defineLocalTool({
     description:
       "Look up symbol definitions in the ephemeral per-run symbol index (TypeScript/JavaScript/Python heuristics). Navigation hint only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
     schema: v.object({
@@ -499,7 +486,7 @@ export function buildLocalWorkspaceTools(
         reminder: "Call readWorkspaceFile before citing any match.",
       };
     },
-  };
+  });
 
   const tools: Record<string, LocalTool> = {
     listChangedFiles,
@@ -510,10 +497,7 @@ export function buildLocalWorkspaceTools(
     resolveSymbol,
   };
   return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
-    ),
+    ...defineToolset(tools),
     disposeSpillFiles: async () => {
       const paths = spillPaths.splice(0, spillPaths.length);
       const outcomes = await Promise.allSettled(
@@ -522,4 +506,215 @@ export function buildLocalWorkspaceTools(
       return paths.filter((_, index) => outcomes[index]?.status === "rejected");
     },
   };
+}
+
+const workspaceExecutionModes = new Map<string, "sequential">();
+export function workspaceToolExecutionMode(name: string): "sequential" | undefined {
+  return workspaceExecutionModes.get(name);
+}
+
+export function defineToolset(tools: Record<string, LocalTool>, mode?: "sequential") {
+  if (mode) for (const name of Object.keys(tools)) workspaceExecutionModes.set(name, mode);
+  return {
+    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
+    executors: Object.fromEntries(
+      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
+    ),
+  };
+}
+
+function buildVerificationTools(workspace: PinnedRepositoryReader) {
+  const root = workspace.agentCwd;
+  const policy = createPathPolicy(root, { kind: "verification" });
+  const readWorkspaceFile = defineLocalTool({
+    description: "Read a text file from the PR repository view. Path is repo-relative.",
+    schema: v.object({
+      path: v.pipe(v.string(), v.minLength(1)),
+      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+    }),
+    run: async ({ path, startLine, maxLines }) => {
+      const result = await workspace.readFile(path, policy, {
+        maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+        maxResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+        window: { startLine, maxLines },
+      });
+      if (result.refused) {
+        return { path, refused: true, reason: result.reason };
+      }
+      return { path, ...result };
+    },
+  });
+
+  const searchWorkspace = defineLocalTool({
+    description: "Search the PR repository view with git grep for a literal string.",
+    schema: v.object({
+      query: v.pipe(v.string(), v.minLength(1)),
+      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
+    }),
+    run: async ({ query, maxResults }) => {
+      const allowedPaths: string[] = [];
+      let filteredCount = 0;
+      for (const path of workspace.sortedCheckoutPaths) {
+        if (await policy.allowsSearch(path)) {
+          allowedPaths.push(path);
+        } else {
+          filteredCount += 1;
+        }
+      }
+      const fullCoverage = allowedPaths.length === workspace.sortedCheckoutPaths.length;
+      const result =
+        allowedPaths.length === 0
+          ? { matches: [], truncated: false }
+          : fullCoverage
+            ? await workspace.grepLiteral({
+                query,
+                maxResults,
+                maxOutputBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+              })
+            : await workspace.grepLiteral({
+                query,
+                maxResults,
+                maxOutputBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+                paths: allowedPaths,
+              });
+      const matches: GitGrepWorkspaceResult["matches"] = result.matches.map((match) => ({
+        path: normalizeRepoRelativePath(match.path),
+        line: match.line,
+        text: match.text,
+      }));
+      if (filteredCount > 0) {
+        logDebug("verification_search_matches_filtered", {
+          filteredCount,
+          reason: "sensitive_or_control_path",
+        });
+      }
+      return {
+        matches: matches.slice(0, maxResults),
+        truncated: result.truncated || matches.length > maxResults,
+        ...(filteredCount > 0 ? { filtered: true } : {}),
+      };
+    },
+  });
+
+  const getWorkspaceDiff = defineLocalTool({
+    description: "Return the cached GitHub PR unified diff for a repo-relative path.",
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
+    run: async ({ path }) => {
+      const rel = policy.assertDiff(path);
+      const diff = await workspace.getDiffForPath(rel);
+      return { path: rel, diff };
+    },
+  });
+
+  return defineToolset({ readWorkspaceFile, searchWorkspace, getWorkspaceDiff });
+}
+
+function buildTriageReadTools(workspace: RepositoryReader) {
+  const root = workspace.agentCwd;
+  const policy = createPathPolicy(root, { kind: "triage" });
+  const readWorkspaceFile = defineLocalTool({
+    description: "Read a text file from the writable PR checkout. Path is repo-relative.",
+    schema: v.object({
+      path: v.pipe(v.string(), v.minLength(1)),
+      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+    }),
+    run: async ({ path, startLine, maxLines }) => {
+      const result = await workspace.readFile(path, policy, {
+        maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+        maxResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+        window: { startLine, maxLines },
+      });
+      if (result.refused) {
+        return { path, refused: true, reason: result.reason };
+      }
+      return { path, ...result };
+    },
+  });
+
+  const searchWorkspace = defineLocalTool({
+    description: "Search the writable checkout with git grep for a literal string.",
+    schema: v.object({
+      query: v.pipe(v.string(), v.minLength(1)),
+      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
+    }),
+    run: async ({ query, maxResults }) => {
+      const result = await workspace.grepLiteral({
+        query,
+        maxResults: Number.MAX_SAFE_INTEGER,
+        maxOutputBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+      });
+      const allowedPathCache = new Map<string, Promise<boolean>>();
+      const matches: Array<{ path: string; line: number; text: string }> = [];
+      let filteredCount = 0;
+      for (const match of result.matches) {
+        const rawPath = match.path;
+        const normalizedPath = normalizeRepoRelativePath(rawPath);
+        let allowed = allowedPathCache.get(normalizedPath);
+        if (!allowed) {
+          allowed = policy.allowsSearch(normalizedPath);
+          allowedPathCache.set(normalizedPath, allowed);
+        }
+        if (!(await allowed)) {
+          filteredCount += 1;
+          continue;
+        }
+        const lineNumber = match.line;
+        if (!Number.isInteger(lineNumber) || lineNumber < 1) continue;
+        matches.push({
+          path: normalizedPath,
+          line: lineNumber,
+          text: match.text,
+        });
+      }
+      if (filteredCount > 0) {
+        logDebug("triage_search_matches_filtered", {
+          filteredCount,
+          reason: "sensitive_or_control_path",
+        });
+      }
+      return {
+        matches: matches.slice(0, maxResults),
+        truncated: result.truncated || matches.length > maxResults,
+        ...(filteredCount > 0 ? { filtered: true } : {}),
+      };
+    },
+  });
+
+  const getWorkspaceDiff = defineLocalTool({
+    description:
+      "Return the current unified diff for a repo-relative path in the writable checkout.",
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
+    run: async ({ path }) => {
+      const rel = policy.assertDiff(path);
+      const diff = await workspace.getDiffForPath(rel);
+      return { path: rel, diff };
+    },
+  });
+
+  return defineToolset({ readWorkspaceFile, searchWorkspace, getWorkspaceDiff });
+}
+
+export function buildWorkspaceTools(
+  workspace: PinnedRepositoryReader,
+  opts?: Parameters<typeof buildInvestigationTools>[1],
+): ReturnType<typeof buildInvestigationTools>;
+export function buildWorkspaceTools(
+  params:
+    | { readonly profile: "verification"; readonly reader: PinnedRepositoryReader }
+    | { readonly profile: "triage"; readonly reader: RepositoryReader },
+): ReturnType<typeof defineToolset>;
+export function buildWorkspaceTools(
+  workspace:
+    | PinnedRepositoryReader
+    | { readonly profile: "verification"; readonly reader: PinnedRepositoryReader }
+    | { readonly profile: "triage"; readonly reader: RepositoryReader },
+  opts?: Parameters<typeof buildInvestigationTools>[1],
+) {
+  if ("profile" in workspace)
+    return workspace.profile === "verification"
+      ? buildVerificationTools(workspace.reader)
+      : buildTriageReadTools(workspace.reader);
+  return buildInvestigationTools(workspace, opts);
 }

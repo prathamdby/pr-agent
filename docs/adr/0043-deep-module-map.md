@@ -473,3 +473,47 @@ cleanup and releases completed retry-wait listeners. Polling cadence, continuati
 activity resets, transport retry options, caps, delay constants, event bytes,
 and error precedence remain unchanged. No new jitter or provider retry policy
 is introduced. PiSession and its injected fake adapter are unchanged.
+
+## M7 failure modes
+
+Write these before the existing owner tests and implementation:
+
+1. A triage grep buffers 20 MiB instead of the shared search byte cap, or a
+   buffer-cut result claims an exhaustive absence. Preserve truncation.
+2. Consolidating tools changes their ordered names, descriptions, schemas,
+   response wire shapes, spill cleanup, delivered-read evidence, or telemetry.
+3. A read profile permits sensitive/control paths, traversal, gitlinks, or
+   symlink escapes; review/ask must still allow sensitive changed paths only.
+4. A reader loses pinned-head diff/blame semantics, sparse coverage, literal
+   path chunks, Unicode repair, or Git 2.39 compatibility. NUL-delimited grep
+   must not mistake a colon-containing path for a line-number delimiter.
+5. Moving Git execution loses hooks, credentials, timeouts, identity validation,
+   fetch limits, or final commit/push guards. M13 still owns execution-window
+   consolidation; M7 cannot weaken those guards.
+6. Lifecycle narrowing leaks credentials, forgets read-only permissions or
+   symlink removal, or skips cleanup after preparation failure.
+7. Removing resource test hooks hides heartbeat, live-root, release, or stale
+   sweep failures. Exercise allocation, on-disk markers and sweeping directly.
+8. A caller or fixture retains the old wide workspace methods, or a second
+   adapter is unused. Pinned and writable production workspaces own readers.
+
+### M7 ownership and compatibility
+
+`localPrWorkspace.ts` keeps pinned-head preparation, credential removal, stripped
+symlinks, read-only permissions, fetch/disk limits and failure cleanup. Its value
+now has a reader instead of forwarding read methods. `repositoryReader.ts` owns
+the pinned and writable production adapters, bounded filesystem reads, cached PR
+patches/blame, NUL-delimited literal grep, path chunks and profile path policies.
+`workspaceToolset.ts` owns the ordered read profiles and executor marshalling.
+Triage keeps its existing write tools and final commit/push guards; M13's execution
+window remains separate. Commit-attribution helpers moved to triage's owner.
+Resource allocation/sweep tests use actual disk markers, not exported registry
+or heartbeat helpers. Read tests live in the renamed `workspaceToolset.test.ts`;
+triage write/commit tests remain with their existing owner.
+
+B4 and colon-path search cases failed before implementation. The former exceeded
+the old 20 MiB buffer; it now returns a truncated result at the existing
+50,000,000-byte search cap. The latter no longer drops a colon-containing path.
+Filtered-search events and properties retain their bytes. The complete M0 prompt
+and tool dump stays byte-identical with SHA-256
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.

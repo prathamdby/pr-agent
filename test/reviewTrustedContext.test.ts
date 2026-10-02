@@ -5,7 +5,7 @@ import {
 } from "../src/review/prompts/reviewTrustedContext.js";
 import { renderRepoPolicyBlock } from "../src/review/repoPolicy.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
-import type { CheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
 
 const sparseCoverage: CheckoutCoverage = {
   mode: "sparse",

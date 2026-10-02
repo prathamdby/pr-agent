@@ -25,7 +25,7 @@ import {
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
 } from "../../settings/index.js";
-import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
+import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
 import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.js";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
 import { reviewPayloadFromFindings } from "../reviewSchema.js";
@@ -158,7 +158,7 @@ function initialState(): OrchestratedRunState {
 }
 
 function fallbackBrief(params: OrchestratedReviewRunParams): SpecialistBrief {
-  const files = params.workspace.changedFiles.map((file) => file.path);
+  const files = params.workspace.reader.changedFiles.map((file) => file.path);
   const riskFiles = files.slice(0, 12);
   return {
     prIntent:
@@ -359,8 +359,8 @@ export async function runOrchestratedPrReview(
     agentEvents: agentEvents ?? undefined,
     cfg: params.cfg,
     evidenceLedger: setup.evidenceLedger,
-    checkoutCoverage: params.workspace.getCoverage(),
-    isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
+    checkoutCoverage: params.workspace.reader.getCoverage(),
+    isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
     pool: params.sessionContext?.pool,
     installationId: params.sessionContext?.installationId,
     findingHistoryCfg: params.cfg,
@@ -1018,8 +1018,8 @@ export async function runOrchestratedPrReview(
             signal: combineAbortSignals([params.signal, controller.signal]),
             evidenceLedger: setup.evidenceLedger,
             headSha: params.headSha,
-            checkoutCoverage: params.workspace.getCoverage(),
-            isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
+            checkoutCoverage: params.workspace.reader.getCoverage(),
+            isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
             agentEvents: agentEvents ?? undefined,
             escalation: params.escalation,
           }),

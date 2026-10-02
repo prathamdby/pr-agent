@@ -39,7 +39,7 @@ import type {
   FindingSource,
 } from "../orchestrator/orchestratorTypes.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import type { Pool } from "pg";
 import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";

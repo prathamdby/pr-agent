@@ -22,7 +22,6 @@ import { triageSystemPrompt } from "../src/agent/triage/triagePrompt.js";
 import { verificationSystemPrompt } from "../src/agent/verification/verificationPrompt.js";
 import { CI_SUMMARY_SYSTEM_PROMPT } from "../src/review/ci/ciGatePrompt.js";
 import { BOUND_POLICY_JUDGE_SYSTEM_PROMPT } from "../src/review/publish/boundPolicyJudge.js";
-import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildUnavailableCodeIndexTools } from "../src/agent/tools/codeIndexTools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
@@ -46,7 +45,7 @@ import {
   buildSubmitTriageTool,
   createSubmitTriageState,
 } from "../src/agent/triage/submitTriageTool.js";
-import { buildVerificationWorkspaceTools } from "../src/agent/verification/verificationWorkspaceTools.js";
+import { buildWorkspaceTools } from "../src/agent/tools/workspaceToolset.js";
 import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
@@ -67,30 +66,44 @@ function dumpAll() {
     rootDir: "",
     privateGitDir: "",
     agentCwd: "",
-    changedFiles: [],
-    changedFileByPath: new Map(),
-    checkoutPaths: new Set(),
-    sortedCheckoutPaths: [],
-    checkoutMode: "full",
-    diffIndex: createCachedPrDiffIndex(),
-    stats: { truncated: false, totalChanges: 0, fileCount: 0 },
-    grepLiteral: unavailable,
-    getDiffForPath: unavailable,
-    getBlameForPath: unavailable,
-    isPathInCheckout: () => false,
-    getCoverage: () => ({
-      mode: "full",
-      pathsInCheckout: 0,
-      changedFileCount: 0,
-      changeSetTruncated: false,
-    }),
-    noteSearchTruncated: unavailable,
-    lookupSymbol: unavailable,
-    getSymbolIndexStatus: () => ({ available: false }),
+    reader: {
+      readSource: unavailable,
+      readFile: unavailable,
+      refuseFile: unavailable,
+      agentCwd: "",
+      changedFiles: [],
+      changedFileByPath: new Map(),
+      checkoutPaths: new Set(),
+      sortedCheckoutPaths: [],
+      checkoutMode: "full",
+      diffIndex: createCachedPrDiffIndex(),
+      stats: { truncated: false, totalChanges: 0, fileCount: 0 },
+      grepLiteral: unavailable,
+      getDiffForPath: unavailable,
+      getBlameForPath: unavailable,
+      isPathInCheckout: () => false,
+      getCoverage: () => ({
+        mode: "full",
+        pathsInCheckout: 0,
+        changedFileCount: 0,
+        changeSetTruncated: false,
+      }),
+      noteSearchTruncated: unavailable,
+      lookupSymbol: unavailable,
+      getSymbolIndexStatus: () => ({ available: false }),
+    },
     cleanup: unavailable,
   };
   const checkout: WritablePrCheckout = {
     dir: "",
+    reader: {
+      readSource: unavailable,
+      readFile: unavailable,
+      refuseFile: unavailable,
+      agentCwd: "",
+      grepLiteral: unavailable,
+      getDiffForPath: unavailable,
+    },
     headRef: "",
     baseSha: "",
     commit: unavailable,
@@ -98,7 +111,7 @@ function dumpAll() {
     listCommittedShas: () => [],
     listCommittedDetails: () => [],
   };
-  const local = buildLocalWorkspaceTools(workspace);
+  const local = buildWorkspaceTools(workspace.reader);
   const codeModeLocal = hideWorkspaceToolsBehindCodeMode(local).piTools;
   const context7 = buildContext7Tools({
     apiKey: "",
@@ -120,7 +133,7 @@ function dumpAll() {
     ctx,
     phaseRef,
     prSurface,
-    cachedDiffIndex: workspace.diffIndex,
+    cachedDiffIndex: workspace.reader.diffIndex,
     resolveProgressCommentUrl: unavailable,
   }).piTool;
   const summary = buildPublishSummaryTool({
@@ -169,11 +182,9 @@ function dumpAll() {
     workspaceState,
     submitState: createSubmitTriageState(),
   }).piTool;
-  const verificationWorkspace = buildVerificationWorkspaceTools({
-    get cfg(): Config {
-      return unavailable();
-    },
-    workspace,
+  const verificationWorkspace = buildWorkspaceTools({
+    profile: "verification",
+    reader: workspace.reader,
   });
   const verification = buildSubmitVerificationTool({
     ...ctx,

@@ -1,39 +1,24 @@
-import { execFile } from "node:child_process";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { dirname, relative, sep } from "node:path";
-import { promisify } from "node:util";
+import { buildWorkspaceTools, defineToolset } from "../tools/workspaceToolset.js";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
-import { logDebug } from "../../evlog.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
-import {
-  assertContainedWorkspacePath,
-  assertWorkspacePath,
-} from "../../prWorkspace/localPrWorkspace.js";
 import {
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
   TRIAGE_NEW_FILE_MAX_BYTES,
-  LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-  LOCAL_WORKSPACE_MAX_FILE_BYTES,
-  LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   MAX_TRIAGE_FIXES_PER_RUN,
 } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
-import {
-  normalizeTextFileEncoding,
-  readBudgetedWorkspaceTextFile,
-} from "../tools/readWorkspaceTextFile.js";
+import { defineLocalTool } from "../tools/defineWorkspaceTool.js";
+import { normalizeTextFileEncoding } from "../tools/readWorkspaceTextFile.js";
 import {
   assertTriageStagePaths,
   assertTriageWritablePath,
-  isTriageControlPath,
   normalizeRepoRelativePath,
 } from "./triageWritePolicy.js";
-
-const exec = promisify(execFile);
 
 export type TriageCommitError = {
   readonly threadRootCommentId: number;
@@ -44,55 +29,6 @@ export type TriageWorkspaceToolState = {
   readonly commitByThreadRootCommentId: Map<number, string>;
   readonly commitErrors: TriageCommitError[];
 };
-
-async function safeReadPath(root: string, path: string): Promise<string> {
-  const normalized = normalizeRepoRelativePath(path);
-  if (isTriageControlPath(normalized)) {
-    throw new AppError({
-      code: "triage.sensitive_path_blocked",
-      message: `Blocked sensitive path "${normalized}"`,
-      context: { path: normalized },
-    });
-  }
-  return assertContainedWorkspacePath(root, normalized);
-}
-
-function relativePath(root: string, fullPath: string): string {
-  return relative(root, fullPath).replace(/\\/g, "/");
-}
-
-type TriageSearchMatch = {
-  readonly path: string;
-  readonly line: number;
-  readonly text: string;
-};
-
-async function isAllowedTriageSearchPath(
-  root: string,
-  realRoot: string,
-  path: string,
-): Promise<boolean> {
-  const normalized = normalizeRepoRelativePath(path);
-  if (!normalized || isTriageControlPath(normalized)) return false;
-
-  try {
-    const fullPath = assertWorkspacePath(root, normalized);
-    const realCandidate = await realpath(fullPath);
-    if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
-      return false;
-    }
-    const resolvedPath = normalizeRepoRelativePath(relative(realRoot, realCandidate));
-    return !isTriageControlPath(resolvedPath);
-  } catch {
-    // A missing, malformed, or escaping result is not safe to expose. Git grep
-    // should only return paths that resolve, so this is a defensive dead end.
-    return false;
-  }
-}
-
-export async function isTriageSearchPathAllowed(root: string, path: string): Promise<boolean> {
-  return isAllowedTriageSearchPath(root, await realpath(root), path);
-}
 
 function countOccurrences(haystack: string, needle: string): number {
   if (needle.length === 0) return 0;
@@ -125,21 +61,6 @@ function rawOffsetForNormalizedOffset(raw: string, normalizedOffset: number): nu
   return rawIndex;
 }
 
-async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {
-  const { stdout } = await exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-    cwd: root,
-    env: {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_LFS_SKIP_SMUDGE: "1",
-    },
-    timeout: timeoutMs,
-    maxBuffer: 20 * 1024 * 1024,
-  });
-  return stdout;
-}
-
 export function createTriageWorkspaceToolState(): TriageWorkspaceToolState {
   return { commitByThreadRootCommentId: new Map(), commitErrors: [] };
 }
@@ -158,99 +79,6 @@ export function buildTriageWorkspaceTools(params: {
     params.inventory.map((thread) => normalizeRepoRelativePath(thread.path)),
   );
   const root = params.checkout.dir;
-
-  const readWorkspaceFile = defineLocalTool({
-    description: "Read a text file from the writable PR checkout. Path is repo-relative.",
-    schema: v.object({
-      path: v.pipe(v.string(), v.minLength(1)),
-      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
-      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
-    }),
-    run: async ({ path, startLine, maxLines }) => {
-      const fullPath = await safeReadPath(root, path);
-      const result = await readBudgetedWorkspaceTextFile(fullPath, {
-        maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
-        maxResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
-        window: { startLine, maxLines },
-      });
-      if (result.refused) {
-        return { path, refused: true, reason: result.reason };
-      }
-      return { path, ...result };
-    },
-  });
-
-  const searchWorkspace = defineLocalTool({
-    description: "Search the writable checkout with git grep for a literal string.",
-    schema: v.object({
-      query: v.pipe(v.string(), v.minLength(1)),
-      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
-    }),
-    run: async ({ query, maxResults }) => {
-      // Avoid `git grep --max-count` (requires git ≥2.40); cap results after the fact.
-      const stdout = await git(
-        root,
-        ["grep", "-nF", "-I", "-e", query, "--", "."],
-        LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-      ).catch((error: unknown) => {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
-          return "";
-        }
-        throw error;
-      });
-      const lines = stdout.split("\n").filter(Boolean);
-      const realRoot = await realpath(root);
-      const allowedPathCache = new Map<string, Promise<boolean>>();
-      const matches: TriageSearchMatch[] = [];
-      let filteredCount = 0;
-      for (const line of lines) {
-        const first = line.indexOf(":");
-        const second = line.indexOf(":", first + 1);
-        if (first < 1 || second < 0) continue;
-        const rawPath = line.slice(0, first);
-        const normalizedPath = normalizeRepoRelativePath(rawPath);
-        let allowed = allowedPathCache.get(normalizedPath);
-        if (!allowed) {
-          allowed = isAllowedTriageSearchPath(root, realRoot, normalizedPath);
-          allowedPathCache.set(normalizedPath, allowed);
-        }
-        if (!(await allowed)) {
-          filteredCount += 1;
-          continue;
-        }
-        const lineNumber = Number(line.slice(first + 1, second));
-        if (!Number.isInteger(lineNumber) || lineNumber < 1) continue;
-        matches.push({
-          path: normalizedPath,
-          line: lineNumber,
-          text: line.slice(second + 1),
-        });
-      }
-      if (filteredCount > 0) {
-        logDebug("triage_search_matches_filtered", {
-          filteredCount,
-          reason: "sensitive_or_control_path",
-        });
-      }
-      return {
-        matches: matches.slice(0, maxResults),
-        truncated: matches.length > maxResults,
-        ...(filteredCount > 0 ? { filtered: true } : {}),
-      };
-    },
-  });
-
-  const getWorkspaceDiff = defineLocalTool({
-    description:
-      "Return the current unified diff for a repo-relative path in the writable checkout.",
-    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
-    run: async ({ path }) => {
-      const fullPath = await safeReadPath(root, path);
-      const rel = relativePath(root, fullPath);
-      const diff = await git(root, ["diff", "HEAD", "--", rel], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
-      return { path: rel, diff };
-    },
-  });
 
   const editWorkspaceFile = defineLocalTool({
     description:
@@ -404,18 +232,15 @@ export function buildTriageWorkspaceTools(params: {
   });
 
   const tools = {
-    readWorkspaceFile,
-    searchWorkspace,
-    getWorkspaceDiff,
     editWorkspaceFile,
     createWorkspaceFile,
     commitFix,
   };
 
+  const reads = buildWorkspaceTools({ profile: "triage", reader: params.checkout.reader });
+  const writes = defineToolset(tools, "sequential");
   return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
-    ),
+    piTools: [...reads.piTools, ...writes.piTools],
+    executors: { ...reads.executors, ...writes.executors },
   };
 }

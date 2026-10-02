@@ -3,7 +3,7 @@ import {
   REVIEW_SIZE_TIER_MEDIUM_MAX_FILES,
   REVIEW_SIZE_TIER_SMALL_MAX_FILES,
 } from "../../settings/index.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 
 export type ReviewBudgetTier = "small" | "medium" | "large";
 

@@ -37,14 +37,16 @@ vi.mock("../src/prWorkspace/gitCredentials.js", async (importOriginal) => {
 import { AppError } from "../src/errors/appError.js";
 import {
   buildCommitCommandArgs,
-  buildTriageCommitAttribution,
-  formatCoAuthoredByTrailer,
   gitIdentityEnv,
-  gitPersonFromGithubUser,
-  githubNoreplyEmail,
   StaleHeadPushError,
   withWritablePrCheckout,
 } from "../src/prWorkspace/writablePrCheckout.js";
+import {
+  buildTriageCommitAttribution,
+  formatCoAuthoredByTrailer,
+  gitPersonFromGithubUser,
+  githubNoreplyEmail,
+} from "../src/agent/triage/commitAttribution.js";
 import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.js";
 
 const execFile = promisify(execFileCb);

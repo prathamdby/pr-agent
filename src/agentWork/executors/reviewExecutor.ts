@@ -664,7 +664,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
 
-  const checkoutCoverage = repositoryView.workspace.getCoverage();
+  const checkoutCoverage = repositoryView.workspace.reader.getCoverage();
   const agentEventsContext = resolveAgentEventsContext(cfg, {
     pool,
     workItemId: item.id,
@@ -682,7 +682,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   }
 
   const pathGate = createAskPathGate();
-  pathGate.addPaths(repositoryView.workspace.changedFiles.map((file) => file.path));
+  pathGate.addPaths(repositoryView.workspace.reader.changedFiles.map((file) => file.path));
   const codeIndexStatus = await prepareCodeIndexForReview({
     cfg,
     pool,
@@ -731,7 +731,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     repoPolicyBlock,
     agentInstructionFilesBlock,
     checkoutCoverage,
-    symbolIndexStatus: repositoryView.workspace.getSymbolIndexStatus(),
+    symbolIndexStatus: repositoryView.workspace.reader.getSymbolIndexStatus(),
     codeIndexStatus,
   });
 

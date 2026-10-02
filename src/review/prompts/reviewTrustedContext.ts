@@ -8,7 +8,7 @@ import {
   formatCheckoutCoverageBlock,
   formatReviewSizeBudgetBlock,
 } from "../run/reviewSizeBudget.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
 import { formatSymbolIndexStatusLine } from "../../prWorkspace/symbolIndex.js";
 import type { CodeIndexPrepareResult } from "../../codeIndex/buildJob.js";

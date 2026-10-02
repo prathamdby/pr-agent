@@ -61,7 +61,10 @@ type PublishTriageParams = {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  readonly checkout: WritablePrCheckout;
+  readonly checkout: Pick<
+    WritablePrCheckout,
+    "push" | "listCommittedShas" | "listCommittedDetails"
+  >;
   readonly inventory: readonly BotFindingThread[];
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly payload: TriagePayload;

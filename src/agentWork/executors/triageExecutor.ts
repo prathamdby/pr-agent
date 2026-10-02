@@ -47,12 +47,14 @@ import {
   TRIAGE_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
 import {
-  buildTriageCommitAttribution,
-  gitPersonFromGithubUser,
-  type GitPerson,
   type WritablePrCheckout,
   withWritablePrCheckout,
 } from "../../prWorkspace/writablePrCheckout.js";
+import {
+  buildTriageCommitAttribution,
+  gitPersonFromGithubUser,
+  type GitPerson,
+} from "../../agent/triage/commitAttribution.js";
 import {
   getCompletedPublishStepDetail,
   getCompletedPublishStepDetailWithoutNewerStep,
@@ -161,7 +163,7 @@ function checkoutFromStoredPush(
   headRef: string,
   headSha: string,
   detail: StoredTriagePushDetail,
-): WritablePrCheckout {
+): Omit<WritablePrCheckout, "reader"> {
   return {
     dir: "",
     headRef,

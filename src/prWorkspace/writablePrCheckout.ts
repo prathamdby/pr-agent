@@ -1,8 +1,19 @@
-import { execFile } from "node:child_process";
+import {
+  botGitPerson,
+  buildTriageCommitAttribution,
+  formatCoAuthoredByTrailer,
+  type GitPerson,
+  type TriageCommitAttribution,
+} from "../agent/triage/commitAttribution.js";
+import {
+  createWritableRepositoryReader,
+  runWorkspaceGit,
+  assertWorkspacePath,
+  type RepositoryReader,
+} from "./repositoryReader.js";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import type { BotIdentity } from "../github/appAuth.js";
 import { AppError } from "../errors/appError.js";
 import {
@@ -18,11 +29,7 @@ import {
   LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
 } from "../settings/index.js";
 import { isTriageControlPath } from "../agent/triage/triageWritePolicy.js";
-import {
-  assertWorkspacePath,
-  cleanupStaleLocalPrWorkspaces,
-  stripWorkspaceSymlinks,
-} from "./localPrWorkspace.js";
+import { cleanupStaleLocalPrWorkspaces, stripWorkspaceSymlinks } from "./localPrWorkspace.js";
 import {
   allocateWorkspaceResource,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
@@ -31,14 +38,6 @@ import {
   ensureWorkspaceFreeSpaceAfterSweep,
   gitCountObjectsStoreBytes,
 } from "./workspaceResource.js";
-
-const exec = promisify(execFile);
-
-/** Git author/committer or Co-authored-by person. */
-export type GitPerson = {
-  readonly name: string;
-  readonly email: string;
-};
 
 export type CommitArgs = {
   readonly files: readonly string[];
@@ -50,15 +49,9 @@ export type CommitArgs = {
   readonly coAuthoredBy?: readonly GitPerson[];
 };
 
-/** Per-run triage commit identity: human triggerer path or App fallback. */
-export type TriageCommitAttribution = {
-  readonly person: GitPerson;
-  readonly coAuthoredBy: readonly GitPerson[];
-  readonly source: "human" | "app";
-};
-
 export type WritablePrCheckout = {
   readonly dir: string;
+  readonly reader: RepositoryReader;
   readonly headRef: string;
   readonly baseSha: string;
   readonly commit: (args: CommitArgs) => Promise<{ sha: string; diff: string }>;
@@ -97,69 +90,6 @@ type WritablePrCheckoutParams = {
   readonly beforePush?: () => Promise<void>;
   readonly remoteUrlOverride?: string;
 };
-
-export function githubNoreplyEmail(userId: number, login: string): string {
-  return `${userId}+${login}@users.noreply.github.com`;
-}
-
-export function botGitPerson(bot: BotIdentity): GitPerson {
-  return {
-    name: bot.login,
-    email: githubNoreplyEmail(bot.userId, bot.login),
-  };
-}
-
-/**
- * Build commit attribution for a triage run.
- * Human path when `triggerer` is set; otherwise App author+committer with no App co-author trailer.
- */
-export function buildTriageCommitAttribution(params: {
-  readonly botIdentity: BotIdentity;
-  readonly triggerer: GitPerson | null;
-}): TriageCommitAttribution {
-  const bot = botGitPerson(params.botIdentity);
-  if (params.triggerer == null) {
-    return { person: bot, coAuthoredBy: [], source: "app" };
-  }
-  return {
-    person: params.triggerer,
-    coAuthoredBy: [bot],
-    source: "human",
-  };
-}
-
-/**
- * Map a GitHub user profile to a git person.
- * Bot accounts and missing login/id return null (caller falls back to App).
- * Private/missing profile email uses id-based noreply (still human path).
- */
-export function gitPersonFromGithubUser(user: {
-  readonly id: number;
-  readonly login: string;
-  readonly name?: string | null;
-  readonly email?: string | null;
-  readonly type?: string;
-}): GitPerson | null {
-  if (!Number.isFinite(user.id) || user.id <= 0) return null;
-  const login = user.login?.trim();
-  if (!login) return null;
-  if (user.type === "Bot" || login.endsWith("[bot]")) return null;
-  const rawName = user.name?.trim() || login;
-  const name =
-    rawName
-      .replace(/[\r\n]+/g, " ")
-      .split("\0")
-      .join(" ")
-      .trim() || login;
-  if (!name) return null;
-  const email = (user.email?.trim() || githubNoreplyEmail(user.id, login)).trim();
-  if (!email.includes("@")) return null;
-  return { name, email };
-}
-
-export function formatCoAuthoredByTrailer(person: GitPerson): string {
-  return `Co-authored-by: ${person.name} <${person.email}>`;
-}
 
 function gitPersonHasForbiddenChars(value: string): boolean {
   return value.includes("\r") || value.includes("\n") || value.includes("\0");
@@ -381,25 +311,17 @@ export async function withWritablePrCheckout<T>(
       params.commitAttribution ?? buildTriageCommitAttribution({ botIdentity, triggerer: null });
     const botPerson = botGitPerson(botIdentity);
 
-    const baseGitEnv = {
-      ...process.env,
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_LFS_SKIP_SMUDGE: "1",
-      GIT_ASKPASS: credentials.askpass,
-      GIT_TOKEN_FILE: credentials.tokenFile,
-    };
-
     const git = (
       args: readonly string[],
       timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
       extraEnv?: Record<string, string>,
     ) =>
-      exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      runWorkspaceGit(args, {
         cwd: dir,
-        env: extraEnv ? { ...baseGitEnv, ...extraEnv } : baseGitEnv,
-        timeout: timeoutMs,
-        maxBuffer: 20 * 1024 * 1024,
+        timeoutMs,
+        askpass: credentials.askpass,
+        tokenFile: credentials.tokenFile,
+        extraEnv,
       });
 
     await mkdir(dir, { recursive: true });
@@ -442,6 +364,7 @@ export async function withWritablePrCheckout<T>(
     await git(["config", "user.email", botPerson.email], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const checkout: WritablePrCheckout = {
       dir,
+      reader: createWritableRepositoryReader(dir),
       headRef,
       baseSha: headSha,
       commit: async (args) => {

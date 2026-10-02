@@ -24,11 +24,11 @@ export function buildReviewPreflightMetadataFromPullRequestFiles(
 export function buildReviewPreflightMetadataFromWorkspace(
   workspace: LocalPrWorkspace,
 ): ReviewPreflightMetadata {
-  const files = workspace.changedFiles.map((file) => ({ filename: file.path }));
+  const files = workspace.reader.changedFiles.map((file) => ({ filename: file.path }));
   return {
     files,
-    truncated: workspace.stats.truncated,
-    fileCount: workspace.stats.fileCount,
-    totalChanges: workspace.stats.totalChanges,
+    truncated: workspace.reader.stats.truncated,
+    fileCount: workspace.reader.stats.fileCount,
+    totalChanges: workspace.reader.stats.totalChanges,
   };
 }

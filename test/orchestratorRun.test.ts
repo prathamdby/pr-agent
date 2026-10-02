@@ -1,9 +1,10 @@
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
 import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
-import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
+import { buildCheckoutCoverage } from "../src/prWorkspace/repositoryReader.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
@@ -266,27 +267,31 @@ const workspace: LocalPrWorkspace = {
   rootDir: "/tmp/orchestrator-test",
   privateGitDir: "/tmp/orchestrator-test/.git",
   agentCwd: "/tmp/orchestrator-test/agent",
-  changedFiles: [],
-  changedFileByPath: new Map(),
-  checkoutPaths: new Set(),
-  sortedCheckoutPaths: [],
-  checkoutMode: "full",
-  diffIndex: { files: new Map(), truncated: false, listPullRequestFilesIngested: false },
-  stats: { truncated: false, totalChanges: 0, fileCount: 0 },
-  grepLiteral: async () => ({ matches: [], truncated: false }),
-  getDiffForPath: async () => "",
-  getBlameForPath: async () => "",
-  isPathInCheckout: () => false,
-  getCoverage: () =>
-    buildCheckoutCoverage({
-      checkoutMode: "full",
-      checkoutPaths: new Set(),
-      changedFiles: [],
-      stats: { truncated: false },
-    }),
-  noteSearchTruncated: () => undefined,
-  lookupSymbol: () => [],
-  getSymbolIndexStatus: () => ({ available: false }),
+  reader: {
+    ...createWritableRepositoryReader("/tmp/unused"),
+    agentCwd: "/tmp/orchestrator-test/agent",
+    changedFiles: [],
+    changedFileByPath: new Map(),
+    checkoutPaths: new Set(),
+    sortedCheckoutPaths: [],
+    checkoutMode: "full",
+    diffIndex: { files: new Map(), truncated: false, listPullRequestFilesIngested: false },
+    stats: { truncated: false, totalChanges: 0, fileCount: 0 },
+    grepLiteral: async () => ({ matches: [], truncated: false }),
+    getDiffForPath: async () => "",
+    getBlameForPath: async () => "",
+    isPathInCheckout: () => false,
+    getCoverage: () =>
+      buildCheckoutCoverage({
+        checkoutMode: "full",
+        checkoutPaths: new Set(),
+        changedFiles: [],
+        stats: { truncated: false },
+      }),
+    noteSearchTruncated: () => undefined,
+    lookupSymbol: () => [],
+    getSymbolIndexStatus: () => ({ available: false }),
+  },
   cleanup: async () => undefined,
 };
 

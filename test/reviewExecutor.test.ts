@@ -146,7 +146,7 @@ function mockRepositoryView() {
 }
 
 function defaultCheckoutCoverage() {
-  return mockLocalPrWorkspace().getCoverage();
+  return mockLocalPrWorkspace().reader.getCoverage();
 }
 
 function mockAutoPrFiles(surface = durableSurfaceBundle.surface) {
@@ -1343,7 +1343,7 @@ describe("review work definition", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: expect.stringContaining("Be terse."),
       agentInstructionFilesBlock: undefined,
-      checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
       codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
@@ -1445,7 +1445,7 @@ describe("review work definition", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
-      checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      checkoutCoverage: mockLocalPrWorkspace(policyDir).reader.getCoverage(),
       symbolIndexStatus: { available: false },
       codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,
@@ -1476,7 +1476,7 @@ describe("review work definition", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
-      checkoutCoverage: mockLocalPrWorkspace(checkout).getCoverage(),
+      checkoutCoverage: mockLocalPrWorkspace(checkout).reader.getCoverage(),
       symbolIndexStatus: { available: false },
       codeIndexStatus: { available: false },
       findingHistoryTrustedBlock: undefined,

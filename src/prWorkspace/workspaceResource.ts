@@ -87,17 +87,17 @@ export const READONLY_WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
 /** Writable triage checkout temp-root prefix. */
 export const WRITABLE_WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 
-export const WORKSPACE_ROOT_PREFIXES = [
+const WORKSPACE_ROOT_PREFIXES = [
   READONLY_WORKSPACE_ROOT_PREFIX,
   WRITABLE_WORKSPACE_ROOT_PREFIX,
 ] as const;
 
-export type WorkspaceRootPrefix = (typeof WORKSPACE_ROOT_PREFIXES)[number];
+type WorkspaceRootPrefix = (typeof WORKSPACE_ROOT_PREFIXES)[number];
 
 /** On-disk ownership marker. Heartbeat, not the in-process live set, is sweep safety. */
-export const WORKSPACE_OWNER_MARKER_NAME = ".pr-agent-workspace-owner.json";
+const WORKSPACE_OWNER_MARKER_NAME = ".pr-agent-workspace-owner.json";
 
-export type WorkspaceOwnerMarker = {
+type WorkspaceOwnerMarker = {
   readonly pid: number;
   readonly heartbeatAtMs: number;
 };
@@ -108,7 +108,7 @@ export type WorkspaceResource = {
   readonly release: () => Promise<void>;
 };
 
-export type AllocateWorkspaceResourceParams = {
+type AllocateWorkspaceResourceParams = {
   readonly prefix: WorkspaceRootPrefix;
   readonly installationToken: string;
   readonly createCredentials?: (rootDir: string, token: string) => Promise<GitCredentialFiles>;
@@ -117,7 +117,7 @@ export type AllocateWorkspaceResourceParams = {
   readonly heartbeatIntervalMs?: number;
 };
 
-export type SweepStaleOwnedWorkspacesOptions = {
+type SweepStaleOwnedWorkspacesOptions = {
   readonly nowMs?: number;
   readonly isPidAlive?: (pid: number) => boolean;
 };
@@ -125,24 +125,12 @@ export type SweepStaleOwnedWorkspacesOptions = {
 /** In-process optimization only. Sweeps must still honor the on-disk marker. */
 const liveWorkspaceRoots = new Set<string>();
 
-export function registerLiveLocalPrWorkspace(rootDir: string): void {
-  liveWorkspaceRoots.add(rootDir);
-}
-
-export function unregisterLiveLocalPrWorkspace(rootDir: string): void {
-  liveWorkspaceRoots.delete(rootDir);
-}
-
-export function isRegisteredLiveLocalPrWorkspace(rootDir: string): boolean {
-  return liveWorkspaceRoots.has(rootDir);
-}
-
-export function ownerHeartbeatIntervalMs(staleAgeSeconds: number): number {
+function ownerHeartbeatIntervalMs(staleAgeSeconds: number): number {
   const staleMs = staleAgeSeconds * 1000;
   return Math.min(30_000, Math.max(1_000, Math.floor(staleMs / 12)));
 }
 
-export function isWorkspaceOwnerPidAlive(pid: number): boolean {
+function isWorkspaceOwnerPidAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
@@ -153,14 +141,14 @@ export function isWorkspaceOwnerPidAlive(pid: number): boolean {
 }
 
 function isWorkspaceRootPrefix(value: string): value is WorkspaceRootPrefix {
-  return (WORKSPACE_ROOT_PREFIXES as readonly string[]).includes(value);
+  return WORKSPACE_ROOT_PREFIXES.some((prefix) => prefix === value);
 }
 
 function ownerMarkerPath(rootDir: string): string {
   return join(rootDir, WORKSPACE_OWNER_MARKER_NAME);
 }
 
-export async function writeWorkspaceOwnerMarker(
+async function writeWorkspaceOwnerMarker(
   rootDir: string,
   marker: WorkspaceOwnerMarker,
 ): Promise<void> {
@@ -170,9 +158,7 @@ export async function writeWorkspaceOwnerMarker(
   await rename(temp, target);
 }
 
-export async function readWorkspaceOwnerMarker(
-  rootDir: string,
-): Promise<WorkspaceOwnerMarker | null> {
+async function readWorkspaceOwnerMarker(rootDir: string): Promise<WorkspaceOwnerMarker | null> {
   const raw = await readFile(ownerMarkerPath(rootDir), "utf8").catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw error;
@@ -198,7 +184,7 @@ export async function readWorkspaceOwnerMarker(
   }
 }
 
-export function isLiveWorkspaceOwnerMarker(
+function isLiveWorkspaceOwnerMarker(
   marker: WorkspaceOwnerMarker | null,
   nowMs: number,
   staleAgeMs: number,
@@ -209,7 +195,7 @@ export function isLiveWorkspaceOwnerMarker(
   return isPidAlive(marker.pid);
 }
 
-export async function removeWorkspaceRoot(rootDir: string): Promise<void> {
+async function removeWorkspaceRoot(rootDir: string): Promise<void> {
   await makeDirectoriesWritable(rootDir);
   await rm(rootDir, { recursive: true, force: true });
 }
@@ -263,7 +249,7 @@ export async function allocateWorkspaceResource(
     if (released) return;
     released = true;
     stopHeartbeat();
-    unregisterLiveLocalPrWorkspace(rootDir);
+    liveWorkspaceRoots.delete(rootDir);
     await rm(ownerMarkerPath(rootDir), { force: true }).catch(() => undefined);
     if (credentials) {
       await credentials.cleanup().catch(() => undefined);
@@ -286,7 +272,7 @@ export async function allocateWorkspaceResource(
 
   try {
     await writeHeartbeat();
-    registerLiveLocalPrWorkspace(rootDir);
+    liveWorkspaceRoots.add(rootDir);
     heartbeat = setInterval(() => {
       void writeHeartbeat().catch(() => undefined);
     }, heartbeatIntervalMs);

@@ -409,6 +409,8 @@ snapshots and phase checkpoints are removed by migration 036.
 | Ask safety    | `/ask` applies outbound redaction before posting. Questions aimed at bot internals can get a short refusal without an LLM call ([ADR 0007](docs/adr/0007-ask-red-team-hardening.md)). |
 | Retention     | Agent event rows older than 30 days are deleted with the other cleanup. Set `AGENT_EVENTS_RETENTION_SECONDS` to `0` to keep them.                                                     |
 
+Repository searches, including `/triage`, share a bounded output budget. A truncated search is incomplete, not proof that code is absent. Sensitive-path gates still apply. See [workspace search diagnostics](docs/agent-work-ops.md#workspace-search-diagnostics).
+
 Duplicate deliveries retain local metadata only: incoming delivery ID, body fingerprint, and dedupe guard reason, not another body copy. `WEBHOOK_EVENTS_RETENTION_SECONDS` deletes this evidence by its own arrival age (30 days by default). `RETENTION_ENABLED=false` leaves it unpurged. These patterns do not prove malicious intent. See [duplicate-delivery inspection](docs/agent-work-ops.md#duplicate-delivery-evidence).
 
 <details>

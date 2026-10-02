@@ -1,15 +1,25 @@
 import { execFile } from "node:child_process";
-import { access, chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+  stat,
+} from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import {
-  buildLocalWorkspaceTools,
+  buildWorkspaceTools,
   type LocalWorkspaceToolLimits,
-} from "../src/agent/tools/localWorkspaceTools.js";
+} from "../src/agent/tools/workspaceToolset.js";
 import {
   disposeSpillFile,
   READ_SPILL_FILENAME_PREFIX,
@@ -17,14 +27,21 @@ import {
 import { createAskPathGate } from "../src/agent/ask/askSafety.js";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
 import {
+  type LocalPrWorkspace,
+  prepareLocalPrWorkspace,
+} from "../src/prWorkspace/localPrWorkspace.js";
+import {
   buildCheckoutCoverage,
   gitGrepWorkspace,
   type GitGrepWorkspaceParams,
-  type LocalPrWorkspace,
-} from "../src/prWorkspace/localPrWorkspace.js";
+  isTriageSearchPathAllowed,
+  createWritableRepositoryReader,
+} from "../src/prWorkspace/repositoryReader.js";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
+  LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 } from "../src/settings/index.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
 import {
@@ -32,6 +49,18 @@ import {
   querySymbolIndex,
   symbolIndexStatus,
 } from "../src/prWorkspace/symbolIndex.js";
+import {
+  type ListPullRequestFilesResult,
+  type PullRequestFileEntry,
+} from "../src/github/listPullRequestFiles.js";
+import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+import {
+  buildTriageWorkspaceTools,
+  createTriageWorkspaceToolState,
+} from "../src/agent/triage/triageWorkspaceTools.js";
+import { type WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
+import { type BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 
 const exec = promisify(execFile);
 
@@ -50,12 +79,12 @@ function mockWorkspace(
   agentCwd: string,
   checkoutPaths: Iterable<string>,
   overrides?: {
-    checkoutMode?: LocalPrWorkspace["checkoutMode"];
-    stats?: LocalPrWorkspace["stats"];
+    checkoutMode?: LocalPrWorkspace["reader"]["checkoutMode"];
+    stats?: LocalPrWorkspace["reader"]["stats"];
     getDiffForPath?: (path: string) => Promise<string>;
     getBlameForPath?: (path: string) => Promise<string>;
-    lookupSymbol?: LocalPrWorkspace["lookupSymbol"];
-    getSymbolIndexStatus?: LocalPrWorkspace["getSymbolIndexStatus"];
+    lookupSymbol?: LocalPrWorkspace["reader"]["lookupSymbol"];
+    getSymbolIndexStatus?: LocalPrWorkspace["reader"]["getSymbolIndexStatus"];
   },
 ): LocalPrWorkspace {
   const paths = new Set(checkoutPaths);
@@ -68,31 +97,35 @@ function mockWorkspace(
     rootDir: agentCwd,
     privateGitDir,
     agentCwd,
-    checkoutMode,
-    changedFiles,
-    changedFileByPath: new Map(changedFiles.map((file) => [file.path, file])),
-    checkoutPaths: paths,
-    sortedCheckoutPaths: [...paths].toSorted(),
-    diffIndex: createCachedPrDiffIndex(),
-    stats,
-    grepLiteral: (params: GitGrepWorkspaceParams) =>
-      gitGrepWorkspace({ privateGitDir, agentCwd }, { ...params, timeoutMs: 5_000 }),
-    getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
-    getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
-    isPathInCheckout: (path) => paths.has(path),
-    getCoverage: () =>
-      buildCheckoutCoverage({
-        checkoutMode,
-        checkoutPaths: paths,
-        changedFiles,
-        stats,
-        searchTruncated,
-      }),
-    noteSearchTruncated: () => {
-      searchTruncated = true;
+    reader: {
+      ...createWritableRepositoryReader(agentCwd),
+      agentCwd,
+      checkoutMode,
+      changedFiles,
+      changedFileByPath: new Map(changedFiles.map((file) => [file.path, file])),
+      checkoutPaths: paths,
+      sortedCheckoutPaths: [...paths].toSorted(),
+      diffIndex: createCachedPrDiffIndex(),
+      stats,
+      grepLiteral: (params: GitGrepWorkspaceParams) =>
+        gitGrepWorkspace({ privateGitDir, agentCwd }, { ...params, timeoutMs: 5_000 }),
+      getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
+      getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
+      isPathInCheckout: (path) => paths.has(path),
+      getCoverage: () =>
+        buildCheckoutCoverage({
+          checkoutMode,
+          checkoutPaths: paths,
+          changedFiles,
+          stats,
+          searchTruncated,
+        }),
+      noteSearchTruncated: () => {
+        searchTruncated = true;
+      },
+      lookupSymbol: overrides?.lookupSymbol ?? (() => []),
+      getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
     },
-    lookupSymbol: overrides?.lookupSymbol ?? (() => []),
-    getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
     cleanup: async () => {},
   };
 }
@@ -108,7 +141,7 @@ async function writeWorkspaceFiles(root: string, files: Readonly<Record<string, 
 
 describe("local workspace tools", () => {
   it("exposes investigation-protocol guidance on each tool description", () => {
-    const { piTools } = buildLocalWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]), {
+    const { piTools } = buildWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]).reader, {
       limits: testLimits(),
     });
     const byName = Object.fromEntries(piTools.map((tool) => [tool.name, tool.description]));
@@ -130,7 +163,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "src/small.ts" })) as {
         content: string;
         size: number;
@@ -163,7 +196,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ readResponseBytes: 500 }),
       });
       const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
@@ -195,7 +228,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ maxFileBytes: 1_000_000 }),
         evidenceLedger,
         headSha: "deadbeef",
@@ -239,7 +272,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ maxFileBytes: 1_000_000 }),
         evidenceLedger,
         headSha: "deadbeef",
@@ -293,7 +326,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/large-a.ts", "src/large-b.ts"]);
-      const { executors, disposeSpillFiles } = buildLocalWorkspaceTools(workspace, {
+      const { executors, disposeSpillFiles } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ maxFileBytes: 1_000_000 }),
         headSha: "deadbeef",
         spillScope: { workItemId: "wi-spill", toolCall: "readWorkspaceFile" },
@@ -338,7 +371,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/bundle.js"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "src/bundle.js" })) as {
         content: string;
         truncated: boolean;
@@ -364,7 +397,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/legacy.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "src/legacy.ts" })) as {
         content: string;
         startLine: number;
@@ -388,7 +421,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({
         path: "src/window.ts",
         startLine: 2,
@@ -422,7 +455,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/huge.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ maxFileBytes: 100, readResponseBytes: 50 }),
       });
       const out = (await executors.readWorkspaceFile?.({ path: "src/huge.ts" })) as {
@@ -448,7 +481,7 @@ describe("local workspace tools", () => {
       await writeFile(join(root, "src/binary.bin"), Buffer.from([0, 1, 2, 3]));
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/binary.bin"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "src/binary.bin" })) as {
         refused?: boolean;
         reason?: string;
@@ -470,7 +503,7 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
         getDiffForPath: async () => "x".repeat(10_000),
       });
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ diffResponseBytes: 100 }),
       });
       const out = (await executors.getWorkspaceDiff?.({ path: "src/changed.ts" })) as {
@@ -496,7 +529,7 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
         getBlameForPath: async () => "author-mail user@example.com\n".repeat(200),
       });
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ diffResponseBytes: 100 }),
       });
       const out = (await executors.getWorkspaceBlame?.({ path: "src/changed.ts" })) as {
@@ -529,7 +562,7 @@ describe("local workspace tools", () => {
         "src/unchanged.ts",
         "lib/helper.ts",
       ]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; line: number; text: string }>;
         truncated: boolean;
@@ -561,7 +594,7 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, [".env", "src/ok.ts"]);
       const pathGate = createAskPathGate();
       pathGate.addPaths(["src/ok.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
         pathGate,
       });
@@ -587,7 +620,7 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, [".env", "src/changed.ts", "zzz/allowed.ts"]);
       const pathGate = createAskPathGate();
       pathGate.addPaths(["zzz/allowed.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ searchMaxTotalBytes: 500 }),
         pathGate,
       });
@@ -615,7 +648,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/a.ts", "src/b.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({
         query: "needle",
         maxResults: 2,
@@ -640,7 +673,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/my file.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; line: number; text: string }>;
       };
@@ -680,7 +713,7 @@ describe("local workspace tools", () => {
         "src/compat.ts": "const needle = 1;\n",
       });
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/compat.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; line: number; text: string }>;
       };
@@ -702,7 +735,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/flag.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "--max-count=1" })) as {
         matches: Array<{ path: string; text: string }>;
       };
@@ -724,7 +757,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/other.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
 
       await expect(executors.searchWorkspace?.({ query: "needle" })).resolves.toEqual({
         matches: [],
@@ -749,7 +782,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, files);
 
       const workspace = mockWorkspace(root, Object.keys(files));
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ searchMaxTotalBytes: 200 }),
       });
       const out = (await executors.searchWorkspace?.({
@@ -778,7 +811,7 @@ describe("local workspace tools", () => {
       await writeFile(join(root, "src", "worktree.ts"), "const value = 'needle';\n");
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/worktree.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; text: string }>;
       };
@@ -803,7 +836,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, files);
 
       const workspace = mockWorkspace(root, Object.keys(files));
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const startedAt = performance.now();
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
@@ -831,7 +864,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, files);
 
       const workspace = mockWorkspace(root, Object.keys(files));
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
       };
@@ -858,12 +891,15 @@ describe("local workspace tools", () => {
       const seen: GitGrepWorkspaceParams[] = [];
       const workspace: LocalPrWorkspace = {
         ...base,
-        grepLiteral: async (params) => {
-          seen.push(params);
-          return base.grepLiteral(params);
+        reader: {
+          ...base.reader,
+          grepLiteral: async (params) => {
+            seen.push(params);
+            return base.reader.grepLiteral(params);
+          },
         },
       };
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
         truncated: boolean;
@@ -892,7 +928,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
         evidenceLedger,
         headSha: "deadbeef",
@@ -923,7 +959,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/min.ts"]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ readResponseBytes: 500_000 }),
         evidenceLedger,
         headSha: "deadbeef",
@@ -948,7 +984,7 @@ describe("local workspace tools", () => {
         getDiffForPath: async () => patch,
       });
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
         evidenceLedger,
         headSha: "deadbeef",
@@ -971,7 +1007,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts"], { checkoutMode: "sparse" });
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "src/missing.ts" })) as {
         refused?: boolean;
         coverage?: { mode: string };
@@ -996,7 +1032,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, files);
 
       const workspace = mockWorkspace(root, Object.keys(files));
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ searchMaxTotalBytes: 200 }),
       });
       const out = (await executors.searchWorkspace?.({
@@ -1038,7 +1074,7 @@ describe("local workspace tools", () => {
         lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
         getSymbolIndexStatus: () => symbolIndexStatus(index),
       });
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.resolveSymbol?.({ name: "foo" })) as {
         available: boolean;
         matches: Array<{ path: string; line: number; kind: string }>;
@@ -1068,7 +1104,7 @@ describe("local workspace tools", () => {
         lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
         getSymbolIndexStatus: () => symbolIndexStatus(index),
       });
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
 
       const foo = (await executors.resolveSymbol?.({ name: "foo" })) as {
         matches: Array<{ path: string }>;
@@ -1101,7 +1137,7 @@ describe("local workspace tools", () => {
         getSymbolIndexStatus: () => symbolIndexStatus(index),
       });
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
         evidenceLedger,
         headSha: "deadbeef",
@@ -1117,7 +1153,7 @@ describe("local workspace tools", () => {
   });
 
   it("resolveSymbol description requires readWorkspaceFile before citing", () => {
-    const { piTools } = buildLocalWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]), {
+    const { piTools } = buildWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]).reader, {
       limits: testLimits(),
     });
     const resolveSymbol = piTools.find((tool) => tool.name === "resolveSymbol");
@@ -1132,7 +1168,7 @@ describe("local workspace tools", () => {
       await exec("mkfifo", [join(root, "logs", "live.pipe")]);
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "logs/live.pipe" })) as {
         refused?: boolean;
         reason?: string;
@@ -1154,7 +1190,7 @@ describe("local workspace tools", () => {
       await symlink(join(root, "docs"), join(root, "docs-link"));
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "docs-link"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "docs-link" })) as {
         refused?: boolean;
         reason?: string;
@@ -1177,7 +1213,7 @@ describe("local workspace tools", () => {
       await symlink(join(root, "logs", "live.pipe"), join(root, "logs", "innocent.txt"));
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/innocent.txt"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "logs/innocent.txt" })) as {
         refused?: boolean;
         reason?: string;
@@ -1205,7 +1241,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/agent.sock"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "logs/agent.sock" })) as {
         refused?: boolean;
         reason?: string;
@@ -1230,7 +1266,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", nfcPath]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits({ maxFileBytes: 100 }),
         evidenceLedger,
         headSha: "deadbeef",
@@ -1264,7 +1300,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "cd.yml"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "ci.yml" })) as {
         refused?: boolean;
         similarPaths?: string[];
@@ -1297,7 +1333,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", ...siblings]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "config.ts" })) as {
         refused?: boolean;
         similarPaths?: string[];
@@ -1322,7 +1358,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
         evidenceLedger,
         headSha: "deadbeef",
@@ -1353,7 +1389,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: hostilePath })) as {
         content?: string;
         note?: string;
@@ -1376,7 +1412,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "a\u2019b.txt", "a'b.txt"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       // Left single quote canonicalizes to the same spelling as both twins.
       const out = (await executors.readWorkspaceFile?.({ path: "a\u2018b.txt" })) as {
         refused?: boolean;
@@ -1400,7 +1436,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({
         path: "notes/Meeting notes' resume 3.04 PM.txt",
       })) as {
@@ -1426,7 +1462,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "AGENT.md" })) as {
         refused?: boolean;
         similarPaths?: string[];
@@ -1448,7 +1484,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "zzz_qqq.bin" })) as {
         refused?: boolean;
         similarPaths?: string[];
@@ -1470,7 +1506,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "config/keys.pem"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "config/keys.pub" })) as {
         refused?: boolean;
         similarPaths?: string[];
@@ -1493,7 +1529,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/empty.ts"]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
         evidenceLedger,
         headSha: "deadbeef",
@@ -1523,7 +1559,7 @@ describe("local workspace tools", () => {
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
       const evidenceLedger = createTestEvidenceLedger("deadbeef");
-      const { executors } = buildLocalWorkspaceTools(workspace, {
+      const { executors } = buildWorkspaceTools(workspace.reader, {
         limits: testLimits(),
         evidenceLedger,
         headSha: "deadbeef",
@@ -1556,7 +1592,7 @@ describe("local workspace tools", () => {
       await exec("mkfifo", [join(root, "logs", "live.pipe")]);
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.getWorkspaceBlame?.({ path: "logs/live.pipe" })) as {
         refused?: boolean;
         reason?: string;
@@ -1580,7 +1616,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const { executors } = buildWorkspaceTools(workspace.reader, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({
         path: "src/window.ts",
         startLine: 3,
@@ -1601,3 +1637,697 @@ describe("local workspace tools", () => {
     }
   });
 });
+
+{
+  const exec = promisify(execFile);
+  const WORKSPACE_TEST_TIMEOUT_MS = 20_000;
+
+  const APP_PATCH = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "--- a/src/app.ts",
+    "+++ b/src/app.ts",
+    "@@ -1 +1,2 @@",
+    " export {};",
+    "+export const needle = 1;",
+  ].join("\n");
+
+  const GONE_PATCH = [
+    "diff --git a/src/gone.ts b/src/gone.ts",
+    "deleted file mode 100644",
+    "--- a/src/gone.ts",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-export const removed = true;",
+  ].join("\n");
+
+  type SetupOptions = {
+    readonly deletedFiles?: Readonly<Record<string, string>>;
+    readonly patches?: Readonly<Record<string, string>>;
+    readonly omittedPatchPaths?: readonly string[];
+    readonly absentPatchPaths?: readonly string[];
+  };
+
+  async function writeTree(dir: string, files: Readonly<Record<string, string>>): Promise<void> {
+    for (const [path, content] of Object.entries(files)) {
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), content);
+    }
+  }
+
+  function prFileEntry(
+    path: string,
+    status: string,
+    options: SetupOptions,
+  ): PullRequestFileEntry | null {
+    const omitted = options.omittedPatchPaths?.includes(path) === true;
+    const absent = options.absentPatchPaths?.includes(path) === true;
+    const patch = options.patches?.[path];
+    if (patch == null && !omitted && !absent && status !== "removed") return null;
+    return {
+      filename: path,
+      status,
+      additions: status === "removed" ? 0 : 1,
+      deletions: status === "removed" ? 1 : 0,
+      changes: 1,
+      ...(omitted ? { patchOmitted: true } : {}),
+      ...(patch != null && !omitted ? { patch } : {}),
+    };
+  }
+
+  describe("buildWorkspaceTools", { timeout: WORKSPACE_TEST_TIMEOUT_MS }, () => {
+    const sources: string[] = [];
+    const workspaces: LocalPrWorkspace[] = [];
+
+    afterEach(async () => {
+      await Promise.all(workspaces.splice(0).map((workspace) => workspace.cleanup()));
+      await Promise.all(
+        sources.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+      );
+    });
+
+    async function setup(files: Readonly<Record<string, string>>, options: SetupOptions = {}) {
+      const root = await mkdtemp(join(tmpdir(), "verification-ws-tools-"));
+      sources.push(root);
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      await exec("git", ["init", repo]);
+      await exec("git", ["config", "user.email", "test@example.com"], { cwd: repo });
+      await exec("git", ["config", "user.name", "Test"], { cwd: repo });
+      await exec("git", ["config", "commit.gpgsign", "false"], { cwd: repo });
+
+      const deletedFiles = options.deletedFiles ?? {};
+      if (Object.keys(deletedFiles).length > 0) {
+        await writeTree(repo, { ...files, ...deletedFiles });
+        await exec("git", ["add", "."], { cwd: repo });
+        await exec("git", ["commit", "-m", "base"], { cwd: repo });
+        for (const path of Object.keys(deletedFiles)) {
+          await exec("git", ["rm", "-f", "--", path], { cwd: repo });
+        }
+        await writeTree(repo, files);
+        await exec("git", ["add", "-A"], { cwd: repo });
+        await exec("git", ["commit", "-m", "head"], { cwd: repo });
+      } else {
+        await writeTree(repo, files);
+        await exec("git", ["add", "."], { cwd: repo });
+        await exec("git", ["commit", "-m", "head"], { cwd: repo });
+      }
+
+      const headSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
+      await exec("git", ["init", "--bare", remote]);
+      await exec("git", ["remote", "add", "origin", remote], { cwd: repo });
+      await exec("git", ["push", "origin", "HEAD:refs/pull/1/head"], { cwd: repo });
+
+      const prFilesList: PullRequestFileEntry[] = [];
+      for (const path of Object.keys(files)) {
+        const entry = prFileEntry(path, "modified", options);
+        if (entry) prFilesList.push(entry);
+      }
+      for (const path of Object.keys(deletedFiles)) {
+        const entry = prFileEntry(path, "removed", options);
+        if (entry) prFilesList.push(entry);
+      }
+      const prFiles: ListPullRequestFilesResult = {
+        files: prFilesList,
+        truncated: false,
+        omittedCountLowerBound: 0,
+        totalChanges: prFilesList.length,
+        headSha,
+      };
+
+      const workspace = await prepareLocalPrWorkspace({
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
+      workspaces.push(workspace);
+      const { executors } = buildWorkspaceTools({
+        profile: "verification",
+        reader: workspace.reader,
+      });
+      return { root, repo, workspace, executors };
+    }
+
+    describe("readWorkspaceFile", () => {
+      it("caps oversized reads at the shared response budget with a resume offset", async () => {
+        const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
+        const { executors } = await setup({ "src/big.txt": bigFile });
+
+        const out = (await executors.readWorkspaceFile({ path: "src/big.txt" })) as {
+          truncated?: boolean;
+          truncationReason?: string;
+          resumeStartLine?: number;
+          endLine?: number;
+          returnedBytes?: number;
+        };
+
+        expect(out.truncated).toBe(true);
+        expect(out.truncationReason).toBe("response byte budget exceeded");
+        expect(out.returnedBytes).toBeLessThanOrEqual(LOCAL_WORKSPACE_READ_RESPONSE_BYTES);
+        expect(out.endLine).toBeGreaterThan(1);
+        expect(out.resumeStartLine).toBe(out.endLine);
+      });
+
+      it("supports line-window reads like every other feature", async () => {
+        const { executors } = await setup({ "src/app.ts": "a\nb\nc\nd\n" });
+
+        const out = (await executors.readWorkspaceFile({
+          path: "src/app.ts",
+          startLine: 2,
+          maxLines: 2,
+        })) as {
+          content?: string;
+          startLine?: number;
+          endLine?: number;
+          truncated?: boolean;
+          resumeStartLine?: number;
+          note?: string;
+        };
+
+        expect(out.content).toBe("b\nc");
+        expect(out.startLine).toBe(2);
+        expect(out.endLine).toBe(3);
+        expect(out.truncated).toBe(true);
+        expect(out.resumeStartLine).toBe(4);
+        expect(out.note).toBe("Line window ended at line 3 of 4. Resume with startLine 4.");
+      });
+    });
+
+    describe("searchWorkspace and getWorkspaceDiff", () => {
+      it("records a Git version supported by the NUL-delimited literal grep", async () => {
+        const { stdout } = await exec("git", ["--version"]);
+        // Shared grep omits --max-count, preserving Git 2.39 compatibility.
+        expect(stdout.trim()).toMatch(
+          /^git version (?:2\.(?:(?:39|4[0-9])|[5-9]\d|\d{3,})|[3-9]|[1-9]\d)/,
+        );
+      });
+
+      it("reads, searches, and returns the cached PR patch from a production workspace", async () => {
+        const { workspace, executors } = await setup(
+          { "src/app.ts": "export const needle = 1;\n" },
+          { patches: { "src/app.ts": APP_PATCH } },
+        );
+
+        await expect(stat(join(workspace.agentCwd, ".git"))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        expect((await stat(workspace.privateGitDir)).isDirectory()).toBe(true);
+        expect(workspace.privateGitDir.startsWith(`${workspace.agentCwd}/`)).toBe(false);
+
+        const read = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
+          content?: string;
+        };
+        expect(read.content).toBe("export const needle = 1;\n");
+
+        const search = await executors.searchWorkspace({ query: "needle" });
+        expect(search).toEqual({
+          matches: [{ path: "src/app.ts", line: 1, text: "export const needle = 1;" }],
+          truncated: false,
+        });
+
+        const diff = await executors.getWorkspaceDiff({ path: "src/app.ts" });
+        expect(diff).toEqual({ path: "src/app.ts", diff: APP_PATCH });
+      });
+
+      it("returns empty matches when searchWorkspace finds nothing", async () => {
+        const { executors } = await setup({ "src/app.ts": "const value = 1;\n" });
+        const out = await executors.searchWorkspace({ query: "no-such-token-xyz" });
+        expect(out).toEqual({ matches: [], truncated: false });
+      });
+
+      it("returns clean-path hits without a filtered marker", async () => {
+        const { executors } = await setup({
+          "src/safe-a.ts": "export const safeA = needle;\n",
+          "src/safe-b.ts": "export const safeB = needle;\n",
+        });
+
+        const out = await executors.searchWorkspace({ query: "needle" });
+        expect(out).toEqual({
+          matches: [
+            { path: "src/safe-a.ts", line: 1, text: "export const safeA = needle;" },
+            { path: "src/safe-b.ts", line: 1, text: "export const safeB = needle;" },
+          ],
+          truncated: false,
+        });
+      });
+
+      it("filters blocked paths before applying the result cap", async () => {
+        const blockedText = "verify-private-value-540";
+        const { executors } = await setup({
+          ".env": `TOKEN=${blockedText} needle\n`,
+          ".npmrc": `//registry.example/:_authToken=${blockedText} needle\n`,
+          ".aws/credentials": `[default]\naws_secret_access_key=${blockedText} needle\n`,
+          "certs/signing.pem": `-----BEGIN PRIVATE KEY----- ${blockedText} needle\n`,
+          ".github/workflows/ci.yml": `name: ${blockedText} needle\n`,
+          "src/safe-a.ts": "export const safeA = needle;\n",
+          "src/safe-b.ts": "export const safeB = needle;\n",
+          "src/safe-c.ts": "export const safeC = needle;\n",
+        });
+
+        const out = (await executors.searchWorkspace({ query: "needle", maxResults: 2 })) as {
+          matches: Array<{ path: string; line: number; text: string }>;
+          truncated: boolean;
+          filtered?: boolean;
+        };
+
+        expect(out).toEqual({
+          matches: [
+            { path: "src/safe-a.ts", line: 1, text: "export const safeA = needle;" },
+            { path: "src/safe-b.ts", line: 1, text: "export const safeB = needle;" },
+          ],
+          truncated: true,
+          filtered: true,
+        });
+        expect(JSON.stringify(out)).not.toContain(blockedText);
+        expect(JSON.stringify(out)).not.toContain(".env");
+        expect(JSON.stringify(out)).not.toContain(".npmrc");
+      });
+
+      it("strips source symlinks and withholds blocked checkout paths", async () => {
+        const root = await mkdtemp(join(tmpdir(), "verification-ws-symlink-"));
+        sources.push(root);
+        const repo = join(root, "repo");
+        const remote = join(root, "remote.git");
+        await exec("git", ["init", repo]);
+        await exec("git", ["config", "user.email", "test@example.com"], { cwd: repo });
+        await exec("git", ["config", "user.name", "Test"], { cwd: repo });
+        await exec("git", ["config", "commit.gpgsign", "false"], { cwd: repo });
+        await writeTree(repo, {
+          ".env": "TOKEN=verify-private-value-540\n",
+          "src/safe.ts": "export const safe = true;\n",
+        });
+        await mkdir(join(repo, "docs"), { recursive: true });
+        await symlink("../.env", join(repo, "docs", "config.ts"));
+        await exec("git", ["add", "."], { cwd: repo });
+        await exec("git", ["commit", "-m", "head"], { cwd: repo });
+        const headSha = (await exec("git", ["rev-parse", "HEAD"], { cwd: repo })).stdout.trim();
+        await exec("git", ["init", "--bare", remote]);
+        await exec("git", ["remote", "add", "origin", remote], { cwd: repo });
+        await exec("git", ["push", "origin", "HEAD:refs/pull/1/head"], { cwd: repo });
+
+        const workspace = await prepareLocalPrWorkspace({
+          owner: "owner",
+          repo: "repo",
+          prNumber: 1,
+          headSha,
+          installationToken: "unused",
+          prFiles: {
+            files: [],
+            truncated: false,
+            omittedCountLowerBound: 0,
+            totalChanges: 0,
+            headSha,
+          },
+          remoteUrlOverride: remote,
+        });
+        workspaces.push(workspace);
+        const { executors } = buildWorkspaceTools({
+          profile: "verification",
+          reader: workspace.reader,
+        });
+
+        await expect(stat(join(workspace.agentCwd, "docs", "config.ts"))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        await expect(isTriageSearchPathAllowed(workspace.agentCwd, "././.env")).resolves.toBe(
+          false,
+        );
+        await expect(isTriageSearchPathAllowed(workspace.agentCwd, "src/safe.ts")).resolves.toBe(
+          true,
+        );
+        await expect(executors.searchWorkspace({ query: "TOKEN" })).resolves.toEqual({
+          matches: [],
+          truncated: false,
+          filtered: true,
+        });
+        await expect(executors.searchWorkspace({ query: "safe" })).resolves.toEqual({
+          matches: [{ path: "src/safe.ts", line: 1, text: "export const safe = true;" }],
+          truncated: false,
+          filtered: true,
+        });
+      });
+
+      it("withholds key-extension and control-path hits", async () => {
+        const blockedText = "verify-private-value-540";
+        const { executors } = await setup({
+          "certs/server.key": `secret=${blockedText}\n`,
+          "package.json": `{"name":"${blockedText}"}\n`,
+          "src/key-utils.ts": "export const helper = true;\n",
+        });
+
+        const secretOut = (await executors.searchWorkspace({ query: blockedText })) as {
+          matches: unknown[];
+          truncated?: boolean;
+          filtered?: boolean;
+        };
+        expect(secretOut.matches).toEqual([]);
+        expect(secretOut.truncated).toBe(false);
+        expect(secretOut.filtered).toBe(true);
+        expect(JSON.stringify(secretOut)).not.toContain(blockedText);
+
+        const cleanOut = await executors.searchWorkspace({ query: "helper" });
+        expect(cleanOut).toEqual({
+          matches: [{ path: "src/key-utils.ts", line: 1, text: "export const helper = true;" }],
+          truncated: false,
+          filtered: true,
+        });
+      });
+
+      it("matches literal punctuation and unusual filenames", async () => {
+        const { executors } = await setup({
+          "src/colon:name.ts": "export const token = 'a.b*c';\n",
+        });
+
+        const out = await executors.searchWorkspace({ query: "a.b*c" });
+        expect(out).toEqual({
+          matches: [{ path: "src/colon:name.ts", line: 1, text: "export const token = 'a.b*c';" }],
+          truncated: false,
+        });
+      });
+
+      it("returns a deleted path's cached PR patch without requiring the file at head", async () => {
+        const { workspace, executors } = await setup(
+          { "src/app.ts": "export {};\n" },
+          {
+            deletedFiles: { "src/gone.ts": "export const removed = true;\n" },
+            patches: { "src/gone.ts": GONE_PATCH },
+          },
+        );
+
+        await expect(stat(join(workspace.agentCwd, "src", "gone.ts"))).rejects.toMatchObject({
+          code: "ENOENT",
+        });
+        await expect(executors.getWorkspaceDiff({ path: "src/gone.ts" })).resolves.toEqual({
+          path: "src/gone.ts",
+          diff: GONE_PATCH,
+        });
+      });
+
+      it("returns an omitted-patch notice and an empty string for an absent patch", async () => {
+        const { executors } = await setup(
+          {
+            "src/omitted.ts": "export const omitted = true;\n",
+            "src/absent.ts": "export const absent = true;\n",
+          },
+          {
+            omittedPatchPaths: ["src/omitted.ts"],
+            absentPatchPaths: ["src/absent.ts"],
+          },
+        );
+
+        await expect(executors.getWorkspaceDiff({ path: "src/omitted.ts" })).resolves.toEqual({
+          path: "src/omitted.ts",
+          diff: "[patch omitted: exceeds configured PR patch byte cap]",
+        });
+        await expect(executors.getWorkspaceDiff({ path: "src/absent.ts" })).resolves.toEqual({
+          path: "src/absent.ts",
+          diff: "",
+        });
+      });
+
+      it("forwards workspace search truncation and the shared byte cap", async () => {
+        const root = await mkdtemp(join(tmpdir(), "verification-ws-budget-"));
+        sources.push(root);
+        await mkdir(join(root, "src"), { recursive: true });
+        await writeFile(join(root, "src/app.ts"), "export const needle = 1;\n");
+        let seenBytes: number | undefined;
+        const workspace = {
+          ...mockLocalPrWorkspace(root, { checkoutPaths: new Set(["src/app.ts"]) }),
+          reader: {
+            ...mockLocalPrWorkspace(root, { checkoutPaths: new Set(["src/app.ts"]) }).reader,
+            grepLiteral: async (params: { readonly maxOutputBytes?: number }) => {
+              seenBytes = params.maxOutputBytes;
+              return {
+                matches: [{ path: "src/app.ts", line: 1, text: "export const needle = 1;" }],
+                truncated: true,
+              };
+            },
+          },
+        };
+        const { executors } = buildWorkspaceTools({
+          profile: "verification",
+          reader: workspace.reader,
+        });
+
+        const out = await executors.searchWorkspace({ query: "needle" });
+        expect(seenBytes).toBe(LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES);
+        expect(out).toEqual({
+          matches: [{ path: "src/app.ts", line: 1, text: "export const needle = 1;" }],
+          truncated: true,
+        });
+      });
+    });
+  });
+}
+
+{
+  const exec = promisify(execFile);
+
+  function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThread {
+    return {
+      rootCommentId: 101,
+      lens: "review",
+      path: "src/app.ts",
+      line: 1,
+      severity: "P1",
+      titleSnippet: "P1 · bug",
+      humanReplies: [],
+      threadUrl: "https://example.test/thread/101",
+      ...overrides,
+    };
+  }
+
+  function mockCheckout(
+    dir: string,
+    commitImpl?: WritablePrCheckout["commit"],
+  ): WritablePrCheckout {
+    return {
+      dir,
+      reader: createWritableRepositoryReader(dir),
+      headRef: "feature",
+      baseSha: "a".repeat(40),
+      commit:
+        commitImpl ??
+        (async ({ files, subject }) => ({
+          sha: "b".repeat(40),
+          diff: `diff for ${files.join(",")} (${subject})`,
+        })),
+      push: async () => {},
+      listCommittedShas: () => [],
+      listCommittedDetails: () => [],
+    };
+  }
+
+  async function initCheckout(files: Readonly<Record<string, string>>): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "triage-ws-tools-"));
+    for (const [path, content] of Object.entries(files)) {
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), content);
+    }
+    await exec("git", ["init"], { cwd: root });
+    await exec("git", ["config", "user.email", "test@example.com"], { cwd: root });
+    await exec("git", ["config", "user.name", "Test"], { cwd: root });
+    await exec("git", ["add", "."], { cwd: root });
+    await exec("git", ["commit", "-m", "seed"], { cwd: root });
+    return root;
+  }
+
+  describe("triage read profile", () => {
+    const roots: string[] = [];
+
+    afterEach(async () => {
+      await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+    });
+
+    async function setup(params?: {
+      files?: Readonly<Record<string, string>>;
+      inventory?: readonly BotFindingThread[];
+      commit?: WritablePrCheckout["commit"];
+    }) {
+      const root = await initCheckout(
+        params?.files ?? {
+          "src/app.ts": "const value = 1;\n",
+          "package.json": '{"name":"app"}\n',
+        },
+      );
+      roots.push(root);
+      const inventory = params?.inventory ?? [findingThread()];
+      const state = createTriageWorkspaceToolState();
+      const { executors } = buildTriageWorkspaceTools({
+        cfg: makeTestConfig(),
+        checkout: mockCheckout(root, params?.commit),
+        inventory,
+        state,
+      });
+      return { root, executors, state, inventory };
+    }
+
+    it("bounds triage grep at the shared byte cap and reports incomplete output", async () => {
+      const { executors } = await setup({
+        files: {
+          "src/app.ts": ("needle " + "x".repeat(1000) + "\n").repeat(
+            Math.ceil(LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES / 1000) + 100,
+          ),
+        },
+      });
+      const out = await executors.searchWorkspace({ query: "needle", maxResults: 100_000 });
+      expect(out).toMatchObject({ truncated: true });
+      expect(Buffer.byteLength(JSON.stringify(out))).toBeLessThan(
+        LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES * 2,
+      );
+    });
+
+    it("searches literal punctuation in colon-containing paths without dropping hits", async () => {
+      const { executors } = await setup({ files: { "src/colon:name.ts": "a.b*c\n" } });
+      await expect(executors.searchWorkspace({ query: "a.b*c" })).resolves.toEqual({
+        matches: [{ path: "src/colon:name.ts", line: 1, text: "a.b*c" }],
+        truncated: false,
+      });
+    });
+
+    it("blocks read of control-plane paths", async () => {
+      const { executors } = await setup();
+      await expect(executors.readWorkspaceFile({ path: "package.json" })).rejects.toMatchObject({
+        code: "triage.sensitive_path_blocked",
+      });
+    });
+
+    it("caps oversized reads at the shared response budget with a resume offset", async () => {
+      // Lines stay under the per-line clamp so the byte budget is what fires.
+      const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
+      const { executors } = await setup({ files: { "src/app.ts": bigFile } });
+
+      const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
+        truncated?: boolean;
+        truncationReason?: string;
+        resumeStartLine?: number;
+        endLine?: number;
+        returnedBytes?: number;
+      };
+
+      expect(out.truncated).toBe(true);
+      expect(out.truncationReason).toBe("response byte budget exceeded");
+      expect(out.returnedBytes).toBeLessThanOrEqual(LOCAL_WORKSPACE_READ_RESPONSE_BYTES);
+      // A byte-cap cut lands mid-line, so the next read resumes on that line.
+      expect(out.endLine).toBeGreaterThan(1);
+      expect(out.resumeStartLine).toBe(out.endLine);
+    });
+
+    it("supports line-window reads like every other feature", async () => {
+      const { executors } = await setup({ files: { "src/app.ts": "a\nb\nc\nd\n" } });
+
+      const out = (await executors.readWorkspaceFile({
+        path: "src/app.ts",
+        startLine: 2,
+        maxLines: 2,
+      })) as {
+        content?: string;
+        startLine?: number;
+        endLine?: number;
+        truncated?: boolean;
+        resumeStartLine?: number;
+        note?: string;
+      };
+
+      expect(out.content).toBe("b\nc");
+      expect(out.startLine).toBe(2);
+      expect(out.endLine).toBe(3);
+      expect(out.truncated).toBe(true);
+      expect(out.resumeStartLine).toBe(4);
+      expect(out.note).toBe("Line window ended at line 3 of 4. Resume with startLine 4.");
+    });
+
+    it("blocks read through absolute symlink escapes", async () => {
+      const outside = await mkdtemp(join(tmpdir(), "triage-ws-outside-"));
+      roots.push(outside);
+      await writeFile(join(outside, "secret.env"), "TOKEN=leak\n");
+      const root = await initCheckout({ "src/app.ts": "export {};\n" });
+      roots.push(root);
+      await mkdir(join(root, "docs"), { recursive: true });
+      await symlink(join(outside, "secret.env"), join(root, "docs/notes.md"));
+
+      const { executors } = buildTriageWorkspaceTools({
+        cfg: makeTestConfig(),
+        checkout: mockCheckout(root),
+        inventory: [findingThread()],
+        state: createTriageWorkspaceToolState(),
+      });
+
+      await expect(executors.readWorkspaceFile({ path: "docs/notes.md" })).rejects.toMatchObject({
+        code: "pr_workspace.symlink_escape",
+      });
+    });
+
+    it("returns empty matches when searchWorkspace finds nothing", async () => {
+      const { executors } = await setup();
+      const out = await executors.searchWorkspace({ query: "no-such-token-xyz" });
+      expect(out).toEqual({ matches: [], truncated: false });
+    });
+
+    it("filters blocked paths before applying the result cap", async () => {
+      const blockedText = "triage-private-value-475";
+      const { executors } = await setup({
+        files: {
+          ".env": `TOKEN=${blockedText} needle\n`,
+          ".npmrc": `//registry.example/:_authToken=${blockedText} needle\n`,
+          ".aws/credentials": `[default]\naws_secret_access_key=${blockedText} needle\n`,
+          "certs/signing.pem": `-----BEGIN PRIVATE KEY----- ${blockedText} needle\n`,
+          ".github/workflows/ci.yml": `name: ${blockedText} needle\n`,
+          "src/safe-a.ts": "export const safeA = needle;\n",
+          "src/safe-b.ts": "export const safeB = needle;\n",
+          "src/safe-c.ts": "export const safeC = needle;\n",
+        },
+      });
+
+      const out = (await executors.searchWorkspace({ query: "needle", maxResults: 2 })) as {
+        matches: Array<{ path: string; line: number; text: string }>;
+        truncated: boolean;
+        filtered?: boolean;
+      };
+
+      expect(out).toEqual({
+        matches: [
+          { path: "src/safe-a.ts", line: 1, text: "export const safeA = needle;" },
+          { path: "src/safe-b.ts", line: 1, text: "export const safeB = needle;" },
+        ],
+        truncated: true,
+        filtered: true,
+      });
+      expect(JSON.stringify(out)).not.toContain(blockedText);
+      expect(JSON.stringify(out)).not.toContain(".env");
+      expect(JSON.stringify(out)).not.toContain(".npmrc");
+    });
+
+    it("filters a symlink alias to a blocked target without exposing its text", async () => {
+      const { root, executors } = await setup({
+        files: {
+          ".env": "TOKEN=triage-private-value-475\n",
+          "src/safe.ts": "export const safe = true;\n",
+        },
+      });
+      await mkdir(join(root, "docs"), { recursive: true });
+      await symlink("../.env", join(root, "docs", "config.ts"));
+      await exec("git", ["add", "docs/config.ts"], { cwd: root });
+      await symlink("../.env.dangling", join(root, "docs", "broken.ts"));
+      await exec("git", ["add", "docs/broken.ts"], { cwd: root });
+      await exec("git", ["commit", "-m", "add symlink fixture"], { cwd: root });
+
+      await expect(isTriageSearchPathAllowed(root, "docs/config.ts")).resolves.toBe(false);
+      await expect(isTriageSearchPathAllowed(root, "././.env")).resolves.toBe(false);
+      await expect(isTriageSearchPathAllowed(root, "src/safe.ts")).resolves.toBe(true);
+      await expect(isTriageSearchPathAllowed(root, "././src/safe.ts")).resolves.toBe(true);
+      await expect(isTriageSearchPathAllowed(root, "docs/broken.ts")).resolves.toBe(false);
+      await expect(executors.searchWorkspace({ query: "../.env" })).resolves.toEqual({
+        matches: [],
+        truncated: false,
+      });
+      await expect(executors.searchWorkspace({ query: "../.env.dangling" })).resolves.toEqual({
+        matches: [],
+        truncated: false,
+      });
+    });
+  });
+}

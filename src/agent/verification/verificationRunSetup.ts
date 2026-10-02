@@ -5,7 +5,7 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../codemode/assembleExplorationTools.js";
 import { verificationSystemPrompt } from "./verificationPrompt.js";
 import { buildVerificationUserContent } from "./verificationUserMessage.js";
-import { buildVerificationWorkspaceTools } from "./verificationWorkspaceTools.js";
+import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
 import {
   buildSubmitVerificationTool,
   createSubmitVerificationState,
@@ -39,10 +39,7 @@ export function buildVerificationRunSetup(params: {
 }): VerificationRunSetup {
   const submitState = createSubmitVerificationState();
   const workspaceTools = hideWorkspaceToolsBehindCodeMode(
-    buildVerificationWorkspaceTools({
-      cfg: params.cfg,
-      workspace: params.workspace,
-    }),
+    buildWorkspaceTools({ profile: "verification", reader: params.workspace.reader }),
   );
   const submitTool = buildSubmitVerificationTool({
     owner: params.owner,

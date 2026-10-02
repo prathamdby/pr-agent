@@ -1,3 +1,4 @@
+import { workspaceToolExecutionMode } from "../tools/workspaceToolset.js";
 import { CODE_MODE_EXECUTE_NAME } from "../codemode/types.js";
 
 export const SEQUENTIAL_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -9,13 +10,13 @@ export const SEQUENTIAL_TOOL_NAMES: ReadonlySet<string> = new Set([
   "submitDescription",
   "submitTriage",
   "submitVerification",
-  "editWorkspaceFile",
-  "createWorkspaceFile",
-  "commitFix",
 ]);
 
 export type ToolExecutionMode = "sequential" | "parallel";
 
 export function toolExecutionMode(toolName: string): ToolExecutionMode | undefined {
-  return SEQUENTIAL_TOOL_NAMES.has(toolName) ? "sequential" : undefined;
+  return (
+    workspaceToolExecutionMode(toolName) ??
+    (SEQUENTIAL_TOOL_NAMES.has(toolName) ? "sequential" : undefined)
+  );
 }

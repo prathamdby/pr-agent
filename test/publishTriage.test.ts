@@ -1,3 +1,4 @@
+import { createWritableRepositoryReader } from "../src/prWorkspace/repositoryReader.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import {
@@ -61,6 +62,7 @@ const secondThread = { ...thread, rootCommentId: 2, titleSnippet: "P2 · Already
 function checkout(push: () => Promise<void>): WritablePrCheckout {
   return {
     dir: "/tmp/checkout",
+    reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
     baseSha: "a".repeat(40),
     commit: vi.fn(),
@@ -75,6 +77,7 @@ function checkout(push: () => Promise<void>): WritablePrCheckout {
 function emptyCheckout(push: () => Promise<void>): WritablePrCheckout {
   return {
     dir: "/tmp/checkout",
+    reader: createWritableRepositoryReader("/tmp/checkout"),
     headRef: "main",
     baseSha: "a".repeat(40),
     commit: vi.fn(),
@@ -217,6 +220,7 @@ describe("publishTriage", () => {
     });
     const raceCheckout: WritablePrCheckout = {
       dir: "/tmp/checkout",
+      reader: createWritableRepositoryReader("/tmp/checkout"),
       headRef: "main",
       baseSha: "a".repeat(40),
       commit,
@@ -300,6 +304,7 @@ describe("publishTriage", () => {
       });
       const raceCheckout: WritablePrCheckout = {
         dir: "/tmp/checkout",
+        reader: createWritableRepositoryReader("/tmp/checkout"),
         headRef: "main",
         baseSha: "a".repeat(40),
         commit: vi.fn(),

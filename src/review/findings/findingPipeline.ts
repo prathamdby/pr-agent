@@ -16,7 +16,7 @@ import {
   type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
 import { isInlineSeverity, type ReviewFinding, type ReviewPayload } from "../reviewSchema.js";
-import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage } from "../../prWorkspace/repositoryReader.js";
 import type { EvidenceLedger } from "./evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "./evidenceValidator.js";
 

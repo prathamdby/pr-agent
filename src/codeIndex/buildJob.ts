@@ -1,10 +1,9 @@
 import { productionInstallationSurface } from "../agentWork/installationSurface.js";
-import { readFile, stat } from "node:fs/promises";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
-import { assertWorkspacePath, type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
+import { type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.js";
 import { isIndexableSourcePath } from "../prWorkspace/symbolIndex.js";
 import { pathAllowedForAsk, type AskPathGate } from "../agent/ask/askSafety.js";
@@ -23,8 +22,6 @@ import {
   type CodeIndexRepoScope,
   waitForReadySnapshot,
 } from "./repository.js";
-
-const BINARY_SAMPLE_BYTES = 8192;
 
 export type CodeIndexBuildJobData = {
   readonly installationId: number;
@@ -48,23 +45,9 @@ function pathAllowedForIndexing(
   pathGate: AskPathGate,
 ): boolean {
   const normalized = path.replace(/\\/g, "/");
-  if (!workspace.isPathInCheckout(normalized)) return false;
+  if (!workspace.reader.isPathInCheckout(normalized)) return false;
   if (!isIndexableSourcePath(normalized)) return false;
   return pathAllowedForAsk(normalized, pathGate);
-}
-
-async function readIndexableWorkspaceFile(
-  workspace: LocalPrWorkspace,
-  path: string,
-): Promise<string | null> {
-  const normalized = path.replace(/\\/g, "/");
-  const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
-  const info = await stat(safePath).catch(() => null);
-  if (!info?.isFile() || info.size > LOCAL_WORKSPACE_MAX_FILE_BYTES) return null;
-  const buf = await readFile(safePath).catch(() => null);
-  if (!buf) return null;
-  if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) return null;
-  return buf.toString("utf8");
 }
 
 async function buildCodeIndexFromWorkspace(
@@ -87,9 +70,9 @@ async function buildCodeIndexFromWorkspace(
 
       try {
         const files: Array<{ path: string; content: string }> = [];
-        for (const path of workspace.sortedCheckoutPaths) {
+        for (const path of workspace.reader.sortedCheckoutPaths) {
           if (!pathAllowedForIndexing(path, workspace, pathGate)) continue;
-          const content = await readIndexableWorkspaceFile(workspace, path);
+          const content = await workspace.reader.readSource(path, LOCAL_WORKSPACE_MAX_FILE_BYTES);
           if (content == null) continue;
           files.push({ path, content });
         }
@@ -167,7 +150,7 @@ export async function executeCodeIndexBuildJob(
     },
     async (view) => {
       const pathGate = {
-        prChangedPaths: new Set(view.workspace.changedFiles.map((file) => file.path)),
+        prChangedPaths: new Set(view.workspace.reader.changedFiles.map((file) => file.path)),
         addPaths: () => undefined,
       };
       await buildCodeIndexFromWorkspace(pool, scope, view.workspace, pathGate);

@@ -473,3 +473,15 @@ computation restarts on retry. Work items, leases, operation intents, and publis
 records remain the recovery authority. The removed snapshot env keys are ignored.
 Do not roll back old worker code against the dropped tables. Restoring their
 schema would not restore old session contents or change publication evidence.
+
+## Workspace search diagnostics
+
+Pinned and writable triage searches use the shared repository reader. A grep
+buffer cut returns `truncated: true`, including when no allowed matches survived;
+it does not prove that a finding is absent. Narrow the query or read a focused
+line window. The cap is `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES` in
+`src/settings/workspaceConstants.ts`, not a new env setting.
+`triage_search_matches_filtered` and `verification_search_matches_filtered`
+retain `filteredCount` and `reason: sensitive_or_control_path`; blocked paths and
+matching text are never included. Checkout cleanup and stale-root heartbeats
+remain independent of durable queue state. Commit and push guards are unchanged.

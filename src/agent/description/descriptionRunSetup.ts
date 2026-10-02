@@ -4,7 +4,7 @@ import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../ask/askSafety.js";
-import { buildLocalWorkspaceTools } from "../tools/localWorkspaceTools.js";
+import { buildWorkspaceTools } from "../tools/workspaceToolset.js";
 import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
 import { buildDescriptionUserContent } from "./descriptionUserMessage.js";
 import { resolveDescriptionWritingPolicy } from "./descriptionWritingPolicy.js";
@@ -47,10 +47,10 @@ export function buildDescriptionRunSetup(params: {
 
   const pathGate = createAskPathGate();
   const submitState = createSubmitDescriptionState();
-  const policy = resolveDescriptionWritingPolicy(workspace.stats);
-  const knownPaths = new Set(workspace.changedFiles.map((file) => file.path));
+  const policy = resolveDescriptionWritingPolicy(workspace.reader.stats);
+  const knownPaths = new Set(workspace.reader.changedFiles.map((file) => file.path));
 
-  const localTools = buildLocalWorkspaceTools(workspace, {
+  const localTools = buildWorkspaceTools(workspace.reader, {
     pathGate,
   });
 
@@ -88,9 +88,9 @@ export function buildDescriptionRunSetup(params: {
       prNumber,
       headSha,
       policy,
-      fileCount: workspace.stats.fileCount,
-      totalChanges: workspace.stats.totalChanges,
-      truncated: workspace.stats.truncated,
+      fileCount: workspace.reader.stats.fileCount,
+      totalChanges: workspace.reader.stats.totalChanges,
+      truncated: workspace.reader.stats.truncated,
       userSupplement,
     }),
     piTools: [...localTools.piTools, submitBundle.piTool],
