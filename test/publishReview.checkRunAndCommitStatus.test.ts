@@ -95,7 +95,7 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
   enqueueCiProjectionIfDue: vi.fn(async () => undefined),
 }));
 
-import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
+import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.js";
 import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
 
 const payload = publishReviewTestPayload;

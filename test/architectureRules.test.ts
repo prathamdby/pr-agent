@@ -42,6 +42,14 @@ const IMPORT_RULES: ImportRule[] = [
 
 const SOURCE_RULES: SourceRule[] = [
   {
+    id: "review-summary-comment-single-writer",
+    pattern: /\.upsertProgressComment\(/,
+    allowedPaths: [
+      "src/review/publish/reviewSummaryComment.ts",
+      "src/agent/triage/publishTriage.ts",
+    ],
+  },
+  {
     id: "process-env-allowlist",
     pattern: /\bprocess\.env\b/,
     allowedPaths: [

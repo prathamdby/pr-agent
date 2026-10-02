@@ -13,7 +13,7 @@ import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as prSurface from "../../src/github/prSurface.js";
-import { parseProgressRevisionState } from "../../src/review/run/progressComment.js";
+import { parseProgressRevisionState } from "../../src/review/run/commentMarkers.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import {
   acquirePrActorLease,

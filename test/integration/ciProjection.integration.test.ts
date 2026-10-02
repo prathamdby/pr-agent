@@ -51,7 +51,7 @@ import { createFindingLedger } from "../../src/review/orchestrator/orchestratorT
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
 import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
 import { makeReviewPayload } from "../helpers/reviewPayloadFactory.js";
-import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
+import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
 import { renderReviewProgressComment } from "../../src/review/run/progressComment.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { pgBossDb } from "../../src/db/postgres.js";
@@ -1646,14 +1646,12 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         progressRevision: 0,
         progressWorkItemId: workItemId,
       });
-      await upsertSummaryCommentWithCreationClaim({
-        pool,
-        workItemId,
-        resourceKey,
-        reviewLens: "review",
+      await createReviewSummaryComment({
         prSurface: fake.surface,
+        reviewLens: "review",
+        coordination: { pool, resourceKey, workItemId },
+      }).tick({
         body,
-        sentinel: REVIEW_SUMMARY_SENTINEL,
         progressRevision: 0,
         ciHeadSha: headSha,
         ciVersion: rendered.version,

@@ -143,7 +143,7 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
 }));
 
 import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
-import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
+import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.js";
 import type { Pool, PoolClient } from "pg";
 
 function finding(line: number): ReviewFinding {

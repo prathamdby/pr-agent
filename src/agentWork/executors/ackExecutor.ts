@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logWarn } from "../../evlog.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
-import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/summaryCommentUpsert.js";
+import { createReviewSummaryComment } from "../../review/publish/reviewSummaryComment.js";
 import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_EYES,
@@ -20,8 +20,8 @@ import {
 } from "../repository.js";
 import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../reviewVerdict.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../ciProjection.js";
+import { parseProgressRevisionState } from "../../review/run/commentMarkers.js";
 import {
-  parseProgressRevisionState,
   renderReviewCancelledNotice,
   renderReviewAwaitingApprovalNotice,
   renderReviewProgressComment,
@@ -102,14 +102,12 @@ async function publishAckProgress(
     progressRevision: 0,
     progressWorkItemId: data.workItemId,
   });
-  await upsertSummaryCommentWithCreationClaim({
-    pool,
-    workItemId: data.workItemId,
-    resourceKey,
-    reviewLens: data.progress.lens,
+  await createReviewSummaryComment({
     prSurface,
+    reviewLens: data.progress.lens,
+    coordination: { pool, resourceKey, workItemId: data.workItemId },
+  }).tick({
     body,
-    sentinel: REVIEW_SUMMARY_SENTINEL,
     progressRevision: 0,
     ciHeadSha: headSha,
     ciVersion: rendered.version,
@@ -166,16 +164,11 @@ async function publishCancelProgress(
     if (ownsStub && existing != null) {
       await prSurface.editComment(existing.id, body);
     } else {
-      await upsertSummaryCommentWithCreationClaim({
-        pool,
-        workItemId: data.cancelProgress.workItemId,
-        resourceKey,
-        reviewLens: "review",
+      await createReviewSummaryComment({
         prSurface,
-        body,
-        sentinel: REVIEW_SUMMARY_SENTINEL,
-        progressRevision: 0,
-      });
+        reviewLens: "review",
+        coordination: { pool, resourceKey, workItemId: data.cancelProgress.workItemId },
+      }).tick({ body, progressRevision: 0 });
     }
   } catch (error) {
     logWarn("ack_cancel_comment_failed", {
@@ -236,15 +229,14 @@ export async function executeAckJob(
   }
 
   if (data.awaitingApproval || data.closedApproval) {
-    await upsertSummaryCommentWithCreationClaim({
-      pool,
-      resourceKey,
-      reviewLens: "review",
+    await createReviewSummaryComment({
       prSurface,
+      reviewLens: "review",
+      coordination: { pool, resourceKey },
+    }).tick({
       body: data.closedApproval
         ? renderReviewCancelledNotice({ attribution: data.closedApproval, progressRevision: 1 })
         : renderReviewAwaitingApprovalNotice(),
-      sentinel: REVIEW_SUMMARY_SENTINEL,
       progressRevision: data.closedApproval ? 1 : 0,
       shouldPublish: (client) =>
         canPublishApprovalNotice(

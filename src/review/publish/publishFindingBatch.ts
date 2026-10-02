@@ -21,7 +21,7 @@ import type { ReviewFinding, ReviewPublishContext } from "../reviewSchema.js";
 import { reviewPayloadFromFindings } from "../reviewSchema.js";
 import type { RepoPolicyResult } from "../repoPolicy.js";
 import { resolveBoundPolicyFooters, type BoundPolicyJudge } from "./boundPolicyJudge.js";
-import type { RecordPublishStepWithCoordination } from "./summaryCommentUpsert.js";
+import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.js";
 import {
   deterministicInlineBatchId,
   operationIntentMarker,

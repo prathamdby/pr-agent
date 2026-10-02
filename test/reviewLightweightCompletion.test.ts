@@ -88,23 +88,44 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
   enqueueCiProjectionIfDue: vi.fn(async () => undefined),
 }));
 
-vi.mock("../src/review/publish/summaryCommentUpsert.js", () => ({
-  upsertSummaryCommentWithCreationClaim: vi.fn(async (params) => {
-    const result = await params.prSurface.upsertProgressComment(
-      params.body,
-      params.sentinel,
-      params.hintCommentId != null
-        ? { id: params.hintCommentId, url: "https://example.com/c" }
-        : null,
-    );
-    return result;
+const summaryWrite = vi.hoisted(() =>
+  vi.fn(
+    async (params: {
+      readonly prSurface: import("../src/github/prSurface.js").PrSurface;
+      readonly body: string;
+      readonly hintCommentId?: number | null;
+      readonly [key: string]: unknown;
+    }) =>
+      params.prSurface.upsertProgressComment(
+        params.body,
+        "## PR Agent Review",
+        params.hintCommentId != null
+          ? { id: params.hintCommentId, url: "https://example.com/c" }
+          : null,
+      ),
+  ),
+);
+
+vi.mock("../src/review/publish/reviewSummaryComment.js", () => ({
+  createReviewSummaryComment: (deps: {
+    readonly prSurface: import("../src/github/prSurface.js").PrSurface;
+    readonly reviewLens: string;
+    readonly coordination?: object;
+  }) => ({
+    conclude: (write: { readonly body: string; readonly hintCommentId?: number | null }) =>
+      summaryWrite({
+        prSurface: deps.prSurface,
+        reviewLens: deps.reviewLens,
+        ...deps.coordination,
+        ...write,
+        progressRevision: 7,
+      }),
   }),
 }));
 
 import { getSummaryCommentGithubId, shouldSkipWork } from "../src/agentWork/repository.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
-import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
 
 const pool = {} as Pool;
 
@@ -141,16 +162,6 @@ describe("tryLightweightAutoReviewCompletion", () => {
       summary: { status: "pending", headline: "CI is pending", failures: [] },
       version: 1,
     });
-    vi.mocked(upsertSummaryCommentWithCreationClaim).mockImplementation(async (params) => {
-      const result = await params.prSurface.upsertProgressComment(
-        params.body,
-        params.sentinel,
-        params.hintCommentId != null
-          ? { id: params.hintCommentId, url: "https://example.com/c" }
-          : null,
-      );
-      return result;
-    });
   });
 
   it("does not publish summary when shouldSkipWork is true", async () => {
@@ -179,7 +190,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(
       0,
     );
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
@@ -200,7 +211,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     });
 
     expect(result).toMatchObject({ handled: true, published: true });
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         progressRevision: 7,
         workItemId: "wi-1",
@@ -239,7 +250,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
     });
 
     expect(result).toMatchObject({ handled: true, published: true, summaryId: 99 });
-    const upsertArgs = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0];
+    const upsertArgs = vi.mocked(summaryWrite).mock.calls[0]?.[0];
     expect(upsertArgs?.progressRevision).toBe(7);
     expect(upsertArgs?.hintCommentId).toBe(99);
     expect(upsertArgs?.body).toContain(LIGHTWEIGHT_REVIEW_COMPLETION_LEAD);
@@ -328,8 +339,6 @@ describe("tryLightweightAutoReviewCompletion", () => {
       kind: "resolveProgressComment",
       hintCommentId: 55,
     });
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
-      expect.objectContaining({ hintCommentId: 55 }),
-    );
+    expect(summaryWrite).toHaveBeenCalledWith(expect.objectContaining({ hintCommentId: 55 }));
   });
 });

@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
-import { upsertSummaryCommentWithCreationClaim } from "../review/publish/summaryCommentUpsert.js";
+import { createReviewSummaryComment } from "../review/publish/reviewSummaryComment.js";
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
 import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
@@ -107,17 +107,18 @@ export async function tryLightweightAutoReviewCompletion(
     isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
     // Terminal revision 7 fences a late ack stub (revision 0) from overwriting this body.
     mutate: () =>
-      upsertSummaryCommentWithCreationClaim({
-        pool,
-        workItemId: params.item.id,
-        leaseEpoch: params.leaseEpoch,
-        resourceKey: params.item.resourceKey,
-        reviewLens: params.reviewLens,
+      createReviewSummaryComment({
         prSurface: params.prSurface,
+        reviewLens: params.reviewLens,
+        coordination: {
+          pool,
+          resourceKey: params.item.resourceKey,
+          workItemId: params.item.id,
+          leaseEpoch: params.leaseEpoch,
+        },
+      }).conclude({
         body: bodyWithMarker,
-        sentinel,
         hintCommentId: knownExisting?.id ?? storedId,
-        progressRevision: 7,
         ciHeadSha: params.item.headSha,
         ciVersion: renderedCi.version,
       }),

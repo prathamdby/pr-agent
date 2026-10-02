@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   formatReviewQueuePosition,
   initialProgressTickState,
-  parseProgressRevision,
-  parseProgressRevisionState,
   renderReviewCancelledNotice,
   renderReviewFailureNotice,
   renderReviewProgressComment,
 } from "../src/review/run/progressComment.js";
+import {
+  parseProgressRevision,
+  parseProgressRevisionState,
+} from "../src/review/run/commentMarkers.js";
 import {
   REVIEW_FAILURE_ALERT,
   REVIEW_PROGRESS_NOTE,

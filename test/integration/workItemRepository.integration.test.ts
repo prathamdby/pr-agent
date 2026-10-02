@@ -14,7 +14,7 @@ import * as evlog from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../src/github/mutationErrorContract.js";
 import { publishOnce } from "../../src/agentWork/publishOnce.js";
-import { upsertSummaryCommentWithCreationClaim } from "../../src/review/publish/summaryCommentUpsert.js";
+import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
 import {
@@ -282,14 +282,12 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       const pending = ([2, 3, 4, 5] as const).map((revision, index) => {
         const context = contexts[distinct ? index : 0];
         if (!context) throw new Error("missing pressure context");
-        return upsertSummaryCommentWithCreationClaim({
-          pool,
-          workItemId: context.work.id,
-          resourceKey: context.resourceKey,
-          reviewLens: "review",
+        return createReviewSummaryComment({
           prSurface: context.fake.surface,
+          reviewLens: "review",
+          coordination: { pool, resourceKey: context.resourceKey, workItemId: context.work.id },
+        }).tick({
           body: `${REVIEW_SUMMARY_SENTINEL}\npressure-${index}`,
-          sentinel: REVIEW_SUMMARY_SENTINEL,
           progressRevision: distinct ? 2 : revision,
         });
       });
@@ -342,17 +340,15 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       await resume;
       return upsert(...args);
     });
-    const params = {
-      pool,
-      workItemId: work.id,
-      resourceKey,
-      reviewLens: "review" as const,
+    const summary = createReviewSummaryComment({
       prSurface: fake.surface,
+      reviewLens: "review",
+      coordination: { pool, resourceKey, workItemId: work.id },
+    });
+    const holder = summary.tick({
       body: `${REVIEW_SUMMARY_SENTINEL}\nholder`,
-      sentinel: REVIEW_SUMMARY_SENTINEL,
-      progressRevision: 2 as const,
-    };
-    const holder = upsertSummaryCommentWithCreationClaim(params);
+      progressRevision: 2,
+    });
     const operationKey = `review:summary:review:${resourceKey}`;
     const intent = {
       client: pool,
@@ -360,12 +356,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       operationKey,
       mutationKind: "github.summary_comment",
       isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-      mutate: () =>
-        upsertSummaryCommentWithCreationClaim({
-          ...params,
-          body: `${REVIEW_SUMMARY_SENTINEL}\nwinner`,
-          progressRevision: 7,
-        }),
+      mutate: () => summary.conclude({ body: `${REVIEW_SUMMARY_SENTINEL}\nwinner` }),
     };
     try {
       await paused;

@@ -99,6 +99,12 @@ const mocks = vi.hoisted(() => ({
   shouldSkipWork: vi.fn(async () => false),
   getSharedRateLimitCircuit: vi.fn(async () => null),
   openSharedRateLimitCircuitBestEffort: vi.fn(),
+  summaryConclude: vi.fn(
+    async (
+      deps: { readonly prSurface: import("../src/github/prSurface.js").PrSurface },
+      write: { readonly body: string },
+    ) => deps.prSurface.upsertProgressComment(write.body, "## PR Agent Review"),
+  ),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -116,6 +122,19 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   return {
     ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
     ...createOwnVerdictCloseMock(),
+  };
+});
+
+vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.js")>();
+  return {
+    ...actual,
+    createReviewSummaryComment: (
+      deps: Parameters<typeof actual.createReviewSummaryComment>[0],
+    ) => ({
+      conclude: (write: { readonly body: string }) => mocks.summaryConclude(deps, write),
+    }),
   };
 });
 
@@ -1112,17 +1131,13 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    const edits = durableSurfaceBundle.controls.events.filter(
-      (event: FakePrSurfaceEvent) => event.kind === "editComment",
-    );
-    expect(edits).toEqual([
+    expect(mocks.summaryConclude).toHaveBeenCalledWith(
       expect.objectContaining({
-        kind: "editComment",
-        commentId: 4242,
+        reviewLens: "review",
+        coordination: expect.objectContaining({ pool, workItemId: "wi-1" }),
       }),
-    ]);
-    const edit = edits[0];
-    expect(edit?.kind === "editComment" ? edit.body : "").toContain("Review did not finish");
+      { body: expect.stringContaining("Review did not finish") },
+    );
     expect(
       verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
     ).toEqual(

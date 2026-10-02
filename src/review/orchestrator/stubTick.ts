@@ -5,8 +5,8 @@ import { logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { upsertSummaryCommentWithCreationClaim } from "../publish/summaryCommentUpsert.js";
-import { REVIEW_SUMMARY_SENTINEL, type WorkSource } from "../reviewSchema.js";
+import { createReviewSummaryComment } from "../publish/reviewSummaryComment.js";
+import type { WorkSource } from "../reviewSchema.js";
 import {
   renderReviewCancelledNotice,
   renderReviewProgressComment,
@@ -61,12 +61,16 @@ export type WriteCancelledProgressCommentArgs = {
 export async function tickProgressComment(args: TickProgressCommentArgs): Promise<void> {
   try {
     const rendered = await loadRenderableHeadCi(args.pool, args.owner, args.repo, args.headSha);
-    await upsertSummaryCommentWithCreationClaim({
-      pool: args.pool,
-      workItemId: args.workItemId,
-      resourceKey: args.resourceKey,
-      reviewLens: args.mode,
+    const summary = createReviewSummaryComment({
       prSurface: args.prSurface,
+      reviewLens: args.mode,
+      coordination: {
+        pool: args.pool,
+        resourceKey: args.resourceKey,
+        workItemId: args.workItemId,
+      },
+    });
+    const write = {
       body: renderReviewProgressComment({
         mode: args.mode,
         headSha: args.headSha,
@@ -77,12 +81,15 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
         progressRevision: args.progressRevision,
         progressWorkItemId: args.workItemId,
       }),
-      sentinel: REVIEW_SUMMARY_SENTINEL,
       hintCommentId: args.hintCommentId,
-      progressRevision: args.progressRevision,
       ciHeadSha: args.headSha,
       ciVersion: rendered.version,
-    });
+    };
+    if (args.progressRevision === 7) {
+      await summary.conclude(write);
+    } else {
+      await summary.tick({ ...write, progressRevision: args.progressRevision });
+    }
     await enqueueCiProjectionIfDue({
       boss: args.boss,
       pool: args.pool,
@@ -109,20 +116,21 @@ export async function writeCancelledProgressComment(
   args: WriteCancelledProgressCommentArgs,
 ): Promise<void> {
   try {
-    await upsertSummaryCommentWithCreationClaim({
-      pool: args.pool,
-      workItemId: args.workItemId,
-      resourceKey: args.resourceKey,
-      reviewLens: args.mode,
+    await createReviewSummaryComment({
       prSurface: args.prSurface,
+      reviewLens: args.mode,
+      coordination: {
+        pool: args.pool,
+        resourceKey: args.resourceKey,
+        workItemId: args.workItemId,
+      },
+    }).conclude({
       body: renderReviewCancelledNotice({
         attribution: args.attribution,
         progressRevision: 7,
         progressWorkItemId: args.workItemId,
       }),
-      sentinel: REVIEW_SUMMARY_SENTINEL,
       hintCommentId: args.hintCommentId,
-      progressRevision: 7,
     });
   } catch (error) {
     logWarn("review_progress_cancel_notice_failed", {

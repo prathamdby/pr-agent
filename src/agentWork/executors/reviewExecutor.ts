@@ -47,7 +47,7 @@ import {
   safeEmitCoverageEvent,
 } from "../../agent/runtime/agentEventSink.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
-import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../../review/reviewSchema.js";
+import type { ReviewMode } from "../../review/reviewSchema.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -57,7 +57,10 @@ import {
   snapshotReviewRunMetrics,
 } from "../../review/run/reviewRunMetrics.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { attachSummaryCommentCoordination } from "../../review/publish/summaryCommentUpsert.js";
+import {
+  attachSummaryCommentCoordination,
+  createReviewSummaryComment,
+} from "../../review/publish/reviewSummaryComment.js";
 import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import { prBodyHasDescriptionReviewMap } from "../../agent/description/descriptionRender.js";
 import {
@@ -1114,14 +1117,17 @@ export function createReviewWorkExecution({
       });
       let commentId: number | null = null;
       if (weOwnStub) {
-        const existing = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
-        if (existing != null) {
-          await prSurface.editComment(existing.id, notice);
-          commentId = existing.id;
-        } else {
-          const summary = await prSurface.upsertProgressComment(notice, REVIEW_SUMMARY_SENTINEL);
-          commentId = summary.id;
-        }
+        const summary = await createReviewSummaryComment({
+          prSurface,
+          reviewLens,
+          coordination: {
+            pool,
+            resourceKey: item.resourceKey,
+            workItemId: item.id,
+            leaseEpoch,
+          },
+        }).conclude({ body: notice });
+        commentId = summary.id > 0 ? summary.id : null;
       }
       await reviewVerdict({
         pool,

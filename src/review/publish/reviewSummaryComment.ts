@@ -16,7 +16,8 @@ import {
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
 } from "../../settings/index.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { parseProgressRevisionState, withProgressRevisionComment } from "../run/progressComment.js";
+import { parseProgressRevisionState, withProgressRevisionComment } from "../run/commentMarkers.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 
 export type SummaryCommentCoordination = {
   pool: Pool;
@@ -51,6 +52,7 @@ async function resolveKnownSummaryCommentRef(
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type TickRevision = Exclude<ProgressCommentRevision, 7>;
 
 type SummaryCommentUpsertResult = {
   readonly id: number;
@@ -72,6 +74,11 @@ type SummaryCommentUpsertParams = {
   ciHeadSha?: string;
   ciVersion?: number;
   shouldPublish?: (client: PoolClient) => Promise<boolean>;
+};
+
+type RevisionedUpsertParams = Omit<SummaryCommentUpsertParams, "pool" | "progressRevision"> & {
+  readonly pool: Pool;
+  readonly progressRevision: ProgressCommentRevision;
 };
 
 async function upsertSummaryCommentWithoutRevision(
@@ -243,12 +250,9 @@ async function prepareSummaryCommentAtRevision(
   };
 }
 
-export async function upsertSummaryCommentWithCreationClaim(
-  params: Omit<SummaryCommentUpsertParams, "pool"> & { readonly pool: Pool },
+async function upsertSummaryCommentAtRevision(
+  params: RevisionedUpsertParams,
 ): Promise<SummaryCommentUpsertResult> {
-  if (params.progressRevision == null) {
-    return upsertSummaryCommentWithoutRevision(params);
-  }
   const progressRevision = params.progressRevision;
 
   return withSessionLock(
@@ -330,4 +334,73 @@ export async function upsertSummaryCommentWithCreationClaim(
       return result;
     },
   );
+}
+
+export type ReviewSummaryCommentDeps = {
+  readonly prSurface: PrSurface;
+  readonly reviewLens: AnyReviewLens;
+  /** Without a pool there is no record or lock to serialize against, so writes go straight to the surface. */
+  readonly coordination?: {
+    readonly pool: Pool;
+    readonly resourceKey: string;
+    readonly workItemId?: string;
+    readonly leaseEpoch?: number | null;
+  };
+};
+
+type ReviewSummaryCommentWrite = {
+  readonly body: string;
+  readonly hintCommentId?: number | null;
+  readonly ciHeadSha?: string;
+  readonly ciVersion?: number;
+  /** Reused by the uncoordinated write; coordinated writes resolve the comment under the lock. */
+  readonly knownExisting?: IssueCommentRef | null;
+};
+
+export type ReviewSummaryCommentTick = ReviewSummaryCommentWrite & {
+  readonly progressRevision: TickRevision;
+  readonly shouldPublish?: (client: PoolClient) => Promise<boolean>;
+};
+
+/**
+ * The only writer of the review summary comment. Coordinated writes run in one
+ * order: progress lock, owner and revision checks, creation claim, GitHub write,
+ * result record. Revision 7 is terminal, so a later tick or ack stub cannot
+ * overwrite a summary, cancelled notice, or failure notice.
+ */
+export function createReviewSummaryComment(deps: ReviewSummaryCommentDeps) {
+  const write = (
+    params: ReviewSummaryCommentWrite & {
+      readonly shouldPublish?: ReviewSummaryCommentTick["shouldPublish"];
+    },
+    progressRevision: ProgressCommentRevision,
+  ): Promise<SummaryCommentUpsertResult> => {
+    const { coordination } = deps;
+    if (coordination == null) {
+      return deps.prSurface.upsertProgressComment(
+        params.body,
+        REVIEW_SUMMARY_SENTINEL,
+        params.knownExisting ?? null,
+      );
+    }
+    return upsertSummaryCommentAtRevision({
+      pool: coordination.pool,
+      resourceKey: coordination.resourceKey,
+      workItemId: coordination.workItemId,
+      leaseEpoch: coordination.leaseEpoch,
+      reviewLens: deps.reviewLens,
+      prSurface: deps.prSurface,
+      body: params.body,
+      sentinel: REVIEW_SUMMARY_SENTINEL,
+      hintCommentId: params.hintCommentId,
+      progressRevision,
+      ciHeadSha: params.ciHeadSha,
+      ciVersion: params.ciVersion,
+      shouldPublish: params.shouldPublish,
+    });
+  };
+  return {
+    tick: (params: ReviewSummaryCommentTick) => write(params, params.progressRevision),
+    conclude: (params: ReviewSummaryCommentWrite) => write(params, 7),
+  };
 }

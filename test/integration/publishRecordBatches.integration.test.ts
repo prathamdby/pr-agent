@@ -56,7 +56,13 @@ import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutat
 import { findReviewCheckRunByName } from "../../src/github/reviewPublish.js";
 import { CHECK_RUNS_MAX_PAGES, CHECK_RUNS_PAGE_SIZE } from "../../src/settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../src/review/reviewSchema.js";
-import { withProgressRevisionComment } from "../../src/review/run/progressComment.js";
+import { initialProgressTickState } from "../../src/review/run/progressComment.js";
+import {
+  parseProgressRevisionState,
+  withProgressRevisionComment,
+} from "../../src/review/run/commentMarkers.js";
+import { createReviewWorkExecution } from "../../src/agentWork/executors/reviewExecutor.js";
+import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
 import {
   renderReviewPointerLensMarker,
   renderStaleReviewMetadataComment,
@@ -2191,7 +2197,11 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         } else {
           expect(notice?.body).toContain("/review");
           expect(notice?.body).not.toContain("simulated death");
-          expect(controls.events.filter((event) => event.kind === "editComment")).toHaveLength(1);
+          expect(parseProgressRevisionState(notice?.body ?? "")).toMatchObject({ revision: 7 });
+          expect(
+            controls.events.filter((event) => event.kind === "upsertProgressComment"),
+          ).toHaveLength(1);
+          expect(controls.events.filter((event) => event.kind === "editComment")).toHaveLength(0);
           expect(controls.events).toContainEqual({
             kind: "finishReviewCheck",
             checkRunId: check.id,
@@ -2395,4 +2405,86 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
     }
   });
+
+  it.each(["after the notice", "while the notice is written"] as const)(
+    "keeps the review failure notice final against a late progress tick %s",
+    async (timing) => {
+      const workItemId = randomUUID();
+      const resourceKey = `integration/failure-notice-${randomUUID()}#1`;
+      const headSha = "abc1234";
+      await pool.query(
+        `INSERT INTO agent_work_items
+           (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+         VALUES ($1, 'review', 'slash', 'running', 'o', 'r', 1, 42, $3, 'review', $2, '{"mode":"review","source":"slash"}')`,
+        [workItemId, resourceKey, headSha],
+      );
+      const lease = await acquirePrActorLease(pool, {
+        resourceKey,
+        workType: "review",
+        workItemId,
+        holderId: "m10-test",
+        ttlSeconds: 120,
+      });
+      if (!lease.acquired) throw new Error("lease not acquired");
+      const cfg = makeTestConfig();
+      const boss = new PgBoss({ connectionString: cfg.databaseUrl });
+      const { surface, controls } = createFakePrSurface(
+        { owner: "o", repo: "r", prNumber: 1 },
+        { headSha },
+      );
+      const tick = (progressRevision: 1 | 2) =>
+        tickProgressComment({
+          pool,
+          workItemId,
+          resourceKey,
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          mode: "review",
+          headSha,
+          source: "slash",
+          progressRevision,
+          tickState: initialProgressTickState(),
+          prSurface: surface,
+        });
+      try {
+        await tick(1);
+        const item = await getWorkItem(pool, workItemId);
+        if (item?.type !== "review") throw new Error("review item missing");
+        const execution = createReviewWorkExecution({
+          cfg,
+          pool,
+          boss,
+          installationSurface: openInstallationSurface(),
+        });
+        const noticeWritten = execution.onTerminalFailure?.(
+          item,
+          surface,
+          new Error("dead"),
+          lease.leaseEpoch,
+        );
+        if (timing === "after the notice") {
+          await noticeWritten;
+          await tick(2);
+        } else {
+          await Promise.all([noticeWritten, tick(2)]);
+        }
+        const comments = (await surface.listConversationComments()).filter((comment) =>
+          comment.body.includes(REVIEW_SUMMARY_SENTINEL),
+        );
+        expect(comments).toHaveLength(1);
+        expect(comments[0]?.body).toContain("Review did not finish");
+        expect(comments[0]?.body).not.toContain("Recon");
+        expect(parseProgressRevisionState(comments[0]?.body ?? "")).toEqual({
+          revision: 7,
+          workItemId,
+        });
+        expect(controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body).toBe(comments[0]?.body);
+      } finally {
+        await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      }
+    },
+  );
 });

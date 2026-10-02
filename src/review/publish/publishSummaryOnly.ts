@@ -35,9 +35,9 @@ import {
   type ReviewPublishContext,
 } from "../reviewSchema.js";
 import {
-  upsertSummaryCommentWithCreationClaim,
+  createReviewSummaryComment,
   type RecordPublishStepWithCoordination,
-} from "./summaryCommentUpsert.js";
+} from "./reviewSummaryComment.js";
 import type { PublishedReviewComment } from "../../github/reviewPublish.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
@@ -208,21 +208,15 @@ export async function publishReviewSummaryOnly(params: {
   const summaryBodyForPublish =
     summaryOperationMarker == null ? summaryBody : `${summaryBody}\n${summaryOperationMarker}`;
   const runSummaryUpsert = () =>
-    summaryCoordination
-      ? upsertSummaryCommentWithCreationClaim({
-          ...summaryCoordination,
-          reviewLens: mode,
-          prSurface: params.prSurface,
-          body: summaryBodyForPublish,
-          sentinel: summarySentinel,
-          hintCommentId: params.progressCommentIdHint ?? knownSummaryCommentRef?.id,
-          progressRevision: 7,
-        })
-      : params.prSurface.upsertProgressComment(
-          summaryBodyForPublish,
-          summarySentinel,
-          knownSummaryCommentRef,
-        );
+    createReviewSummaryComment({
+      prSurface: params.prSurface,
+      reviewLens: mode,
+      coordination: summaryCoordination,
+    }).conclude({
+      body: summaryBodyForPublish,
+      hintCommentId: params.progressCommentIdHint ?? knownSummaryCommentRef?.id,
+      knownExisting: knownSummaryCommentRef,
+    });
   const summaryPromise =
     summaryCoordination == null
       ? runSummaryUpsert()

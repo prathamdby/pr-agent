@@ -26,7 +26,7 @@ import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFr
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { formatReviewActionLineCiStatus } from "../../review/ci/ciSummaryCell.js";
-import { parseProgressRevisionState } from "../../review/run/progressComment.js";
+import { parseProgressRevisionState } from "../../review/run/commentMarkers.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
   TRIAGE_SUMMARY_SENTINEL,

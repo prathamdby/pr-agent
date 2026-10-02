@@ -108,9 +108,13 @@ read to preserve verdict cleanup. Gate failures before delegation remain
 retryable; after delegation, existing provider acceptance rules apply.
 See [ADR 0026](adr/0026-pr-surface-seam.md).
 
-`summaryCommentUpsert.ts` serializes revisioned progress/summary upserts under
-the resource/lens advisory lock, from the fresh remote read through the result
-record. Its repository calls use the locking client, without an open transaction
+`createReviewSummaryComment` in `reviewSummaryComment.ts` is the only writer of
+the review summary comment: progress ticks, the terminal summary, cancelled and
+failure notices, and the lightweight completion. It serializes revisioned
+upserts under the resource/lens advisory lock, from the fresh remote read
+through the result record. `run/commentMarkers.ts` owns the progress-revision
+marker codec. Terminal writes use revision 7, so a late tick cannot replace a
+summary or notice. Its repository calls use the locking client, without an open transaction
 across HTTP. Shared progress/verdict admission in `src/db/sessionLock.ts` leaves
 at least half the connections for nested
 mutation checks and unrelated database work; contended clients are released

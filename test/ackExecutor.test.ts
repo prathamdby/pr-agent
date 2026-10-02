@@ -68,12 +68,37 @@ vi.mock("../src/agentWork/repository.js", () => ({
   claimSummaryCommentCreation: vi.fn(async () => true),
 }));
 
-vi.mock("../src/review/publish/summaryCommentUpsert.js", async (importOriginal) => {
+const summaryWrite = vi.hoisted(() =>
+  vi.fn(async (_params: { readonly body: string; readonly [key: string]: unknown }) => ({
+    id: 42,
+    updated: false,
+  })),
+);
+
+vi.mock("../src/review/publish/reviewSummaryComment.js", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("../src/review/publish/summaryCommentUpsert.js")>();
+    await importOriginal<typeof import("../src/review/publish/reviewSummaryComment.js")>();
   return {
     ...actual,
-    upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({ id: 42, updated: false })),
+    createReviewSummaryComment: (
+      deps: Parameters<typeof actual.createReviewSummaryComment>[0],
+    ) => ({
+      tick: (write: { readonly body: string; readonly progressRevision: number }) =>
+        summaryWrite({
+          prSurface: deps.prSurface,
+          reviewLens: deps.reviewLens,
+          ...deps.coordination,
+          ...write,
+        }),
+      conclude: (write: { readonly body: string }) =>
+        summaryWrite({
+          prSurface: deps.prSurface,
+          reviewLens: deps.reviewLens,
+          ...deps.coordination,
+          ...write,
+          progressRevision: 7,
+        }),
+    }),
   };
 });
 
@@ -90,7 +115,6 @@ vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
 }));
 
-import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";
 import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
 import {
   getProgressCommentOwner,
@@ -174,7 +198,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: "wi-1",
@@ -185,11 +209,11 @@ describe("executeAckJob", () => {
         prSurface: surfaceBundle.surface,
       }),
     );
-    const queuedBody = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    const queuedBody = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(queuedBody).not.toMatch(/Recon/);
     expect(queuedBody).not.toMatch(/Correctness/);
     expect(queuedBody).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
     expect(recordPublishStep).not.toHaveBeenCalled();
     expect(reviewVerdict).toHaveBeenCalledWith(
@@ -212,7 +236,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalled();
+    expect(summaryWrite).toHaveBeenCalled();
     expect(reviewVerdict).not.toHaveBeenCalled();
   });
 
@@ -226,7 +250,7 @@ describe("executeAckJob", () => {
     });
 
     expect(getReviewQueuePosition).toHaveBeenCalledWith(pool, "wi-1");
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(body).toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
     expect(body).toContain("#2 of 10");
   });
@@ -240,8 +264,8 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalled();
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    expect(summaryWrite).toHaveBeenCalled();
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body;
     expect(body).toContain("Review queued");
     expect(body).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
   });
@@ -252,7 +276,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: undefined,
@@ -277,7 +301,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha-a", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
     expect(reviewVerdict).not.toHaveBeenCalled();
   });
 
@@ -307,8 +331,8 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha-a", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-b",
         progressRevision: 0,
@@ -333,7 +357,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha-a", source: "auto" },
     });
 
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
   });
 
   it("replaces an owned progress stub on cancelProgress without upserting", async () => {
@@ -360,7 +384,7 @@ describe("executeAckJob", () => {
     const body = edit?.kind === "editComment" ? edit.body : "";
     expect(body).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
     expect(body).not.toContain("<strong>Recon</strong>");
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
     expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
@@ -449,7 +473,7 @@ describe("executeAckJob", () => {
     });
 
     expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-cancel",
         body: expect.stringContaining(
@@ -465,7 +489,7 @@ describe("executeAckJob", () => {
       renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }),
       101,
     );
-    vi.mocked(upsertSummaryCommentWithCreationClaim).mockClear();
+    vi.mocked(summaryWrite).mockClear();
     vi.mocked(closeReviewVerdictsForWorkItems).mockClear();
 
     await executeAckJob(cfg, pool, {
@@ -481,7 +505,7 @@ describe("executeAckJob", () => {
     expect(edit).toMatchObject({ kind: "editComment", commentId: 101 });
     const body = edit?.kind === "editComment" ? edit.body : "";
     expect(body).toContain(reviewProgressCancelledNote({ kind: "merged" }));
-    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(summaryWrite).not.toHaveBeenCalled();
     expect(closeReviewVerdictsForWorkItems).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
@@ -650,16 +674,15 @@ describe("executeAckJob", () => {
       pool,
       expect.objectContaining({ workItemIds: ["wi-old"] }),
     );
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
       }),
     );
     const cancelOrder = vi.mocked(closeReviewVerdictsForWorkItems).mock.invocationCallOrder[0];
-    const progressOrder = vi.mocked(upsertSummaryCommentWithCreationClaim).mock
-      .invocationCallOrder[0];
+    const progressOrder = vi.mocked(summaryWrite).mock.invocationCallOrder[0];
     expect(cancelOrder).toBeLessThan(progressOrder);
   });
 
@@ -702,8 +725,8 @@ describe("executeAckJob", () => {
       pool,
       expect.objectContaining({ workItemIds: ["wi-old"] }),
     );
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
@@ -744,8 +767,8 @@ describe("executeAckJob", () => {
       "ack_cancel_progress_failed",
       expect.objectContaining({ workItemId: "wi-old", message: "cancel boom" }),
     );
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
@@ -782,8 +805,8 @@ describe("executeAckJob", () => {
     );
     // The throw happens before check cancellation; only the new stub and reply land.
     expect(closeReviewVerdictsForWorkItems).not.toHaveBeenCalled();
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+    expect(summaryWrite).toHaveBeenCalledTimes(1);
+    expect(summaryWrite).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-new",
         body: expect.stringContaining(REVIEW_PROGRESS_QUEUED_NOTE),
@@ -809,7 +832,7 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "slash" },
     });
 
-    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body ?? "";
+    const body = vi.mocked(summaryWrite).mock.calls[0]?.[0]?.body ?? "";
     expect(body).toContain("<strong>CI</strong>");
     expect(body).toContain("Waiting for CI");
     expect(body).toContain("head=sha");

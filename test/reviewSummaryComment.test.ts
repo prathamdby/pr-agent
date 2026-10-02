@@ -60,9 +60,11 @@ vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
   findCompletedPublishRecordId: vi.fn(async () => null),
 }));
 import type { Pool, PoolClient } from "pg";
+import type { PrSurface } from "../src/github/prSurface.js";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
+import { renderReviewFailureNotice } from "../src/review/run/progressComment.js";
 import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
 import {
   createPublishReviewTestHarness,
@@ -101,8 +103,8 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
 
 import {
   attachSummaryCommentCoordination,
-  upsertSummaryCommentWithCreationClaim,
-} from "../src/review/publish/summaryCommentUpsert.js";
+  createReviewSummaryComment,
+} from "../src/review/publish/reviewSummaryComment.js";
 import {
   claimSummaryCommentCreation,
   getProgressCommentOwner,
@@ -144,11 +146,41 @@ function claimBase() {
     reviewLens: "review" as const,
     prSurface: harness.surface,
     body: "summary body",
-    sentinel: REVIEW_SUMMARY_SENTINEL,
   };
 }
 
-describe("upsertSummaryCommentWithCreationClaim", () => {
+function writeSummary(params: {
+  readonly pool: Pool;
+  readonly workItemId?: string;
+  readonly resourceKey: string;
+  readonly reviewLens: "review";
+  readonly prSurface: PrSurface;
+  readonly body: string;
+  readonly progressRevision: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  readonly hintCommentId?: number | null;
+  readonly shouldPublish?: (client: PoolClient) => Promise<boolean>;
+}) {
+  const summary = createReviewSummaryComment({
+    prSurface: params.prSurface,
+    reviewLens: params.reviewLens,
+    coordination: {
+      pool: params.pool,
+      resourceKey: params.resourceKey,
+      workItemId: params.workItemId,
+    },
+  });
+  const { body, hintCommentId } = params;
+  return params.progressRevision === 7
+    ? summary.conclude({ body, hintCommentId })
+    : summary.tick({
+        body,
+        hintCommentId,
+        progressRevision: params.progressRevision,
+        shouldPublish: params.shouldPublish,
+      });
+}
+
+describe("createReviewSummaryComment", () => {
   beforeEach(() => {
     harness = createPublishReviewTestHarness();
     vi.clearAllMocks();
@@ -163,36 +195,39 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("creates when claim won and no stored id", async () => {
-    await upsertSummaryCommentWithCreationClaim(claimBase());
+    const { client, pool: lockedPool } = createLockedPool();
+    await writeSummary({ ...claimBase(), pool: lockedPool, progressRevision: 2 });
 
-    expect(claimSummaryCommentCreation).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
-    expect(harness.findProgressComment).toHaveBeenCalled();
+    expect(claimSummaryCommentCreation).toHaveBeenCalledWith(client, "wi-1", "o/r#1", "review");
+    expect(harness.findProgressComment).toHaveBeenCalledTimes(2);
     expect(harness.upsertProgressComment).toHaveBeenCalledWith(
-      "summary body",
+      expect.stringContaining("summary body"),
       REVIEW_SUMMARY_SENTINEL,
       null,
     );
   });
 
   it("uses stored id without scanning when verified", async () => {
+    const { pool: lockedPool } = createLockedPool();
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(55);
     harness.resolveProgressComment.mockResolvedValue({
       id: 55,
       url: "https://example.com/55",
     });
 
-    await upsertSummaryCommentWithCreationClaim(claimBase());
+    await writeSummary({ ...claimBase(), pool: lockedPool, progressRevision: 2 });
 
     expect(claimSummaryCommentCreation).not.toHaveBeenCalled();
-    expect(harness.findProgressComment).not.toHaveBeenCalled();
+    expect(harness.findProgressComment).toHaveBeenCalledTimes(1);
     expect(harness.upsertProgressComment).toHaveBeenCalledWith(
-      "summary body",
+      expect.stringContaining("summary body"),
       REVIEW_SUMMARY_SENTINEL,
       { id: 55, url: "https://example.com/55" },
     );
   });
 
   it("updates polled id when claim lost", async () => {
+    const { pool: lockedPool } = createLockedPool();
     vi.useFakeTimers();
     vi.mocked(claimSummaryCommentCreation).mockResolvedValue(false);
     vi.mocked(getSummaryCommentGithubId).mockResolvedValueOnce(null).mockResolvedValueOnce(77);
@@ -201,14 +236,14 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       url: "https://example.com/77",
     });
 
-    const pending = upsertSummaryCommentWithCreationClaim(claimBase());
+    const pending = writeSummary({ ...claimBase(), pool: lockedPool, progressRevision: 2 });
     await vi.advanceTimersByTimeAsync(1_500);
     await pending;
 
     expect(getSummaryCommentGithubId).toHaveBeenCalled();
-    expect(harness.findProgressComment).not.toHaveBeenCalled();
+    expect(harness.findProgressComment).toHaveBeenCalledTimes(1);
     expect(harness.upsertProgressComment).toHaveBeenCalledWith(
-      "summary body",
+      expect.stringContaining("summary body"),
       REVIEW_SUMMARY_SENTINEL,
       { id: 77, url: "https://example.com/77" },
     );
@@ -216,21 +251,87 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 
   it("creates as last resort when claim lost and poll misses", async () => {
+    const { pool: lockedPool } = createLockedPool();
     vi.useFakeTimers();
     vi.mocked(claimSummaryCommentCreation).mockResolvedValue(false);
     harness.findProgressComment.mockResolvedValue(null);
 
-    const pending = upsertSummaryCommentWithCreationClaim(claimBase());
+    const pending = writeSummary({ ...claimBase(), pool: lockedPool, progressRevision: 2 });
     await vi.advanceTimersByTimeAsync(10_000);
     await pending;
 
-    expect(harness.findProgressComment).toHaveBeenCalled();
+    expect(harness.findProgressComment).toHaveBeenCalledTimes(2);
     expect(harness.upsertProgressComment).toHaveBeenCalledWith(
-      "summary body",
+      expect.stringContaining("summary body"),
       REVIEW_SUMMARY_SENTINEL,
       null,
     );
     vi.useRealTimers();
+  });
+
+  it("writes a failure notice under the lock with a terminal revision marker", async () => {
+    const { client, pool: lockedPool, query } = createLockedPool();
+    harness.findProgressComment.mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=3 -->`,
+    });
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 3 });
+
+    await createReviewSummaryComment({
+      prSurface: harness.surface,
+      reviewLens: "review",
+      coordination: { pool: lockedPool, resourceKey: "o/r#1", workItemId: "wi-1" },
+    }).conclude({ body: renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }) });
+
+    expect(query.mock.calls[0]?.[0]).toContain("pg_try_advisory_lock");
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
+      expect.stringMatching(/Review did not finish[\s\S]*workItemId=wi-1 value=7 -->$/),
+      REVIEW_SUMMARY_SENTINEL,
+      expect.objectContaining({ id: 88, url: "https://example.com/88" }),
+    );
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      client,
+      expect.objectContaining({
+        step: "progress_comment",
+        detail: expect.objectContaining({ progressRevision: 7 }),
+      }),
+    );
+  });
+
+  it("does not let a failure notice replace a newer work item's progress", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentOwner).mockResolvedValue({ workItemId: "wi-b", generation: 2 });
+    harness.findProgressComment.mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-b value=1 -->`,
+    });
+
+    await expect(
+      createReviewSummaryComment({
+        prSurface: harness.surface,
+        reviewLens: "review",
+        coordination: { pool: lockedPool, resourceKey: "o/r#1", workItemId: "wi-a" },
+      }).conclude({ body: renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }) }),
+    ).resolves.toMatchObject({ id: 88, skipped: true });
+
+    expect(harness.upsertProgressComment).not.toHaveBeenCalled();
+  });
+
+  it("writes straight to the surface when there is no coordination", async () => {
+    await createReviewSummaryComment({
+      prSurface: harness.surface,
+      reviewLens: "review",
+    }).conclude({ body: "summary body", knownExisting: { id: 5, url: "https://example.com/5" } });
+
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
+      "summary body",
+      REVIEW_SUMMARY_SENTINEL,
+      { id: 5, url: "https://example.com/5" },
+    );
+    expect(harness.findProgressComment).not.toHaveBeenCalled();
+    expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
   it("does not let a delayed specialist tick overwrite the final summary", async () => {
@@ -243,7 +344,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 1,
@@ -266,7 +367,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=6 -->`,
     });
 
-    await upsertSummaryCommentWithCreationClaim({
+    await writeSummary({
       ...claimBase(),
       pool: lockedPool,
       progressRevision: 1,
@@ -282,7 +383,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-22T12:00:00.000Z"));
 
-    await upsertSummaryCommentWithCreationClaim({
+    await writeSummary({
       ...claimBase(),
       pool: lockedPool,
       progressRevision: 0,
@@ -309,7 +410,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
     vi.setSystemTime(new Date("2026-07-22T12:05:00.000Z"));
 
-    await upsertSummaryCommentWithCreationClaim({
+    await writeSummary({
       ...claimBase(),
       pool: lockedPool,
       progressRevision: 2,
@@ -363,7 +464,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       body: priorBody,
     });
 
-    await upsertSummaryCommentWithCreationClaim({
+    await writeSummary({
       ...claimBase(),
       pool: lockedPool,
       body: nextBody,
@@ -397,7 +498,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 0,
@@ -424,7 +525,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         workItemId: "wi-a",
@@ -444,7 +545,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       .mockRejectedValueOnce(new Error("record failed"));
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -460,7 +561,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -481,7 +582,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       body: `${REVIEW_SUMMARY_SENTINEL}\nno revision marker yet`,
     });
 
-    const result = await upsertSummaryCommentWithCreationClaim({
+    const result = await writeSummary({
       ...claimBase(),
       pool: lockedPool,
       progressRevision: 2,
@@ -501,7 +602,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     harness.findProgressComment.mockResolvedValue(null);
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         workItemId: "wi-a",
@@ -522,7 +623,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         workItemId: "wi-a",
@@ -547,7 +648,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     harness.upsertProgressComment.mockRejectedValueOnce(new Error("write failed"));
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -604,7 +705,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       order.push("record");
     });
 
-    await upsertSummaryCommentWithCreationClaim({
+    await writeSummary({
       ...claimBase(),
       pool,
       progressRevision: 2,
@@ -624,7 +725,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     query.mockResolvedValueOnce({ rows: [{ locked: false }] });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     try {
-      const pending = upsertSummaryCommentWithCreationClaim({
+      const pending = writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -651,7 +752,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
         vi.mocked(recordPublishStep).mockResolvedValueOnce(undefined).mockRejectedValueOnce(error);
       }
       await expect(
-        upsertSummaryCommentWithCreationClaim({
+        writeSummary({
           ...claimBase(),
           pool: lockedPool,
           progressRevision: 2,
@@ -660,7 +761,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       expect(error).not.toHaveProperty("mutationAccepted");
       expect(release).toHaveBeenCalledOnce();
       await expect(
-        upsertSummaryCommentWithCreationClaim({
+        writeSummary({
           ...claimBase(),
           pool: lockedPool,
           progressRevision: 2,
@@ -680,7 +781,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
         }),
     );
     try {
-      const pending = upsertSummaryCommentWithCreationClaim({
+      const pending = writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -699,14 +800,14 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     const { pool: lockedPool } = createLockedPool();
     vi.mocked(lockedPool.connect).mockRejectedValueOnce(new Error("connect failed"));
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
       }),
     ).rejects.toMatchObject({ mutationAccepted: false });
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -719,7 +820,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     query.mockResolvedValue({ rows: [{ locked: false }] });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
     try {
-      const pending = upsertSummaryCommentWithCreationClaim({
+      const pending = writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -732,7 +833,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       expect(harness.upsertProgressComment).not.toHaveBeenCalled();
       query.mockResolvedValue({ rows: [{ locked: true, unlocked: true }] });
       await expect(
-        upsertSummaryCommentWithCreationClaim({
+        writeSummary({
           ...claimBase(),
           pool: lockedPool,
           progressRevision: 2,
@@ -747,7 +848,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     const { pool: lockedPool } = createLockedPool();
     lockedPool.options.max = 1;
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -779,7 +880,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       await gate;
       return null;
     });
-    const progress = upsertSummaryCommentWithCreationClaim({
+    const progress = writeSummary({
       ...claimBase(),
       pool: lockedPool,
       progressRevision: 2,
@@ -897,7 +998,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       .mockResolvedValueOnce({ rows: [{ locked: true }] })
       .mockResolvedValueOnce({ rows: [{ locked: false, unlocked: false }] });
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
@@ -911,7 +1012,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     query.mockRejectedValueOnce(new Error("lock failed"));
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 1,
@@ -926,7 +1027,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     expect(query.mock.calls[0]?.[0]).toContain("pg_try_advisory_lock");
     expect(release).toHaveBeenCalledWith(true);
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 1,
@@ -947,7 +1048,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 1,
@@ -969,7 +1070,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.mocked(getProgressCommentRevision).mockRejectedValueOnce(new Error("operation failed"));
 
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 1,
@@ -991,14 +1092,14 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       throw new Error("release failed");
     });
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,
       }),
     ).rejects.toBe(primary);
     await expect(
-      upsertSummaryCommentWithCreationClaim({
+      writeSummary({
         ...claimBase(),
         pool: lockedPool,
         progressRevision: 2,

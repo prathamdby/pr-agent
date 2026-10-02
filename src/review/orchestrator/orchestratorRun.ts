@@ -925,6 +925,7 @@ export async function runOrchestratedPrReview(
     await publishReviewRunFailureNotice({
       cfg: params.cfg,
       setup,
+      summaryCoordination: params.recordPublishStep?.summaryCommentCoordination,
       owner: params.owner,
       repo: params.repo,
       prNumber: params.prNumber,
