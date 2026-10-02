@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import {
-  admitAsk,
+  admitAsk as admitCanonicalAsk,
   createAskExecutionId,
   defaultAskQuotaConfig,
   recordAskProviderUsage,
-  releaseAskQuotaReservation,
   type AskQuotaConfig,
 } from "../src/agentWork/askQuota.js";
 import { AppError } from "../src/errors/appError.js";
@@ -51,6 +50,10 @@ class FakeQuotaClient {
 
   async query(sql: string, values: unknown[] = []): Promise<{ rows: unknown[]; rowCount: number }> {
     const text = sql.replaceAll(/\s+/g, " ");
+    if (text.includes("pg_advisory_xact_lock") || text.includes("payload->'replyTarget'"))
+      return { rows: [], rowCount: 0 };
+    if (text.includes("INSERT INTO agent_work_items"))
+      return { rows: [{ id: String(values[0]), created: true }], rowCount: 1 };
     if (/^(BEGIN|COMMIT|ROLLBACK)/.test(text)) return { rows: [], rowCount: 0 };
 
     if (text.includes("INSERT INTO ask_quota_buckets")) {
@@ -251,7 +254,7 @@ function admission(
 }
 
 describe("ask admission quotas", () => {
-  it("bounds repeated asks and releases outstanding capacity", async () => {
+  it("bounds repeated asks before atomic work creation", async () => {
     const client = new FakeQuotaClient();
 
     await expect(admission(client, "ask-1")).resolves.toMatchObject({ kind: "admitted" });
@@ -261,8 +264,6 @@ describe("ask admission quotas", () => {
       reason: "actor_outstanding",
     });
 
-    await releaseAskQuotaReservation(client as never, "ask-1");
-    await expect(admission(client, "ask-4")).resolves.toMatchObject({ kind: "admitted" });
     expect(client.buckets.get("actor:actor:9:7")?.outstanding_count).toBe(2);
   });
 
@@ -433,7 +434,7 @@ describe("ask admission quotas", () => {
 
       await expect(
         admission(client, "ask-provider-next-window", 8, "app", budget),
-      ).resolves.toEqual({ kind: "admitted", providerReservationTokens: 4 });
+      ).resolves.toMatchObject({ kind: "admitted", providerReservationTokens: 4 });
       expect(client.buckets.get("installation:installation:9")).toMatchObject({
         provider_tokens_used: 0,
         provider_tokens_reserved: 8,
@@ -482,7 +483,9 @@ describe("ask admission quotas", () => {
 
       vi.advanceTimersByTime(budget.askProviderBudgetWindowSeconds * 1000);
 
-      await expect(admission(client, "ask-provider-edge-1", 8, "app", budget)).resolves.toEqual({
+      await expect(
+        admission(client, "ask-provider-edge-1", 8, "app", budget),
+      ).resolves.toMatchObject({
         kind: "admitted",
         providerReservationTokens: 6,
       });
@@ -518,7 +521,7 @@ describe("ask admission quotas", () => {
       },
       budget,
     );
-    expect(first).toEqual({ kind: "admitted", providerReservationTokens: 6 });
+    expect(first).toMatchObject({ kind: "admitted", providerReservationTokens: 6 });
 
     await expect(
       admitAsk(
@@ -556,7 +559,7 @@ describe("ask admission quotas", () => {
         },
         budget,
       ),
-    ).resolves.toEqual({ kind: "admitted", providerReservationTokens: 6 });
+    ).resolves.toMatchObject({ kind: "admitted", providerReservationTokens: 6 });
   });
 
   it("floors exact provider usage and ignores unknown usage", async () => {
@@ -844,3 +847,35 @@ describe("ask admission quotas", () => {
     expect(client.receipts.size).toBe(1);
   });
 });
+
+function admitAsk(
+  client: import("pg").PoolClient,
+  input: {
+    workItemId: string;
+    installationId: number;
+    owner: string;
+    repo: string;
+    commenterId: number;
+  },
+  quota: AskQuotaConfig,
+) {
+  return admitCanonicalAsk(
+    client,
+    {
+      workItemId: input.workItemId,
+      webhookEventId: "event-1",
+      ref: {
+        owner: input.owner,
+        repo: input.repo,
+        installationId: input.installationId,
+        prNumber: 7,
+        headSha: "deferred-to-worker",
+      },
+      question: "why?",
+      replyTarget: { kind: "prConversation", prNumber: 7 },
+      commentId: input.workItemId.length,
+      commenterId: input.commenterId,
+    },
+    quota,
+  );
+}

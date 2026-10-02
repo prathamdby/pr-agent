@@ -30,7 +30,7 @@ stored push evidence itself; orchestration no longer fabricates a checkout.
 | Review run + publish                      | `src/review/`                                   | `orchestrator/orchestratorRun.ts`, `publish/publishSummaryOnly.ts`, `publish/publishFindingBatch.ts`, `ci/analyzeCi.ts` (facts-only), `ci/authorCiSummary.ts` (LLM CI author, called from the projector), `ci/classifySnapshot.ts` (facts + rollup); metrics/footer helpers under `run/`                                                                                                                |
 | Local PR workspace                        | `src/prWorkspace/`                              | `prRepositoryView.ts` (`withPrRepositoryView`); `localPrWorkspace.ts` owns pinned preparation and cleanup; `repositoryReader.ts` owns pinned/writable readers, path policy and Git execution; `workspaceResource.ts` owns allocation, heartbeat, credentials and release                                                                                                                                |
 | Code index (optional FTS)                 | `src/codeIndex/`                                | `chunker.ts` (linear per-line recognition), `buildJob.ts`, `search.ts`, `repository.ts`                                                                                                                                                                                                                                                                                                                 |
-| Agent work intake                         | `src/agentWork/intake/`                         | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss), `webhookEvents.ts` (shared dedupe and transactional duplicate metadata)                                                                                                                                                                                                                                                                         |
+| Agent work intake                         | `src/agentWork/intake/`                         | `delivery.ts` (`runDelivery`, `DeliveryTx.withReviewIntake`, shared dedupe and post-commit events); `src/webhook/intakeCommand.ts` owns pure event mapping                                                                                                                                                                                                                                              |
 | Agent work execution                      | `src/agentWork/workDefinition.ts`, `executors/` | `createWorkDefinitions` owns the closed kind/queue/lease/head/context table and execution/terminal hooks consumed by `worker.ts`; `durableJob.ts` owns admission, lifecycle, and post-mark completion capture; executors return closed `WorkCompletion` values; `../reviewVerdict.ts` owns pending checks, one close writer, and open-check repair for `PR Agent Review` and optional `pr-agent/review` |
 | Web / worker layers                       | `src/agentWork/runtime.ts`, `worker.ts`         | `agentWorkWebLive` (web); `agentWorkWorkerLive` (worker-only import graph)                                                                                                                                                                                                                                                                                                                              |
 | Ask / description / verification / triage | `src/agent/`                                    | `ask/askRun.ts`, `description/descriptionRun.ts`, `verification/verificationRun.ts`, `triage/` (executor also under `src/agentWork/executors/`)                                                                                                                                                                                                                                                         |
@@ -68,8 +68,9 @@ Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.p
 
 Within intake, `workItemRepository.ts` owns atomic slash winner resolution and
 the ID-pinned triage payload lookup, plus provider-ordered review lifecycle
-state; `applier.ts` and `slashIntake.ts` read that state under the shared review
-intake lock before admission. `slashIntake.ts` owns acknowledgements.
+state; `DeliveryTx.withReviewIntake` acquires the shared review intake lock,
+then reads that state in a separate statement before admission. Automated,
+slash, approval, and lifecycle decisions are final at event insertion. `slashIntake.ts` owns acknowledgements.
 `reviewReschedule.ts` takes that same lock, reads lifecycle in a separate statement,
 then locks the parent lease and item before creating a stale-head replacement.
 Closed/merged refusal precedes marker persistence and progress ownership transfer.
@@ -79,10 +80,14 @@ incoming fields are added. This preserves intervening changes across lease epoch
 Slash intake's value-preserving conflict update retains the winner's row lock through
 commit. `/verify`'s earlier active-work precheck remains nonlocking. Review
 advisory ordering and execution-time PR actor leases remain separate contracts.
-`askIntake.ts` owns same-mention agreement: it serializes the triggering
-comment identity on a transaction-scoped advisory lock and joins a retained
-ask row in any status before quota admission, while `workItemRepository.ts`
-keeps the per-webhook-event insert conflict as the idempotency backstop.
+`askQuota.ts::admitAsk` owns same-mention agreement, quota reservation,
+matching work insertion, and conflict compensation as one delivery-transaction
+operation. It locks the triggering comment identity and separately reads a
+retained ask row in any status before checking quota. `askIntake.ts` owns question
+parsing and queue/acknowledgement policy; `workItemRepository.ts` keeps the
+per-webhook-event insertion conflict as the idempotency backstop. A losing
+reservation is removed after capacity release so the deferred foreign key
+cannot refer to work that was never inserted; rate debits remain unchanged.
 
 `gitGrepWorkspace` in `src/prWorkspace/repositoryReader.ts` runs literal `git grep -nF -I -z` and applies result and stdout-byte limits after parse. Debian bookworm Git 2.39.x in the application image is enough; the helper does not pass `--max-count`.
 

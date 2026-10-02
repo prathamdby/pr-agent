@@ -1,6 +1,13 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
-import { insertWebhookEvent } from "../../src/agentWork/intake/webhookEvents.js";
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
+function insertWebhookEvent(
+  client: import("pg").PoolClient,
+  headers: import("../../src/agentWork/types.js").WebhookHeaders,
+  decision: string,
+) {
+  return new DeliveryTx(client, headers).insert(decision);
+}
 import type { WebhookHeaders } from "../../src/agentWork/types.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { inTransaction } from "../../src/db/postgres.js";

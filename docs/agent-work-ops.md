@@ -8,6 +8,12 @@ Queue inspection, retry, and recovery for pg-boss workers. For behaviour and dep
 - `pr-agent-worker` processes acknowledgement, review, ask, description, triage, verification, CI-projection, code-index build, and retention queues.
 - `postgres` stores pg-boss jobs plus app-owned workflow tables.
 
+`intake/delivery.ts::runDelivery` commits accepted events, dedupe evidence, work,
+quota admission, and queue jobs before response success. Its transactional events
+emit only after commit; rollback emits none. `askQuota.ts::admitAsk` serializes
+mention identity before quota and compensates a losing work insertion inside the
+same transaction, removing the unmatched reservation after capacity release.
+
 `workDefinition.ts` owns the five durable queue registrations and their
 lease/head/context policies. Acknowledgement, CI projection, code-index build,
 and retention remain auxiliary lanes. `installationSurface.ts` is the only

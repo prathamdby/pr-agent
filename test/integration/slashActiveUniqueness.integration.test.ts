@@ -1,3 +1,4 @@
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -5,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
-  applySlashCommandIntake,
+  applySlashCommandIntake as applySlash,
   type SlashCommandInput,
 } from "../../src/agentWork/intake/slashIntake.js";
 import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
@@ -2068,3 +2069,17 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
   });
 });
+
+function applySlashCommandIntake(
+  boss: PgBoss,
+  client: import("pg").PoolClient,
+  input: SlashCommandInput,
+  features: import("../../src/settings/index.js").Features,
+  askQuota?: import("../../src/agentWork/askQuota.js").AskQuotaConfig,
+) {
+  const tx = new DeliveryTx(client, input.headers);
+  return applySlash(boss, tx, input, features, askQuota).then((events) => [
+    ...tx.events,
+    ...events,
+  ]);
+}

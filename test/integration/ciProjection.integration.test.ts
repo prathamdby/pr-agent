@@ -1,15 +1,18 @@
 import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import { createPublishContext } from "../../src/agentWork/publishOnce.js";
+import type { PrRef } from "../../src/agentWork/types.js";
+import {
+  runDelivery,
+  type AutomatedPullRequestIntakeOpts,
+  type CiStateFactInput,
+} from "../../src/agentWork/intake/delivery.js";
+import type { Config } from "../../src/config.js";
+import type { RequestLogger } from "../../src/evlog.js";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
-import {
-  applyAutomatedPullRequestIntake,
-  applyCompletedRunCiIntake,
-  applyCiStateIntake,
-} from "../../src/agentWork/intake/applier.js";
 import {
   enqueueCiProjectionDebounced,
   enqueueCiProjectionDebouncedStandalone,
@@ -3246,3 +3249,49 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     expect(afterSecond?.checks.late).toBeUndefined();
   });
 });
+
+function applyAutomatedPullRequestIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  ref: PrRef,
+  action: string,
+  log: RequestLogger,
+  cfg: Pick<Config, "features">,
+  opts?: AutomatedPullRequestIntakeOpts,
+) {
+  return runDelivery(pool, boss, cfg, { kind: "pull_request", headers, ref, action, opts }, log);
+}
+function applyCompletedRunCiIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  data: Extract<
+    import("../../src/agentWork/intake/delivery.js").IntakeCommand,
+    { kind: "ci_refresh" }
+  >["data"],
+  log: RequestLogger,
+) {
+  return runDelivery(
+    pool,
+    boss,
+    { features: makeTestConfig().features },
+    { kind: "ci_refresh", headers, data },
+    log,
+  );
+}
+function applyCiStateIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  data: CiStateFactInput,
+  log: RequestLogger,
+) {
+  return runDelivery(
+    pool,
+    boss,
+    { features: makeTestConfig().features },
+    { kind: "ci_state", headers, data },
+    log,
+  );
+}

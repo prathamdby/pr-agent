@@ -74,6 +74,24 @@ export async function loadReviewLifecycle(client: PoolClient, resourceKey: strin
   );
   return rows[0];
 }
+export async function reviewLifecycleObservationAccepted(
+  client: PoolClient,
+  resourceKey: string,
+  observation: ReviewLifecycleObservation,
+): Promise<boolean> {
+  const { rows } = await client.query<{ accepted: boolean }>(
+    `SELECT NOT EXISTS (
+       SELECT 1 FROM pr_review_lifecycle
+       WHERE resource_key = $1
+         AND NOT (state <> 'merged'
+           AND ($3::timestamptz > observed_at
+             OR ($3::timestamptz = observed_at
+               AND ($2 = 'merged' OR ($2 = 'closed' AND state = 'open')))))
+     ) AS accepted`,
+    [resourceKey, observation.state, observation.observedAt],
+  );
+  return rows[0]?.accepted ?? false;
+}
 
 /** Call only after acquiring the review intake lock, in its transaction. */
 export async function recordReviewLifecycleObservation(

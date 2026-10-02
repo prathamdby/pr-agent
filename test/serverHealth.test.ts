@@ -213,12 +213,8 @@ function startEffectServer({
     const schedulerLayer = Layer.succeed(
       AgentWorkScheduler,
       AgentWorkScheduler.of({
-        recordIgnored,
-        submitAutomatedReview: () => Effect.void,
-        submitReviewApproved: () => Effect.void,
-        submitSlashCommand: () => Effect.void,
-        submitCiRefresh: () => Effect.void,
-        submitCiState: () => Effect.void,
+        submit: (command) =>
+          recordIgnored(command.kind === "slash" ? command.input.headers : command.headers),
         ping: () => Effect.succeed(pingResult),
       }),
     );

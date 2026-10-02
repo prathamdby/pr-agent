@@ -93,7 +93,7 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
 
     await Effect.runPromise(
-      scheduler.submitSlashCommand(makeSlashInput(`/ask ${long}`), intakeLog),
+      scheduler.submit({ kind: "slash", input: makeSlashInput(`/ask ${long}`) }, intakeLog),
     );
 
     expect(sentJobs).toHaveLength(1);
@@ -135,7 +135,9 @@ describe("makeAgentWorkScheduler /ask slash", () => {
       path: "/webhooks",
     });
 
-    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/ask"), intakeLog));
+    await Effect.runPromise(
+      scheduler.submit({ kind: "slash", input: makeSlashInput("/ask") }, intakeLog),
+    );
 
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.data.reply).toEqual({
@@ -182,26 +184,29 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     });
 
     await Effect.runPromise(
-      scheduler.submitSlashCommand(
+      scheduler.submit(
         {
-          headers: {
-            event: "pull_request_review_comment",
-            delivery: "d-thread-reply",
-            rawBody: Buffer.from("{}"),
-          },
-          installationId: 42,
-          owner: "acme",
-          repo: "app",
-          prNumber: 7,
-          commentId: 101,
-          commenterId: 1,
-          body: "@pr-agent[bot] why is this P1?",
-          command: "ask",
-          botLogin: "pr-agent[bot]",
-          replyTarget: {
-            kind: "inlineReviewThread",
+          kind: "slash",
+          input: {
+            headers: {
+              event: "pull_request_review_comment",
+              delivery: "d-thread-reply",
+              rawBody: Buffer.from("{}"),
+            },
+            installationId: 42,
+            owner: "acme",
+            repo: "app",
             prNumber: 7,
-            inReplyToCommentId: 100,
+            commentId: 101,
+            commenterId: 1,
+            body: "@pr-agent[bot] why is this P1?",
+            command: "ask",
+            botLogin: "pr-agent[bot]",
+            replyTarget: {
+              kind: "inlineReviewThread",
+              prNumber: 7,
+              inReplyToCommentId: 100,
+            },
           },
         },
         intakeLog,

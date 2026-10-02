@@ -1,8 +1,9 @@
+import { DeliveryTx } from "../src/agentWork/intake/delivery.js";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
-  applySlashCommandIntake,
+  applySlashCommandIntake as applySlash,
   type SlashCommandInput,
 } from "../src/agentWork/intake/slashIntake.js";
 import type { AckJobData } from "../src/agentWork/types.js";
@@ -128,3 +129,12 @@ describe("slash command feature gating", () => {
     },
   );
 });
+
+function applySlashCommandIntake(
+  boss: PgBoss,
+  client: PoolClient,
+  input: SlashCommandInput,
+  features: import("../src/settings/index.js").Features,
+) {
+  return applySlash(boss, new DeliveryTx(client, input.headers), input, features);
+}

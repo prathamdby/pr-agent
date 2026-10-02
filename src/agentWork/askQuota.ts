@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { Config } from "../config.js";
 import { inTransaction } from "../db/postgres.js";
+import { createAskWorkItem } from "./intake/workItemRepository.js";
+import { prResourceKey } from "./types.js";
 import { AppError } from "../errors/appError.js";
 import type { AgentRunnerUsageMetadata } from "../agent/providers/usageMetadata.js";
 import {
@@ -248,7 +250,7 @@ function bucketByScope(buckets: readonly AskQuotaBucket[], scope: AskQuotaScope)
  * the matching work item in the same transaction. The deferred FK on the
  * reservation table keeps that ordering safe.
  */
-export async function admitAsk(
+async function reserveAskQuota(
   client: PoolClient,
   params: {
     readonly workItemId: string;
@@ -361,10 +363,7 @@ async function decrementOutstanding(
 }
 
 /** Release a reservation that lost an insert race before a work item existed. */
-export async function releaseAskQuotaReservation(
-  client: PoolClient,
-  workItemId: string,
-): Promise<void> {
+async function releaseAskQuotaReservation(client: PoolClient, workItemId: string): Promise<void> {
   const result = await client.query<{
     actor_scope_key: string;
     repository_scope_key: string;
@@ -396,6 +395,11 @@ export async function releaseAskQuotaReservation(
   );
   await decrementOutstanding(client, "repository", reservation.repository_scope_key);
   await decrementOutstanding(client, "actor", reservation.actor_scope_key);
+  // This id lost insertion and has no work row for the deferred foreign key.
+  await client.query(
+    "DELETE FROM ask_quota_reservations WHERE work_item_id = $1 AND released_at IS NOT NULL",
+    [workItemId],
+  );
 }
 
 /** Server-owned id for one model-backed ask computation. Not the claim counter. */
@@ -622,4 +626,96 @@ export async function deleteExpiredAskQuotaState(
     deleted += batch;
     if (batch < batchSize) return deleted;
   }
+}
+
+type AskAdmissionInput = Parameters<typeof createAskWorkItem>[1] & { readonly commenterId: number };
+export type AskAdmission =
+  | { readonly kind: "retained"; readonly id: string; readonly webhookEventId: string | null }
+  | {
+      readonly kind: "admitted";
+      readonly id: string;
+      readonly created: boolean;
+      readonly providerReservationTokens: number;
+    }
+  | { readonly kind: "throttled"; readonly reason: AskQuotaRejectionReason };
+
+type RetainedAskMention = {
+  readonly id: string;
+  readonly webhookEventId: string | null;
+};
+
+function askMentionLockKey(input: AskAdmissionInput): string {
+  return JSON.stringify([
+    "ask_mention_intake",
+    input.ref.installationId,
+    prResourceKey(input.ref.owner, input.ref.repo, input.ref.prNumber),
+    input.replyTarget.kind,
+    input.commentId,
+  ]);
+}
+
+/**
+ * All production ask creation resolves the triggering mention under the
+ * caller's transaction: the advisory lock is held until the outer commit or
+ * rollback, and the lookup runs as a separate statement so READ COMMITTED sees
+ * a same-mention winner that has just committed. Retained rows of every status
+ * join, so one mention gets one answer until retention removes the evidence.
+ */
+async function findRetainedAskForMention(
+  client: PoolClient,
+  input: AskAdmissionInput,
+): Promise<RetainedAskMention | null> {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    askMentionLockKey(input),
+  ]);
+  const { rows } = await client.query<{ id: string; webhook_event_id: string | null }>(
+    `SELECT id, webhook_event_id
+       FROM agent_work_items
+      WHERE type = 'ask'
+        AND installation_id = $1
+        AND resource_key = $2
+        AND payload->'replyTarget'->>'kind' = $3
+        AND payload->>'commentId' = $4
+      ORDER BY CASE WHEN webhook_event_id = $5::uuid THEN 0 ELSE 1 END, created_at, id
+      LIMIT 1`,
+    [
+      input.ref.installationId,
+      prResourceKey(input.ref.owner, input.ref.repo, input.ref.prNumber),
+      input.replyTarget.kind,
+      String(input.commentId),
+      input.webhookEventId,
+    ],
+  );
+  const row = rows[0];
+  return row ? { id: row.id, webhookEventId: row.webhook_event_id } : null;
+}
+
+/** Mention identity, quota reservation, matching work and conflict compensation are one transaction operation. */
+export async function admitAsk(
+  client: PoolClient,
+  input: AskAdmissionInput,
+  config: AskQuotaConfig,
+): Promise<AskAdmission> {
+  const retained = await findRetainedAskForMention(client, input);
+  if (retained) return { kind: "retained", ...retained };
+  const workItemId = input.workItemId ?? randomUUID();
+  const reservation = await reserveAskQuota(
+    client,
+    {
+      workItemId,
+      installationId: input.ref.installationId,
+      owner: input.ref.owner,
+      repo: input.ref.repo,
+      commenterId: input.commenterId,
+    },
+    config,
+  );
+  if (reservation.kind === "throttled") return reservation;
+  const inserted = await createAskWorkItem(client, { ...input, workItemId });
+  if (!inserted.created) await releaseAskQuotaReservation(client, workItemId);
+  return {
+    kind: "admitted",
+    ...inserted,
+    providerReservationTokens: reservation.providerReservationTokens,
+  };
 }

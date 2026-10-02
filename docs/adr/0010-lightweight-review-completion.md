@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-Automated pull request reviews run on `opened` in auto mode (`planAutomatedPullRequestIntake` in `src/agentWork/intake/planner.ts`; approval-mode admission is defined in [ADR 0042](0042-review-approval-mode.md)). Documentation-only changes (README updates, `docs/**`, markdown under `.github/*.md`) rarely benefit from a full LLM investigation pass but still consumed worker time and API budget.
+Automated pull request reviews run on `opened` in auto mode (`planAutomatedPullRequestIntake` in `src/agentWork/intake/delivery.ts`; approval-mode admission is defined in [ADR 0042](0042-review-approval-mode.md)). Documentation-only changes (README updates, `docs/**`, markdown under `.github/*.md`) rarely benefit from a full LLM investigation pass but still consumed worker time and API budget.
 
 Operators may still request a full pass with `/review`.
 

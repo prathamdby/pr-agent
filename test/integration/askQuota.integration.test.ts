@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { Pool, PoolClient } from "pg";
+import type { Pool } from "pg";
 import {
   admitAsk,
   createAskExecutionId,
@@ -11,7 +11,7 @@ import {
 import { AppError } from "../../src/errors/appError.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
-import { prResourceKey } from "../../src/agentWork/types.js";
+import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "ask-quota-it";
@@ -52,6 +52,7 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
       [OWNER],
     );
     await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM webhook_events WHERE event_name = $1", ["ask-quota-it"]);
     await pool.query(
       `DELETE FROM ask_quota_buckets
         WHERE scope_key = $1 OR scope_key LIKE $2 OR scope_key LIKE $3`,
@@ -63,34 +64,6 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
     );
   });
 
-  async function insertQueuedAsk(
-    client: Pick<PoolClient, "query">,
-    workItemId: string,
-    commenterId: number,
-    repo = REPO,
-  ): Promise<void> {
-    await client.query(
-      `INSERT INTO agent_work_items (
-         id, type, source, status, owner, repo, pr_number, installation_id,
-         head_sha, resource_key, priority, payload
-       ) VALUES ($1, 'ask', 'slash', 'queued', $2, $3, $4, $5, 'deferred', $6, 50, $7::jsonb)`,
-      [
-        workItemId,
-        OWNER,
-        repo,
-        PR_NUMBER,
-        INSTALLATION_ID,
-        prResourceKey(OWNER, repo, PR_NUMBER),
-        JSON.stringify({
-          question: "why?",
-          replyTarget: { kind: "prConversation", prNumber: PR_NUMBER },
-          commentId: 1,
-          commenterId,
-        }),
-      ],
-    );
-  }
-
   async function admitAndInsert(
     workItemId: string,
     commenterId: number,
@@ -98,23 +71,89 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
     repo = REPO,
   ) {
     return inTransaction(pool, async (client) => {
+      const event = await new DeliveryTx(client, {
+        event: "ask-quota-it",
+        delivery: workItemId,
+        rawBody: Buffer.from(workItemId),
+      }).insert("slash_ask");
+      if (event.duplicate) throw new Error("expected fresh ask quota delivery");
       const admission = await admitAsk(
         client,
         {
           workItemId,
-          installationId: INSTALLATION_ID,
-          owner: OWNER,
-          repo,
+          webhookEventId: event.id,
+          ref: {
+            installationId: INSTALLATION_ID,
+            owner: OWNER,
+            repo,
+            prNumber: PR_NUMBER,
+            headSha: "deferred",
+          },
+          question: "why?",
+          replyTarget: { kind: "prConversation", prNumber: PR_NUMBER },
+          commentId: createHash("sha256").update(workItemId).digest().readUInt32BE(0),
           commenterId,
         },
         config,
       );
-      if (admission.kind === "admitted") {
-        await insertQueuedAsk(client, workItemId, commenterId, repo);
-      }
       return admission;
     });
   }
+
+  it("compensates a webhook insertion conflict without an orphan quota reservation", async () => {
+    const workItemId = randomUUID();
+    const loserId = randomUUID();
+    const quota = { ...BASE_QUOTA, askProviderBudgetTokens: 100, askProviderReservationTokens: 4 };
+    await admitAndInsert(workItemId, 7, quota);
+    const webhookEventId = (
+      await pool.query("SELECT webhook_event_id FROM agent_work_items WHERE id = $1", [workItemId])
+    ).rows[0].webhook_event_id;
+    const result = await inTransaction(pool, (client) =>
+      admitAsk(
+        client,
+        {
+          workItemId: loserId,
+          webhookEventId,
+          ref: {
+            owner: OWNER,
+            repo: REPO,
+            prNumber: PR_NUMBER,
+            installationId: INSTALLATION_ID,
+            headSha: "deferred",
+          },
+          question: "different mention",
+          replyTarget: { kind: "prConversation", prNumber: PR_NUMBER },
+          commentId: 999,
+          commenterId: 7,
+        },
+        quota,
+      ),
+    );
+    expect(result).toMatchObject({ kind: "admitted", id: workItemId, created: false });
+    expect(
+      (
+        await pool.query(
+          "SELECT work_item_id FROM ask_quota_reservations WHERE work_item_id = ANY($1::uuid[])",
+          [[workItemId, loserId]],
+        )
+      ).rows,
+    ).toEqual([{ work_item_id: workItemId }]);
+    expect(
+      (
+        await pool.query(
+          "SELECT outstanding_count, provider_tokens_reserved FROM ask_quota_buckets WHERE scope = 'installation' AND scope_key = $1",
+          [`installation:${INSTALLATION_ID}`],
+        )
+      ).rows,
+    ).toEqual([{ outstanding_count: 1, provider_tokens_reserved: "4" }]);
+    const actor = (
+      await pool.query(
+        "SELECT token_balance FROM ask_quota_buckets WHERE scope = 'actor' AND scope_key = $1",
+        [`actor:${INSTALLATION_ID}:7`],
+      )
+    ).rows[0];
+    expect(actor.token_balance).toBeCloseTo(98, 2);
+  });
 
   it("serializes concurrent admissions and releases outstanding capacity on completion", async () => {
     const workItemIds = Array.from({ length: 5 }, () => randomUUID());
@@ -282,7 +321,7 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
     };
     const firstId = randomUUID();
     const first = await admitAndInsert(firstId, 7, config);
-    expect(first).toEqual({ kind: "admitted", providerReservationTokens: 6 });
+    expect(first).toMatchObject({ kind: "admitted", providerReservationTokens: 6 });
 
     const blockedByReservation = await admitAndInsert(randomUUID(), 8, config);
     expect(blockedByReservation).toEqual({ kind: "throttled", reason: "provider_budget" });
@@ -320,7 +359,7 @@ describe.skipIf(!hasDatabase)("ask admission quotas (integration)", () => {
       askProviderReservationTokens: 4,
     };
     const straddlerId = randomUUID();
-    await expect(admitAndInsert(straddlerId, 7, config)).resolves.toEqual({
+    await expect(admitAndInsert(straddlerId, 7, config)).resolves.toMatchObject({
       kind: "admitted",
       providerReservationTokens: 4,
     });

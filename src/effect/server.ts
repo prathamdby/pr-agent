@@ -10,7 +10,6 @@ import { AgentWorkScheduler } from "../agentWork/scheduler.js";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
-import { WebhookHandlersCore } from "./services/webhookHandlers.js";
 import { WEBHOOK_MAX_BODY_BYTES } from "../settings/index.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
@@ -159,16 +158,12 @@ export function buildEffectWebhookLayer(
   serverFactory: () => Server = createServer,
   schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = AgentWorkSchedulerRuntimeLive(cfg),
 ) {
-  const appLayer = Layer.mergeAll(
-    schedulerLayer,
-    WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)),
-  );
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
   return Layer.unwrap(
     Effect.map(HttpRouter.toHttpEffect(buildEffectWebhookApp(cfg)), (handler) =>
       HttpServer.serve(handler),
     ),
-  ).pipe(Layer.provide(serverLayer), Layer.provide(appLayer));
+  ).pipe(Layer.provide(serverLayer), Layer.provide(schedulerLayer));
 }
 
 export function startEffectWebhookServer(cfg: Config): void {

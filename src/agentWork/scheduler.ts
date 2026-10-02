@@ -2,64 +2,16 @@ import { Context, Duration, Effect } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
-import { inTransaction } from "../db/postgres.js";
 import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
-import {
-  applyAutomatedPullRequestIntake,
-  applyCompletedRunCiIntake,
-  applyCiStateIntake,
-  applyReviewApprovedIntake,
-  type ReviewApprovalSignal,
-  type CiStateFactInput,
-  type AutomatedPullRequestIntakeOpts,
-  recordIgnoredWebhook,
-} from "./intake/applier.js";
-import { applySlashCommandIntake, type SlashCommandInput } from "./intake/slashIntake.js";
-import { flushDeferredEvents } from "./intake/deferredEvents.js";
-import type { PrRef, WebhookHeaders } from "./types.js";
-import { resolveAskQuotaConfig, type AskQuotaConfig } from "./askQuota.js";
+import { toError } from "../errors/errorMessage.js";
+import { runDelivery, type IntakeCommand } from "./intake/delivery.js";
+import type { AskQuotaConfig } from "./askQuota.js";
 
 export class AgentWorkScheduler extends Context.Service<
   AgentWorkScheduler,
   {
-    readonly recordIgnored: (
-      headers: WebhookHeaders,
-      decision: string,
-      intakeLog: RequestLogger,
-    ) => Effect.Effect<void, Error>;
-    readonly submitAutomatedReview: (
-      headers: WebhookHeaders,
-      ref: PrRef,
-      action: string,
-      intakeLog: RequestLogger,
-      opts?: AutomatedPullRequestIntakeOpts,
-    ) => Effect.Effect<void, Error>;
-    readonly submitReviewApproved: (
-      headers: WebhookHeaders,
-      signal: ReviewApprovalSignal,
-      intakeLog: RequestLogger,
-    ) => Effect.Effect<void, Error>;
-    readonly submitCiRefresh: (
-      headers: WebhookHeaders,
-      data: {
-        readonly installationId: number;
-        readonly owner: string;
-        readonly repo: string;
-        readonly headSha: string;
-        readonly prNumbers: readonly number[];
-      },
-      intakeLog: RequestLogger,
-    ) => Effect.Effect<void, Error>;
-    readonly submitCiState: (
-      headers: WebhookHeaders,
-      data: CiStateFactInput,
-      intakeLog: RequestLogger,
-    ) => Effect.Effect<void, Error>;
-    readonly submitSlashCommand: (
-      input: SlashCommandInput,
-      intakeLog: RequestLogger,
-    ) => Effect.Effect<void, Error>;
+    readonly submit: (command: IntakeCommand, log: RequestLogger) => Effect.Effect<void, Error>;
     readonly ping: () => Effect.Effect<boolean>;
   }
 >()("AgentWorkScheduler") {}
@@ -69,58 +21,14 @@ export function makeAgentWorkScheduler(
   boss: PgBoss,
   cfg: Pick<Config, "features"> & Partial<AskQuotaConfig>,
 ) {
-  const askQuota = resolveAskQuotaConfig(cfg);
   return AgentWorkScheduler.of({
-    recordIgnored: (headers, decision, intakeLog) =>
+    submit: (command, log) =>
       Effect.tryPromise({
-        try: () =>
-          inTransaction(pool, (client) =>
-            recordIgnoredWebhook(client, headers, decision, intakeLog),
-          ),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        try: () => runDelivery(pool, boss, cfg, command, log),
+        catch: toError,
       }).pipe(Effect.uninterruptible),
-
-    submitAutomatedReview: (headers, ref, action, intakeLog, opts) =>
-      Effect.tryPromise({
-        try: () =>
-          applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog, cfg, opts),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }).pipe(Effect.uninterruptible),
-
-    submitCiRefresh: (headers, data, intakeLog) =>
-      Effect.tryPromise({
-        try: () => applyCompletedRunCiIntake(boss, pool, headers, data, intakeLog),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }).pipe(Effect.uninterruptible),
-
-    submitReviewApproved: (headers, signal, intakeLog) =>
-      Effect.tryPromise({
-        try: () => applyReviewApprovedIntake(boss, pool, headers, signal, intakeLog),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }).pipe(Effect.uninterruptible),
-
-    submitCiState: (headers, data, intakeLog) =>
-      Effect.tryPromise({
-        try: () => applyCiStateIntake(boss, pool, headers, data, intakeLog),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }).pipe(Effect.uninterruptible),
-
-    submitSlashCommand: (input, intakeLog) =>
-      Effect.tryPromise({
-        try: async () => {
-          const events = await inTransaction(pool, (client) =>
-            applySlashCommandIntake(boss, client, input, cfg.features, askQuota),
-          );
-          flushDeferredEvents(intakeLog, events);
-        },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }).pipe(Effect.uninterruptible),
-
     ping: () =>
-      Effect.tryPromise({
-        try: () => pool.query("SELECT 1"),
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }).pipe(
+      Effect.tryPromise({ try: () => pool.query("SELECT 1"), catch: toError }).pipe(
         Effect.timeout(Duration.millis(HEALTH_DB_PING_TIMEOUT_MS)),
         Effect.match({ onFailure: () => false, onSuccess: () => true }),
       ),

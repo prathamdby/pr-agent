@@ -519,6 +519,81 @@ The complete prompt dump remains byte-identical to M0, SHA-256
 close delegation uses the M8 publication owner's delegation gate and marker; the
 selection, keys, and receipts above are unchanged.
 
+## M11 failure modes
+
+Recorded before existing-test or production changes:
+
+1. A delivery returns success before its transaction commits, or interruption
+   returns a timeout before rollback settles.
+2. Ignored and duplicate deliveries emit transactional events before commit;
+   rollback leaves replay evidence, quota reservations, work, jobs, or events.
+3. Automated admission selects its decision before the review intake lock or
+   combines the retained lifecycle read with lock acquisition, missing a winner.
+4. Close/reopen ties, irreversible merge, stale observations, approval withdrawal,
+   sorted approval locks, or approval head rechecks drift during consolidation.
+5. Pure command mapping performs provider I/O, moves authorization ahead of bot
+   identity resolution, or authenticates a bot approval or disabled approval.
+6. Inline replies lose parent-or-self identity; triage incorrectly treats a root
+   comment as a thread reply. CI refresh loses normalized matching-head targets.
+7. Canonical ask checks quota before its mention lock and separate retained
+   any-status lookup; a repeated mention reserves capacity or enqueues again.
+8. Ask reservation and insertion escape one admission owner, lose conflict
+   compensation, or change lock/check priorities and provider-window accounting.
+9. Consolidation changes durable payloads, queue identities, event field values,
+   signature/parsing order, response statuses, or timeout/log emission timing.
+10. Deleting SQL-string fakes loses behavior proof. HTTP assertions move to the
+    existing HTTP owner; command assertions to the existing intake owner; durable
+    predicates and rollback assertions to existing Postgres integration owners.
+
+M11 moves all six scheduler bridges and the five intake transaction variants
+behind `runDelivery`. `DeliveryTx.withReviewIntake` acquires the review intake
+lock before a separate retained lifecycle read. Automated, slash, close/reopen,
+and approval decisions are selected before insertion; no decision patch-up
+writer remains. Approval reads lock their matching awaiting row so retention
+cannot invalidate the selected decision. Signature verification, parsing,
+authorization order, HTTP status/timeout policy, payloads, and queue/event
+identities remain unchanged. The Effect and Promise callers use the same owner;
+existing integration tests also use its real caller-owned Postgres transaction
+adapter, not a test-only hook.
+
+`askQuota.ts::admitAsk` owns mention agreement, reservation, matching insertion,
+and compensation. The migrated real-conflict case exposed an existing deferred
+foreign-key failure: release left an unmatched losing reservation behind.
+Deleting that released, never-matched reservation in the same transaction fixes
+the amendment's atomic-admission contract. Outstanding/provider capacity is
+released; the existing rate debit remains. Terminal trigger and provider-window
+accounting are unchanged. This case failed before that fix.
+
+Coverage migration:
+
+| Removed assertions                                                                                                                             | Strongest retained owner                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Signature, malformed JSON, parse status, durable success, errors, timeout, and nonblocking successful logging                                  | `verifySignature`, `parseGithubPayload`, `serverHealth`, and `schedulerIgnoredIntake`; actual timeout/rollback is in `intakeTransaction.integration` |
+| Bot identity, association policy, mention mapping, merged evidence, inline parent-or-self versus triage parent-only, and normalized CI targets | `intakePlanner`; signed approval and own/foreign CI decisions also run through Postgres in `intakeTransaction.integration`                           |
+| Delivery/body dedupe and returned event identity                                                                                               | `webhookDedupe.integration` and `intakeTransaction.integration`                                                                                      |
+| Help/unknown replies, triage modes/exclusions/scope, and mixed review/triage close acknowledgement                                             | `intakeTransaction.integration`; active-winner and force races remain in `slashActiveUniqueness.integration`                                         |
+| Cancellation predicates, exact epoch release, and unknown epochs                                                                               | `prActorLease.integration` and the intake transaction races                                                                                          |
+
+Explicit drops are SQL text/parameter-count and fake job-inspection assertions,
+not their observable outcomes. Three force-conflict fixtures fabricated a slash
+winner after every active review had been cancelled under the same intake lock;
+upgraded writers cannot produce that state. Real force ordering, rollback,
+cancelled-ID receipts, lease release, and sibling-resource isolation remain in
+integration. Login sanitization stays with its existing progress owner.
+The lane manifest records every deleted case's destination or explicit drop.
+No new test/helper/fixture file was created.
+
+Local M11 gates passed: effect versions, production dependencies, code,
+guards, build, 188 unit suites (2,571 tests), and all fourteen dedicated
+Postgres integration suites (530 tests). Source assertion baseline remains 87.
+One full unit attempt hit unchanged Code Mode timing assertions; its isolated
+37-case retry and subsequent full unmodified unit run passed. The prompt dump
+is byte-identical to M0, SHA-256
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.
+All captured task containers and disposable volumes were removed.
+The parent owns final integrated verification, deslop, and commit. This lane
+makes no commit, push, or external write.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

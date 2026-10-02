@@ -72,6 +72,7 @@ function askQuotaQuery(
       ],
     };
   }
+  if (sql.includes("DELETE FROM ask_quota_reservations")) return { rows: [], rowCount: 1 };
   if (sql.includes("UPDATE ask_quota_reservations")) return { rows: [], rowCount: 1 };
   return undefined;
 }

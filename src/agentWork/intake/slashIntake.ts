@@ -13,8 +13,7 @@ import {
   sanitizeGithubLogin,
   type Features,
 } from "../../settings/index.js";
-import type { DeferredIntakeEvent } from "./deferredEvents.js";
-import { acquireAutoWorkIntakeLock } from "../autoWorkEnqueue.js";
+import type { DeliveryTx, DeferredIntakeEvent } from "./delivery.js";
 import { approveAwaiting } from "./reviewApprovals.js";
 import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
 import {
@@ -29,7 +28,6 @@ import {
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.js";
 import type { ReplyTarget } from "../types.js";
-import { insertWebhookEvent } from "./webhookEvents.js";
 import {
   enqueueAck,
   enqueueDescription,
@@ -47,7 +45,6 @@ import {
   createVerificationWorkItem,
   fetchActiveTriageWorkItem,
   fetchActiveVerificationWorkItem,
-  loadReviewLifecycle,
 } from "./workItemRepository.js";
 
 export type SlashCommandInput = {
@@ -90,6 +87,7 @@ type SlashIntakeContext = {
   };
   readonly events: DeferredIntakeEvent[];
   readonly askQuota: AskQuotaConfig;
+  readonly reviewRefused?: "closed" | "merged";
 };
 
 async function enqueueSlashAck(
@@ -289,26 +287,19 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  await acquireAutoWorkIntakeLock(ctx.client, { kind: "review", resourceKey });
-  const lifecycle = await loadReviewLifecycle(ctx.client, resourceKey);
-  if (lifecycle != null && lifecycle.state !== "open") {
-    const decision = `ignored_slash_review_pr_${lifecycle.state}`;
-    await ctx.client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
-      ctx.eventId,
-      decision,
-    ]);
+  if (ctx.reviewRefused != null) {
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
         body:
-          lifecycle.state === "closed"
+          ctx.reviewRefused === "closed"
             ? "This pull request is closed. Reopen it before running `/review`."
             : "This pull request is merged. Run `/review` on an open pull request.",
       },
     });
     ctx.events.push({
       name: "review_intake_refused",
-      fields: { resourceKey, source: "slash", reason: lifecycle.state, ...ctx.correlation },
+      fields: { resourceKey, source: "slash", reason: ctx.reviewRefused, ...ctx.correlation },
     });
     return;
   }
@@ -496,24 +487,26 @@ const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
 
 export async function applySlashCommandIntake(
   boss: PgBoss,
-  client: PoolClient,
+  tx: DeliveryTx,
   input: SlashCommandInput,
   features: Features,
   askQuota: AskQuotaConfig = defaultAskQuotaConfig(),
 ): Promise<DeferredIntakeEvent[]> {
+  const client = tx.client;
   const events: DeferredIntakeEvent[] = [];
   const command = input.command;
-  const event = await insertWebhookEvent(client, input.headers, `slash_${command}`);
-  if (event.duplicate) {
-    events.push({
-      name: "deduped_delivery",
-      fields: {
-        dedupeKey: event.dedupeKey,
-        event: input.headers.event,
+  let reviewRefused: "closed" | "merged" | undefined;
+  if (command === "review")
+    await tx.withReviewIntake(
+      prResourceKey(input.owner, input.repo, input.prNumber),
+      async (lifecycle) => {
+        if (lifecycle != null && lifecycle.state !== "open") reviewRefused = lifecycle.state;
       },
-    });
-    return events;
-  }
+    );
+  const event = await tx.insert(
+    reviewRefused == null ? `slash_${command}` : `ignored_slash_review_pr_${reviewRefused}`,
+  );
+  if (event.duplicate) return events;
 
   const correlation = jobCorrelation(event.id, input.headers);
   const ref: PrRef = {
@@ -548,6 +541,7 @@ export async function applySlashCommandIntake(
     },
     events,
     askQuota,
+    reviewRefused,
   };
 
   const handler = SLASH_INTAKE_HANDLERS[command];

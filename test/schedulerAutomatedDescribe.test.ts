@@ -102,7 +102,15 @@ describe("makeAgentWorkScheduler automated describe", () => {
     });
 
     await Effect.runPromise(
-      scheduler.submitAutomatedReview(makeAutomatedHeaders(), makePrRef(), "opened", intakeLog),
+      scheduler.submit(
+        {
+          kind: "pull_request",
+          headers: makeAutomatedHeaders(),
+          ref: makePrRef(),
+          action: "opened",
+        },
+        intakeLog,
+      ),
     );
 
     expect(sentQueues).toContain(REVIEW_QUEUE);
@@ -157,10 +165,13 @@ describe("makeAgentWorkScheduler automated describe", () => {
 
     try {
       await Effect.runPromise(
-        scheduler.submitAutomatedReview(
-          makeAutomatedHeaders(),
-          makePrRef(),
-          "synchronize",
+        scheduler.submit(
+          {
+            kind: "pull_request",
+            headers: makeAutomatedHeaders(),
+            ref: makePrRef(),
+            action: "synchronize",
+          },
           intakeLog,
         ),
       );
@@ -221,10 +232,13 @@ describe("makeAgentWorkScheduler automated describe", () => {
     });
 
     await Effect.runPromise(
-      scheduler.submitAutomatedReview(
-        makeAutomatedHeaders(),
-        makePrRef(),
-        "synchronize",
+      scheduler.submit(
+        {
+          kind: "pull_request",
+          headers: makeAutomatedHeaders(),
+          ref: makePrRef(),
+          action: "synchronize",
+        },
         intakeLog,
       ),
     );
@@ -253,10 +267,13 @@ describe("makeAgentWorkScheduler automated describe", () => {
     });
 
     await Effect.runPromise(
-      scheduler.submitAutomatedReview(
-        makeAutomatedHeaders(),
-        makePrRef(),
-        "synchronize",
+      scheduler.submit(
+        {
+          kind: "pull_request",
+          headers: makeAutomatedHeaders(),
+          ref: makePrRef(),
+          action: "synchronize",
+        },
         intakeLog,
       ),
     );
@@ -284,7 +301,15 @@ describe("makeAgentWorkScheduler automated describe", () => {
     });
 
     await Effect.runPromise(
-      scheduler.submitAutomatedReview(makeAutomatedHeaders(), makePrRef(), "opened", intakeLog),
+      scheduler.submit(
+        {
+          kind: "pull_request",
+          headers: makeAutomatedHeaders(),
+          ref: makePrRef(),
+          action: "opened",
+        },
+        intakeLog,
+      ),
     );
 
     expect(sentQueues).toContain(REVIEW_QUEUE);

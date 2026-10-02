@@ -184,6 +184,9 @@ describe("architecture rules", () => {
     const graph = runtimeImportGraph("src/effect/server.ts");
     expect(graph.size).toBeLessThan(120);
     expect(graph.has("src/agentWork/runtime.ts")).toBe(true);
+    expect(graph.has("src/agentWork/intake/delivery.ts")).toBe(true);
+    expect(graph.has("src/webhook/intakeCommand.ts")).toBe(true);
+    expect(graph.has("src/effect/services/webhookHandlers.ts")).toBe(false);
     expect(graph.has("src/agentWork/worker.ts")).toBe(false);
     expect(graph.has("src/agentWork/executors/reviewExecutor.ts")).toBe(false);
     expect(graph.has("src/review/orchestrator/orchestratorRun.ts")).toBe(false);
