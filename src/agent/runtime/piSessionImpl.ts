@@ -1,6 +1,4 @@
 import {
-  runAgentLoop,
-  runAgentLoopContinue,
   type AgentContext,
   type AgentEvent,
   type AgentLoopConfig,
@@ -9,18 +7,10 @@ import {
 import {
   contentText,
   getSupportedThinkingLevels,
-  isContextOverflow,
-  isRetryableAssistantError,
   type AssistantMessage,
   type Message,
-  type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { AppError, toAppError } from "../../errors/appError.js";
-import {
-  SESSION_OVERFLOW_COMPACT_MAX,
-  SESSION_TURN_RETRY_BASE_DELAY_MS,
-  SESSION_TURN_RETRY_MAX,
-} from "../../settings/sessionConstants.js";
 import {
   assertPhaseToolAllowed,
   ORCHESTRATOR_PHASE_TOOLS,
@@ -40,7 +30,10 @@ import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promp
 import { createSessionModels } from "./sessionModels.js";
 import { createSessionStreamFn } from "./sessionStream.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
-import { compactAgentMessages, compactIfNeeded } from "./transcriptCompaction.js";
+import { createSendActivity } from "./sendActivity.js";
+import { createTurnToolBudget } from "./turnToolBudget.js";
+import { createSessionCompaction } from "./sessionCompaction.js";
+import { lastAssistant, runSessionTurn } from "./sessionTurnLoop.js";
 import type { PiSession, PiSessionCreateParams } from "./types.js";
 
 function isOrchestratorPhaseTool(name: string): name is OrchestratorPhaseTool {
@@ -72,74 +65,6 @@ function convertToLlm(messages: AgentMessage[]): Message[] {
     }
   }
   return converted;
-}
-
-function dropTrailingErrorAssistant(messages: AgentMessage[]): void {
-  const last = messages[messages.length - 1];
-  if (last?.role === "assistant" && "stopReason" in last && last.stopReason === "error") {
-    messages.pop();
-  }
-}
-
-function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        reject(new DOMException("Aborted", "AbortError"));
-      },
-      { once: true },
-    );
-  });
-}
-
-function lastAssistant(messages: readonly AgentMessage[]): AssistantMessage | undefined {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = asAssistantMessage(messages[index]);
-    if (message) return message;
-  }
-  return undefined;
-}
-
-function placeUserMessage(
-  target: AgentMessage[],
-  userMessage: AgentMessage,
-  insertAt: number,
-): void {
-  const userIndex = target.indexOf(userMessage);
-  if (userIndex === -1) {
-    target.splice(insertAt, 0, userMessage);
-    return;
-  }
-  if (userIndex > insertAt) {
-    target.splice(userIndex, 1);
-    target.splice(Math.min(insertAt, target.length), 0, userMessage);
-  }
-}
-
-/**
- * Core copies `context.messages` on `runAgentLoop` and returns the new turn
- * slice in order. Replace the session suffix with that slice so tool results
- * stay between the assistant turns that produced them. Empty `produced` keeps
- * event-appended assistants (test mocks and a loop that returned nothing).
- */
-function absorbProducedMessages(
-  target: AgentMessage[],
-  produced: readonly AgentMessage[],
-  userMessage: AgentMessage,
-  newContentStart: number,
-): void {
-  const insertAt = Math.min(Math.max(newContentStart, 0), target.length);
-  if (produced.length > 0) {
-    target.splice(insertAt, target.length - insertAt, ...produced);
-  }
-  placeUserMessage(target, userMessage, insertAt);
 }
 
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
@@ -217,54 +142,27 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       ]);
       const phaseRef = { current: opts.phase };
       let protocolInvalid = false;
-      const reservedTerminalTool = opts.reservedTerminalTool;
-      let investigationTurnCount = 0;
-      let reservedTerminalSuccessCount = 0;
-      let reservedTerminalAttemptCount = 0;
+      const budget = createTurnToolBudget(opts);
       let finalText = "";
       let terminalProviderError: string | undefined;
-      let toolBudgetStopped = false;
       let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
-      const idleTimeoutMs = opts.deadlineMs ?? params.cfg.providerPromptTimeoutMs;
-      const idleTimeoutEnabled = typeof idleTimeoutMs === "number" && idleTimeoutMs > 0;
-      let idleCheckHandle: ReturnType<typeof setInterval> | undefined;
-      let rejectOnIdle: ((error: Error) => void) | undefined;
-      let lastActivityAt = Date.now();
-      let idleRejected = false;
-      const markActivity = () => {
-        lastActivityAt = Date.now();
-      };
-      const rejectForIdle = () => {
-        if (idleRejected) return;
-        idleRejected = true;
-        sendAbort.abort();
-        rejectOnIdle?.(
-          new AppError({
-            code: "pi.prompt_idle_timeout",
-            message: `Provider prompt timeout: no activity for ${idleTimeoutMs}ms`,
+      const activity = createSendActivity(
+        opts.deadlineMs ?? params.cfg.providerPromptTimeoutMs,
+        sendAbort,
+      );
+      const compaction = createSessionCompaction(params.compactionPolicy, {
+        model,
+        streamFn,
+        signal: loopSignal,
+        onCompaction: (reason) =>
+          emit({
+            kind: "compaction",
+            role: params.role,
+            provider: params.primary.provider,
+            model: params.primary.model,
+            reason,
           }),
-        );
-      };
-      const startIdleTimer = () => {
-        const checkEveryMs = Math.max(1, Math.min(idleTimeoutMs, 1000));
-        idleCheckHandle = setInterval(() => {
-          if (Date.now() - lastActivityAt >= idleTimeoutMs) {
-            rejectForIdle();
-          }
-        }, checkEveryMs);
-      };
-
-      type BudgetToolResult = Pick<ToolResultMessage, "toolName" | "isError">;
-      const turnContainsReservedTool = (toolResults: readonly BudgetToolResult[]): boolean => {
-        if (reservedTerminalTool == null) return false;
-        return toolResults.some((result) => result.toolName === reservedTerminalTool);
-      };
-      const isSuccessfulReservedTurn = (toolResults: readonly BudgetToolResult[]): boolean => {
-        if (reservedTerminalTool == null) return false;
-        return toolResults.some(
-          (result) => result.toolName === reservedTerminalTool && !result.isError,
-        );
-      };
+      });
 
       const thinking = resolveThinkingLevel({
         policy: params.thinkingPolicy,
@@ -292,43 +190,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         maxRetries: params.cfg.piProviderRetryMax,
         maxRetryDelayMs: params.cfg.piProviderMaxRetryDelayMs,
         ...(thinking === "off" ? {} : { reasoning: thinking }),
-        // Core calls finishTurn before it emits turn_end, so the turn_end handler has not
-        // counted this round yet; count it here so the budget matches the handler's view.
-        // Investigation rounds share maxToolRounds. A reserved terminal tool (judgment
-        // publish_thread) gets exactly one extra successful round beyond that budget so
-        // exhausted re-reads never starve the decision. At most 2 terminal attempts
-        // total are allowed (1 fail + 1 retry); the second failed attempt ends the loop.
-        // Mixed turns count both sides: non-reserved results consume investigation
-        // budget in turn_end, and reserved results consume the terminal attempt budget.
-        finishTurn: ({ toolResults }) => {
-          if (opts.maxToolRounds == null) return undefined;
-          if (toolResults.length === 0) return undefined;
-          if (isSuccessfulReservedTurn(toolResults)) {
-            return { action: "end" };
-          }
-          if (turnContainsReservedTool(toolResults)) {
-            if (reservedTerminalSuccessCount > 0) {
-              return { action: "end" };
-            }
-            if (reservedTerminalAttemptCount + 1 >= 2) {
-              return { action: "end" };
-            }
-            return undefined;
-          }
-          const maxToolRounds = opts.maxToolRounds;
-          const roundsAfterThisTurn = investigationTurnCount + 1;
-          if (toolBudgetStopped || roundsAfterThisTurn >= maxToolRounds) {
-            if (
-              reservedTerminalTool != null &&
-              reservedTerminalSuccessCount === 0 &&
-              investigationTurnCount < maxToolRounds
-            ) {
-              return undefined;
-            }
-            return { action: "end" };
-          }
-          return undefined;
-        },
+        finishTurn: budget.finishTurn,
         beforeToolCall: async ({ assistantMessage, toolCall }) => {
           const calls = assistantMessage.content.filter((part) => part.type === "toolCall");
           const ids = calls.map((call) => call.id);
@@ -346,54 +208,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
               return { block: true, reason: gate.error };
             }
           }
-          if (opts.maxToolRounds != null && reservedTerminalTool != null) {
-            if (toolCall.name === reservedTerminalTool) {
-              if (reservedTerminalSuccessCount > 0) {
-                return {
-                  block: true,
-                  reason: `Reserved terminal ${reservedTerminalTool} already used this turn.`,
-                };
-              }
-              if (reservedTerminalAttemptCount >= 2) {
-                return {
-                  block: true,
-                  reason: `Reserved terminal ${reservedTerminalTool} attempt budget exhausted.`,
-                };
-              }
-              return undefined;
-            }
-            if (investigationTurnCount >= opts.maxToolRounds) {
-              return {
-                block: true,
-                reason: `Tool budget exhausted: only ${reservedTerminalTool} is allowed.`,
-              };
-            }
-          }
-          return undefined;
+          return budget.beforeToolCall(toolCall.name);
         },
-        ...(params.compactionPolicy.enabled
-          ? {
-              prepareNextTurn: async ({ context: turnContext }) => {
-                const compacted = await compactIfNeeded({
-                  messages: turnContext.messages,
-                  model,
-                  streamFn,
-                  signal: loopSignal,
-                });
-                if (!compacted) return undefined;
-                emit({
-                  kind: "compaction",
-                  role: params.role,
-                  provider: params.primary.provider,
-                  model: params.primary.model,
-                  reason: "window",
-                });
-                turnContext.messages.length = 0;
-                turnContext.messages.push(...compacted);
-                return { context: turnContext };
-              },
-            }
-          : {}),
+        ...(compaction.prepareNextTurn ? { prepareNextTurn: compaction.prepareNextTurn } : {}),
       };
 
       const handleEvent = (event: AgentEvent) => {
@@ -404,7 +221,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           event.type === "tool_execution_end" ||
           event.type === "turn_end"
         ) {
-          markActivity();
+          activity.markActivity();
         }
         if (event.type === "tool_execution_start") {
           emit({
@@ -452,40 +269,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             });
           }
         }
-        if (event.toolResults.length === 0) {
-          finalText = assistantMessageText(event.message);
-        } else if (isSuccessfulReservedTurn(event.toolResults)) {
-          reservedTerminalAttemptCount += 1;
-          reservedTerminalSuccessCount += 1;
-          const hasNonReserved =
-            reservedTerminalTool != null &&
-            event.toolResults.some((result) => result.toolName !== reservedTerminalTool);
-          if (hasNonReserved) {
-            investigationTurnCount += 1;
-          }
-        } else if (turnContainsReservedTool(event.toolResults)) {
-          reservedTerminalAttemptCount += 1;
-          const hasNonReserved =
-            reservedTerminalTool != null &&
-            event.toolResults.some((result) => result.toolName !== reservedTerminalTool);
-          if (hasNonReserved) {
-            investigationTurnCount += 1;
-          }
-          if (reservedTerminalSuccessCount > 0 && opts.maxToolRounds != null) {
-            toolBudgetStopped = true;
-          } else if (reservedTerminalAttemptCount >= 2 && opts.maxToolRounds != null) {
-            toolBudgetStopped = true;
-          }
-        } else {
-          investigationTurnCount += 1;
-          if (opts.maxToolRounds != null && investigationTurnCount >= opts.maxToolRounds) {
-            if (reservedTerminalTool == null || reservedTerminalSuccessCount > 0) {
-              toolBudgetStopped = true;
-            } else if (investigationTurnCount > opts.maxToolRounds) {
-              toolBudgetStopped = true;
-            }
-          }
-        }
+        if (event.toolResults.length === 0) finalText = assistantMessageText(event.message);
+        budget.observeTurn(event.toolResults);
       };
 
       emit({
@@ -498,124 +283,29 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       });
 
       let sendStartedAt: number | undefined;
-      let overflowCompacts = 0;
-      let turnRetries = 0;
       try {
         sendStartedAt = Date.now();
-        const transcriptLengthAtSend = sessionMessages.length;
-        const userMessage: AgentMessage = {
-          role: "user",
-          content: prompt,
-          timestamp: Date.now(),
-        };
-        const runIdle = async (work: Promise<void>) => {
-          if (idleTimeoutEnabled) {
-            const idle = new Promise<never>((_, reject) => {
-              rejectOnIdle = reject;
-              markActivity();
-              startIdleTimer();
-            });
-            await Promise.race([work, idle]);
-            return;
-          }
-          await work;
-        };
-
-        const continueLoop = async () => {
-          const newContentStart = sessionMessages.length;
-          const produced = await runAgentLoopContinue(
-            context,
-            config,
-            handleEvent,
-            loopSignal,
-            streamFn,
-          );
-          absorbProducedMessages(sessionMessages, produced, userMessage, newContentStart);
-        };
-
-        let loopError: unknown;
-        try {
-          const work = (async () => {
-            const produced = await runAgentLoop(
-              [userMessage],
-              context,
-              config,
-              handleEvent,
-              loopSignal,
-              streamFn,
-            );
-            absorbProducedMessages(sessionMessages, produced, userMessage, transcriptLengthAtSend);
-          })();
-          void work.catch(() => undefined);
-          await runIdle(work);
-        } catch (error) {
-          loopError = error;
-        }
-
-        const shouldContinue = () =>
-          !abortPromise && !idleRejected && !protocolInvalid && !toolBudgetStopped;
-        while (shouldContinue()) {
-          const assistant = lastAssistant(sessionMessages);
-          if (!assistant || assistant.stopReason !== "error") break;
-          if (isContextOverflow(assistant, model.contextWindow)) {
-            if (overflowCompacts >= SESSION_OVERFLOW_COMPACT_MAX) break;
-            dropTrailingErrorAssistant(sessionMessages);
-            const compacted = await compactAgentMessages({
-              messages: sessionMessages,
-              model,
-              streamFn,
-              signal: loopSignal,
-            });
-            if (!compacted) break;
-            overflowCompacts += 1;
+        const { loopError } = await runSessionTurn(prompt, {
+          context,
+          config,
+          streamFn,
+          signal: loopSignal,
+          handleEvent,
+          activity,
+          compaction,
+          shouldContinue: () =>
+            !abortPromise && !activity.rejected && !protocolInvalid && !budget.stopped,
+          onRetry: (attempt) =>
             emit({
-              kind: "compaction",
+              kind: "retry",
               role: params.role,
+              checkpointId: opts.checkpointId,
               provider: params.primary.provider,
               model: params.primary.model,
-              reason: "overflow",
-            });
-            sessionMessages.length = 0;
-            sessionMessages.push(...compacted);
-            try {
-              const continued = continueLoop();
-              void continued.catch(() => undefined);
-              await runIdle(continued);
-              loopError = undefined;
-            } catch (error) {
-              loopError = error;
-              break;
-            }
-            continue;
-          }
-          if (!isRetryableAssistantError(assistant) || turnRetries >= SESSION_TURN_RETRY_MAX) {
-            break;
-          }
-          dropTrailingErrorAssistant(sessionMessages);
-          turnRetries += 1;
-          emit({
-            kind: "retry",
-            role: params.role,
-            checkpointId: opts.checkpointId,
-            provider: params.primary.provider,
-            model: params.primary.model,
-            attempt: turnRetries,
-            reason: "provider",
-          });
-          try {
-            await abortableSleep(
-              SESSION_TURN_RETRY_BASE_DELAY_MS * 2 ** (turnRetries - 1),
-              loopSignal,
-            );
-            const continued = continueLoop();
-            void continued.catch(() => undefined);
-            await runIdle(continued);
-            loopError = undefined;
-          } catch (error) {
-            loopError = error;
-            break;
-          }
-        }
+              attempt,
+              reason: "provider",
+            }),
+        });
 
         if (abortPromise) {
           throw new AppError({
@@ -623,36 +313,31 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             message: "Agent runner session aborted",
           });
         }
-        if (idleRejected) {
-          throw new AppError({
-            code: "pi.prompt_idle_timeout",
-            message: `Provider prompt timeout: no activity for ${idleTimeoutMs}ms`,
-          });
-        }
+        activity.assertNotTimedOut();
         if (protocolInvalid) {
           throw new AppError({
             code: "provider.protocol_invalid",
             message: "Duplicate tool call id in one assistant message",
           });
         }
-        if (loopSignal.aborted && !toolBudgetStopped) {
+        if (loopSignal.aborted && !budget.stopped) {
           throw new AppError({
             code: "agent.session_aborted",
             message: "Agent runner session aborted",
           });
         }
-        if (terminalProviderError !== undefined && !toolBudgetStopped) {
+        if (terminalProviderError !== undefined && !budget.stopped) {
           throw new AppError({
             code: "provider.request_failed",
             message: terminalProviderError,
           });
         }
-        if (loopError !== undefined && !toolBudgetStopped) {
+        if (loopError !== undefined && !budget.stopped) {
           throw toAppError(loopError, { code: "provider.request_failed" });
         }
         const promptMeta = promptMetadataFromText(prompt);
         const durationMs = sendStartedAt !== undefined ? Date.now() - sendStartedAt : undefined;
-        const end: TurnEnd = toolBudgetStopped
+        const end: TurnEnd = budget.stopped
           ? "tool_budget"
           : lastAssistant(sessionMessages)?.stopReason === "length"
             ? "output_limit"
@@ -716,7 +401,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             // metrics are best-effort
           }
         }
-        if (idleCheckHandle) clearInterval(idleCheckHandle);
+        activity.dispose();
       }
     },
     abort,

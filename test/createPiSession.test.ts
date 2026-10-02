@@ -592,10 +592,16 @@ describe("createPiSession terminal provider outcomes", () => {
       tools: [],
       executors: {},
     });
-    await expect(runnerSession.send("question", ASK_SEND_OPTS)).resolves.toMatchObject({
-      text: "recovered answer",
-    });
-    expect(runAgentLoopContinue).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    try {
+      const send = runnerSession.send("question", ASK_SEND_OPTS);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(send).resolves.toMatchObject({ text: "recovered answer" });
+      expect(runAgentLoopContinue).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects after exhausted retry error turns", async () => {

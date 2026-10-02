@@ -47,6 +47,17 @@ snapshot storage. `env.shouldAbortPublish` checks signal, durable cancellation,
 and lease ownership in that order. Review adds its live-head predicate; triage
 keeps its separate writable checkout and closed-PR commit/push guards.
 
+The Pi session public interface stays in `src/agent/runtime/types.ts`.
+`piSessionImpl.ts` owns setup, phase/protocol gates, lifecycle and usage projection,
+and final outcome precedence. Internal `turnToolBudget.ts` keeps Core's
+finish-before-event counting and reserved terminal allowance together.
+`sessionTurnLoop.ts` owns transcript order and capped retry continuation;
+`sessionCompaction.ts` owns window and overflow compaction policy.
+`sendActivity.ts` owns each send's inactivity monitors and abortable retry waits,
+and releases all acquired timers when that send finishes. The existing
+`createPiSession.test.ts` and seam/compaction suites exercise this through the
+unchanged public adapter.
+
 Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
 Within intake, `workItemRepository.ts` owns atomic slash winner resolution and

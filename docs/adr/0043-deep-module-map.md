@@ -431,3 +431,45 @@ Config used `fake-historical-key` and margin `1234`; its precomputed input hash 
 Replays keep that key/hash and create no sibling intent. Reconciled/unknown rows
 never remutate; only the already-retryable failed row may mutate once on the same
 key, then replays quietly. Other scoped rows remain byte-identical.
+
+## M6 failure modes
+
+Write these before changing owner tests or code:
+
+1. Core calls `finishTurn` before `turn_end`; counting both consumes the
+   investigation budget twice or starves the reserved terminal tool. Mixed turns
+   count both budgets; one successful reserved turn or two attempts end it.
+2. Retry or overflow continuation reorders the user prompt, assistant turns, and
+   tool results, or drops provider-error usage from the final aggregate.
+3. Moving retries changes their cap, exponential delay, abort signal, event order,
+   or error precedence. Overflow compaction has its own cap and precedes retry.
+4. Window compaction loses its role policy, leading system prompt, safe transcript
+   boundary, original stream options, or event fan-out.
+5. Idle monitoring confuses wall-clock duration with inactivity, misses streaming
+   or tool activity, changes timeout polling during continuation, or leaves an
+   earlier continuation's interval alive after the send finishes.
+6. Cancellation, duplicate-call refusal, tool-budget completion, provider failure,
+   and output-limit outcomes lose their existing ordering or public error codes.
+7. Session disposal or an aborted session becomes reusable, or internal extraction
+   changes the public PiSession adapter contract, prompts, tools, or cache identity.
+
+The existing createPiSession, seam, compaction, stream, lifecycle, and feature
+adapter tests are the owner evidence. A narrow assertion in the existing retry
+case first pins cleanup of every idle interval acquired by that send. Polling
+and activity reset timing stay unchanged during the send; only orphaned intervals
+are released at its existing terminal cleanup boundary.
+
+### M6 ownership
+
+`piSessionImpl.ts` retains model/tool setup, phase and duplicate-call gates,
+lifecycle/usage projection, outcome precedence, and public session lifetime.
+`turnToolBudget.ts` owns pre-event finish decisions and post-event accounting.
+`sessionTurnLoop.ts` owns Core start/continuation, transcript adoption, and the
+existing capped exponential turn retry. `sessionCompaction.ts` owns role-gated
+window compaction and separately capped overflow compaction.
+`sendActivity.ts` owns inactivity races and all polling intervals for one send,
+plus abortable retry waits. It releases every acquired interval at terminal
+cleanup and releases completed retry-wait listeners. Polling cadence, continuation
+activity resets, transport retry options, caps, delay constants, event bytes,
+and error precedence remain unchanged. No new jitter or provider retry policy
+is introduced. PiSession and its injected fake adapter are unchanged.

@@ -183,3 +183,11 @@ export async function compactIfNeeded(params: {
   }
   return compactAgentMessages(params);
 }
+
+/** Error assistants must not become provider input on retry or overflow recovery. */
+export function dropTrailingErrorAssistant(messages: AgentMessage[]): void {
+  const last = messages[messages.length - 1];
+  if (last?.role === "assistant" && "stopReason" in last && last.stopReason === "error") {
+    messages.pop();
+  }
+}
