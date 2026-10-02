@@ -37,6 +37,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     await pool.query("DELETE FROM webhook_delivery_duplicates WHERE event_name = $1", [EVENT]);
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM agent_events WHERE event_kind = $1", [EVENT]);
+    await pool.query("DELETE FROM pr_review_approvals WHERE owner = $1", [OWNER]);
   });
 
   async function insertWorkItem(
@@ -107,6 +108,29 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     const ids = rows.map((r) => r.id);
     expect(ids).not.toContain(agedId);
     expect(ids).toContain(freshId);
+  });
+
+  it("deletes approval records by last update and preserves fresh rows across all states", async () => {
+    for (const state of ["awaiting", "approved", "withdrawn"]) {
+      await pool.query(
+        `INSERT INTO pr_review_approvals (resource_key, owner, repo, pr_number, head_sha, state, created_at, updated_at)
+         VALUES ($1, $3, 'r', 1, 'h', $4, $5, $5), ($2, $3, 'r', 2, 'h', $4, $5, now())`,
+        [`${OWNER}/r#${state}-old`, `${OWNER}/r#${state}-fresh`, OWNER, state, daysAgo(60)],
+      );
+    }
+    const result = await runRetention(pool, RETENTION);
+    expect(result.reviewApprovalsDeleted).toBeGreaterThanOrEqual(3);
+    const remaining = (
+      await pool.query(
+        "SELECT resource_key FROM pr_review_approvals WHERE owner = $1 ORDER BY resource_key",
+        [OWNER],
+      )
+    ).rows;
+    expect(remaining).toEqual(
+      ["approved", "awaiting", "withdrawn"].map((state) => ({
+        resource_key: `${OWNER}/r#${state}-fresh`,
+      })),
+    );
   });
 
   it("deletes expired resume snapshots but keeps unexpired ones", async () => {

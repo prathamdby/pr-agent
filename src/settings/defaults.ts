@@ -55,6 +55,13 @@ export const GITHUB_AUTHOR_ASSOCIATIONS = [
   "MANNEQUIN",
 ] as const;
 
+export const REVIEW_TRUSTED_AUTHOR_ASSOCIATIONS: ReadonlySet<string> = new Set([
+  "OWNER",
+  "MEMBER",
+  "COLLABORATOR",
+  "CONTRIBUTOR",
+]);
+
 export const DEFAULT_QUEUE_RETRY_LIMIT = 3;
 export const DEFAULT_QUEUE_RETRY_DELAY_SECONDS = 30;
 export const DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS = 300;

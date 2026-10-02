@@ -48,6 +48,35 @@ describe("parseGithubPayload", () => {
     expect(p.data.before).toBeUndefined();
   });
 
+  it.each([
+    { association: "OWNER", headRepo: { id: 1 }, baseRepo: { id: 1 } },
+    { association: "CONTRIBUTOR", headRepo: { id: 2 }, baseRepo: { id: 1 } },
+    { association: undefined, headRepo: null, baseRepo: { id: 1 } },
+  ])("preserves PR trust metadata: %j", ({ association, headRepo, baseRepo }) => {
+    expect(
+      parseGithubPayload("pull_request", {
+        action: "opened",
+        installation: { id: 42 },
+        repository: { owner: { login: "o" }, name: "r" },
+        pull_request: {
+          number: 3,
+          author_association: association,
+          head: { sha: "abc", repo: headRepo },
+          base: { repo: baseRepo },
+        },
+      }),
+    ).toMatchObject({
+      name: "pull_request",
+      data: {
+        pull_request: {
+          author_association: association,
+          head: { repo: headRepo },
+          base: { repo: baseRepo },
+        },
+      },
+    });
+  });
+
   it("parses pull_request closed with merged true", () => {
     const raw = {
       action: "closed",
@@ -918,6 +947,44 @@ describe("parseGithubPayload", () => {
       installation: { id: 1 },
     });
     expect(parsed.name).toBe("ignored");
+  });
+
+  it.each(["pull_request", "pull_request_target", "push", undefined])(
+    "routes only a pull_request workflow start (%s) to approval",
+    (event) => {
+      const parsed = parseGithubPayload("workflow_run", {
+        action: "in_progress",
+        installation: { id: 9 },
+        repository: { name: "r", owner: { login: "o" } },
+        workflow_run: {
+          id: 55,
+          event,
+          head_sha: "abc",
+          status: "in_progress",
+          conclusion: null,
+          pull_requests: [],
+        },
+      });
+      expect(parsed.name).toBe(event === "pull_request" ? "workflow_run_started" : "ignored");
+    },
+  );
+
+  it("keeps failed and expired completed PR runs on the CI path", () => {
+    expect(
+      parseGithubPayload("workflow_run", {
+        action: "completed",
+        installation: { id: 9 },
+        repository: { name: "r", owner: { login: "o" } },
+        workflow_run: {
+          id: 55,
+          event: "pull_request",
+          head_sha: "abc",
+          status: "completed",
+          conclusion: "failure",
+          pull_requests: [],
+        },
+      }).name,
+    ).toBe("workflow_run");
   });
 
   it("parses completed check_suite payloads", () => {

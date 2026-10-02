@@ -2,9 +2,18 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
+import type { ReviewAuthorTrust } from "../../commands/slashAssociation.js";
+import {
+  approveAwaiting,
+  findAwaitingForHead,
+  insertAwaitingApproval,
+  moveAwaitingHead,
+  withdrawAwaiting,
+} from "./reviewApprovals.js";
 import {
   DEFERRED_HEAD_SHA,
-  IGNORED_APPROVAL_REVIEW_EXISTS,
+  IGNORED_REVIEW_APPROVAL_NOT_AWAITING,
+  REVIEW_APPROVED,
   REVIEW_CANCELLED_PR_CLOSED,
   reviewCancelAttributionForClosedPr,
 } from "../../settings/index.js";
@@ -139,7 +148,11 @@ async function applyPlannedAutomatedPullRequestIntake(
   let reviewRefused: "closed" | "merged" | undefined;
   if (
     plan.kinds.some(
-      (kind) => kind === "review" || kind === "reviewApproval" || kind === "reviewSupersede",
+      (kind) =>
+        kind === "review" ||
+        kind === "reviewAwaitApproval" ||
+        kind === "reviewTrackAwaitingHead" ||
+        kind === "reviewSupersede",
     )
   ) {
     await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
@@ -149,7 +162,11 @@ async function applyPlannedAutomatedPullRequestIntake(
       plan = {
         ...plan,
         kinds: plan.kinds.filter(
-          (kind) => kind !== "review" && kind !== "reviewApproval" && kind !== "reviewSupersede",
+          (kind) =>
+            kind !== "review" &&
+            kind !== "reviewAwaitApproval" &&
+            kind !== "reviewTrackAwaitingHead" &&
+            kind !== "reviewSupersede",
         ),
       };
       const decision =
@@ -165,6 +182,26 @@ async function applyPlannedAutomatedPullRequestIntake(
         fields: { resourceKey, reason: reviewRefused, source: "auto", ...correlation },
       });
     }
+  }
+
+  if (
+    plan.kinds.includes("reviewAwaitApproval") &&
+    (await insertAwaitingApproval(client, ref, event.id))
+  ) {
+    await enqueueAck(boss, client, {
+      kind: "ack",
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      prNumber: ref.prNumber,
+      targets: [],
+      awaitingApproval: true,
+      ...correlation,
+    });
+    events.push({ name: "review_awaiting_approval", fields: { resourceKey, ...correlation } });
+  }
+  if (plan.kinds.includes("reviewTrackAwaitingHead")) {
+    await moveAwaitingHead(client, resourceKey, ref.headSha);
   }
 
   if (plan.kinds.includes("review")) {
@@ -207,40 +244,30 @@ async function applyPlannedAutomatedPullRequestIntake(
   }
 
   if (plan.kinds.includes("reviewSupersede")) {
-    const supersedeAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+    const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     const { workItemId, supersededIds } = await replaceActiveAutoWorkItem({
       client,
-      target: {
-        kind: "review",
-        resourceKey,
-      },
+      target: { kind: "review", resourceKey },
       createWorkItem: () =>
         createReviewWorkItem(client, {
           webhookEventId: event.id,
-          // Deferred head: the replacement resolves the newest head at claim
-          // time, after the cancelled run releases the PR actor lease.
           ref: { ...ref, headSha: DEFERRED_HEAD_SHA },
           source: "auto",
-          ackTargets: supersedeAckTargets,
+          ackTargets,
         }),
     });
     if (workItemId != null) {
-      const ackData: AckJobData = {
+      await enqueueAck(boss, client, {
         kind: "ack",
         workItemId,
         installationId: ref.installationId,
         owner: ref.owner,
         repo: ref.repo,
         prNumber: ref.prNumber,
-        targets: supersedeAckTargets,
-        progress: {
-          lens: "review",
-          headSha: DEFERRED_HEAD_SHA,
-          source: "auto",
-        },
+        targets: ackTargets,
+        progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
         ...correlation,
-      };
-      await enqueueAck(boss, client, ackData);
+      });
       await enqueueReview(boss, client, ref, workItemId, correlation);
       events.push(
         {
@@ -257,80 +284,8 @@ async function applyPlannedAutomatedPullRequestIntake(
         },
         {
           name: "agent_work_enqueued",
-          fields: {
-            type: "review",
-            source: "auto",
-            workItemId,
-            resourceKey,
-            ...correlation,
-          },
+          fields: { type: "review", source: "auto", workItemId, resourceKey, ...correlation },
         },
-      );
-    }
-  }
-
-  if (plan.kinds.includes("reviewApproval")) {
-    const approvalAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
-    // Intake lock held for the rest of this transaction: concurrent approvals
-    // serialize here so only the first creates a review. The rest observe the
-    // prior row below and emit the dedup event instead.
-    await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
-    const prior = await client.query<{ id: string }>(
-      `SELECT id
-\t\t\t   FROM agent_work_items
-\t\t\t  WHERE resource_key = $1
-\t\t\t    AND type = 'review'
-\t\t\t    AND source = 'auto'
-\t\t\t    AND status IN ('queued', 'running')
-\t\t\t  LIMIT 1`,
-      [resourceKey],
-    );
-    if (prior.rows[0]?.id != null) {
-      events.push({
-        name: IGNORED_APPROVAL_REVIEW_EXISTS,
-        fields: {
-          resourceKey,
-          existingWorkItemId: prior.rows[0]?.id,
-          ...correlation,
-        },
-      });
-    } else {
-      events.push(
-        ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
-          target: {
-            kind: "review",
-            resourceKey,
-          },
-          createWorkItem: () =>
-            createReviewWorkItem(client, {
-              webhookEventId: event.id,
-              // Deferred head: the approval may reference an older commit, so
-              // the worker resolves the newest head at claim time.
-              ref: { ...ref, headSha: DEFERRED_HEAD_SHA },
-              source: "auto",
-              ackTargets: approvalAckTargets,
-            }),
-          enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
-          eventType: "review",
-          enqueueAck: async (workItemId) => {
-            const ackData: AckJobData = {
-              kind: "ack",
-              workItemId,
-              installationId: ref.installationId,
-              owner: ref.owner,
-              repo: ref.repo,
-              prNumber: ref.prNumber,
-              targets: approvalAckTargets,
-              progress: {
-                lens: "review",
-                headSha: DEFERRED_HEAD_SHA,
-                source: "auto",
-              },
-              ...correlation,
-            };
-            await enqueueAck(boss, client, ackData);
-          },
-        })),
       );
     }
   }
@@ -421,6 +376,18 @@ async function applyReviewCloseCancelIntake(
     ];
   }
   const attribution = reviewCancelAttributionForClosedPr(observation.state === "merged");
+  if (await withdrawAwaiting(client, resourceKey)) {
+    await enqueueAck(boss, client, {
+      kind: "ack",
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      prNumber: ref.prNumber,
+      targets: [],
+      closedApproval: attribution,
+      ...correlation,
+    });
+  }
   const cancelledReviews = await cancelActiveReviews(client, resourceKey, attribution);
   const cancelledTriage = await cancelActiveTriage(client, resourceKey, attribution, ref.prNumber);
   const cancelledReviewWorkItemIds = cancelledReviews.map((row) => row.id);
@@ -477,6 +444,7 @@ async function applyReviewCloseCancelIntake(
 }
 
 export type AutomatedPullRequestIntakeOpts = {
+  readonly authorTrust?: ReviewAuthorTrust;
   readonly pushBeforeSha?: string;
   readonly merged?: boolean;
   readonly lifecycle?: ReviewLifecycleObservation;
@@ -602,7 +570,7 @@ export async function applyAutomatedPullRequestIntake<Action extends string>(
     }
   }
 
-  const plan = planAutomatedPullRequestIntake(action, cfg.features);
+  const plan = planAutomatedPullRequestIntake(action, cfg.features, opts?.authorTrust);
 
   if (plan.kinds.length === 0) {
     const events = await inTransaction(pool, (client) =>
@@ -626,6 +594,103 @@ export async function applyAutomatedPullRequestIntake<Action extends string>(
     if (!shouldSeedHeadCiFromPullRequest(action, ref.headSha, row)) return planned.events;
     planned.events.push(await enqueueHeadCiProjection(boss, client, ref, planned.correlation));
     return planned.events;
+  });
+  flushDeferredEvents(intakeLog, events);
+}
+
+export type ReviewApprovalSignal =
+  | { readonly kind: "pull_request_review"; readonly ref: PrRef }
+  | {
+      readonly kind: "workflow_run";
+      readonly installationId: number;
+      readonly owner: string;
+      readonly repo: string;
+      readonly headSha: string;
+      readonly prNumbers: readonly number[];
+    };
+
+export async function applyReviewApprovedIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  signal: ReviewApprovalSignal,
+  intakeLog: RequestLogger,
+): Promise<void> {
+  const events = await inTransaction(pool, async (client) => {
+    const event = await insertWebhookEvent(client, headers, IGNORED_REVIEW_APPROVAL_NOT_AWAITING);
+    if (event.duplicate)
+      return [
+        { name: "deduped_delivery", fields: { dedupeKey: event.dedupeKey, event: headers.event } },
+      ];
+    const correlation = jobCorrelation(event.id, headers);
+    const targets =
+      signal.kind === "pull_request_review"
+        ? [signal.ref]
+        : [
+            ...(await findAwaitingForHead(client, signal.owner, signal.repo, signal.headSha)).map(
+              (row) => ({
+                owner: row.owner,
+                repo: row.repo,
+                prNumber: row.pr_number,
+                headSha: row.head_sha,
+                installationId: signal.installationId,
+              }),
+            ),
+            ...signal.prNumbers.map((prNumber) => ({ ...signal, prNumber })),
+          ];
+    const refs = new Map(
+      targets.map((ref) => [prResourceKey(ref.owner, ref.repo, ref.prNumber), ref]),
+    );
+    const deferred: DeferredIntakeEvent[] = [];
+    for (const resourceKey of [...refs.keys()].toSorted()) {
+      const ref = refs.get(resourceKey)!;
+      await acquireAutoWorkIntakeLock(client, { kind: "review", resourceKey });
+      const lifecycle = await loadReviewLifecycle(client, resourceKey);
+      if (lifecycle != null && lifecycle.state !== "open") continue;
+      const approved = await approveAwaiting(
+        client,
+        resourceKey,
+        signal.kind,
+        signal.kind === "workflow_run" ? signal.headSha : undefined,
+      );
+      if (approved == null) continue;
+      const deferredRef = { ...ref, headSha: DEFERRED_HEAD_SHA };
+      const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
+      deferred.push(
+        ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
+          target: { kind: "review", resourceKey },
+          createWorkItem: () =>
+            createReviewWorkItem(client, {
+              webhookEventId: event.id,
+              ref: deferredRef,
+              source: "auto",
+              ackTargets,
+            }),
+          enqueue: (workItemId) =>
+            enqueueReview(boss, client, deferredRef, workItemId, correlation),
+          eventType: "review",
+          enqueueAck: (workItemId) =>
+            enqueueAck(boss, client, {
+              kind: "ack",
+              workItemId,
+              installationId: ref.installationId,
+              owner: ref.owner,
+              repo: ref.repo,
+              prNumber: ref.prNumber,
+              targets: ackTargets,
+              progress: { lens: "review", headSha: DEFERRED_HEAD_SHA, source: "auto" },
+              ...correlation,
+            }),
+        })),
+      );
+    }
+    const decision = deferred.length > 0 ? REVIEW_APPROVED : IGNORED_REVIEW_APPROVAL_NOT_AWAITING;
+    await client.query("UPDATE webhook_events SET processing_decision = $2 WHERE id = $1", [
+      event.id,
+      decision,
+    ]);
+    deferred.push({ name: decision, fields: { signal: signal.kind, ...correlation } });
+    return deferred;
   });
   flushDeferredEvents(intakeLog, events);
 }

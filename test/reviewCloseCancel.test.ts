@@ -12,6 +12,10 @@ import * as postgres from "../src/db/postgres.js";
 import * as evlog from "../src/evlog.js";
 import { ACK_QUEUE, REVIEW_CANCELLED_PR_CLOSED } from "../src/settings/index.js";
 
+vi.mock("../src/agentWork/intake/reviewApprovals.js", () => ({
+  withdrawAwaiting: async () => false,
+}));
+
 const intakeCfg = makeTestConfig();
 const mergedAttribution = { kind: "merged" as const };
 const mergedPatch = JSON.stringify({ cancelAttribution: mergedAttribution });

@@ -15,6 +15,10 @@ Same PR: update every pointer whose branch matched the change.
 
 ## Check
 
+Check against the committed lockfile. If installed dependencies differ, run
+`nub ci --filter pr-agent... --filter pr-agent-landing...` before interpreting
+typecheck failures or changing dependency-shaped fixtures.
+
 Before every push, run the backend check job from [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 ```bash
@@ -166,6 +170,15 @@ The marker outlives webhook/work retention. Worker-side stale-head replacement
 insertion takes the same intake lock and reads lifecycle in a subsequent statement,
 before locking the parent lease and item. Closed/merged refusal cannot transfer
 progress ownership; close sees any replacement committed before it acquires the lock.
+
+Approval mode decides trust on open. Trusted authors enter automatic review;
+untrusted forks insert one `pr_review_approvals` awaiting row and acknowledgement
+notice. Synchronize moves its head under the review intake lock. A matching PR
+workflow start, authorized approving PR review, or slash review consumes the
+awaiting row once. Close/merge withdraws it. Delayed notices reread state under
+the progress-publication lock before writing. Details:
+[ADR 0042](docs/adr/0042-review-approval-mode.md) and
+[review approvals](docs/agent-work-ops.md#review-approvals).
 
 Duplicates commit metadata-only `webhook_delivery_duplicates` rows in the intake transaction, with no new work or jobs. Each rejected arrival records its incoming delivery ID, body fingerprint, and guard reason. Evidence expires by its own arrival age using `WEBHOOK_EVENTS_RETENTION_SECONDS`, independently of accepted events and replay reservations. These patterns do not prove malicious intent.
 

@@ -70,6 +70,7 @@ type SummaryCommentUpsertParams = {
   progressRevision?: ProgressCommentRevision;
   ciHeadSha?: string;
   ciVersion?: number;
+  shouldPublish?: (client: PoolClient) => Promise<boolean>;
 };
 
 const retainedClientReservations = new WeakMap<Pool, { count: number }>();
@@ -242,6 +243,9 @@ async function prepareSummaryCommentAtRevision(
   const bodyRevision = currentComment
     ? parseProgressRevisionState(currentComment.body ?? "")
     : null;
+  if (params.shouldPublish && !(await params.shouldPublish(client))) {
+    return { kind: "skipped", result: skippedRevisionResult(currentComment, params.hintCommentId) };
+  }
   // Authoritative ownership lives on the progress publish record (reassigned at intake).
   // Stale writers whose work item no longer owns the record must not overwrite.
   if (

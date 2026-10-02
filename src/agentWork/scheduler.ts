@@ -9,6 +9,8 @@ import {
   applyAutomatedPullRequestIntake,
   applyCompletedRunCiIntake,
   applyCiStateIntake,
+  applyReviewApprovedIntake,
+  type ReviewApprovalSignal,
   type CiStateFactInput,
   type AutomatedPullRequestIntakeOpts,
   recordIgnoredWebhook,
@@ -32,6 +34,11 @@ export class AgentWorkScheduler extends Context.Service<
       action: string,
       intakeLog: RequestLogger,
       opts?: AutomatedPullRequestIntakeOpts,
+    ) => Effect.Effect<void, Error>;
+    readonly submitReviewApproved: (
+      headers: WebhookHeaders,
+      signal: ReviewApprovalSignal,
+      intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly submitCiRefresh: (
       headers: WebhookHeaders,
@@ -83,6 +90,12 @@ export function makeAgentWorkScheduler(
     submitCiRefresh: (headers, data, intakeLog) =>
       Effect.tryPromise({
         try: () => applyCompletedRunCiIntake(boss, pool, headers, data, intakeLog),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }).pipe(Effect.uninterruptible),
+
+    submitReviewApproved: (headers, signal, intakeLog) =>
+      Effect.tryPromise({
+        try: () => applyReviewApprovedIntake(boss, pool, headers, signal, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }).pipe(Effect.uninterruptible),
 

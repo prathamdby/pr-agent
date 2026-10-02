@@ -12,11 +12,17 @@ startup. `FEATURE_REVIEW` accepts `manual`, `auto`, or `approval`. `off` is
 invalid and crashes startup.
 `/review` is available in every review mode on open PRs. Auto triggers are fixed: review and describe fire when
 a PR is `opened`; verification fires on `synchronize` (every push). With
-`FEATURE_REVIEW=approval`, no review fires on `opened`: the first submitted
-approving review from a reviewer with standing (`SLASH_ALLOWED_ASSOCIATIONS`,
-bots excluded) enqueues one auto review for the latest head, and repeat
-approvals are a no-op. On your own PRs use `/review`, since GitHub does not
-let authors approve their own PR. A push
+`FEATURE_REVIEW=approval`, trusted PRs are reviewed on `opened`. Trust means
+a same-repo head or an author associated as `OWNER`, `MEMBER`, `COLLABORATOR`,
+or `CONTRIBUTOR`. Missing association or a deleted fork is untrusted.
+Untrusted forks get one awaiting notice. The first `workflow_run` `in_progress`
+with `event=pull_request` on the awaiting head, submitted approving review from
+a non-bot reviewer in `SLASH_ALLOWED_ASSOCIATIONS`, or `/review` approves that
+record once. Completed runs never approve it. Later signals do nothing.
+Already-open PRs are not backfilled; use `/review`.
+Approval is the default, so trusted opens now spend review tokens; use `manual`
+to opt out. `CONTRIBUTOR` authors remain trusted even when your Actions policy
+requires workflow approval for all external contributors. A push
 while an auto review is still running cancels that review and replaces it with
 one for the new head; a push after the review finishes does not re-review.
 Custom trigger sets are intentionally not supported.
@@ -56,7 +62,7 @@ thread. The join lasts until the work item is purged by
 
 | Setting                 | Values                             | Default    | Spends tokens? | What it does                                                                                                                                                                                                                             |
 | ----------------------- | ---------------------------------- | ---------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews each PR when opened; `approval` reviews only after a reviewer with standing approves; `/review` is available in every mode, subject to open-PR admission.                                            |
+| `FEATURE_REVIEW`        | `manual` \| `auto` \| `approval`   | `approval` | yes            | Orchestrated review. `auto` reviews on open; `approval` reviews trusted opens and holds untrusted forks until maintainer approval. `/review` works in every mode on open PRs.                                                            |
 | `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`        | `auto`     | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.                                                                                                                                                   |
 | `FEATURE_VERIFICATION`  | `off` \| `manual` \| `auto`        | `auto`     | yes            | Re-checks open findings on synchronize or on-demand `/verify`. Silently resolves fixed threads and edits stubs. Terminal failure edits the CI cell or one stub line.                                                                     |
 | `FEATURE_ASK`           | `off` \| `manual`                  | `manual`   | yes            | `/ask` and App-bot mention question threads.                                                                                                                                                                                             |

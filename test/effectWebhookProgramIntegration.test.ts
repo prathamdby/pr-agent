@@ -17,6 +17,7 @@ const webhookLayer = Layer.mergeAll(
     AgentWorkScheduler.of({
       recordIgnored: () => Effect.void,
       submitAutomatedReview: () => Effect.void,
+      submitReviewApproved: () => Effect.void,
       submitSlashCommand: () => Effect.void,
       submitCiRefresh: () => Effect.void,
       submitCiState: () => Effect.void,
@@ -27,7 +28,7 @@ const webhookLayer = Layer.mergeAll(
     WebhookHandlers,
     WebhookHandlers.of({
       pullRequest: () => Effect.void,
-      approvalReview: () => Effect.void,
+      reviewApproved: () => Effect.void,
       issueComment: () => Effect.void,
       pullRequestReviewComment: () => Effect.void,
       ciRefresh: () => Effect.void,

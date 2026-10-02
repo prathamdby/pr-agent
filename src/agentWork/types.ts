@@ -45,6 +45,8 @@ export type AckJobData = JobCorrelation & {
   readonly repo: string;
   readonly prNumber: number;
   readonly targets: readonly AckTarget[];
+  readonly awaitingApproval?: true;
+  readonly closedApproval?: ReviewCancelAttribution;
   readonly progress?: {
     readonly lens: ReviewMode;
     readonly headSha: string;

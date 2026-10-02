@@ -24,6 +24,10 @@ import {
 } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 
+vi.mock("../src/agentWork/intake/reviewApprovals.js", () => ({
+  approveAwaiting: async () => null,
+}));
+
 function makeSlashInput(body: string) {
   const command = body.slice(1).split(/\s+/, 1)[0] ?? "";
   return {

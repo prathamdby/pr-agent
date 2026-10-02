@@ -22,6 +22,7 @@ import {
 } from "../../settings/index.js";
 import type { DeferredIntakeEvent } from "./deferredEvents.js";
 import { acquireAutoWorkIntakeLock } from "../autoWorkEnqueue.js";
+import { approveAwaiting } from "./reviewApprovals.js";
 import { defaultAskQuotaConfig, type AskQuotaConfig } from "../askQuota.js";
 import {
   type AckJobData,
@@ -379,6 +380,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
       ? { reply: { target: ctx.input.replyTarget, body: SLASH_REVIEW_FORCE_RESTARTED_BODY } }
       : {}),
   });
+  await approveAwaiting(ctx.client, resourceKey, "slash");
   await enqueueReview(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   ctx.events.push({
     name: "agent_work_enqueued",
