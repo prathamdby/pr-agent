@@ -4,7 +4,7 @@ import type { PgBoss } from "pg-boss";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/parseAskQuestion.js";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../types.js";
 import { ASK_THROTTLED_BODY, ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import type { AckJobData, AckTarget, JobCorrelation, PrRef } from "../types.js";
 import { prResourceKey } from "../types.js";

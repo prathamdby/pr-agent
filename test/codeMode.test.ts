@@ -6,10 +6,10 @@ import {
   decodeHostCallFailure,
   encodeHostCallFailure,
   isCodeModeHostHalt,
-} from "../src/agent/codemode/hostHalt.js";
+} from "../src/agent/execution/hostHalt.js";
 import type { CodeModeResult } from "../src/agent/codemode/result.js";
 import { runCodeModeScript } from "../src/agent/codemode/runScript.js";
-import { serializeCodeModeValue } from "../src/agent/codemode/serialize.js";
+import { serializeCodeModeValue } from "../src/agent/execution/marshal.js";
 import type { AgentLifecycleEvent } from "../src/agent/runtime/lifecycleEvents.js";
 import { createExecutionSessionStore } from "../src/agent/execution/sessionStore.js";
 import { AppError } from "../src/errors/appError.js";

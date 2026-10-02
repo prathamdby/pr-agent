@@ -11,12 +11,6 @@ import {
   DESCRIPTION_ALREADY_IN_PROGRESS,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
-  SLASH_CANCEL_DONE_BODY,
-  SLASH_CANCEL_NONE_BODY,
-  SLASH_HELP_BODY,
-  SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
-  SLASH_REVIEW_FORCE_RESTARTED_BODY,
-  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
   TRIAGE_INVALID_EXCLUDE,
   TRIAGE_QUEUE,
   TRIAGE_UNKNOWN_SUBCOMMAND,
@@ -138,7 +132,28 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs[0]?.options).toEqual(expect.objectContaining({ priority: 100 }));
     expect(sentJobs[0]?.data.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
-      body: SLASH_HELP_BODY,
+      body: [
+        "### PR Agent help",
+        "",
+        "Commands (first line of a **new** comment):",
+        "- `/help` - show this message",
+        "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
+        "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
+        "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
+        "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
+        "- `/cancel` - cancel a queued or in-progress review on this PR",
+        "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+        "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
+        "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
+        "- `/verify` - verify open findings against the current pull request head",
+        "",
+        "Notes:",
+        "- What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.",
+        "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
+        "- `/ask` and App-bot mentions read the containing thread so follow-ups stay in conversation. They do not change finding severity or dismiss threads.",
+        "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
+        "- Edited comments are ignored for slash parsing in v1.",
+      ].join("\n"),
     });
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "ignored_unknown_slash_command" }),
@@ -805,7 +820,7 @@ describe("applySlashCommandIntake", () => {
         data: expect.objectContaining({
           reply: {
             target: { kind: "prConversation", prNumber: 7 },
-            body: SLASH_CANCEL_NONE_BODY,
+            body: "No review is queued or in progress for this pull request.",
           },
         }),
       }),
@@ -864,7 +879,7 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
     expect(sentJobs[0]?.data.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
-      body: SLASH_CANCEL_DONE_BODY,
+      body: "Cancelled the in-progress review.",
     });
     expect(sentJobs[0]?.data.cancelProgress).toEqual({
       workItemId: "wi-review",
@@ -878,10 +893,6 @@ describe("applySlashCommandIntake", () => {
         cancelledByLogin: "alice",
       }),
     );
-  });
-
-  it("lists /cancel in /help", async () => {
-    expect(SLASH_HELP_BODY).toContain("`/cancel`");
   });
 
   it("prefers a running review as cancelProgress primary over queued", async () => {
@@ -1018,7 +1029,7 @@ describe("applySlashCommandIntake", () => {
     });
     expect(ack?.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
-      body: SLASH_REVIEW_FORCE_RESTARTED_BODY,
+      body: "Cancelled the previous review and started a new one on the latest commit.",
     });
     expect(intakeLog.getContext().events).toContainEqual(
       expect.objectContaining({
@@ -1151,7 +1162,7 @@ describe("applySlashCommandIntake", () => {
     });
     expect(sentJobs[0]?.data.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
-      body: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+      body: "A `/review` run is already queued or in progress for this pull request.",
     });
     expect(intakeLog.getContext().events).toContainEqual(
       expect.objectContaining({ event: "agent_work_cancel_requested", force: true }),
@@ -1228,7 +1239,7 @@ describe("applySlashCommandIntake", () => {
     });
     expect(ack?.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
-      body: SLASH_REVIEW_FORCE_RESTARTED_BODY,
+      body: "Cancelled the previous review and started a new one on the latest commit.",
     });
     expect(intakeLog.getContext().events).toContainEqual(
       expect.objectContaining({
@@ -1304,7 +1315,7 @@ describe("applySlashCommandIntake", () => {
     });
     expect(sentJobs[0]?.data.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
-      body: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+      body: "A `/review` run is already queued or in progress for this pull request.",
     });
   });
 
@@ -1503,10 +1514,6 @@ describe("applySlashCommandIntake", () => {
     });
   });
 
-  it("lists /review force in /help", async () => {
-    expect(SLASH_HELP_BODY).toContain("`/review force`");
-  });
-
   it("enqueues a verification work item and pg-boss job when /verify is run", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
     const boss = {
@@ -1598,15 +1605,11 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
     expect(sentJobs[0]?.data.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
-      body: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
+      body: "A `/verify` run is already queued or in progress for this pull request.",
     });
     expect(sentJobs.map((j) => j.queue)).not.toContain(VERIFICATION_QUEUE);
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "agent_work_enqueued" }),
     );
-  });
-
-  it("lists /verify in /help", async () => {
-    expect(SLASH_HELP_BODY).toContain("`/verify`");
   });
 });

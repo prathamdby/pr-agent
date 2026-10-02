@@ -1,8 +1,9 @@
+import type { PrResource } from "../agentWork/types.js";
 import type { Config } from "../config.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
 import type { OperationIntentRecovery } from "../agentWork/withOperationIntent.js";
-import type { ReplyTarget } from "../commands/replyTarget.js";
+import type { ReplyTarget } from "../agentWork/types.js";
 import type { InstallationToken } from "./appAuth.js";
 import type {
   ListPullRequestFilesLimits,
@@ -148,12 +149,9 @@ export type PrSurfaceMutationBoundary = {
   readonly run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => Promise<T>;
 };
 
-export type CreatePrSurfaceParams = {
+export type CreatePrSurfaceParams = PrResource & {
   readonly cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">;
   readonly installationId: number;
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
   /** Seed token when already minted (strictly fewer mint lookups). */
   readonly installation?: InstallationToken;
   readonly rateLimitCircuit?: RateLimitCircuit;
@@ -188,13 +186,10 @@ export type PrSurfaceMutationMethods = {
 };
 
 /** Read-only methods remain callable while a leased execution is fenced. */
-export type PrSurfaceReadMethods = {
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
+export type PrSurfaceReadMethods = PrResource & {
   getHead(): Promise<PullRequestHeadResolution>;
   getHeadSha(): Promise<string>;
-  getBotLogin?(): Promise<string>;
+  getBotLogin(): Promise<string>;
   findProgressComment(sentinel: string): Promise<IssueCommentRef | null>;
   resolveProgressComment(
     sentinel: string,
@@ -212,7 +207,7 @@ export type PrSurfaceReadMethods = {
     maintainerDecisionAssociations?: ReadonlySet<string>,
   ): Promise<readonly BotFindingThread[]>;
   fetchReviewCommentParentGraph(): Promise<readonly ReviewCommentParentNode[]>;
-  findPublishedThreadBatch?(marker: string, commitId?: string): Promise<PublishedBatch | null>;
+  findPublishedThreadBatch(marker: string, commitId?: string): Promise<PublishedBatch | null>;
   listInlineReviewThreads(): Promise<ListReviewThreadResolutionResult>;
   listChangedFiles(
     caps: ListPullRequestFilesLimits,
@@ -220,7 +215,7 @@ export type PrSurfaceReadMethods = {
   ): Promise<ListPullRequestFilesResult>;
   listCommitCompareFiles(base: string, head: string): Promise<ListCommitCompareFilesResult>;
   getLabels(): Promise<readonly string[]>;
-  findReviewCheck?(headSha: string, externalId: string): Promise<CheckRef | null>;
+  findReviewCheck(headSha: string, externalId: string): Promise<CheckRef | null>;
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
   listPullsForHead(headSha: string): Promise<readonly { readonly number: number }[]>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;

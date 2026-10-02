@@ -82,10 +82,10 @@ vi.mock("../src/evlog.js", async (importOriginal) => {
 describe("agent work runtime teardown", () => {
   it("shuts down analytics after pg-boss drains", async () => {
     runtimeMocks.trace.length = 0;
-    const { agentWorkWebLive } = await import("../src/agentWork/runtime.js");
+    const { AgentWorkSchedulerRuntimeLive } = await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig();
 
-    await Effect.runPromise(Effect.scoped(Layer.build(agentWorkWebLive(cfg))));
+    await Effect.runPromise(Effect.scoped(Layer.build(AgentWorkSchedulerRuntimeLive(cfg))));
 
     expect(runtimeMocks.stopBoss).toHaveBeenCalledWith(
       runtimeMocks.boss,

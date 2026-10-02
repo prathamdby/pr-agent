@@ -1,3 +1,4 @@
+import type { PrResource } from "../agentWork/types.js";
 import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
@@ -26,10 +27,7 @@ export type PrRepositoryView = {
   readonly agentCwd: string;
 };
 
-export type PreparePrRepositoryViewParams = {
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
+export type PreparePrRepositoryViewParams = PrResource & {
   readonly headSha: string;
   readonly gitCredentialAuth: () => Promise<{
     readonly token: string;

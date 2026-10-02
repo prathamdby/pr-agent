@@ -229,6 +229,8 @@ describe("publishTriage", () => {
     controls.setPullRequest({
       additions: 1,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 1,
       state: "closed",
       merged: false,
@@ -289,6 +291,8 @@ describe("publishTriage", () => {
         controls.setPullRequest({
           additions: 1,
           deletions: 0,
+          title: "",
+          body: null,
           changed_files: 1,
           ...lifecycle,
           head: { sha: "a".repeat(40) },
@@ -1281,6 +1285,8 @@ describe("publishTriage push outcomes", () => {
     fake.controls.setPullRequest({
       additions: 1,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 1,
       state: "closed",
       merged: true,

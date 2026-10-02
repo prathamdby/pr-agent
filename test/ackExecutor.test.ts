@@ -15,7 +15,7 @@ import * as prSurfaceModule from "../src/github/prSurface.js";
 
 let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
 
-vi.mock("../src/agentWork/durableJob.js", () => ({
+vi.mock("../src/github/installationToken.js", () => ({
   mintInstallationToken: vi.fn(async () => ({
     token: "tok",
     expiresAtTs: Date.now() + 3_600_000,

@@ -1,9 +1,5 @@
 import { parentPort } from "node:worker_threads";
-import {
-  decodeHostCallFailure,
-  hostCancelHalt,
-  type CodeModeHostHaltPayload,
-} from "../codemode/hostHalt.js";
+import { decodeHostCallFailure, hostCancelHalt, type CodeModeHostHaltPayload } from "./hostHalt.js";
 import { runQuickJsCell } from "./quickjsCell.js";
 import type { JsonObject } from "./json.js";
 import type { QuickJsCellResult } from "./quickjsCell.js";

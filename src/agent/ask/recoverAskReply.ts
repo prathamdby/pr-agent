@@ -1,4 +1,4 @@
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../../agentWork/types.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { findCommentIdByMarker } from "../../github/prSurfaceHelpers.js";
 import { operationIntentMarker } from "../../agentWork/withOperationIntent.js";

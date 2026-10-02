@@ -53,10 +53,9 @@ import {
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
 } from "../../review/run/reviewRunMetrics.js";
-import { reviewWorkExtras, type ReviewWorkClaim } from "../../review/run/reviewProfiler.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/summaryCommentUpsert.js";
-import { withPrRepositoryView } from "../../prWorkspace/index.js";
+import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import { prBodyHasDescriptionReviewMap } from "../../agent/description/descriptionRender.js";
 import {
@@ -108,9 +107,10 @@ import {
 } from "../durableJob.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
-import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
+import type { ReviewWorkExtras } from "../../analytics/workCompleted.js";
+import type { ReviewRunMetricsSnapshot } from "../../review/run/reviewRunMetrics.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -132,10 +132,8 @@ async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string
   return undefined;
 }
 
-type ReviewExecutionResult = DurableExecutionResult;
-
 type LightweightPhaseResult =
-  | { readonly done: true; readonly result: ReviewExecutionResult }
+  | { readonly done: true; readonly result: DurableExecutionResult }
   | { readonly done: false; readonly prefetchedPrFiles: ListPullRequestFilesResult | undefined };
 
 function reviewRunTimingFromJob(job: JobWithMetadata<ReviewJobData>): ReviewRunTiming {
@@ -551,7 +549,7 @@ async function handleReviewPublishResult(args: {
   readonly commitStatusEnabled: boolean;
   readonly result: ReviewRunResult;
   readonly profile: ReviewProfileSession;
-}): Promise<ReviewExecutionResult> {
+}): Promise<DurableExecutionResult> {
   const { pool, item, reviewLens, prSurface, leaseEpoch, commitStatusEnabled, result } = args;
   const snapshot = snapshotReviewRunMetrics();
   const outcome = reviewWorkOutcome({
@@ -660,7 +658,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly signal: AbortSignal;
   readonly profile: ReviewProfileSession;
   readonly escalation?: EscalationPlan;
-}): Promise<ReviewExecutionResult> {
+}): Promise<DurableExecutionResult> {
   const {
     cfg,
     pool,
@@ -799,9 +797,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     repoPolicy,
     shouldLinkToSummary,
     progressCommentIdHint,
-    hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(
-      (pullRequest as { body?: string | null } | undefined)?.body,
-    ),
+    hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(pullRequest?.body),
     initialPublishState: {
       published: publishState.summaryPublished,
       inlineReviewIds: publishState.inlineReviewIds,
@@ -830,8 +826,8 @@ async function runFullReviewAgainstRepositoryView(args: {
     publishAbortState,
     timing,
     gate,
-    prTitle: (pullRequest as { title?: string } | undefined)?.title ?? "",
-    prBody: (pullRequest as { body?: string | null } | undefined)?.body ?? null,
+    prTitle: pullRequest?.title ?? "",
+    prBody: pullRequest?.body ?? null,
     shouldAbortPublish: async () => {
       if (signal.aborted) return true;
       if (await shouldSkipWork(pool, item)) return true;
@@ -906,7 +902,7 @@ async function runClaimedReview(args: {
   readonly payload: ReviewWorkPayload;
   readonly env: DurableExecutionContext;
   readonly profile: ReviewProfileSession;
-}): Promise<ReviewExecutionResult> {
+}): Promise<DurableExecutionResult> {
   const { job, cfg, pool, boss, item, reviewLens, payload, env, profile } = args;
   const commitStatusEnabled = cfg.features.commitStatus;
   const staleHeadResult = await handleStaleHeadReschedule({
@@ -1054,16 +1050,18 @@ async function runClaimedReview(args: {
   await env.beginAttempt();
   return runWithRateLimitCircuit(rateLimitCircuit, () =>
     withPrRepositoryView(
-      buildRepositoryViewParams(
-        item,
-        {
-          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-          headSha,
-          pullRequest: env.pullRequest,
-        },
-        payload,
-        { prFiles: lightweight.prefetchedPrFiles },
-      ),
+      {
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+        headSha,
+        pullRequest: env.pullRequest,
+        repositorySizeKb: payload.repositorySizeKb,
+        ...(lightweight.prefetchedPrFiles !== undefined
+          ? { prFiles: lightweight.prefetchedPrFiles }
+          : {}),
+      },
       async (repositoryView) =>
         runFullReviewAgainstRepositoryView({
           job,
@@ -1237,4 +1235,33 @@ export async function executeReviewJob(
       });
     },
   });
+}
+
+type ReviewWorkClaim = {
+  readonly createdAt: Date;
+  readonly startedAt: Date;
+  readonly attemptCount: number;
+};
+
+function reviewWorkExtras(input: {
+  readonly snapshot: ReviewRunMetricsSnapshot | null;
+  readonly provider: string;
+  readonly model: string;
+  readonly reviewLens?: string;
+  readonly source?: "auto" | "slash";
+}): ReviewWorkExtras {
+  return {
+    model: input.model,
+    provider: input.provider,
+    ...(input.reviewLens != null ? { reviewLens: input.reviewLens } : {}),
+    ...(input.source != null ? { source: input.source } : {}),
+    ...(input.snapshot
+      ? {
+          findingsCount: input.snapshot.findingsCount,
+          specialistReport: input.snapshot.specialistOutcomes?.report ?? 0,
+          specialistEmpty: input.snapshot.specialistOutcomes?.empty ?? 0,
+          specialistError: input.snapshot.specialistOutcomes?.error ?? 0,
+        }
+      : {}),
+  };
 }

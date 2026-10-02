@@ -1,5 +1,3 @@
-import { firstNonEmptyLine } from "./firstNonEmptyLine.js";
-
 const SLASH_COMMAND_RE = /^\/([a-z0-9-]+)(?:\s|$)/;
 const REVIEW_FORCE_RE = /^\/review\s+force(?:\s|$)/;
 const TRIAGE_PREVIEW_RE = /^\/triage\s+preview(?:\s|$)/;
@@ -55,4 +53,8 @@ function parseTriageBulkCommand(first: string): ParsedTriageCommand {
   }
   if (ids.length === 0) return { kind: "invalid", reason: "invalid_exclude" };
   return { kind: "bulk", excludeThreadRootCommentIds: ids };
+}
+
+export function firstNonEmptyLine(text: string): string {
+  return text.match(/^.*\S.*$/m)?.[0] ?? "";
 }

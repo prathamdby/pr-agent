@@ -53,7 +53,7 @@ import {
   type GitPerson,
   type WritablePrCheckout,
   withWritablePrCheckout,
-} from "../../prWorkspace/index.js";
+} from "../../prWorkspace/writablePrCheckout.js";
 import {
   getCompletedPublishStepDetail,
   getCompletedPublishStepDetailWithoutNewerStep,

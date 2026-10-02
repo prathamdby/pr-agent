@@ -1,7 +1,7 @@
 import type { JsonObject } from "./json.js";
 import { utf8ByteLength } from "./json.js";
 import { CODE_MODE_STATE_MAX_BYTES } from "../../settings/index.js";
-import { CodeModeHostHalt } from "../codemode/hostHalt.js";
+import { CodeModeHostHalt } from "./hostHalt.js";
 
 export type ExecutionSessionStore = {
   readonly generation: number;

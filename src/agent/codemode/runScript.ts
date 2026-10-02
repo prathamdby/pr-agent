@@ -7,15 +7,15 @@ import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
 import { combineAbortSignals } from "../providers/abortSignals.js";
 import { createCodeModeCapabilityBridge } from "./capabilities.js";
-import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "./hostHalt.js";
+import { CODE_MODE_HOST_CANCEL_MESSAGE, isCodeModeHostHalt } from "../execution/hostHalt.js";
 import type { CodeModeResult } from "./result.js";
 import { boundJsonValue, toGuestCapabilityResult } from "../execution/marshal.js";
 import { utf8ByteLength } from "../execution/json.js";
+import { acquireExecutor } from "../execution/pool.js";
 import {
-  acquireExecutor,
   createExecutionSessionStore,
   type ExecutionSessionStore,
-} from "../execution/index.js";
+} from "../execution/sessionStore.js";
 import type { CodeModeCapabilityExecutors } from "./types.js";
 import { randomUUID } from "node:crypto";
 

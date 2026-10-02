@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession, PiSessionSendOptions } from "../src/agent/runtime/types.js";
 import { escalationForAttempt } from "../src/agentWork/retryPolicy.js";
 import { AppError } from "../src/errors/appError.js";
-import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
+import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import type {
   AcceptedPlacement,

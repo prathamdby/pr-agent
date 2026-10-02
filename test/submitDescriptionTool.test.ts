@@ -14,16 +14,12 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
   reconcileOperationIntent: vi.fn(),
 }));
 
-vi.mock("../src/agent/description/publishDescription.js", () => ({
-  publishDescriptionToPullRequest: vi.fn(),
-}));
-
 import {
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
 } from "../src/agentWork/operationIntentRepository.js";
-import { publishDescriptionToPullRequest } from "../src/agent/description/publishDescription.js";
+const publishDescription = vi.fn();
 
 const pool = {} as Pool;
 
@@ -34,7 +30,7 @@ function buildTool(
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
   return buildSubmitDescriptionTool({
     cfg: makeTestConfig(),
-    prSurface: surface,
+    prSurface: { ...surface, publishDescription },
     owner: "o",
     repo: "r",
     prNumber: 1,
@@ -75,7 +71,7 @@ describe("submitDescription tool", () => {
       publishRecordId: null,
       detail: {},
     });
-    vi.mocked(publishDescriptionToPullRequest).mockResolvedValue({
+    publishDescription.mockResolvedValue({
       prNumber: 1,
       titleUpdated: true,
       bodyUpdated: true,
@@ -102,7 +98,7 @@ describe("submitDescription tool", () => {
         detail: {},
       };
     });
-    vi.mocked(publishDescriptionToPullRequest).mockImplementation(async () => {
+    publishDescription.mockImplementation(async () => {
       calls.push("publish");
       return { prNumber: 1, titleUpdated: true, bodyUpdated: true };
     });
@@ -147,7 +143,7 @@ describe("submitDescription tool", () => {
     const { executor } = buildTool();
     await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
 
-    expect(publishDescriptionToPullRequest).toHaveBeenCalledTimes(1);
+    expect(publishDescription).toHaveBeenCalledTimes(1);
     expect(persistOperationIntent).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
   });
@@ -156,9 +152,9 @@ describe("submitDescription tool", () => {
     const { executor } = buildTool(undefined, { mapMode: "omit" });
     await executor({ ...DESCRIPTION_PAYLOAD_BASE_EXAMPLE });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
-    expect(published.payload.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
-    expect(published.payload.prFiles).toBeUndefined();
+    const published = publishDescription.mock.calls[0][1];
+    expect(published.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
+    expect(published.prFiles).toBeUndefined();
   });
 
   it("strips prFiles on omit mode before publish", async () => {
@@ -173,16 +169,14 @@ describe("submitDescription tool", () => {
       ],
     });
 
-    expect(publishDescriptionToPullRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload: expect.not.objectContaining({
-          prFiles: expect.anything(),
-        }),
-      }),
+    expect(publishDescription).toHaveBeenCalledWith(
+      makeTestConfig(),
+      expect.not.objectContaining({ prFiles: expect.anything() }),
+      undefined,
     );
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
-    expect(published.payload.prFiles).toBeUndefined();
-    expect(published.payload.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
+    const published = publishDescription.mock.calls[0][1];
+    expect(published.prFiles).toBeUndefined();
+    expect(published.visuals).toEqual(DESCRIPTION_PAYLOAD_BASE_EXAMPLE.visuals);
   });
 
   it("repairs a single-object prFiles payload at the parse seam", async () => {
@@ -193,8 +187,8 @@ describe("submitDescription tool", () => {
       prFiles: { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
-    expect(published.payload.prFiles).toEqual([
+    const published = publishDescription.mock.calls[0][1];
+    expect(published.prFiles).toEqual([
       { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
     ]);
   });
@@ -206,8 +200,8 @@ describe("submitDescription tool", () => {
       title: "feat: add user session validation.",
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
-    expect(published.payload.title).toBe("Add user session validation");
+    const published = publishDescription.mock.calls[0][1];
+    expect(published.title).toBe("Add user session validation");
   });
 
   it("sanitizes mermaid visuals before publish", async () => {
@@ -225,9 +219,9 @@ describe("submitDescription tool", () => {
       visuals: [{ kind: "mermaid", content: raw }],
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
-    expect(published.payload.visuals?.[0]?.content).toContain('K["api/admin-users/list proxy"]');
-    expect(published.payload.visuals?.[0]?.content.startsWith("```")).toBe(false);
+    const published = publishDescription.mock.calls[0][1];
+    expect(published.visuals?.[0]?.content).toContain('K["api/admin-users/list proxy"]');
+    expect(published.visuals?.[0]?.content.startsWith("```")).toBe(false);
   });
 
   it("rejects invalid mermaid on full_block language mermaid", async () => {
@@ -246,7 +240,7 @@ describe("submitDescription tool", () => {
         ],
       }),
     ).rejects.toThrow(/mermaid/i);
-    expect(publishDescriptionToPullRequest).not.toHaveBeenCalled();
+    expect(publishDescription).not.toHaveBeenCalled();
   });
 
   it("caps read_first prFiles at five before publish", async () => {
@@ -262,7 +256,7 @@ describe("submitDescription tool", () => {
       prFiles,
     });
 
-    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0][0];
-    expect(published.payload.prFiles).toHaveLength(5);
+    const published = publishDescription.mock.calls[0][1];
+    expect(published.prFiles).toHaveLength(5);
   });
 });

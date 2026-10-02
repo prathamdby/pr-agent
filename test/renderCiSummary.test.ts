@@ -20,7 +20,7 @@ import {
 import type { CiSummary } from "../src/review/ci/ciSummaryTypes.js";
 import { renderVerificationFailureBlock } from "../src/review/ci/verificationFailureBlock.js";
 import { VERIFICATION_FAILURE_TEXT } from "../src/settings/index.js";
-import { formatReviewActionLineCiStatus } from "../src/review/ci/ciActionPhrase.js";
+import { formatReviewActionLineCiStatus } from "../src/review/ci/ciSummaryCell.js";
 
 describe("renderCiSummary", () => {
   it("formats failing CI fields as plain text for the agent fix prompt", () => {

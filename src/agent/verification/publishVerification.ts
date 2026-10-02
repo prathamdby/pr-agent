@@ -89,8 +89,7 @@ async function recoverVerificationMutation(params: {
   readonly rootCommentId: number;
   readonly requiresResolved: boolean;
 }): Promise<number | undefined | null> {
-  const botLogin = await params.prSurface.getBotLogin?.();
-  if (botLogin == null) return null;
+  const botLogin = await params.prSurface.getBotLogin();
   const comments = await params.prSurface.listInlineReviewComments();
   const markedCommentId = findCommentIdByMarker(
     comments,

@@ -1,3 +1,4 @@
+import * as localPrWorkspaceModule from "../../src/prWorkspace/localPrWorkspace.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
@@ -19,7 +20,7 @@ import * as retentionModule from "../../src/agentWork/retention.js";
 import * as lostRunningModule from "../../src/agentWork/lostRunningWork.js";
 import * as projectionRepairModule from "../../src/agentWork/projectionRepair.js";
 import * as workerHealthModule from "../../src/agentWork/workerHealth.js";
-import * as prWorkspaceModule from "../../src/prWorkspace/index.js";
+import * as prWorkspaceModule from "../../src/prWorkspace/prRepositoryView.js";
 import { agentWorkWorkerLive } from "../../src/agentWork/worker.js";
 import {
   DEFERRED_HEAD_SHA,
@@ -1648,7 +1649,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         skippedNoInstallation: 0,
       });
       vi.spyOn(retentionModule, "ensureRetentionSchedule").mockResolvedValue(undefined);
-      vi.spyOn(prWorkspaceModule, "cleanupStaleLocalPrWorkspaces").mockResolvedValue(undefined);
+      vi.spyOn(localPrWorkspaceModule, "cleanupStaleLocalPrWorkspaces").mockResolvedValue(
+        undefined,
+      );
 
       clearDurableAuthCachesForTest();
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({

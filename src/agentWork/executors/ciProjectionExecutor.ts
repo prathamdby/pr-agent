@@ -27,7 +27,7 @@ import type { CiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
 import { ciSummaryFromFacts, headCiFactsAreComplete } from "../../review/ci/ciFromHeadState.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../../review/ci/renderCiSummary.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
-import { formatReviewActionLineCiStatus } from "../../review/ci/ciActionPhrase.js";
+import { formatReviewActionLineCiStatus } from "../../review/ci/ciSummaryCell.js";
 import { parseProgressRevisionState } from "../../review/run/progressComment.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
@@ -40,7 +40,7 @@ import {
 } from "../../settings/legacyReviewLenses.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
-import { mintInstallationToken } from "../durableJob.js";
+import { mintInstallationToken } from "../../github/installationToken.js";
 import { closeOwnVerdict } from "../closeOwnVerdict.js";
 import {
   enqueueCiProjectionAfter,

@@ -6,7 +6,7 @@ import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import type { PrSurface } from "../github/prSurface.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
-import { checkRunFindingsSummary } from "../github/statusCopy.js";
+import { checkRunFindingsSummary } from "../review/statusCopy.js";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
@@ -223,7 +223,7 @@ async function createGithubCheckRunOnSurface(
         name,
       },
       recover: async () => {
-        const found = await params.prSurface.findReviewCheck?.(params.headSha, params.workItemId);
+        const found = await params.prSurface.findReviewCheck(params.headSha, params.workItemId);
         return found == null
           ? { kind: "absent" as const }
           : { kind: "reconciled" as const, value: found };

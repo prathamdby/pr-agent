@@ -1,4 +1,4 @@
-import type { ReplyTarget } from "../commands/replyTarget.js";
+import type { ReplyTarget } from "../agentWork/types.js";
 import type {
   ListPullRequestFilesLimits,
   ListPullRequestFilesResult,
@@ -212,6 +212,8 @@ let nextCheckRunId = 1;
 
 function defaultPullRequest(headSha: string): PullRequestForFileList {
   return {
+    title: "",
+    body: null,
     additions: 0,
     deletions: 0,
     changed_files: 0,

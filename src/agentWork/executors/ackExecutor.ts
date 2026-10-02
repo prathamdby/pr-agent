@@ -12,7 +12,7 @@ import {
   triageCancelledNotice,
 } from "../../settings/index.js";
 import { createPrSurface } from "../../github/prSurface.js";
-import { mintInstallationToken } from "../durableJob.js";
+import { mintInstallationToken } from "../../github/installationToken.js";
 import {
   getProgressCommentOwner,
   getReviewQueuePosition,

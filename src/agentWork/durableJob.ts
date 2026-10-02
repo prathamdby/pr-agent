@@ -251,8 +251,6 @@ function createLeaseMutationBoundary(params: {
 
 let botIdentityCache: Promise<BotIdentity> | undefined;
 
-export { mintInstallationToken };
-
 export function clearDurableAuthCachesForTest(): void {
   if (process.env.NODE_ENV === "test") {
     clearInstallationTokenCacheForTest();
@@ -356,24 +354,6 @@ export async function resolveWorkItemHead(
   item: AgentWorkItemCore,
 ): Promise<DurableHeadResolution> {
   return item.headSha === DEFERRED_HEAD_SHA ? prSurface.getHead() : { headSha: item.headSha };
-}
-
-function createPrSurfaceForItem(
-  cfg: Config,
-  item: Pick<AgentWorkItemCore, "installationId" | "owner" | "repo" | "prNumber">,
-  installation?: InstallationToken,
-  mutationBoundary?: PrSurfaceMutationBoundary,
-): PrSurface {
-  const surface = createPrSurface({
-    cfg,
-    installationId: item.installationId,
-    owner: item.owner,
-    repo: item.repo,
-    prNumber: item.prNumber,
-    installation,
-    mutationBoundary,
-  });
-  return surface;
 }
 
 async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolean> {
@@ -616,7 +596,15 @@ export async function runDurableWorkItem<T extends WorkType>(
             // Terminal hooks must still close the cancelled verdict.
             checkCancellation: false,
           });
-    return createPrSurfaceForItem(spec.cfg, workItemCore, token, mutationBoundary);
+    return createPrSurface({
+      cfg: spec.cfg,
+      installationId: workItemCore.installationId,
+      owner: workItemCore.owner,
+      repo: workItemCore.repo,
+      prNumber: workItemCore.prNumber,
+      installation: token,
+      mutationBoundary,
+    });
   }
 
   async function invokeCancelledHook(
@@ -929,7 +917,15 @@ export async function runDurableWorkItem<T extends WorkType>(
               leaseEpoch,
               signal: executionSignal,
             });
-      const prSurface = createPrSurfaceForItem(spec.cfg, item, installationToken, mutationBoundary);
+      const prSurface = createPrSurface({
+        cfg: spec.cfg,
+        installationId: item.installationId,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        installation: installationToken,
+        mutationBoundary,
+      });
       const resolvedHead = await spec.resolveHeadSha(prSurface, item);
       const headSha = resolvedHead.headSha;
       if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, leaseEpoch)) {

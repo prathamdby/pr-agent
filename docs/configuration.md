@@ -2,7 +2,7 @@
 
 Deployment wiring (infra) and operator tuning (ops) for **pr-agent**. The
 user-facing settings are the eight `FEATURE_*` vars — see
-[features.md](features.md); they are not repeated here. Code defaults live in
+[features.md](features.md); they are not repeated here. Shared code defaults live in
 [`src/settings/`](../src/settings/); env vars are loaded in
 [`src/config.ts`](../src/config.ts).
 
@@ -17,7 +17,7 @@ For behaviour, deployment, and developer scripts see [operations.md](operations.
 | **code**     | `src/settings/constants.ts`                                                                                                                                                                        |
 | **external** | Provider env; loaded into config but never logged                                                                                                                                                  |
 
-Import convention: `import { … } from "../settings/index.js"` for constants; `Config` from `config.ts` at runtime.
+Import convention: `import { … } from "../settings/index.js"` for shared constants; `Config` from `config.ts` at runtime. Single-owner slash replies are private to `src/agentWork/intake/slashIntake.ts`; migration constants are private to `src/db/migrations.ts`.
 
 ### When you change a knob
 
@@ -28,7 +28,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | New or changed code constant | `constants.ts`, `docs/configuration.md`                                           |
 | Default value only           | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md`      |
 
-Do not add magic numbers or env default strings in feature modules; import from `src/settings/`.
+Do not add magic numbers or duplicate env defaults in feature modules. Shared settings come from `src/settings/`; named constants with one production owner stay private to that module.
 
 CI enforces env alignment via `test/settingsInventory.test.ts` (including that every `FEATURE_*` key appears in `docs/features.md`). Loadable env names are `ENV` plus `EXTERNAL_ENV` in [`src/settings/envKeys.ts`](../src/settings/envKeys.ts), plus provider secrets Pi reads from `process.env` (`DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and others documented in [README.md](../README.md)). `docs/configuration.md` code-constant rows are maintained on the honor system. A backtick `SCREAMING_NAME` in a code-constant row is not an env var unless its Kind column says **env**.
 
@@ -685,6 +685,10 @@ limits do not change the pool defaults below or add an environment setting.
 | `ANALYTICS_SHUTDOWN_TIMEOUT_MS`           | 5000    | PostHog flush bound during shutdown; on the worker it runs concurrently with the durable dispatch window       |
 
 ### Other
+
+The `SLASH_*` rows below live in `src/agentWork/intake/slashIntake.ts`.
+The `MIGRATIONS_DIR_NAME` and `MIGRATION_ADVISORY_LOCK_KEY` rows live in
+`src/db/migrations.ts`. Both are private owner settings, not barrel exports.
 
 | Symbol                                              | Role                                                          |
 | --------------------------------------------------- | ------------------------------------------------------------- |

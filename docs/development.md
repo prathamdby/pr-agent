@@ -132,6 +132,18 @@ before and after a refactor; an empty diff protects the stable prefixes from
 The persisted-identity golden cases and module deletion verdicts are recorded in
 [ADR 0043](adr/0043-deep-module-map.md).
 
+Concrete modules own the M1 interfaces. Workspace callers import
+`prRepositoryView.ts`, `localPrWorkspace.ts`, or `writablePrCheckout.ts` directly.
+Code Mode imports execution sessions, pooling, and marshalling from their concrete
+execution modules; cross-worker halt codes and encoding live in
+`src/agent/execution/hostHalt.ts`. `PrResource`, `PrRef`, and `ReplyTarget` live in
+`src/agentWork/types.ts`. `PrSurface` requires bot-login, published-batch, and
+review-check reads; implementations cannot omit those recovery capabilities.
+Review status phrases live in `src/review/statusCopy.ts`, CI action phrases in
+`src/review/ci/ciSummaryCell.ts`, and specialist prompt selection in
+`src/review/orchestrator/specialistRun.ts`. Helpers with one owner stay private
+there; existing tests exercise their observable publication or execution output.
+
 ## Static guards and generated maps
 
 `nub run lint` and `nub run lint:backend` require zero warnings (`--deny-warnings`). The static baseline also counts `(oxlint|eslint)-disable` markers under `lint-suppressions(src)` (5) and `lint-suppressions(test)` (0). These counts may shrink, not grow.

@@ -32,6 +32,8 @@ export type ListPullRequestFilesLimits = {
 type Octokit = ReturnType<typeof installationOctokit>;
 type GithubFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["data"][number];
 export type PullRequestForFileList = {
+  readonly title: string;
+  readonly body: string | null;
   readonly additions: number;
   readonly deletions: number;
   readonly changed_files: number;

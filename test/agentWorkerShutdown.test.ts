@@ -51,7 +51,7 @@ vi.mock("../src/agentWork/projectionRepair.js", () => ({
   })),
 }));
 
-vi.mock("../src/prWorkspace/index.js", () => ({
+vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
   cleanupStaleLocalPrWorkspaces: vi.fn(async () => undefined),
 }));
 

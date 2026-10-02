@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isInstallationTokenNearExpiry } from "../src/github/installationTokenExpiry.js";
+import { isInstallationTokenNearExpiry } from "../src/github/installationToken.js";
 import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
 
 describe("installationTokenExpiry", () => {

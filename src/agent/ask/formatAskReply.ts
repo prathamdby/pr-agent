@@ -1,4 +1,4 @@
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../../agentWork/types.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { ASK_TRUNCATED_NOTICE } from "../../settings/index.js";
 

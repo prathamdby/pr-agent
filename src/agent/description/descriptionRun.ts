@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import {
   runStructuredAgentLoop,

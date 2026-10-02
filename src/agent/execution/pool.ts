@@ -5,7 +5,7 @@ import {
   CODE_MODE_EXECUTOR_QUEUE_WAIT_MS,
   resolveCodeModeExecutorKind,
 } from "../../settings/index.js";
-import { CodeModeHostHalt, encodeHostCallFailure, hostCancelHalt } from "../codemode/hostHalt.js";
+import { CodeModeHostHalt, encodeHostCallFailure, hostCancelHalt } from "./hostHalt.js";
 import { runQuickJsCell, type QuickJsCellParams, type QuickJsCellResult } from "./quickjsCell.js";
 
 type Waiter = {

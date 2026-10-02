@@ -7,7 +7,6 @@ import {
   buildSpecialistSessionTools,
   buildSubmitFindingsReportPiTool,
 } from "../src/review/orchestrator/specialistTools.js";
-import { specialistSystemPrompt } from "../src/review/orchestrator/prompts/specialistPersonas.js";
 
 function specialistToolDefinitionsJson(piTools: readonly PiTool[]): string {
   return JSON.stringify(
@@ -49,7 +48,6 @@ describe("specialistTools", () => {
       const tools = buildSpecialistSessionTools(workspaceTools, submit);
       return {
         specialist,
-        systemPrompt: specialistSystemPrompt(specialist),
         toolJson: specialistToolDefinitionsJson(tools.piTools),
         toolNames: tools.piTools.map((tool) => tool.name),
       };
@@ -59,9 +57,6 @@ describe("specialistTools", () => {
       expect(row.toolNames.at(-1)).toBe(SUBMIT_FINDINGS_REPORT_NAME);
       expect(row.toolJson).toBe(payloads[0]?.toolJson);
     }
-
-    const prompts = new Set(payloads.map((row) => row.systemPrompt));
-    expect(prompts.size).toBe(SPECIALIST_IDS.length);
   });
 
   it("throws AppError when the submit tool name mismatches", () => {

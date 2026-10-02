@@ -8,13 +8,12 @@ import { classifyFailure, classifiedFailureLogFields } from "../../errors/classi
 import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
-import { withPrRepositoryView } from "../../prWorkspace/index.js";
+import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import { recordPublishStep, shouldSkipWork } from "../repository.js";
 import { isPrActorLeaseHeld } from "../prActorLease.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type DescriptionJobData } from "../types.js";
 import { DESCRIPTION_QUEUE } from "../../settings/index.js";
-import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 export async function executeDescriptionJob(
   cfg: Config,
@@ -36,15 +35,15 @@ export async function executeDescriptionJob(
       const payload = item.payload;
       await env.beginAttempt();
       return withPrRepositoryView(
-        buildRepositoryViewParams(
-          item,
-          {
-            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-            headSha,
-            pullRequest: env.pullRequest,
-          },
-          payload,
-        ),
+        {
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+          headSha,
+          pullRequest: env.pullRequest,
+          repositorySizeKb: payload.repositorySizeKb,
+        },
         async (repositoryView) => {
           const result = await runFullPrDescription({
             cfg,

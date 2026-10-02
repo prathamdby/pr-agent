@@ -6,7 +6,6 @@ import {
 } from "../src/analytics/workCompleted.js";
 import { classifiedFailurePostHogProperties } from "../src/errors/classifiedFailure.js";
 import type { ReviewRunMetricsSnapshot } from "../src/review/run/reviewRunMetrics.js";
-import { reviewWorkExtras } from "../src/review/run/reviewProfiler.js";
 
 function snapshot(overrides: Partial<ReviewRunMetricsSnapshot> = {}): ReviewRunMetricsSnapshot {
   return {
@@ -108,31 +107,6 @@ describe("reviewWorkOutcome", () => {
     expect(degradedReasonFromReviewFlags({ publishAttempts: 1, snapshot: snapshot() })).toBe(
       "publish_retry",
     );
-  });
-});
-
-describe("reviewWorkExtras", () => {
-  it("keeps specialist counts and findings without token dumps", () => {
-    const extras = reviewWorkExtras({
-      snapshot: snapshot({
-        findingsCount: 3,
-        specialistOutcomes: { report: 2, empty: 1, error: 1 },
-      }),
-      provider: "openai",
-      model: "test",
-      reviewLens: "review",
-      source: "slash",
-    });
-    expect(extras).toEqual({
-      model: "test",
-      provider: "openai",
-      reviewLens: "review",
-      source: "slash",
-      findingsCount: 3,
-      specialistReport: 2,
-      specialistEmpty: 1,
-      specialistError: 1,
-    });
   });
 });
 

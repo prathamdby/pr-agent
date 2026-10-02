@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
-import { mintInstallationToken } from "../agentWork/durableJob.js";
+import { mintInstallationToken } from "../github/installationToken.js";
 import { createPrSurface } from "../github/prSurface.js";
 import { assertWorkspacePath, type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.js";

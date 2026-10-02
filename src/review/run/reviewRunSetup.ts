@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import { hideWorkspaceToolsBehindCodeMode } from "../../agent/codemode/assembleExplorationTools.js";

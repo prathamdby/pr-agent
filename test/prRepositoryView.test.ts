@@ -35,6 +35,8 @@ vi.mock("../src/github/appAuth.js", () => ({
               head: { sha: HEAD_SHA },
               additions: state.additions,
               deletions: state.deletions,
+              title: "",
+              body: null,
               changed_files: state.changedFilesCount,
             },
           };
@@ -255,6 +257,8 @@ describe("prRepositoryView cache", () => {
     const pullRequest = {
       additions: 0,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 0,
       head: { sha: HEAD_SHA },
     };

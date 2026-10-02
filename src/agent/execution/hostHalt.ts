@@ -1,4 +1,18 @@
-import { isCodeModeErrorCode, type CodeModeErrorCode } from "./result.js";
+export const CODE_MODE_ERROR_CODES = [
+  "SYNTAX_ERROR",
+  "EXECUTION_BUDGET_EXCEEDED",
+  "TIMEOUT",
+  "CANCELLED",
+  "LIMIT_EXCEEDED",
+  "TOOL_FAILURE",
+  "EXECUTION_ERROR",
+] as const;
+
+export type CodeModeErrorCode = (typeof CODE_MODE_ERROR_CODES)[number];
+
+export function isCodeModeErrorCode(value: string): value is CodeModeErrorCode {
+  return (CODE_MODE_ERROR_CODES as readonly string[]).includes(value);
+}
 
 export const CODE_MODE_HOST_CANCEL_MESSAGE = "Code Mode cancelled by host signal";
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
+import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";

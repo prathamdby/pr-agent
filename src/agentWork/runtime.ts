@@ -99,7 +99,8 @@ export const AgentWorkBossLive = (
     ),
   );
 
-const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
+/** Web role: scheduler seam only (webhook intake enqueues agent work). */
+export const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
   Layer.effect(
     AgentWorkScheduler,
     Effect.gen(function* () {
@@ -108,6 +109,3 @@ const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
       return makeAgentWorkScheduler(pool, boss, cfg);
     }),
   ).pipe(Layer.provide(AgentWorkPoolLive(cfg)), Layer.provide(AgentWorkBossLive(cfg)));
-
-/** Web role: scheduler seam only (webhook intake enqueues agent work). */
-export const agentWorkWebLive = (cfg: Config) => AgentWorkSchedulerRuntimeLive(cfg);

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import { AppError } from "../../errors/appError.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../types.js";
 import type {
   AckTarget,
   AskWorkPayload,

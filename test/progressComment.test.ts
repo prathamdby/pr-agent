@@ -25,7 +25,7 @@ import {
   STATUS_NO_FINDINGS,
   STATUS_RUNNING,
   STATUS_WAITING,
-} from "../src/github/statusCopy.js";
+} from "../src/review/statusCopy.js";
 
 describe("progressComment fallback wording", () => {
   it("uses neutral failure notice without attempt counts or server logs", () => {

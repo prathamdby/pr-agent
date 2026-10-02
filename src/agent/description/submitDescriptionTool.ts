@@ -5,10 +5,7 @@ import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
-import {
-  publishDescriptionToPullRequest,
-  type PublishDescriptionResult,
-} from "./publishDescription.js";
+import type { PublishDescriptionSurfaceResult } from "../../github/prSurface.js";
 import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
@@ -161,20 +158,12 @@ export function buildSubmitDescriptionTool(params: {
             operationIntent.workItemId,
           );
     const publish = () =>
-      publishDescriptionToPullRequest({
-        cfg: params.cfg,
-        prSurface: params.prSurface,
-        owner: params.owner,
-        repo: params.repo,
-        prNumber: params.prNumber,
-        payload,
-        operationMarker: operationMarker ?? undefined,
-      });
+      params.prSurface.publishDescription(params.cfg, payload, operationMarker ?? undefined);
 
     const result =
       params.operationIntent == null
         ? await publish()
-        : await withOperationIntent<PublishDescriptionResult>({
+        : await withOperationIntent<PublishDescriptionSurfaceResult>({
             client: params.operationIntent.client,
             workItemId: params.operationIntent.workItemId,
             operationKey:

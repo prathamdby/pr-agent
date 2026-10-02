@@ -273,8 +273,7 @@ async function findMarkedComment(
   marker: string,
   rootCommentId?: number,
 ): Promise<{ readonly id: number } | null> {
-  const botLogin = await prSurface.getBotLogin?.();
-  if (botLogin == null) return null;
+  const botLogin = await prSurface.getBotLogin();
   const comments = await prSurface.listInlineReviewComments();
   const id = findCommentIdByMarker(
     comments,

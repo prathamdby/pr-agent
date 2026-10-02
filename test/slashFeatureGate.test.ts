@@ -6,7 +6,6 @@ import {
   type SlashCommandInput,
 } from "../src/agentWork/intake/slashIntake.js";
 import type { AckJobData } from "../src/agentWork/types.js";
-import { slashDisabledBody } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const features = makeTestConfig().features;
@@ -82,7 +81,9 @@ describe("slash command feature gating", () => {
 
       expect(events.map((event) => event.name)).toContain("ignored_disabled_slash_command");
       const ack = sent[0]?.data as AckJobData;
-      expect(ack.reply?.body).toBe(slashDisabledBody(command));
+      expect(ack.reply?.body).toBe(
+        `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`,
+      );
     },
   );
 

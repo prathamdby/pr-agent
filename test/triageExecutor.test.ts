@@ -56,8 +56,8 @@ vi.mock("../src/github/reviewThreadResolution.js", () => ({
   warnReviewThreadResolutionDegraded: vi.fn(),
 }));
 
-vi.mock("../src/prWorkspace/index.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/prWorkspace/index.js")>();
+vi.mock("../src/prWorkspace/writablePrCheckout.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/writablePrCheckout.js")>();
   return {
     ...actual,
     withWritablePrCheckout: mocks.withWritablePrCheckout,
@@ -316,6 +316,8 @@ describe("executeTriageJob", () => {
           durablePrSurfaceControls().setPullRequest({
             additions: 1,
             deletions: 0,
+            title: "",
+            body: null,
             changed_files: 1,
             state: "closed",
             merged: false,
@@ -373,6 +375,8 @@ describe("executeTriageJob", () => {
       durablePrSurfaceControls().setPullRequest({
         additions: 1,
         deletions: 0,
+        title: "",
+        body: null,
         changed_files: 1,
         state: "closed",
         merged: true,
@@ -513,6 +517,8 @@ describe("executeTriageJob", () => {
     durablePrSurfaceControls().setPullRequest({
       additions: 0,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 0,
       state: "closed",
       merged: false,
@@ -544,6 +550,8 @@ describe("executeTriageJob", () => {
     durablePrSurfaceControls().setPullRequest({
       additions: 0,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 0,
       state: "closed",
       merged,

@@ -1,8 +1,7 @@
 import { getAppBotIdentity, installationOctokit } from "./appAuth.js";
 import type { InstallationToken } from "./appAuth.js";
 import { logDebug, logWarn } from "../evlog.js";
-import { mintInstallationToken } from "./installationToken.js";
-import { isInstallationTokenNearExpiry } from "./installationTokenExpiry.js";
+import { mintInstallationToken, isInstallationTokenNearExpiry } from "./installationToken.js";
 import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "./actionsLogs.js";
 import { listCommitCompareFiles } from "./compareCommitFiles.js";
 import {
@@ -41,7 +40,7 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { mergeDescriptionIntoPrBody } from "../agent/description/descriptionBodyMerge.js";
 import { renderDescriptionAgentBlock } from "../agent/description/descriptionRender.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
-import type { ReplyTarget } from "../commands/replyTarget.js";
+import type { ReplyTarget } from "../agentWork/types.js";
 import {
   COMMENT_PAGINATION_MAX_PAGES,
   COMMENTS_PAGE_SIZE,

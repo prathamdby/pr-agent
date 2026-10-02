@@ -1,5 +1,5 @@
 import type { ListPullRequestFilesResult } from "../../github/listPullRequestFiles.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { PreflightFileEntry } from "../run/reviewChangeGate.js";
 
 export type ReviewPreflightMetadata = {

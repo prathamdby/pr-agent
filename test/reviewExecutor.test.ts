@@ -94,7 +94,7 @@ vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
 import * as durableJob from "../src/agentWork/durableJob.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
-import * as prWorkspace from "../src/prWorkspace/index.js";
+import * as prWorkspace from "../src/prWorkspace/prRepositoryView.js";
 import * as reviewTrustedContext from "../src/review/prompts/reviewTrustedContext.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as evlog from "../src/evlog.js";
@@ -118,6 +118,8 @@ const prFiles = {
 const pullRequest = {
   additions: 1,
   deletions: 1,
+  title: "",
+  body: null,
   changed_files: 1,
   base: { repo: { full_name: "o/r" } },
   head: { sha: "head", repo: { full_name: "o/r" } },
@@ -981,7 +983,7 @@ describe("executeReviewJob", () => {
       tokenCoverage: "full_run",
       findingsCount: 2,
       severities: ["high"],
-      specialistOutcomes: { report: 4 },
+      specialistOutcomes: { report: 2, empty: 1, error: 1 },
       publishAttempts: 0,
       publishStepCount: 5,
     } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
@@ -997,7 +999,9 @@ describe("executeReviewJob", () => {
           work_type: "review",
           work_item_id: "wi-1",
           findings_count: 2,
-          specialist_report: 4,
+          specialist_report: 2,
+          specialist_empty: 1,
+          specialist_error: 1,
           provider: "openai",
           model: "test",
           publish_attempts: 0,
@@ -1636,6 +1640,8 @@ describe("executeReviewJob", () => {
     mockDurableExecution("slash", {
       additions: 1,
       deletions: 1,
+      title: "",
+      body: null,
       changed_files: 1,
       head: { sha: "head" },
     });

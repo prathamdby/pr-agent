@@ -4,7 +4,7 @@ import { idleAbortSignal } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "../runtime/lifecycleEvents.js";
 import type { AgentSessionRole } from "../runtime/types.js";
 import type { EvidenceLedger } from "../../review/findings/evidenceLedger.js";
-import { CodeModeHostHalt, hostCancelHalt } from "./hostHalt.js";
+import { CodeModeHostHalt, hostCancelHalt } from "../execution/hostHalt.js";
 import type { CodeModeInnerFailureKind, CodeModeToolCall } from "./result.js";
 import type { CodeModeCapabilityExecutors, CodeModeWorkspaceToolName } from "./types.js";
 import {

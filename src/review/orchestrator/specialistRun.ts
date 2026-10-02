@@ -16,7 +16,6 @@ import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
 import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
 import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
-import { specialistSystemPrompt } from "./prompts/specialistPersonas.js";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.js";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
@@ -27,6 +26,10 @@ import {
   buildSubmitFindingsReportPiTool,
   type SpecialistWorkspaceTools,
 } from "./specialistTools.js";
+import { automatedQualitySystemPrompt } from "../../agent/prompts/qualityPrompt.js";
+import { automatedReviewTestsSystemPrompt } from "../../agent/prompts/reviewTestsPrompt.js";
+import { automatedSecuritySystemPrompt } from "../../agent/prompts/securityPrompt.js";
+import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
@@ -228,7 +231,7 @@ async function createSessionWithinDeadline(
     specialistId: params.specialist,
     cfg: params.cfg,
     cwd: params.cwd,
-    systemPrompt: specialistSystemPrompt(params.specialist),
+    systemPrompt: SPECIALIST_SYSTEM_PROMPTS[params.specialist],
     tools: sessionTools.piTools,
     executors: sessionTools.executors,
     attemptModel: params.escalation?.model,
@@ -448,3 +451,10 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
     cause: lastError,
   });
 }
+
+const SPECIALIST_SYSTEM_PROMPTS = {
+  correctness: buildAutomatedSystemPrompt(),
+  security: automatedSecuritySystemPrompt,
+  quality: automatedQualitySystemPrompt,
+  tests: automatedReviewTestsSystemPrompt,
+} satisfies Readonly<Record<SpecialistId, string>>;

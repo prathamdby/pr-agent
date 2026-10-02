@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../../agentWork/types.js";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";

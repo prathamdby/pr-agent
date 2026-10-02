@@ -44,7 +44,7 @@ import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import {
   formatReviewActionLineCiStatus,
   renderReviewActionLineCiStatus,
-} from "../ci/ciActionPhrase.js";
+} from "../ci/ciSummaryCell.js";
 import {
   formatCiSummaryPlainText,
   renderCiSummaryCell,

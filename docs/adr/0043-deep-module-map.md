@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed. M0 establishes the compatibility evidence before implementation.
+Approved for M0–M18 execution. M0 establishes the compatibility evidence before
+implementation; the milestone amendments below are approved.
 
 ## Context
 
@@ -70,9 +71,9 @@ deepening, not removal:
 | `lifecycleSanitizer` | Keep    | `piSessionImpl.ts` wraps the sink with its forbidden-field, role, phase, and event-kind policy. It is a security boundary, not a pass-through.                                                                                            |
 | `localPrWorkspace`   | Keep    | `prRepositoryView.ts` uses its pinned-head preparation, credential removal, symlink removal, read-only tree, bounded search, and failure cleanup. M7 may narrow its returned reader interface without deleting its lifecycle owner.       |
 
-### Proposed milestone amendments
+### Approved milestone amendments
 
-Approve these before M1:
+Approved before M1:
 
 - **M11, atomic ask admission:** keep retained-mention resolution before quota
   admission. Make admission, work insertion, and insertion-conflict compensation
@@ -98,6 +99,55 @@ runtime argument, including configuration fields beyond its declared `Pick`.
 M16/M17 must preserve retained mutation identities when narrowing that argument
 or replacing the method. Renaming a TypeScript method is not permission to rename
 the wire mutation kind or the recovery lookup for existing intents.
+
+## M1 failure modes
+
+Recorded before test or production changes:
+
+1. Removing a barrel leaves a runtime import or a mock aimed at a dead module.
+2. Inlining description publication changes the complete configuration argument
+   and therefore the retained child mutation hash.
+3. Moving execution halts changes error codes, cross-worker encoding, or prompt
+   and tool bytes.
+4. Required surface reads silently disappear from a fake or fixture, weakening
+   recovery, bot ownership, or check lookup.
+5. Pull-request title/body casts hide a missing field in a fake or provider read.
+6. Inlined helpers change authorization, file URLs, telemetry fields, placement
+   order, CI copy, or token-expiry boundaries.
+7. Removing a settings file duplicates a value, drops a consumer, or changes an
+   import boundary. Only proven single-owner settings may move.
+8. Replacing duplicate resource types changes serialized payloads rather than
+   only their TypeScript representation.
+
+M1 implementation and the full milestone gate are complete. Deslop and commit
+remain pending.
+Existing owner tests replace direct imports of deleted private helpers. No new
+test files or helpers were created. `PullRequestForFileList` now carries title
+and body, and the three recovery reads on `PrSurface` are required.
+
+Single-owner settings evidence: every production consumer of `slashConstants.ts`
+was `intake/slashIntake.ts`; both exports of `migrationConstants.ts` were used
+only by `db/migrations.ts`. Their constants now live privately in those owners.
+Shared constants remain in settings. Catalog/path modules retain parsing and
+path-resolution policy; they are not settings-only deletion candidates.
+`firstNonEmptyLine` has two production parsers, so slash parsing owns its one
+implementation and ask parsing imports it there. The CI action formatter also
+has two consumers, so it joins the existing CI cell renderer rather than being
+duplicated into callers.
+
+Local evidence: formatting, typecheck, backend lint, and guards passed. The final
+narrow existing-owner run passed 555 tests across 33 files, including architecture,
+import-boundary, and generated feature-map checks. The complete published `/help`
+reply remains pinned in the intake owner test rather than separate assertions
+against private constants. Prompt comparison is byte-identical to M0, SHA-256
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.
+Unsafe source assertions fell from 90 to 87; the baseline shrinks to 87.
+The initial `nub run test -- <paths>` invocation did not forward its filters and
+hit the 120-second limit during a broader run; it is not recorded as a pass.
+The parent's full gate passed 196 unit suites (2,644 tests), 14 dedicated
+database integration suites (499 tests), and disposable-stack verification
+(499 tests). The complete prompt dump remained byte-identical. Verification
+left `verify-artifacts/2026-10-02T14-03-02-279Z.md`.
 
 ## Consequences
 

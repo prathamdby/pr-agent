@@ -33,7 +33,7 @@ import * as appAuth from "../../src/github/appAuth.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as prSurface from "../../src/github/prSurface.js";
 import * as evlog from "../../src/evlog.js";
-import * as prWorkspace from "../../src/prWorkspace/index.js";
+import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.js";
 import * as verificationRun from "../../src/agent/verification/verificationRun.js";
 import type {
   CiProjectionJobData,

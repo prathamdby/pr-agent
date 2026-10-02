@@ -13,7 +13,7 @@ import {
 import type { Config } from "../config.js";
 import { errorLogFields } from "../errors/appError.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
-import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
+import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/localPrWorkspace.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,

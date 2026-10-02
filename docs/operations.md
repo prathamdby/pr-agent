@@ -86,6 +86,7 @@ and return `503`.
 - **`@octokit/plugin-throttling`** paces all installation-token REST calls (review tools, publish, reactions). File listing and patch caps are code constants in `src/settings/reviewConstants.ts`: `MAX_PR_FILES_LISTED` (default `300`), `MAX_PR_FILES_PATCH_BYTES` (default `500000`).
 - Throttle hooks log `octokit_on_rate_limit` / `octokit_on_secondary_rate_limit`. Circuit open logs `github_rate_limit_circuit_opened`. Capture a redacted sample when debugging production limits.
 - See [ADR 0004](adr/0004-github-api-rate-limits.md) for policy (secondary-limit retries and truncation trade-offs).
+- Installation-token caching and freshness checks share `src/github/installationToken.ts`. Executors and code-index builds import it directly; the durable runner does not re-export authentication.
 
 ## Deployment
 

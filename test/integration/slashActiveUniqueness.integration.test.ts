@@ -51,10 +51,7 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   REVIEW_SUMMARY_SENTINEL,
-  SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
-  SLASH_REVIEW_FORCE_RESTARTED_BODY,
   DESCRIPTION_ALREADY_IN_PROGRESS,
-  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_QUEUE,
@@ -394,10 +391,10 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(acks).toHaveLength(2);
     const losingAck = acks.find((job) => job.data.delivery === inputs[1].headers.delivery)!.data;
     const expectedBody = {
-      review: SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
+      review: "A `/review` run is already queued or in progress for this pull request.",
       description: DESCRIPTION_ALREADY_IN_PROGRESS,
       triage: TRIAGE_ALREADY_IN_PROGRESS,
-      verification: SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
+      verification: "A `/verify` run is already queued or in progress for this pull request.",
     }[type];
     expect(losingAck.reply?.body).toBe(expectedBody);
     expect(losingAck.workItemId).toBeUndefined();
@@ -1209,17 +1206,25 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
         expect(survivorId).not.toBe(firstId);
         expect(secondAck.workItemId).toBe(survivorId);
         expect(secondAck.cancelProgress?.cancelledWorkItemIds).toContain(firstId);
-        expect(secondAck.reply?.body).toBe(SLASH_REVIEW_FORCE_RESTARTED_BODY);
-        expect(acks.some((ack) => ack.reply?.body === SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY)).toBe(
-          false,
+        expect(secondAck.reply?.body).toBe(
+          "Cancelled the previous review and started a new one on the latest commit.",
         );
+        expect(
+          acks.some(
+            (ack) =>
+              ack.reply?.body ===
+              "A `/review` run is already queued or in progress for this pull request.",
+          ),
+        ).toBe(false);
         expect(
           reviewJobs.filter((job) => [firstId, survivorId].includes(job.data.workItemId)),
         ).toHaveLength(2);
       } else {
         expect(survivorId).toBe(firstId);
         expect(secondAck.workItemId).toBeUndefined();
-        expect(secondAck.reply?.body).toBe(SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY);
+        expect(secondAck.reply?.body).toBe(
+          "A `/review` run is already queued or in progress for this pull request.",
+        );
         expect(reviewJobs.filter((job) => job.data.workItemId === firstId)).toHaveLength(1);
       }
       const { rows: progress } = await pool.query<{ work_item_id: string }>(
@@ -1231,7 +1236,9 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       if (prior !== "empty") {
         expect(rows.find((row) => row.id === priorId)?.status).toBe("cancelled");
         expect(firstAck.cancelProgress?.cancelledWorkItemIds).toContain(priorId);
-        expect(firstAck.reply?.body).toBe(SLASH_REVIEW_FORCE_RESTARTED_BODY);
+        expect(firstAck.reply?.body).toBe(
+          "Cancelled the previous review and started a new one on the latest commit.",
+        );
       }
       if (prior === "queued") {
         const fake = prSurface.createFakePrSurface({ owner: OWNER, repo, prNumber: 44 });
@@ -1248,8 +1255,14 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
           await executeAckJob(makeTestConfig(), pool, firstAck, boss);
           await executeAckJob(makeTestConfig(), pool, secondAck, boss);
           expect(fake.controls.replies).toEqual([
-            { target: firstAck.reply!.target, body: SLASH_REVIEW_FORCE_RESTARTED_BODY },
-            { target: secondAck.reply!.target, body: SLASH_REVIEW_FORCE_RESTARTED_BODY },
+            {
+              target: firstAck.reply!.target,
+              body: "Cancelled the previous review and started a new one on the latest commit.",
+            },
+            {
+              target: secondAck.reply!.target,
+              body: "Cancelled the previous review and started a new one on the latest commit.",
+            },
           ]);
           const comment = fake.controls.getProgressComment(REVIEW_SUMMARY_SENTINEL);
           expect(comment?.body).toContain("Review queued on the latest commit.");

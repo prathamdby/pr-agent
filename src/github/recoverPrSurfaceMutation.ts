@@ -145,8 +145,7 @@ async function recoverReplyAt(
 ): Promise<OperationIntentRecovery<{ readonly commentId: number }>> {
   const marker = detailString(detail, "operationMarker");
   if (marker == null) return { kind: "absent" };
-  const botLogin = await surface.getBotLogin?.();
-  if (botLogin == null) return { kind: "absent" };
+  const botLogin = await surface.getBotLogin();
 
   const kind = detailString(detail, "replyTargetKind");
   if (kind === "inlineReviewThread") {
@@ -183,8 +182,7 @@ export async function recoverMarkedProgressComment(
 ): Promise<OperationIntentRecovery<ProgressCommentUpsert>> {
   const marker = params.operationMarker;
   if (marker == null) return { kind: "absent" };
-  const botLogin = await surface.getBotLogin?.();
-  if (botLogin == null) return { kind: "absent" };
+  const botLogin = await surface.getBotLogin();
   const comments = await surface.listConversationComments();
   const commentId = findCommentIdByMarker(comments, marker, (comment) => {
     if (comment.authorLogin !== botLogin) return false;
@@ -207,8 +205,7 @@ async function recoverMarkedComment(
 ): Promise<OperationIntentRecovery<unknown>> {
   const marker = detailString(detail, "operationMarker");
   if (marker == null) return { kind: "absent" };
-  const botLogin = await surface.getBotLogin?.();
-  if (botLogin == null) return { kind: "absent" };
+  const botLogin = await surface.getBotLogin();
   const comments =
     source === "inline"
       ? await surface.listInlineReviewComments()
@@ -261,7 +258,7 @@ export async function recoverPrSurfaceMutation<T>(
         recovery = { kind: "absent" };
         break;
       }
-      const found = await surface.findPublishedThreadBatch?.(
+      const found = await surface.findPublishedThreadBatch(
         marker,
         detailString(intent.detail, "commitId"),
       );
@@ -294,7 +291,7 @@ export async function recoverPrSurfaceMutation<T>(
         recovery = { kind: "absent" };
         break;
       }
-      const found = await surface.findReviewCheck?.(headSha, externalId);
+      const found = await surface.findReviewCheck(headSha, externalId);
       recovery = found == null ? { kind: "absent" } : { kind: "reconciled", value: found };
       break;
     }

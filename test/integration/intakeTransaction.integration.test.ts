@@ -43,7 +43,7 @@ import { executeAskJob } from "../../src/agentWork/executors/askExecutor.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as prSurface from "../../src/github/prSurface.js";
-import * as prWorkspace from "../../src/prWorkspace/index.js";
+import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.js";
 import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
 import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
 
@@ -73,7 +73,6 @@ import {
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_QUEUE,
-  SLASH_REVIEW_FORCE_RESTARTED_BODY,
   REVIEW_SUMMARY_SENTINEL,
 } from "../../src/settings/index.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -2003,7 +2002,9 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       expect(ack.progress).toMatchObject({ lens: "review", source: "slash" });
       if (order === "auto-first") {
         expect(ack.cancelProgress?.cancelledWorkItemIds).toEqual([auto.id]);
-        expect(ack.reply?.body).toBe(SLASH_REVIEW_FORCE_RESTARTED_BODY);
+        expect(ack.reply?.body).toBe(
+          "Cancelled the previous review and started a new one on the latest commit.",
+        );
       } else {
         expect(ack.cancelProgress).toBeUndefined();
         expect(ack.reply).toBeUndefined();

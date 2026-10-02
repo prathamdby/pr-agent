@@ -4,7 +4,7 @@ import type { Config } from "../../config.js";
 import type { RequestLogger } from "../../evlog.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { commentMentionsBot } from "../../commands/parseBotMention.js";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../../agentWork/types.js";
 import { isSlashAssociationAllowed, reviewAuthorTrust } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";

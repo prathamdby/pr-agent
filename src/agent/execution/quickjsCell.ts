@@ -19,8 +19,8 @@ import {
   CODE_MODE_STATE_MAX_BYTES,
   CODE_MODE_TIMEOUT_MS,
 } from "../../settings/index.js";
-import { CodeModeHostHalt, hostCancelHalt, isCodeModeHostHalt } from "../codemode/hostHalt.js";
-import type { CodeModeErrorCode } from "../codemode/result.js";
+import { CodeModeHostHalt, hostCancelHalt, isCodeModeHostHalt } from "./hostHalt.js";
+import type { CodeModeErrorCode } from "./hostHalt.js";
 import { injectLastExpressionReturn } from "./injectReturn.js";
 import { asJsonObject, asJsonValue, type JsonObject, utf8ByteLength } from "./json.js";
 

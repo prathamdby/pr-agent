@@ -1,7 +1,9 @@
 import type { Config } from "../config.js";
 import { mintInstallationAuth, type InstallationToken } from "./appAuth.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.js";
-import { isInstallationTokenNearExpiry } from "./installationTokenExpiry.js";
+import {
+  INSTALLATION_TOKEN_FALLBACK_TTL_MS,
+  TOKEN_FRESHNESS_BUFFER_MS,
+} from "../settings/index.js";
 
 export type { InstallationToken };
 
@@ -43,4 +45,11 @@ export async function mintInstallationToken(
     installationTokenCache.delete(installationId);
     throw error;
   }
+}
+
+export function isInstallationTokenNearExpiry(
+  expiresAtTs: number,
+  now: number = Date.now(),
+): boolean {
+  return now >= expiresAtTs - TOKEN_FRESHNESS_BUFFER_MS;
 }

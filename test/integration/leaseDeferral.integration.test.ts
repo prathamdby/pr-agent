@@ -32,7 +32,6 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
-  MIGRATIONS_DIR_NAME,
   REVIEW_QUEUE,
 } from "../../src/settings/index.js";
 import { installationGroupId, type QueueConfig } from "../../src/agentWork/types.js";
@@ -987,7 +986,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       ]);
 
       const sql = await readFile(
-        path.join(process.cwd(), MIGRATIONS_DIR_NAME, "023_pr_actor_leases.sql"),
+        path.join(process.cwd(), "migrations", "023_pr_actor_leases.sql"),
         "utf8",
       );
       await pool.query(sql);

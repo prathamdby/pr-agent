@@ -3,7 +3,7 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
+import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import type { ReviewFinding, WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";

@@ -2,7 +2,6 @@ import type { Config } from "../config.js";
 import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
-import type { ReplyTarget } from "../commands/replyTarget.js";
 import type { ReviewCancelAttribution } from "../settings/reviewConstants.js";
 
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
@@ -16,10 +15,21 @@ export type WebhookHeaders = {
   readonly rawBody: Buffer;
 };
 
-export type PrRef = {
+export type PrResource = {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
+};
+
+export type ReplyTarget =
+  | { readonly kind: "prConversation"; readonly prNumber: number }
+  | {
+      readonly kind: "inlineReviewThread";
+      readonly prNumber: number;
+      readonly inReplyToCommentId: number;
+    };
+
+export type PrRef = PrResource & {
   readonly installationId: number;
   /** Commit SHA, or DEFERRED_HEAD_SHA for worker-side pulls.get resolution */
   readonly headSha: string;

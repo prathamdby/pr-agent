@@ -1,65 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { isAuthorizedMaintainerDecision } from "../src/review/maintainerAuthorization.js";
+import { assembleBotReviewThreads } from "../src/review/run/reviewPriorFeedback.js";
 
-const allowedAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
-
-describe("isAuthorizedMaintainerDecision", () => {
+describe("maintainer decisions in assembled review threads", () => {
   it.each([
-    ["repository owner", 10, "OWNER", true],
-    ["repository member", 11, "MEMBER", true],
-    ["collaborator", 12, "COLLABORATOR", true],
-    ["pull request author", 13, "CONTRIBUTOR", false],
-    ["ordinary commenter", 14, "NONE", false],
-    ["bot", 99, "OWNER", false],
-    ["missing user", null, "OWNER", false],
-    ["missing association", 15, null, false],
-  ])("fails closed for %s", (_label, userId, authorAssociation, expected) => {
-    expect(
-      isAuthorizedMaintainerDecision({
-        userId,
-        botUserId: 99,
-        authorAssociation,
-        allowedAssociations,
-      }),
-    ).toBe(expected);
-  });
-
-  it("does not treat wildcard configuration as a maintainer decision", () => {
-    expect(
-      isAuthorizedMaintainerDecision({
-        userId: 10,
-        botUserId: 99,
-        authorAssociation: "NONE",
-        allowedAssociations: new Set(["*"]),
-      }),
-    ).toBe(false);
-  });
-
-  it.each([" owner ", "Owner", "  collaborator ", "MeMbEr"])(
-    "normalizes maintainer association %j",
-    (authorAssociation) => {
-      expect(
-        isAuthorizedMaintainerDecision({
-          userId: 10,
+    [10, "OWNER", ["OWNER", "MEMBER", "COLLABORATOR"], true],
+    [11, "MEMBER", ["OWNER", "MEMBER", "COLLABORATOR"], true],
+    [12, "COLLABORATOR", ["OWNER", "MEMBER", "COLLABORATOR"], true],
+    [13, "CONTRIBUTOR", ["OWNER", "MEMBER", "COLLABORATOR"], false],
+    [14, "NONE", ["OWNER", "MEMBER", "COLLABORATOR"], false],
+    [99, "OWNER", ["OWNER", "MEMBER", "COLLABORATOR"], false],
+    [null, "OWNER", ["OWNER", "MEMBER", "COLLABORATOR"], false],
+    [15, null, ["OWNER", "MEMBER", "COLLABORATOR"], false],
+    [10, "NONE", ["*"], false],
+    ...[" owner ", "Owner", "  collaborator ", "MeMbEr"].map(
+      (association) => [10, association, ["OWNER", "MEMBER", "COLLABORATOR"], true] as const,
+    ),
+    ...["", "   ", undefined, "*", " * ", "\n*\t"].map(
+      (association) => [10, association, ["*"], false] as const,
+    ),
+  ] as const)(
+    "classifies user %s association %j with allowed %j",
+    (userId, authorAssociation, allowed, expected) => {
+      const [thread] = assembleBotReviewThreads(
+        [
+          {
+            id: 1,
+            inReplyToId: null,
+            pullRequestReviewId: 7,
+            userId: 99,
+            body: "Finding",
+            path: "src/x.ts",
+            line: 4,
+            originalLine: 4,
+            htmlUrl: "https://github.com/o/r/pull/1#discussion_r1",
+          },
+          {
+            id: 2,
+            inReplyToId: 1,
+            pullRequestReviewId: 7,
+            userId,
+            authorAssociation,
+            body: "Dismiss",
+            path: "src/x.ts",
+            line: 4,
+            originalLine: 4,
+            htmlUrl: "https://github.com/o/r/pull/1#discussion_r2",
+          },
+        ],
+        {
           botUserId: 99,
-          authorAssociation,
-          allowedAssociations,
-        }),
-      ).toBe(true);
-    },
-  );
-
-  it.each(["", "   ", undefined, "*", " * ", "\n*\t"])(
-    "rejects empty or wildcard association %j",
-    (authorAssociation) => {
-      expect(
-        isAuthorizedMaintainerDecision({
-          userId: 10,
-          botUserId: 99,
-          authorAssociation,
-          allowedAssociations: new Set(["*"]),
-        }),
-      ).toBe(false);
+          reviewLenses: new Map([[7, "review"]]),
+          allowedLenses: new Set(["review"]),
+          maintainerDecisionAssociations: new Set(allowed),
+        },
+      );
+      expect(thread?.authorizedReplies).toEqual(expected ? ["Dismiss"] : []);
+      expect(thread?.untrustedReplies).toEqual(!expected && userId !== 99 ? ["Dismiss"] : []);
     },
   );
 });

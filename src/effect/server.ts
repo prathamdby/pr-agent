@@ -5,7 +5,7 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
-import { agentWorkWebLive } from "../agentWork/runtime.js";
+import { AgentWorkSchedulerRuntimeLive } from "../agentWork/runtime.js";
 import { AgentWorkScheduler } from "../agentWork/scheduler.js";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
@@ -157,7 +157,7 @@ function buildEffectWebhookApp(cfg: Config) {
 export function buildEffectWebhookLayer(
   cfg: Config,
   serverFactory: () => Server = createServer,
-  schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = agentWorkWebLive(cfg),
+  schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = AgentWorkSchedulerRuntimeLive(cfg),
 ) {
   const appLayer = Layer.mergeAll(
     schedulerLayer,

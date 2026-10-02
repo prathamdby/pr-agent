@@ -41,7 +41,7 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
 
-vi.mock("../src/prWorkspace/index.js", () => ({
+vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 

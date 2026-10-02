@@ -17,7 +17,7 @@ import { getAppBotIdentity } from "../../github/appAuth.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
-import { withPrRepositoryView } from "../../prWorkspace/index.js";
+import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import {
   getOperationIntent,
@@ -34,7 +34,6 @@ import {
 import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
-import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 function replyTargetKindFromIntentDetail(
   value: unknown,
@@ -410,15 +409,15 @@ export async function executeAskJob(
 
       await env.beginAttempt();
       return withPrRepositoryView(
-        buildRepositoryViewParams(
-          item,
-          {
-            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-            headSha,
-            pullRequest: env.pullRequest,
-          },
-          payload,
-        ),
+        {
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+          headSha,
+          pullRequest: env.pullRequest,
+          repositorySizeKb: payload.repositorySizeKb,
+        },
         async (repositoryView) => {
           const transcript = await loadAskThreadTranscript({
             prSurface,

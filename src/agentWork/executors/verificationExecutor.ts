@@ -14,7 +14,7 @@ import {
   clearVerificationFailureSignal,
   publishVerificationFailure,
 } from "../../agent/verification/publishVerificationFailure.js";
-import { withPrRepositoryView } from "../../prWorkspace/index.js";
+import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import {
   MAX_REPO_POLICY_BYTES,
   MAX_PR_FILES_LISTED,
@@ -34,7 +34,6 @@ import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
 } from "../verificationPublishGate.js";
-import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 export async function executeVerificationJob(
   cfg: Config,
@@ -179,16 +178,16 @@ export async function executeVerificationJob(
       }
 
       const result = await withPrRepositoryView(
-        buildRepositoryViewParams(
-          item,
-          {
-            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-            headSha,
-            pullRequest: env.pullRequest,
-          },
-          payload,
-          { prFiles },
-        ),
+        {
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+          headSha,
+          pullRequest: env.pullRequest,
+          repositorySizeKb: payload.repositorySizeKb,
+          prFiles,
+        },
         async (view) => {
           // Load policy while the checkout still exists; publish runs after the view closes.
           const policyResult = await loadRepoPolicy(view.workspace.agentCwd, MAX_REPO_POLICY_BYTES);

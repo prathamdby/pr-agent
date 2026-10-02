@@ -337,7 +337,7 @@ export async function publishFindingBatch(
         },
         recover: async () => {
           if (operationMarker == null) return { kind: "absent" as const };
-          const found = await context.prSurface.findPublishedThreadBatch?.(
+          const found = await context.prSurface.findPublishedThreadBatch(
             operationMarker,
             context.ctx.headSha,
           );

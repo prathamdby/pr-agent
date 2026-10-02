@@ -5,19 +5,12 @@ import {
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
   MAX_STORED_COMMENT_TEXT_LEN,
-  SLASH_CANCEL_DONE_BODY,
-  SLASH_CANCEL_NONE_BODY,
-  SLASH_HELP_BODY,
-  SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY,
-  SLASH_REVIEW_FORCE_RESTARTED_BODY,
-  SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
   TRIAGE_INVALID_EXCLUDE,
   TRIAGE_UNKNOWN_SUBCOMMAND,
   sanitizeGithubLogin,
-  slashDisabledBody,
   type Features,
 } from "../../settings/index.js";
 import type { DeferredIntakeEvent } from "./deferredEvents.js";
@@ -35,7 +28,7 @@ import {
 } from "../types.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { isReviewForceCommand, parseTriageCommand } from "../../commands/parseSlashCommand.js";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { ReplyTarget } from "../types.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
   enqueueAck,
@@ -577,4 +570,50 @@ export async function applySlashCommandIntake(
   }
   await handleSlashUnknown(ctx, command);
   return events;
+}
+
+/** Slash command help (scheduler ack replies). */
+const SLASH_HELP_BODY = [
+  "### PR Agent help",
+  "",
+  "Commands (first line of a **new** comment):",
+  "- `/help` - show this message",
+  "- `/ask <question>` - ask about this PR or a specific line (or mention the App bot for the same Q&A)",
+  "- `/describe` - write the PR Agent description block (also runs when a PR opens). Title rewrite is on by default; set FEATURE_TITLE_REWRITE=false to keep the existing title",
+  "- `/review` - review the PR for bugs (also runs when a PR opens in `auto`, or in `approval` mode for trusted authors and after maintainer approval for forks)",
+  "- `/review force` - cancel any queued or in-progress review and start a new one on the latest commit",
+  "- `/cancel` - cancel a queued or in-progress review on this PR",
+  "- `/triage` - fix earlier PR Agent findings on this PR. Post on the conversation for all findings, or reply `/triage` inside one finding thread for that finding only.",
+  "- `/triage preview` - render the would-be unified diff for eligible findings. No commits, no push.",
+  "- `/triage all` - apply the previewed set (one commit per finding). Optional `exclude <thread ids>`. Refused without a matching `/triage preview` on this head.",
+  "- `/verify` - verify open findings against the current pull request head",
+  "",
+  "Notes:",
+  "- What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.",
+  "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
+  "- `/ask` and App-bot mentions read the containing thread so follow-ups stay in conversation. They do not change finding severity or dismiss threads.",
+  "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
+  "- Edited comments are ignored for slash parsing in v1.",
+].join("\n");
+
+/** Ack reply when `/review` finds an active review (and no `force` restart was requested). */
+const SLASH_REVIEW_ALREADY_IN_PROGRESS_BODY =
+  "A `/review` run is already queued or in progress for this pull request.";
+
+/** Ack reply when `/review force` cancelled an active review and queued a replacement. */
+const SLASH_REVIEW_FORCE_RESTARTED_BODY =
+  "Cancelled the previous review and started a new one on the latest commit.";
+
+/** Ack reply when `/cancel` finds no queued/running review. */
+const SLASH_CANCEL_NONE_BODY = "No review is queued or in progress for this pull request.";
+
+/** Ack reply when `/cancel` cancels an active review. */
+const SLASH_CANCEL_DONE_BODY = "Cancelled the in-progress review.";
+
+/** Ack reply when `/verify` finds an active verification. */
+const SLASH_VERIFY_ALREADY_IN_PROGRESS_BODY =
+  "A `/verify` run is already queued or in progress for this pull request.";
+
+function slashDisabledBody(command: string): string {
+  return `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings; see docs/features.md).`;
 }

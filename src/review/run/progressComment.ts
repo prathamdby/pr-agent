@@ -12,7 +12,7 @@ import {
   STATUS_RUNNING,
   STATUS_WAITING,
   statusFindings,
-} from "../../github/statusCopy.js";
+} from "../statusCopy.js";
 import {
   REVIEW_FAILURE_ALERT,
   REVIEW_AWAITING_APPROVAL_NOTE,

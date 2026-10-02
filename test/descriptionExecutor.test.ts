@@ -71,7 +71,7 @@ vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/prWorkspace/index.js", () => ({
+vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 

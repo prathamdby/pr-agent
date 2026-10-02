@@ -1,3 +1,4 @@
+import type { CiSummary } from "./ciSummaryTypes.js";
 /** Current CI projection marker format. Unknown attrs stay backward-readable. */
 export const CI_PROJECTION_FORMAT = 1;
 
@@ -201,4 +202,25 @@ export function replaceCiSummaryCellIfNewer(
   const result = applyCiProjectionBodyUpdate(body, nextCell, headSha, version, options);
   if (result == null || result.kind === "current") return null;
   return result.body;
+}
+
+export function formatReviewActionLineCiStatus(summary: CiSummary | null | undefined): string {
+  switch (summary?.status) {
+    case "passing":
+      return "CI is passing";
+    case "failing":
+      return "CI is failing";
+    case "pending":
+      return "CI is pending";
+    case "unavailable":
+      return "CI is unavailable";
+    case "none":
+      return "No CI checks ran on this head";
+    default:
+      return "CI has not started";
+  }
+}
+
+export function renderReviewActionLineCiStatus(summary: CiSummary | null | undefined): string {
+  return renderCiActionPhrase(formatReviewActionLineCiStatus(summary));
 }

@@ -1,10 +1,10 @@
+import { mintInstallationToken } from "../src/github/installationToken.js";
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import { AppError } from "../src/errors/appError.js";
 import {
   clearDurableAuthCachesForTest,
-  mintInstallationToken,
   runDurableWorkItem,
   type DegradationReason,
   type DurableExecutionResult,
@@ -520,6 +520,8 @@ describe("runDurableWorkItem", () => {
     const pullRequest = {
       additions: 1,
       deletions: 0,
+      title: "",
+      body: null,
       changed_files: 1,
       head: { sha: "abc123" },
     };
