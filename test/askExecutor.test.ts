@@ -1,8 +1,8 @@
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
-import type { AskJobData } from "../src/agentWork/types.js";
+import type { PgBoss } from "pg-boss";
 import {
   askFailureReplyOperationKey,
   askReplyOperationKey,
@@ -23,7 +23,6 @@ const mocks = vi.hoisted(() => ({
   hasCompletedPublishStep: vi.fn(),
   recordAskPublishStep: vi.fn(),
   runAskRun: vi.fn(),
-  runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
   getAppBotIdentity: vi.fn(),
   findExistingAskReplyComment: vi.fn(),
@@ -41,14 +40,6 @@ vi.mock("../src/agentWork/repository.js", () => ({
 vi.mock("../src/agent/ask/askRun.js", () => ({
   runAskRun: mocks.runAskRun,
 }));
-
-vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
-  return {
-    ...actual,
-    runDurableWorkItem: mocks.runDurableWorkItem,
-  };
-});
 
 vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
@@ -84,7 +75,19 @@ vi.mock("../src/analytics/index.js", () => ({
   captureException: vi.fn(),
 }));
 
-import { executeAskJob } from "../src/agentWork/executors/askExecutor.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+
+let runExecution: () => Promise<unknown>;
+function configureExecution(
+  run: (definition: ReturnType<typeof createWorkDefinitions>["ask"]) => Promise<unknown>,
+): void {
+  runExecution = () =>
+    run(
+      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
+        .ask,
+    );
+}
 
 const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
@@ -94,54 +97,23 @@ function askItem() {
   return makeAskWorkItem({ headSha: "head" });
 }
 
-function askJob(): JobWithMetadata<AskJobData> {
-  const now = new Date();
-  return {
-    id: "job-1",
-    name: "agent-work-ask",
-    data: { kind: "ask", workItemId: "wi-1" },
-    expireInSeconds: 3600,
-    heartbeatSeconds: null,
-    signal: new AbortController().signal,
-    priority: 0,
-    state: "active",
-    retryLimit: 3,
-    retryCount: 0,
-    retryDelay: 0,
-    retryBackoff: false,
-    startAfter: now,
-    startedOn: now,
-    singletonKey: null,
-    singletonOn: null,
-    deleteAfterSeconds: 0,
-    createdOn: now,
-    completedOn: null,
-    keepUntil: now,
-    policy: "standard",
-    heartbeatOn: null,
-    blocked: false,
-    blocking: false,
-    pendingDependencies: 0,
-    deadLetter: "",
-    output: {},
-    sourceName: null,
-    sourceId: null,
-    sourceCreatedOn: null,
-    sourceRetryCount: null,
-    sourceOutput: null,
-    sourceRootId: null,
-  };
-}
-
 function mockDurableExecution(): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
-    await spec.execute(askItem(), {
-      prSurface: fakeDurablePrSurface(),
-      headSha: "head",
-      leaseEpoch: null,
-      beginAttempt: async () => mockWorkClaim(),
-      signal: new AbortController().signal,
-    });
+  configureExecution(async (spec) => {
+    await spec.execute(
+      askItem(),
+      createDurableExecutionContext({
+        pool,
+        item: askItem(),
+        prSurface: fakeDurablePrSurface(),
+        headSha: "head",
+        leaseEpoch: null,
+        job: makeDurableJobMetadata(),
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        getClaim: () => undefined,
+        getEscalation: () => undefined,
+      }),
+    );
   });
 }
 
@@ -154,7 +126,7 @@ function mockRepositoryView(): void {
   );
 }
 
-describe("executeAskJob", () => {
+describe("ask work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDurablePrSurface();
@@ -172,7 +144,7 @@ describe("executeAskJob", () => {
   });
 
   it("runs the agent and records first answer publish", async () => {
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
@@ -231,11 +203,11 @@ describe("executeAskJob", () => {
         usage: { estimated: false, totalTokens: 9 },
       });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
     memoryOperationIntentStore.reset();
     resetDurablePrSurface();
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(2);
     expect(mocks.recordAskProviderUsage).toHaveBeenNthCalledWith(1, pool, {
@@ -254,7 +226,26 @@ describe("executeAskJob", () => {
     mocks.waitForReadySnapshot.mockResolvedValue({ id: "snap-ready" });
     const ftsCfg = makeTestConfig({ piModel: "test", codeIndexMode: "fts" });
 
-    await executeAskJob(ftsCfg, pool, boss, askJob());
+    await createWorkDefinitions({
+      cfg: ftsCfg,
+      pool,
+      boss,
+      installationSurface: openInstallationSurface(),
+    }).ask.execute(
+      askItem(),
+      createDurableExecutionContext({
+        pool,
+        item: askItem(),
+        job: makeDurableJobMetadata(),
+        prSurface: fakeDurablePrSurface(),
+        headSha: "head",
+        leaseEpoch: null,
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        getClaim: () => undefined,
+        getEscalation: () => undefined,
+      }),
+    );
 
     expect(mocks.waitForReadySnapshot).toHaveBeenCalledWith(
       pool,
@@ -277,7 +268,7 @@ describe("executeAskJob", () => {
   it("skips agent and answer publish when the ask reply was already recorded", async () => {
     mocks.hasCompletedPublishStep.mockResolvedValue(true);
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runAskRun).not.toHaveBeenCalled();
@@ -291,17 +282,25 @@ describe("executeAskJob", () => {
   it("returns degraded when the publish record fails after answer delivery", async () => {
     let result: unknown;
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
-      result = await spec.execute(askItem(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "head",
-        leaseEpoch: null,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      result = await spec.execute(
+        askItem(),
+        createDurableExecutionContext({
+          pool,
+          item: askItem(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "head",
+          leaseEpoch: null,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(result).toEqual({ kind: "completed", degradation: ["publish_record_failed"] });
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
@@ -323,20 +322,28 @@ describe("executeAskJob", () => {
 
   it("skips terminal failure reply after the answer was delivered", async () => {
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
-      await spec.execute(item, {
-        prSurface,
-        headSha: "head",
-        leaseEpoch: null,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+      await spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item: item,
+          prSurface,
+          headSha: "head",
+          leaseEpoch: null,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
       await spec.onTerminalFailure?.(item, prSurface, new Error("complete failed"));
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
@@ -344,13 +351,13 @@ describe("executeAskJob", () => {
 
   it("skips terminal failure reply when durable ask_reply is already published", async () => {
     mocks.hasCompletedPublishStep.mockResolvedValue(true);
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
@@ -368,13 +375,13 @@ describe("executeAskJob", () => {
       operationKey,
       status: "reconciled",
     });
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await spec.onTerminalFailure?.(item, prSurface, new Error("dead after crash"));
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
@@ -390,13 +397,13 @@ describe("executeAskJob", () => {
       commentId: 5151,
       targetKind: "prConversation",
     });
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await spec.onTerminalFailure?.(item, prSurface, new Error("dead after crash"));
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).toHaveBeenCalled();
@@ -418,18 +425,26 @@ describe("executeAskJob", () => {
     durablePrSurfaceControls().rejectNextInlineReviewReply(
       Object.assign(new Error("thread unavailable"), { status: 404 }),
     );
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
-      await spec.execute(item, {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "head",
-        leaseEpoch: null,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item: item,
+          prSurface: fakeDurablePrSurface(),
+          headSha: "head",
+          leaseEpoch: null,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.target).toEqual({
@@ -474,17 +489,25 @@ describe("executeAskJob", () => {
       commentId: 4242,
       targetKind: "inlineReviewThread",
     });
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
-      await spec.execute(item, {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "head",
-        leaseEpoch: null,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item: item,
+          prSurface: fakeDurablePrSurface(),
+          headSha: "head",
+          leaseEpoch: null,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.target).toEqual({
@@ -505,22 +528,30 @@ describe("executeAskJob", () => {
 
   it("posts terminal failure reply when the ask never delivered an answer", async () => {
     mocks.runAskRun.mockRejectedValue(new Error("agent failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await expect(
-        spec.execute(item, {
-          prSurface,
-          headSha: "head",
-          leaseEpoch: null,
-          beginAttempt: async () => mockWorkClaim(),
-          signal: new AbortController().signal,
-        }),
+        spec.execute(
+          item,
+          createDurableExecutionContext({
+            pool,
+            item: item,
+            prSurface,
+            headSha: "head",
+            leaseEpoch: null,
+            job: makeDurableJobMetadata(),
+            beginAttempt: async () => mockWorkClaim(),
+            signal: new AbortController().signal,
+            getClaim: () => undefined,
+            getEscalation: () => undefined,
+          }),
+        ),
       ).rejects.toThrow("agent failed");
       await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toContain(
@@ -530,14 +561,14 @@ describe("executeAskJob", () => {
   });
 
   it("posts exactly one failure reply when a fresh hook finds nothing durable", async () => {
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
       await spec.onTerminalFailure?.(item, prSurface, new Error("retried hook"));
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toContain(
@@ -562,14 +593,14 @@ describe("executeAskJob", () => {
       status: "outcome_unknown",
     });
     mocks.findExistingAskReplyComment.mockResolvedValue(null);
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await spec.onTerminalFailure?.(item, prSurface, new Error("dead after unknown mutate"));
       await spec.onTerminalFailure?.(item, prSurface, new Error("retried hook"));
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toContain(
@@ -585,21 +616,29 @@ describe("executeAskJob", () => {
 
   it("does not post terminal failure reply on non-terminal retry", async () => {
     mocks.runAskRun.mockRejectedValue(new Error("transient"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+    configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
       await expect(
-        spec.execute(item, {
-          prSurface,
-          headSha: "head",
-          leaseEpoch: null,
-          beginAttempt: async () => mockWorkClaim(),
-          signal: new AbortController().signal,
-        }),
+        spec.execute(
+          item,
+          createDurableExecutionContext({
+            pool,
+            item: item,
+            prSurface,
+            headSha: "head",
+            leaseEpoch: null,
+            job: makeDurableJobMetadata(),
+            beginAttempt: async () => mockWorkClaim(),
+            signal: new AbortController().signal,
+            getClaim: () => undefined,
+            getEscalation: () => undefined,
+          }),
+        ),
       ).rejects.toThrow("transient");
     });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
@@ -607,9 +646,7 @@ describe("executeAskJob", () => {
   it("does not remutate or rerun the model after post-mutate / pre-reconcile crash", async () => {
     memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 1);
 
-    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toThrow(
-      "crash before reconcile",
-    );
+    await expect(runExecution()).rejects.toThrow("crash before reconcile");
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
@@ -624,7 +661,7 @@ describe("executeAskJob", () => {
     resetDurablePrSurface();
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
@@ -643,7 +680,7 @@ describe("executeAskJob", () => {
     });
     mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 4242 });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
@@ -676,7 +713,7 @@ describe("executeAskJob", () => {
     });
     mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 5151 });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
@@ -696,7 +733,7 @@ describe("executeAskJob", () => {
   it("does not scan remote comments when no pending intent exists for this ask", async () => {
     mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 9999 });
 
-    await executeAskJob(cfg, pool, boss, askJob());
+    await runExecution();
 
     expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);

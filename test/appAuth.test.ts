@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  clearInstallationOctokitCacheForTest,
-  installationOctokit,
-} from "../src/github/appAuth.js";
+import { createInstallationOctokitCache } from "../src/github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../src/settings/index.js";
+
+let installationOctokit = createInstallationOctokitCache();
 
 describe("installationOctokit", () => {
   beforeEach(() => {
-    clearInstallationOctokitCacheForTest();
+    installationOctokit = createInstallationOctokitCache();
   });
 
   afterEach(() => {

@@ -1,3 +1,5 @@
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -25,8 +27,6 @@ import {
   recordPublishStep,
   recordReviewCheckRun,
 } from "../../src/agentWork/repository.js";
-import { executeVerificationJob } from "../../src/agentWork/executors/verificationExecutor.js";
-import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
 import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
 import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.js";
 import * as appAuth from "../../src/github/appAuth.js";
@@ -2426,7 +2426,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       VERIFICATION_PUBLISH_LENS,
       "verification_failure",
     );
-    clearDurableAuthCachesForTest();
     try {
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
         token: "test-installation-token",
@@ -2470,7 +2469,12 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         ...makeDurableJobMetadata(item.id),
         data: { kind: "verification" as const, workItemId: item.id },
       };
-      const run = executeVerificationJob(cfg, pool, boss, job);
+      const run = createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).verification.dispatch(job);
       if (scenario === "head-error") {
         await expect(run).rejects.toThrow("test_head_unavailable");
       } else {
@@ -2524,7 +2528,6 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       ).toEqual([]);
     } finally {
       vi.restoreAllMocks();
-      clearDurableAuthCachesForTest();
     }
   });
 

@@ -30,11 +30,7 @@ vi.mock("@octokit/rest", () => ({
 }));
 
 import { AppError } from "../src/errors/appError.js";
-import {
-  clearAppBotIdentityCacheForTest,
-  getAppBotIdentity,
-  prewarmAppBotIdentity,
-} from "../src/github/appAuth.js";
+import { createAppBotIdentityLookup } from "../src/github/appAuth.js";
 
 const cfg = { githubAppId: "111", githubAppPrivateKey: "k" } as const;
 
@@ -51,10 +47,12 @@ function holdAuthenticatedAppResponse(): () => void {
   return () => release();
 }
 
+let getAppBotIdentity = createAppBotIdentityLookup();
+
 describe("app bot identity cache", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearAppBotIdentityCacheForTest();
+    getAppBotIdentity = createAppBotIdentityLookup();
     authFn.mockResolvedValue({ token: "jwt" });
     getAuthenticated.mockResolvedValue({ data: { slug: "pr-agent" } });
     getByUsername.mockResolvedValue({ data: { id: 123, login: "pr-agent[bot]" } });
@@ -77,7 +75,7 @@ describe("app bot identity cache", () => {
   it("lets a cold caller await the boot prewarm lookup", async () => {
     const release = holdAuthenticatedAppResponse();
 
-    prewarmAppBotIdentity(cfg);
+    void getAppBotIdentity(cfg);
     await vi.waitFor(() => expect(getAuthenticated).toHaveBeenCalledTimes(1));
     const pending = getAppBotIdentity(cfg);
     expect(authFn).toHaveBeenCalledTimes(1);
@@ -104,8 +102,15 @@ describe("app bot identity cache", () => {
 
     await expect(getAppBotIdentity(cfg)).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("github.missing_app_slug");
+      if (!(error instanceof AppError)) throw error;
+      expect(error.code).toBe("github.missing_app_slug");
       return true;
     });
+  });
+  it("isolates App and private-key identities", async () => {
+    await getAppBotIdentity(cfg);
+    await getAppBotIdentity({ ...cfg, githubAppId: "222" });
+    await getAppBotIdentity({ ...cfg, githubAppPrivateKey: "rotated" });
+    expect(getAuthenticated).toHaveBeenCalledTimes(3);
   });
 });

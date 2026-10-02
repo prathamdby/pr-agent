@@ -1,3 +1,4 @@
+import { productionInstallationSurface } from "../installationSurface.js";
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -11,8 +12,6 @@ import {
   GITHUB_REACTION_PLUS_ONE,
   triageCancelledNotice,
 } from "../../settings/index.js";
-import { createPrSurface } from "../../github/prSurface.js";
-import { mintInstallationToken } from "../../github/installationToken.js";
 import {
   getProgressCommentOwner,
   getReviewQueuePosition,
@@ -28,7 +27,6 @@ import {
   renderReviewAwaitingApprovalNotice,
   renderReviewProgressComment,
 } from "../../review/run/progressComment.js";
-import { getAppBotIdentity } from "../../github/appAuth.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.js";
 import { canPublishApprovalNotice } from "../intake/reviewApprovals.js";
@@ -53,14 +51,14 @@ export async function canAckPublishProgress(
   return true;
 }
 
-type AckInstallation = Awaited<ReturnType<typeof mintInstallationToken>>;
+type AckInstallation = Awaited<ReturnType<typeof productionInstallationSurface.token>>;
 
-function ackPrSurface(
+async function ackPrSurface(
   cfg: Config,
   data: Pick<AckJobData, "installationId" | "owner" | "repo" | "prNumber">,
   installation: AckInstallation,
 ) {
-  return createPrSurface({
+  return productionInstallationSurface.create({
     cfg,
     installationId: data.installationId,
     owner: data.owner,
@@ -78,7 +76,7 @@ async function publishAckProgress(
   resourceKey: string,
   boss?: PgBoss,
 ): Promise<void> {
-  const prSurface = ackPrSurface(cfg, data, installation);
+  const prSurface = await ackPrSurface(cfg, data, installation);
   const deferredHead = data.progress.headSha === DEFERRED_HEAD_SHA;
   const headSha = deferredHead ? await prSurface.getHeadSha() : data.progress.headSha;
   const rendered = await loadRenderableHeadCi(pool, data.owner, data.repo, headSha);
@@ -162,7 +160,7 @@ async function publishCancelProgress(
   installation: AckInstallation,
   resourceKey: string,
 ): Promise<void> {
-  const prSurface = ackPrSurface(cfg, data, installation);
+  const prSurface = await ackPrSurface(cfg, data, installation);
   const existing = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
   const rev = existing?.body != null ? parseProgressRevisionState(existing.body) : null;
   const ownsStub =
@@ -215,7 +213,7 @@ async function publishCancelProgress(
 }
 
 async function publishTriageCancellation(
-  prSurface: ReturnType<typeof ackPrSurface>,
+  prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
   data: AckJobData & { readonly cancelTriage: NonNullable<AckJobData["cancelTriage"]> },
 ): Promise<void> {
   await prSurface.setAcknowledgementReaction(data.cancelTriage.targets, GITHUB_REACTION_MINUS_ONE);
@@ -233,15 +231,15 @@ export async function executeAckJob(
   boss?: PgBoss,
 ): Promise<void> {
   try {
-    const bot = await getAppBotIdentity(cfg);
+    const bot = await productionInstallationSurface.botIdentity(cfg);
     if (data.commenterId != null && bot.userId === data.commenterId) return;
   } catch (e) {
     logWarn("ack_bot_identity_check_failed", {
       message: e instanceof Error ? e.message : String(e),
     });
   }
-  const installation = await mintInstallationToken(cfg, data.installationId);
-  const prSurface = ackPrSurface(cfg, data, installation);
+  const installation = await productionInstallationSurface.token(cfg, data.installationId);
+  const prSurface = await ackPrSurface(cfg, data, installation);
   const resourceKey = prResourceKey(data.owner, data.repo, data.prNumber);
 
   if (!data.awaitingApproval && !data.closedApproval) {

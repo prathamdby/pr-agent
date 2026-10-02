@@ -15,12 +15,17 @@ import * as prSurfaceModule from "../src/github/prSurface.js";
 
 let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
 
-vi.mock("../src/github/installationToken.js", () => ({
+vi.mock("../src/github/installationToken.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/github/installationToken.js")>()),
   mintInstallationToken: vi.fn(async () => ({
     token: "tok",
     expiresAtTs: Date.now() + 3_600_000,
     ttlMs: 3_600_000,
   })),
+}));
+
+vi.mock("../src/github/appAuth.js", () => ({
+  getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
 }));
 
 vi.mock("../src/agentWork/ciProjection.js", () => ({

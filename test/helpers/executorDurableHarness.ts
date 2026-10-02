@@ -1,8 +1,6 @@
 import { vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
 import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
-import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
-import * as appAuth from "../../src/github/appAuth.js";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
 import * as repo from "../../src/agentWork/repository.js";
 import type { WorkClaim } from "../../src/agentWork/workItemStateRepository.js";
@@ -75,11 +73,6 @@ export function coreOf(item: AgentWorkItem): AgentWorkItemCore {
   }
 }
 
-export function mockFetchedWorkItem(item: AgentWorkItem | null): void {
-  vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
-  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
-}
-
 export function mockWorkClaim(overrides: Partial<WorkClaim> = {}): WorkClaim {
   return {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -99,21 +92,6 @@ export function setupDefaultDurableRepositoryMocks(): void {
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
   vi.mocked(repo.markWorkCancelled).mockResolvedValue(undefined);
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
-}
-
-export function setupDefaultDurableAuthMocks(): void {
-  clearDurableAuthCachesForTest();
-  vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
-    type: "token",
-    tokenType: "installation",
-    token: "tok",
-    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-    installationId: 42,
-  } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-  vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
-    userId: 999,
-    login: "pr-agent[bot]",
-  });
 }
 
 export function makeDurableJobMetadata(

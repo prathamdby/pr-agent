@@ -1,3 +1,4 @@
+import { createWorkDefinitions } from "./workDefinition.js";
 import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
@@ -29,22 +30,9 @@ import {
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import { executeAckJob } from "./executors/ackExecutor.js";
-import { executeAskJob } from "./executors/askExecutor.js";
 import { executeCiProjectionJob } from "./executors/ciProjectionExecutor.js";
-import { executeDescriptionJob } from "./executors/descriptionExecutor.js";
-import { executeReviewJob } from "./executors/reviewExecutor.js";
-import { executeTriageJob } from "./executors/triageExecutor.js";
-import { executeVerificationJob } from "./executors/verificationExecutor.js";
 import { executeCodeIndexBuildJob, type CodeIndexBuildJobData } from "../codeIndex/buildJob.js";
-import {
-  type AckJobData,
-  type AskJobData,
-  type CiProjectionJobData,
-  type DescriptionJobData,
-  type ReviewJobData,
-  type TriageJobData,
-  type VerificationJobData,
-} from "./types.js";
+import { type AckJobData, type CiProjectionJobData } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
 import {
   collectQueueDiagnostics,
@@ -86,11 +74,9 @@ export async function logAgentQueueStats(boss: PgBoss): Promise<void> {
   }
 }
 
-function workerJobMeta(
-  queue: string,
-  data: { workItemId?: string; webhookEventId?: string; delivery?: string },
-  pgBossJobId?: string,
-) {
+type JobCorrelation = { workItemId?: string; webhookEventId?: string; delivery?: string };
+
+function workerJobMeta(queue: string, data: JobCorrelation, pgBossJobId?: string) {
   return {
     method: "JOB",
     path: `/queues/${queue}`,
@@ -112,17 +98,20 @@ function registerPlainQueue<T>(
   queue: string,
   options: Parameters<PgBoss["work"]>[1],
   dispatch: (job: Job<T>) => Promise<void>,
+  correlation: (data: T) => JobCorrelation = () => ({}),
 ): Promise<unknown> {
   return boss.work<T>(queue, options, async ([job]) => {
     await executions.track(() =>
-      runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () => dispatch(job)),
+      runWithOperationLogger(workerJobMeta(queue, correlation(job.data), job.id), () =>
+        dispatch(job),
+      ),
     );
   });
 }
 
 type MetadataWorkOptions = WorkOptions & { includeMetadata: true };
 
-function registerMetadataQueue<T>(
+function registerMetadataQueue<T extends JobCorrelation>(
   boss: PgBoss,
   executions: ExecutionTracker,
   queue: string,
@@ -130,13 +119,13 @@ function registerMetadataQueue<T>(
   dispatch: (job: JobWithMetadata<T>) => Promise<void>,
 ): Promise<unknown> {
   const workOptions = { ...options, includeMetadata: true } satisfies MetadataWorkOptions;
-  return boss.work<T>(queue, workOptions, async ([job]) => {
+  return boss.work<T, void, MetadataWorkOptions>(queue, workOptions, async ([job]) => {
     await executions.track(() =>
-      runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
+      runWithOperationLogger(workerJobMeta(queue, job.data, job.id), () =>
         // The inner durable lane covers the work-item outcome, not the logger
         // flush: shutdown gives this dispatch a bounded reserve after the
         // general settle, before the pool may end.
-        executions.track(() => dispatch(job as JobWithMetadata<T>), { durable: true }),
+        executions.track(() => dispatch(job), { durable: true }),
       ),
     );
   });
@@ -185,6 +174,7 @@ export const AgentWorkerLive = (
               ACK_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeAckJob(cfg, pool, job.data, boss),
+              (data) => data,
             ).then(() => {
               registeredQueues.add(ACK_QUEUE);
             }),
@@ -194,66 +184,21 @@ export const AgentWorkerLive = (
               CI_PROJECTION_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeCiProjectionJob(cfg, pool, boss, job.data),
+              (data) => data,
             ).then(() => {
               registeredQueues.add(CI_PROJECTION_QUEUE);
             }),
-            registerMetadataQueue<ReviewJobData>(
-              boss,
-              executions,
-              REVIEW_QUEUE,
-              {
-                localConcurrency: cfg.reviewConcurrency,
-                ...durableQueueOptions,
-              },
-              (job) => executeReviewJob(cfg, pool, boss, job),
-            ).then(() => {
-              registeredQueues.add(REVIEW_QUEUE);
-            }),
-            registerMetadataQueue<AskJobData>(
-              boss,
-              executions,
-              ASK_QUEUE,
-              { localConcurrency: cfg.askConcurrency, ...durableQueueOptions },
-              (job) => executeAskJob(cfg, pool, boss, job),
-            ).then(() => {
-              registeredQueues.add(ASK_QUEUE);
-            }),
-            registerMetadataQueue<DescriptionJobData>(
-              boss,
-              executions,
-              DESCRIPTION_QUEUE,
-              {
-                localConcurrency: cfg.descriptionConcurrency,
-                ...durableQueueOptions,
-              },
-              (job) => executeDescriptionJob(cfg, pool, boss, job),
-            ).then(() => {
-              registeredQueues.add(DESCRIPTION_QUEUE);
-            }),
-            registerMetadataQueue<TriageJobData>(
-              boss,
-              executions,
-              TRIAGE_QUEUE,
-              {
-                localConcurrency: cfg.triageConcurrency,
-                ...durableQueueOptions,
-              },
-              (job) => executeTriageJob(cfg, pool, boss, job),
-            ).then(() => {
-              registeredQueues.add(TRIAGE_QUEUE);
-            }),
-            registerMetadataQueue<VerificationJobData>(
-              boss,
-              executions,
-              VERIFICATION_QUEUE,
-              {
-                localConcurrency: cfg.verificationConcurrency,
-                ...durableQueueOptions,
-              },
-              (job) => executeVerificationJob(cfg, pool, boss, job),
-            ).then(() => {
-              registeredQueues.add(VERIFICATION_QUEUE);
-            }),
+            ...Object.values(createWorkDefinitions({ cfg, pool, boss })).map((definition) =>
+              registerMetadataQueue(
+                boss,
+                executions,
+                definition.queue,
+                { localConcurrency: definition.concurrency, ...durableQueueOptions },
+                definition.dispatch,
+              ).then(() => {
+                registeredQueues.add(definition.queue);
+              }),
+            ),
             registerPlainQueue(
               boss,
               executions,

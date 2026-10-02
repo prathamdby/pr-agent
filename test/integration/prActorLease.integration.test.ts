@@ -7,6 +7,9 @@ import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../../src/gi
 import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../../src/github/prSurface.js";
 import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.js";
 
+import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import * as localPrWorkspaceModule from "../../src/prWorkspace/localPrWorkspace.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -18,8 +21,6 @@ import * as postgres from "../../src/db/postgres.js";
 import * as bossModule from "../../src/agentWork/boss.js";
 import * as executionTrackerModule from "../../src/agentWork/executionTracker.js";
 import * as reviewExecutorModule from "../../src/agentWork/executors/reviewExecutor.js";
-import { executeDescriptionJob } from "../../src/agentWork/executors/descriptionExecutor.js";
-import { executeVerificationJob } from "../../src/agentWork/executors/verificationExecutor.js";
 import * as descriptionRun from "../../src/agent/description/descriptionRun.js";
 import { AppError } from "../../src/errors/appError.js";
 import { assistantFromText } from "../../src/agentRun/sessionHelpers.js";
@@ -48,7 +49,6 @@ import * as workRepository from "../../src/agentWork/repository.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as prSurfaceModule from "../../src/github/prSurface.js";
 import {
-  clearDurableAuthCachesForTest,
   acquireAndClaimWorkItem,
   runDurableWorkItem,
   type DurableJobSpec,
@@ -625,7 +625,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "sendDebounced").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
-      clearDurableAuthCachesForTest();
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
         type: "token",
         tokenType: "installation",
@@ -683,7 +682,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         }
         return close(params);
       });
-      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, job);
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).review.dispatch(job);
       expect(interrupted).toBe(true);
       expect(await getWorkItem(pool, workItemId)).toMatchObject({
         status: "running",
@@ -721,7 +725,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
         [resourceKey],
       );
-      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, { ...job, id: randomUUID() });
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).review.dispatch({ ...job, id: randomUUID() });
       const expectedStatus = mode === "lightweight" ? "completed" : "failed";
       expect(await getWorkItem(pool, workItemId)).toMatchObject({
         status: expectedStatus,
@@ -744,7 +753,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         expect(fake.controls.reactions.map((reaction) => reaction.kind)).toEqual(["-1"]);
       }
       const eventCount = fake.controls.events.length;
-      await reviewExecutorModule.executeReviewJob(cfg, pool, boss, { ...job, id: randomUUID() });
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).review.dispatch({ ...job, id: randomUUID() });
       expect(fake.controls.events).toHaveLength(eventCount);
       console.info(
         "lightweight-recovery-evidence",
@@ -809,7 +823,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           [resourceKey],
         );
       }
-      clearDurableAuthCachesForTest();
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
         type: "token",
         tokenType: "installation",
@@ -854,7 +867,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         await pool.query("UPDATE agent_work_items SET attempt_count = 3 WHERE id = $1", [
           verificationId,
         ]);
-        await executeVerificationJob(cfg, pool, boss, {
+        await createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).verification.dispatch({
           ...jobs[0],
           data: { kind: "verification", workItemId: verificationId },
         });
@@ -940,7 +958,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
           [resourceKey],
         );
-        await executeDescriptionJob(cfg, pool, boss, jobs[1]);
+        await createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).description.dispatch(jobs[1]);
         expect(run).toHaveBeenCalledOnce();
         expect((await getWorkItem(pool, workItemId))?.status).toBe("failed");
         expect(fake.controls.replies).toHaveLength(1);
@@ -969,7 +992,14 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             throw failure;
           });
         if (outcome === "admission_ack_lost") {
-          await expect(executeDescriptionJob(cfg, pool, boss, jobs[0])).rejects.toBe(failure);
+          await expect(
+            createWorkDefinitions({
+              cfg: cfg,
+              pool: pool,
+              boss: boss,
+              installationSurface: openInstallationSurface(),
+            }).description.dispatch(jobs[0]),
+          ).rejects.toBe(failure);
           expect(prWorkspaceModule.withPrRepositoryView).not.toHaveBeenCalled();
           expect(run).not.toHaveBeenCalled();
           expect(await getWorkItem(pool, workItemId)).toMatchObject({
@@ -989,7 +1019,14 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               throw failure;
             }),
           );
-        await expect(executeDescriptionJob(cfg, pool, boss, jobs[0])).rejects.toBe(failure);
+        await expect(
+          createWorkDefinitions({
+            cfg: cfg,
+            pool: pool,
+            boss: boss,
+            installationSurface: openInstallationSurface(),
+          }).description.dispatch(jobs[0]),
+        ).rejects.toBe(failure);
         expect(prWorkspaceModule.withPrRepositoryView).not.toHaveBeenCalled();
         expect(run).not.toHaveBeenCalled();
       }
@@ -1005,6 +1042,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           release = resolve;
         });
         const held = runDurableWorkItem({
+          contextPolicy: createWorkDefinitions({ cfg, pool, boss }).description.contextPolicy,
+          runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
           cfg,
           pool,
           boss,
@@ -1095,7 +1134,14 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         }
         try {
           for (let attempt = 0; attempt < blocked; attempt++) {
-            pending.push(executeDescriptionJob(cfg, pool, boss, jobs[attempt]));
+            pending.push(
+              createWorkDefinitions({
+                cfg: cfg,
+                pool: pool,
+                boss: boss,
+                installationSurface: openInstallationSurface(),
+              }).description.dispatch(jobs[attempt]),
+            );
             await expect.poll(() => releases.length).toBe(attempt + 1);
             await pool.query(
               `UPDATE pr_actor_leases SET expires_at = now() - interval '1 second'
@@ -1112,9 +1158,21 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
                   preflight: { files: [], truncated: false, fileCount: 0, totalChanges: 0 },
                 }),
             );
-            await expect(executeDescriptionJob(cfg, pool, boss, jobs[1])).rejects.toBe(failure);
+            await expect(
+              createWorkDefinitions({
+                cfg: cfg,
+                pool: pool,
+                boss: boss,
+                installationSurface: openInstallationSurface(),
+              }).description.dispatch(jobs[1]),
+            ).rejects.toBe(failure);
           }
-          const terminal = executeDescriptionJob(cfg, pool, boss, jobs[3]);
+          const terminal = createWorkDefinitions({
+            cfg: cfg,
+            pool: pool,
+            boss: boss,
+            installationSurface: openInstallationSurface(),
+          }).description.dispatch(jobs[3]);
           pending.push(terminal);
           await expect
             .poll(async () => (await getWorkItem(pool, workItemId))?.status)
@@ -1126,7 +1184,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           for (const release of releases) release();
           await Promise.allSettled(pending);
         }
-        await executeDescriptionJob(cfg, pool, boss, jobs[4]);
+        await createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).description.dispatch(jobs[4]);
         expect(run).toHaveBeenCalledTimes(outcome === "running_resume" ? 3 : 2);
         expect(fake.controls.replies).toHaveLength(1);
         expect((await getWorkItem(pool, workItemId))?.attemptCount).toBe(3);
@@ -1163,7 +1226,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const attempts = outcome === "deterministic" ? 2 : 3;
       const invocations = outcome === "admission_ack_lost" ? 2 : attempts;
       for (let attempt = firstLaterJob; attempt < attempts; attempt++) {
-        const dispatch = executeDescriptionJob(cfg, pool, boss, jobs[attempt]);
+        const dispatch = createWorkDefinitions({
+          cfg: cfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).description.dispatch(jobs[attempt]);
         const result = await dispatch.then(
           () => undefined,
           (error: unknown) => error,
@@ -1214,7 +1282,12 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           takeoverWon: outcome === "takeover_before_start",
         }),
       );
-      await executeDescriptionJob(cfg, pool, boss, jobs[4]);
+      await createWorkDefinitions({
+        cfg: cfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).description.dispatch(jobs[4]);
       expect(run).toHaveBeenCalledTimes(invocations);
       expect(fake.controls.replies).toHaveLength(outcome === "published" ? 0 : 1);
     },
@@ -1230,7 +1303,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const fake = prSurfaceModule.createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
       const finish = vi.spyOn(fake.surface, "finishReviewCheck");
       if (mode === "unknown") finish.mockRejectedValueOnce(new Error("synthetic unknown response"));
-      clearDurableAuthCachesForTest();
       vi.spyOn(boss, "send").mockResolvedValue(randomUUID());
       vi.spyOn(boss, "findJobs").mockResolvedValue([]);
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
@@ -1325,6 +1397,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           detail: { status: "in_progress" },
         });
         await runDurableWorkItem({
+          contextPolicy: createWorkDefinitions({ cfg: makeTestConfig(), pool: scopedPool, boss })
+            .review.contextPolicy,
+          runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
           cfg: makeTestConfig(),
           pool: scopedPool,
           boss,
@@ -1489,7 +1564,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
     });
 
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    clearDurableAuthCachesForTest();
     vi.spyOn(evlog, "logInfo").mockImplementation(() => {});
     vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
     vi.spyOn(evlog, "logError").mockImplementation(() => {});
@@ -1598,6 +1672,8 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
 
     const now = new Date();
     let spec: DurableJobSpec<"review"> = {
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
+      runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
       cfg,
       pool,
       boss,
@@ -1919,7 +1995,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       await pendingSend;
       await settled;
       vi.restoreAllMocks();
-      clearDurableAuthCachesForTest();
       vi.useRealTimers();
       if (realQueue) {
         const jobs = await boss.findJobs(REVIEW_QUEUE, { data: { workItemId } });
@@ -2114,7 +2189,6 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         undefined,
       );
 
-      clearDurableAuthCachesForTest();
       vi.spyOn(appAuth, "mintInstallationAuth").mockResolvedValue({
         type: "token",
         tokenType: "installation",
@@ -2163,20 +2237,9 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         }
       });
 
-      vi.spyOn(reviewExecutorModule, "executeReviewJob").mockImplementation(
-        async (execCfg, execPool, execBoss, job) => {
-          await runDurableWorkItem({
-            cfg: execCfg,
-            pool: execPool,
-            boss: execBoss,
-            type: "review",
-            prActorLease: { queue: REVIEW_QUEUE },
-            job,
-            resolveHeadSha: async () => ({ headSha: "h" }),
-            execute: async () => ({ kind: "completed" }),
-          });
-        },
-      );
+      vi.spyOn(reviewExecutorModule, "createReviewWorkExecution").mockReturnValue({
+        execute: async () => ({ kind: "completed" }),
+      });
 
       const controller = new AbortController();
       const fiber = Effect.runFork(

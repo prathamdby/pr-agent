@@ -208,6 +208,94 @@ The full milestone gate also passed: 195 unit suites (2,638 tests), dedicated
 database integration and disposable-stack verification (508 tests each).
 Verification left `verify-artifacts/2026-10-02T14-54-12-388Z.md`.
 
+## M3 failure modes
+
+Recorded before test or production changes:
+
+1. A definition registers the wrong retained queue, work kind, lease policy, or
+   head/context policy and strands jobs or widens execution authority.
+2. A heterogeneous definition loses the connection between its loaded context
+   and execution/terminal hooks.
+3. Installation-only auth keys share credentials across App/private-key
+   identities; rejected lookups remain cached or expired tokens remain usable.
+4. Auth initialization moves the bot first-comment check behind another request
+   or resolves a deferred head before the durable claim.
+5. Injected runtime seams bypass production cancellation, lease fencing,
+   admission, terminal callbacks, or rate-limit hydration.
+6. Test reset branches survive in production caches, or isolated adapters still
+   depend on a globally spied durable dispatcher.
+7. An auxiliary caller loses its executor entry without receiving the same
+   installation boundary and publication fences.
+8. A repository view prepares before admission succeeds, or concurrent view
+   requests spend two attempts. A rejected admission must remain rejected for
+   the dispatch, and neither the view nor its callback may run.
+9. Moving admission into the context skips review's lightweight admission or
+   moves verification's bulk file/commit reads before admission. Recovery and
+   empty verification must still complete without preparing a workspace.
+10. A shared publish-abort policy misses the signal, durable cancellation, or
+    stolen lease; it performs lease reads for unleased ask work; or a failed
+    cancellation/lease read is treated as permission to publish. Review's
+    additional live-head predicate remains review-owned.
+11. Shared session metadata changes the work/installation/repository identity,
+    adds a new snapshot-table dependency, or forces triage's writable checkout
+    into the read-only repository-view lifecycle. Triage retains its checks
+    before tool writes, commits, and pushes.
+
+Existing executor, auth, worker, and durable integration tests own these
+contracts. No new test files or helper files are introduced.
+
+M3 implementation in the isolated runtime lane:
+
+- `workDefinition.ts` supplies the closed, typed five-feature table used by
+  worker registration through `DurableWorkDefinition`. Queue identities, lease policies, deferred-head resolution,
+  review identity loading, and commenter-context policy remain unchanged.
+- Execution builders expose their real execute/terminal hooks. Existing executor
+  tests use those definitions and the production execution-context factory rather
+  than globally replacing the durable runner. Existing integration dispatches
+  use the same table and genuine runner.
+- `installationSurface.ts` owns token/surface creation for durable, auxiliary,
+  and code-index lanes, with credential-identity/installation isolation,
+  near-expiry refresh, cold-lookup coalescing, and exact rejected-entry eviction.
+  Auth/SDK caches expose production factories, not test reset exports.
+  `openInstallationSurface(dependencies?)` returns the cache-owning adapter
+  with `token(cfg, installationId)`, `botIdentity(cfg)`, and `create(pr)`.
+  This deliberately differs from the proposed `openInstallationSurface(pr,
+dependencies)`: a per-PR factory would discard the process-wide coalescing
+  and token-freshness policy, and code-index builds need installation auth
+  without a PR. `create(pr)` opens the concrete surface on that shared adapter.
+- `createDurableRuntime` injects atomic transactions, renewal, observation, and
+  installation adapters. `createDurableExecutionContext` owns memoized admission
+  and live claim/escalation reads. `transactForTest` was in `durableJob.ts`, not
+  an Effect service, and is removed there.
+- The context now binds repository/installation/work identity and owns
+  `withAdmittedRepositoryView`, `durability`, and `shouldAbortPublish`.
+  Read-only executors cannot prepare their views before the same memoized
+  admission used by lightweight review and verification's pre-bulk-fetch gate.
+  Recovery and empty verification still avoid admission and checkout. Session
+  metadata has no new snapshot/checkpoint imports or runtime fields.
+  Description, review, verification, and triage adopt the shared signal,
+  cancellation, then lease predicate. Review retains its live-head extension.
+  Triage keeps its writable checkout and all existing tool/commit/push
+  checkpoints, now also stopping on a stolen lease or aborted host signal.
+  Verification's empty and late gates likewise stop on signal or lease loss.
+  Failed shared reads propagate, never authorizing publication.
+
+Main-checkout completion evidence: the four context-policy tests and triage's
+stolen-lease write-guard test were added to existing suites before their
+production changes and failed on the missing policies. The focused six-suite
+run then passed 224 tests; the complete 21-suite focused M3 run passed 349.
+`check:code`, guards, formatting, and exact M0 prompt comparison passed in main.
+No new test files, helpers, aliases, golden edits, or baseline growth were
+introduced. The final source assertion count stays 82.
+
+Isolated evidence: 344 tests passed across 21 existing runtime, auth, GitHub seam,
+architecture, and feature-map suites. Typecheck, backend lint, guards, formatting,
+and exact M0 prompt comparison passed. Prompt SHA-256 remains
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.
+Unsafe source assertions fell from 87 to 82. No services or provider calls were
+started. The parent still owns the merged full gate, dedicated-database
+integration, disposable-stack verification, deslop, and milestone commit.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

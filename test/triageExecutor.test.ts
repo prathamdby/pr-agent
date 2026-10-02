@@ -1,10 +1,10 @@
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
+import type { PgBoss } from "pg-boss";
 import type { EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import type { TriageJobData } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_BULK_PREVIEW_STALE,
@@ -22,9 +22,9 @@ import {
   resetDurablePrSurface,
 } from "./helpers/executorDurableHarness.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
+import * as prActorLease from "../src/agentWork/prActorLease.js";
 
 const mocks = vi.hoisted(() => ({
-  runDurableWorkItem: vi.fn(),
   getAppBotIdentity: vi.fn(),
   withWritablePrCheckout: vi.fn(),
   runFullPrTriage: vi.fn(),
@@ -42,11 +42,6 @@ const mocks = vi.hoisted(() => ({
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
 }));
-
-vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
-  return { ...actual, runDurableWorkItem: mocks.runDurableWorkItem };
-});
 
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
@@ -94,11 +89,31 @@ vi.mock("../src/agentWork/repository.js", () => ({
 
 vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
-  return { ...actual, assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined) };
+  return {
+    ...actual,
+    assertPrActorLeaseHeld: vi.fn().mockResolvedValue(undefined),
+    isPrActorLeaseHeld: vi.fn().mockResolvedValue(true),
+  };
 });
 
-import { executeTriageJob } from "../src/agentWork/executors/triageExecutor.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 import { makeTriageWorkItem } from "./helpers/agentWorkItems.js";
+
+let runExecution: (executionPool?: Pool) => Promise<unknown>;
+function configureExecution(
+  run: (definition: ReturnType<typeof createWorkDefinitions>["triage"]) => Promise<unknown>,
+): void {
+  runExecution = (executionPool = pool) =>
+    run(
+      createWorkDefinitions({
+        cfg,
+        pool: executionPool,
+        boss,
+        installationSurface: openInstallationSurface(),
+      }).triage,
+    );
+}
 
 const cfg = makeTestConfig();
 const pool = {} as Pool;
@@ -108,25 +123,26 @@ function item(overrides: Parameters<typeof makeTriageWorkItem>[0] = {}) {
   return makeTriageWorkItem({ headSha: "head", ...overrides });
 }
 
-function job(): JobWithMetadata<TriageJobData> {
-  return {
-    data: { kind: "triage", workItemId: "wi-1" },
-  } as JobWithMetadata<TriageJobData>;
-}
-
 function mockDurableExecution(
   workItem = item(),
   executionEnv: { escalation?: EscalationPlan } = {},
 ): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) =>
-    spec.execute(workItem, {
-      prSurface: fakeDurablePrSurface(),
-      headSha: "a".repeat(40),
-      leaseEpoch: 1,
-      beginAttempt: async () => mockWorkClaim(),
-      signal: new AbortController().signal,
-      ...executionEnv,
-    }),
+  configureExecution(async (spec) =>
+    spec.execute(
+      workItem,
+      createDurableExecutionContext({
+        pool,
+        item: workItem,
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        job: makeDurableJobMetadata(),
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        getEscalation: () => executionEnv.escalation,
+        getClaim: () => undefined,
+      }),
+    ),
   );
 }
 
@@ -169,7 +185,7 @@ function configureDefaultThreads(
   durablePrSurfaceControls().setThreads(new Map(entries));
 }
 
-describe("executeTriageJob", () => {
+describe("triage work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDurablePrSurface();
@@ -271,7 +287,7 @@ describe("executeTriageJob", () => {
     const escalation = { attempt: 2, kinds: ["tool_rounds"] } as const;
     mockDurableExecution(item(), { escalation });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalledWith(expect.objectContaining({ escalation }));
@@ -297,14 +313,22 @@ describe("executeTriageJob", () => {
       ],
     };
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.withWritablePrCheckout.mockImplementation(async (params, run) => {
       const checkout = {
@@ -346,7 +370,7 @@ describe("executeTriageJob", () => {
       query: vi.fn(async () => ({ rows: [] })),
     } as unknown as Pool;
 
-    await executeTriageJob(cfg, publishPool, boss, job());
+    await runExecution(publishPool);
 
     expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).not.toHaveBeenCalled();
@@ -395,14 +419,22 @@ describe("executeTriageJob", () => {
       ],
     };
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.withWritablePrCheckout.mockImplementation(async (params, run) => {
       const checkout = {
@@ -433,7 +465,7 @@ describe("executeTriageJob", () => {
       query: vi.fn(async () => ({ rows: [] })),
     } as unknown as Pool;
 
-    await executeTriageJob(cfg, publishPool, boss, job());
+    await runExecution(publishPool);
 
     expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).toHaveBeenCalledTimes(1);
@@ -456,7 +488,7 @@ describe("executeTriageJob", () => {
   it("stops before fetching branch information when cancellation is observed", async () => {
     mocks.shouldSkipWork.mockResolvedValue(true);
 
-    await expect(executeTriageJob(cfg, pool, boss, job())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "triage.cancelled",
     });
 
@@ -467,6 +499,19 @@ describe("executeTriageJob", () => {
     expect(mocks.publishTriageReportOnly).not.toHaveBeenCalled();
   });
 
+  it("blocks tool writes and commit/push after the lease is stolen", async () => {
+    await runExecution();
+    const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0];
+    const triageParams = mocks.runFullPrTriage.mock.calls[0]?.[0];
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
+    await expect(checkoutParams.beforeCommit()).rejects.toMatchObject({ code: "triage.cancelled" });
+    await expect(checkoutParams.beforePush()).rejects.toMatchObject({ code: "triage.cancelled" });
+    await expect(triageParams.refreshBeforeTool("commitFix")).rejects.toMatchObject({
+      code: "triage.cancelled",
+    });
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(true);
+  });
+
   it("stops before publishing an empty-inventory report when cancellation arrives", async () => {
     durablePrSurfaceControls().setBotFindingThreads([]);
     configureDefaultThreads([]);
@@ -475,7 +520,7 @@ describe("executeTriageJob", () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
 
-    await expect(executeTriageJob(cfg, pool, boss, job())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "triage.cancelled",
     });
 
@@ -490,7 +535,7 @@ describe("executeTriageJob", () => {
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
 
-    await expect(executeTriageJob(cfg, pool, boss, job())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "triage.cancelled",
     });
 
@@ -501,7 +546,7 @@ describe("executeTriageJob", () => {
   });
 
   it("passes durable cancellation and final PR-state guards through the seams", async () => {
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0] as {
       beforeCommit: () => Promise<void>;
@@ -542,7 +587,7 @@ describe("executeTriageJob", () => {
     ["closed", false, null],
     ["merged", true, "2026-01-01T00:00:00Z"],
   ] as const)("blocks both write guards for a %s PR", async (_label, merged, mergedAt) => {
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
     const checkoutParams = mocks.withWritablePrCheckout.mock.calls[0]?.[0] as {
       beforeCommit: () => Promise<void>;
       beforePush: () => Promise<void>;
@@ -580,7 +625,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
       durablePrSurfaceControls().events.some(
@@ -620,7 +665,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
       durablePrSurfaceControls().events.some((event) => event.kind === "lookupGitHubUser"),
@@ -650,7 +695,7 @@ describe("executeTriageJob", () => {
     );
     durablePrSurfaceControls().setGithubUser(42, null);
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -666,7 +711,7 @@ describe("executeTriageJob", () => {
   it("fork PRs publish report only and never create checkout", async () => {
     durablePrSurfaceControls().setPullRequestBranchInfo({ headRef: "branch", sameRepo: false });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalled();
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
@@ -675,7 +720,7 @@ describe("executeTriageJob", () => {
   it("reports already-resolved threads without implying no review ran", async () => {
     configureDefaultThreads([[1, { threadNodeId: "node", isResolved: true }]]);
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -702,7 +747,7 @@ describe("executeTriageJob", () => {
       payload,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
@@ -724,7 +769,7 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
@@ -741,7 +786,7 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
@@ -757,7 +802,7 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
@@ -774,7 +819,7 @@ describe("executeTriageJob", () => {
       payload,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
@@ -822,7 +867,7 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
@@ -841,7 +886,7 @@ describe("executeTriageJob", () => {
       },
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
@@ -895,7 +940,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -940,7 +985,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -980,7 +1025,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1025,7 +1070,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1066,7 +1111,7 @@ describe("executeTriageJob", () => {
       }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
       durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
@@ -1091,7 +1136,7 @@ describe("executeTriageJob", () => {
       payload,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
@@ -1105,21 +1150,29 @@ describe("executeTriageJob", () => {
 
   it("maps stale pushOutcome to durable degraded without a missing mapping", async () => {
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.publishTriage.mockResolvedValue({
       pushOutcome: "stale",
       missingThreadAction: false,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(executeResult).toEqual({ kind: "completed", degradation: ["push_stale"] });
     expect(mocks.publishTriage).toHaveBeenCalled();
@@ -1127,21 +1180,29 @@ describe("executeTriageJob", () => {
 
   it("maps missing thread actions to durable degraded without rewriting pushOutcome", async () => {
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.publishTriage.mockResolvedValue({
       pushOutcome: "pushed",
       missingThreadAction: true,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(executeResult).toEqual({ kind: "completed", degradation: ["thread_action_missing"] });
     await expect(mocks.publishTriage.mock.results[0]?.value).resolves.toEqual({
@@ -1152,31 +1213,39 @@ describe("executeTriageJob", () => {
 
   it("keeps a successful not-needed publish as completed without degraded", async () => {
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
     mocks.publishTriage.mockResolvedValue({
       pushOutcome: "not-needed",
       missingThreadAction: false,
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(executeResult).toEqual({ kind: "completed" });
   });
 
   it("posts terminal failure comment when no report exists", async () => {
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(item(), fakeDurablePrSurface(), new Error("boom"));
     });
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toBe(TRIAGE_FAILURE_MESSAGE);
@@ -1224,7 +1293,7 @@ describe("executeTriageJob", () => {
       (event) => event.kind === "resolveInlineReviewThread",
     ).length;
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriage).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
@@ -1261,7 +1330,7 @@ describe("executeTriageJob", () => {
     mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(null);
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(null);
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1281,7 +1350,7 @@ describe("executeTriageJob", () => {
       storedPreview({ headSha: "b".repeat(40) }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1330,7 +1399,7 @@ describe("executeTriageJob", () => {
       storedPreview({ threadRootCommentIds: [1, 2] }),
     );
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
     expect(mocks.replayPreviewHunks).toHaveBeenCalledWith(
@@ -1346,7 +1415,7 @@ describe("executeTriageJob", () => {
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
     mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
@@ -1361,7 +1430,7 @@ describe("executeTriageJob", () => {
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
     mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
 
-    await executeTriageJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.publishTriage).not.toHaveBeenCalled();

@@ -1,8 +1,7 @@
+import { productionInstallationSurface } from "./installationSurface.js";
 import type { Pool } from "pg";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
-import { createPrSurface } from "../github/prSurface.js";
-import { mintInstallationToken } from "../github/installationToken.js";
 import {
   DEFERRED_HEAD_SHA,
   STALE_QUEUED_WORK_BATCH_SIZE,
@@ -78,8 +77,8 @@ async function closeOpenOwnVerdict(params: {
     "check_run",
   );
   if (!isOwnCheckOpen(checkDetail)) return;
-  const installation = await mintInstallationToken(params.cfg, core.installationId);
-  const prSurface = createPrSurface({
+  const installation = await productionInstallationSurface.token(params.cfg, core.installationId);
+  const prSurface = await productionInstallationSurface.create({
     cfg: params.cfg,
     installationId: core.installationId,
     owner: core.owner,

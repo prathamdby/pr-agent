@@ -1,10 +1,12 @@
-import { mintInstallationToken } from "../src/github/installationToken.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import { AppError } from "../src/errors/appError.js";
 import {
-  clearDurableAuthCachesForTest,
+  createDurableRuntime,
+  createDurableExecutionContext,
   runDurableWorkItem,
   type DegradationReason,
   type DurableExecutionResult,
@@ -90,6 +92,10 @@ import * as appAuth from "../src/github/appAuth.js";
 import * as prSurface from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
+import * as repositoryView from "../src/prWorkspace/prRepositoryView.js";
+import { mockWorkClaim, fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
+
+let installationSurface = openInstallationSurface();
 
 const cfg = makeTestConfig();
 const pool = {} as Pool;
@@ -151,6 +157,7 @@ function runReviewWorkItem(
   overrides: Partial<DurableJobSpec<"review">> & Pick<DurableJobSpec<"review">, "execute">,
 ): Promise<void> {
   return runDurableWorkItem({
+    contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
     cfg,
     pool,
     boss,
@@ -160,7 +167,10 @@ function runReviewWorkItem(
     resolveHeadSha: async () => ({ headSha: "x" }),
     // Unit pool is a `{}` stub with mocked repositories: run the atomic body
     // without a real transaction (mocked acquire/claim/release ignore it).
-    transactForTest: async (fn) => fn(pool as unknown as PoolClient),
+    runtime: createDurableRuntime({
+      installationSurface,
+      transaction: async (_pool, fn) => fn(pool as unknown as PoolClient),
+    }),
     ...overrides,
     execute: async (item, env) => {
       await env.beginAttempt();
@@ -211,7 +221,7 @@ function defaultMocks() {
     expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     installationId: 42,
   } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-  clearDurableAuthCachesForTest();
+  installationSurface = openInstallationSurface();
   vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
@@ -803,7 +813,9 @@ describe("runDurableWorkItem", () => {
     const execute = vi.fn().mockResolvedValue(completedResult());
 
     await runDurableWorkItem({
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).ask.contextPolicy,
       cfg,
+      runtime: createDurableRuntime({ installationSurface }),
       pool,
       boss,
       job: makeJob(),
@@ -834,7 +846,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("single-flights concurrent installation token mints", async () => {
-    clearDurableAuthCachesForTest();
+    installationSurface = openInstallationSurface();
     let releaseMint!: () => void;
     const mintGate = new Promise<void>((resolve) => {
       releaseMint = resolve;
@@ -854,7 +866,10 @@ describe("runDurableWorkItem", () => {
         }),
     );
 
-    const pending = Promise.all([mintInstallationToken(cfg, 42), mintInstallationToken(cfg, 42)]);
+    const pending = Promise.all([
+      installationSurface.token(cfg, 42),
+      installationSurface.token(cfg, 42),
+    ]);
     await Promise.resolve();
     expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
     releaseMint();
@@ -883,7 +898,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("refreshes stale installation tokens", async () => {
-    clearDurableAuthCachesForTest();
+    installationSurface = openInstallationSurface();
     vi.mocked(appAuth.mintInstallationAuth)
       .mockResolvedValueOnce({
         type: "token",
@@ -900,8 +915,8 @@ describe("runDurableWorkItem", () => {
         installationId: 42,
       } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
 
-    const first = await mintInstallationToken(cfg, 42);
-    const second = await mintInstallationToken(cfg, 42);
+    const first = await installationSurface.token(cfg, 42);
+    const second = await installationSurface.token(cfg, 42);
 
     expect(first.token).toBe("old-token");
     expect(second.token).toBe("new-token");
@@ -1297,7 +1312,9 @@ describe("runDurableWorkItem", () => {
     const execute = vi.fn().mockResolvedValue(rescheduledResult({ afterComplete }));
 
     await runDurableWorkItem({
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
       cfg,
+      runtime: createDurableRuntime({ installationSurface }),
       pool,
       boss,
       job: makeJob(),
@@ -1780,6 +1797,150 @@ describe("runDurableWorkItem", () => {
     expect(afterComplete).toHaveBeenCalledTimes(2);
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
+  });
+});
+
+describe("durable execution context policies", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    defaultMocks();
+    vi.restoreAllMocks();
+  });
+
+  it("admits concurrent repository views once before acquisition and supplies bound metadata", async () => {
+    const item = makeItem();
+    let admit!: () => void;
+    const beginAttempt = vi.fn(
+      () =>
+        new Promise<ReturnType<typeof mockWorkClaim>>((resolve) => {
+          admit = () => resolve(mockWorkClaim());
+        }),
+    );
+    const acquire = vi
+      .spyOn(repositoryView, "withPrRepositoryView")
+      .mockResolvedValue("view-result");
+    const surface = fakeDurablePrSurface();
+    const env = createDurableExecutionContext({
+      pool,
+      item,
+      job: makeJob(),
+      prSurface: surface,
+      headSha: "bound-head",
+      leaseEpoch: 1,
+      signal: new AbortController().signal,
+      beginAttempt,
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    const callback = vi.fn();
+    const first = env.withAdmittedRepositoryView({ repositorySizeKb: 42 }, callback);
+    const second = env.withAdmittedRepositoryView({}, callback);
+    expect(beginAttempt).toHaveBeenCalledOnce();
+    expect(acquire).not.toHaveBeenCalled();
+    admit();
+    await expect(first).resolves.toBe("view-result");
+    await expect(second).resolves.toBe("view-result");
+    expect(acquire).toHaveBeenCalledTimes(2);
+    expect(acquire.mock.calls[0]?.[0]).toMatchObject({
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+      headSha: "bound-head",
+      repositorySizeKb: 42,
+    });
+    await expect(acquire.mock.calls[0]?.[0].gitCredentialAuth()).resolves.toMatchObject({
+      token: "tok",
+    });
+    expect(env.durability).toEqual({
+      pool,
+      workItemId: item.id,
+      installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+    });
+  });
+
+  it("never prepares a view after rejected admission, including later requests", async () => {
+    const failure = new Error("admission rejected");
+    const beginAttempt = vi.fn().mockRejectedValue(failure);
+    const acquire = vi.spyOn(repositoryView, "withPrRepositoryView");
+    const env = createDurableExecutionContext({
+      pool,
+      item: makeItem(),
+      job: makeJob(),
+      prSurface: fakeDurablePrSurface(),
+      headSha: "head",
+      leaseEpoch: 1,
+      signal: new AbortController().signal,
+      beginAttempt,
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    const callback = vi.fn();
+    await expect(env.withAdmittedRepositoryView({}, callback)).rejects.toBe(failure);
+    await expect(env.withAdmittedRepositoryView({}, callback)).rejects.toBe(failure);
+    expect(beginAttempt).toHaveBeenCalledOnce();
+    expect(acquire).not.toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("checks signal then cancellation then lease, and propagates failed reads", async () => {
+    const controller = new AbortController();
+    const item = makeItem();
+    const env = createDurableExecutionContext({
+      pool,
+      item,
+      job: makeJob(),
+      prSurface: fakeDurablePrSurface(),
+      headSha: "head",
+      leaseEpoch: 7,
+      signal: controller.signal,
+      beginAttempt: async () => mockWorkClaim(),
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    vi.mocked(repo.shouldSkipWork).mockImplementation(async () => {
+      expect(prActorLease.isPrActorLeaseHeld).not.toHaveBeenCalled();
+      return false;
+    });
+    await expect(env.shouldAbortPublish()).resolves.toBe(false);
+    expect(prActorLease.isPrActorLeaseHeld).toHaveBeenCalledWith(pool, item.id, 7);
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockClear().mockResolvedValue(false);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
+    await expect(env.shouldAbortPublish()).resolves.toBe(true);
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockClear();
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(true);
+    await expect(env.shouldAbortPublish()).resolves.toBe(true);
+    expect(prActorLease.isPrActorLeaseHeld).not.toHaveBeenCalled();
+    const failure = new Error("cancellation read failed");
+    vi.mocked(repo.shouldSkipWork).mockRejectedValue(failure);
+    await expect(env.shouldAbortPublish()).rejects.toBe(failure);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
+    vi.mocked(prActorLease.isPrActorLeaseHeld).mockRejectedValue(failure);
+    await expect(env.shouldAbortPublish()).rejects.toBe(failure);
+    vi.mocked(repo.shouldSkipWork).mockClear();
+    controller.abort();
+    await expect(env.shouldAbortPublish()).resolves.toBe(true);
+    expect(repo.shouldSkipWork).not.toHaveBeenCalled();
+  });
+
+  it("does not query a lease for unleased work", async () => {
+    const env = createDurableExecutionContext({
+      pool,
+      item: makeAskWorkItem(),
+      job: makeJob(),
+      prSurface: fakeDurablePrSurface(),
+      headSha: "head",
+      leaseEpoch: null,
+      signal: new AbortController().signal,
+      beginAttempt: async () => mockWorkClaim(),
+      getClaim: () => undefined,
+      getEscalation: () => undefined,
+    });
+    await expect(env.shouldAbortPublish()).resolves.toBe(false);
+    expect(repo.shouldSkipWork).toHaveBeenCalledOnce();
+    expect(prActorLease.isPrActorLeaseHeld).not.toHaveBeenCalled();
   });
 });
 

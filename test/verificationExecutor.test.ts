@@ -1,9 +1,9 @@
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
-import type { VerificationJobData } from "../src/agentWork/types.js";
+import type { PgBoss } from "pg-boss";
 import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
 import {
@@ -13,7 +13,6 @@ import {
 } from "./helpers/executorDurableHarness.js";
 
 const mocks = vi.hoisted(() => ({
-  runDurableWorkItem: vi.fn(),
   getAppBotIdentity: vi.fn(),
   withPrRepositoryView: vi.fn(),
   runVerification: vi.fn(),
@@ -31,11 +30,6 @@ vi.mock("../src/analytics/index.js", () => ({
   captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
   captureException: vi.fn(),
 }));
-
-vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
-  return { ...actual, runDurableWorkItem: mocks.runDurableWorkItem };
-});
 
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
@@ -62,6 +56,11 @@ vi.mock("../src/review/repoPolicy.js", () => ({
   loadRepoPolicy: mocks.loadRepoPolicy,
 }));
 
+vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/prActorLease.js")>();
+  return { ...actual, isPrActorLeaseHeld: vi.fn().mockResolvedValue(true) };
+});
+
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/repository.js")>();
   return {
@@ -72,12 +71,24 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
 });
 
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import { executeVerificationJob } from "../src/agentWork/executors/verificationExecutor.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
 } from "../src/agentWork/verificationPublishGate.js";
 import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
+
+let runExecution: () => Promise<unknown>;
+function configureExecution(
+  run: (definition: ReturnType<typeof createWorkDefinitions>["verification"]) => Promise<unknown>,
+): void {
+  runExecution = () =>
+    run(
+      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
+        .verification,
+    );
+}
 
 const cfg = makeTestConfig();
 const pool = {} as Pool;
@@ -92,21 +103,23 @@ function item(overrides: Parameters<typeof makeVerificationWorkItem>[0] = {}) {
   });
 }
 
-function job(): JobWithMetadata<VerificationJobData> {
-  return {
-    data: { kind: "verification", workItemId: "wi-1" },
-  } as JobWithMetadata<VerificationJobData>;
-}
-
 function mockDurableExecution(workItem = item()): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) =>
-    spec.execute(workItem, {
-      prSurface: fakeDurablePrSurface(),
-      headSha: "a".repeat(40),
-      leaseEpoch: 1,
-      beginAttempt: async () => mockWorkClaim(),
-      signal: new AbortController().signal,
-    }),
+  configureExecution(async (spec) =>
+    spec.execute(
+      workItem,
+      createDurableExecutionContext({
+        pool,
+        item: workItem,
+        prSurface: fakeDurablePrSurface(),
+        headSha: "a".repeat(40),
+        leaseEpoch: 1,
+        job: makeDurableJobMetadata(),
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        getClaim: () => undefined,
+        getEscalation: () => undefined,
+      }),
+    ),
   );
 }
 
@@ -171,7 +184,7 @@ describe("verificationHeadFreshness", () => {
   });
 });
 
-describe("executeVerificationJob", () => {
+describe("verification work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetDurablePrSurface({ headSha: "a".repeat(40) });
@@ -207,7 +220,7 @@ describe("executeVerificationJob", () => {
   it("short-circuits quietly when there are no open findings", async () => {
     durablePrSurfaceControls().setBotFindingThreads([]);
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runVerification).not.toHaveBeenCalled();
@@ -220,7 +233,7 @@ describe("executeVerificationJob", () => {
     durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     configureVerificationThreads([[1, { threadNodeId: "node", isResolved: true }]]);
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runVerification).not.toHaveBeenCalled();
@@ -243,7 +256,7 @@ describe("executeVerificationJob", () => {
       },
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.withPrRepositoryView).toHaveBeenCalled();
     expect(mocks.runVerification).toHaveBeenCalledWith(
@@ -316,7 +329,7 @@ describe("executeVerificationJob", () => {
       },
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
       durablePrSurfaceControls().events.some(
@@ -370,7 +383,7 @@ describe("executeVerificationJob", () => {
       },
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(
       durablePrSurfaceControls().events.some((event) => event.kind === "listCommitCompareFiles"),
@@ -389,7 +402,7 @@ describe("executeVerificationJob", () => {
       payload: null,
     });
 
-    await expect(executeVerificationJob(cfg, pool, boss, job())).rejects.toThrow(
+    await expect(runExecution()).rejects.toThrow(
       "Verification run ended without submitVerification",
     );
     expect(mocks.publishVerification).not.toHaveBeenCalled();
@@ -447,17 +460,25 @@ describe("executeVerificationJob", () => {
       const infoSpy = vi.spyOn(evlog, "logInfo");
 
       let executeResult: unknown;
-      mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
-        executeResult = await spec.execute(workItem, {
-          prSurface: fakeDurablePrSurface(),
-          headSha: boundHeadSha,
-          leaseEpoch: 1,
-          beginAttempt: async () => mockWorkClaim(),
-          signal: new AbortController().signal,
-        });
+      configureExecution(async (spec) => {
+        executeResult = await spec.execute(
+          workItem,
+          createDurableExecutionContext({
+            pool,
+            item: workItem,
+            prSurface: fakeDurablePrSurface(),
+            headSha: boundHeadSha,
+            leaseEpoch: 1,
+            job: makeDurableJobMetadata(),
+            beginAttempt: async () => mockWorkClaim(),
+            signal: new AbortController().signal,
+            getClaim: () => undefined,
+            getEscalation: () => undefined,
+          }),
+        );
       });
 
-      await executeVerificationJob(cfg, pool, boss, job());
+      await runExecution();
 
       expect(executeResult).toEqual(expected);
       expect(mocks.publishVerification).toHaveBeenCalledTimes(publishes ? 1 : 0);
@@ -492,7 +513,7 @@ describe("executeVerificationJob", () => {
     });
     mocks.shouldSkipWork.mockResolvedValue(true);
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runVerification).toHaveBeenCalled();
     expect(mocks.publishVerification).not.toHaveBeenCalled();
@@ -519,17 +540,25 @@ describe("executeVerificationJob", () => {
     const warnSpy = vi.spyOn(evlog, "logWarn");
 
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(executeResult).toEqual({
       kind: "completed",
@@ -569,17 +598,25 @@ describe("executeVerificationJob", () => {
     mocks.runVerification.mockResolvedValue({ submitted: true, payload: { verdicts: [] } });
 
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     const runParams = mocks.runVerification.mock.calls[0]?.[0] as {
       inventory: readonly BotFindingThread[];
@@ -613,18 +650,25 @@ describe("executeVerificationJob", () => {
     const escalation = { attempt: 2, kinds: ["tool_rounds"] as const };
 
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-        escalation,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getEscalation: () => escalation,
+          getClaim: () => undefined,
+        }),
+      );
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     const runParams = mocks.runVerification.mock.calls[0]?.[0] as {
       inventory: readonly BotFindingThread[];
@@ -671,17 +715,25 @@ describe("executeVerificationJob", () => {
     });
 
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
-      executeResult = await spec.execute(item(), {
-        prSurface: fakeDurablePrSurface(),
-        headSha: "a".repeat(40),
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      executeResult = await spec.execute(
+        item(),
+        createDurableExecutionContext({
+          pool,
+          item: item(),
+          prSurface: fakeDurablePrSurface(),
+          headSha: "a".repeat(40),
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runVerification).toHaveBeenCalled();
     expect(mocks.publishVerification).toHaveBeenCalled();
@@ -750,22 +802,29 @@ describe("executeVerificationJob", () => {
     });
 
     let executeResult: unknown;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+    configureExecution(async (spec) => {
       executeResult = await spec.execute(
         item({
           payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
         }),
-        {
+        createDurableExecutionContext({
+          pool,
+          item: item({
+            payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
+          }),
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
           leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
           beginAttempt: async () => mockWorkClaim(),
           signal: new AbortController().signal,
-        },
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
       );
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.runVerification).toHaveBeenCalledWith(
       expect.objectContaining({ compareFilesTruncated: truncated }),
@@ -800,7 +859,7 @@ describe("executeVerificationJob", () => {
   it("does not publish a failure signal on a successful run", async () => {
     durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(mocks.publishVerification).toHaveBeenCalled();
     expect(mocks.publishVerificationFailure).not.toHaveBeenCalled();
@@ -809,7 +868,7 @@ describe("executeVerificationJob", () => {
 
   it("publishes one failure signal from the terminal failure hook", async () => {
     let hooked = false;
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         item(),
         fakeDurablePrSurface(),
@@ -819,7 +878,7 @@ describe("executeVerificationJob", () => {
       hooked = true;
     });
 
-    await executeVerificationJob(cfg, pool, boss, job());
+    await runExecution();
 
     expect(hooked).toBe(true);
     expect(mocks.publishVerificationFailure).toHaveBeenCalledTimes(1);

@@ -1,6 +1,8 @@
+import type { BotIdentity } from "../../github/appAuth.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
+import { productionInstallationSurface } from "../installationSurface.js";
 import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../../config.js";
+
 import type { PrSurface } from "../../github/prSurface.js";
 import { durationMsFromClaim } from "../../analytics/workCompleted.js";
 import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
@@ -13,12 +15,9 @@ import {
   findExistingAskReplyComment,
 } from "../../agent/ask/recoverAskReply.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
-import { getAppBotIdentity } from "../../github/appAuth.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
-import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
-import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import {
   getOperationIntent,
   mergeOperationIntentDetail,
@@ -32,7 +31,7 @@ import {
   withOperationIntent,
 } from "../withOperationIntent.js";
 import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
-import type { AskJobData, AskWorkItem } from "../types.js";
+import type { AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
 
 function replyTargetKindFromIntentDetail(
@@ -85,7 +84,7 @@ async function findAskReplyOnAnyTarget(params: {
 }
 
 async function publishAskAnswer(
-  cfg: Config,
+  getBotIdentity: () => Promise<BotIdentity>,
   prSurface: PrSurface,
   item: AskWorkItem,
   answer: string,
@@ -100,7 +99,7 @@ async function publishAskAnswer(
     return { ...posted, targetKind: replyTarget.kind };
   } catch (e) {
     if (replyTarget.kind !== "inlineReviewThread") throw e;
-    const bot = await getAppBotIdentity(cfg);
+    const bot = await getBotIdentity();
     let recovered = null;
     for (const key of askReplyLookupKeys(item.resourceKey, operationKey)) {
       recovered = await findExistingAskReplyComment({
@@ -201,12 +200,12 @@ type AskReplyRecovery =
   | null;
 
 async function recoverDeliveredAskReplyCommentId(params: {
-  readonly cfg: Config;
+  readonly getBotIdentity: () => Promise<BotIdentity>;
   readonly pool: Pool;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
 }): Promise<AskReplyRecovery> {
-  const { cfg, pool, prSurface, item } = params;
+  const { pool, prSurface, item } = params;
   const operationKey = askReplyOperationKey(item.resourceKey, item.payload.commentId);
   const intent = await getOperationIntent(pool, item.id, operationKey);
   const stashed = askReplyCommentIdFromIntentDetail(intent?.detail);
@@ -227,7 +226,7 @@ async function recoverDeliveredAskReplyCommentId(params: {
     return null;
   }
 
-  const bot = await getAppBotIdentity(cfg);
+  const bot = await params.getBotIdentity();
   const recovered = await findAskReplyOnAnyTarget({
     prSurface,
     item,
@@ -259,19 +258,19 @@ type AskFailureReplyDecision = "skip" | "publish";
 
 /** Confirmed delivery only. An outcome_unknown answer mutation is not delivery. */
 async function decideAskFailureReply(params: {
-  readonly cfg: Config;
+  readonly getBotIdentity: () => Promise<BotIdentity>;
   readonly pool: Pool;
   readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
 }): Promise<AskFailureReplyDecision> {
-  const { cfg, pool, prSurface, item } = params;
+  const { pool, prSurface, item } = params;
   if (
     await hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply")
   ) {
     return "skip";
   }
   const recovered = await recoverDeliveredAskReplyCommentId({
-    cfg,
+    getBotIdentity: params.getBotIdentity,
     pool,
     prSurface,
     item,
@@ -327,19 +326,13 @@ async function finalizeAskReplyPublish(params: {
   }
 }
 
-export async function executeAskJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
-  job: JobWithMetadata<AskJobData>,
-): Promise<void> {
-  await runDurableWorkItem({
-    cfg,
-    pool,
-    boss,
-    job,
-    type: "ask",
-    resolveHeadSha: resolveWorkItemHead,
+export function createAskWorkExecution({
+  cfg,
+  pool,
+  installationSurface = productionInstallationSurface,
+}: WorkExecutionDependencies): WorkExecution<"ask"> {
+  const getBotIdentity = () => installationSurface.botIdentity(cfg);
+  return {
     execute: async (item, env) => {
       const { prSurface } = env;
       const headSha = env.headSha;
@@ -351,7 +344,7 @@ export async function executeAskJob(
       }
 
       const recoveredReply = await recoverDeliveredAskReplyCommentId({
-        cfg,
+        getBotIdentity,
         pool,
         prSurface,
         item,
@@ -407,15 +400,8 @@ export async function executeAskJob(
         return { kind: "completed", degradation: ["reply_outcome_unknown"] };
       }
 
-      await env.beginAttempt();
-      return withPrRepositoryView(
+      return env.withAdmittedRepositoryView(
         {
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-          headSha,
-          pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
@@ -452,14 +438,7 @@ export async function executeAskJob(
             threadTranscriptTruncated: transcript.truncated,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
-            durability: {
-              pool,
-              workItemId: item.id,
-              installationId: item.installationId,
-              owner: item.owner,
-              repo: item.repo,
-              prNumber: item.prNumber,
-            },
+            durability: env.durability,
             pool,
             codeIndexSnapshotId: ready?.id,
             signal: env.signal,
@@ -485,7 +464,7 @@ export async function executeAskJob(
                 replyTargetKind: payload.replyTarget.kind,
               },
               recover: async () => {
-                const bot = await getAppBotIdentity(cfg);
+                const bot = await getBotIdentity();
                 const recovered = await findAskReplyOnAnyTarget({
                   prSurface,
                   item,
@@ -505,7 +484,7 @@ export async function executeAskJob(
               reconcileDetail: () => ({ replyTargetKind: selectedTargetKind }),
               mutate: async () => {
                 const published = await publishAskAnswer(
-                  cfg,
+                  getBotIdentity,
                   prSurface,
                   item,
                   result.answer,
@@ -566,7 +545,15 @@ export async function executeAskJob(
     },
     onTerminalFailure: async (item, prSurface) => {
       if (!prSurface) return;
-      if ((await decideAskFailureReply({ cfg, pool, prSurface, item })) === "skip") return;
+      if (
+        (await decideAskFailureReply({
+          getBotIdentity,
+          pool,
+          prSurface,
+          item,
+        })) === "skip"
+      )
+        return;
       const payload = item.payload;
       const operationKey = askFailureReplyOperationKey(item.resourceKey, item.payload.commentId);
       await withOperationIntent({
@@ -581,7 +568,7 @@ export async function executeAskJob(
           replyTargetKind: payload.replyTarget.kind,
         },
         recover: async () => {
-          const bot = await getAppBotIdentity(cfg);
+          const bot = await getBotIdentity();
           const recovered = await findAskReplyOnAnyTarget({
             prSurface,
             item,
@@ -600,7 +587,7 @@ export async function executeAskJob(
         isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
         mutate: async () => {
           const published = await publishAskAnswer(
-            cfg,
+            getBotIdentity,
             prSurface,
             item,
             formatAskReply({
@@ -615,5 +602,5 @@ export async function executeAskJob(
         },
       });
     },
-  });
+  };
 }

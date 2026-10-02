@@ -4,9 +4,24 @@ Queue inspection, retry, and recovery for pg-boss workers. For behaviour and dep
 
 ## Services
 
-- `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly. Slash commands and App-bot mentions (ask) enqueue on the request fiber after association checks; mention matching uses the App bot login (`{slug}[bot]`), cached per app id.
+- `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly. Slash commands and App-bot mentions (ask) enqueue on the request fiber after association checks; mention matching uses the App bot login (`{slug}[bot]`), cached per App/private-key identity.
 - `pr-agent-worker` processes acknowledgement, review, ask, description, triage, verification, CI-projection, code-index build, and retention queues.
 - `postgres` stores pg-boss jobs plus app-owned workflow tables.
+
+`workDefinition.ts` owns the five durable queue registrations and their
+lease/head/context policies. Acknowledgement, CI projection, code-index build,
+and retention remain auxiliary lanes. `installationSurface.ts` is the only
+agent-work/code-index boundary that mints installation tokens or creates raw
+GitHub surfaces. Auth caches separate App/private-key identities and installation
+IDs, refresh near-expiry tokens, and evict rejected pending lookups. No auth reset
+operation is exposed; failed auth does not clear mutation acceptance evidence,
+leases, operation intents, or publish records.
+
+The durable execution context admits read-only repository views before checkout
+and shares signal, cancellation, and lease publication checks. Triage applies
+those checks at its existing tool/commit/push checkpoints without sharing a
+read-only checkout. Verification applies them before both empty completion and
+late publication; lost ownership cannot clear the verification failure signal.
 
 ## Inspect Queue Health
 

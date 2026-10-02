@@ -1,3 +1,6 @@
+import { createDurableRuntime } from "../../src/agentWork/durableJob.js";
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -6,7 +9,6 @@ import * as intentRepository from "../../src/agentWork/operationIntentRepository
 import * as reconciliation from "../../src/agentWork/reconcilePendingIntents.js";
 import * as durableJob from "../../src/agentWork/durableJob.js";
 import type { DurableJobSpec } from "../../src/agentWork/durableJob.js";
-import { executeReviewJob } from "../../src/agentWork/executors/reviewExecutor.js";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
 import {
   claimWorkForExecution,
@@ -93,7 +95,6 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
 
   afterEach(() => {
     vi.restoreAllMocks();
-    durableJob.clearDurableAuthCachesForTest();
   });
 
   it("keeps the golden operation, marker, queue, and telemetry wire identities", () => {
@@ -757,7 +758,6 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         });
       } finally {
         Object.assign(client.rest.checks, { listForRef: originalList });
-        appAuth.clearInstallationOctokitCacheForTest();
         await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
         await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
       }
@@ -814,12 +814,18 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         expireInSeconds: 3600,
         signal: new AbortController().signal,
       } as JobWithMetadata<ReviewJobData>;
-      const capture = vi.spyOn(durableJob, "runDurableWorkItem").mockResolvedValue(undefined);
-      await executeReviewJob(cfg, pool, boss, job);
-      const captured = capture.mock.calls[0]?.[0];
-      capture.mockRestore();
-      expect(captured?.type).toBe("review");
-      const spec = captured as DurableJobSpec<"review">;
+      const spec = {
+        cfg,
+        pool,
+        boss,
+        job,
+        ...createWorkDefinitions({
+          cfg,
+          pool,
+          boss,
+          installationSurface: openInstallationSurface(),
+        }).review,
+      };
       const originalMethod =
         method === "handled stash error" || method === "published summary" ? "setLabels" : method;
       const execute: DurableJobSpec<"review">["execute"] = async (_item, env) => {
@@ -897,7 +903,13 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         });
       try {
         if (method === "handled stash error") {
-          await expect(durableJob.runDurableWorkItem({ ...spec, execute })).rejects.toMatchObject({
+          await expect(
+            durableJob.runDurableWorkItem({
+              runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
+              ...spec,
+              execute,
+            }),
+          ).rejects.toMatchObject({
             code: "operation_intent.mutation_outcome_unknown",
           });
           expect(await getWorkItem(pool, workItemId)).toMatchObject({
@@ -939,17 +951,25 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           const item = await getWorkItem(pool, workItemId);
           if (item?.type !== "review") throw new Error("missing review work");
           await expect(
-            execute(item, {
-              prSurface: fenced,
-              headSha: "abc1234",
-              leaseEpoch: 1,
-              beginAttempt: async () => {
-                const result = await beginWorkAttempt(pool, workItemId, 1, 4);
-                if (result.kind !== "started") throw new Error("work not admitted");
-                return { ...result.claim, resumed: true };
-              },
-              signal: job.signal,
-            }),
+            execute(
+              item,
+              durableJob.createDurableExecutionContext({
+                pool,
+                item,
+                prSurface: fenced,
+                headSha: "abc1234",
+                leaseEpoch: 1,
+                job,
+                beginAttempt: async () => {
+                  const result = await beginWorkAttempt(pool, workItemId, 1, 4);
+                  if (result.kind !== "started") throw new Error("work not admitted");
+                  return { ...result.claim, resumed: true };
+                },
+                signal: job.signal,
+                getClaim: () => undefined,
+                getEscalation: () => undefined,
+              }),
+            ),
           ).rejects.toMatchObject({
             code: "operation_intent.mutation_outcome_unknown",
           });
@@ -983,7 +1003,11 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           workItemId,
           attemptCap,
         ]);
-        await durableJob.runDurableWorkItem({ ...spec, execute });
+        await durableJob.runDurableWorkItem({
+          runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
+          ...spec,
+          execute,
+        });
         expect(info).toHaveBeenCalledWith("agent_work_started", {
           type: "review",
           workItemId,
@@ -1042,7 +1066,11 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         }
         const eventCount = controls.events.length;
         for (let replay = 0; replay < 3; replay++)
-          await durableJob.runDurableWorkItem({ ...spec, execute });
+          await durableJob.runDurableWorkItem({
+            runtime: createDurableRuntime({ installationSurface: openInstallationSurface() }),
+            ...spec,
+            execute,
+          });
         expect(await getWorkItem(pool, workItemId)).toMatchObject({ attemptCount: attemptCap });
         expect(controls.events).toHaveLength(eventCount);
         console.info(

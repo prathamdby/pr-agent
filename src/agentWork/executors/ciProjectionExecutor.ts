@@ -1,12 +1,9 @@
+import { productionInstallationSurface } from "../installationSurface.js";
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logDebug, logWarn } from "../../evlog.js";
-import {
-  createPrSurface,
-  type PrConversationComment,
-  type PrSurface,
-} from "../../github/prSurface.js";
+import { type PrConversationComment, type PrSurface } from "../../github/prSurface.js";
 import {
   getSharedRateLimitCircuit,
   isSharedRateLimitCircuitOpen,
@@ -40,7 +37,6 @@ import {
 } from "../../settings/legacyReviewLenses.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
-import { mintInstallationToken } from "../../github/installationToken.js";
 import { closeOwnVerdict } from "../closeOwnVerdict.js";
 import {
   enqueueCiProjectionAfter,
@@ -611,8 +607,8 @@ export async function executeCiProjectionJob(
   const createSurface: CiProjectionSurfaceFactory =
     options?.createSurface ??
     (async (prNumber) => {
-      const installation = await mintInstallationToken(cfg, data.installationId);
-      return createPrSurface({
+      const installation = await productionInstallationSurface.token(cfg, data.installationId);
+      return productionInstallationSurface.create({
         cfg,
         installationId: data.installationId,
         owner: data.owner,

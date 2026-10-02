@@ -1,9 +1,11 @@
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
+import { productionInstallationSurface } from "../installationSurface.js";
 import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
+
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
-import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
+import type { BotIdentity } from "../../github/appAuth.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
@@ -43,7 +45,6 @@ import {
   TRIAGE_FORK_PR_NOTICE,
   TRIAGE_NO_ELIGIBLE_FINDINGS,
   TRIAGE_PUBLISH_LENS,
-  TRIAGE_QUEUE,
   TRIAGE_THREAD_NOT_ELIGIBLE,
   TRIAGE_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
@@ -60,21 +61,14 @@ import {
   getLatestCompletedPublishStepDetail,
   hasCompletedPublishStep,
   listTriageEligibleInlineReviews,
-  shouldSkipWork,
 } from "../repository.js";
 import {
-  resolveWorkItemHead,
-  runDurableWorkItem,
   type DegradationReason,
+  type DurableExecutionContext,
   type DurableExecutionResult,
 } from "../durableJob.js";
 import type { EscalationPlan } from "../retryPolicy.js";
-import {
-  triageMode,
-  type TriageJobData,
-  type TriageWorkPayload,
-  type AgentWorkItem,
-} from "../types.js";
+import { triageMode, type TriageWorkPayload, type AgentWorkItem } from "../types.js";
 
 type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
 
@@ -229,19 +223,15 @@ function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult
   return reasons.length === 0 ? { kind: "completed" } : { kind: "completed", degradation: reasons };
 }
 
-async function ensureTriageNotCancelled(
-  pool: Pool,
-  item: Pick<AgentWorkItem, "id">,
-): Promise<void> {
-  if (await shouldSkipWork(pool, item)) throw new TriageCancelledError();
+async function ensureTriageNotCancelled(env: DurableExecutionContext): Promise<void> {
+  if (await env.shouldAbortPublish()) throw new TriageCancelledError();
 }
 
 async function ensureTriageWriteAllowed(params: {
-  readonly pool: Pool;
-  readonly item: TriageWorkItem;
+  readonly env: DurableExecutionContext;
   readonly prSurface: PrSurface;
 }): Promise<void> {
-  await ensureTriageNotCancelled(params.pool, params.item);
+  await ensureTriageNotCancelled(params.env);
   await assertTriagePullRequestWritable(params.prSurface);
 }
 
@@ -260,6 +250,7 @@ function resolveEmptyInventoryOutcome(params: {
 }
 
 async function handleForkPrReport(params: {
+  readonly env: DurableExecutionContext;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
@@ -267,7 +258,7 @@ async function handleForkPrReport(params: {
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
   readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
-  await ensureTriageNotCancelled(params.pool, params.item);
+  await ensureTriageNotCancelled(params.env);
   await publishTriageReportOnly({
     pool: params.pool,
     workItemId: params.item.id,
@@ -293,6 +284,7 @@ async function handleForkPrReport(params: {
 }
 
 async function resolveInventoryAndScope(params: {
+  readonly getBotIdentity: () => Promise<BotIdentity>;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
@@ -300,7 +292,7 @@ async function resolveInventoryAndScope(params: {
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
 }): Promise<InventoryAndScope> {
   const payload = params.item.payload;
-  const botIdentity = await getAppBotIdentity(params.cfg);
+  const botIdentity = await params.getBotIdentity();
   const eligibleReviews = await listTriageEligibleInlineReviews(
     params.pool,
     params.item.resourceKey,
@@ -362,6 +354,7 @@ async function resolveInventoryAndScope(params: {
 }
 
 async function publishEmptyInventoryReport(params: {
+  readonly env: DurableExecutionContext;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
   readonly prSurface: PrSurface;
@@ -374,7 +367,7 @@ async function publishEmptyInventoryReport(params: {
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
 }): Promise<TriageExecuteResult> {
-  await ensureTriageNotCancelled(params.pool, params.item);
+  await ensureTriageNotCancelled(params.env);
   const outcome = resolveEmptyInventoryOutcome({
     scope: params.scope,
     scopedThreadRootId: params.scopedThreadRootId,
@@ -408,6 +401,7 @@ async function publishEmptyInventoryReport(params: {
 }
 
 async function tryResumeStoredPush(params: {
+  readonly env: DurableExecutionContext;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
@@ -454,7 +448,7 @@ async function tryResumeStoredPush(params: {
     return null;
   }
 
-  await ensureTriageNotCancelled(params.pool, params.item);
+  await ensureTriageNotCancelled(params.env);
   const publish = await publishTriage({
     pool: params.pool,
     workItemId: params.item.id,
@@ -510,6 +504,7 @@ async function resolveTriggererGitPerson(params: {
 }
 
 async function runFreshTriageAgent(params: {
+  readonly env: DurableExecutionContext;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
@@ -548,11 +543,10 @@ async function runFreshTriageAgent(params: {
       botIdentity: params.botIdentity,
       commitAttribution,
       beforeCommit: preview
-        ? () => ensureTriageNotCancelled(params.pool, params.item)
+        ? () => ensureTriageNotCancelled(params.env)
         : () =>
             ensureTriageWriteAllowed({
-              pool: params.pool,
-              item: params.item,
+              env: params.env,
               prSurface: params.prSurface,
             }),
       beforePush: preview
@@ -564,8 +558,7 @@ async function runFreshTriageAgent(params: {
           }
         : () =>
             ensureTriageWriteAllowed({
-              pool: params.pool,
-              item: params.item,
+              env: params.env,
               prSurface: params.prSurface,
             }),
     },
@@ -582,16 +575,9 @@ async function runFreshTriageAgent(params: {
           inventory: params.inventory,
           cwd: checkout.dir,
           scope: params.scope,
-          refreshBeforeTool: async () => ensureTriageNotCancelled(params.pool, params.item),
+          refreshBeforeTool: async () => ensureTriageNotCancelled(params.env),
           escalation: params.escalation,
-          durability: {
-            pool: params.pool,
-            workItemId: params.item.id,
-            installationId: params.item.installationId,
-            owner: params.item.owner,
-            repo: params.item.repo,
-            prNumber: params.item.prNumber,
-          },
+          durability: params.env.durability,
           signal: params.signal,
         });
       } catch (error) {
@@ -621,7 +607,7 @@ async function runFreshTriageAgent(params: {
         });
         return { kind: "completed", degradation: ["push_closed"] };
       }
-      await ensureTriageNotCancelled(params.pool, params.item);
+      await ensureTriageNotCancelled(params.env);
       const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
       if (!result.submitted || !result.payload) {
         const error = new AppError({
@@ -697,6 +683,7 @@ async function runFreshTriageAgent(params: {
 }
 
 async function runBulkFromPreview(params: {
+  readonly env: DurableExecutionContext;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
@@ -742,14 +729,12 @@ async function runBulkFromPreview(params: {
       commitAttribution,
       beforeCommit: () =>
         ensureTriageWriteAllowed({
-          pool: params.pool,
-          item: params.item,
+          env: params.env,
           prSurface: params.prSurface,
         }),
       beforePush: () =>
         ensureTriageWriteAllowed({
-          pool: params.pool,
-          item: params.item,
+          env: params.env,
           prSurface: params.prSurface,
         }),
     },
@@ -763,7 +748,7 @@ async function runBulkFromPreview(params: {
         approvedIds: params.approvedIds,
         appliedCommits: replayed.commitByThreadRootCommentId,
       });
-      await ensureTriageNotCancelled(params.pool, params.item);
+      await ensureTriageNotCancelled(params.env);
       const publish = await publishTriage({
         pool: params.pool,
         workItemId: params.item.id,
@@ -804,20 +789,13 @@ async function runBulkFromPreview(params: {
   );
 }
 
-export async function executeTriageJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
-  job: JobWithMetadata<TriageJobData>,
-): Promise<void> {
-  await runDurableWorkItem({
-    cfg,
-    pool,
-    boss,
-    job,
-    type: "triage",
-    prActorLease: { queue: TRIAGE_QUEUE },
-    resolveHeadSha: resolveWorkItemHead,
+export function createTriageWorkExecution({
+  cfg,
+  pool,
+  installationSurface = productionInstallationSurface,
+}: WorkExecutionDependencies): WorkExecution<"triage"> {
+  const getBotIdentity = () => installationSurface.botIdentity(cfg);
+  return {
     execute: async (item, env) => {
       let omitTerminal = false;
       const result = await (async (): Promise<TriageExecuteResult> => {
@@ -825,11 +803,12 @@ export async function executeTriageJob(
         const mode = triageMode(item.payload);
         const { prSurface } = env;
         const headSha = env.headSha;
-        await ensureTriageNotCancelled(pool, item);
+        await ensureTriageNotCancelled(env);
         const branch = await prSurface.getPullRequestBranchInfo();
-        await ensureTriageNotCancelled(pool, item);
+        await ensureTriageNotCancelled(env);
         if (!branch.sameRepo && mode !== "preview") {
           return handleForkPrReport({
+            env,
             pool,
             item,
             prSurface,
@@ -900,13 +879,14 @@ export async function executeTriageJob(
         }
 
         const discovered = await resolveInventoryAndScope({
+          getBotIdentity,
           cfg,
           pool,
           item,
           prSurface,
           scope,
         });
-        await ensureTriageNotCancelled(pool, item);
+        await ensureTriageNotCancelled(env);
 
         const currentInventory = discovered.inventory;
         const excludeIds = new Set(item.payload.excludeThreadRootCommentIds ?? []);
@@ -921,6 +901,7 @@ export async function executeTriageJob(
 
         if (currentInventory.length === 0) {
           return publishEmptyInventoryReport({
+            env,
             pool,
             item,
             prSurface,
@@ -969,9 +950,10 @@ export async function executeTriageJob(
           return { kind: "completed" };
         }
 
-        await ensureTriageNotCancelled(pool, item);
+        await ensureTriageNotCancelled(env);
 
         const resumeParams = {
+          env,
           cfg,
           pool,
           item,
@@ -1052,5 +1034,5 @@ export async function executeTriageJob(
         TRIAGE_FAILURE_MESSAGE,
       );
     },
-  });
+  };
 }

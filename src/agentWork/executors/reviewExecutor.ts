@@ -1,3 +1,6 @@
+import type { BotIdentity } from "../../github/appAuth.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
+import { productionInstallationSurface } from "../installationSurface.js";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
@@ -55,7 +58,6 @@ import {
 } from "../../review/run/reviewRunMetrics.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/summaryCommentUpsert.js";
-import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import { prBodyHasDescriptionReviewMap } from "../../agent/description/descriptionRender.js";
 import {
@@ -89,8 +91,7 @@ import {
   shouldSkipWork,
   type ReviewExecutorPublishContext,
 } from "../repository.js";
-import { isPrActorLeaseHeld } from "../prActorLease.js";
-import { REVIEW_QUEUE } from "../../settings/index.js";
+
 import {
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
@@ -98,15 +99,8 @@ import {
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
 import type { EscalationPlan } from "../retryPolicy.js";
-import {
-  resolveWorkItemHead,
-  runDurableWorkItem,
-  type DurableHeadResolution,
-  type DurableExecutionContext,
-  type DurableExecutionResult,
-} from "../durableJob.js";
-import { getAppBotIdentity } from "../../github/appAuth.js";
-import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
+import { type DurableExecutionContext, type DurableExecutionResult } from "../durableJob.js";
+import { type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
 import type { ReviewWorkExtras } from "../../analytics/workCompleted.js";
@@ -118,25 +112,11 @@ type Result<T> =
 
 type SettledPriorInlineFeedback = Result<string | undefined>;
 
-/** Load a discriminated result and render the ok branch into a trusted-context block. */
-async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string }>(params: {
-  readonly load: () => Promise<TResult>;
-  readonly renderOk: (result: Extract<TResult, { kind: "ok" }>) => string;
-  readonly onNonOk?: (result: Exclude<TResult, { kind: "ok" }>) => void;
-}): Promise<string | undefined> {
-  const result = await params.load();
-  if (result.kind === "ok") {
-    return params.renderOk(result as Extract<TResult, { kind: "ok" }>) || undefined;
-  }
-  params.onNonOk?.(result as Exclude<TResult, { kind: "ok" }>);
-  return undefined;
-}
-
 type LightweightPhaseResult =
   | { readonly done: true; readonly result: DurableExecutionResult }
   | { readonly done: false; readonly prefetchedPrFiles: ListPullRequestFilesResult | undefined };
 
-function reviewRunTimingFromJob(job: JobWithMetadata<ReviewJobData>): ReviewRunTiming {
+function reviewRunTimingFromJob(job: JobWithMetadata<{ workItemId: string }>): ReviewRunTiming {
   const startedOnMs = job.startedOn.getTime();
   const returnByMs = startedOnMs + job.expireInSeconds * 1000 * 0.8;
   const modelStopAtMs = Math.max(startedOnMs, returnByMs - REVIEW_FINALIZATION_WINDOW_MS);
@@ -146,32 +126,6 @@ function reviewRunTimingFromJob(job: JobWithMetadata<ReviewJobData>): ReviewRunT
     remainingModelMs: (now = Date.now()) => Math.max(0, modelStopAtMs - now),
     remainingTotalMs: (now = Date.now()) => Math.max(0, returnByMs - now),
   };
-}
-
-/**
- * Automated work items already persist the head SHA, but not the PR identity
- * needed for trust decisions. Read the current PR metadata without replacing
- * the queued SHA; stale-head handling remains responsible for that contract.
- */
-async function resolveReviewHead(
-  prSurface: PrSurface,
-  item: ReviewWorkItem,
-): Promise<DurableHeadResolution> {
-  const resolved = await resolveWorkItemHead(prSurface, item);
-  if (resolved.pullRequest != null) return resolved;
-
-  try {
-    const current = await prSurface.getHead();
-    return { headSha: resolved.headSha, pullRequest: current.pullRequest };
-  } catch (error) {
-    logWarn("review_pr_identity_fetch_failed", {
-      owner: item.owner,
-      repo: item.repo,
-      pr: item.prNumber,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return resolved;
-  }
 }
 
 function reviewRunGate(args: {
@@ -444,6 +398,7 @@ async function runLightweightCompletionOrSkip(args: {
 }
 
 async function buildPriorInlineFeedbackPromise(args: {
+  readonly getBotIdentity: () => Promise<BotIdentity>;
   readonly cfg: Config;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
@@ -460,7 +415,7 @@ async function buildPriorInlineFeedbackPromise(args: {
     });
   };
   try {
-    const bot = await getAppBotIdentity(cfg);
+    const bot = await args.getBotIdentity();
     return {
       ok: true,
       value: await fetchPriorInlineFeedbackBlockForReview({
@@ -636,7 +591,8 @@ async function handleReviewPublishResult(args: {
 }
 
 async function runFullReviewAgainstRepositoryView(args: {
-  readonly job: JobWithMetadata<ReviewJobData>;
+  readonly env: DurableExecutionContext;
+  readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly boss: PgBoss;
@@ -729,17 +685,15 @@ async function runFullReviewAgainstRepositoryView(args: {
 
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
   const sameRepo = isSameRepoPullRequest(pullRequest);
-  const [repoPolicy, agentInstructionFilesBlock] = await Promise.all([
+  const [repoPolicy, instructionFiles] = await Promise.all([
     loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES),
-    loadAndRenderTrustedBlock({
-      load: () => loadAgentInstructionFiles(repositoryView.agentCwd, MAX_AGENT_INSTRUCTION_BYTES),
-      renderOk: (result) =>
-        renderAgentInstructionFilesBlock({
-          files: result.files,
-          sameRepo,
-        }),
-    }),
+    loadAgentInstructionFiles(repositoryView.agentCwd, MAX_AGENT_INSTRUCTION_BYTES),
   ]);
+  const agentInstructionFilesBlock =
+    instructionFiles.kind === "ok"
+      ? renderAgentInstructionFilesBlock({ files: instructionFiles.files, sameRepo }) || undefined
+      : undefined;
+
   if (repoPolicy.kind === "invalid") {
     logWarn("repo_policy_invalid", {
       path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
@@ -829,11 +783,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     prTitle: pullRequest?.title ?? "",
     prBody: pullRequest?.body ?? null,
     shouldAbortPublish: async () => {
-      if (signal.aborted) return true;
-      if (await shouldSkipWork(pool, item)) return true;
-      if (leaseEpoch != null && !(await isPrActorLeaseHeld(pool, item.id, leaseEpoch))) {
-        return true;
-      }
+      if (await args.env.shouldAbortPublish()) return true;
       const latestHeadSha = await prSurface.getHeadSha();
       if (latestHeadSha !== headSha) {
         staleHeadAtPublish.value = true;
@@ -843,14 +793,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       return false;
     },
     boss,
-    durability: {
-      pool,
-      workItemId: item.id,
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-      prNumber: item.prNumber,
-    },
+    durability: args.env.durability,
     signal,
     escalation,
   });
@@ -893,7 +836,8 @@ async function runFullReviewAgainstRepositoryView(args: {
 }
 
 async function runClaimedReview(args: {
-  readonly job: JobWithMetadata<ReviewJobData>;
+  readonly getBotIdentity: () => Promise<BotIdentity>;
+  readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly boss: PgBoss;
@@ -1009,6 +953,7 @@ async function runClaimedReview(args: {
   if (lightweight.done) return lightweight.result;
 
   const priorInlineFeedback = buildPriorInlineFeedbackPromise({
+    getBotIdentity: args.getBotIdentity,
     cfg,
     item,
     reviewLens,
@@ -1047,16 +992,9 @@ async function runClaimedReview(args: {
       message: error instanceof Error ? error.message : String(error),
     });
   }
-  await env.beginAttempt();
   return runWithRateLimitCircuit(rateLimitCircuit, () =>
-    withPrRepositoryView(
+    env.withAdmittedRepositoryView(
       {
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-        headSha,
-        pullRequest: env.pullRequest,
         repositorySizeKb: payload.repositorySizeKb,
         ...(lightweight.prefetchedPrFiles !== undefined
           ? { prFiles: lightweight.prefetchedPrFiles }
@@ -1064,6 +1002,7 @@ async function runClaimedReview(args: {
       },
       async (repositoryView) =>
         runFullReviewAgainstRepositoryView({
+          env,
           job,
           cfg,
           pool,
@@ -1091,21 +1030,14 @@ async function runClaimedReview(args: {
   );
 }
 
-export async function executeReviewJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
-  job: JobWithMetadata<ReviewJobData>,
-): Promise<void> {
-  await runDurableWorkItem({
-    cfg,
-    pool,
-    boss,
-    job,
-    type: "review",
-    prActorLease: { queue: REVIEW_QUEUE },
-    acceptItem: (item) => item.reviewLens != null,
-    resolveHeadSha: resolveReviewHead,
+export function createReviewWorkExecution({
+  cfg,
+  pool,
+  boss,
+  installationSurface = productionInstallationSurface,
+}: WorkExecutionDependencies): WorkExecution<"review"> {
+  const getBotIdentity = () => installationSurface.botIdentity(cfg);
+  return {
     execute: async (item, env) => {
       const reviewLens = item.reviewLens;
       const payload = item.payload;
@@ -1126,7 +1058,8 @@ export async function executeReviewJob(
       let threw = false;
       try {
         return await runClaimedReview({
-          job,
+          getBotIdentity,
+          job: env.job,
           cfg,
           pool,
           boss,
@@ -1234,7 +1167,7 @@ export async function executeReviewJob(
         detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, commentId),
       });
     },
-  });
+  };
 }
 
 type ReviewWorkClaim = {

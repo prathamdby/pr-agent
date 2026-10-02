@@ -7,10 +7,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const QUEUE_CONSTANTS = path.join(ROOT, "src", "settings", "queueConstants.ts");
 const WORKER = path.join(ROOT, "src", "agentWork", "worker.ts");
+const DEFINITIONS = path.join(ROOT, "src", "agentWork", "workDefinition.ts");
 const TYPES = path.join(ROOT, "src", "agentWork", "types.ts");
 
 const queueSrc = fs.readFileSync(QUEUE_CONSTANTS, "utf8");
 const workerSrc = fs.readFileSync(WORKER, "utf8");
+const definitionsSrc = fs.readFileSync(DEFINITIONS, "utf8");
 const typesSrc = fs.readFileSync(TYPES, "utf8");
 
 const QUEUE_FILES = [
@@ -41,22 +43,42 @@ const retention = retentionRegistered
   : [];
 
 const executorFiles = {
-  executeReviewJob: "src/agentWork/executors/reviewExecutor.ts",
-  executeAskJob: "src/agentWork/executors/askExecutor.ts",
-  executeDescriptionJob: "src/agentWork/executors/descriptionExecutor.ts",
-  executeTriageJob: "src/agentWork/executors/triageExecutor.ts",
-  executeVerificationJob: "src/agentWork/executors/verificationExecutor.ts",
   executeAckJob: "src/agentWork/executors/ackExecutor.ts",
   executeCiProjectionJob: "src/agentWork/executors/ciProjectionExecutor.ts",
   executeCodeIndexBuildJob: "src/codeIndex/buildJob.ts",
   runRetention: "src/agentWork/retention.ts",
 };
 
+for (const match of definitionsSrc.matchAll(
+  /import \{ (create\w+WorkExecution) \} from "([^"]+)"/g,
+)) {
+  executorFiles[match[1]] = path.relative(
+    ROOT,
+    path.resolve(path.dirname(DEFINITIONS), match[2].replace(/\.js$/, ".ts")),
+  );
+}
+
+const durableRegistrations = [
+  ...definitionsSrc.matchAll(/(\w+): define\(\s*\{([\s\S]*?)\},\s*(create\w+WorkExecution)\(/g),
+].map((match) => ({
+  data: match[1],
+  queueConst: /\bqueue: (\w+_QUEUE)/.exec(match[2])?.[1],
+  executor: match[3],
+}));
+const declaredTypes = [...workTypes.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+if (
+  !workerSrc.includes("createWorkDefinitions") ||
+  durableRegistrations.length !== declaredTypes.length ||
+  durableRegistrations.some((row) => !row.queueConst || !declaredTypes.includes(row.data))
+) {
+  throw new Error("Durable work definitions do not cover the registered WorkType union");
+}
+
 const leased = [...queueSrc.matchAll(/^\s*(\w+_QUEUE),?\s*$/gm)]
   .map((m) => m[1])
   .filter((name) => workerSrc.includes(name) && queueSrc.includes("LEASED_WORK_QUEUES"));
 
-const rows = [...registrations, ...retention].map((r) => {
+const rows = [...registrations, ...durableRegistrations, ...retention].map((r) => {
   const queue = queueValues[r.queueConst] ?? r.queueConst;
   const workType = Object.keys(queueValues).find((k) => k === r.queueConst)
     ? workTypes.includes(r.queueConst.replace("_QUEUE", "").toLowerCase())

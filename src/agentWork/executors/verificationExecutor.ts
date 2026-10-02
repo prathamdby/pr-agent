@@ -1,11 +1,10 @@
-import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../../config.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
+import { productionInstallationSurface } from "../installationSurface.js";
+
 import { durationMsFromClaim } from "../../analytics/workCompleted.js";
 import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { getAppBotIdentity } from "../../github/appAuth.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import { loadRepoPolicy } from "../../review/repoPolicy.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
@@ -14,46 +13,33 @@ import {
   clearVerificationFailureSignal,
   publishVerificationFailure,
 } from "../../agent/verification/publishVerificationFailure.js";
-import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import {
   MAX_REPO_POLICY_BYTES,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
-  VERIFICATION_QUEUE,
 } from "../../settings/index.js";
-import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
-import {
-  resolveWorkItemHead,
-  runDurableWorkItem,
-  type DegradationReason,
-  type DurableExecutionResult,
-} from "../durableJob.js";
+import { listTriageEligibleInlineReviews } from "../repository.js";
+import { type DegradationReason, type DurableExecutionResult } from "../durableJob.js";
 import { escalatedVerificationInventory } from "../retryPolicy.js";
-import { type VerificationJobData } from "../types.js";
+
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
 } from "../verificationPublishGate.js";
 
-export async function executeVerificationJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
-  job: JobWithMetadata<VerificationJobData>,
-): Promise<void> {
-  await runDurableWorkItem({
-    cfg,
-    pool,
-    boss,
-    job,
-    type: "verification",
-    prActorLease: { queue: VERIFICATION_QUEUE },
-    resolveHeadSha: resolveWorkItemHead,
+export function createVerificationWorkExecution({
+  cfg,
+  pool,
+  boss,
+  installationSurface = productionInstallationSurface,
+}: WorkExecutionDependencies): WorkExecution<"verification"> {
+  const getBotIdentity = () => installationSurface.botIdentity(cfg);
+  return {
     execute: async (item, env) => {
       const payload = item.payload;
       const { prSurface } = env;
       const headSha = env.headSha;
-      const botIdentity = await getAppBotIdentity(cfg);
+      const botIdentity = await getBotIdentity();
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
       const [threads, resolutionResult] = await Promise.all([
@@ -86,7 +72,7 @@ export async function executeVerificationJob(
       );
 
       const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
-        if (await shouldSkipWork(pool, item)) {
+        if (await env.shouldAbortPublish()) {
           logInfo("verification_publish_skipped", {
             type: "verification",
             workItemId: item.id,
@@ -165,7 +151,7 @@ export async function executeVerificationJob(
           ? compareFilesTruncated
             ? [...new Set([...pushDeltaFiles.files, ...prFiles.files.map((file) => file.filename)])]
             : pushDeltaFiles.files
-          : ([] as readonly string[]);
+          : [];
 
       if (compareFilesTruncated) {
         logWarn("verification_compare_files_truncated", {
@@ -177,14 +163,8 @@ export async function executeVerificationJob(
         });
       }
 
-      const result = await withPrRepositoryView(
+      const result = await env.withAdmittedRepositoryView(
         {
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-          headSha,
-          pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
           prFiles,
         },
@@ -202,14 +182,7 @@ export async function executeVerificationJob(
             pushedCommits,
             compareFilesTruncated: changedMembershipTruncated,
             escalation: env.escalation,
-            durability: {
-              pool,
-              workItemId: item.id,
-              installationId: item.installationId,
-              owner: item.owner,
-              repo: item.repo,
-              prNumber: item.prNumber,
-            },
+            durability: env.durability,
             signal: env.signal,
           });
           if (!runResult.submitted || !runResult.payload) {
@@ -305,5 +278,5 @@ export async function executeVerificationJob(
         installationId: item.installationId,
       });
     },
-  });
+  };
 }

@@ -1,12 +1,13 @@
+import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
+import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
+import type { PgBoss } from "pg-boss";
 import type { DurableExecutionResult } from "../src/agentWork/durableJob.js";
 import { escalationForAttempt, type EscalationPlan } from "../src/agentWork/retryPolicy.js";
-import type { ReviewJobData } from "../src/agentWork/types.js";
 import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
@@ -91,7 +92,6 @@ vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
   openSharedRateLimitCircuitBestEffort: mocks.openSharedRateLimitCircuitBestEffort,
 }));
 
-import * as durableJob from "../src/agentWork/durableJob.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
 import * as prWorkspace from "../src/prWorkspace/prRepositoryView.js";
@@ -103,7 +103,19 @@ import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
 import * as rateLimitCircuit from "../src/github/rateLimitCircuit.js";
 import * as reviewCheckRun from "../src/agentWork/reviewCheckRun.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
-import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
+
+let runExecution: () => Promise<unknown>;
+function configureExecution(
+  run: (definition: ReturnType<typeof createWorkDefinitions>["review"]) => Promise<unknown>,
+): void {
+  runExecution = () =>
+    run(
+      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
+        .review,
+    );
+}
 
 const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
@@ -143,45 +155,6 @@ function defaultCheckoutCoverage() {
   return mockLocalPrWorkspace().getCoverage();
 }
 
-function reviewJob(): JobWithMetadata<ReviewJobData> {
-  const now = new Date();
-  return {
-    id: "job-1",
-    name: "agent-work-review",
-    data: { kind: "review", workItemId: "wi-1" },
-    expireInSeconds: 3600,
-    heartbeatSeconds: null,
-    signal: new AbortController().signal,
-    priority: 0,
-    state: "active",
-    retryLimit: 3,
-    retryCount: 0,
-    retryDelay: 0,
-    retryBackoff: false,
-    startAfter: now,
-    startedOn: now,
-    singletonKey: null,
-    singletonOn: null,
-    deleteAfterSeconds: 0,
-    createdOn: now,
-    completedOn: null,
-    keepUntil: now,
-    policy: "standard",
-    heartbeatOn: null,
-    blocked: false,
-    blocking: false,
-    pendingDependencies: 0,
-    deadLetter: "",
-    output: {},
-    sourceName: null,
-    sourceId: null,
-    sourceCreatedOn: null,
-    sourceRetryCount: null,
-    sourceOutput: null,
-    sourceRootId: null,
-  };
-}
-
 function mockAutoPrFiles(surface = durableSurfaceBundle.surface) {
   return vi.spyOn(surface, "listChangedFiles").mockResolvedValue(prFiles);
 }
@@ -206,28 +179,34 @@ function mockDurableExecution(
   if (source === "auto") {
     mockAutoPrFiles();
   }
-  vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+  configureExecution(async (spec) => {
     const item = makeItem(source);
-    captured.result = await spec.execute(item, {
-      prSurface: durableSurfaceBundle.surface,
-      headSha: "head",
-      leaseEpoch: 1,
-      beginAttempt: async () => mockWorkClaim(),
-      signal: new AbortController().signal,
-      pullRequest: executionPullRequest,
-      claim: {
-        createdAt: new Date("2026-01-01T00:00:00.000Z"),
-        startedAt: new Date("2026-01-01T00:00:10.000Z"),
-        attemptCount: 1,
-        resumed: false,
-      },
-      escalation,
-    });
+    captured.result = await spec.execute(
+      item,
+      createDurableExecutionContext({
+        pool,
+        item: item,
+        prSurface: durableSurfaceBundle.surface,
+        headSha: "head",
+        leaseEpoch: 1,
+        job: makeDurableJobMetadata(),
+        beginAttempt: async () => mockWorkClaim(),
+        signal: new AbortController().signal,
+        pullRequest: executionPullRequest,
+        getClaim: () => ({
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          startedAt: new Date("2026-01-01T00:00:10.000Z"),
+          attemptCount: 1,
+          resumed: false,
+        }),
+        getEscalation: () => escalation,
+      }),
+    );
   });
   return captured;
 }
 
-describe("executeReviewJob", () => {
+describe("review work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     durableSurfaceBundle = createFakePrSurface(
@@ -308,7 +287,7 @@ describe("executeReviewJob", () => {
   });
 
   it("loads publish context in one batched db-read span", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.loadPublishContext).toHaveBeenCalledTimes(1);
     expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
@@ -317,7 +296,7 @@ describe("executeReviewJob", () => {
   it("continues review when shared rate-limit circuit read fails", async () => {
     mocks.getSharedRateLimitCircuit.mockRejectedValueOnce(new Error("db down"));
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalled();
     expect(mocks.logWarn).toHaveBeenCalledWith(
@@ -340,7 +319,7 @@ describe("executeReviewJob", () => {
       return realCreate(params);
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     onOpened?.("primary");
     expect(recordMetric).toHaveBeenCalledWith({ kind: "rate_limit_circuit_opened" });
@@ -363,7 +342,7 @@ describe("executeReviewJob", () => {
       progressCommentGithubId: null,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -386,7 +365,7 @@ describe("executeReviewJob", () => {
     );
     mockDurableExecution("slash", undefined, escalation);
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ escalation }),
@@ -394,7 +373,7 @@ describe("executeReviewJob", () => {
   });
 
   it("passes no escalation plan to the review run on the first attempt", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ escalation: undefined }),
@@ -414,7 +393,7 @@ describe("executeReviewJob", () => {
       progressCommentGithubId: 4321,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ progressCommentIdHint: 4321 }),
@@ -422,7 +401,7 @@ describe("executeReviewJob", () => {
   });
 
   it("skips preflight for slash reviews", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.fetchPrFiles).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
@@ -440,13 +419,13 @@ describe("executeReviewJob", () => {
     vi.mocked(prSurfaceModule.createPrSurface).mockImplementation(
       () => durableSurfaceBundle.surface,
     );
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const resolved = await spec.resolveHeadSha(durableSurfaceBundle.surface, makeItem("auto"));
       expect(resolved.headSha).toBe("head");
       expect(resolved.pullRequest).toEqual(pullRequest);
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(durableSurfaceBundle.controls.events).toContainEqual({ kind: "getHead" });
   });
@@ -462,12 +441,12 @@ describe("executeReviewJob", () => {
     vi.spyOn(durableSurfaceBundle.surface, "getHead").mockRejectedValueOnce(
       new Error("identity unavailable"),
     );
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const resolved = await spec.resolveHeadSha(durableSurfaceBundle.surface, makeItem("auto"));
       expect(resolved).toEqual({ headSha: "head" });
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.logWarn).toHaveBeenCalledWith("review_pr_identity_fetch_failed", {
       owner: "o",
@@ -478,7 +457,7 @@ describe("executeReviewJob", () => {
   });
 
   it("ensures a review check run before the long review", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.ensureReviewCheckRunStarted).toHaveBeenCalledWith(
       pool,
@@ -497,7 +476,7 @@ describe("executeReviewJob", () => {
   });
 
   it("passes queue-derived timing and the live review gate to the orchestrator", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const params = mocks.runOrchestratedPrReview.mock.calls[0]?.[0] as {
       timing: {
@@ -534,7 +513,7 @@ describe("executeReviewJob", () => {
       onRescheduleAbort: vi.fn(),
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
@@ -558,7 +537,7 @@ describe("executeReviewJob", () => {
       onRescheduleAbort: vi.fn(),
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
@@ -582,7 +561,7 @@ describe("executeReviewJob", () => {
       onRescheduleAbort,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(captured.result).toEqual({
       kind: "rescheduled",
@@ -610,7 +589,7 @@ describe("executeReviewJob", () => {
       ...prFiles,
       headSha: "newer-head",
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const item = makeReviewWorkItem({
         id: "wi-replacement",
         source: "auto",
@@ -622,16 +601,24 @@ describe("executeReviewJob", () => {
           staleHeadRescheduled: true,
         },
       });
-      await spec.execute(item, {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "old-replacement-head",
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+      await spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item: item,
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "old-replacement-head",
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED,
     });
 
@@ -651,7 +638,7 @@ describe("executeReviewJob", () => {
         headSha: observedHeadSha,
       });
 
-      await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+      await expect(runExecution()).rejects.toMatchObject({
         code: "github.head_sha_mismatch",
       });
 
@@ -668,7 +655,7 @@ describe("executeReviewJob", () => {
     });
     mocks.shouldSkipWork.mockResolvedValue(true);
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "github.head_sha_mismatch",
     });
 
@@ -684,7 +671,7 @@ describe("executeReviewJob", () => {
     });
     mocks.buildStaleReschedule.mockResolvedValue(null);
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "github.head_sha_mismatch",
     });
 
@@ -702,17 +689,25 @@ describe("executeReviewJob", () => {
       ...prFiles,
       headSha: "new-head",
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
-      await spec.execute(makeItem("auto"), {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "head",
-        leaseEpoch: null,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        makeItem("auto"),
+        createDurableExecutionContext({
+          pool,
+          item: makeItem("auto"),
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: null,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toMatchObject({
+    await expect(runExecution()).rejects.toMatchObject({
       code: "agent_work.pr_actor_lease_lost",
     });
 
@@ -731,7 +726,7 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
     expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
@@ -750,7 +745,7 @@ describe("executeReviewJob", () => {
       ...prFiles,
       headSha: "old-replacement-head",
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       const item = makeReviewWorkItem({
         id: "wi-replacement",
         source: "auto",
@@ -763,14 +758,22 @@ describe("executeReviewJob", () => {
         },
       });
       await expect(
-        spec.execute(item, {
-          prSurface: durableSurfaceBundle.surface,
-          headSha: "old-replacement-head",
-          pullRequest: { ...pullRequest, head: { sha: "old-replacement-head" } },
-          leaseEpoch: 1,
-          beginAttempt: async () => mockWorkClaim(),
-          signal: new AbortController().signal,
-        }),
+        spec.execute(
+          item,
+          createDurableExecutionContext({
+            pool,
+            item: item,
+            prSurface: durableSurfaceBundle.surface,
+            headSha: "old-replacement-head",
+            pullRequest: { ...pullRequest, head: { sha: "old-replacement-head" } },
+            leaseEpoch: 1,
+            job: makeDurableJobMetadata(),
+            beginAttempt: async () => mockWorkClaim(),
+            signal: new AbortController().signal,
+            getClaim: () => undefined,
+            getEscalation: () => undefined,
+          }),
+        ),
       ).rejects.toMatchObject({ code: reviewReschedule.STALE_HEAD_REPLACEMENT_EXHAUSTED });
     });
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
@@ -779,7 +782,7 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
   });
@@ -795,7 +798,7 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(
       durableSurfaceBundle.controls.events.some(
@@ -829,7 +832,7 @@ describe("executeReviewJob", () => {
       return { published: false, publishAttempts: 0, publishStepCount: 0, publishSuperseded: true };
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(
       durableSurfaceBundle.controls.events.some(
@@ -850,7 +853,7 @@ describe("executeReviewJob", () => {
     const listChangedFiles = mockAutoPrFiles();
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(listChangedFiles).toHaveBeenCalledTimes(1);
     expect(mocks.lightweight).toHaveBeenCalledWith(
@@ -885,7 +888,7 @@ describe("executeReviewJob", () => {
       coverage: { kind: "full" },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -904,7 +907,7 @@ describe("executeReviewJob", () => {
       publishSuperseded: false,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -940,7 +943,7 @@ describe("executeReviewJob", () => {
       },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
@@ -988,7 +991,7 @@ describe("executeReviewJob", () => {
       publishStepCount: 5,
     } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
@@ -1031,7 +1034,7 @@ describe("executeReviewJob", () => {
       publishStepCount: 5,
     } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const call = mocks.captureEvent.mock.calls.find(
       (args) => (args[0] as { event?: string }).event === "work completed",
@@ -1071,7 +1074,7 @@ describe("executeReviewJob", () => {
       },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
@@ -1106,7 +1109,7 @@ describe("executeReviewJob", () => {
       publishSuperseded: true,
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -1130,7 +1133,7 @@ describe("executeReviewJob", () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
@@ -1150,7 +1153,7 @@ describe("executeReviewJob", () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: false, reason: "skipped" });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
     expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
@@ -1176,7 +1179,7 @@ describe("executeReviewJob", () => {
     const thrownMessage = "orchestrator exploded at /tmp/secret.ts";
     mocks.runOrchestratedPrReview.mockRejectedValue(new Error(thrownMessage));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(thrownMessage);
+    await expect(runExecution()).rejects.toThrow(thrownMessage);
 
     expect(mocks.captureEvent).not.toHaveBeenCalled();
   });
@@ -1188,9 +1191,7 @@ describe("executeReviewJob", () => {
       new Error("check-run update failed"),
     );
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
-      "check-run update failed",
-    );
+    await expect(runExecution()).rejects.toThrow("check-run update failed");
 
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
@@ -1220,7 +1221,7 @@ describe("executeReviewJob", () => {
       findingsCount: 1,
     } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
     expect(mocks.captureEvent).toHaveBeenCalledWith(
@@ -1237,7 +1238,7 @@ describe("executeReviewJob", () => {
   });
 
   it("completes an existing check as action_required from the terminal failure hook", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1245,7 +1246,7 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -1259,7 +1260,7 @@ describe("executeReviewJob", () => {
 
   it("writes the failure notice into the owned stub and closes the crashed verdict", async () => {
     durableSurfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "landed", 4242);
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1267,7 +1268,7 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const edits = durableSurfaceBundle.controls.events.filter(
       (event: FakePrSurfaceEvent) => event.kind === "editComment",
@@ -1297,7 +1298,7 @@ describe("executeReviewJob", () => {
       }
       return { status: "in_progress" };
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1305,7 +1306,7 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.getCompletedPublishStepDetail).toHaveBeenCalledWith(
       pool,
@@ -1334,7 +1335,7 @@ describe("executeReviewJob", () => {
       }
       return { status: "completed", conclusion: "failure" };
     });
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1342,7 +1343,7 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(
       durableSurfaceBundle.controls.events.filter(
@@ -1353,7 +1354,7 @@ describe("executeReviewJob", () => {
   });
 
   it("completes an existing check as cancelled from the durable cancellation hook", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1361,7 +1362,7 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -1376,7 +1377,7 @@ describe("executeReviewJob", () => {
   });
 
   it("skips check cancellation from onCancelled when reviewLens is null", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         { ...makeItem("slash"), reviewLens: null as unknown as "review" },
         durableSurfaceBundle.surface,
@@ -1384,13 +1385,13 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.cancelReviewCheckRun).not.toHaveBeenCalled();
   });
 
   it("still attempts DB-id cancel from onCancelled when headSha is missing", async () => {
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         { ...makeItem("slash"), headSha: undefined as unknown as string },
         durableSurfaceBundle.surface,
@@ -1398,7 +1399,7 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -1412,7 +1413,7 @@ describe("executeReviewJob", () => {
 
   it("passes undefined detailsUrl from onCancelled when summary comment id is null", async () => {
     mocks.getSummaryCommentGithubId.mockResolvedValueOnce(null);
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    configureExecution(async (spec) => {
       await spec.onCancelled?.(
         makeItem("slash"),
         durableSurfaceBundle.surface,
@@ -1420,7 +1421,7 @@ describe("executeReviewJob", () => {
       );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -1435,7 +1436,7 @@ describe("executeReviewJob", () => {
     mockDurableExecution("auto");
     const listChangedFiles = mockAutoPrFiles();
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(listChangedFiles).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
@@ -1445,7 +1446,7 @@ describe("executeReviewJob", () => {
   });
 
   it("passes resolved pull payload into repository preparation", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).toMatchObject({
@@ -1468,7 +1469,7 @@ describe("executeReviewJob", () => {
     });
     mocks.fetchPriorFeedback.mockResolvedValue("prior block");
 
-    const review = executeReviewJob(cfg, pool, boss, reviewJob());
+    const review = runExecution();
 
     await vi.waitFor(() => expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1));
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
@@ -1491,9 +1492,7 @@ describe("executeReviewJob", () => {
   it("logs bot identity failures before rethrowing prior feedback errors", async () => {
     mocks.getAppBotIdentity.mockRejectedValueOnce(new Error("identity unavailable"));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
-      "identity unavailable",
-    );
+    await expect(runExecution()).rejects.toThrow("identity unavailable");
 
     expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
       owner: "o",
@@ -1512,7 +1511,7 @@ describe("executeReviewJob", () => {
       return undefined;
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
       owner: "o",
@@ -1537,9 +1536,7 @@ describe("executeReviewJob", () => {
   it("rethrows unexpected prior feedback helper rejections", async () => {
     mocks.fetchPriorFeedback.mockRejectedValueOnce(new Error("feedback blew up"));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
-      "feedback blew up",
-    );
+    await expect(runExecution()).rejects.toThrow("feedback blew up");
 
     expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
       owner: "o",
@@ -1569,7 +1566,7 @@ describe("executeReviewJob", () => {
       }),
     );
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight,
@@ -1610,7 +1607,7 @@ describe("executeReviewJob", () => {
       base: { repo: { full_name: "o/r" } },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const call = mocks.buildTrustedContext.mock.calls[0]?.[0] as {
       repoPolicyBlock?: string;
@@ -1646,7 +1643,7 @@ describe("executeReviewJob", () => {
       head: { sha: "head" },
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     const call = mocks.buildTrustedContext.mock.calls[0]?.[0] as {
       repoPolicyBlock?: string;
@@ -1671,7 +1668,7 @@ describe("executeReviewJob", () => {
       }),
     );
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight,
@@ -1702,7 +1699,7 @@ describe("executeReviewJob", () => {
       }),
     );
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight,
@@ -1717,7 +1714,7 @@ describe("executeReviewJob", () => {
   });
 
   it("threads hasDescriptionReviewMap false when PR body lacks a review map section", async () => {
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ hasDescriptionReviewMap: false }),
@@ -1729,18 +1726,26 @@ describe("executeReviewJob", () => {
       ...pullRequest,
       body: `Intro\n\n${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement`,
     };
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
-      await spec.execute(makeItem("slash"), {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "head",
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-        pullRequest: prWithDescriptionOnly,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        makeItem("slash"),
+        createDurableExecutionContext({
+          pool,
+          item: makeItem("slash"),
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          pullRequest: prWithDescriptionOnly,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ hasDescriptionReviewMap: false }),
@@ -1752,18 +1757,26 @@ describe("executeReviewJob", () => {
       ...pullRequest,
       body: `Intro\n\n${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement\n\n### Review map\n\n1. \`src/a.ts\`: risk surface`,
     };
-    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
-      await spec.execute(makeItem("slash"), {
-        prSurface: durableSurfaceBundle.surface,
-        headSha: "head",
-        leaseEpoch: 1,
-        beginAttempt: async () => mockWorkClaim(),
-        signal: new AbortController().signal,
-        pullRequest: prWithDescription,
-      });
+    configureExecution(async (spec) => {
+      await spec.execute(
+        makeItem("slash"),
+        createDurableExecutionContext({
+          pool,
+          item: makeItem("slash"),
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: 1,
+          job: makeDurableJobMetadata(),
+          beginAttempt: async () => mockWorkClaim(),
+          signal: new AbortController().signal,
+          pullRequest: prWithDescription,
+          getClaim: () => undefined,
+          getEscalation: () => undefined,
+        }),
+      );
     });
 
-    await executeReviewJob(cfg, pool, boss, reviewJob());
+    await runExecution();
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ hasDescriptionReviewMap: true }),

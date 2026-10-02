@@ -11,11 +11,8 @@ import {
 import { captureDurableWorkCompletedWithCi } from "./ciWorkTelemetry.js";
 import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
-import { getAppBotIdentity, type BotIdentity, type InstallationToken } from "../github/appAuth.js";
-import {
-  clearInstallationTokenCacheForTest,
-  mintInstallationToken,
-} from "../github/installationToken.js";
+import type { InstallationToken } from "../github/appAuth.js";
+import { productionInstallationSurface, type InstallationSurface } from "./installationSurface.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { classifyProviderError, isCancelAbortError } from "../agent/providers/providerErrors.js";
@@ -54,7 +51,6 @@ import {
   type PrActorLeaseKey,
 } from "./prActorLease.js";
 import {
-  createPrSurface,
   type PrSurface,
   type PrSurfaceMutation,
   type PrSurfaceMutationBoundary,
@@ -75,8 +71,14 @@ import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
 import { withOperationIntent, type WithOperationIntentParams } from "./withOperationIntent.js";
 import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
+import {
+  withPrRepositoryView,
+  type PreparePrRepositoryViewParams,
+  type PrRepositoryView,
+} from "../prWorkspace/prRepositoryView.js";
 
 export type DurableExecutionContext = {
+  readonly job: JobWithMetadata<{ workItemId: string }>;
   prSurface: PrSurface;
   headSha: string;
   pullRequest?: PullRequestForFileList;
@@ -86,11 +88,98 @@ export type DurableExecutionContext = {
   signal: AbortSignal;
   /** Admit fresh feature work once per dispatch, before preparing its workspace. */
   beginAttempt: () => Promise<WorkClaim>;
+  /** Admission precedes every read-only checkout; recovery callers need not acquire one. */
+  withAdmittedRepositoryView: <T>(
+    options: Pick<PreparePrRepositoryViewParams, "repositorySizeKb" | "prFiles">,
+    run: (view: PrRepositoryView) => Promise<T>,
+  ) => Promise<T>;
+  /** Session identity only, independent of snapshot/checkpoint storage. */
+  readonly durability: {
+    readonly pool: Pool;
+    readonly workItemId: string;
+    readonly installationId: number;
+    readonly owner: string;
+    readonly repo: string;
+    readonly prNumber: number;
+  };
+  /** Shared signal/cancellation/lease policy; feature-specific head checks stay with the feature. */
+  shouldAbortPublish: () => Promise<boolean>;
   /** Lifecycle timestamps and the latest acknowledged durable work count. */
   readonly claim?: WorkClaim;
   /** Deterministic escalation for this attempt; undefined on attempt 1. */
   readonly escalation?: EscalationPlan;
 };
+
+export function createDurableExecutionContext(
+  params: Omit<
+    DurableExecutionContext,
+    "claim" | "escalation" | "withAdmittedRepositoryView" | "durability" | "shouldAbortPublish"
+  > & {
+    readonly pool: Pool;
+    readonly item: AgentWorkItem;
+    readonly getClaim: () => WorkClaim | undefined;
+    readonly getEscalation: () => EscalationPlan | undefined;
+  },
+): DurableExecutionContext {
+  const { pool, item, getClaim, getEscalation, beginAttempt, ...context } = params;
+  let admission: Promise<WorkClaim> | undefined;
+  const admit = () => (admission ??= beginAttempt());
+  return {
+    ...context,
+    beginAttempt: admit,
+    withAdmittedRepositoryView: async (options, run) => {
+      await admit();
+      return withPrRepositoryView(
+        {
+          ...options,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha: context.headSha,
+          pullRequest: context.pullRequest,
+          gitCredentialAuth: () => context.prSurface.gitCredentialAuth(),
+        },
+        run,
+      );
+    },
+    durability: {
+      pool,
+      workItemId: item.id,
+      installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+    },
+    shouldAbortPublish: async () =>
+      context.signal.aborted ||
+      (await shouldSkipWork(pool, item)) ||
+      (context.leaseEpoch != null &&
+        !(await isPrActorLeaseHeld(pool, item.id, context.leaseEpoch))),
+    get claim() {
+      return getClaim();
+    },
+    get escalation() {
+      return getEscalation();
+    },
+  };
+}
+
+export type DurableRuntime = {
+  readonly installationSurface: InstallationSurface;
+  readonly transaction: typeof inTransaction;
+  readonly startLeaseRenewal: typeof startLeaseRenewal;
+  readonly startCancelObserve: typeof startCancelObserve;
+};
+
+export function createDurableRuntime(dependencies: Partial<DurableRuntime> = {}): DurableRuntime {
+  return {
+    installationSurface: productionInstallationSurface,
+    transaction: inTransaction,
+    startLeaseRenewal,
+    startCancelObserve,
+    ...dependencies,
+  };
+}
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
 const leaseHolderId = `${os.hostname()}:${process.pid}`;
@@ -249,23 +338,6 @@ function createLeaseMutationBoundary(params: {
   };
 }
 
-let botIdentityCache: Promise<BotIdentity> | undefined;
-
-export function clearDurableAuthCachesForTest(): void {
-  if (process.env.NODE_ENV === "test") {
-    clearInstallationTokenCacheForTest();
-    botIdentityCache = undefined;
-  }
-}
-
-function getCachedBotIdentity(cfg: Config): Promise<BotIdentity> {
-  botIdentityCache ??= getAppBotIdentity(cfg).catch((error: unknown) => {
-    botIdentityCache = undefined;
-    throw error;
-  });
-  return botIdentityCache;
-}
-
 /** Reasons an executor completed with reduced output; persisted and reported, never fatal. */
 export type DegradationReason =
   // verification
@@ -321,12 +393,11 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
    * retry acquisition until the lease frees or lapses.
    */
   readonly prActorLease?: { readonly queue: string };
-  /**
-   * Test seam: run the atomic acquire-and-claim body against this client
-   * instead of opening a real transaction. Production callers omit it.
-   */
-  readonly transactForTest?: <R>(fn: (client: PoolClient) => Promise<R>) => Promise<R>;
+  readonly runtime?: DurableRuntime;
   readonly acceptItem?: (item: Extract<AgentWorkItemCore, { type: T }>) => boolean;
+  readonly contextPolicy: {
+    readonly commenterId: (item: Extract<AgentWorkItem, { type: T }>) => number | undefined;
+  };
   readonly resolveHeadSha: (
     prSurface: PrSurface,
     item: Extract<AgentWorkItem, { type: T }>,
@@ -356,9 +427,13 @@ export async function resolveWorkItemHead(
   return item.headSha === DEFERRED_HEAD_SHA ? prSurface.getHead() : { headSha: item.headSha };
 }
 
-async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolean> {
+async function isBotCommenter(
+  installationSurface: InstallationSurface,
+  cfg: Config,
+  commenterId?: number,
+): Promise<boolean> {
   if (commenterId == null) return false;
-  const bot = await getCachedBotIdentity(cfg);
+  const bot = await installationSurface.botIdentity(cfg);
   return bot.userId === commenterId;
 }
 
@@ -404,22 +479,6 @@ async function finishRescheduledParentWorkItem(
   });
 }
 
-function workItemCommenterId(item: AgentWorkItem): number | undefined {
-  switch (item.type) {
-    case "review":
-    case "ask":
-    case "description":
-    case "triage":
-      return item.payload.commenterId;
-    case "verification":
-      return undefined;
-    default: {
-      const exhaustive: never = item;
-      return exhaustive;
-    }
-  }
-}
-
 function workItemAccepted<T extends WorkType>(
   item: AgentWorkItemCore | null,
   spec: DurableJobSpec<T>,
@@ -459,8 +518,7 @@ type AtomicClaimResult =
  * epoch inside the same transaction. Intake cancel takes the opposite lock
  * order (item rows, then lease), so retry once on Postgres deadlock (`40P01`):
  * the retry re-reads the cancelled row and takes the claim-null path.
- * Test seam surface: integration tests drive this entry directly with a real
- * transaction to prove the atomic pair rolls back or commits together.
+ * Integration tests drive this entry with a real transaction to prove the pair.
  */
 export async function acquireAndClaimWorkItem<T extends WorkType>(params: {
   readonly pool: Pool;
@@ -472,10 +530,7 @@ export async function acquireAndClaimWorkItem<T extends WorkType>(params: {
   readonly priority?: number;
   readonly seededLiveHop: boolean;
   /**
-   * Test seam: run the acquire+claim body against this client instead of a real
-   * transaction. Unit tests pass a passthrough (their pool is a `{}` stub with
-   * mocked repositories); integration tests drive this entry with a real tx or
-   * omit the seam for the production default. Production callers omit it.
+   * Transaction adapter owns atomic commit/rollback. The default uses Postgres.
    */
   readonly transact?: <R>(fn: (client: PoolClient) => Promise<R>) => Promise<R>;
 }): Promise<AtomicClaimResult> {
@@ -565,6 +620,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   let workItem: TypedItem | undefined;
   let leaseEpoch: number | null = null;
   let leaseKey: PrActorLeaseKey | undefined;
+  const runtime = spec.runtime ?? createDurableRuntime();
   const jobSignal = spec.job.signal;
   let executionSignal = jobSignal;
   let leaseAbortController: AbortController | undefined;
@@ -583,7 +639,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     const token =
       installation ??
       seededInstallation ??
-      (await mintInstallationToken(spec.cfg, workItemCore.installationId));
+      (await runtime.installationSurface.token(spec.cfg, workItemCore.installationId));
     const mutationBoundary =
       leaseEpoch == null || leaseAbortController == null
         ? undefined
@@ -596,7 +652,7 @@ export async function runDurableWorkItem<T extends WorkType>(
             // Terminal hooks must still close the cancelled verdict.
             checkCancellation: false,
           });
-    return createPrSurface({
+    return runtime.installationSurface.create({
       cfg: spec.cfg,
       installationId: workItemCore.installationId,
       owner: workItemCore.owner,
@@ -738,7 +794,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       ttlSeconds: spec.cfg.prActorLeaseTtlSeconds,
       priority: spec.job.priority,
       seededLiveHop,
-      transact: spec.transactForTest,
+      transact: (fn) => runtime.transaction(spec.pool, fn),
     });
     if (atomic == null) return;
     if (!atomic.acquired) {
@@ -755,15 +811,22 @@ export async function runDurableWorkItem<T extends WorkType>(
     workClaim = atomic.claimed;
     leaseAbortController = new AbortController();
     executionSignal = combineAbortSignals(jobSignal, leaseAbortController.signal);
-    stopLeaseRenewal = startLeaseRenewal(spec.pool, spec.cfg, leaseKey, core.id, leaseEpoch, () => {
-      leaseAbortController?.abort(
-        new AppError({
-          code: "agent_work.pr_actor_lease_lost",
-          message: "PR actor lease renewal lost ownership",
-          context: { workItemId: core.id, leaseEpoch },
-        }),
-      );
-    });
+    stopLeaseRenewal = runtime.startLeaseRenewal(
+      spec.pool,
+      spec.cfg,
+      leaseKey,
+      core.id,
+      leaseEpoch,
+      () => {
+        leaseAbortController?.abort(
+          new AppError({
+            code: "agent_work.pr_actor_lease_lost",
+            message: "PR actor lease renewal lost ownership",
+            context: { workItemId: core.id, leaseEpoch },
+          }),
+        );
+      },
+    );
   }
 
   try {
@@ -807,7 +870,6 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     const item = workItem;
     let workAdmissionAcknowledged = false;
-    let admission: Promise<WorkClaim> | undefined;
 
     async function admitWork(): Promise<WorkClaim> {
       if (executionSignal.aborted) {
@@ -902,7 +964,13 @@ export async function runDurableWorkItem<T extends WorkType>(
     async function prepareDurableExecution(
       installationToken: InstallationToken,
     ): Promise<DurableExecutionContext | undefined> {
-      if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
+      if (
+        await isBotCommenter(
+          runtime.installationSurface,
+          spec.cfg,
+          spec.contextPolicy.commenterId(item),
+        )
+      ) {
         await markCancelledAndInvokeHook(item, "bot_commenter", leaseEpoch, installationToken);
         return undefined;
       }
@@ -917,7 +985,7 @@ export async function runDurableWorkItem<T extends WorkType>(
               leaseEpoch,
               signal: executionSignal,
             });
-      const prSurface = createPrSurface({
+      const prSurface = await runtime.installationSurface.create({
         cfg: spec.cfg,
         installationId: item.installationId,
         owner: item.owner,
@@ -931,22 +999,22 @@ export async function runDurableWorkItem<T extends WorkType>(
       if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, leaseEpoch)) {
         boundHeadSha = headSha;
         executionPrSurface = prSurface;
-        return {
+        return createDurableExecutionContext({
+          pool: spec.pool,
+          item,
+          job: spec.job,
           prSurface,
           headSha,
           pullRequest: resolvedHead.pullRequest,
           leaseEpoch,
           signal: executionSignal,
-          beginAttempt: () => (admission ??= admitWork()),
-          get claim() {
-            return workClaim;
-          },
-          get escalation() {
-            return workAdmissionAcknowledged && workClaim
+          beginAttempt: admitWork,
+          getClaim: () => workClaim,
+          getEscalation: () =>
+            workAdmissionAcknowledged && workClaim
               ? escalationForAttempt(workClaim.attemptCount, spec.cfg)
-              : undefined;
-          },
-        };
+              : undefined,
+        });
       }
 
       await recheckSkippableAndCancel("head_update_rejected");
@@ -1204,7 +1272,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         });
         return;
       }
-      seededInstallation = await mintInstallationToken(spec.cfg, item.installationId);
+      seededInstallation = await runtime.installationSurface.token(spec.cfg, item.installationId);
       const execution = await prepareDurableExecution(seededInstallation);
       if (!execution) return;
 
@@ -1228,7 +1296,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         return;
       }
       if (leaseAbortController != null && leaseEpoch != null) {
-        stopCancelObserve = startCancelObserve({
+        stopCancelObserve = runtime.startCancelObserve({
           pool: spec.pool,
           workItemId: item.id,
           leaseEpoch,

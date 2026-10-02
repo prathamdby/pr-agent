@@ -1,6 +1,5 @@
-import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../../config.js";
+import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
+
 import { durationMsFromClaim } from "../../analytics/workCompleted.js";
 import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
@@ -8,40 +7,19 @@ import { classifyFailure, classifiedFailureLogFields } from "../../errors/classi
 import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
-import { withPrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
-import { recordPublishStep, shouldSkipWork } from "../repository.js";
-import { isPrActorLeaseHeld } from "../prActorLease.js";
-import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
-import { type DescriptionJobData } from "../types.js";
-import { DESCRIPTION_QUEUE } from "../../settings/index.js";
+import { recordPublishStep } from "../repository.js";
 
-export async function executeDescriptionJob(
-  cfg: Config,
-  pool: Pool,
-  boss: PgBoss,
-  job: JobWithMetadata<DescriptionJobData>,
-): Promise<void> {
-  await runDurableWorkItem({
-    cfg,
-    pool,
-    boss,
-    job,
-    type: "description",
-    prActorLease: { queue: DESCRIPTION_QUEUE },
-    resolveHeadSha: resolveWorkItemHead,
+export function createDescriptionWorkExecution({
+  cfg,
+  pool,
+}: WorkExecutionDependencies): WorkExecution<"description"> {
+  return {
     execute: async (item, env) => {
       const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
-      await env.beginAttempt();
-      return withPrRepositoryView(
+      return env.withAdmittedRepositoryView(
         {
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          gitCredentialAuth: () => prSurface.gitCredentialAuth(),
-          headSha,
-          pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
@@ -56,11 +34,7 @@ export async function executeDescriptionJob(
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
             escalation: env.escalation,
-            shouldAbortPublish: async () =>
-              env.signal.aborted ||
-              (await shouldSkipWork(pool, item)) ||
-              (env.leaseEpoch != null &&
-                !(await isPrActorLeaseHeld(pool, item.id, env.leaseEpoch))),
+            shouldAbortPublish: env.shouldAbortPublish,
             recordPublishStep: (detail) =>
               recordPublishStep(pool, {
                 workItemId: item.id,
@@ -76,14 +50,7 @@ export async function executeDescriptionJob(
               resourceKey: item.resourceKey,
               leaseEpoch: env.leaseEpoch,
             },
-            durability: {
-              pool,
-              workItemId: item.id,
-              installationId: item.installationId,
-              owner: item.owner,
-              repo: item.repo,
-              prNumber: item.prNumber,
-            },
+            durability: env.durability,
             signal: env.signal,
           });
           if (!result.published && !result.publishSuperseded) {
@@ -142,5 +109,5 @@ export async function executeDescriptionJob(
         DESCRIPTION_FAILURE_MESSAGE,
       );
     },
-  });
+  };
 }

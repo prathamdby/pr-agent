@@ -1,8 +1,10 @@
+import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import {
-  clearDurableAuthCachesForTest,
+  createDurableRuntime,
   runDurableWorkItem,
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
@@ -72,6 +74,8 @@ vi.mock("../src/github/appAuth.js", () => ({
 import * as repo from "../src/agentWork/repository.js";
 import * as appAuth from "../src/github/appAuth.js";
 
+let installationSurface = openInstallationSurface();
+
 const cfg = makeTestConfig({
   piFallbackProvider: "anthropic",
   piFallbackModel: "claude-sonnet-4",
@@ -127,7 +131,7 @@ describe("durableJob analytics forwarding", () => {
       expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
       installationId: 99,
     } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-    clearDurableAuthCachesForTest();
+    installationSurface = openInstallationSurface();
     vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
       userId: 999,
       login: "pr-agent[bot]",
@@ -154,7 +158,9 @@ describe("durableJob analytics forwarding", () => {
       const execute = vi.fn();
       await expect(
         runDurableWorkItem({
+          contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
           cfg,
+          runtime: createDurableRuntime({ installationSurface }),
           pool,
           boss,
           type: "review",
@@ -198,8 +204,10 @@ describe("durableJob analytics forwarding", () => {
     } as unknown as JobWithMetadata<{ workItemId: string }>;
 
     const spec: DurableJobSpec<"review"> = {
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
       type: "review",
       cfg,
+      runtime: createDurableRuntime({ installationSurface }),
       pool,
       boss,
       job,
@@ -266,8 +274,10 @@ describe("durableJob analytics forwarding", () => {
 
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
         type: "review",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job,
@@ -334,8 +344,10 @@ describe("durableJob analytics forwarding", () => {
 
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
         type: "review",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job,
@@ -378,8 +390,10 @@ describe("durableJob analytics forwarding", () => {
     const transient = new Error("transient");
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
         type: "review",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job: reviewJob(item.id, 0, 3),
@@ -397,8 +411,10 @@ describe("durableJob analytics forwarding", () => {
     });
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
         type: "review",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job: reviewJob(item.id, 1, 3),
@@ -463,8 +479,10 @@ describe("durableJob analytics forwarding", () => {
     });
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).verification.contextPolicy,
         type: "verification",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job: reviewJob(item.id, 0, 3),
@@ -515,8 +533,10 @@ describe("durableJob analytics forwarding", () => {
     });
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).verification.contextPolicy,
         type: "verification",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job: reviewJob(item.id, 3, 3),
@@ -563,8 +583,10 @@ describe("durableJob analytics forwarding", () => {
 
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
         type: "review",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job: reviewJob(item.id, 0, 3),
@@ -595,8 +617,10 @@ describe("durableJob analytics forwarding", () => {
 
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
         type: "review",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job: reviewJob(item.id, 0, 3),
@@ -625,8 +649,10 @@ describe("durableJob analytics forwarding", () => {
 
     await expect(
       runDurableWorkItem({
+        contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
         type: "review",
         cfg,
+        runtime: createDurableRuntime({ installationSurface }),
         pool,
         boss,
         job: reviewJob(item.id, 0, 3),

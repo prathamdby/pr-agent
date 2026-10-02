@@ -1,3 +1,5 @@
+import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
+import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "../../src/agentWork/scheduler.js";
@@ -39,12 +41,10 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger, initEvlog } from "../../src/evlog.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { executeAckJob } from "../../src/agentWork/executors/ackExecutor.js";
-import { executeAskJob } from "../../src/agentWork/executors/askExecutor.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as installationToken from "../../src/github/installationToken.js";
 import * as prSurface from "../../src/github/prSurface.js";
 import * as prWorkspace from "../../src/prWorkspace/prRepositoryView.js";
-import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
 import { mockLocalPrWorkspace } from "../helpers/mockWorkspace.js";
 
 vi.mock("../../src/agent/ask/askRun.js", () => ({
@@ -347,7 +347,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         "SELECT work_item_id FROM ask_quota_reservations WHERE work_item_id = ANY($1::uuid[])",
         [[...ids]],
       );
-      clearDurableAuthCachesForTest();
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
         token: "synthetic-ask-token",
         expiresAtTs: Date.now() + 60_000,
@@ -378,7 +377,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         return replyAt(replyTarget, body);
       });
       const executions = jobs.map((job) =>
-        executeAskJob(intakeCfg, pool, boss, { ...job, signal: new AbortController().signal }),
+        createWorkDefinitions({
+          cfg: intakeCfg,
+          pool: pool,
+          boss: boss,
+          installationSurface: openInstallationSurface(),
+        }).ask.dispatch({ ...job, signal: new AbortController().signal }),
       );
       for (const execution of executions) void execution.catch(() => undefined);
       try {
@@ -408,7 +412,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         [items.rows[0].id],
       );
       expect(intents.rows).toEqual([{ status: "reconciled" }]);
-      await executeAskJob(intakeCfg, pool, boss, {
+      await createWorkDefinitions({
+        cfg: intakeCfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).ask.dispatch({
         ...jobs[0],
         signal: new AbortController().signal,
       });
@@ -453,7 +462,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ids.has(job.data.workItemId),
     );
     expect(jobs).toHaveLength(2);
-    clearDurableAuthCachesForTest();
     vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
       token: "synthetic-ask-token",
       expiresAtTs: Date.now() + 60_000,
@@ -473,7 +481,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       }),
     );
     for (const job of jobs) {
-      await executeAskJob(intakeCfg, pool, boss, { ...job, signal: new AbortController().signal });
+      await createWorkDefinitions({
+        cfg: intakeCfg,
+        pool: pool,
+        boss: boss,
+        installationSurface: openInstallationSurface(),
+      }).ask.dispatch({ ...job, signal: new AbortController().signal });
     }
     expect(fake.controls.replies).toHaveLength(2);
     expect(fake.controls.replies.every((reply) => reply.target.kind === "inlineReviewThread")).toBe(
@@ -698,7 +711,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       ids.has(job.data.workItemId),
     );
     expect(jobs).toHaveLength(1);
-    clearDurableAuthCachesForTest();
     vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
       token: "synthetic-ask-token",
       expiresAtTs: Date.now() + 60_000,
@@ -728,7 +740,12 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
       await publishGate;
       return replyAt(replyTarget, body);
     });
-    const execution = executeAskJob(intakeCfg, pool, boss, {
+    const execution = createWorkDefinitions({
+      cfg: intakeCfg,
+      pool: pool,
+      boss: boss,
+      installationSurface: openInstallationSurface(),
+    }).ask.dispatch({
       ...jobs[0],
       signal: new AbortController().signal,
     });
@@ -2737,7 +2754,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
     const notice = noticeJobs.find((job) => job.data.awaitingApproval)!.data;
     expect(notice.targets).toEqual([]);
     expect(notice.workItemId).toBeUndefined();
-    clearDurableAuthCachesForTest();
     vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
       token: "test-token",
       expiresAtTs: Date.now() + 3_600_000,
@@ -2999,7 +3015,6 @@ describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
         intakeLog(),
       );
       await expect(countWorkItems()).resolves.toBe(0);
-      clearDurableAuthCachesForTest();
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
         token: "test-token",
         expiresAtTs: Date.now() + 3_600_000,

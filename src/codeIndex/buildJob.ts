@@ -1,10 +1,9 @@
+import { productionInstallationSurface } from "../agentWork/installationSurface.js";
 import { readFile, stat } from "node:fs/promises";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
-import { mintInstallationToken } from "../github/installationToken.js";
-import { createPrSurface } from "../github/prSurface.js";
 import { assertWorkspacePath, type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.js";
 import { isIndexableSourcePath } from "../prWorkspace/symbolIndex.js";
@@ -149,8 +148,8 @@ export async function executeCodeIndexBuildJob(
   const existing = await waitForReadySnapshot(pool, scope, 0);
   if (existing) return;
 
-  const installation = await mintInstallationToken(cfg, data.installationId);
-  const prSurface = createPrSurface({
+  const installation = await productionInstallationSurface.token(cfg, data.installationId);
+  const prSurface = await productionInstallationSurface.create({
     cfg,
     installationId: data.installationId,
     owner: data.owner,
