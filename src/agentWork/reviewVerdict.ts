@@ -20,8 +20,8 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
   getSummaryCommentGithubId,
-  getWorkItemCore,
-} from "./repository.js";
+} from "./publishRecordRepository.js";
+import { getWorkItemCore } from "./workItemStateRepository.js";
 import {
   claimOwnVerdict,
   getDelegatedOwnVerdictFinish,

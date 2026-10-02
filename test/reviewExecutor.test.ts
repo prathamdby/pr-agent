@@ -107,12 +107,8 @@ const mocks = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock("../src/agentWork/repository.js", () => ({
-  loadReviewExecutorPublishContext: mocks.loadPublishContext,
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   shouldSkipWork: mocks.shouldSkipWork,
-  getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
-  getProgressCommentOwner: mocks.getProgressCommentOwner,
-  getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   getWorkItem: mocks.getWorkItem,
   getWorkItemCore: vi.fn(async () => ({ type: "review", status: "completed" })),
 }));
@@ -122,6 +118,10 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   return {
     ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
     ...createOwnVerdictCloseMock(),
+    loadReviewExecutorPublishContext: mocks.loadPublishContext,
+    getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
+    getProgressCommentOwner: mocks.getProgressCommentOwner,
+    getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   };
 });
 
@@ -1116,6 +1116,44 @@ describe("review work definition", () => {
           summary: "PR Agent could not complete the review after retries.",
         }),
       ]),
+    );
+  });
+
+  it("cancels a pending stale-head replacement before the verdict close, even without a surface", async () => {
+    const cancel = vi
+      .spyOn(reviewReschedule, "cancelPendingStaleHeadReplacement")
+      .mockResolvedValue(undefined);
+    const dead = new Error("dead");
+    configureExecution(async (spec) => {
+      await spec.onTerminalFailure?.(makeItem("slash"), undefined, dead);
+    });
+
+    await runExecution();
+
+    expect(cancel).toHaveBeenCalledWith(pool, expect.objectContaining({ id: "wi-1" }), dead);
+    expect(verdictMethods.close).not.toHaveBeenCalled();
+  });
+
+  it("still closes the crashed verdict when the replacement cancel is rejected", async () => {
+    const cancel = vi
+      .spyOn(reviewReschedule, "cancelPendingStaleHeadReplacement")
+      .mockRejectedValue(new Error("agent_work.replacement_cancel_rejected"));
+    configureExecution(async (spec) => {
+      await spec.onTerminalFailure?.(
+        makeItem("slash"),
+        durableSurfaceBundle.surface,
+        new Error("dead"),
+      );
+    });
+
+    await runExecution();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ checkRun: "action_required" })]));
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      verdictMethods.close.mock.invocationCallOrder[0] ?? 0,
     );
   });
 

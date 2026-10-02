@@ -54,14 +54,15 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   return { ...actual, isPrActorLeaseHeld: vi.fn().mockResolvedValue(true) };
 });
 
-vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/repository.js")>();
-  return {
-    ...actual,
-    listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
-    shouldSkipWork: mocks.shouldSkipWork,
-  };
-});
+vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>()),
+  listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
+}));
+
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+  shouldSkipWork: mocks.shouldSkipWork,
+}));
 
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";

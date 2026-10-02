@@ -54,7 +54,7 @@ import {
   type PrHeadCiStateRow,
 } from "../prHeadCiState.js";
 
-import { getProgressCommentOwner } from "../repository.js";
+import { getProgressCommentOwner } from "../publishRecordRepository.js";
 import { getWorkItemCore } from "../workItemStateRepository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
 

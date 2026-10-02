@@ -71,8 +71,11 @@ import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { LIGHTWEIGHT_REVIEW_COMPLETION_LEAD } from "../src/settings/index.js";
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
+}));
+
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   shouldSkipWork: vi.fn(),
 }));
 
@@ -123,7 +126,8 @@ vi.mock("../src/review/publish/reviewSummaryComment.js", () => ({
   }),
 }));
 
-import { getSummaryCommentGithubId, shouldSkipWork } from "../src/agentWork/repository.js";
+import { getSummaryCommentGithubId } from "../src/agentWork/publishRecordRepository.js";
+import { shouldSkipWork } from "../src/agentWork/workItemStateRepository.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 import { requestHeadCiProjection, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
 

@@ -18,7 +18,8 @@ import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentW
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
 import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
 import { loadPrHeadCiState, storePrNumbersForHead } from "../../src/agentWork/prHeadCiState.js";
-import { getWorkItem, recordReviewCheckRun } from "../../src/agentWork/repository.js";
+import { getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
 import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.js";
 import * as appAuth from "../../src/github/appAuth.js";

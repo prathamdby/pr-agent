@@ -9,7 +9,7 @@ import {
   assertPrActorLeaseHeld,
   releasePrActorLease,
 } from "../../src/agentWork/prActorLease.js";
-import * as repository from "../../src/agentWork/repository.js";
+import * as repository from "../../src/agentWork/publishRecordRepository.js";
 import * as evlog from "../../src/evlog.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../src/github/mutationErrorContract.js";
@@ -30,7 +30,10 @@ import {
   createReviewRescheduleWorkItem,
   STALE_HEAD_PARENT_NOT_RESCHEDULABLE,
 } from "../../src/agentWork/reviewReschedule.js";
-import { getReviewQueuePosition, getWorkItem } from "../../src/agentWork/repository.js";
+import {
+  getReviewQueuePosition,
+  getWorkItem,
+} from "../../src/agentWork/workItemStateRepository.js";
 import {
   getProgressCommentOwner,
   getProgressCommentRevision,

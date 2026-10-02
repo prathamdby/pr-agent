@@ -52,16 +52,20 @@ import {
   gitPersonFromGithubUser,
   type GitPerson,
 } from "../../agent/triage/commitAttribution.js";
-import { listTriageEligibleInlineReviews } from "../repository.js";
-import {
-  type DegradationReason,
-  type DurableExecutionContext,
-  type DurableExecutionResult,
-} from "../durableJob.js";
+import { listTriageEligibleInlineReviews } from "../publishRecordRepository.js";
+import { type DurableExecutionContext, type DurableExecutionResult } from "../durableJob.js";
 import type { EscalationPlan } from "../retryPolicy.js";
 import { triageMode, type TriageWorkPayload, type AgentWorkItem } from "../types.js";
 
 type TriageWorkItem = Extract<AgentWorkItem, { type: "triage" }>;
+
+/** Reasons a triage run completed with reduced output. */
+type TriageDegradationReason =
+  | "push_stale"
+  | "push_closed"
+  | "thread_action_missing"
+  | "bulk_partial"
+  | "replay_commit_errors";
 
 type TriageExecuteResult = Extract<DurableExecutionResult, { kind: "completed" }>;
 
@@ -151,7 +155,7 @@ async function resolveScopedThreadRootId(params: {
 }
 
 function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult {
-  const reasons: DegradationReason[] = [];
+  const reasons: TriageDegradationReason[] = [];
   if (publish.pushOutcome === "stale") reasons.push("push_stale");
   if (publish.pushOutcome === "closed") reasons.push("push_closed");
   if (publish.missingThreadAction) reasons.push("thread_action_missing");
@@ -503,7 +507,10 @@ async function runFreshTriageAgent(params: {
             threadRootCommentId: params.reportContext.threadRootCommentId,
           }),
         });
-        return { kind: "completed", degradation: ["push_closed"] };
+        return {
+          kind: "completed",
+          degradation: ["push_closed"] satisfies readonly TriageDegradationReason[],
+        };
       }
       await ensureTriageNotCancelled(params.env);
       const commitByThreadRootCommentId = result.commitByThreadRootCommentId ?? new Map();
@@ -674,7 +681,7 @@ async function runBulkFromPreview(params: {
         ...params.reportContext,
       });
       const completed = completedFromPublish(publish);
-      const replayDegradation: readonly DegradationReason[] =
+      const replayDegradation: readonly TriageDegradationReason[] =
         replayed.commitErrors.length > 0 ? ["replay_commit_errors"] : [];
       if (replayDegradation.length > 0 || publish.partialBulk === true) {
         return {

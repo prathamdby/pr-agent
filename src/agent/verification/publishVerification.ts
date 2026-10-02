@@ -28,7 +28,7 @@ import {
   type FindingHistoryOutcome,
 } from "../../agentWork/findingHistoryRepository.js";
 import type { Config } from "../../config.js";
-import type { DegradationReason } from "../../agentWork/durableJob.js";
+import type { VerificationDegradationReason } from "../../agentWork/verificationPublishGate.js";
 
 type PublishVerificationParams = {
   readonly pool: Pool;
@@ -264,8 +264,8 @@ function recordVerificationHistoryOutcome(
 
 export async function publishVerification(
   params: PublishVerificationParams,
-): Promise<{ degradation: readonly DegradationReason[] }> {
-  const degradation = new Set<DegradationReason>();
+): Promise<{ degradation: readonly VerificationDegradationReason[] }> {
+  const degradation = new Set<VerificationDegradationReason>();
   if (params.changedFilePathsTruncated === true) degradation.add("compare_files_truncated");
   let ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,

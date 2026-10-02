@@ -126,6 +126,12 @@ async function publishAskAnswer(
   }
 }
 
+/** Reasons an ask run completed with reduced output. */
+type AskDegradationReason =
+  | "reply_recovery_degraded"
+  | "reply_outcome_unknown"
+  | "publish_record_failed";
+
 /**
  * Recover a GitHub ask reply that was accepted but not yet recorded locally.
  * Returns the comment id when delivery can complete without remutation/model rerun.
@@ -316,7 +322,7 @@ export function createAskWorkExecution({
         if (status === "degraded") {
           return {
             kind: "completed",
-            degradation: ["reply_recovery_degraded"],
+            degradation: ["reply_recovery_degraded"] satisfies readonly AskDegradationReason[],
             completion: {
               kind: "ask",
               outcome: "degraded",
@@ -339,7 +345,7 @@ export function createAskWorkExecution({
         // found. Do not rerun the model or create a fallback reply.
         return {
           kind: "completed",
-          degradation: ["reply_outcome_unknown"],
+          degradation: ["reply_outcome_unknown"] satisfies readonly AskDegradationReason[],
           completion: {
             kind: "ask",
             outcome: "degraded",
@@ -468,7 +474,7 @@ export function createAskWorkExecution({
               });
               return {
                 kind: "completed",
-                degradation: ["publish_record_failed"],
+                degradation: ["publish_record_failed"] satisfies readonly AskDegradationReason[],
                 completion: {
                   kind: "ask",
                   outcome: "degraded",

@@ -13,7 +13,8 @@ import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContrac
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
 import { loadRenderableHeadCi, requestHeadCiProjection } from "./ciProjection.js";
 import { summaryCommentVerdictMeta } from "./reviewVerdict.js";
-import { getSummaryCommentGithubId, shouldSkipWork } from "./repository.js";
+import { getSummaryCommentGithubId } from "./publishRecordRepository.js";
+import { shouldSkipWork } from "./workItemStateRepository.js";
 import type { AgentWorkItem } from "./types.js";
 import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.js";
 

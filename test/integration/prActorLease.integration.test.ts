@@ -46,14 +46,12 @@ import { inTransaction } from "../../src/db/postgres.js";
 import * as evlog from "../../src/evlog.js";
 import * as leaseRepository from "../../src/agentWork/prActorLease.js";
 import * as intentRepository from "../../src/agentWork/operationIntentRepository.js";
-import * as workRepository from "../../src/agentWork/repository.js";
+import * as workRepository from "../../src/agentWork/workItemStateRepository.js";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as prSurfaceModule from "../../src/github/prSurface.js";
-import {
-  acquireAndClaimWorkItem,
-  runDurableWorkItem,
-  type DurableJobSpec,
-} from "../../src/agentWork/durableJob.js";
+import { runDurableWorkItem, type DurableJobSpec } from "../../src/agentWork/durableJob.js";
+import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.js";
 
 import { makeTestConfig } from "../helpers/config.js";
 import {
@@ -68,8 +66,7 @@ import {
 import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.js";
 import { publishOnce } from "../../src/agentWork/publishOnce.js";
 import {
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
-  cancelUnenqueuedStaleHeadReplacement,
+  cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
 } from "../../src/agentWork/reviewReschedule.js";
 import { installationGroupId, type ReviewWorkItem } from "../../src/agentWork/types.js";
@@ -88,7 +85,7 @@ import {
   markWorkFailed,
   markWorkPublishDegraded,
   updateRunningWorkHeadSha,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
 import { hasDatabase, integrationPool } from "./db.js";
 import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
 import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.js";
@@ -1390,7 +1387,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         sourceRootId: null,
       };
       try {
-        await workRepository.recordReviewCheckRun(scopedPool, {
+        await recordReviewCheckRun(scopedPool, {
           workItemId,
           resourceKey,
           reviewLens: "review",
@@ -1724,12 +1721,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         if (mode === "replacement_claim_cancel") await cancellation;
         if (mode === "replacement_running_cancel") {
           if (!replacementParent) throw new Error("expected replacement parent");
-          await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
-            pool,
-            boss,
-            replacementParent,
-            replacementError,
-          );
+          await cancelPendingStaleHeadReplacement(pool, replacementParent, replacementError);
         }
         if (mode === "legacy_cancel" || mode === "request_cancel") {
           await pool.query("UPDATE agent_work_items SET execution_epoch = 0 WHERE id = $1", [
@@ -1775,14 +1767,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
           await committedSend;
         }
-        await cancelUnenqueuedStaleHeadReplacement(
-          pool,
-          boss,
-          replacementParent,
-          workItemId,
-          replacementError,
-          false,
-        );
+        await cancelPendingStaleHeadReplacement(pool, replacementParent, replacementError);
         if (lateHop) {
           await armLeaseWatchdogHop(boss, {
             queue: REVIEW_QUEUE,
@@ -1812,14 +1797,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         if (!replacementParent) throw new Error("expected replacement parent");
         pendingSend = boss.send(REVIEW_QUEUE, { kind: "review", workItemId }, { id: workItemId });
         await committedSend;
-        await cancelUnenqueuedStaleHeadReplacement(
-          pool,
-          boss,
-          replacementParent,
-          workItemId,
-          replacementError,
-          false,
-        );
+        await cancelPendingStaleHeadReplacement(pool, replacementParent, replacementError);
         releaseSend();
         await pendingSend;
         releasePublication();
@@ -1828,13 +1806,10 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         await claimReady;
         if (!replacementParent || claimantPid == null)
           throw new Error("expected claimed replacement");
-        cancellation = cancelUnenqueuedStaleHeadReplacement(
+        cancellation = cancelPendingStaleHeadReplacement(
           pool,
-          boss,
           replacementParent,
-          workItemId,
           replacementError,
-          false,
         ).then(
           () => null,
           (error: unknown) => error,
@@ -2022,18 +1997,15 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           status,
         ]);
       }
-      const boss = new PgBoss(makeTestConfig().databaseUrl);
-      vi.spyOn(boss, "findJobs").mockResolvedValue([]);
+      await pool.query("UPDATE agent_work_items SET payload = payload || $2::jsonb WHERE id = $1", [
+        parentId,
+        JSON.stringify({
+          staleHeadReplacement: { replacementWorkItemId: targetId, state: "pending-enqueue" },
+        }),
+      ]);
       const signal = vi.spyOn(evlog, "logError").mockImplementation(() => {});
       await expect(
-        cancelUnenqueuedStaleHeadReplacement(
-          pool,
-          boss,
-          parent,
-          targetId,
-          new Error("parent terminal"),
-          false,
-        ),
+        cancelPendingStaleHeadReplacement(pool, parent, new Error("parent terminal")),
       ).rejects.toMatchObject({ code: "agent_work.replacement_cancel_rejected" });
       expect(signal).toHaveBeenCalledWith(
         "agent_work_replacement_cancel_failed",

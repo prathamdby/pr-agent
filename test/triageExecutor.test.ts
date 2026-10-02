@@ -139,9 +139,8 @@ vi.mock("../src/agent/triage/publishTriage.js", async (importOriginal) => ({
   publishTriageReportOnly: mocks.publishTriageReportOnly,
 }));
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
-  shouldSkipWork: mocks.shouldSkipWork,
 }));
 
 vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {

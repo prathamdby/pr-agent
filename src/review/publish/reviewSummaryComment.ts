@@ -7,7 +7,7 @@ import {
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
-} from "../../agentWork/repository.js";
+} from "../../agentWork/publishRecordRepository.js";
 import { logWarn } from "../../evlog.js";
 import { AppError } from "../../errors/appError.js";
 import type { IssueCommentRef, PrSurface } from "../../github/prSurface.js";

@@ -74,10 +74,6 @@ import {
 
 import { isEffectiveVerificationSignalTransition } from "../src/agentWork/prHeadCiState.js";
 
-vi.mock("../src/agentWork/repository.js", () => ({
-  getLatestCompletedPublishStepDetail: vi.fn().mockResolvedValue(null),
-}));
-
 vi.mock("../src/agentWork/ciProjection.js", () => ({
   requestHeadCiProjection: vi.fn().mockResolvedValue("enqueued"),
 }));

@@ -6,6 +6,8 @@ import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 
+type DescriptionDegradationReason = "publish_not_completed";
+
 export function createDescriptionWorkExecution({
   cfg,
   pool,
@@ -62,7 +64,9 @@ export function createDescriptionWorkExecution({
             });
             return {
               kind: "completed",
-              degradation: ["publish_not_completed"],
+              degradation: [
+                "publish_not_completed",
+              ] satisfies readonly DescriptionDegradationReason[],
               completion: {
                 kind: "description",
                 outcome: "degraded",

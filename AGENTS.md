@@ -195,7 +195,7 @@ payload in the conflict statement. Stored values win collisions, including acros
 lease epochs, so retry cannot erase another writer's changes. A new replacement
 still receives the complete original source and slash-command context.
 
-Terminal parent failure cancels a pending stale-head replacement even when its
+Review's terminal hook cancels a pending stale-head replacement even when its
 claim wins concurrently or a delivery races the abort. Queue existence cannot veto
 the state-predicated cancellation write. Successful in-attempt enqueue and the
 terminal fallback's persisted enqueued marker remain exempt. Leftover deliveries
@@ -290,7 +290,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/effect/` owns the Effect server, programs, services, and runtime wiring.
 - `src/webhook/` verifies and parses GitHub deliveries; `intakeCommand.ts` maps validated events without provider I/O.
 - `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention. `intake/delivery.ts` owns delivery transactions and review intake ordering; `askQuota.ts` owns atomic canonical ask admission. `reviewVerdict.ts` owns pending checks, first-output verdict selection, check/status application, summary details links, and open-check repair.
-- `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `durableJob.ts` owns the injected lifecycle/runtime, execution-context factory (admitted read-only views, session identity metadata, signal/cancellation/lease publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values, never capture completion events. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work and code-index builds.
+- `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `leasedExecution.ts::openLeasedExecution` owns watchdog seeding, lease acquire-and-claim, renewal, fenced terminal marks, and release. `durableJob.ts` owns retry policy, the context factory (admitted read-only views, session identity, publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work and code-index builds.
 - `src/agentWork/workItemTransitions.ts` owns `transition()`, the only work item status writer.
 - `src/agentWork/publishOnce.ts` owns mutation-intent sequencing and identity-scoped completion evidence. Its step table preserves ask/work and shared/resource scopes, progress ownership, and inline batches. Postgres and in-process publication adapters share those contracts. Triage retains its push plan before delegation and recovers only exact evidence, without a fabricated checkout.
 - `src/review/` owns orchestration, the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and review publication.
@@ -302,7 +302,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/errors/` owns `AppError` and external-failure classification.
 - `src/prWorkspace/` owns checkout lifecycle. `repositoryReader.ts` owns pinned and writable repository readers, path policy, and hardened Git execution. `src/agent/tools/workspaceToolset.ts` owns the ordered read-tool profiles; triage retains its write tools and final mutation guards.
 - `src/settings/` owns shared configuration constants, feature flags, and queue settings. Single-owner constants stay private to their owner: slash replies in `src/agentWork/intake/slashIntake.ts`, migration settings in `src/db/migrations.ts`.
-- `src/agentWork/types.ts` owns `PrResource`, the durable `PrRef`, and `ReplyTarget`. Import workspace and execution interfaces from their concrete modules, not deleted barrels. Execution halt codes live in `src/agent/execution/hostHalt.ts`; review status copy lives in `src/review/statusCopy.ts`.
+- `src/agentWork/types.ts` owns `PrResource`, the durable `PrRef`, and `ReplyTarget`. Import interfaces from concrete modules, not deleted barrels. Execution halt codes live in `src/agent/execution/hostHalt.ts`; review status copy lives in `src/review/statusCopy.ts`.
 - `migrations/` owns ordered Postgres schema changes.
 - `site/` is the separate landing and agent-readable documentation workspace.
 - `docs/adr/` records significant architecture decisions. Read the relevant ADR before changing its invariant.

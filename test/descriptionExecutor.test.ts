@@ -28,7 +28,7 @@ import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/se
 import { makeTestConfig } from "./helpers/config.js";
 import { makeDescriptionWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import * as repo from "../src/agentWork/repository.js";
+import * as repo from "../src/agentWork/workItemStateRepository.js";
 import {
   fakeDurablePrSurface,
   mockWorkClaim,
@@ -43,8 +43,9 @@ const mocks = vi.hoisted(() => ({
   withPrRepositoryView: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/repository.js")>();
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
   return {
     ...actual,
     shouldSkipWork: vi.fn().mockResolvedValue(false),

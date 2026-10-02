@@ -113,12 +113,11 @@ export function publishReviewTestBaseParams(
   };
 }
 
-export function createAgentWorkRepositoryMock() {
+export function createPublishRecordReadMock() {
   return {
     claimSummaryCommentCreation: vi.fn(async () => true),
     getProgressCommentOwner: vi.fn(async () => null),
     getReviewCheckRunGithubId: vi.fn(async () => 111),
-    getWorkItemCore: vi.fn(async () => ({ status: "completed" })),
     getProgressCommentRevision: vi.fn(async () => null),
     getProgressStubPostedAtMs: vi.fn(async () => null),
     getSummaryCommentGithubId: vi.fn(async () => null),

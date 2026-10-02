@@ -18,8 +18,8 @@ import * as workState from "../../src/agentWork/workItemStateRepository.js";
 import {
   claimWorkForExecution,
   markWorkCompleted,
-  recordReviewCheckRun,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import { collectQueueDiagnostics } from "../../src/agentWork/workerHealth.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { inTransaction } from "../../src/db/postgres.js";

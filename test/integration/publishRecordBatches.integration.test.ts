@@ -27,9 +27,11 @@ import {
   claimWorkForExecution,
   beginWorkAttempt,
   getWorkItem,
+} from "../../src/agentWork/workItemStateRepository.js";
+import {
   loadReviewExecutorPublishContext,
   recordReviewCheckRun,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/publishRecordRepository.js";
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
 import { AppError } from "../../src/errors/appError.js";
 import type { ReviewJobData } from "../../src/agentWork/types.js";

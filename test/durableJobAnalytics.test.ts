@@ -114,7 +114,12 @@ const mockPostHog = vi.hoisted(() => {
 
 vi.mock("posthog-node", () => ({ PostHog: mockPostHog.PostHog }));
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
+  loadReviewExecutorPublishContext: vi.fn(),
+  getSummaryCommentGithubId: vi.fn(async () => null),
+}));
+
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   getWorkItem: vi.fn(),
   getWorkItemCore: vi.fn(),
   getWorkItemPayload: vi.fn(),
@@ -129,8 +134,6 @@ vi.mock("../src/agentWork/repository.js", () => ({
   markWorkPublishDegraded: vi.fn(),
   markWorkRetrying: vi.fn(),
   updateRunningWorkHeadSha: vi.fn(),
-  loadReviewExecutorPublishContext: vi.fn(),
-  getSummaryCommentGithubId: vi.fn(async () => null),
 }));
 
 vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
@@ -147,7 +150,8 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(),
 }));
 
-import * as repo from "../src/agentWork/repository.js";
+import * as repo from "../src/agentWork/workItemStateRepository.js";
+import * as publishRecords from "../src/agentWork/publishRecordRepository.js";
 import * as appAuth from "../src/github/appAuth.js";
 
 let installationSurface = openInstallationSurface();
@@ -202,7 +206,7 @@ describe("durableJob analytics forwarding", () => {
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
     vi.mocked(loadPrHeadCiState).mockResolvedValue(null);
     verdict.close.mockReset().mockResolvedValue(undefined);
-    vi.mocked(repo.loadReviewExecutorPublishContext).mockResolvedValue({
+    vi.mocked(publishRecords.loadReviewExecutorPublishContext).mockResolvedValue({
       publishState: { summaryPublished: false, inlineReviewIds: [], threadCallCount: 0 },
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],

@@ -25,7 +25,7 @@ import { defaultAskQuotaConfig } from "../../src/agentWork/askQuota.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { acquirePrActorLease } from "../../src/agentWork/prActorLease.js";
-import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/repository.js";
+import { claimWorkForExecution, getWorkItem } from "../../src/agentWork/workItemStateRepository.js";
 import {
   createReviewRescheduleWorkItem,
   STALE_HEAD_PARENT_NOT_RESCHEDULABLE,

@@ -11,13 +11,13 @@ import {
   PR_ACTOR_LEASE_DEFER_SECONDS,
   releasePrActorLease,
 } from "../../src/agentWork/prActorLease.js";
-import { acquireAndClaimWorkItem } from "../../src/agentWork/durableJob.js";
+import { acquireAndClaimWorkItem } from "../../src/agentWork/leasedExecution.js";
 import {
   beginWorkAttempt,
   claimWorkForExecution,
   getWorkItem,
   markWorkCompleted,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -638,7 +638,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
            FROM generate_series(0, 6) AS offsets(slot_offset)`,
         [REVIEW_QUEUE, workItemId],
       );
-      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getWorkItemCore(pool, workItemId);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -750,7 +750,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       // never parking a held lease on the queued row.
       const coreRow = await pool.query(`SELECT id FROM agent_work_items WHERE id = $1`, [first]);
       expect(coreRow.rowCount).toBe(1);
-      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getWorkItemCore(pool, first);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -855,7 +855,7 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
     try {
       // Claim throws after a good acquire inside the real transaction: the
       // pair rolls back, so no partial commit parks a held lease.
-      const { getWorkItemCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore } = await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getWorkItemCore(pool, id);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       await expect(
@@ -918,7 +918,8 @@ describe.skipIf(!hasDatabase)("lease deferral and policy cutover (integration)",
       // Intake cancel already terminalized the row; the first attempt throws
       // 40P01, so the retry must re-read the cancelled row, claim-null, and
       // free the just-acquired epoch in-tx.
-      const { getWorkItemCore: getCore } = await import("../../src/agentWork/repository.js");
+      const { getWorkItemCore: getCore } =
+        await import("../../src/agentWork/workItemStateRepository.js");
       const core = await getCore(pool, id);
       if (core == null || core.type !== "review") throw new Error("missing review core");
       let attempts = 0;

@@ -15,7 +15,7 @@ import {
   isOwnCheckOpen,
   type TerminalOwnCheckStatus,
 } from "./reviewVerdict.js";
-import { getWorkItemCore, markLostRunningWorkFailed } from "./repository.js";
+import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
 
 export async function listTerminalReviewsWithOpenOwnChecks(

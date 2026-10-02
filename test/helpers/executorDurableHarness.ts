@@ -2,7 +2,7 @@ import { vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
 import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
 import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
-import * as repo from "../../src/agentWork/repository.js";
+import * as repo from "../../src/agentWork/workItemStateRepository.js";
 import type { WorkClaim } from "../../src/agentWork/workItemStateRepository.js";
 
 let durableSurfaceBundle = createFakePrSurface(

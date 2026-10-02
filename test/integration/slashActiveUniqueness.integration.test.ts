@@ -22,7 +22,7 @@ import {
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
 import {
-  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+  cancelPendingStaleHeadReplacement,
   createReviewRescheduleWorkItem,
   enqueueReviewReschedule,
 } from "../../src/agentWork/reviewReschedule.js";
@@ -30,7 +30,7 @@ import {
   claimWorkForExecution,
   getReviewQueuePosition,
   getWorkItem,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import * as workItemRepository from "../../src/agentWork/intake/workItemRepository.js";
 import { makeTestConfig } from "../helpers/config.js";
@@ -1956,9 +1956,8 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
     expect(replacements).toEqual([{ id: first.replacementWorkItemId, status: "queued" }]);
 
-    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+    await cancelPendingStaleHeadReplacement(
       pool,
-      boss,
       persisted,
       new Error("parent terminal before enqueue"),
     );

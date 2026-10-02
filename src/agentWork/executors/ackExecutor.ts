@@ -12,12 +12,12 @@ import {
   GITHUB_REACTION_PLUS_ONE,
   triageCancelledNotice,
 } from "../../settings/index.js";
+import { getProgressCommentOwner } from "../publishRecordRepository.js";
 import {
-  getProgressCommentOwner,
   getReviewQueuePosition,
   getWorkItemCore,
   type ReviewQueuePosition,
-} from "../repository.js";
+} from "../workItemStateRepository.js";
 import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../reviewVerdict.js";
 import { loadRenderableHeadCi, requestHeadCiProjection } from "../ciProjection.js";
 import { parseProgressRevisionState } from "../../review/run/commentMarkers.js";

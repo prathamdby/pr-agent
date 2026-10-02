@@ -12,9 +12,9 @@ import {
   getProgressCommentOwner,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
-  getWorkItem,
   reserveReviewCheckRun,
-} from "../src/agentWork/repository.js";
+} from "../src/agentWork/publishRecordRepository.js";
+import { getWorkItem } from "../src/agentWork/workItemStateRepository.js";
 import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
 
 const pool = {} as Pool;

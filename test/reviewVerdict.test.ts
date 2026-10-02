@@ -43,13 +43,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrSurface } from "../src/github/prSurface.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
-vi.mock("../src/agentWork/repository.js", () => ({
-  getReviewCheckRunGithubId: vi.fn(async () => null),
-  getSummaryCommentGithubId: vi.fn(async () => null),
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   getWorkItemCore: vi.fn(async () => null),
-  recordReviewCheckRun: vi.fn(async () => undefined),
-  releaseUnstartedReviewCheckRunReservation: vi.fn(async () => true),
-  reserveReviewCheckRun: vi.fn(async () => true),
 }));
 
 vi.mock("../src/evlog.js", () => ({
@@ -70,6 +65,11 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   >();
   return {
     ...actual,
+    getReviewCheckRunGithubId: vi.fn(async () => null),
+    getSummaryCommentGithubId: vi.fn(async () => null),
+    recordReviewCheckRun: vi.fn(async () => undefined),
+    releaseUnstartedReviewCheckRunReservation: vi.fn(async () => true),
+    reserveReviewCheckRun: vi.fn(async () => true),
     withOwnVerdictClose: vi.fn(async (client, _params, apply) => apply(client)),
     claimOwnVerdict: vi.fn(async (_client, params) => {
       const existing = records.get(params.workItemId);
@@ -120,11 +120,11 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
 import {
   getReviewCheckRunGithubId,
   getSummaryCommentGithubId,
-  getWorkItemCore,
   recordReviewCheckRun,
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
-} from "../src/agentWork/repository.js";
+} from "../src/agentWork/publishRecordRepository.js";
+import { getWorkItemCore } from "../src/agentWork/workItemStateRepository.js";
 import { logWarn } from "../src/evlog.js";
 import { AppError } from "../src/errors/appError.js";
 import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";

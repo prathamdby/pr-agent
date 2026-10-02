@@ -16,13 +16,14 @@ import {
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
 } from "../../settings/index.js";
-import { listTriageEligibleInlineReviews } from "../repository.js";
-import { type DegradationReason, type DurableExecutionResult } from "../durableJob.js";
+import { listTriageEligibleInlineReviews } from "../publishRecordRepository.js";
+import { type DurableExecutionResult } from "../durableJob.js";
 import { escalatedVerificationInventory } from "../retryPolicy.js";
 
 import {
   STALE_VERIFICATION_RESULT,
   verificationHeadFreshness,
+  type VerificationDegradationReason,
 } from "../verificationPublishGate.js";
 
 export function createVerificationWorkExecution({
@@ -226,7 +227,7 @@ export function createVerificationWorkExecution({
         installationId: item.installationId,
       });
 
-      const degradation = new Set<DegradationReason>(publish.degradation);
+      const degradation = new Set<VerificationDegradationReason>(publish.degradation);
       if (resolutionDegraded) degradation.add("thread_resolution_degraded");
       if (compareFilesTruncated) degradation.add("compare_files_truncated");
       if (inventoryNarrowed) degradation.add("inventory_narrowed");

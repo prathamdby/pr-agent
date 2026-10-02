@@ -20,8 +20,8 @@ import {
   markWorkCompleted,
   markWorkFailed,
   markWorkRetrying,
-  recordReviewCheckRun,
-} from "../../src/agentWork/repository.js";
+} from "../../src/agentWork/workItemStateRepository.js";
+import { recordReviewCheckRun } from "../../src/agentWork/publishRecordRepository.js";
 import type { WorkStatus } from "../../src/agentWork/types.js";
 import { hasDatabase, integrationPool } from "./db.js";
 

@@ -670,6 +670,83 @@ remains 78. The prompt dump is byte-identical to M0, SHA-256
 `AGENTS.md` sits 25 bytes under the 32 KiB trusted-instruction file cap, so
 further additions there need a matching trim.
 
+## M13 failure modes
+
+Recorded before the leased-execution move:
+
+1. A stale epoch writes: a terminal or attempt mark loses its lease-epoch
+   predicate, or unleased work stops passing `null`, so a displaced worker moves
+   the replacement's row.
+2. The lease is lost mid-run: renewal stops aborting the host signal, or the
+   release in `finally` clears a newer holder because it no longer names its own
+   epoch.
+3. The process crashes between the terminal mark and the lease release: the row is
+   terminal while the lease remains until TTL. The release stays last, and the
+   seeded watchdog chain still steals the key.
+4. A replacement abort races a claim: the abort moves out of the runner and
+   cancels an `enqueued` replacement, or skips a pending one because the parent
+   was unreadable, leaving an orphan queued item.
+5. The watchdog hop spends a retry: the seed, the strict re-arm, or a lease
+   deferral reaches `beginWorkAttempt` and charges the attempt budget.
+6. The `40P01` retry changes: acquire-and-claim or `beginAttempt` retries more than
+   once, retries another error code, or lets the failed attempt's epoch leak into
+   renewal or release.
+7. A terminal item is redelivered: a second claim succeeds, or a terminal hook runs
+   twice because the mark lost its race.
+8. Order drifts: terminal mark after the feature hook, release before the hook, or
+   the watchdog seed after acquire, so a crash strands a held lease with no hop.
+9. A feature-specific degradation reason is widened into the runner, so an
+   unknown reason string compiles and reaches telemetry unreviewed.
+10. The barrel deletion changes an import target and a mock silently stops
+    intercepting, so a unit test hits a stub pool.
+
+`leasedExecution.ts::openLeasedExecution` is the single owner of lease ordering:
+it seeds the throttled watchdog hop, acquires the PR actor lease and claims the
+item in one transaction, then starts renewal and cancel observation. It returns
+the epoch, claim, signal, `owns`, `cancel`, the lease mutation boundary, and
+fenced `mark.{beginAttempt, headSha, degraded, completed,
+forceCompletedRescheduledParent, retrying, failed, cancelled}`. SQL, fencing
+predicates, log names, and the 40P01 single retry moved verbatim from
+`durableJob.ts`. `release` stops observation and renewal, then releases the
+exact epoch and logs `pr_actor_lease_release_failed` on failure. The runner order
+is unchanged: terminal mark, feature terminal hook, acknowledgement reaction,
+completion log and telemetry, then release in `finally`.
+
+Review owns the stale-head replacement abort. `onRescheduleAbort` and the
+runner's pending-abort bookkeeping are gone. `reviewExecutor`'s
+`onTerminalFailure` first calls `cancelPendingStaleHeadReplacement(pool, parent,
+error)`, which rereads the parent, skips when no marker exists or the persisted
+state is `enqueued`, and otherwise runs the existing state-predicated
+`markQueuedWorkCancelled` fallback. An unconfirmed cancel logs
+`agent_work_replacement_cancel_failed` at error level, rethrows, and is swallowed
+by the hook so verdict close still runs. Behavior differences from the runner
+implementation: the parent is reread (a persisted `enqueued` marker now exempts
+it, matching the documented terminal fallback), and the hook runs with an
+undefined surface when surface creation fails, after logging a warning.
+
+Each feature owns its degradation reasons: `VerificationDegradationReason` in
+`verificationPublishGate.ts`, and private triage, ask, description, and review
+unions, checked with `satisfies` at the literal sites. `DurableExecutionResult`
+carries `readonly string[]`. `agentWork/repository.ts` is deleted; importers use
+`workItemStateRepository`, `publishRecordRepository`, and
+`operationIntentRepository`, with their unit mocks retargeted. The
+`createAgentWorkRepositoryMock` test helper became `createPublishRecordReadMock`.
+
+Coverage migration: the 38 lease, claim, cancel, and watchdog cases stay in
+`test/leasedExecution.test.ts` (renamed with `git mv` from the old suite; five cases are new). The
+retry, terminal-hook, completion, rescheduled-parent, installation-token, context
+policy, and assignability cases stay in a slimmer `test/durableJob.test.ts`.
+Four `onRescheduleAbort` cases were replaced by seven `reviewReschedule` unit
+cases for `cancelPendingStaleHeadReplacement` and two review terminal-hook cases
+(abort runs before the verdict close, with and without a surface). New
+`leasedExecution` cases assert the `40P01` single retry for both
+acquire-and-claim and `beginAttempt`, no retry on other errors or on a repeated
+deadlock, watchdog seed, acquire, claim, terminal mark, release order, and that
+a lease deferral never reaches `beginWorkAttempt`. Integration suites
+(`prActorLease`, `leaseDeferral`, `slashActiveUniqueness`) call the new owners.
+No test file is new beyond the split of one existing suite; no helper or baseline
+growth.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

@@ -86,12 +86,12 @@ import {
 import {
   loadReviewExecutorPublishContext,
   getProgressCommentOwner,
-  getWorkItem,
-  shouldSkipWork,
   type ReviewExecutorPublishContext,
-} from "../repository.js";
+} from "../publishRecordRepository.js";
+import { getWorkItem, shouldSkipWork } from "../workItemStateRepository.js";
 
 import {
+  cancelPendingStaleHeadReplacement,
   staleHeadReplacementExhaustedError,
   tryBuildStaleReviewRescheduleResult,
   type StaleReviewRescheduleResult,
@@ -104,6 +104,8 @@ import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
 import type { ReviewProfileFields, WorkCompletion } from "../../analytics/workCompleted.js";
 import type { ReviewRunMetricsSnapshot } from "../../review/run/reviewRunMetrics.js";
+
+type ReviewDegradationReason = "publish_not_completed";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -595,7 +597,10 @@ async function handleReviewPublishResult(args: {
   if (result.published || result.publishSuperseded) {
     return { kind: "completed" };
   }
-  return { kind: "completed", degradation: ["publish_not_completed"] };
+  return {
+    kind: "completed",
+    degradation: ["publish_not_completed"] satisfies readonly ReviewDegradationReason[],
+  };
 }
 
 async function runFullReviewAgainstRepositoryView(args: {
@@ -1078,7 +1083,13 @@ export function createReviewWorkExecution({
         commitStatusEnabled: cfg.features.commitStatus,
       }).close({ kind: "cancelled" });
     },
-    onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {
+    onTerminalFailure: async (item, prSurface, error, leaseEpoch) => {
+      try {
+        await cancelPendingStaleHeadReplacement(pool, item, error);
+      } catch {
+        // Already logged at error level as agent_work_replacement_cancel_failed; the
+        // verdict close below must still run.
+      }
       if (!prSurface) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;

@@ -56,16 +56,19 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
   requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
-vi.mock("../src/agentWork/repository.js", () => ({
+vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
   getProgressCommentOwner: vi.fn(async () => null),
+  claimSummaryCommentCreation: vi.fn(async () => true),
+}));
+
+vi.mock("../src/agentWork/workItemStateRepository.js", () => ({
   getReviewQueuePosition: vi.fn(async () => null),
   getWorkItemCore: vi.fn(async () => ({
     id: "wi-1",
     status: "running",
     type: "review",
   })),
-  claimSummaryCommentCreation: vi.fn(async () => true),
 }));
 
 const summaryWrite = vi.hoisted(() =>
@@ -116,11 +119,11 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import { loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
+import { getProgressCommentOwner } from "../src/agentWork/publishRecordRepository.js";
 import {
-  getProgressCommentOwner,
   getReviewQueuePosition,
   getWorkItemCore,
-} from "../src/agentWork/repository.js";
+} from "../src/agentWork/workItemStateRepository.js";
 import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../src/agentWork/reviewVerdict.js";
 
 import {
