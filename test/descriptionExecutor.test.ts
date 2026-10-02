@@ -21,7 +21,6 @@ import * as prSurfaceModule from "../src/github/prSurface.js";
 const mocks = vi.hoisted(() => ({
   runDescriptionRun: vi.fn(),
   withPrRepositoryView: vi.fn(),
-  captureEvent: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
@@ -66,11 +65,6 @@ vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
-}));
-
-vi.mock("../src/analytics/index.js", () => ({
-  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
-  captureException: vi.fn(),
 }));
 
 import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
@@ -177,7 +171,7 @@ describe("description work definition", () => {
       publishSuperseded: false,
     });
 
-    expect(await runExecution()).toEqual({
+    expect(await runExecution()).toMatchObject({
       kind: "completed",
       degradation: ["publish_not_completed"],
     });
@@ -202,16 +196,6 @@ describe("description work definition", () => {
     await runExecution();
 
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
-    expect(mocks.captureEvent).toHaveBeenCalledTimes(1);
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          outcome: "superseded",
-          work_item_id: "wi-1",
-        }),
-      }),
-    );
   });
 
   it("treats a lost PR actor lease as publish superseded", async () => {

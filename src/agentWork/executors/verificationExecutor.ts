@@ -1,8 +1,6 @@
 import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
 import { productionInstallationSurface } from "../installationSurface.js";
 
-import { durationMsFromClaim } from "../../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
@@ -241,29 +239,21 @@ export function createVerificationWorkExecution({
           resolutionStatus: resolutionResult.status,
           degradation: reasons,
         });
-        await captureDurableWorkCompletedWithCi(pool, {
-          item,
-          workType: "verification",
-          outcome: "degraded",
-          durationMs: durationMsFromClaim(env.claim),
-          attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-          degradedReason: "durable_degradation",
-          extras: {
+        return {
+          kind: "completed",
+          degradation: reasons,
+          completion: {
+            kind: "verification",
+            outcome: "degraded",
             inventoryNarrowed,
             durableDegradation: reasons[0],
           },
-        });
-        return { kind: "completed", degradation: reasons };
+        };
       }
-      await captureDurableWorkCompletedWithCi(pool, {
-        item,
-        workType: "verification",
-        outcome: "published",
-        durationMs: durationMsFromClaim(env.claim),
-        attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-        extras: { inventoryNarrowed },
-      });
-      return { kind: "completed" };
+      return {
+        kind: "completed",
+        completion: { kind: "verification", outcome: "published", inventoryNarrowed },
+      };
     },
     onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {
       if (!prSurface) return;

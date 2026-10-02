@@ -36,7 +36,7 @@ import * as analytics from "../../src/analytics/index.js";
 import * as evlog from "../../src/evlog.js";
 import {
   captureCiStateChanged,
-  captureDurableWorkCompleted,
+  recordWorkCompleted,
   captureWebhookReceived,
   captureWorkRetried,
 } from "../../src/analytics/workCompleted.js";
@@ -209,14 +209,21 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       prNumber: 7,
       headSha: "abc1234",
     };
-    captureDurableWorkCompleted({
+    recordWorkCompleted({
       item,
       workType: "review",
-      outcome: "published",
       durationMs: 120,
       attemptCount: 1,
-      publish: { publishAttempts: 0, publishStepCount: 5 },
-      extras: { reviewLens: "review", source: "slash", findingsCount: 2 },
+      completion: {
+        kind: "review-profile",
+        outcome: "published",
+        durationMs: 120,
+        attemptCount: 1,
+        publish: { publishAttempts: 0, publishStepCount: 5 },
+        reviewLens: "review",
+        source: "slash",
+        findingsCount: 2,
+      },
       ci: { rollup: "passing", failingCount: 0, authored: false },
     });
     captureWebhookReceived({

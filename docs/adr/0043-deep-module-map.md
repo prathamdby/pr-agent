@@ -337,6 +337,57 @@ terminal cleanup, and retention are deletion/wiring, not recovery readers.
 Agent events retain their own context and storage. Operation intents remain
 authoritative and are not part of this deletion.
 
+## M4 failure modes
+
+Recorded before tests or production changes:
+
+1. An executor reports completion before the durable completion mark wins,
+   including a cancellation or supersession discovered by `completion_race`.
+2. Moving capture duplicates completion events, emits them for replay/reschedule
+   paths that were previously silent, or changes admitted failure/retry policy.
+3. A closed outcome omits feature-specific fields, review profile measurements,
+   CI degradation, or the existing analytics/log property values.
+4. Review profiling measures runner completion/reactions instead of its existing
+   executor interval, or loses profile logs on cancellation/supersession.
+5. Telemetry failure after a successful completion mark reopens completed work
+   or attempts terminal failure under a stale epoch.
+6. Test assertions remain scattered across executor suites instead of checking
+   actual post-transition dispatch in `durableJobAnalytics.test.ts`.
+
+Existing owner tests gain regressions before code. No new test files, helper
+files, schemas, queues, or provider capabilities are introduced.
+
+### M4 outcome and evidence
+
+`WorkCompletion` is a closed feature union with a review-profile variant and
+no open extras field. The executors return values instead of capturing events.
+The durable runner enriches CI and calls the single `recordWorkCompleted` owner
+only after its completion or terminal-failure mark wins. Completion metadata
+is optional so already-published recovery, empty verification, and reschedule
+paths keep their existing silence. Capture errors are isolated from lifecycle
+writes. Review metric logs and first profile-snapshot timing remain at their
+original executor boundaries, including the lightweight snapshot before verdict
+cleanup. The completed envelope and CI-degradation vocabulary are unchanged.
+
+Before production changes, the existing analytics owner suite failed 16 cases,
+including real description and lightweight-review definition dispatches that
+captured before a losing/rejected completion mark, observed cancellation, or
+verdict-cleanup failure. The migrated assertions cover feature scalars,
+classified failures, CI degradation, and profile duration/counts without token
+or generation dumps. Four executor suites no longer own analytics assertions;
+the existing CI telemetry suite retains only its independent state-change case.
+
+The integration golden table only changes its invocation to the closed input;
+its expected persisted identities and analytics properties are unchanged. No
+services, provider calls, commits, or main-worktree edits are part of this lane.
+The focused gate passed 278 tests in 12 existing suites, typecheck, backend
+lint, formatting, effect-version/dependency checks, guards, and diff checks.
+The exact M0 prompt comparison stayed empty at SHA256
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.
+Unsafe source assertions remain 78; no baseline changed.
+The parent still owns merged full-gate, database-integration and disposable-stack
+verification, deslop, and the milestone commit.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

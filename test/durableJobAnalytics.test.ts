@@ -10,7 +10,39 @@ import {
 } from "../src/agentWork/durableJob.js";
 import { initAnalytics, shutdownAnalytics } from "../src/analytics/index.js";
 import { AppError } from "../src/errors/appError.js";
-import { makeReviewWorkItem, makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
+import {
+  makeAskWorkItem,
+  makeDescriptionWorkItem,
+  makeReviewWorkItem,
+  makeTriageWorkItem,
+  makeVerificationWorkItem,
+} from "./helpers/agentWorkItems.js";
+import type { WorkCompletion } from "../src/analytics/workCompleted.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+import { runFullPrDescription } from "../src/agent/description/descriptionRun.js";
+import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.js";
+import { closeOwnVerdict } from "../src/agentWork/closeOwnVerdict.js";
+import { loadPrHeadCiState } from "../src/agentWork/prHeadCiState.js";
+
+vi.mock("../src/agentWork/prHeadCiState.js", () => ({ loadPrHeadCiState: vi.fn() }));
+vi.mock("../src/agentWork/reviewLightweightCompletion.js", () => ({
+  tryLightweightAutoReviewCompletion: vi.fn(),
+}));
+vi.mock("../src/agentWork/closeOwnVerdict.js", () => ({
+  closeOwnVerdict: vi.fn(),
+  postOwnVerdictPending: vi.fn(),
+}));
+vi.mock("../src/agentWork/reviewCheckRun.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/reviewCheckRun.js")>()),
+  ensureReviewCheckRunStarted: vi.fn(async () => null),
+}));
+
+vi.mock("../src/agent/description/descriptionRun.js", () => ({
+  runFullPrDescription: vi.fn(),
+}));
+vi.mock("../src/prWorkspace/prRepositoryView.js", () => ({
+  withPrRepositoryView: vi.fn(async (_params, run) => run({ agentCwd: "/tmp", workspace: {} })),
+}));
 import { makeTestConfig } from "./helpers/config.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
 
@@ -56,6 +88,8 @@ vi.mock("../src/agentWork/repository.js", () => ({
   markWorkPublishDegraded: vi.fn(),
   markWorkRetrying: vi.fn(),
   updateRunningWorkHeadSha: vi.fn(),
+  loadReviewExecutorPublishContext: vi.fn(),
+  getSummaryCommentGithubId: vi.fn(async () => null),
 }));
 
 vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
@@ -63,6 +97,7 @@ vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
   return {
     ...actual,
     cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
+    tryBuildStaleReviewRescheduleResult: vi.fn(),
   };
 });
 
@@ -124,6 +159,15 @@ describe("durableJob analytics forwarding", () => {
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
     vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
+    vi.mocked(loadPrHeadCiState).mockResolvedValue(null);
+    vi.mocked(closeOwnVerdict).mockResolvedValue(undefined);
+    vi.mocked(repo.loadReviewExecutorPublishContext).mockResolvedValue({
+      publishState: { summaryPublished: false, inlineReviewIds: [], threadCallCount: 0 },
+      shouldLinkToSummary: false,
+      storedInlineFingerprints: [],
+      resumedPlacements: [],
+      progressCommentGithubId: null,
+    });
     vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
       type: "token",
       tokenType: "installation",
@@ -139,7 +183,378 @@ describe("durableJob analytics forwarding", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await shutdownAnalytics();
+  });
+
+  it.each(["won", "lost", "cleanup_throw"] as const)(
+    "keeps the real lightweight review profiling interval but gates capture (%s)",
+    async (resolution) => {
+      const item = makeReviewWorkItem({ installationId: 99, source: "auto", headSha: "head" });
+      vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+      vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+      const started = new Date("2026-01-01T00:00:05Z").getTime();
+      vi.spyOn(Date, "now").mockReturnValue(started + 17);
+      vi.mocked(tryLightweightAutoReviewCompletion).mockResolvedValue({
+        handled: true,
+        published: true,
+        summaryId: 42,
+      });
+      const cleanupError = new Error("verdict cleanup failed");
+      vi.mocked(closeOwnVerdict).mockImplementation(async () => {
+        vi.mocked(Date.now).mockReturnValue(started + 5_000);
+        if (resolution === "cleanup_throw") throw cleanupError;
+      });
+      vi.mocked(repo.markWorkCompleted).mockImplementation(async () => {
+        expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalled();
+        vi.mocked(Date.now).mockReturnValue(started + 7_000);
+        return resolution === "won";
+      });
+      const definitions = createWorkDefinitions({ cfg, pool, boss });
+      const dispatch = runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 0, 3),
+        runtime: createDurableRuntime({
+          installationSurface: {
+            ...installationSurface,
+            create: async () => createFakePrSurface(item, { headSha: "head" }).surface,
+          },
+        }),
+        contextPolicy: definitions.review.contextPolicy,
+        resolveHeadSha: async () => ({ headSha: "head" }),
+        execute: definitions.review.execute,
+      });
+      if (resolution === "cleanup_throw") await expect(dispatch).rejects.toBe(cleanupError);
+      else await expect(dispatch).resolves.toBeUndefined();
+      expect(tryLightweightAutoReviewCompletion).toHaveBeenCalledTimes(1);
+      if (resolution === "won") {
+        expect(mockPostHog.instances[0]?.capture).toHaveBeenCalledWith(
+          expect.objectContaining({
+            event: "work completed",
+            properties: expect.objectContaining({
+              outcome: "lightweight",
+              source: "auto",
+              duration_ms: 17,
+              publish_attempts: 0,
+              publish_step_count: 0,
+            }),
+          }),
+        );
+      } else {
+        expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalledWith(
+          expect.objectContaining({ event: "work completed" }),
+        );
+      }
+    },
+  );
+
+  it.each(["won", "lost", "cancelled", "rejected"] as const)(
+    "B2 captures real description completion only after the winning mark (%s)",
+    async (resolution) => {
+      const item = makeDescriptionWorkItem({ installationId: 99 });
+      vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+      vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+      let executed = false;
+      vi.mocked(runFullPrDescription).mockImplementation(async () => {
+        executed = true;
+        return {
+          published: true,
+          publishSuperseded: false,
+          lastAssistant: {
+            role: "assistant",
+            content: [],
+            stopReason: "stop",
+            api: "openai-completions",
+            provider: "openai",
+            model: "test",
+            timestamp: 0,
+            usage: {
+              input: 0,
+              output: 0,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 0,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+          },
+        };
+      });
+      vi.mocked(repo.shouldSkipWork).mockImplementation(
+        async () => resolution === "cancelled" && executed,
+      );
+      const capture = mockPostHog.instances[0]?.capture;
+      const rejected = new Error("completion mark rejected");
+      vi.mocked(repo.markWorkCompleted).mockImplementation(async () => {
+        expect(capture).not.toHaveBeenCalled();
+        if (resolution === "rejected") throw rejected;
+        return resolution === "won";
+      });
+      const runtime = createDurableRuntime({
+        installationSurface: {
+          ...installationSurface,
+          create: async () => createFakePrSurface(item).surface,
+        },
+      });
+      const definition = createWorkDefinitions({ cfg, pool, boss });
+      const dispatch = runDurableWorkItem({
+        type: "description",
+        cfg,
+        pool,
+        boss,
+        runtime,
+        job: reviewJob(item.id, 0, 3),
+        contextPolicy: definition.description.contextPolicy,
+        resolveHeadSha: async () => ({ headSha: item.headSha }),
+        execute: definition.description.execute,
+      });
+      if (resolution === "rejected") await expect(dispatch).rejects.toBe(rejected);
+      else await expect(dispatch).resolves.toBeUndefined();
+      expect(runFullPrDescription).toHaveBeenCalledTimes(1);
+      if (resolution === "won") {
+        expect(capture).toHaveBeenCalledTimes(1);
+        expect(capture).toHaveBeenCalledWith(
+          expect.objectContaining({
+            event: "work completed",
+            properties: expect.objectContaining({
+              work_type: "description",
+              outcome: "published",
+              source: item.payload.source,
+            }),
+          }),
+        );
+      } else {
+        expect(capture).not.toHaveBeenCalledWith(
+          expect.objectContaining({ event: "work completed" }),
+        );
+      }
+    },
+  );
+
+  it.each([
+    { kind: "ask", outcome: "published", replyTargetKind: "prConversation" },
+    {
+      kind: "ask",
+      outcome: "degraded",
+      replyTargetKind: "prConversation",
+      durableDegradation: "reply_outcome_unknown",
+    },
+    { kind: "triage", outcome: "published", scope: "thread" },
+    {
+      kind: "verification",
+      outcome: "degraded",
+      inventoryNarrowed: true,
+      durableDegradation: "inventory_narrowed",
+    },
+    {
+      kind: "review-profile",
+      outcome: "lightweight",
+      reviewLens: "review",
+      source: "auto",
+      provider: "openai",
+      model: "test",
+      durationMs: 17,
+      attemptCount: 0,
+      publish: { publishAttempts: 0, publishStepCount: 0 },
+    },
+    {
+      kind: "review-profile",
+      outcome: "failed",
+      reviewLens: "review",
+      source: "slash",
+      provider: "openai",
+      model: "test",
+      durationMs: 23,
+      attemptCount: 1,
+      publish: { publishAttempts: 2, publishStepCount: 0 },
+      failure: {
+        failureDomain: "provider",
+        errorKind: "quota",
+        providerErrorKind: "quota",
+        phase: "synthesis",
+        errorMessage: "Insufficient credits for model",
+      },
+    },
+    {
+      kind: "review-profile",
+      outcome: "published",
+      reviewLens: "review",
+      source: "slash",
+      provider: "openai",
+      model: "test",
+      durationMs: 29,
+      attemptCount: 1,
+      findingsCount: 2,
+      specialistReport: 2,
+      specialistEmpty: 1,
+      specialistError: 1,
+      publish: { publishAttempts: 0, publishStepCount: 5 },
+    },
+    {
+      kind: "review-profile",
+      outcome: "degraded",
+      degradedReason: "tool_call_error",
+      reviewLens: "review",
+      source: "slash",
+      provider: "openai",
+      model: "test",
+      durationMs: 31,
+      attemptCount: 1,
+      findingsCount: 1,
+      publish: { publishAttempts: 0, publishStepCount: 5 },
+    },
+  ] satisfies WorkCompletion[])(
+    "renders a closed $kind completion after the mark ($outcome)",
+    async (completion) => {
+      const item =
+        completion.kind === "ask"
+          ? makeAskWorkItem({ installationId: 99 })
+          : completion.kind === "triage"
+            ? makeTriageWorkItem({ installationId: 99 })
+            : completion.kind === "verification"
+              ? makeVerificationWorkItem({ installationId: 99 })
+              : makeReviewWorkItem({ installationId: 99 });
+      vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+      vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+      await runDurableWorkItem({
+        type: item.type,
+        cfg,
+        pool,
+        boss,
+        runtime: createDurableRuntime({ installationSurface }),
+        job: reviewJob(item.id, 0, 3),
+        contextPolicy: { commenterId: () => undefined },
+        resolveHeadSha: async () => ({ headSha: item.headSha }),
+        execute: vi.fn().mockResolvedValue({ kind: "completed", completion }),
+      });
+      const capture = mockPostHog.instances[0]?.capture;
+      expect(capture).toHaveBeenCalledTimes(1);
+      expect(capture).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "work completed",
+          properties: expect.objectContaining({
+            outcome: completion.outcome,
+            work_type: item.type,
+            work_item_id: item.id,
+            owner: item.owner,
+            repo: item.repo,
+            pr_number: item.prNumber,
+            head_sha: item.headSha,
+            ci_rollup: "none",
+            ci_failing_count: 0,
+            ci_authored: false,
+            ...(completion.kind === "review-profile"
+              ? {
+                  duration_ms: completion.durationMs,
+                  attempt_count: completion.attemptCount,
+                  publish_attempts: completion.publish.publishAttempts,
+                  publish_step_count: completion.publish.publishStepCount,
+                  review_lens: "review",
+                  provider: "openai",
+                  model: "test",
+                  source: completion.source,
+                }
+              : {}),
+            ...(completion.kind === "ask" ? { reply_target_kind: "prConversation" } : {}),
+            ...(completion.kind === "triage" ? { scope: "thread" } : {}),
+            ...(completion.kind === "verification" ? { inventory_narrowed: true } : {}),
+            ...(completion.outcome === "degraded"
+              ? {
+                  degraded_reason:
+                    completion.kind === "review-profile"
+                      ? "tool_call_error"
+                      : "durable_degradation",
+                  ...(completion.kind !== "review-profile"
+                    ? { durable_degradation: completion.durableDegradation }
+                    : {}),
+                }
+              : {}),
+            ...(completion.kind === "review-profile" && completion.outcome === "failed"
+              ? {
+                  failure_domain: "provider",
+                  error_kind: "quota",
+                  provider_error_kind: "quota",
+                  phase: "synthesis",
+                  error_message: "Insufficient credits for model",
+                }
+              : {}),
+            ...(completion.kind === "review-profile" && completion.outcome === "published"
+              ? {
+                  findings_count: 2,
+                  specialist_report: 2,
+                  specialist_empty: 1,
+                  specialist_error: 1,
+                }
+              : {}),
+          }),
+        }),
+      );
+      const properties = capture?.mock.calls[0]?.[0].properties;
+      expect(properties).not.toHaveProperty("cause_chain");
+      expect(properties).not.toHaveProperty("provider_output_tokens");
+      expect(properties).not.toHaveProperty("wall_clock_ms");
+      expect(properties).not.toHaveProperty("generation_ms");
+      expect(properties).not.toHaveProperty("provider_output_tps");
+      expect(mockPostHog.instances[0]?.captureException).not.toHaveBeenCalled();
+    },
+  );
+
+  it("downgrades a winning published review when CI remains incomplete", async () => {
+    const item = makeReviewWorkItem({ installationId: 99 });
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+    vi.mocked(loadPrHeadCiState).mockResolvedValue({
+      owner: item.owner,
+      repo: item.repo,
+      headSha: item.headSha,
+      checks: {},
+      rollup: "unknown",
+      version: 1,
+      authored: null,
+      prNumbers: [],
+      truncated: false,
+      seededAt: null,
+      projectionRepairPending: false,
+      firstSeenAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await runDurableWorkItem({
+      type: "review",
+      cfg,
+      pool,
+      boss,
+      runtime: createDurableRuntime({ installationSurface }),
+      job: reviewJob(item.id, 0, 3),
+      contextPolicy: createWorkDefinitions({ cfg, pool, boss }).review.contextPolicy,
+      resolveHeadSha: async () => ({ headSha: item.headSha }),
+      execute: vi.fn().mockResolvedValue({
+        kind: "completed",
+        completion: {
+          kind: "review-profile",
+          outcome: "published",
+          reviewLens: "review",
+          source: "slash",
+          provider: "openai",
+          model: "test",
+          durationMs: 12,
+          attemptCount: 1,
+          publish: { publishAttempts: 0, publishStepCount: 5 },
+        },
+      }),
+    });
+    expect(mockPostHog.instances[0]?.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work completed",
+        properties: expect.objectContaining({
+          outcome: "degraded",
+          degraded_reason: "ci_unavailable",
+          ci_rollup: "unknown",
+          ci_unavailable_reason: "incomplete",
+        }),
+      }),
+    );
   });
 
   it.each([0, 1, cfg.queueRetryLimit + 1])(

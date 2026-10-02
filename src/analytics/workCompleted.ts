@@ -62,91 +62,74 @@ export type PublishTelemetry = {
   readonly publishStepCount: number;
 };
 
-export type WorkCompletedBase = WorkIdentity & {
-  readonly distinctId: AnalyticsDistinctId;
-  readonly durationMs: number;
-  readonly attemptCount: number;
-  readonly publish: PublishTelemetry;
-};
-
-export type WorkCompletedPublished = WorkCompletedBase & {
-  readonly outcome: "published";
-  readonly reason: "published";
-};
-
-export type WorkCompletedDegraded = WorkCompletedBase & {
+type PublishedCompletion = { readonly outcome: "published" };
+type DurableDegradedCompletion = {
   readonly outcome: "degraded";
-  readonly reason: DegradedReason;
-  readonly degradedReason: DegradedReason;
+  readonly durableDegradation: string;
 };
 
-export type WorkCompletedFailed = WorkCompletedBase & {
-  readonly outcome: "failed";
-  readonly reason: string;
-  readonly failure: WorkFailureReason;
-};
+type ReviewCompletionOutcome =
+  | PublishedCompletion
+  | { readonly outcome: "degraded"; readonly degradedReason: DegradedReason }
+  | { readonly outcome: "superseded" }
+  | { readonly outcome: "lightweight" }
+  | { readonly outcome: "failed"; readonly failure: WorkFailureReason };
 
-export type WorkCompletedSuperseded = WorkCompletedBase & {
-  readonly outcome: "superseded";
-  readonly reason: "superseded";
-};
-
-export type WorkCompletedLightweight = WorkCompletedBase & {
-  readonly outcome: "lightweight";
-  readonly reason: "lightweight";
-};
-
-export type WorkCompleted =
-  | WorkCompletedPublished
-  | WorkCompletedDegraded
-  | WorkCompletedFailed
-  | WorkCompletedSuperseded
-  | WorkCompletedLightweight;
-
-export type ReviewWorkExtras = {
-  readonly reviewLens?: string;
-  readonly source?: "auto" | "slash";
+export type ReviewProfileFields = {
+  readonly reviewLens: string;
+  readonly source: "auto" | "slash";
+  readonly model?: string;
+  readonly provider?: string;
   readonly findingsCount?: number;
   readonly specialistReport?: number;
   readonly specialistEmpty?: number;
   readonly specialistError?: number;
-  readonly model?: string;
-  readonly provider?: string;
 };
 
-export type AskWorkExtras = {
-  readonly replyTargetKind?: string;
-  readonly durableDegradation?: string;
-};
+/** Closed feature results, not a bag of optional fields shared by unrelated features. */
+export type WorkCompletion =
+  | ({ readonly kind: "ask"; readonly replyTargetKind: string } & (
+      | PublishedCompletion
+      | DurableDegradedCompletion
+    ))
+  | ({ readonly kind: "description"; readonly source: "auto" | "slash" } & (
+      | PublishedCompletion
+      | DurableDegradedCompletion
+      | { readonly outcome: "superseded" }
+    ))
+  | ({ readonly kind: "triage"; readonly scope: "all" | "thread" } & (
+      | PublishedCompletion
+      | DurableDegradedCompletion
+    ))
+  | ({ readonly kind: "verification"; readonly inventoryNarrowed: boolean } & (
+      | PublishedCompletion
+      | DurableDegradedCompletion
+    ))
+  | ({
+      readonly kind: "review-profile";
+      /** Captured at the original executor boundary, before verdict cleanup or runner IO. */
+      readonly durationMs: number;
+      readonly attemptCount: number;
+      readonly publish: PublishTelemetry;
+    } & ReviewProfileFields &
+      ReviewCompletionOutcome)
+  | { readonly kind: "failure"; readonly failure: WorkFailureReason };
 
-export type DescriptionWorkExtras = {
-  readonly source?: string;
-  readonly durableDegradation?: string;
-};
-
-export type TriageWorkExtras = {
-  readonly scope?: string;
-  readonly durableDegradation?: string;
-};
-
-export type VerificationWorkExtras = {
-  readonly inventoryNarrowed?: boolean;
-  readonly durableDegradation?: string;
-};
-
-export type WorkCompletedExtras =
-  | ReviewWorkExtras
-  | AskWorkExtras
-  | DescriptionWorkExtras
-  | TriageWorkExtras
-  | VerificationWorkExtras;
-
-export type CaptureWorkCompletedInput = WorkCompleted & {
-  readonly extras?: WorkCompletedExtras;
+export type RecordWorkCompletedInput = {
+  readonly item: {
+    readonly id: string;
+    readonly installationId: number;
+    readonly owner: string;
+    readonly repo: string;
+    readonly prNumber: number;
+    readonly headSha: string;
+  };
+  readonly workType: TelemetryWorkType;
+  readonly completion: WorkCompletion;
+  readonly durationMs: number;
+  readonly attemptCount: number;
   readonly ci?: CiWorkTelemetry;
 };
-
-const EMPTY_PUBLISH: PublishTelemetry = { publishAttempts: 0, publishStepCount: 0 };
 
 export function workFailureReasonFromClassified(failure: ClassifiedFailure): WorkFailureReason {
   const phase = posthogSafePhase(failure.phase);
@@ -228,207 +211,97 @@ export function durationMsFromClaim(
   return Math.max(0, nowMs - claim.startedAt.getTime());
 }
 
-function scalarProperties(
-  extras: WorkCompletedExtras | undefined,
+function completionProperties(
+  completion: WorkCompletion,
 ): Record<string, string | number | boolean> {
-  if (!extras) return {};
-  const properties: Record<string, string | number | boolean> = {};
-  if ("reviewLens" in extras && extras.reviewLens != null)
-    properties.review_lens = extras.reviewLens;
-  if ("source" in extras && extras.source != null) properties.source = extras.source;
-  if ("findingsCount" in extras && extras.findingsCount != null) {
-    properties.findings_count = extras.findingsCount;
+  switch (completion.kind) {
+    case "ask":
+      return { reply_target_kind: completion.replyTargetKind };
+    case "description":
+      return { source: completion.source };
+    case "triage":
+      return { scope: completion.scope };
+    case "verification":
+      return { inventory_narrowed: completion.inventoryNarrowed };
+    case "failure":
+      return {};
+    case "review-profile":
+      return {
+        review_lens: completion.reviewLens,
+        source: completion.source,
+        ...(completion.model != null ? { model: completion.model } : {}),
+        ...(completion.provider != null ? { provider: completion.provider } : {}),
+        ...(completion.findingsCount != null ? { findings_count: completion.findingsCount } : {}),
+        ...(completion.specialistReport != null
+          ? { specialist_report: completion.specialistReport }
+          : {}),
+        ...(completion.specialistEmpty != null
+          ? { specialist_empty: completion.specialistEmpty }
+          : {}),
+        ...(completion.specialistError != null
+          ? { specialist_error: completion.specialistError }
+          : {}),
+      };
+    default: {
+      const exhaustive: never = completion;
+      return exhaustive;
+    }
   }
-  if ("specialistReport" in extras && extras.specialistReport != null) {
-    properties.specialist_report = extras.specialistReport;
-  }
-  if ("specialistEmpty" in extras && extras.specialistEmpty != null) {
-    properties.specialist_empty = extras.specialistEmpty;
-  }
-  if ("specialistError" in extras && extras.specialistError != null) {
-    properties.specialist_error = extras.specialistError;
-  }
-  if ("model" in extras && extras.model != null) properties.model = extras.model;
-  if ("provider" in extras && extras.provider != null) properties.provider = extras.provider;
-  if ("replyTargetKind" in extras && extras.replyTargetKind != null) {
-    properties.reply_target_kind = extras.replyTargetKind;
-  }
-  if ("scope" in extras && extras.scope != null) properties.scope = extras.scope;
-  if ("inventoryNarrowed" in extras && extras.inventoryNarrowed != null) {
-    properties.inventory_narrowed = extras.inventoryNarrowed;
-  }
-  if ("durableDegradation" in extras && extras.durableDegradation != null) {
-    properties.durable_degradation = extras.durableDegradation;
-  }
-  return properties;
 }
 
 function ciProperties(ci: CiWorkTelemetry | undefined): Record<string, string | number | boolean> {
   if (ci == null) return {};
-  const properties: Record<string, string | number | boolean> = {
+  return {
     ci_rollup: ci.rollup,
     ci_failing_count: ci.failingCount,
     ci_authored: ci.authored,
+    ...(ci.unavailableReason != null ? { ci_unavailable_reason: ci.unavailableReason } : {}),
   };
-  if (ci.unavailableReason != null) properties.ci_unavailable_reason = ci.unavailableReason;
-  return properties;
 }
 
-function envelopeProperties(
-  input: CaptureWorkCompletedInput,
-): Record<string, string | number | boolean> {
-  const properties: Record<string, string | number | boolean> = {
-    work_item_id: input.workItemId,
-    work_type: input.workType,
-    outcome: input.outcome,
-    reason: input.reason,
-    duration_ms: input.durationMs,
-    attempt_count: input.attemptCount,
-    owner: input.owner,
-    repo: input.repo,
-    pr_number: input.prNumber,
-    head_sha: input.headSha,
-    publish_attempts: input.publish.publishAttempts,
-    publish_step_count: input.publish.publishStepCount,
-    ...scalarProperties(input.extras),
-    ...ciProperties(input.ci),
-  };
-  switch (input.outcome) {
-    case "published":
-    case "superseded":
-    case "lightweight":
-      return properties;
-    case "degraded":
-      properties.degraded_reason = input.degradedReason;
-      return properties;
-    case "failed":
-      return { ...properties, ...failureEnvelopeProperties(input.failure) };
-    default: {
-      const exhaustive: never = input;
-      return exhaustive;
-    }
-  }
-}
-
-export function captureWorkCompleted(input: CaptureWorkCompletedInput): void {
+/** Called by the durable runner only after its terminal state write wins. */
+export function recordWorkCompleted(input: RecordWorkCompletedInput): void {
+  const { item, completion, ci } = input;
+  const profile = completion.kind === "review-profile" ? completion : undefined;
+  const outcome = completion.kind === "failure" ? "failed" : completion.outcome;
+  const degradedReason =
+    outcome === "degraded"
+      ? completion.kind === "review-profile" && completion.outcome === "degraded"
+        ? completion.degradedReason
+        : "durable_degradation"
+      : undefined;
+  const ciUnavailable = profile?.outcome === "published" && ci?.unavailableReason != null;
+  const effectiveDegradedReason = ciUnavailable ? "ci_unavailable" : degradedReason;
+  const failure =
+    completion.kind === "failure" ||
+    (completion.kind === "review-profile" && completion.outcome === "failed")
+      ? completion.failure
+      : undefined;
   captureEvent({
-    distinctId: input.distinctId,
+    distinctId: installationDistinctId(item.installationId),
     event: "work completed",
-    properties: envelopeProperties(input),
+    properties: {
+      work_item_id: item.id,
+      work_type: input.workType,
+      outcome: ciUnavailable ? "degraded" : outcome,
+      reason: effectiveDegradedReason ?? failure?.errorKind ?? outcome,
+      duration_ms: profile?.durationMs ?? input.durationMs,
+      attempt_count: profile?.attemptCount ?? input.attemptCount,
+      owner: item.owner,
+      repo: item.repo,
+      pr_number: item.prNumber,
+      head_sha: item.headSha,
+      publish_attempts: profile?.publish.publishAttempts ?? 0,
+      publish_step_count: profile?.publish.publishStepCount ?? 0,
+      ...completionProperties(completion),
+      ...ciProperties(ci),
+      ...(effectiveDegradedReason != null ? { degraded_reason: effectiveDegradedReason } : {}),
+      ...("durableDegradation" in completion
+        ? { durable_degradation: completion.durableDegradation }
+        : {}),
+      ...(failure != null ? failureEnvelopeProperties(failure) : {}),
+    },
   });
-}
-
-export function identityFromWorkItem(
-  item: {
-    readonly id: string;
-    readonly installationId: number;
-    readonly owner: string;
-    readonly repo: string;
-    readonly prNumber: number;
-    readonly headSha: string;
-  },
-  workType: TelemetryWorkType,
-): WorkIdentity {
-  return {
-    workItemId: item.id,
-    installationId: item.installationId,
-    owner: item.owner,
-    repo: item.repo,
-    prNumber: item.prNumber,
-    headSha: item.headSha,
-    workType,
-  };
-}
-
-export function captureDurableWorkCompleted(input: {
-  readonly item: {
-    readonly id: string;
-    readonly installationId: number;
-    readonly owner: string;
-    readonly repo: string;
-    readonly prNumber: number;
-    readonly headSha: string;
-  };
-  readonly workType: TelemetryWorkType;
-  readonly outcome: WorkCompletedOutcome;
-  readonly durationMs: number;
-  readonly attemptCount: number;
-  readonly publish?: PublishTelemetry;
-  readonly degradedReason?: DegradedReason;
-  readonly failure?: WorkFailureReason;
-  readonly extras?: WorkCompletedExtras;
-  readonly ci?: CiWorkTelemetry;
-}): void {
-  const identity = identityFromWorkItem(input.item, input.workType);
-  const distinctId = installationDistinctId(input.item.installationId);
-  const publish = input.publish ?? EMPTY_PUBLISH;
-  const base = {
-    ...identity,
-    distinctId,
-    durationMs: input.durationMs,
-    attemptCount: input.attemptCount,
-    publish,
-  };
-  switch (input.outcome) {
-    case "published":
-      captureWorkCompleted({
-        ...base,
-        outcome: "published",
-        reason: "published",
-        extras: input.extras,
-        ci: input.ci,
-      });
-      return;
-    case "superseded":
-      captureWorkCompleted({
-        ...base,
-        outcome: "superseded",
-        reason: "superseded",
-        extras: input.extras,
-        ci: input.ci,
-      });
-      return;
-    case "lightweight":
-      captureWorkCompleted({
-        ...base,
-        outcome: "lightweight",
-        reason: "lightweight",
-        extras: input.extras,
-        ci: input.ci,
-      });
-      return;
-    case "degraded": {
-      const degradedReason = input.degradedReason ?? "durable_degradation";
-      captureWorkCompleted({
-        ...base,
-        outcome: "degraded",
-        reason: degradedReason,
-        degradedReason,
-        extras: input.extras,
-        ci: input.ci,
-      });
-      return;
-    }
-    case "failed": {
-      const failure = input.failure ?? {
-        failureDomain: "unknown",
-        errorKind: "unknown",
-      };
-      captureWorkCompleted({
-        ...base,
-        outcome: "failed",
-        reason: failure.errorKind,
-        failure,
-        extras: input.extras,
-        ci: input.ci,
-      });
-      return;
-    }
-    default: {
-      const exhaustive: never = input.outcome;
-      return exhaustive;
-    }
-  }
 }
 
 export type WebhookOutcome = "accepted" | "duplicate" | "rejected";

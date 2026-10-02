@@ -5,10 +5,12 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import {
   captureWorkRetried,
+  recordWorkCompleted,
+  type WorkCompletion,
   durationMsFromClaim,
   workFailureReasonFromClassified,
 } from "../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "./ciWorkTelemetry.js";
+import { loadCiWorkTelemetry } from "./ciWorkTelemetry.js";
 import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import type { InstallationToken } from "../github/appAuth.js";
@@ -364,7 +366,11 @@ export type DegradationReason =
  * rescheduled, or reschedule without replacement coordination) are unrepresentable.
  */
 export type DurableExecutionResult =
-  | { readonly kind: "completed"; readonly degradation?: readonly DegradationReason[] }
+  | {
+      readonly kind: "completed";
+      readonly degradation?: readonly DegradationReason[];
+      readonly completion?: WorkCompletion;
+    }
   | {
       readonly kind: "rescheduled";
       readonly replacementWorkItemId: string;
@@ -1074,6 +1080,27 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
     }
 
+    async function recordCompletion(completion: WorkCompletion): Promise<void> {
+      // Analytics must not turn a committed completion into another lifecycle attempt.
+      try {
+        const ci = await loadCiWorkTelemetry(spec.pool, item.owner, item.repo, item.headSha);
+        recordWorkCompleted({
+          item,
+          workType: spec.type,
+          completion,
+          ci,
+          durationMs: durationMsFromClaim(workClaim),
+          attemptCount: workClaim?.attemptCount ?? item.attemptCount,
+        });
+      } catch (error) {
+        logWarn("agent_work_completion_telemetry_failed", {
+          type: spec.type,
+          workItemId: item.id,
+          message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+        });
+      }
+    }
+
     async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
       switch (result.kind) {
         case "rescheduled":
@@ -1088,6 +1115,7 @@ export async function runDurableWorkItem<T extends WorkType>(
             await recheckSkippableAndCancel("completion_race", false);
             return;
           }
+          if (result.completion) await recordCompletion(result.completion);
           logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
           await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
           return;
@@ -1241,12 +1269,8 @@ export async function runDurableWorkItem<T extends WorkType>(
         },
         error,
       );
-      await captureDurableWorkCompletedWithCi(spec.pool, {
-        item,
-        workType: spec.type,
-        outcome: "failed",
-        durationMs: durationMsFromClaim(workClaim),
-        attemptCount: workClaim?.attemptCount ?? item.attemptCount,
+      await recordCompletion({
+        kind: "failure",
         failure: workFailureReasonFromClassified(failure),
       });
     }

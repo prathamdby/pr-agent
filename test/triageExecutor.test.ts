@@ -372,7 +372,7 @@ describe("triage work definition", () => {
 
     await runExecution(publishPool);
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
+    expect(executeResult).toMatchObject({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).not.toHaveBeenCalled();
     const progress = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(progress?.body).toContain("Triage was cancelled because the pull request is closed");
@@ -467,7 +467,7 @@ describe("triage work definition", () => {
 
     await runExecution(publishPool);
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_closed"] });
+    expect(executeResult).toMatchObject({ kind: "completed", degradation: ["push_closed"] });
     expect(gitPush).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(
@@ -1174,7 +1174,7 @@ describe("triage work definition", () => {
 
     await runExecution();
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["push_stale"] });
+    expect(executeResult).toMatchObject({ kind: "completed", degradation: ["push_stale"] });
     expect(mocks.publishTriage).toHaveBeenCalled();
   });
 
@@ -1204,7 +1204,10 @@ describe("triage work definition", () => {
 
     await runExecution();
 
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["thread_action_missing"] });
+    expect(executeResult).toMatchObject({
+      kind: "completed",
+      degradation: ["thread_action_missing"],
+    });
     await expect(mocks.publishTriage.mock.results[0]?.value).resolves.toEqual({
       pushOutcome: "pushed",
       missingThreadAction: true,
@@ -1237,7 +1240,7 @@ describe("triage work definition", () => {
 
     await runExecution();
 
-    expect(executeResult).toEqual({ kind: "completed" });
+    expect(executeResult).toMatchObject({ kind: "completed" });
   });
 
   it("posts terminal failure comment when no report exists", async () => {

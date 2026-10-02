@@ -4,8 +4,6 @@ import { productionInstallationSurface } from "../installationSurface.js";
 import type { Pool } from "pg";
 
 import type { PrSurface } from "../../github/prSurface.js";
-import { durationMsFromClaim } from "../../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
@@ -358,46 +356,39 @@ export function createAskWorkExecution({
           leaseEpoch: env.leaseEpoch,
         });
         if (status === "degraded") {
-          await captureDurableWorkCompletedWithCi(pool, {
-            item,
-            workType: "ask",
-            outcome: "degraded",
-            durationMs: durationMsFromClaim(env.claim),
-            attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-            degradedReason: "durable_degradation",
-            extras: {
+          return {
+            kind: "completed",
+            degradation: ["reply_recovery_degraded"],
+            completion: {
+              kind: "ask",
+              outcome: "degraded",
               replyTargetKind: recoveredReply.targetKind,
               durableDegradation: "reply_recovery_degraded",
             },
-          });
-          return { kind: "completed", degradation: ["reply_recovery_degraded"] };
+          };
         }
-        await captureDurableWorkCompletedWithCi(pool, {
-          item,
-          workType: "ask",
-          outcome: "published",
-          durationMs: durationMsFromClaim(env.claim),
-          attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-          extras: { replyTargetKind: recoveredReply.targetKind },
-        });
-        return { kind: "completed" };
+        return {
+          kind: "completed",
+          completion: {
+            kind: "ask",
+            outcome: "published",
+            replyTargetKind: recoveredReply.targetKind,
+          },
+        };
       }
       if (recoveredReply?.kind === "outcome_unknown") {
         // The provider may have accepted the reply, but no exact marker was
         // found. Do not rerun the model or create a fallback reply.
-        await captureDurableWorkCompletedWithCi(pool, {
-          item,
-          workType: "ask",
-          outcome: "degraded",
-          durationMs: durationMsFromClaim(env.claim),
-          attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-          degradedReason: "durable_degradation",
-          extras: {
+        return {
+          kind: "completed",
+          degradation: ["reply_outcome_unknown"],
+          completion: {
+            kind: "ask",
+            outcome: "degraded",
             replyTargetKind: payload.replyTarget.kind,
             durableDegradation: "reply_outcome_unknown",
           },
-        });
-        return { kind: "completed", degradation: ["reply_outcome_unknown"] };
+        };
       }
 
       return env.withAdmittedRepositoryView(
@@ -516,28 +507,25 @@ export function createAskWorkExecution({
                 message: e instanceof Error ? e.message : String(e),
                 ...classifiedFailureLogFields(failure),
               });
-              await captureDurableWorkCompletedWithCi(pool, {
-                item,
-                workType: "ask",
-                outcome: "degraded",
-                durationMs: durationMsFromClaim(env.claim),
-                attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-                degradedReason: "durable_degradation",
-                extras: {
+              return {
+                kind: "completed",
+                degradation: ["publish_record_failed"],
+                completion: {
+                  kind: "ask",
+                  outcome: "degraded",
                   replyTargetKind: payload.replyTarget.kind,
                   durableDegradation: "publish_record_failed",
                 },
-              });
-              return { kind: "completed", degradation: ["publish_record_failed"] };
+              };
             }
-            await captureDurableWorkCompletedWithCi(pool, {
-              item,
-              workType: "ask",
-              outcome: "published",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              extras: { replyTargetKind: payload.replyTarget.kind },
-            });
+            return {
+              kind: "completed",
+              completion: {
+                kind: "ask",
+                outcome: "published",
+                replyTargetKind: payload.replyTarget.kind,
+              },
+            };
           }
           return { kind: "completed" };
         },

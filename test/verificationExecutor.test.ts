@@ -23,12 +23,6 @@ const mocks = vi.hoisted(() => ({
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
   recordPublishStep: vi.fn(),
-  captureEvent: vi.fn(),
-}));
-
-vi.mock("../src/analytics/index.js", () => ({
-  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
-  captureException: vi.fn(),
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({
@@ -180,7 +174,10 @@ describe("verificationHeadFreshness", () => {
   });
 
   it("uses completed with stale_head as the stale terminal", () => {
-    expect(STALE_VERIFICATION_RESULT).toEqual({ kind: "completed", degradation: ["stale_head"] });
+    expect(STALE_VERIFICATION_RESULT).toMatchObject({
+      kind: "completed",
+      degradation: ["stale_head"],
+    });
   });
 });
 
@@ -480,7 +477,7 @@ describe("verification work definition", () => {
 
       await runExecution();
 
-      expect(executeResult).toEqual(expected);
+      expect(executeResult).toMatchObject(expected);
       expect(mocks.publishVerification).toHaveBeenCalledTimes(publishes ? 1 : 0);
       if (!publishes) {
         expect(infoSpy).toHaveBeenCalledWith(
@@ -560,7 +557,7 @@ describe("verification work definition", () => {
 
     await runExecution();
 
-    expect(executeResult).toEqual({
+    expect(executeResult).toMatchObject({
       kind: "completed",
       degradation: ["verdict_mapping_incomplete"],
     });
@@ -569,16 +566,6 @@ describe("verification work definition", () => {
       expect.objectContaining({
         resolutionStatus: "ok",
         degradation: ["verdict_mapping_incomplete"],
-      }),
-    );
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          work_type: "verification",
-          outcome: "degraded",
-          degraded_reason: "durable_degradation",
-        }),
       }),
     );
     warnSpy.mockRestore();
@@ -628,16 +615,7 @@ describe("verification work definition", () => {
     expect(runParams.inventory.map((thread) => thread.rootCommentId)).toEqual([1, 2, 3]);
     expect(publishParams.inventory).toBe(runParams.inventory);
     expect(runParams.escalation).toBeUndefined();
-    expect(executeResult).toEqual({ kind: "completed" });
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          work_type: "verification",
-          outcome: "published",
-        }),
-      }),
-    );
+    expect(executeResult).toMatchObject({ kind: "completed" });
   });
 
   it("narrows the escalated attempt inventory once and reports inventory_narrowed", async () => {
@@ -682,17 +660,7 @@ describe("verification work definition", () => {
     ]);
     expect(publishParams.inventory).toBe(runParams.inventory);
     expect(runParams.escalation).toBe(escalation);
-    expect(executeResult).toEqual({ kind: "completed", degradation: ["inventory_narrowed"] });
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          work_type: "verification",
-          outcome: "degraded",
-          degraded_reason: "durable_degradation",
-        }),
-      }),
-    );
+    expect(executeResult).toMatchObject({ kind: "completed", degradation: ["inventory_narrowed"] });
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {
@@ -737,20 +705,10 @@ describe("verification work definition", () => {
 
     expect(mocks.runVerification).toHaveBeenCalled();
     expect(mocks.publishVerification).toHaveBeenCalled();
-    expect(executeResult).toEqual({
+    expect(executeResult).toMatchObject({
       kind: "completed",
       degradation: ["thread_resolution_degraded"],
     });
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          work_type: "verification",
-          outcome: "degraded",
-          degraded_reason: "durable_degradation",
-        }),
-      }),
-    );
   });
 
   it.each([
@@ -839,20 +797,10 @@ describe("verification work definition", () => {
           : { changedFilePaths: files }),
       }),
     );
-    expect(executeResult).toEqual(
+    expect(executeResult).toMatchObject(
       truncated
         ? { kind: "completed", degradation: ["compare_files_truncated"] }
         : { kind: "completed" },
-    );
-    expect(mocks.captureEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "work completed",
-        properties: expect.objectContaining({
-          work_type: "verification",
-          outcome: truncated ? "degraded" : "published",
-          ...(truncated ? { degraded_reason: "durable_degradation" } : {}),
-        }),
-      }),
     );
   });
 

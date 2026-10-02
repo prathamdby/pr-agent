@@ -34,8 +34,6 @@ import {
   type StoredTriagePreviewDetail,
   type StoredTriagePushDetail,
 } from "../../agent/triage/publishTriage.js";
-import { durationMsFromClaim } from "../../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_BULK_PREVIEW_STALE,
@@ -96,28 +94,6 @@ type InventoryAndScope = {
   readonly scopedThreadRootId: number | undefined;
   readonly reportContext: TriageReportContext;
 };
-
-async function emitTriageWorkCompleted(input: {
-  readonly pool: Pool;
-  readonly item: TriageWorkItem;
-  readonly claim: { readonly startedAt: Date; readonly attemptCount: number } | null | undefined;
-  readonly result: TriageExecuteResult;
-}): Promise<void> {
-  const firstReason = input.result.degradation?.[0];
-  const degraded = firstReason != null;
-  await captureDurableWorkCompletedWithCi(input.pool, {
-    item: input.item,
-    workType: "triage",
-    outcome: degraded ? "degraded" : "published",
-    durationMs: durationMsFromClaim(input.claim),
-    attemptCount: input.claim?.attemptCount ?? input.item.attemptCount,
-    extras: {
-      scope: input.item.payload.scope ?? "all",
-      ...(degraded ? { durableDegradation: firstReason } : {}),
-    },
-    ...(degraded ? { degradedReason: "durable_degradation" as const } : {}),
-  });
-}
 
 function reportOnlyBody(params: {
   readonly message: string;
@@ -1013,12 +989,17 @@ export function createTriageWorkExecution({
         }
       })();
       if (!omitTerminal && result.kind === "completed") {
-        await emitTriageWorkCompleted({
-          pool,
-          item,
-          claim: env.claim,
-          result,
-        });
+        const durableDegradation = result.degradation?.[0];
+        return {
+          ...result,
+          completion: {
+            kind: "triage",
+            scope: item.payload.scope ?? "all",
+            ...(durableDegradation != null
+              ? { outcome: "degraded", durableDegradation }
+              : { outcome: "published" }),
+          },
+        };
       }
       return result;
     },

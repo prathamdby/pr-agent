@@ -1,10 +1,5 @@
 import type { Pool } from "pg";
-import {
-  captureDurableWorkCompleted,
-  type CiWorkTelemetry,
-  type DegradedReason,
-  type WorkCompletedOutcome,
-} from "../analytics/workCompleted.js";
+import type { CiWorkTelemetry } from "../analytics/workCompleted.js";
 import { parseCiAuthoredCache } from "../review/ci/ciAuthoredCache.js";
 import { isCheckFactFailing } from "../review/ci/classifySnapshot.js";
 import { loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
@@ -33,27 +28,4 @@ export async function loadCiWorkTelemetry(
   } catch {
     return { rollup: "none", failingCount: 0, authored: false };
   }
-}
-
-export async function captureDurableWorkCompletedWithCi(
-  pool: Pool,
-  input: Parameters<typeof captureDurableWorkCompleted>[0],
-): Promise<void> {
-  const ci = await loadCiWorkTelemetry(pool, input.item.owner, input.item.repo, input.item.headSha);
-  if (
-    input.workType === "review" &&
-    input.outcome === "published" &&
-    ci.unavailableReason != null
-  ) {
-    const degradedReason: DegradedReason = "ci_unavailable";
-    const outcome: WorkCompletedOutcome = "degraded";
-    captureDurableWorkCompleted({
-      ...input,
-      outcome,
-      degradedReason,
-      ci,
-    });
-    return;
-  }
-  captureDurableWorkCompleted({ ...input, ci });
 }

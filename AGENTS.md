@@ -290,7 +290,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/effect/` owns the Effect server, programs, services, and runtime wiring.
 - `src/webhook/` verifies and parses GitHub deliveries.
 - `src/agentWork/` owns durable intake, pg-boss, leases, workers, executors, publish records, and retention.
-- `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `durableJob.ts` owns the injected lifecycle/runtime and execution-context factory, including admitted read-only views, session identity metadata, and signal/cancellation/lease publication checks. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work and code-index builds.
+- `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `durableJob.ts` owns the injected lifecycle/runtime, execution-context factory (admitted read-only views, session identity metadata, signal/cancellation/lease publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values, never capture completion events. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work and code-index builds.
 - `src/review/` owns orchestration, the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and review publication.
 - `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
 - `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.

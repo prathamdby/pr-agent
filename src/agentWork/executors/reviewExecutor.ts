@@ -12,7 +12,6 @@ import {
   workFailureReasonFromClassified,
   type WorkCompletedOutcome,
 } from "../../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { AppError } from "../../errors/appError.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -103,7 +102,7 @@ import { type DurableExecutionContext, type DurableExecutionResult } from "../du
 import { type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
-import type { ReviewWorkExtras } from "../../analytics/workCompleted.js";
+import type { ReviewProfileFields, WorkCompletion } from "../../analytics/workCompleted.js";
 import type { ReviewRunMetricsSnapshot } from "../../review/run/reviewRunMetrics.js";
 
 type Result<T> =
@@ -371,7 +370,7 @@ async function runLightweightCompletionOrSkip(args: {
   });
   logReviewRunCompleted();
   args.profile.record({ outcome: "lightweight", publishAttempts: 0, publishStepCount: 0 });
-  await args.profile.flush();
+  args.profile.capture();
   await closeOwnVerdict({
     pool,
     prSurface,
@@ -441,56 +440,72 @@ type ReviewProfileRecord = {
 
 type ReviewProfileSession = {
   record(record: ReviewProfileRecord): void;
-  flush(): Promise<void>;
+  capture(): Extract<WorkCompletion, { kind: "review-profile" }> | undefined;
 };
 
 function createReviewProfileSession(args: {
   readonly cfg: Pick<Config, "piProvider" | "piModel">;
-  readonly pool: Pool;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
   readonly getClaim: () => ReviewWorkClaim | undefined;
 }): ReviewProfileSession {
   let pending: ReviewProfileRecord | undefined;
-  let flushed = false;
+  let captured: Extract<WorkCompletion, { kind: "review-profile" }> | undefined;
   return {
     record(record) {
-      if (pending || flushed) return;
+      if (pending || captured) return;
       pending = record;
     },
-    async flush() {
-      if (flushed || !pending) return;
-      flushed = true;
+    capture() {
+      if (captured || !pending) return captured;
       const snapshot = snapshotReviewRunMetrics();
       const claim = args.getClaim();
       const publishAttempts = pending.publishAttempts ?? snapshot?.publishAttempts ?? 0;
       const publishStepCount = pending.publishStepCount ?? snapshot?.publishStepCount ?? 0;
-      const extras = reviewWorkExtras({
+      const fields = reviewProfileFields({
         snapshot,
         provider: args.cfg.piProvider,
         model: args.cfg.piModel,
         reviewLens: args.reviewLens,
         source: args.payload.source,
       });
-      await captureDurableWorkCompletedWithCi(args.pool, {
-        item: args.item,
-        workType: "review",
-        outcome: pending.outcome,
+      const base = {
+        kind: "review-profile" as const,
         durationMs: durationMsFromClaim(claim),
         attemptCount: claim?.attemptCount ?? args.item.attemptCount,
         publish: { publishAttempts, publishStepCount },
-        extras,
-        ...(pending.outcome === "degraded"
-          ? {
-              degradedReason:
-                degradedReasonFromReviewFlags({ publishAttempts, snapshot }) ?? "publish_retry",
-            }
-          : {}),
-        ...(pending.outcome === "failed" && pending.lastFailure
-          ? { failure: workFailureReasonFromClassified(pending.lastFailure) }
-          : {}),
-      });
+        ...fields,
+      };
+      switch (pending.outcome) {
+        case "degraded":
+          captured = {
+            ...base,
+            outcome: "degraded",
+            degradedReason:
+              degradedReasonFromReviewFlags({ publishAttempts, snapshot }) ?? "publish_retry",
+          };
+          break;
+        case "failed":
+          captured = {
+            ...base,
+            outcome: "failed",
+            failure: pending.lastFailure
+              ? workFailureReasonFromClassified(pending.lastFailure)
+              : { failureDomain: "unknown", errorKind: "unknown" },
+          };
+          break;
+        case "published":
+        case "superseded":
+        case "lightweight":
+          captured = { ...base, outcome: pending.outcome };
+          break;
+        default: {
+          const exhaustive: never = pending.outcome;
+          return exhaustive;
+        }
+      }
+      return captured;
     },
   };
 }
@@ -1049,32 +1064,25 @@ export function createReviewWorkExecution({
       });
       const profile = createReviewProfileSession({
         cfg,
-        pool,
         item,
         reviewLens,
         payload,
         getClaim: () => env.claim,
       });
-      let threw = false;
-      try {
-        return await runClaimedReview({
-          getBotIdentity,
-          job: env.job,
-          cfg,
-          pool,
-          boss,
-          item,
-          reviewLens,
-          payload,
-          env,
-          profile,
-        });
-      } catch (error) {
-        threw = true;
-        throw error;
-      } finally {
-        if (!threw) await profile.flush();
-      }
+      const result = await runClaimedReview({
+        getBotIdentity,
+        job: env.job,
+        cfg,
+        pool,
+        boss,
+        item,
+        reviewLens,
+        payload,
+        env,
+        profile,
+      });
+      const completion = profile.capture();
+      return result.kind === "completed" && completion ? { ...result, completion } : result;
     },
     onCancelled: async (item, prSurface, _reason, leaseEpoch) => {
       if (!item.reviewLens) return;
@@ -1176,18 +1184,18 @@ type ReviewWorkClaim = {
   readonly attemptCount: number;
 };
 
-function reviewWorkExtras(input: {
+function reviewProfileFields(input: {
   readonly snapshot: ReviewRunMetricsSnapshot | null;
   readonly provider: string;
   readonly model: string;
-  readonly reviewLens?: string;
-  readonly source?: "auto" | "slash";
-}): ReviewWorkExtras {
+  readonly reviewLens: string;
+  readonly source: "auto" | "slash";
+}): ReviewProfileFields {
   return {
     model: input.model,
     provider: input.provider,
-    ...(input.reviewLens != null ? { reviewLens: input.reviewLens } : {}),
-    ...(input.source != null ? { source: input.source } : {}),
+    reviewLens: input.reviewLens,
+    source: input.source,
     ...(input.snapshot
       ? {
           findingsCount: input.snapshot.findingsCount,

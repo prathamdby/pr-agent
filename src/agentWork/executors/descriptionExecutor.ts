@@ -1,7 +1,5 @@
 import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
 
-import { durationMsFromClaim } from "../../analytics/workCompleted.js";
-import { captureDurableWorkCompletedWithCi } from "../ciWorkTelemetry.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
@@ -63,35 +61,27 @@ export function createDescriptionWorkExecution({
               pr: item.prNumber,
               ...classifiedFailureLogFields(failure),
             });
-            await captureDurableWorkCompletedWithCi(pool, {
-              item,
-              workType: "description",
-              outcome: "degraded",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              degradedReason: "durable_degradation",
-              extras: { source: payload.source, durableDegradation: "publish_not_completed" },
-            });
-            return { kind: "completed", degradation: ["publish_not_completed"] };
+            return {
+              kind: "completed",
+              degradation: ["publish_not_completed"],
+              completion: {
+                kind: "description",
+                outcome: "degraded",
+                source: payload.source,
+                durableDegradation: "publish_not_completed",
+              },
+            };
           }
           if (result.published) {
-            await captureDurableWorkCompletedWithCi(pool, {
-              item,
-              workType: "description",
-              outcome: "published",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              extras: { source: payload.source },
-            });
+            return {
+              kind: "completed",
+              completion: { kind: "description", outcome: "published", source: payload.source },
+            };
           } else if (result.publishSuperseded) {
-            await captureDurableWorkCompletedWithCi(pool, {
-              item,
-              workType: "description",
-              outcome: "superseded",
-              durationMs: durationMsFromClaim(env.claim),
-              attemptCount: env.claim?.attemptCount ?? item.attemptCount,
-              extras: { source: payload.source },
-            });
+            return {
+              kind: "completed",
+              completion: { kind: "description", outcome: "superseded", source: payload.source },
+            };
           }
           return { kind: "completed" };
         },
