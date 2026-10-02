@@ -149,6 +149,65 @@ database integration suites (499 tests), and disposable-stack verification
 (499 tests). The complete prompt dump remained byte-identical. Verification
 left `verify-artifacts/2026-10-02T14-03-02-279Z.md`.
 
+## M2 failure modes
+
+Recorded before existing-test or production changes:
+
+1. Separate progress and verdict admission registries retain more than half the
+   pool and starve nested lease checks. Both lanes must share one pool registry.
+2. Admission contention performs a verdict read without a client, or SQL lock
+   contention loses the existing read on its attempted client.
+3. A contender retains a client during bounded backoff, or a failed checkout
+   leaks admission capacity.
+4. A false unlock returns an unsafe session to the pool. Unlock and release
+   failures must not replace the original application or provider error.
+5. Lock key bytes change and old and new workers stop serializing.
+6. The max-one unleased verdict exception disappears, or leased verdict and
+   progress lose their distinct capacity errors and missing-max defaults.
+7. Shared fencing adds checks to SQL-only state writes, removes zero-row
+   rechecks, or adds them to intent merges or verdict enrichment.
+8. Moving fencing changes SQL aliases, parameter positions, CAS predicates,
+   terminal exceptions, or lease expiry semantics. SQL stays verbatim.
+9. Rescheduled parent completion or the running cancellation fallback escapes
+   the shared write sequencing.
+10. Moving surface tests drops mutation identity, recovery, cancellation,
+    stolen-lease, or unknown-outcome coverage. The existing integration owner
+    retains all nine cases and exercises real lease state where applicable.
+
+M2 implementation moves both retained-session loops into
+`src/db/sessionLock.ts`. One registry limits combined progress/verdict holders
+to half the pool, with the existing unleased one-slot verdict exception. The
+primitive accepts typed `SessionLockKey` families, encodes their existing bytes,
+and owns all admission math and missing-max defaults. Callers cannot supply
+capacity. The adapters retain capacity errors, progress unlock logging, and
+contention behavior. Safe release needs no caller flag. This changes only internal deferral timing. False unlock
+destroys the session; application/provider errors retain precedence.
+
+`src/agentWork/fencedWrite.ts::fencedWrite` owns numeric-epoch check sequencing for all
+19 writers and 20 SQL calls, including rescheduled parent completion and the
+running cancellation fallback. Repository SQL stays with its owner. The 35
+work-state and five intent template literals are byte-identical to M1. Of the
+30 publish-record template literals, 29 stay byte-identical in that repository;
+the own-verdict lock key moved into the typed codec with identical encoded bytes.
+All SQL literals remain unchanged. SQL-only, precheck-only, and zero-row-recheck
+call patterns stay distinct.
+
+All nine surface fence/identity/recovery cases moved into the existing PR actor
+lease integration suite; the first three now use real lease or cancellation
+state. The old unit file is deleted. Existing summary-coordination coverage also
+proves odd-pool cross-lane admission, bounded waiting without checkout,
+release before backoff, and false-unlock disposal. The stronger typed-key test
+failed before the interface change and passed afterward.
+No new test file was created.
+
+Local M2 checks passed: formatting, typecheck, lint, guards, and 107 tests across
+seven existing unit suites. Source assertion count remains 87. The complete
+prompt dump is byte-identical to M0, SHA-256
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.
+The full milestone gate also passed: 195 unit suites (2,638 tests), dedicated
+database integration and disposable-stack verification (508 tests each).
+Verification left `verify-artifacts/2026-10-02T14-54-12-388Z.md`.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

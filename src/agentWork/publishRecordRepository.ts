@@ -1,7 +1,9 @@
+import { fencedWrite } from "./fencedWrite.js";
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import * as v from "valibot";
 import { queryOne } from "../db/postgres.js";
+import { withSessionLock } from "../db/sessionLock.js";
 import { AppError, errorLogFields } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
@@ -21,7 +23,6 @@ import {
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { isRecord } from "../util/typeGuards.js";
 import type { OperationIntentRow } from "./operationIntentRepository.js";
-import { assertPrActorLeaseHeld } from "./prActorLease.js";
 
 export type PublishLens =
   | AnyReviewLens
@@ -144,11 +145,14 @@ export async function claimSummaryCommentCreation(
   reviewLens: AnyReviewLens,
   leaseEpoch?: number | null,
 ): Promise<boolean> {
-  if (leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, workItemId, leaseEpoch);
-  }
-  const result = await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
+  const result = await fencedWrite(
+    pool,
+    workItemId,
+    leaseEpoch,
+    { before: true, rejected: (written) => (written.rowCount ?? 0) === 0 },
+    () =>
+      pool.query(
+        `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
      SELECT $1, $2, $3, $4, 'summary_comment_claim', 'completed', $5, '{}'::jsonb
       WHERE $5::bigint IS NULL OR EXISTS (
         SELECT 1 FROM pr_actor_leases
@@ -156,11 +160,9 @@ export async function claimSummaryCommentCreation(
       )
 	     ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
      DO NOTHING`,
-    [crypto.randomUUID(), workItemId, resourceKey, reviewLens, leaseEpoch ?? null],
+        [crypto.randomUUID(), workItemId, resourceKey, reviewLens, leaseEpoch ?? null],
+      ),
   );
-  if ((result.rowCount ?? 0) === 0 && leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, workItemId, leaseEpoch);
-  }
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -396,26 +398,31 @@ export async function claimOwnVerdict(
   client: Pool | PoolClient,
   params: OwnVerdictIdentity & { readonly selected: SelectedOwnVerdict },
 ) {
-  if (params.leaseEpoch != null)
-    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
-  const eligible = await queryOne<{ ok: number }>(
-    client,
-    `SELECT 1 AS ok FROM agent_work_items
+  return fencedWrite(client, params.workItemId, params.leaseEpoch, { before: true }, async () => {
+    const eligible = await queryOne<{ ok: number }>(
+      client,
+      `SELECT 1 AS ok FROM agent_work_items
       WHERE id = $1 AND type = 'review' AND resource_key = $2 AND review_lens = $3
         AND ($4::bigint IS NOT NULL OR status IN ('completed', 'failed', 'cancelled', 'superseded'))`,
-    [params.workItemId, params.resourceKey, params.reviewLens, params.leaseEpoch ?? null],
-  );
-  if (eligible == null) return null;
-  const existing = await getOwnVerdictCloseRecord(client, params);
-  if (existing?.selected == null && (await hasLegacyOwnVerdictCompletion(client, params))) {
-    logWarn("review_own_verdict_legacy_unresolved", {
-      workItemId: params.workItemId,
-      reviewLens: params.reviewLens,
-    });
-    return null;
-  }
-  const result = await client.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
+      [params.workItemId, params.resourceKey, params.reviewLens, params.leaseEpoch ?? null],
+    );
+    if (eligible == null) return null;
+    const existing = await getOwnVerdictCloseRecord(client, params);
+    if (existing?.selected == null && (await hasLegacyOwnVerdictCompletion(client, params))) {
+      logWarn("review_own_verdict_legacy_unresolved", {
+        workItemId: params.workItemId,
+        reviewLens: params.reviewLens,
+      });
+      return null;
+    }
+    await fencedWrite(
+      client,
+      params.workItemId,
+      params.leaseEpoch,
+      { before: false, rejected: (written) => (written.rowCount ?? 0) === 0 },
+      () =>
+        client.query(
+          `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
        SELECT $1, $2, $3, $4, 'check_run', 'pending', $5,
               jsonb_build_object('selectedOwnVerdict', $6::jsonb)
         WHERE EXISTS (
@@ -434,36 +441,37 @@ export async function claimOwnVerdict(
            SELECT 1 FROM pr_actor_leases WHERE work_item_id = EXCLUDED.work_item_id
              AND lease_epoch = EXCLUDED.lease_epoch
          ))`,
-    [
-      crypto.randomUUID(),
-      params.workItemId,
-      params.resourceKey,
-      params.reviewLens,
-      params.leaseEpoch ?? null,
-      JSON.stringify(params.selected),
-    ],
-  );
-  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
-  }
-  let record = await getOwnVerdictCloseRecord(client, params);
-  if (
-    record?.selected != null &&
-    record.selected.status == null &&
-    params.selected.status != null
-  ) {
-    const state =
-      record.selected.conclusion === "failure"
-        ? "failure"
-        : record.selected.conclusion === "success"
-          ? "success"
-          : "error";
-    const selected = {
-      ...record.selected,
-      status: { ...params.selected.status, state },
-    } satisfies SelectedOwnVerdict;
-    await client.query(
-      `UPDATE publish_records SET detail = jsonb_set(detail, '{selectedOwnVerdict}', $4::jsonb)
+          [
+            crypto.randomUUID(),
+            params.workItemId,
+            params.resourceKey,
+            params.reviewLens,
+            params.leaseEpoch ?? null,
+            JSON.stringify(params.selected),
+          ],
+        ),
+    );
+    let record = await getOwnVerdictCloseRecord(client, params);
+    if (
+      record?.selected != null &&
+      record.selected.status == null &&
+      params.selected.status != null
+    ) {
+      const state =
+        record.selected.conclusion === "failure"
+          ? "failure"
+          : record.selected.conclusion === "success"
+            ? "success"
+            : "error";
+      const selected = {
+        ...record.selected,
+        status: { ...params.selected.status, state },
+      } satisfies SelectedOwnVerdict;
+      const selectedBeforeEnrichment = record.selected;
+      const statusAlreadyApplied = record.statusApplied;
+      await fencedWrite(client, params.workItemId, params.leaseEpoch, { before: false }, () =>
+        client.query(
+          `UPDATE publish_records SET detail = jsonb_set(detail, '{selectedOwnVerdict}', $4::jsonb)
              || CASE WHEN $7 THEN '{"status":"in_progress"}'::jsonb ELSE '{}'::jsonb END,
              updated_at = now()
         WHERE work_item_id = $1 AND resource_key = $2 AND review_lens = $3 AND step = 'check_run'
@@ -471,19 +479,21 @@ export async function claimOwnVerdict(
           AND ($6::bigint IS NULL OR EXISTS (
             SELECT 1 FROM pr_actor_leases WHERE work_item_id = $1 AND lease_epoch = $6
           ))`,
-      [
-        params.workItemId,
-        params.resourceKey,
-        params.reviewLens,
-        JSON.stringify(selected),
-        JSON.stringify(record.selected),
-        params.leaseEpoch ?? null,
-        ownVerdictStatusApplicable(selected) && !record.statusApplied,
-      ],
-    );
-    record = await getOwnVerdictCloseRecord(client, params);
-  }
-  return record;
+          [
+            params.workItemId,
+            params.resourceKey,
+            params.reviewLens,
+            JSON.stringify(selected),
+            JSON.stringify(selectedBeforeEnrichment),
+            params.leaseEpoch ?? null,
+            ownVerdictStatusApplicable(selected) && !statusAlreadyApplied,
+          ],
+        ),
+      );
+      record = await getOwnVerdictCloseRecord(client, params);
+    }
+    return record;
+  });
 }
 
 export async function recordOwnVerdictSurfaceApplied(
@@ -491,11 +501,15 @@ export async function recordOwnVerdictSurfaceApplied(
   params: OwnVerdictIdentity & { readonly selected: SelectedOwnVerdict },
   surface: "check" | "status",
 ): Promise<void> {
-  if (params.leaseEpoch != null)
-    await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
   const check = surface === "check";
-  const result = await client.query(
-    `UPDATE publish_records
+  const result = await fencedWrite(
+    client,
+    params.workItemId,
+    params.leaseEpoch,
+    { before: true, rejected: (written) => (written.rowCount ?? 0) === 0 },
+    () =>
+      client.query(
+        `UPDATE publish_records
         SET detail = detail || $4::jsonb || jsonb_build_object(
               'status', CASE WHEN ($5 OR detail->'ownCheckApplied' = 'true'::jsonb)
                  AND (NOT $6 OR $7 OR detail->'ownStatusApplied' = 'true'::jsonb)
@@ -507,30 +521,29 @@ export async function recordOwnVerdictSurfaceApplied(
         AND ($9::bigint IS NULL OR EXISTS (
           SELECT 1 FROM pr_actor_leases WHERE work_item_id = $1 AND lease_epoch = $9
         ))`,
-    [
-      params.workItemId,
-      params.resourceKey,
-      params.reviewLens,
-      JSON.stringify(
-        check
-          ? {
-              ownCheckApplied: true,
-              conclusion: params.selected.conclusion,
-              completedAt: new Date().toISOString(),
-              detailsUrl: params.selected.detailsUrl,
-            }
-          : { ownStatusApplied: true },
+        [
+          params.workItemId,
+          params.resourceKey,
+          params.reviewLens,
+          JSON.stringify(
+            check
+              ? {
+                  ownCheckApplied: true,
+                  conclusion: params.selected.conclusion,
+                  completedAt: new Date().toISOString(),
+                  detailsUrl: params.selected.detailsUrl,
+                }
+              : { ownStatusApplied: true },
+          ),
+          check,
+          ownVerdictStatusApplicable(params.selected),
+          !check,
+          JSON.stringify(params.selected),
+          params.leaseEpoch ?? null,
+        ],
       ),
-      check,
-      ownVerdictStatusApplicable(params.selected),
-      !check,
-      JSON.stringify(params.selected),
-      params.leaseEpoch ?? null,
-    ],
   );
   if ((result.rowCount ?? 0) === 0) {
-    if (params.leaseEpoch != null)
-      await assertPrActorLeaseHeld(client, params.workItemId, params.leaseEpoch);
     throw new AppError({
       code: "agent_work.own_verdict_receipt_rejected",
       message: "Own verdict acceptance receipt did not match its selection",
@@ -539,65 +552,27 @@ export async function recordOwnVerdictSurfaceApplied(
   }
 }
 
-const ownVerdictCoordinators = new WeakMap<Pool, number>();
-
 export async function withOwnVerdictClose<T>(
   pool: Pool,
   params: OwnVerdictIdentity,
   apply: (client: PoolClient) => Promise<T>,
 ): Promise<T | undefined> {
-  const max = pool.options.max ?? 10;
-  if (max === 1 && params.leaseEpoch != null)
-    throw new AppError({
-      code: "agent_work.own_verdict_capacity",
-      message: "Leased own verdict close requires nested database capacity",
-      context: { workItemId: params.workItemId },
-    });
-  const admitted = ownVerdictCoordinators.get(pool) ?? 0;
-  if (admitted >= Math.max(1, max - 1)) return undefined;
-  ownVerdictCoordinators.set(pool, admitted + 1);
-  let client: PoolClient | undefined;
-  let locked = false;
-  let destroy = true;
-  let result: T | undefined;
-  let failure: { readonly error: unknown } | undefined;
-  const key = `own-verdict:${params.workItemId}:${params.reviewLens}`;
-  try {
-    client = await pool.connect();
-    const row = await queryOne<{ locked: boolean }>(
-      client,
-      "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
-      [key],
-    );
-    destroy = false;
-    locked = row?.locked === true;
-    if (!locked) {
-      await getOwnVerdictCloseRecord(client, params);
-    } else {
-      result = await apply(client);
-    }
-  } catch (error) {
-    failure = { error };
-  } finally {
-    try {
-      if (client != null && locked) {
-        const row = await queryOne<{ unlocked: boolean }>(
-          client,
-          "SELECT pg_advisory_unlock(hashtextextended($1, 0)) AS unlocked",
-          [key],
-        );
-        destroy = row?.unlocked !== true;
-      }
-    } catch (error) {
-      destroy = true;
-      failure ??= { error };
-    } finally {
-      ownVerdictCoordinators.set(pool, (ownVerdictCoordinators.get(pool) ?? 1) - 1);
-      client?.release(destroy);
-    }
-  }
-  if (failure != null) throw failure.error;
-  return result;
+  return withSessionLock(
+    pool,
+    { kind: "own_verdict", workItemId: params.workItemId, reviewLens: params.reviewLens },
+    {
+      mode: "try",
+      unleased: params.leaseEpoch == null,
+      capacityError: () =>
+        new AppError({
+          code: "agent_work.own_verdict_capacity",
+          message: "Leased own verdict close requires nested database capacity",
+          context: { workItemId: params.workItemId },
+        }),
+      onContended: (client) => getOwnVerdictCloseRecord(client, params),
+    },
+    apply,
+  );
 }
 
 export async function reserveReviewCheckRun(
@@ -610,11 +585,14 @@ export async function reserveReviewCheckRun(
     detail?: Record<string, unknown>;
   },
 ): Promise<boolean> {
-  if (params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
-  const result = await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
+  const result = await fencedWrite(
+    pool,
+    params.workItemId,
+    params.leaseEpoch,
+    { before: true, rejected: (written) => (written.rowCount ?? 0) === 0 },
+    () =>
+      pool.query(
+        `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, lease_epoch, detail)
 			 SELECT $1, $2, $3, $4, 'check_run', 'pending', $5, $6::jsonb
 			  WHERE $5::bigint IS NULL OR EXISTS (
 			    SELECT 1 FROM pr_actor_leases
@@ -632,18 +610,16 @@ export async function reserveReviewCheckRun(
              SELECT 1 FROM pr_actor_leases WHERE work_item_id = EXCLUDED.work_item_id
                AND lease_epoch = EXCLUDED.lease_epoch
            ))`,
-    [
-      crypto.randomUUID(),
-      params.workItemId,
-      params.resourceKey,
-      params.reviewLens,
-      params.leaseEpoch ?? null,
-      JSON.stringify(params.detail ?? {}),
-    ],
+        [
+          crypto.randomUUID(),
+          params.workItemId,
+          params.resourceKey,
+          params.reviewLens,
+          params.leaseEpoch ?? null,
+          JSON.stringify(params.detail ?? {}),
+        ],
+      ),
   );
-  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -658,11 +634,14 @@ export async function recordReviewCheckRun(
     detail?: Record<string, unknown>;
   },
 ): Promise<void> {
-  if (params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
-  const result = await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
+  await fencedWrite(
+    pool,
+    params.workItemId,
+    params.leaseEpoch,
+    { before: true, rejected: (written) => (written.rowCount ?? 0) === 0 },
+    () =>
+      pool.query(
+        `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
          SELECT $1, $2, $3, $4, 'check_run', $5, 'completed', $6, $7::jsonb
           WHERE $6::bigint IS NULL OR EXISTS (
             SELECT 1 FROM pr_actor_leases
@@ -680,19 +659,17 @@ export async function recordReviewCheckRun(
             WHERE work_item_id = EXCLUDED.work_item_id
               AND lease_epoch = EXCLUDED.lease_epoch
          )`,
-    [
-      crypto.randomUUID(),
-      params.workItemId,
-      params.resourceKey,
-      params.reviewLens,
-      String(params.githubId),
-      params.leaseEpoch ?? null,
-      JSON.stringify(params.detail ?? {}),
-    ],
+        [
+          crypto.randomUUID(),
+          params.workItemId,
+          params.resourceKey,
+          params.reviewLens,
+          String(params.githubId),
+          params.leaseEpoch ?? null,
+          JSON.stringify(params.detail ?? {}),
+        ],
+      ),
   );
-  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
 }
 
 export async function releaseUnstartedReviewCheckRunReservation(
@@ -705,9 +682,6 @@ export async function releaseUnstartedReviewCheckRunReservation(
     staleBefore?: Date;
   },
 ): Promise<boolean> {
-  if (params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
   const values: unknown[] = [params.workItemId, params.resourceKey, params.reviewLens];
   const leaseParam =
     params.leaseEpoch == null ? null : (values.push(params.leaseEpoch), values.length);
@@ -726,8 +700,14 @@ export async function releaseUnstartedReviewCheckRunReservation(
            ${staleParam == null ? "" : `OR updated_at < $${staleParam}`}
          )`;
   const eligibilityClause = leaseParam == null ? staleClause : leaseClause;
-  const result = await pool.query(
-    `WITH protected AS (
+  const result = await fencedWrite(
+    pool,
+    params.workItemId,
+    params.leaseEpoch,
+    { before: true, rejected: (written) => (written.rowCount ?? 0) === 0 },
+    () =>
+      pool.query(
+        `WITH protected AS (
        UPDATE publish_records
           SET detail = detail - 'status' - 'headSha' - 'name' - 'externalId' - 'recoveredStaleReservation',
               updated_at = now()
@@ -748,11 +728,9 @@ export async function releaseUnstartedReviewCheckRunReservation(
     ${eligibilityClause}
        RETURNING id
      ) SELECT id FROM protected UNION ALL SELECT id FROM ordinary`,
-    values,
+        values,
+      ),
   );
-  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -1025,15 +1003,18 @@ export async function recordPublishStep(
     leaseEpoch: number | null;
   },
 ): Promise<void> {
-  if (params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
   const detail =
     params.step === "inline_review" && typeof params.detail?.batchId === "string"
       ? { batches: [params.detail] }
       : (params.detail ?? {});
-  const result = await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
+  const result = await fencedWrite(
+    pool,
+    params.workItemId,
+    params.leaseEpoch,
+    { before: true, rejected: (written) => (written.rowCount ?? 0) === 0 },
+    () =>
+      pool.query(
+        `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
          SELECT $1, $2, $3, $4, $5, $6, 'completed', $7, $8::jsonb
           WHERE $7::bigint IS NULL OR EXISTS (
             SELECT 1 FROM pr_actor_leases
@@ -1073,20 +1054,18 @@ export async function recordPublishStep(
 				              WHERE work_item_id = EXCLUDED.work_item_id
 				                AND lease_epoch = EXCLUDED.lease_epoch
 				           ))`,
-    [
-      crypto.randomUUID(),
-      params.workItemId,
-      params.resourceKey,
-      params.reviewLens,
-      params.step,
-      params.githubId == null ? null : String(params.githubId),
-      params.leaseEpoch,
-      JSON.stringify(detail),
-    ],
+        [
+          crypto.randomUUID(),
+          params.workItemId,
+          params.resourceKey,
+          params.reviewLens,
+          params.step,
+          params.githubId == null ? null : String(params.githubId),
+          params.leaseEpoch,
+          JSON.stringify(detail),
+        ],
+      ),
   );
-  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
   if ((result.rowCount ?? 0) === 0 && params.step === "progress_comment") {
     const error = new AppError({
       code: "agent_work.progress_comment_ownership_conflict",
@@ -1116,11 +1095,14 @@ export async function recordAskPublishStep(
     leaseEpoch: number | null;
   },
 ): Promise<void> {
-  if (params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
-  const result = await pool.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
+  await fencedWrite(
+    pool,
+    params.workItemId,
+    params.leaseEpoch,
+    { before: true, rejected: (written) => (written.rowCount ?? 0) === 0 },
+    () =>
+      pool.query(
+        `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, lease_epoch, detail)
          SELECT $1, $2, $3, $4, $5, $6, 'completed', $7, $8::jsonb
           WHERE $7::bigint IS NULL OR EXISTS (
             SELECT 1 FROM pr_actor_leases
@@ -1133,18 +1115,16 @@ export async function recordAskPublishStep(
 				               lease_epoch = COALESCE(EXCLUDED.lease_epoch, publish_records.lease_epoch),
 				               detail = EXCLUDED.detail,
 			               updated_at = now()`,
-    [
-      crypto.randomUUID(),
-      params.workItemId,
-      params.resourceKey,
-      ASK_PUBLISH_LENS,
-      params.step,
-      params.githubId == null ? null : String(params.githubId),
-      params.leaseEpoch,
-      JSON.stringify(params.detail ?? {}),
-    ],
+        [
+          crypto.randomUUID(),
+          params.workItemId,
+          params.resourceKey,
+          ASK_PUBLISH_LENS,
+          params.step,
+          params.githubId == null ? null : String(params.githubId),
+          params.leaseEpoch,
+          JSON.stringify(params.detail ?? {}),
+        ],
+      ),
   );
-  if ((result.rowCount ?? 0) === 0 && params.leaseEpoch != null) {
-    await assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
-  }
 }

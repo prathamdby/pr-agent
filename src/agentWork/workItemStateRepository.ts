@@ -1,3 +1,4 @@
+import { fencedWrite } from "./fencedWrite.js";
 import type { Pool, PoolClient } from "pg";
 import { inTransaction, queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
@@ -341,13 +342,15 @@ export async function markWorkPublishDegraded(
   id: string,
   leaseEpoch: number | null,
 ): Promise<void> {
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
+    pool.query(
+      `UPDATE agent_work_items
 		    SET payload = payload || '{"publishDegraded": true}'::jsonb,
 		        updated_at = now()
 		  WHERE id = $1
 		    ${leaseFenceSql(2)}`,
-    [id, leaseEpoch],
+      [id, leaseEpoch],
+    ),
   );
   if ((result.rowCount ?? 0) === 0) {
     logWarn("agent_work_publish_degraded_mark_rejected", {
@@ -363,8 +366,9 @@ export async function markWorkCompleted(
   id: string,
   leaseEpoch: number | null,
 ): Promise<boolean> {
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
+    pool.query(
+      `UPDATE agent_work_items
 	    SET status = 'completed',
 	        completed_at = now(),
 	        updated_at = now()
@@ -372,7 +376,8 @@ export async function markWorkCompleted(
 	    AND status = 'running'
 	    AND cancel_requested_at IS NULL
 	    ${leaseFenceSql(2)}`,
-    [id, leaseEpoch],
+      [id, leaseEpoch],
+    ),
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -383,8 +388,9 @@ export async function forceMarkRescheduledParentCompleted(
   id: string,
   leaseEpoch: number,
 ): Promise<boolean> {
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
+    pool.query(
+      `UPDATE agent_work_items
 		    SET status = 'completed',
 		        completed_at = COALESCE(completed_at, now()),
 		        updated_at = now()
@@ -393,7 +399,8 @@ export async function forceMarkRescheduledParentCompleted(
 		    AND ${STALE_HEAD_REPLACEMENT_ID_SQL} IS NOT NULL
 		    AND status IN ('running', 'queued')
 		    ${leaseFenceSql(2)}`,
-    [id, leaseEpoch],
+      [id, leaseEpoch],
+    ),
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -404,15 +411,17 @@ export async function updateRunningWorkHeadSha(
   headSha: string,
   leaseEpoch: number | null,
 ): Promise<boolean> {
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
+    pool.query(
+      `UPDATE agent_work_items
 	    SET head_sha = $2,
 	        updated_at = now()
 	  WHERE id = $1
 	    AND status = 'running'
 	    AND cancel_requested_at IS NULL
 	    ${leaseFenceSql(3)}`,
-    [id, headSha, leaseEpoch],
+      [id, headSha, leaseEpoch],
+    ),
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -527,8 +536,9 @@ export async function markWorkFailed(
   leaseEpoch?: number | null,
 ): Promise<boolean> {
   const message = sanitizeWorkError(error);
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
+    pool.query(
+      `UPDATE agent_work_items
 	    SET status = 'failed',
 	        last_error = $2,
 	        completed_at = now(),
@@ -537,7 +547,8 @@ export async function markWorkFailed(
 	    AND status = 'running'
 	    AND cancel_requested_at IS NULL
 	    ${leaseFenceSql(3)}`,
-    [id, message, leaseEpoch ?? null],
+      [id, message, leaseEpoch ?? null],
+    ),
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -582,12 +593,14 @@ export async function markQueuedWorkCancelled(
   if (target.status !== "running" || !Number.isSafeInteger(epoch) || epoch <= 0) return false;
   return inTransaction(pool, async (client) => {
     await lockPrActorLeaseForUpdate(client, id, epoch);
-    const cancelled = await client.query(
-      `${cancelSql}
+    const cancelled = await fencedWrite(client, id, epoch, { before: false }, () =>
+      client.query(
+        `${cancelSql}
         AND status IN ('queued', 'running')
         AND execution_epoch = $3
         ${leaseFenceSql(3)}`,
-      [id, message, epoch],
+        [id, message, epoch],
+      ),
     );
     if ((cancelled.rowCount ?? 0) > 0) return true;
     const current = await queryOne<CancellationTarget>(client, targetSql, [id]);
@@ -602,8 +615,9 @@ export async function markWorkRetrying(
   leaseEpoch: number | null,
 ): Promise<boolean> {
   const message = sanitizeWorkError(error);
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const result = await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
+    pool.query(
+      `UPDATE agent_work_items
 	    SET status = 'queued',
 	        last_error = $2,
 	        updated_at = now()
@@ -611,7 +625,8 @@ export async function markWorkRetrying(
 	    AND status = 'running'
 	    AND cancel_requested_at IS NULL
 	    ${leaseFenceSql(3)}`,
-    [id, message, leaseEpoch],
+      [id, message, leaseEpoch],
+    ),
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -621,15 +636,17 @@ export async function markWorkCancelled(
   id: string,
   leaseEpoch?: number | null,
 ): Promise<void> {
-  await pool.query(
-    `UPDATE agent_work_items
+  await fencedWrite(pool, id, leaseEpoch, { before: false }, () =>
+    pool.query(
+      `UPDATE agent_work_items
 	    SET status = 'cancelled',
 	        completed_at = now(),
 	        updated_at = now()
 	  WHERE id = $1
 	    AND status IN ('queued', 'running')
 	    ${leaseFenceSql(2)}`,
-    [id, leaseEpoch ?? null],
+      [id, leaseEpoch ?? null],
+    ),
   );
 }
 

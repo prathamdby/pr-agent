@@ -1,4 +1,5 @@
 import type { Pool, PoolClient } from "pg";
+import { withSessionLock } from "../../db/sessionLock.js";
 import {
   claimSummaryCommentCreation,
   getProgressCommentOwner,
@@ -72,87 +73,6 @@ type SummaryCommentUpsertParams = {
   ciVersion?: number;
   shouldPublish?: (client: PoolClient) => Promise<boolean>;
 };
-
-const retainedClientReservations = new WeakMap<Pool, { count: number }>();
-
-async function acquireProgressLock(pool: Pool, lockKey: string) {
-  // Leave shared capacity for concurrent mutation checks and unrelated DB work.
-  const capacity = Math.floor((pool.options.max ?? 0) / 2);
-  if (capacity < 1) {
-    throw Object.assign(
-      new AppError({
-        code: "review.progress_lock_capacity",
-        message: "Progress publication needs a pool with at least two connections",
-        context: { poolMax: pool.options.max ?? 0 },
-      }),
-      { mutationAccepted: false },
-    );
-  }
-  const reservation = retainedClientReservations.get(pool) ?? { count: 0 };
-  retainedClientReservations.set(pool, reservation);
-  const deadline = performance.now() + POSTGRES_LOCK_TIMEOUT_MS;
-  const timeoutError = Object.assign(
-    new AppError({
-      code: "review.progress_lock_timeout",
-      message: "Progress publication lock acquisition timed out",
-      context: { timeoutMs: POSTGRES_LOCK_TIMEOUT_MS },
-    }),
-    { mutationAccepted: false },
-  );
-  let attempt = 0;
-  try {
-    while (performance.now() < deadline) {
-      if (reservation.count < capacity) {
-        reservation.count++;
-        let client: PoolClient | undefined;
-        let retained = false;
-        let discard = true;
-        try {
-          client = await pool.connect();
-          if (performance.now() >= deadline) throw timeoutError;
-          const result = await client.query<{ locked: boolean }>(
-            "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked",
-            [lockKey],
-          );
-          if (performance.now() >= deadline) throw timeoutError;
-          discard = false;
-          if (result.rows[0]?.locked) {
-            retained = true;
-            return { client, reservation };
-          }
-        } finally {
-          if (!retained) {
-            try {
-              client?.release(discard ? true : undefined);
-            } finally {
-              reservation.count--;
-            }
-          }
-        }
-      }
-      const remaining = deadline - performance.now();
-      if (remaining <= 0) break;
-      const delay =
-        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt++] ??
-        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1) ??
-        0;
-      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(delay, remaining)));
-    }
-  } catch (error) {
-    // This scope ends before any remote read or delegated mutation can begin.
-    throw Object.assign(
-      error instanceof AppError
-        ? error
-        : new AppError({
-            code: "review.progress_lock_failed",
-            message: "Progress publication lock acquisition failed",
-            cause: error,
-          }),
-      { mutationAccepted: false },
-    );
-  }
-  throw timeoutError;
-}
 
 async function upsertSummaryCommentWithoutRevision(
   params: SummaryCommentUpsertParams,
@@ -329,21 +249,60 @@ export async function upsertSummaryCommentWithCreationClaim(
   if (params.progressRevision == null) {
     return upsertSummaryCommentWithoutRevision(params);
   }
+  const progressRevision = params.progressRevision;
 
-  const lockKey = JSON.stringify([params.resourceKey, params.reviewLens]);
-  const { client, reservation } = await acquireProgressLock(params.pool, lockKey);
-  let outcome:
-    | { readonly kind: "success"; readonly value: SummaryCommentUpsertResult }
-    | { readonly kind: "error"; readonly error: unknown };
-  try {
-    const currentComment = await params.prSurface.findProgressComment(params.sentinel);
-    const prepared = await prepareSummaryCommentAtRevision(
-      { ...params, progressRevision: params.progressRevision, currentComment },
-      client,
-    );
-    if (prepared.kind === "skipped") {
-      outcome = { kind: "success", value: prepared.result };
-    } else {
+  return withSessionLock(
+    params.pool,
+    { kind: "progress", resourceKey: params.resourceKey, reviewLens: params.reviewLens },
+    {
+      mode: "wait",
+      deadline: performance.now() + POSTGRES_LOCK_TIMEOUT_MS,
+      capacityError: (poolMax) =>
+        Object.assign(
+          new AppError({
+            code: "review.progress_lock_capacity",
+            message: "Progress publication needs a pool with at least two connections",
+            context: { poolMax },
+          }),
+          { mutationAccepted: false },
+        ),
+      timeoutError: Object.assign(
+        new AppError({
+          code: "review.progress_lock_timeout",
+          message: "Progress publication lock acquisition timed out",
+          context: { timeoutMs: POSTGRES_LOCK_TIMEOUT_MS },
+        }),
+        { mutationAccepted: false },
+      ),
+      onAcquireError: (error) => {
+        throw Object.assign(
+          error instanceof AppError
+            ? error
+            : new AppError({
+                code: "review.progress_lock_failed",
+                message: "Progress publication lock acquisition failed",
+                cause: error,
+              }),
+          { mutationAccepted: false },
+        );
+      },
+      onUnlockError: (error) => {
+        logWarn("review_progress_unlock_failed", {
+          resourceKey: params.resourceKey,
+          reviewLens: params.reviewLens,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      },
+    },
+    async (client) => {
+      const currentComment = await params.prSurface.findProgressComment(params.sentinel);
+      const prepared = await prepareSummaryCommentAtRevision(
+        { ...params, progressRevision, currentComment },
+        client,
+      );
+      if (prepared.kind === "skipped") {
+        return prepared.result;
+      }
       const result = await upsertSummaryCommentWithoutRevision({
         ...params,
         pool: client,
@@ -368,33 +327,7 @@ export async function upsertSummaryCommentWithCreationClaim(
           },
         });
       }
-      outcome = { kind: "success", value: result };
-    }
-  } catch (error) {
-    outcome = { kind: "error", error };
-  }
-
-  let unlockError: unknown;
-  try {
-    await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
-  } catch (error) {
-    unlockError = error;
-    logWarn("review_progress_unlock_failed", {
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-  let releaseError: unknown;
-  try {
-    client.release(unlockError === undefined ? undefined : true);
-  } catch (error) {
-    releaseError = error;
-  } finally {
-    reservation.count--;
-  }
-  if (outcome.kind === "error") throw outcome.error;
-  if (unlockError !== undefined) throw unlockError;
-  if (releaseError !== undefined) throw releaseError;
-  return outcome.value;
+      return result;
+    },
+  );
 }

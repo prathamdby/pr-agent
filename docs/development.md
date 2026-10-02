@@ -69,13 +69,28 @@ See [ADR 0026](adr/0026-pr-surface-seam.md).
 `summaryCommentUpsert.ts` serializes revisioned progress/summary upserts under
 the resource/lens advisory lock, from the fresh remote read through the result
 record. Its repository calls use the locking client, without an open transaction
-across HTTP. Per-pool admission leaves at least half the connections for nested
+across HTTP. Shared progress/verdict admission in `src/db/sessionLock.ts` leaves
+at least half the connections for nested
 mutation checks and unrelated database work; contended clients are released
 before bounded backoff. The holder keeps its client until GitHub settles.
 Acquisition failures prove nonacceptance, but
 delegated mutation and post-write errors retain existing acceptance rules.
 CI projection and direct edits do not share this lock.
 See [ADR 0020](adr/0020-orchestrated-review.md).
+
+`src/db/sessionLock.ts` also owns verdict try-locks, bounded progress waiting,
+client release before backoff, and unlock/release error precedence.
+`withSessionLock(pool, key: SessionLockKey, options, apply)` accepts only the
+typed progress/wait and own-verdict/try pairs. It owns exact key encoding,
+half-pool budget math, and missing-max defaults; callers cannot supply capacity.
+The adapters keep domain errors and progress unlock logging. Verdict admission contention defers
+without a read; SQL lock contention reads its close record on the attempted
+client. Unleased verdicts retain the one-connection exception.
+`src/agentWork/fencedWrite.ts::fencedWrite` owns numeric-epoch precheck/write/rejection recheck
+sequencing for work-state, operation-intent, and publish-record writers.
+SQL-only state writes remain SQL-only; intent merge/reconcile and verdict
+enrichment retain their existing no-recheck behavior. Each writer keeps its SQL
+predicates, parameter positions, and terminal/CAS exceptions.
 
 `workItemStateRepository.ts::markQueuedWorkCancelled` also covers a replacement
 that wins a concurrent claim. Queued attempts finish before a lease-first

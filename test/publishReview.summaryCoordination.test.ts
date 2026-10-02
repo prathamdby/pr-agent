@@ -56,14 +56,20 @@ import {
   recordPublishStep,
 } from "../src/agentWork/repository.js";
 import { logWarn } from "../src/evlog.js";
+import { withSessionLock } from "../src/db/sessionLock.js";
 
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
 function createLockedPool() {
-  const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({
-    rows: [{ locked: true }],
-  }));
+  const query = vi.fn(
+    async (
+      _sql: string,
+      _values?: unknown[],
+    ): Promise<{ rows: { locked: boolean; unlocked?: boolean }[] }> => ({
+      rows: [{ locked: true, unlocked: true }],
+    }),
+  );
   const release = vi.fn();
   const client = { query, release } as unknown as PoolClient;
   const pool = {
@@ -518,7 +524,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     query.mockImplementation(async (sql: string) => {
       if (sql.includes("pg_try_advisory_lock")) order.push("lock");
       if (sql.includes("pg_advisory_unlock")) order.push("unlock");
-      return { rows: [{ locked: true }] };
+      return { rows: [{ locked: true, unlocked: true }] };
     });
     release.mockImplementation(() => {
       order.push("release");
@@ -669,7 +675,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
         mutationAccepted: false,
       });
       expect(harness.upsertProgressComment).not.toHaveBeenCalled();
-      query.mockResolvedValue({ rows: [{ locked: true }] });
+      query.mockResolvedValue({ rows: [{ locked: true, unlocked: true }] });
       await expect(
         upsertSummaryCommentWithCreationClaim({
           ...claimBase(),
@@ -697,6 +703,152 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     });
     expect(lockedPool.connect).not.toHaveBeenCalled();
     expect(harness.upsertProgressComment).not.toHaveBeenCalled();
+  });
+
+  it("shares half-pool admission between progress and own verdict without checkout on deferral", async () => {
+    const { withOwnVerdictClose } = await vi.importActual<
+      typeof import("../src/agentWork/publishRecordRepository.js")
+    >("../src/agentWork/publishRecordRepository.js");
+    const { pool: lockedPool } = createLockedPool();
+    lockedPool.options.max = 2;
+    let resume!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    harness.findProgressComment.mockImplementationOnce(async () => {
+      entered();
+      await gate;
+      return null;
+    });
+    const progress = upsertSummaryCommentWithCreationClaim({
+      ...claimBase(),
+      pool: lockedPool,
+      progressRevision: 2,
+    });
+    try {
+      await ready;
+      const apply = vi.fn(async () => true);
+      await expect(
+        withOwnVerdictClose(
+          lockedPool,
+          { workItemId: "wi-1", resourceKey: "o/r#1", reviewLens: "review" },
+          apply,
+        ),
+      ).resolves.toBeUndefined();
+      expect(apply).not.toHaveBeenCalled();
+      expect(lockedPool.connect).toHaveBeenCalledOnce();
+    } finally {
+      resume();
+      await progress;
+    }
+    await expect(
+      withOwnVerdictClose(
+        lockedPool,
+        { workItemId: "wi-1", resourceKey: "o/r#1", reviewLens: "review" },
+        async () => true,
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("owns odd-pool admission across typed lock families and bounds waiting without checkout", async () => {
+    const { pool: lockedPool, query, release } = createLockedPool();
+    lockedPool.options.max = 5;
+    const capacityError = () => new Error("insufficient capacity");
+    const timeoutError = new Error("wait timed out");
+    let resume!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    const holders: Promise<unknown>[] = [];
+    try {
+      holders.push(
+        withSessionLock(
+          lockedPool,
+          { kind: "own_verdict", workItemId: "wi-1", reviewLens: "review" },
+          { mode: "try", unleased: true, capacityError, onContended: async () => undefined },
+          async () => gate,
+        ),
+      );
+      holders.push(
+        withSessionLock(
+          lockedPool,
+          { kind: "progress", resourceKey: "o/r#1", reviewLens: "review" },
+          {
+            mode: "wait",
+            deadline: performance.now() + 10_000,
+            capacityError,
+            timeoutError,
+            onAcquireError: (error) => {
+              throw error;
+            },
+            onUnlockError: () => {},
+          },
+          async () => gate,
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lockedPool.connect).toHaveBeenCalledTimes(2);
+      expect(query.mock.calls.map(([, values]) => values)).toEqual([
+        ["own-verdict:wi-1:review"],
+        [JSON.stringify(["o/r#1", "review"])],
+      ]);
+      const apply = vi.fn(async () => true);
+      const onContended = vi.fn(async () => undefined);
+      await expect(
+        withSessionLock(
+          lockedPool,
+          { kind: "own_verdict", workItemId: "wi-2", reviewLens: "review" },
+          { mode: "try", unleased: true, capacityError, onContended },
+          apply,
+        ),
+      ).resolves.toBeUndefined();
+      expect(onContended).not.toHaveBeenCalled();
+      const waiting = withSessionLock(
+        lockedPool,
+        { kind: "progress", resourceKey: "o/r#2", reviewLens: "review" },
+        {
+          mode: "wait",
+          deadline: performance.now() + 10_000,
+          capacityError,
+          timeoutError,
+          onAcquireError: (error) => {
+            throw error;
+          },
+          onUnlockError: () => {},
+        },
+        apply,
+      ).catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await waiting).toBe(timeoutError);
+      expect(apply).not.toHaveBeenCalled();
+      expect(lockedPool.connect).toHaveBeenCalledTimes(2);
+      expect(release).not.toHaveBeenCalled();
+    } finally {
+      resume();
+      await Promise.all(holders);
+      vi.useRealTimers();
+    }
+    expect(release).toHaveBeenCalledTimes(2);
+  });
+
+  it("destroys a progress session when unlock returns false", async () => {
+    const { pool: lockedPool, query, release } = createLockedPool();
+    query
+      .mockResolvedValueOnce({ rows: [{ locked: true }] })
+      .mockResolvedValueOnce({ rows: [{ locked: false, unlocked: false }] });
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase(),
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).resolves.toMatchObject({ id: 99 });
+    expect(release).toHaveBeenCalledWith(true);
   });
 
   it("releases the client when advisory lock acquisition fails", async () => {

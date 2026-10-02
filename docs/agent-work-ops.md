@@ -96,7 +96,7 @@ Revisioned progress and summary upserts serialize the fresh read, claim, GitHub
 write, and result record for one resource/lens. Late older ticks from the same
 run cannot replace newer progress. Claims stay autocommitted. Contention waits
 use `POSTGRES_LOCK_TIMEOUT_MS`; waiters release clients before backoff and
-per-pool admission leaves at least half the connections for nested mutation checks
+shared progress/verdict per-pool admission leaves at least half the connections for nested mutation checks
 and unrelated database work. A slow provider retains the active holder's client,
 not an open transaction.
 `review.progress_lock_timeout`, `review.progress_lock_capacity`, and
@@ -196,11 +196,16 @@ the terminal close. Inspect the remote check and saved evidence; do not delete
 an intent or selection to force another close.
 
 A per-work-item session mutex excludes competing application attempts. SQL
-statements commit before HTTP; no transaction stays open. Pool admission retains
-one connection for the leased surface's nested queries. Capacity contenders
+statements commit before HTTP; no transaction stays open. `src/db/sessionLock.ts`
+shares half-pool admission with progress publication, retaining capacity for the
+leased surface's nested queries. Unleased closes still work on a one-slot pool.
+Capacity contenders
 defer without publication. A numeric close on a one-slot pool raises
 `agent_work.own_verdict_capacity` before selecting or entering an intent.
-Connections unlock in `finally`; an uncertain unlock destroys the connection.
+Connections unlock in `finally`; a false or uncertain unlock destroys the
+connection without replacing an earlier application/provider error. SQL lock
+contention reads the close record on its attempted client before release;
+admission contention does not acquire a client or perform that read.
 Protected unstarted creation reservations are reclaimed in place under the
 existing stale/lease rules, preserving the winner and accepted check identity.
 An unknown creation intent still cannot restart creation.

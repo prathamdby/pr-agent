@@ -1467,7 +1467,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       });
       const entered: Promise<void>[] = [];
       const holders = Array.from(
-        { length: mode === "lock" ? 1 : (pool.options.max ?? 10) - 1 },
+        { length: mode === "lock" ? 1 : Math.max(1, Math.floor((pool.options.max ?? 10) / 2)) },
         (_, index) => {
           let enter!: () => void;
           entered.push(

@@ -1509,14 +1509,18 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       if (mode === "before_lock") {
         vi.spyOn(pool, "connect").mockRejectedValueOnce(new Error("synthetic close failure"));
       }
+      let disconnected: Promise<void> | undefined;
       await expect(
         closeRepository.withOwnVerdictClose(pool, params, async (client) => {
           if (mode === "application") throw new Error("synthetic close failure");
-          if (mode === "unlock")
+          if (mode === "unlock") {
+            disconnected = new Promise<void>((resolve) => client.once("end", resolve));
             vi.spyOn(client, "query").mockRejectedValueOnce(new Error("synthetic close failure"));
+          }
           return true;
         }),
       ).rejects.toThrow("synthetic close failure");
+      await disconnected;
       expect(await closeRepository.withOwnVerdictClose(pool, params, async () => true)).toBe(true);
     },
   );
