@@ -52,6 +52,7 @@ export type RunSpecialistParams = {
   readonly agentEvents?: AgentEventsContext;
   /** Retried-attempt plan from the durable claim; undefined leaves the attempt unchanged. */
   readonly escalation?: EscalationPlan;
+  readonly createSession?: typeof createFeaturePiSession;
 };
 
 type SubmissionState = {
@@ -225,7 +226,7 @@ async function createSessionWithinDeadline(
   submitTool: ReturnType<typeof buildSubmitTool>,
 ): Promise<PiSession> {
   const sessionTools = buildSpecialistSessionTools(params.workspaceTools, submitTool);
-  const creation = createFeaturePiSession({
+  const creation = (params.createSession ?? createFeaturePiSession)({
     role: "specialist",
     specialistId: params.specialist,
     cfg: params.cfg,

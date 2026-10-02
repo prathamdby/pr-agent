@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewVerdict.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
-import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import type { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { combineAbortSignals, type TurnEnd } from "../../agent/providers/interface.js";
 import { isCancelAbortError } from "../../agent/providers/providerErrors.js";
 import {
@@ -28,6 +28,7 @@ import {
 import { assertWorkspacePath } from "../../prWorkspace/repositoryReader.js";
 import { createBoundPolicyJudge } from "../publish/boundPolicyJudge.js";
 import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
+import { createReviewPublishSession } from "../publish/reviewPublishSession.js";
 import { reviewPayloadFromFindings } from "../reviewSchema.js";
 import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.js";
 import {
@@ -63,6 +64,7 @@ import {
 import { createOrchestratorPhaseRef } from "./phaseToolPolicy.js";
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
+import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.js";
 import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
 
@@ -87,6 +89,8 @@ export type OrchestratedReviewRunParams = ReviewRunParams & {
   readonly prBody: string | null;
   /** Retried-attempt plan from the durable claim; undefined leaves the attempt unchanged. */
   readonly escalation?: EscalationPlan;
+  /** Session factory for the orchestrator and every specialist; production passes the shared one. */
+  readonly createSession: typeof createFeaturePiSession;
 };
 
 type SendResult =
@@ -325,26 +329,18 @@ export async function runOrchestratedPrReview(
     }
     return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
   };
-  const publishThread = buildPublishThreadTool({
-    phaseRef,
+  const verdictIdentity = ownVerdictPublishParams(params);
+  const publishSession = createReviewPublishSession({
+    cfg: params.cfg,
     ctx: publishCtx,
-    workItemId: params.workItemId,
-    resolveProgressCommentUrl,
     prSurface: setup.prSurface,
-
+    mode: reviewMode,
     cachedDiffIndex: setup.cachedDiffIndex,
-    repoPolicy: params.repoPolicy,
-    sameRepo: params.sameRepo,
-    boundPolicyJudge: createBoundPolicyJudge(params.cfg),
-    readCheckoutFile: async (relativePath) => {
-      try {
-        const safePath = assertWorkspacePath(params.workspace.agentCwd, relativePath);
-        return await readFile(safePath, "utf8");
-      } catch {
-        return undefined;
-      }
-    },
+    shouldLinkToSummary: params.shouldLinkToSummary,
+    progressCommentIdHint: params.progressCommentIdHint,
     recordPublishStep: params.recordPublishStep,
+    agentEvents: agentEvents ?? undefined,
+    workItemId: params.workItemId,
     operationIntent: params.recordPublishStep?.summaryCommentCoordination
       ? {
           client: params.recordPublishStep.summaryCommentCoordination.pool,
@@ -353,41 +349,44 @@ export async function runOrchestratedPrReview(
           leaseEpoch: params.recordPublishStep.summaryCommentCoordination.leaseEpoch,
         }
       : undefined,
-    shouldAbortPublish: params.shouldAbortPublish,
-    publishAbortState: params.publishAbortState,
-    initialLedger: initialLedger(params),
-    agentEvents: agentEvents ?? undefined,
-    cfg: params.cfg,
-    evidenceLedger: setup.evidenceLedger,
-    checkoutCoverage: params.workspace.reader.getCoverage(),
-    isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
     pool: params.sessionContext?.pool,
     installationId: params.sessionContext?.installationId,
-    findingHistoryCfg: params.cfg,
-    crossPrSuppressionFingerprints: params.crossPrSuppressionFingerprints,
+    boss: params.boss,
+    verdictWorkItemId: verdictIdentity.workItemId,
+    verdictResourceKey: verdictIdentity.resourceKey,
+    verdictLeaseEpoch: verdictIdentity.leaseEpoch,
+    resolveProgressCommentUrl,
+    shouldAbortPublish: params.shouldAbortPublish,
+    publishAbortState: params.publishAbortState,
+  });
+  const publishThread = buildPublishThreadTool({
+    phaseRef,
+    session: publishSession,
+    policy: {
+      repoPolicy: params.repoPolicy,
+      sameRepo: params.sameRepo,
+      boundPolicyJudge: createBoundPolicyJudge(params.cfg),
+      readCheckoutFile: async (relativePath) => {
+        try {
+          const safePath = assertWorkspacePath(params.workspace.agentCwd, relativePath);
+          return await readFile(safePath, "utf8");
+        } catch {
+          return undefined;
+        }
+      },
+      evidenceLedger: setup.evidenceLedger,
+      checkoutCoverage: params.workspace.reader.getCoverage(),
+      isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
+      crossPrSuppressionFingerprints: params.crossPrSuppressionFingerprints,
+    },
+    initialLedger: initialLedger(params),
   });
   const summaryState = createPublishSummaryState({
     published: params.initialPublishState?.published,
   });
   const publishSummary = buildPublishSummaryTool({
     phaseRef,
-    cfg: params.cfg,
-    agentEvents: agentEvents ?? undefined,
-    ctx: publishCtx,
-    prSurface: setup.prSurface,
-
-    remainingFinalizationMs: params.timing.remainingTotalMs,
-    mode: reviewMode,
-    cachedDiffIndex: setup.cachedDiffIndex,
-    shouldLinkToSummary: params.shouldLinkToSummary,
-    progressCommentIdHint: params.progressCommentIdHint,
-    recordPublishStep: params.recordPublishStep,
-    shouldAbortPublish: params.shouldAbortPublish,
-    publishAbortState: params.publishAbortState,
-    pool: params.sessionContext?.pool,
-    ...ownVerdictPublishParams(params),
-    boss: params.boss,
-    installationId: params.sessionContext?.installationId,
+    session: publishSession,
     state: summaryState,
     getLedger: publishThread.getLedger,
     getCoverage: () => coverage(state),
@@ -407,7 +406,7 @@ export async function runOrchestratedPrReview(
   let session: PiSession | null = null;
   let sessionCreation: Promise<PiSession> | null = null;
   try {
-    sessionCreation = createFeaturePiSession({
+    sessionCreation = params.createSession({
       role: "orchestrator",
       cfg: params.cfg,
       cwd: sessionCwd,
@@ -885,27 +884,10 @@ export async function runOrchestratedPrReview(
 
     let result: Awaited<ReturnType<typeof publishReviewSummaryOnly>>;
     try {
-      result = await publishReviewSummaryOnly({
-        cfg: params.cfg,
-        agentEvents: agentEvents ?? undefined,
-        ctx: publishCtx,
-        prSurface: setup.prSurface,
-
-        remainingFinalizationMs: params.timing.remainingTotalMs,
+      result = await publishReviewSummaryOnly(publishSession, {
         payload,
         ledger,
-        mode: reviewMode,
-        cachedDiffIndex: setup.cachedDiffIndex,
-        shouldLinkToSummary: params.shouldLinkToSummary,
-        progressCommentIdHint: params.progressCommentIdHint,
-        recordPublishStep: params.recordPublishStep,
-        pool: params.sessionContext?.pool,
-        ...ownVerdictPublishParams(params),
-        boss: params.boss,
-        installationId: params.sessionContext?.installationId,
         coverage: coverage(state),
-        shouldAbortPublish: params.shouldAbortPublish,
-        publishAbortState: params.publishAbortState,
       });
     } catch (error) {
       // Real publish breakage only. Successful salvage must not trip publish_retry.
@@ -936,245 +918,266 @@ export async function runOrchestratedPrReview(
     state.summary = { kind: "failed" };
   };
 
-  try {
-    await writeWorkerStartTick();
+  let outcomes: SpecialistOutcome[] = [];
+  let recoveryRoundsRun = 0;
 
-    if (session) {
-      const recon = await sendWithRetry(
-        "recon",
-        [setup.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
-        { maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, params.escalation) },
-      );
-      if (recon.kind === "sent") lastText = recon.text;
-      else state.judgment = "degraded";
-    }
+  const stepFacts = (): ReviewStepFacts => ({
+    hasSession: session != null,
+    sessionRetired,
+    briefSubmitted: briefTool.getBrief() != null,
+    hostAborted: params.signal?.aborted === true,
+    lifecycle: state.lifecycle.kind,
+    failedSpecialists: state.failedSpecialists.length,
+    specialistCount: SPECIALIST_IDS.length,
+    summaryPublished: summaryState.published,
+    recoveryRoundsRun,
+    recoveryRoundLimit: PUBLISH_RECOVERY_ROUNDS,
+  });
 
-    const reconSession = session;
-    if (briefTool.getBrief() == null && !sessionRetired && reconSession) {
-      await runValidationRepairLoop({
-        rounds: VALIDATION_REPAIR_ROUNDS,
-        shouldContinue: () => briefTool.getBrief() == null && !sessionRetired,
-        getValidationError: () =>
-          briefTool.getValidationError() ?? "No specialist brief was submitted.",
-        clearValidationError: briefTool.clearValidationError,
-        repair: async (validationError) => {
-          const repair = await sendWithRetry(
-            "recon",
-            [
-              validationError,
-              "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
-            ].join("\n\n"),
-            { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
-          );
-          if (repair.kind === "sent") lastText = repair.text;
-          else state.judgment = "degraded";
-        },
-      });
-    }
-
-    if (params.signal?.aborted && state.lifecycle.kind === "running") {
-      await stopFromGateResult(await params.gate.check());
-    }
-
-    let outcomes: SpecialistOutcome[] = [];
-    if (state.lifecycle.kind !== "stopped") {
-      const submittedBrief = briefTool.getBrief();
-      const brief = submittedBrief ?? fallbackBrief(params);
-      if (submittedBrief == null) {
-        state.briefFallback = true;
-        logWarn("review_brief_fallback", {
-          owner: params.owner,
-          repo: params.repo,
-          pr: params.prNumber,
-          sessionRetired,
-        });
-      }
-      await markReconDoneAndTick();
-
-      const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
-      for (const specialist of SPECIALIST_IDS) {
-        const controller = new AbortController();
-        specialistControllers.set(specialist, controller);
-        pending.set(
-          specialist,
-          runSpecialist({
-            cfg: params.cfg,
-            cwd: sessionCwd,
-            specialist,
-            briefMessage: renderBriefMessage(
-              brief,
-              specialist,
-              submittedBrief == null
-                ? {
-                    pullRequestMetadata: { title: params.prTitle, body: params.prBody },
-                  }
-                : undefined,
-            ),
-            workspaceTools: setup.workspaceTools,
-            timeoutMs: Math.max(
-              0,
-              Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
-            ),
-            shouldContinue: () => state.lifecycle.kind === "running",
-            signal: combineAbortSignals([params.signal, controller.signal]),
-            evidenceLedger: setup.evidenceLedger,
-            headSha: params.headSha,
-            checkoutCoverage: params.workspace.reader.getCoverage(),
-            isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
-            agentEvents: agentEvents ?? undefined,
-            escalation: params.escalation,
-          }),
+  const runStep = async (step: ReviewStep): Promise<void> => {
+    switch (step.kind) {
+      case "recon": {
+        const recon = await sendWithRetry(
+          "recon",
+          [setup.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
+          { maxToolRounds: escalatedToolRounds(MAX_TOOL_ROUNDS, params.escalation) },
         );
+        if (recon.kind === "sent") lastText = recon.text;
+        else state.judgment = "degraded";
+        break;
       }
-
-      outcomes = await pumpSpecialistCompletions({
-        pending,
-        shouldContinue: () => state.lifecycle.kind === "running",
-        onOutcome: async (outcome) => {
-          try {
-            if (await stopFromGateResult(await params.gate.check())) return;
-
-            await recordOutcome(outcome);
-            if (outcome.kind !== "report") return;
-            const judgmentSession = session;
-            // Per-report degrade: a prior crowded report must not cascade into
-            // judgment_unavailable for the rest. Unavailable is only for a
-            // genuinely dead session (creation failed, retired for
-            // cancel/deadline).
-            if (sessionRetired || !judgmentSession) {
-              await degradeReport(outcome, { reason: "judgment_unavailable" });
-              return;
-            }
-
-            publishThread.setSource(outcome.specialist);
-            const ledgerBefore = publishThread.getLedger();
-            publishStepCount += 1;
-            const judgment = await sendWithRetry(
-              "judgment",
-              renderJudgmentTurn(outcome, ledgerBefore),
-              {
-                maxToolRounds: escalatedToolRounds(
-                  ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
-                  params.escalation,
-                ),
-                reservedTerminalTool: "publish_thread",
-              },
+      case "repair_brief": {
+        await runValidationRepairLoop({
+          rounds: VALIDATION_REPAIR_ROUNDS,
+          shouldContinue: () => briefTool.getBrief() == null && !sessionRetired,
+          getValidationError: () =>
+            briefTool.getValidationError() ?? "No specialist brief was submitted.",
+          clearValidationError: briefTool.clearValidationError,
+          repair: async (validationError) => {
+            const repair = await sendWithRetry(
+              "recon",
+              [
+                validationError,
+                "Fix the brief and call submit_specialist_brief now. Do not use any other tools.",
+              ].join("\n\n"),
+              { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
             );
-            if (judgment.kind === "failed") {
-              await degradeReport(outcome, { reason: "judgment_failed", error: judgment.error });
-              return;
+            if (repair.kind === "sent") lastText = repair.text;
+            else state.judgment = "degraded";
+          },
+        });
+        break;
+      }
+      case "stop_on_host_abort": {
+        await stopFromGateResult(await params.gate.check());
+        break;
+      }
+      case "dispatch_specialists": {
+        const submittedBrief = briefTool.getBrief();
+        const brief = submittedBrief ?? fallbackBrief(params);
+        if (submittedBrief == null) {
+          state.briefFallback = true;
+          logWarn("review_brief_fallback", {
+            owner: params.owner,
+            repo: params.repo,
+            pr: params.prNumber,
+            sessionRetired,
+          });
+        }
+        await markReconDoneAndTick();
+
+        const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
+        for (const specialist of SPECIALIST_IDS) {
+          const controller = new AbortController();
+          specialistControllers.set(specialist, controller);
+          pending.set(
+            specialist,
+            runSpecialist({
+              cfg: params.cfg,
+              cwd: sessionCwd,
+              specialist,
+              briefMessage: renderBriefMessage(
+                brief,
+                specialist,
+                submittedBrief == null
+                  ? {
+                      pullRequestMetadata: { title: params.prTitle, body: params.prBody },
+                    }
+                  : undefined,
+              ),
+              workspaceTools: setup.workspaceTools,
+              timeoutMs: Math.max(
+                0,
+                Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
+              ),
+              shouldContinue: () => state.lifecycle.kind === "running",
+              signal: combineAbortSignals([params.signal, controller.signal]),
+              evidenceLedger: setup.evidenceLedger,
+              headSha: params.headSha,
+              checkoutCoverage: params.workspace.reader.getCoverage(),
+              isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
+              agentEvents: agentEvents ?? undefined,
+              escalation: params.escalation,
+              createSession: params.createSession,
+            }),
+          );
+        }
+
+        outcomes = await pumpSpecialistCompletions({
+          pending,
+          shouldContinue: () => state.lifecycle.kind === "running",
+          onOutcome: async (outcome) => {
+            try {
+              if (await stopFromGateResult(await params.gate.check())) return;
+
+              await recordOutcome(outcome);
+              if (outcome.kind !== "report") return;
+              const judgmentSession = session;
+              // Per-report degrade: a prior crowded report must not cascade into
+              // judgment_unavailable for the rest. Unavailable is only for a
+              // genuinely dead session (creation failed, retired for
+              // cancel/deadline).
+              if (sessionRetired || !judgmentSession) {
+                await degradeReport(outcome, { reason: "judgment_unavailable" });
+                return;
+              }
+
+              publishThread.setSource(outcome.specialist);
+              const ledgerBefore = publishThread.getLedger();
+              publishStepCount += 1;
+              const judgment = await sendWithRetry(
+                "judgment",
+                renderJudgmentTurn(outcome, ledgerBefore),
+                {
+                  maxToolRounds: escalatedToolRounds(
+                    ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
+                    params.escalation,
+                  ),
+                  reservedTerminalTool: "publish_thread",
+                },
+              );
+              if (judgment.kind === "failed") {
+                await degradeReport(outcome, { reason: "judgment_failed", error: judgment.error });
+                return;
+              }
+              lastText = judgment.text;
+              if (await applyPublishStop()) return;
+              // The judgment prompt requires one publish_thread call (zero findings is valid),
+              // so an unchanged call count means the turn ended without deciding this report.
+              if (
+                outcome.report.findings.length > 0 &&
+                publishThread.getLedger().threadCallCount === ledgerBefore.threadCallCount
+              ) {
+                logWarn("review_judgment_unpublished", {
+                  owner: params.owner,
+                  repo: params.repo,
+                  pr: params.prNumber,
+                  specialist: outcome.specialist,
+                  findings: outcome.report.findings.length,
+                  turnEnd: judgment.end,
+                });
+                await degradeReport(outcome, {
+                  reason: "judgment_unpublished",
+                  turnEnd: judgment.end,
+                });
+                return;
+              }
+              state.specialists[outcome.specialist] = specialistDonePhase(
+                ledgerBefore,
+                publishThread.getLedger(),
+                outcome.specialist,
+              );
+              await writeTick();
+            } catch (error) {
+              await recordOutcome(outcome);
+              if (outcome.kind === "report") {
+                await degradeReport(outcome, { reason: "judgment_failed", error });
+                return;
+              }
+              throw error;
             }
-            lastText = judgment.text;
-            if (await applyPublishStop()) return;
-            // The judgment prompt requires one publish_thread call (zero findings is valid),
-            // so an unchanged call count means the turn ended without deciding this report.
-            if (
-              outcome.report.findings.length > 0 &&
-              publishThread.getLedger().threadCallCount === ledgerBefore.threadCallCount
-            ) {
-              logWarn("review_judgment_unpublished", {
-                owner: params.owner,
-                repo: params.repo,
-                pr: params.prNumber,
-                specialist: outcome.specialist,
-                findings: outcome.report.findings.length,
-                turnEnd: judgment.end,
-              });
-              await degradeReport(outcome, {
-                reason: "judgment_unpublished",
-                turnEnd: judgment.end,
-              });
-              return;
-            }
-            state.specialists[outcome.specialist] = specialistDonePhase(
-              ledgerBefore,
-              publishThread.getLedger(),
-              outcome.specialist,
-            );
-            await writeTick();
-          } catch (error) {
+          },
+        });
+
+        if (state.lifecycle.kind === "running") {
+          for (const outcome of outcomes) {
+            if (state.outcomes[outcome.specialist] != null) continue;
             await recordOutcome(outcome);
             if (outcome.kind === "report") {
-              await degradeReport(outcome, { reason: "judgment_failed", error });
-              return;
+              // Unavailable only for a genuinely dead session; otherwise this is a
+              // missed judgment turn that degrades per-report without retiring.
+              if (sessionRetired || !session) {
+                await degradeReport(outcome, { reason: "judgment_unavailable" });
+              } else {
+                await degradeReport(outcome, {
+                  reason: "judgment_failed",
+                  error: new AppError({
+                    code: "review.orchestrator_outcome_unhandled",
+                    message: "Specialist outcome missed judgment pump",
+                    context: { specialist: outcome.specialist },
+                  }),
+                });
+              }
             }
-            throw error;
           }
-        },
-      });
+        }
 
-      if (state.lifecycle.kind === "running") {
+        if (fatalError != null) throw fatalError;
+        break;
+      }
+      case "terminal_tick": {
+        if (state.lifecycle.kind === "stopped") await writeTerminalTick(state.lifecycle);
+        break;
+      }
+      case "finalize_deadline": {
         for (const outcome of outcomes) {
-          if (state.outcomes[outcome.specialist] != null) continue;
-          await recordOutcome(outcome);
-          if (outcome.kind === "report") {
-            // Unavailable only for a genuinely dead session; otherwise this is a
-            // missed judgment turn that degrades per-report without retiring.
-            if (sessionRetired || !session) {
-              await degradeReport(outcome, { reason: "judgment_unavailable" });
-            } else {
-              await degradeReport(outcome, {
-                reason: "judgment_failed",
-                error: new AppError({
-                  code: "review.orchestrator_outcome_unhandled",
-                  message: "Specialist outcome missed judgment pump",
-                  context: { specialist: outcome.specialist },
-                }),
-              });
-            }
+          if (state.outcomes[outcome.specialist] == null) await recordOutcome(outcome);
+          if (
+            outcome.kind === "report" &&
+            state.specialists[outcome.specialist].phase === "running"
+          ) {
+            await publishReportDeterministically(outcome);
           }
         }
-      }
-    }
-
-    if (fatalError != null) throw fatalError;
-
-    if (state.lifecycle.kind === "stopped") {
-      await writeTerminalTick(state.lifecycle);
-    } else if (state.lifecycle.kind === "finalizing") {
-      for (const outcome of outcomes) {
-        if (state.outcomes[outcome.specialist] == null) await recordOutcome(outcome);
-        if (
-          outcome.kind === "report" &&
-          state.specialists[outcome.specialist].phase === "running"
-        ) {
-          await publishReportDeterministically(outcome);
+        state.judgment = "degraded";
+        if (state.failedSpecialists.length === SPECIALIST_IDS.length) {
+          await publishFailureNotice();
+        } else {
+          await publishDeterministicSummary();
         }
+        markCompleteUnlessStopped();
+        break;
       }
-      state.judgment = "degraded";
-      if (state.failedSpecialists.length === SPECIALIST_IDS.length) {
+      case "failure_notice": {
         await publishFailureNotice();
-      } else {
-        await publishDeterministicSummary();
+        state.lifecycle = { kind: "complete" };
+        break;
       }
-      markCompleteUnlessStopped();
-    } else if (state.failedSpecialists.length === SPECIALIST_IDS.length) {
-      await publishFailureNotice();
-      state.lifecycle = { kind: "complete" };
-    } else if (!sessionRetired && session != null) {
-      // Synthesis runs on the accepted ledger whenever the session is alive —
-      // even on degraded runs, and even when the ledger is empty. A
-      // zero-findings review is a legitimate published review, not a degraded
-      // run: the summary turn still authors Size, Mergeability, and Blast
-      // Radius. Deterministic publish stays as the final fallback when
-      // synthesis fails or never lands.
-      publishStepCount += 1;
-      const synthesisPrompt = renderSynthesisTurn({
-        acceptedFindings: publishThread.getLedger().accepted,
-        partialSpecialists: state.failedSpecialists,
-        outcomes: state.completionOrder.flatMap((specialist) => {
-          const outcome = state.outcomes[specialist];
-          return outcome ? [outcome] : [];
-        }),
-      });
-      const synthesis = await sendWithRetry("synthesis", synthesisPrompt, {
-        maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
-      });
-      if (synthesis.kind === "sent") lastText = synthesis.text;
-      else state.judgment = "degraded";
-      await applyPublishStop();
-
-      if (!summaryState.published && !sessionRetired && state.lifecycle.kind === "running") {
+      case "synthesis": {
+        // Synthesis runs on the accepted ledger whenever the session is alive —
+        // even on degraded runs, and even when the ledger is empty. A
+        // zero-findings review is a legitimate published review, not a degraded
+        // run: the summary turn still authors Size, Mergeability, and Blast
+        // Radius. Deterministic publish stays as the final fallback when
+        // synthesis fails or never lands.
+        publishStepCount += 1;
+        const synthesisPrompt = renderSynthesisTurn({
+          acceptedFindings: publishThread.getLedger().accepted,
+          partialSpecialists: state.failedSpecialists,
+          outcomes: state.completionOrder.flatMap((specialist) => {
+            const outcome = state.outcomes[specialist];
+            return outcome ? [outcome] : [];
+          }),
+        });
+        const synthesis = await sendWithRetry("synthesis", synthesisPrompt, {
+          maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS,
+        });
+        if (synthesis.kind === "sent") lastText = synthesis.text;
+        else state.judgment = "degraded";
+        await applyPublishStop();
+        break;
+      }
+      case "repair_summary": {
         await runValidationRepairLoop({
           rounds: VALIDATION_REPAIR_ROUNDS,
           shouldContinue: () =>
@@ -1195,10 +1198,11 @@ export async function runOrchestratedPrReview(
             await applyPublishStop();
           },
         });
-      }
 
-      for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS; round++) {
-        if (summaryState.published || sessionRetired || state.lifecycle.kind !== "running") break;
+        break;
+      }
+      case "recover_summary": {
+        recoveryRoundsRun += 1;
         const recovery = await sendWithRetry(
           "synthesis",
           "Call publish_summary now with the complete final review. Do not reply with prose only.",
@@ -1207,37 +1211,57 @@ export async function runOrchestratedPrReview(
         if (recovery.kind === "sent") lastText = recovery.text;
         else state.judgment = "degraded";
         await applyPublishStop();
+        break;
       }
-
-      if (publishThread.getStopReason() != null || summaryState.stoppedReason != null) {
-        state.summary = { kind: "pending" };
-      } else if (summaryState.published) {
-        state.summary = { kind: "published" };
-      } else {
-        // Synthesis was attempted on a live session but never landed
-        // publish_summary after recovery. Salvage accepted findings
-        // deterministically as the final fallback (success must not trip
-        // publish_retry; only a real throw increments publishAttempts).
-        if (!sessionRetired) {
-          const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
-          logWarn("review_synthesis_publish_salvage", {
-            owner: params.owner,
-            repo: params.repo,
-            pr: params.prNumber,
-            publishAttempts,
-            judgment: state.judgment,
-            lastValidationError: summaryState.lastValidationError,
-            ...(lastFailure != null ? classifiedFailureLogFields(lastFailure) : {}),
-          });
+      case "settle_summary": {
+        if (publishThread.getStopReason() != null || summaryState.stoppedReason != null) {
+          state.summary = { kind: "pending" };
+        } else if (summaryState.published) {
+          state.summary = { kind: "published" };
+        } else {
+          // Synthesis was attempted on a live session but never landed
+          // publish_summary after recovery. Salvage accepted findings
+          // deterministically as the final fallback (success must not trip
+          // publish_retry; only a real throw increments publishAttempts).
+          if (!sessionRetired) {
+            const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
+            logWarn("review_synthesis_publish_salvage", {
+              owner: params.owner,
+              repo: params.repo,
+              pr: params.prNumber,
+              publishAttempts,
+              judgment: state.judgment,
+              lastValidationError: summaryState.lastValidationError,
+              ...(lastFailure != null ? classifiedFailureLogFields(lastFailure) : {}),
+            });
+          }
+          await publishDeterministicSummary();
         }
-        await publishDeterministicSummary();
+        markCompleteUnlessStopped();
+        break;
       }
-      markCompleteUnlessStopped();
-    } else {
-      // The session is dead or retired: deterministic fallback directly
-      // without spending a synthesis turn.
-      await publishDeterministicSummary();
-      markCompleteUnlessStopped();
+      case "deterministic_summary": {
+        // The session is dead or retired: deterministic fallback directly
+        // without spending a synthesis turn.
+        await publishDeterministicSummary();
+        markCompleteUnlessStopped();
+        break;
+      }
+      case "done":
+        break;
+      default: {
+        const exhaustive: never = step;
+        return exhaustive;
+      }
+    }
+  };
+
+  try {
+    await writeWorkerStartTick();
+    let step = nextStep(null, stepFacts());
+    while (step.kind !== "done") {
+      await runStep(step);
+      step = nextStep(step.kind, stepFacts());
     }
   } catch (error) {
     abortSpecialists();

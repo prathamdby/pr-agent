@@ -3,14 +3,13 @@ import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError, toAppError } from "../../errors/appError.js";
 import { parseToolInput } from "../../agent/tools/parseToolInput.js";
-import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
-import type { Config } from "../../config.js";
 import {
-  type FindingBatchContext,
+  type FindingBatchInput,
   type FindingBatchResult,
   publishFindingBatch,
 } from "../publish/publishFindingBatch.js";
+import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.js";
 import { reviewFindingSchema, type ReviewFinding } from "../reviewSchema.js";
 import {
   applyFindingLedgerDelta,
@@ -46,11 +45,11 @@ export type PublishThreadToolResult =
       readonly error: string;
     };
 
-type PublishThreadToolParams = Omit<FindingBatchContext, "source" | "ledger"> & {
+type PublishThreadToolParams = {
   readonly phaseRef: OrchestratorPhaseRef;
+  readonly session: ReviewPublishSession;
+  readonly policy?: Omit<FindingBatchInput, "source" | "ledger">;
   readonly initialLedger?: FindingLedger;
-  readonly agentEvents?: AgentEventsContext;
-  readonly cfg?: Pick<Config, "agentEventsEnabled">;
 };
 
 function overlapHints(
@@ -82,13 +81,13 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
   readonly setSource: (source: SpecialistId) => void;
   readonly getLedger: () => FindingLedger;
   readonly getPublishedBatchCount: () => number;
-  readonly getStopReason: () => "superseded" | "stale_head" | null;
+  readonly getStopReason: () => PublishStopReason | null;
 } {
   let source: SpecialistId | null = null;
-  let stopReason: "superseded" | "stale_head" | null = null;
+  let stopReason: PublishStopReason | null = null;
   let publishedBatchCount = 0;
-  const { initialLedger, ...batchContext } = params;
-  let ledger = initialLedger ?? createFindingLedger();
+  const { session } = params;
+  let ledger = params.initialLedger ?? createFindingLedger();
   const piTool: PiTool = {
     name: "publish_thread",
     description:
@@ -125,8 +124,8 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
 
     let result: FindingBatchResult;
     try {
-      result = await publishFindingBatch(parsed.value.findings, {
-        ...batchContext,
+      result = await publishFindingBatch(parsed.value.findings, session, {
+        ...params.policy,
         source,
         ledger,
       });
@@ -134,9 +133,9 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       throw toAppError(error, {
         code: "review.publish_thread_failed",
         context: {
-          owner: params.ctx.owner,
-          repo: params.ctx.repo,
-          pr: params.ctx.prNumber,
+          owner: session.ctx.owner,
+          repo: session.ctx.repo,
+          pr: session.ctx.prNumber,
           source,
         },
       });
@@ -144,10 +143,10 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     if (result.kind !== "stopped") {
       ledger = applyFindingLedgerDelta(ledger, result.delta);
       if (result.kind === "published") publishedBatchCount += 1;
-      if (params.agentEvents && params.cfg) {
+      if (session.agentEvents) {
         const submittedCount = parsed.value.findings.length;
         const acceptedCount = result.delta.accepted.length;
-        safeEmitDecisionEvent(params.agentEvents, params.cfg, {
+        safeEmitDecisionEvent(session.agentEvents, session.cfg, {
           specialist: source,
           phase: "judgment",
           submittedCount,

@@ -27,6 +27,7 @@ import { buildUnavailableCodeIndexTools } from "../src/agent/tools/codeIndexTool
 import { hideWorkspaceToolsBehindCodeMode } from "../src/agent/codemode/assembleExplorationTools.js";
 import { buildSubmitFindingsReportPiTool } from "../src/review/orchestrator/specialistTools.js";
 import { buildSpecialistBriefTool } from "../src/review/orchestrator/briefTool.js";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
 import {
   buildPublishSummaryTool,
@@ -129,19 +130,15 @@ function dumpAll() {
     hasDescriptionReviewMap: false,
   };
   const { surface: prSurface } = createFakePrSurface(ctx);
-  const thread = buildPublishThreadTool({
+  const publishSession = createReviewPublishSession({
     ctx,
-    phaseRef,
     prSurface,
     cachedDiffIndex: workspace.reader.diffIndex,
     resolveProgressCommentUrl: unavailable,
-  }).piTool;
-  const summary = buildPublishSummaryTool({
-    ctx,
-    phaseRef,
-    prSurface,
     cfg: {
       piModel: "",
+      agentEventsEnabled: false,
+      findingHistoryEnabled: false,
       features: {
         review: "manual",
         describe: "off",
@@ -153,6 +150,11 @@ function dumpAll() {
         titleRewrite: false,
       },
     },
+  });
+  const thread = buildPublishThreadTool({ phaseRef, session: publishSession }).piTool;
+  const summary = buildPublishSummaryTool({
+    phaseRef,
+    session: publishSession,
     state: createPublishSummaryState(),
     getLedger: createFindingLedger,
     getCoverage: () => ({ kind: "full" }),

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
+import { openRunRateLimitCircuit } from "../src/agent/runtime/rateLimitCircuit.js";
 import {
   createRateLimitCircuit,
+  RATE_LIMIT_CIRCUIT_THRESHOLD,
   shouldShortCircuitGithubTool,
   runWithRateLimitCircuit,
 } from "../src/github/rateLimitCircuit.js";
@@ -179,5 +181,52 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
         }),
       );
     });
+  });
+
+  it("openRunRateLimitCircuit hydrates a run that starts inside an open shared window", async () => {
+    const { poolA, poolB } = createMemorySharedCircuitStore();
+    await openSharedRateLimitCircuit(poolA, { installationId: 11, lastErrorKind: "secondary" });
+
+    const circuit = await openRunRateLimitCircuit({
+      pool: poolB,
+      installationId: 11,
+      type: "review",
+      workItemId: "wi-1",
+    });
+
+    expect(circuit.isOpen()).toBe(true);
+  });
+
+  it("openRunRateLimitCircuit continues the run when the shared read fails", async () => {
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+    const pool = {
+      query: vi.fn().mockRejectedValue(new Error("db down")),
+    } as unknown as Pool;
+
+    const circuit = await openRunRateLimitCircuit({ pool, installationId: 11, type: "review" });
+
+    expect(circuit.isOpen()).toBe(false);
+    expect(logWarn).toHaveBeenCalledWith(
+      "github_shared_rate_limit_circuit_read_failed",
+      expect.objectContaining({ type: "review", message: "db down" }),
+    );
+  });
+
+  it("openRunRateLimitCircuit notifies the caller and publishes the tripped circuit", async () => {
+    const { poolA, poolB } = createMemorySharedCircuitStore();
+    const onOpened = vi.fn();
+    const circuit = await openRunRateLimitCircuit({
+      pool: poolA,
+      installationId: 12,
+      type: "ask",
+      onOpened,
+    });
+
+    for (let failure = 0; failure < RATE_LIMIT_CIRCUIT_THRESHOLD; failure += 1) {
+      circuit.recordFailure("primary");
+    }
+
+    expect(onOpened).toHaveBeenCalledWith("primary");
+    await vi.waitFor(async () => expect(await isSharedRateLimitCircuitOpen(poolB, 12)).toBe(true));
   });
 });

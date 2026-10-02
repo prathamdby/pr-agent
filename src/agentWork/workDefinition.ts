@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
+import type { createFeaturePiSession } from "../agent/runtime/createFeatureSession.js";
 import type { PrSurface } from "../github/prSurface.js";
 import { logWarn } from "../evlog.js";
 import {
@@ -35,6 +36,8 @@ export type WorkExecutionDependencies = {
   readonly pool: Pool;
   readonly boss: PgBoss;
   readonly installationSurface?: InstallationSurface;
+  /** Pi session factory for features that run agent sessions in-process; review injects it. */
+  readonly createSession?: typeof createFeaturePiSession;
 };
 
 export type DurableWorkDefinition<T extends WorkType> = WorkExecution<T> &

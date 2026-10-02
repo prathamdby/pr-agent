@@ -1,6 +1,6 @@
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 import { describe, expect, it } from "vitest";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
+import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.js";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -50,7 +50,7 @@ describe("published inline comment links", () => {
       repo: "widgets",
       prNumber: 42,
     });
-    await publishReviewSummaryOnly({
+    await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
         owner: "acme",
@@ -101,7 +101,7 @@ describe("published inline comment links", () => {
       repo: "widgets",
       prNumber: 42,
     });
-    await publishReviewSummaryOnly({
+    await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
         owner: "acme",
@@ -147,7 +147,7 @@ describe("published inline comment links", () => {
       repo: "widgets",
       prNumber: 42,
     });
-    await publishReviewSummaryOnly({
+    await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
         owner: "acme",

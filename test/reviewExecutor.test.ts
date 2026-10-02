@@ -97,8 +97,6 @@ const mocks = vi.hoisted(() => ({
   write: vi.fn(),
   completed: vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null),
   shouldSkipWork: vi.fn(async () => false),
-  getSharedRateLimitCircuit: vi.fn(async () => null),
-  openSharedRateLimitCircuitBestEffort: vi.fn(),
   summaryConclude: vi.fn(
     async (
       deps: { readonly prSurface: import("../src/github/prSurface.js").PrSurface },
@@ -150,11 +148,6 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
 
-vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
-  getSharedRateLimitCircuit: mocks.getSharedRateLimitCircuit,
-  openSharedRateLimitCircuitBestEffort: mocks.openSharedRateLimitCircuitBestEffort,
-}));
-
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
 import * as prWorkspace from "../src/prWorkspace/prRepositoryView.js";
@@ -163,7 +156,10 @@ import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
 import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
-import * as rateLimitCircuit from "../src/github/rateLimitCircuit.js";
+import {
+  getActiveRateLimitCircuit,
+  RATE_LIMIT_CIRCUIT_THRESHOLD,
+} from "../src/github/rateLimitCircuit.js";
 import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
 import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
@@ -292,7 +288,6 @@ describe("review work definition", () => {
           ? undefined
           : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
     );
-    mocks.getSharedRateLimitCircuit.mockResolvedValue(null);
     mocks.completed.mockImplementation(
       async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
     );
@@ -359,40 +354,21 @@ describe("review work definition", () => {
     expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
   });
 
-  it("continues review when shared rate-limit circuit read fails", async () => {
-    mocks.getSharedRateLimitCircuit.mockRejectedValueOnce(new Error("db down"));
-
-    await runExecution();
-
-    expect(mocks.runOrchestratedPrReview).toHaveBeenCalled();
-    expect(mocks.logWarn).toHaveBeenCalledWith(
-      "github_shared_rate_limit_circuit_read_failed",
-      expect.objectContaining({
-        type: "review",
-        message: "db down",
-      }),
-    );
-  });
-
   it("records the rate_limit_circuit_opened metric when the review circuit opens", async () => {
     const recordMetric = vi
       .spyOn(reviewRunMetrics, "recordReviewMetric")
       .mockImplementation(() => undefined);
-    const realCreate = rateLimitCircuit.createRateLimitCircuit;
-    let onOpened: ((kind: "primary" | "secondary") => void) | undefined;
-    vi.spyOn(rateLimitCircuit, "createRateLimitCircuit").mockImplementation((params) => {
-      onOpened = params.onOpened;
-      return realCreate(params);
+    const run = mocks.runOrchestratedPrReview.getMockImplementation();
+    mocks.runOrchestratedPrReview.mockImplementationOnce(async (...args: unknown[]) => {
+      for (let failure = 0; failure < RATE_LIMIT_CIRCUIT_THRESHOLD; failure += 1) {
+        getActiveRateLimitCircuit()?.recordFailure("primary");
+      }
+      return run?.(...args);
     });
 
     await runExecution();
 
-    onOpened?.("primary");
     expect(recordMetric).toHaveBeenCalledWith({ kind: "rate_limit_circuit_opened" });
-    expect(mocks.openSharedRateLimitCircuitBestEffort).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ lastErrorKind: "primary" }),
-    );
   });
 
   it("passes the resumed thread call count into the review run", async () => {

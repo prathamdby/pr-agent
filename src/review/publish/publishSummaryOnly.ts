@@ -1,8 +1,5 @@
-import { emitWorkSpan, type AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
+import { emitWorkSpan } from "../../agent/runtime/agentEventSink.js";
 import { publishSpanFromContext } from "../../analytics/workSpan.js";
-import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
-import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import {
   operationIntentMarker,
@@ -16,9 +13,7 @@ import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../../github/recoverPrSurfaceMutation.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   dominantReviewCategory,
   hasManagedCategoryLabel,
@@ -29,48 +24,27 @@ import {
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { resolveReviewWallClockMs } from "../run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  type ReviewPayload,
-  type ReviewPublishContext,
-} from "../reviewSchema.js";
-import {
-  createReviewSummaryComment,
-  type RecordPublishStepWithCoordination,
-} from "./reviewSummaryComment.js";
+import { REVIEW_SUMMARY_SENTINEL, type ReviewPayload } from "../reviewSchema.js";
+import { createReviewSummaryComment } from "./reviewSummaryComment.js";
+import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
 import type { PublishedReviewComment } from "../../github/reviewPublish.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
 export type PublishSummaryOnlyResult =
   | { readonly kind: "published"; readonly summaryCommentId: number }
-  | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" };
+  | { readonly kind: "stopped"; readonly reason: PublishStopReason };
 
-export async function publishReviewSummaryOnly(params: {
-  readonly cfg: Pick<Config, "piModel" | "features"> & Partial<Pick<Config, "agentEventsEnabled">>;
-  readonly agentEvents?: AgentEventsContext;
-  readonly ctx: ReviewPublishContext;
-  readonly prSurface: PrSurface;
-  readonly payload: ReviewPayload;
-  readonly ledger: FindingLedger;
-  readonly mode?: AnyReviewLens;
-  readonly cachedDiffIndex?: CachedPrDiffIndex;
-  readonly shouldLinkToSummary?: boolean;
-  readonly progressCommentIdHint?: number | null;
-  readonly staleReview?: boolean;
-  readonly recordPublishStep?: RecordPublishStepWithCoordination;
-  readonly pool?: Pool;
-  readonly workItemId?: string;
-  readonly resourceKey?: string;
-  readonly leaseEpoch?: number | null;
-  readonly boss?: PgBoss;
-  readonly installationId?: number;
-  readonly coverage?: ReviewCoverage;
-  readonly remainingFinalizationMs?: () => number;
-  readonly shouldAbortPublish?: () => Promise<boolean>;
-  readonly publishAbortState?: { readonly staleHead?: boolean };
-  readonly dedupedFindingCount?: number;
-}): Promise<PublishSummaryOnlyResult> {
-  const coverage = params.coverage ?? { kind: "full" };
+export async function publishReviewSummaryOnly(
+  session: ReviewPublishSession,
+  input: {
+    readonly payload: ReviewPayload;
+    readonly ledger: FindingLedger;
+    readonly coverage?: ReviewCoverage;
+    readonly staleReview?: boolean;
+    readonly dedupedFindingCount?: number;
+  },
+): Promise<PublishSummaryOnlyResult> {
+  const coverage = input.coverage ?? { kind: "full" };
   if (coverage.kind === "none") {
     throw new AppError({
       code: "review.summary_coverage_none",
@@ -80,12 +54,12 @@ export async function publishReviewSummaryOnly(params: {
   }
   const startedAt = Date.now();
   const finishPublished = (summaryCommentId: number): PublishSummaryOnlyResult => {
-    if (params.agentEvents) {
+    if (session.agentEvents) {
       emitWorkSpan(
-        params.agentEvents,
-        { agentEventsEnabled: params.cfg.agentEventsEnabled === true },
+        session.agentEvents,
+        session.cfg,
         publishSpanFromContext({
-          context: params.agentEvents,
+          context: session.agentEvents,
           publishStep: "summary",
           latencyMs: Date.now() - startedAt,
           isError: false,
@@ -94,10 +68,10 @@ export async function publishReviewSummaryOnly(params: {
     }
     return { kind: "published", summaryCommentId };
   };
-  const { owner, repo, prNumber, headSha } = params.ctx;
-  const mode = params.mode ?? "review";
+  const { owner, repo, prNumber, headSha } = session.ctx;
+  const mode = session.mode;
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
-  const summaryPlacements = params.ledger.accepted.map((accepted) => accepted.placement);
+  const summaryPlacements = input.ledger.accepted.map((accepted) => accepted.placement);
   // Prefer URLs already attached during inline publish; fetch the PR once for the rest.
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
@@ -106,7 +80,7 @@ export async function publishReviewSummaryOnly(params: {
     [];
   if (placementsNeedingUrls) {
     try {
-      const listed = await params.prSurface.listPullRequestReviewComments();
+      const listed = await session.prSurface.listPullRequestReviewComments();
       reviewComments = listed.comments;
       if (listed.truncated) {
         logWarn("review_inline_comment_urls_truncated", {
@@ -133,8 +107,8 @@ export async function publishReviewSummaryOnly(params: {
   );
 
   const metricsSnapshot = snapshotReviewRunMetrics();
-  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
-  const ciPool = params.pool ?? summaryCoordination?.pool;
+  const summaryCoordination = session.recordPublishStep?.summaryCommentCoordination;
+  const ciPool = session.pool ?? summaryCoordination?.pool;
   const renderedCi =
     ciPool == null
       ? { summary: undefined, version: 0 }
@@ -144,13 +118,13 @@ export async function publishReviewSummaryOnly(params: {
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
     endedAtMs: Date.now(),
   });
-  const summaryBody = renderReviewSummaryComment(params.payload, {
-    ...params.ctx,
+  const summaryBody = renderReviewSummaryComment(input.payload, {
+    ...session.ctx,
     summarySentinel,
     placements: enrichedPlacements,
     mode,
-    staleReview: params.staleReview ?? false,
-    cachedDiffIndex: params.cachedDiffIndex,
+    staleReview: input.staleReview ?? false,
+    cachedDiffIndex: session.cachedDiffIndex,
     ciSummary,
     ciVersion: renderedCi.version,
     coverage:
@@ -159,42 +133,25 @@ export async function publishReviewSummaryOnly(params: {
         : { kind: coverage.kind, failed: coverage.failed },
     runFooter: {
       durationMs,
-      model: params.cfg.piModel,
+      model: session.cfg.piModel,
     },
   });
 
-  let shouldAbort = false;
-  try {
-    shouldAbort = (await params.shouldAbortPublish?.()) ?? false;
-  } catch (error) {
-    logWarn("review_summary_abort_check_failed", {
-      mode,
-      owner,
-      repo,
-      pr: prNumber,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    shouldAbort = true;
-  }
-  if (shouldAbort) {
-    return {
-      kind: "stopped",
-      reason: params.publishAbortState?.staleHead === true ? "stale_head" : "superseded",
-    };
-  }
+  const stopReason = await session.stopReason();
+  if (stopReason != null) return { kind: "stopped", reason: stopReason };
 
   let knownSummaryCommentRef: { id: number; url: string } | null = null;
-  if (params.shouldLinkToSummary) {
-    const resolvedSummary = await params.prSurface.resolveProgressComment(
+  if (session.shouldLinkToSummary) {
+    const resolvedSummary = await session.prSurface.resolveProgressComment(
       summarySentinel,
-      params.progressCommentIdHint,
+      session.progressCommentIdHint,
     );
     knownSummaryCommentRef = resolvedSummary
       ? { id: resolvedSummary.id, url: resolvedSummary.url }
       : null;
   }
 
-  const labelsPromise = params.prSurface.getLabels().catch((error: unknown) => error);
+  const labelsPromise = session.prSurface.getLabels().catch((error: unknown) => error);
   const coordination = summaryCoordination;
   const summaryOperationKey =
     coordination == null ? null : reviewSummaryOperationKey(coordination.resourceKey, mode);
@@ -209,12 +166,12 @@ export async function publishReviewSummaryOnly(params: {
     summaryOperationMarker == null ? summaryBody : `${summaryBody}\n${summaryOperationMarker}`;
   const runSummaryUpsert = () =>
     createReviewSummaryComment({
-      prSurface: params.prSurface,
+      prSurface: session.prSurface,
       reviewLens: mode,
       coordination: summaryCoordination,
     }).conclude({
       body: summaryBodyForPublish,
-      hintCommentId: params.progressCommentIdHint ?? knownSummaryCommentRef?.id,
+      hintCommentId: session.progressCommentIdHint ?? knownSummaryCommentRef?.id,
       knownExisting: knownSummaryCommentRef,
     });
   const summaryPromise =
@@ -234,7 +191,7 @@ export async function publishReviewSummaryOnly(params: {
             ...(summaryOperationMarker != null ? { operationMarker: summaryOperationMarker } : {}),
           },
           recover: () =>
-            recoverMarkedProgressComment(params.prSurface, {
+            recoverMarkedProgressComment(session.prSurface, {
               operationMarker: summaryOperationMarker ?? undefined,
               sentinel: summarySentinel,
               knownExistingId: knownSummaryCommentRef?.id,
@@ -245,26 +202,26 @@ export async function publishReviewSummaryOnly(params: {
   const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
   if (ciPool != null) {
     await requestHeadCiProjection(
-      params.boss,
-      { installationId: params.installationId ?? 0, owner, repo, headSha },
+      session.boss,
+      { installationId: session.installationId ?? 0, owner, repo, headSha },
       { kind: "when_due", pool: ciPool, renderedVersion: renderedCi.version },
     );
   }
-  const summaryOnlyCount = params.ledger.accepted.filter(
+  const summaryOnlyCount = input.ledger.accepted.filter(
     (accepted) => accepted.kind === "summary_only",
   ).length;
-  await params.recordPublishStep?.("summary_comment", {
+  await session.recordPublishStep?.("summary_comment", {
     githubId: summary.id,
     meta: {
-      inlineCount: params.ledger.postedInlineCount,
+      inlineCount: input.ledger.postedInlineCount,
       summaryOnlyCount,
-      dedupedFindingCount: params.dedupedFindingCount ?? 0,
-      diffCacheEmpty: params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0,
+      dedupedFindingCount: input.dedupedFindingCount ?? 0,
+      diffCacheEmpty: session.cachedDiffIndex == null || session.cachedDiffIndex.files.size === 0,
       updated: summary.updated,
       ...summaryCommentVerdictMeta({
         kind: coverage.kind === "partial" ? "partial" : "published",
         note: coverage.kind === "partial" ? coverage.note : undefined,
-        findings: params.payload.findings,
+        findings: input.payload.findings,
       }),
     },
   });
@@ -277,29 +234,24 @@ export async function publishReviewSummaryOnly(params: {
     updated: summary.updated,
   });
 
-  const verdictPool = params.pool ?? summaryCoordination?.pool;
-  const verdictWorkItemId = params.workItemId ?? summaryCoordination?.workItemId;
-  const verdictResourceKey = params.resourceKey ?? summaryCoordination?.resourceKey;
-  const verdictLeaseEpoch =
-    summaryCoordination != null ? summaryCoordination.leaseEpoch : params.leaseEpoch;
-  if (verdictPool != null && verdictWorkItemId != null && verdictResourceKey != null) {
+  if (session.verdict != null) {
     await reviewVerdict({
-      pool: verdictPool,
-      prSurface: params.prSurface,
+      pool: session.verdict.pool,
+      prSurface: session.prSurface,
       owner,
       repo,
       prNumber,
-      workItemId: verdictWorkItemId,
-      resourceKey: verdictResourceKey,
+      workItemId: session.verdict.workItemId,
+      resourceKey: session.verdict.resourceKey,
       reviewLens: mode,
       headSha,
-      leaseEpoch: verdictLeaseEpoch,
-      commitStatusEnabled: params.cfg.features.commitStatus,
+      leaseEpoch: session.verdict.leaseEpoch,
+      commitStatusEnabled: session.cfg.features.commitStatus,
       summaryCommentId: summary.id,
     }).close(
       coverage.kind === "partial"
         ? { kind: "partial", note: coverage.note }
-        : { kind: "published", findings: params.payload.findings },
+        : { kind: "published", findings: input.payload.findings },
     );
   }
 
@@ -324,11 +276,11 @@ export async function publishReviewSummaryOnly(params: {
     return finishPublished(summary.id);
   }
 
-  const wantsCategoryLabel = dominantReviewCategory(params.payload.findings) != null;
+  const wantsCategoryLabel = dominantReviewCategory(input.payload.findings) != null;
   const syncCategoryLabels =
     mode === "review" && (wantsCategoryLabel || hasManagedCategoryLabel(currentLabels));
-  const syncSizeLabel = params.cfg.features.reviewLabels !== "off";
-  const syncSecurityLabel = params.cfg.features.reviewLabels === "size+security";
+  const syncSizeLabel = session.cfg.features.reviewLabels !== "off";
+  const syncSecurityLabel = session.cfg.features.reviewLabels === "size+security";
   if (syncSizeLabel || syncSecurityLabel || syncCategoryLabels) {
     try {
       const options = {
@@ -336,14 +288,14 @@ export async function publishReviewSummaryOnly(params: {
         security: syncSecurityLabel,
         category: syncCategoryLabels,
       };
-      if (labelsAlreadySynced(currentLabels, params.payload, options)) {
-        await params.recordPublishStep?.("labels", {
+      if (labelsAlreadySynced(currentLabels, input.payload, options)) {
+        await session.recordPublishStep?.("labels", {
           meta: { labels: currentLabels, alreadySynced: true },
         });
       } else {
-        const managed = reviewLabelsFromPayload(params.payload, options);
+        const managed = reviewLabelsFromPayload(input.payload, options);
         const next = syncReviewLabels(currentLabels, managed);
-        const publishLabels = () => params.prSurface.setLabels(next);
+        const publishLabels = () => session.prSurface.setLabels(next);
         if (summaryCoordination == null) {
           await publishLabels();
         } else {
@@ -360,7 +312,7 @@ export async function publishReviewSummaryOnly(params: {
               desiredLabels: next,
             },
             recover: async () => {
-              const labels = await params.prSurface.getLabels();
+              const labels = await session.prSurface.getLabels();
               const desired = new Set(next);
               return labels.length === next.length && labels.every((label) => desired.has(label))
                 ? { kind: "reconciled" as const, value: undefined }
@@ -370,7 +322,7 @@ export async function publishReviewSummaryOnly(params: {
             mutate: publishLabels,
           });
         }
-        await params.recordPublishStep?.("labels", { meta: { labels: next } });
+        await session.recordPublishStep?.("labels", { meta: { labels: next } });
         logDebug("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
       }
     } catch (error) {

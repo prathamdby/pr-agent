@@ -9,6 +9,7 @@ import {
   publishReviewSummaryOnly,
   type PublishSummaryOnlyResult,
 } from "../publish/publishSummaryOnly.js";
+import type { PublishStopReason, ReviewPublishSession } from "../publish/reviewPublishSession.js";
 import {
   createReviewPayloadSchema,
   formatReviewValidationError,
@@ -24,7 +25,7 @@ const publishSummarySchema = v.pick(createReviewPayloadSchema(), REVIEW_PUBLISH_
 export type PublishSummaryState = {
   published: boolean;
   lastValidationError: string | null;
-  stoppedReason: "superseded" | "stale_head" | null;
+  stoppedReason: PublishStopReason | null;
 };
 
 export type PublishSummaryToolResult =
@@ -42,10 +43,8 @@ export type PublishSummaryToolResult =
       readonly error: string;
     };
 
-type PublishSummaryToolParams = Omit<
-  Parameters<typeof publishReviewSummaryOnly>[0],
-  "payload" | "ledger" | "coverage"
-> & {
+type PublishSummaryToolParams = {
+  readonly session: ReviewPublishSession;
   readonly phaseRef: OrchestratorPhaseRef;
   readonly state: PublishSummaryState;
   readonly getLedger: () => FindingLedger;
@@ -96,7 +95,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   readonly piTool: PiTool;
   readonly executor: (args: Record<string, unknown>) => Promise<PublishSummaryToolResult>;
 } {
-  const { state, getLedger, getCoverage, ...publishContext } = params;
+  const { state, getLedger, getCoverage, session } = params;
   const piTool: PiTool = {
     name: "publish_summary",
     description:
@@ -130,7 +129,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     const candidate = reconstructPayload(state, ledger, parsed.value);
     const validation = validateReviewPayload({
       payload: candidate,
-      cachedDiffIndex: params.cachedDiffIndex,
+      cachedDiffIndex: session.cachedDiffIndex,
       enforceInlineAnchorValidation: false,
     });
     if (!validation.ok) {
@@ -145,8 +144,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     const payload = redactReviewPayloadSecrets(candidate);
     let result: PublishSummaryOnlyResult;
     try {
-      result = await publishReviewSummaryOnly({
-        ...publishContext,
+      result = await publishReviewSummaryOnly(session, {
         payload,
         ledger,
         coverage: getCoverage(),
@@ -155,9 +153,9 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       throw toAppError(error, {
         code: "review.publish_summary_failed",
         context: {
-          owner: params.ctx.owner,
-          repo: params.ctx.repo,
-          pr: params.ctx.prNumber,
+          owner: session.ctx.owner,
+          repo: session.ctx.repo,
+          pr: session.ctx.prNumber,
         },
       });
     }

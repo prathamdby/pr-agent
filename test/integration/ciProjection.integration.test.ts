@@ -43,7 +43,7 @@ import { parseCiSummaryMarkerVersion } from "../../src/review/ci/ciSummaryCell.j
 import { renderCiSummaryCell } from "../../src/review/ci/renderCiSummary.js";
 import { createFindingLedger } from "../../src/review/orchestrator/orchestratorTypes.js";
 import { tickProgressComment } from "../../src/review/orchestrator/stubTick.js";
-import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
+import { publishSummaryForTest } from "../helpers/reviewPublishTestHelpers.js";
 import { makeReviewPayload } from "../helpers/reviewPayloadFactory.js";
 import { createReviewSummaryComment } from "../../src/review/publish/reviewSummaryComment.js";
 import { renderReviewProgressComment } from "../../src/review/run/progressComment.js";
@@ -1667,7 +1667,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       });
     };
     const publishReview = async (workItemId: string, headSha: string) => {
-      const result = await publishReviewSummaryOnly({
+      const result = await publishSummaryForTest({
         cfg,
         ctx: {
           owner: OWNER,

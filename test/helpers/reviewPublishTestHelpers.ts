@@ -16,6 +16,10 @@ import type { ReviewPayload, ReviewPublishContext } from "../../src/review/revie
 import type { RepoPolicyResult } from "../../src/review/repoPolicy.js";
 import type { BoundPolicyJudge } from "../../src/review/publish/boundPolicyJudge.js";
 import { publishFindingBatch } from "../../src/review/publish/publishFindingBatch.js";
+import {
+  createReviewPublishSession,
+  type ReviewPublishSessionInput,
+} from "../../src/review/publish/reviewPublishSession.js";
 import { publishReviewSummaryOnly } from "../../src/review/publish/publishSummaryOnly.js";
 import type { RecordPublishStepWithCoordination } from "../../src/review/publish/reviewSummaryComment.js";
 import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
@@ -81,17 +85,23 @@ export async function runTestPublishFlow(
     postedInlineCount: resumedPlacements.length,
     threadCallCount: params.publishState.threadCallCount,
   });
-  const batchResult = await publishFindingBatch(params.payload.findings, {
+  const coordination = params.recordPublishStep?.summaryCommentCoordination;
+  const session = createReviewPublishSession({
+    cfg: { agentEventsEnabled: false, findingHistoryEnabled: false, ...params.cfg },
     ctx: params,
-    source: "review",
-    workItemId:
-      params.workItemId ?? params.recordPublishStep?.summaryCommentCoordination?.workItemId,
-    operationIntent: params.recordPublishStep?.summaryCommentCoordination
+    prSurface: params.prSurface,
+    mode: params.mode,
+    cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),
+    shouldLinkToSummary: params.shouldLinkToSummary,
+    progressCommentIdHint: params.progressCommentIdHint,
+    recordPublishStep: params.recordPublishStep,
+    workItemId: params.workItemId ?? coordination?.workItemId,
+    operationIntent: coordination
       ? {
-          client: params.recordPublishStep.summaryCommentCoordination.pool,
-          workItemId: params.recordPublishStep.summaryCommentCoordination.workItemId,
-          resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
-          leaseEpoch: params.recordPublishStep.summaryCommentCoordination.leaseEpoch,
+          client: coordination.pool,
+          workItemId: coordination.workItemId,
+          resourceKey: coordination.resourceKey,
+          leaseEpoch: coordination.leaseEpoch,
         }
       : undefined,
     resolveProgressCommentUrl: async () =>
@@ -101,11 +111,11 @@ export async function runTestPublishFlow(
         params.prNumber,
         params.progressCommentIdHint,
       ),
-    prSurface: params.prSurface,
-    cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),
-    recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
+  });
+  const batchResult = await publishFindingBatch(params.payload.findings, session, {
+    source: "review",
     repoPolicy: params.repoPolicy,
     sameRepo: params.sameRepo,
     boundPolicyJudge: params.boundPolicyJudge,
@@ -121,25 +131,44 @@ export async function runTestPublishFlow(
   params.publishState.inlineReviewIds = [...ledger.inlineReviewIds];
   params.publishState.threadCallCount = ledger.threadCallCount;
 
-  const summaryResult = await publishReviewSummaryOnly({
-    cfg: params.cfg,
-    ctx: params,
-    prSurface: params.prSurface,
+  const summaryResult = await publishReviewSummaryOnly(session, {
     payload: params.payload,
     ledger,
-    mode: params.mode,
-    cachedDiffIndex: params.cachedDiffIndex,
-    shouldLinkToSummary: params.shouldLinkToSummary,
-    progressCommentIdHint: params.progressCommentIdHint,
     staleReview: params.staleReview,
-    recordPublishStep: params.recordPublishStep,
-    shouldAbortPublish: params.shouldAbortPublish,
-    publishAbortState: params.publishAbortState,
     dedupedFindingCount: params.dedupedFindingCount,
   });
   if (summaryResult.kind === "stopped") {
     params.publishState.publishSuperseded = true;
   }
+}
+
+/** Summary publication from one flat argument bag: session fields plus per-call input. */
+export function publishSummaryForTest(
+  params: ReviewPublishSessionInput &
+    Parameters<typeof publishReviewSummaryOnly>[1] & {
+      readonly resourceKey?: string;
+      readonly leaseEpoch?: number | null;
+    },
+) {
+  const {
+    payload,
+    ledger,
+    coverage,
+    staleReview,
+    dedupedFindingCount,
+    resourceKey,
+    leaseEpoch,
+    ...sessionInput
+  } = params;
+  return publishReviewSummaryOnly(
+    createReviewPublishSession({
+      ...sessionInput,
+      verdictWorkItemId: sessionInput.verdictWorkItemId ?? sessionInput.workItemId,
+      verdictResourceKey: sessionInput.verdictResourceKey ?? resourceKey,
+      verdictLeaseEpoch: sessionInput.verdictLeaseEpoch ?? leaseEpoch,
+    }),
+    { payload, ledger, coverage, staleReview, dedupedFindingCount },
+  );
 }
 
 /** Runs pre-publish pipeline then the test publish flow (legacy test harness). */

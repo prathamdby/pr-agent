@@ -148,7 +148,7 @@ When test changes are already in scope, keep them proportional to the changed co
 - Keep one concern per PR. Split unrelated cleanup.
 - Before filing, fetch `origin`, check whether the branch already has an open PR, inspect the complete diff against `origin/main`, and exclude unrelated worktree changes.
 - Write the title and body from the final diff. Open with the user-visible problem and solution, then name affected contracts and checks that actually ran.
-- Preserve the repository vocabulary. A change to one documented concept must update every pointer whose branch matched the change.
+- Preserve the repository vocabulary.
 
 ## How it works
 
@@ -293,7 +293,7 @@ client. CI projection and direct comment edits do not share this lock.
 - `src/agentWork/workDefinition.ts` owns the closed `DurableWorkDefinition` table consumed by worker registration. `leasedExecution.ts::openLeasedExecution` owns watchdog seeding, lease acquire-and-claim, renewal, fenced terminal marks, and release. `durableJob.ts` owns retry policy, the context factory (admitted read-only views, session identity, publication checks), and completion capture after a winning terminal mark. Executors return closed `WorkCompletion` values. `installationSurface.ts::openInstallationSurface` alone owns token minting and raw surface creation for agent work and code-index builds.
 - `src/agentWork/workItemTransitions.ts` owns `transition()`, the only work item status writer.
 - `src/agentWork/publishOnce.ts` owns mutation-intent sequencing and identity-scoped completion evidence. Its step table preserves ask/work and shared/resource scopes, progress ownership, and inline batches. Postgres and in-process publication adapters share those contracts. Triage retains its push plan before delegation and recovers only exact evidence, without a fabricated checkout.
-- `src/review/` owns orchestration, the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and review publication.
+- `src/review/` owns the run entry (`runReviewForWorkItem.ts`), step choice (`orchestrator/runStep.ts`), the correctness persona (`prompts/reviewSystemPrompt.ts`), judgment, and publication.
 - `src/github/` owns Octokit, installation tokens, and the `PrSurface` seam.
 - `src/agent/` owns Pi sessions, tools, prompts, and feature-specific agent logic (ask, description, verification, triage). Security, quality, and tests personas live under `src/agent/prompts/`.
 - `src/codeIndex/` owns optional full-text index builds, storage, and search.

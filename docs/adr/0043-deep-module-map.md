@@ -747,6 +747,83 @@ a lease deferral never reaches `beginWorkAttempt`. Integration suites
 No test file is new beyond the split of one existing suite; no helper or baseline
 growth.
 
+## M14 failure modes
+
+Recorded before the review split:
+
+1. The two publishers disagree on a failed abort check (B7): the batch publisher
+   propagates it so the durable job retries, while the summary publisher logged
+   `review_summary_abort_check_failed` and read it as supersession. A transient
+   head lookup then finishes the run as stopped with no summary.
+2. The abort policy forks again: a second copy of `shouldAbortPublish` and
+   `publishAbortState` lets one publisher report `stale_head` where the other
+   reports `superseded`.
+3. A step is skipped or repeated: recon, brief repair, dispatch, synthesis,
+   summary repair or recovery, or the deterministic summary runs out of order, or
+   a retired session reaches synthesis.
+4. A terminal path loses its closing write: the host-abort stop, the model
+   deadline, an all-failed specialist set, or a retired session ends without the
+   terminal tick, failure notice, or deterministic summary.
+5. The injected session factory is bypassed: the recon, judgment, or a specialist
+   session is built from the module import, so a test or the executor cannot
+   substitute it.
+6. Trusted-context assembly drifts in the move: a prompt byte, a policy or
+   agent-instruction cap, the same-repo trust decision, or the forged-header
+   neutralization changes.
+7. The review circuit diverges from ask: hydration from the shared row stops
+   honoring `openUntil`, a failed shared read aborts the run, or the opened
+   callback stops publishing the shared row.
+8. The executor loses a terminal hook: `onCancelled` or `onTerminalFailure` (stale
+   replacement abort, verdict close) stops running when the feature body moves.
+9. A move changes an import target and a module mock silently stops intercepting.
+
+`runReviewForWorkItem.ts` is the review feature entry. It owns trusted-context
+assembly (`assembleTrustedReviewContext`, moved verbatim), session and workspace
+setup, publish, and the terminal outcome. `reviewExecutor.ts` keeps the work
+definition wiring, `onCancelled`, and `onTerminalFailure`, and delegates
+`execute`. `createSession` reaches the run through
+`WorkExecutionDependencies.createSession` (default `createFeaturePiSession`) and
+`OrchestratedReviewRunParams.createSession`, then to every specialist.
+
+`orchestrator/runStep.ts::nextStep(last, facts)` is pure. `orchestratorRun.ts`
+executes the chosen step in a `runStep` switch; the step bodies moved verbatim.
+`publish/reviewPublishSession.ts` builds one `ReviewPublishSession` per run
+(identity, summary coordination, verdict target, and the single `stopReason()`).
+`publishFindingBatch(batch, session, input)` and
+`publishReviewSummaryOnly(session, input)` take it, and the publish tools take
+`{phaseRef, session, ...}`. The dead `remainingFinalizationMs` parameter is gone.
+`agent/runtime/rateLimitCircuit.ts::openRunRateLimitCircuit` is the one opener
+for ask and review; `runWithRateLimitCircuit` stays in `github/rateLimitCircuit.ts`.
+
+B7 resolves to propagate. A failed abort check never reads as supersession and
+never authorizes publication, and the existing batch test already required that
+behavior. Evidence: the new `propagates abort-check failures so the durable job
+can retry` case in `test/publishSummaryOnly.test.ts` failed before the change (the
+call resolved `{kind: "stopped", reason: "superseded"}`; 1 failed, 5 passed) and
+passes after (6 passed).
+
+Coverage migration: `orchestratorRun.test.ts` drops the `createFeatureSession`
+module mock (the factory is injected) and gains 27 `nextStep` table cases (21
+routes and 6 terminal rows) in the existing suite. The one deleted case asserted
+`ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS` equals 4, a constant with no behavior.
+`reviewExecutor.test.ts` drops the `sharedRateLimitCircuit` module mock and the
+`createRateLimitCircuit` spy; its metric case trips the real circuit through
+`getActiveRateLimitCircuit`. The `continues review when shared rate-limit circuit
+read fails` case moved to `sharedRateLimitCircuit.test.ts` as
+`openRunRateLimitCircuit continues the run when the shared read fails`, beside two
+new opener cases (hydration, callback and shared publish). The publisher, tool,
+and `ciProjection` integration suites migrated to the session signatures through
+`publishSummaryForTest` in the existing helper file. The `repoPolicy` and
+`agentInstructionFiles` tests are unchanged. No test file is new; the unsafe
+assertion baseline did not grow.
+
+Remaining module mocks in `orchestratorRun.test.ts` (`specialistRun`,
+`publishThreadTool`, `publishSummaryTool`, `stubTick`, `reviewRunFallback`,
+`publishSummaryOnly`, `publishRecordRepository`, `reviewRunSetup`,
+`agentEventSink`) and the executor's `orchestratorRun` mock stand in for I/O that
+needs a database-backed pool and a diff-indexed fake surface to run for real. They
+are a recorded follow-up, not part of this milestone.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

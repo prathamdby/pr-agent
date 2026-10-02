@@ -53,7 +53,7 @@ vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
 }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
+import { publishSummaryForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
@@ -201,7 +201,7 @@ describe("publishReviewSummaryOnly", () => {
       return { ...verdict, close };
     });
 
-    const result = await publishReviewSummaryOnly({
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
         owner: "o",
@@ -238,7 +238,7 @@ describe("publishReviewSummaryOnly", () => {
   it("stops before the summary write when the reviewed head is stale", async () => {
     const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
-    const result = await publishReviewSummaryOnly({
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig(),
       ctx: {
         owner: "o",
@@ -255,6 +255,33 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result).toEqual({ kind: "stopped", reason: "stale_head" });
+    expect(upsertProgressComment).not.toHaveBeenCalled();
+  });
+
+  it("propagates abort-check failures so the durable job can retry", async () => {
+    const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
+    const abortCheckError = new Error("temporary head lookup failure");
+
+    await expect(
+      publishSummaryForTest({
+        cfg: makeTestConfig(),
+        ctx: {
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: "sha",
+          hasDescriptionReviewMap: false,
+        },
+        prSurface: bundle.surface,
+        payload: makeReviewPayload({ size: "XS" }),
+        ledger: createFindingLedger(),
+        shouldAbortPublish: async () => {
+          throw abortCheckError;
+        },
+      }),
+    ).rejects.toBe(abortCheckError);
+
     expect(upsertProgressComment).not.toHaveBeenCalled();
   });
 
@@ -282,7 +309,7 @@ describe("publishReviewSummaryOnly", () => {
       close.mockImplementation((outcome) => verdict.close(outcome));
       return { ...verdict, close };
     });
-    const result = await publishReviewSummaryOnly({
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
       }),
@@ -335,7 +362,7 @@ describe("publishReviewSummaryOnly", () => {
 
       return { ...verdict, close };
     });
-    const result = await publishReviewSummaryOnly({
+    const result = await publishSummaryForTest({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
       }),
@@ -370,7 +397,7 @@ describe("publishReviewSummaryOnly", () => {
     const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
     await expect(
-      publishReviewSummaryOnly({
+      publishSummaryForTest({
         cfg: makeTestConfig(),
         ctx: {
           owner: "o",

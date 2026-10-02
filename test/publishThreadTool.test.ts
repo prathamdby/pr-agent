@@ -5,7 +5,9 @@ import {
   WRONG_PHASE_TOOL_CODE,
 } from "../src/review/orchestrator/phaseToolPolicy.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import { makeTestConfig } from "./helpers/config.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import type { PrSurface } from "../src/github/prSurface.js";
@@ -38,6 +40,25 @@ function finding(line: number): ReviewFinding {
   };
 }
 
+function threadSession(surface: PrSurface, shouldAbortPublish?: () => Promise<boolean>) {
+  return createReviewPublishSession({
+    cfg: makeTestConfig(),
+    ctx: {
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "abc1234",
+      hasDescriptionReviewMap: false,
+    },
+    workItemId: "wi-1",
+    resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
+    prSurface: surface,
+    cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
+    recordPublishStep: vi.fn(async () => undefined),
+    shouldAbortPublish,
+  });
+}
+
 function buildTool(
   shouldAbortPublish?: () => Promise<boolean>,
   publishImpl?: PrSurface["publishThreadBatch"],
@@ -52,19 +73,7 @@ function buildTool(
   );
   const tool = buildPublishThreadTool({
     phaseRef: createOrchestratorPhaseRef("judgment"),
-    ctx: {
-      owner: "o",
-      repo: "r",
-      prNumber: 1,
-      headSha: "abc1234",
-      hasDescriptionReviewMap: false,
-    },
-    workItemId: "wi-1",
-    resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
-    prSurface: surface,
-    cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
-    recordPublishStep: vi.fn(async () => undefined),
-    shouldAbortPublish,
+    session: threadSession(surface, shouldAbortPublish),
     initialLedger: createFindingLedger(),
   });
   return { tool, publishThreadBatch };
@@ -165,18 +174,7 @@ describe("buildPublishThreadTool", () => {
     const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
     const tool = buildPublishThreadTool({
       phaseRef: createOrchestratorPhaseRef("recon"),
-      ctx: {
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        headSha: "abc1234",
-        hasDescriptionReviewMap: false,
-      },
-      workItemId: "wi-1",
-      resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
-      prSurface: surface,
-      cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
-      recordPublishStep: vi.fn(async () => undefined),
+      session: threadSession(surface),
       initialLedger: createFindingLedger(),
     });
 

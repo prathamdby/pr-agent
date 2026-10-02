@@ -13,6 +13,7 @@ import {
   buildPublishSummaryTool,
   createPublishSummaryState,
 } from "../src/review/orchestrator/publishSummaryTool.js";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
 import {
   REVIEW_PUBLISH_SUMMARY_FIELDS,
@@ -23,8 +24,18 @@ import { REVIEW_GATE_PROSE_MAX_CHARS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
-function reviewPrSurface() {
-  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
+function summarySession() {
+  return createReviewPublishSession({
+    cfg: makeTestConfig(),
+    ctx: {
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "abc1234",
+      hasDescriptionReviewMap: false,
+    },
+    prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+  });
 }
 
 vi.mock("../src/review/publish/publishSummaryOnly.js", async (importOriginal) => {
@@ -97,15 +108,7 @@ function buildTool(params: {
 }) {
   return buildPublishSummaryTool({
     phaseRef: createOrchestratorPhaseRef("synthesis"),
-    cfg: makeTestConfig(),
-    ctx: {
-      owner: "o",
-      repo: "r",
-      prNumber: 1,
-      headSha: "abc1234",
-      hasDescriptionReviewMap: false,
-    },
-    prSurface: reviewPrSurface(),
+    session: summarySession(),
     getLedger: params.getLedger,
     getCoverage: params.getCoverage ?? (() => ({ kind: "full" })),
     state: params.state ?? createPublishSummaryState(),
@@ -125,15 +128,7 @@ describe("buildPublishSummaryTool", () => {
     const state = createPublishSummaryState();
     const tool = buildPublishSummaryTool({
       phaseRef: createOrchestratorPhaseRef("judgment"),
-      cfg: makeTestConfig(),
-      ctx: {
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        headSha: "abc1234",
-        hasDescriptionReviewMap: false,
-      },
-      prSurface: reviewPrSurface(),
+      session: summarySession(),
       getLedger: () => createFindingLedger(),
       getCoverage: () => ({ kind: "full" }),
       state,
@@ -176,7 +171,7 @@ describe("buildPublishSummaryTool", () => {
 
     expect(tool.piTool.name).toBe("publish_summary");
     expect(result).toEqual({ ok: true, summaryCommentId: 91 });
-    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0];
+    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[1];
     expect(call?.payload.findings).toEqual([first, second]);
     expect(call?.payload.size).toBe("M");
     expect(call?.payload.followUps).toEqual(["Add a regression test."]);
@@ -203,7 +198,7 @@ describe("buildPublishSummaryTool", () => {
     });
 
     expect(result).toEqual({ ok: true, summaryCommentId: 91 });
-    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0];
+    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[1];
     expect(call?.payload.followUps).toEqual(["Add a regression test."]);
   });
 
@@ -278,7 +273,7 @@ describe("buildPublishSummaryTool", () => {
     const result = await tool.executor(summaryInput());
 
     expect(result).toEqual({ ok: true, summaryCommentId: 91 });
-    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0];
+    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[1];
     expect(call?.payload.findings).toEqual([]);
     expect(call?.ledger.accepted).toEqual([]);
   });
@@ -328,6 +323,6 @@ describe("buildPublishSummaryTool", () => {
 
     await tool.executor(summaryInput());
 
-    expect(vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0].coverage).toEqual(coverage);
+    expect(vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[1].coverage).toEqual(coverage);
   });
 });
