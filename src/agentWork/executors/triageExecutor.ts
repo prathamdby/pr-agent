@@ -1,5 +1,6 @@
 import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
 import { productionInstallationSurface } from "../installationSurface.js";
+import { createPublishContext } from "../publishOnce.js";
 import type { Pool } from "pg";
 
 import type { Config } from "../../config.js";
@@ -26,13 +27,12 @@ import {
 } from "../../agent/triage/triageErrors.js";
 import {
   parseStoredTriagePreviewDetail,
-  parseStoredTriagePushDetail,
+  recoverTriagePublication,
   publishTriage,
   publishTriagePreview,
   publishTriageReportOnly,
   type PublishTriageResult,
   type StoredTriagePreviewDetail,
-  type StoredTriagePushDetail,
 } from "../../agent/triage/publishTriage.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
@@ -46,22 +46,13 @@ import {
   TRIAGE_THREAD_NOT_ELIGIBLE,
   TRIAGE_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
-import {
-  type WritablePrCheckout,
-  withWritablePrCheckout,
-} from "../../prWorkspace/writablePrCheckout.js";
+import { withWritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import {
   buildTriageCommitAttribution,
   gitPersonFromGithubUser,
   type GitPerson,
 } from "../../agent/triage/commitAttribution.js";
-import {
-  getCompletedPublishStepDetail,
-  getCompletedPublishStepDetailWithoutNewerStep,
-  getLatestCompletedPublishStepDetail,
-  hasCompletedPublishStep,
-  listTriageEligibleInlineReviews,
-} from "../repository.js";
+import { listTriageEligibleInlineReviews } from "../repository.js";
 import {
   type DegradationReason,
   type DurableExecutionContext,
@@ -157,39 +148,6 @@ async function resolveScopedThreadRootId(params: {
     });
     return params.anchorCommentId;
   }
-}
-
-function checkoutFromStoredPush(
-  headRef: string,
-  headSha: string,
-  detail: StoredTriagePushDetail,
-): Omit<WritablePrCheckout, "reader"> {
-  return {
-    dir: "",
-    headRef,
-    baseSha: headSha,
-    commit: async () => {
-      throw new AppError({
-        code: "triage.invalid_stored_push",
-        message: "Stored triage push cannot create new commits",
-      });
-    },
-    push: async () => undefined,
-    listCommittedShas: () => detail.commits.map((commit) => commit.sha),
-    listCommittedDetails: () => [...detail.commits],
-  };
-}
-
-function storedPushMatchesInventory(
-  detail: StoredTriagePushDetail,
-  headSha: string,
-  inventory: readonly BotFindingThread[],
-): boolean {
-  if (detail.pushOutcome === "stale" || detail.pushOutcome === "closed") return false;
-  if (detail.pushedHeadSha?.toLowerCase() !== headSha.toLowerCase()) return false;
-  const verdictIds = new Set(detail.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
-  if (verdictIds.size !== inventory.length) return false;
-  return inventory.every((thread) => verdictIds.has(thread.rootCommentId));
 }
 
 function completedFromPublish(publish: PublishTriageResult): TriageExecuteResult {
@@ -379,7 +337,6 @@ async function publishEmptyInventoryReport(params: {
 }
 
 async function tryResumeStoredPush(params: {
-  readonly env: DurableExecutionContext;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
@@ -387,47 +344,14 @@ async function tryResumeStoredPush(params: {
   readonly headSha: string;
   readonly headRef: string;
   readonly inventory: readonly BotFindingThread[];
+  readonly recoveryInventory: readonly BotFindingThread[];
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
   readonly leaseEpoch: number | null;
   readonly signal: AbortSignal;
 }): Promise<TriageExecuteResult | null> {
-  let storedPushDetail = await getCompletedPublishStepDetail(
-    params.pool,
-    params.item.id,
-    params.item.resourceKey,
-    "triage",
-    "triage_push",
-  );
-  if (storedPushDetail == null) {
-    storedPushDetail = await getCompletedPublishStepDetailWithoutNewerStep(
-      params.pool,
-      params.item.resourceKey,
-      "triage",
-      "triage_push",
-      "triage_report",
-    );
-  }
-  if (storedPushDetail == null) return null;
-
-  const parsed = parseStoredTriagePushDetail(storedPushDetail);
-  if (!parsed) {
-    const error = new AppError({
-      code: "triage.invalid_stored_push",
-      message: "Stored triage_push detail is invalid",
-    });
-    throw error;
-  }
-  if (
-    parsed.pushOutcome === "stale" ||
-    !storedPushMatchesInventory(parsed, params.headSha, params.inventory)
-  ) {
-    return null;
-  }
-
-  await ensureTriageNotCancelled(params.env);
-  const publish = await publishTriage({
+  const publish = await recoverTriagePublication({
     pool: params.pool,
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
@@ -437,22 +361,18 @@ async function tryResumeStoredPush(params: {
     repo: params.item.repo,
     prNumber: params.item.prNumber,
     headSha: params.headSha,
-    checkout: checkoutFromStoredPush(params.headRef, params.headSha, parsed),
+    headRef: params.headRef,
     inventory: params.inventory,
+    recoveryInventory: params.recoveryInventory,
     resolutionByRootCommentId: params.resolutionByRootCommentId,
-    payload: parsed.payload,
     previouslyResolvedCount: params.previouslyResolvedCount,
-    priorPush: parsed,
     findingHistoryCfg: params.cfg,
     leaseEpoch: params.leaseEpoch,
     signal: params.signal,
     ...params.reportContext,
   });
-  const result = completedFromPublish(publish);
-  if (result.degradation != null) {
-  } else {
-  }
-  return result;
+  if (publish == null) return null;
+  return completedFromPublish(publish);
 }
 
 /**
@@ -799,12 +719,10 @@ export function createTriageWorkExecution({
         let storedPreview: StoredTriagePreviewDetail | null = null;
         if (mode === "bulk") {
           storedPreview = parseStoredTriagePreviewDetail(
-            await getLatestCompletedPublishStepDetail(
-              pool,
-              item.resourceKey,
-              TRIAGE_PUBLISH_LENS,
-              "triage_preview",
-            ),
+            await createPublishContext(pool, {
+              resourceKey: item.resourceKey,
+              reviewLens: TRIAGE_PUBLISH_LENS,
+            }).latest("triage_preview"),
           );
           if (storedPreview == null) {
             await publishTriageReportOnly({
@@ -877,6 +795,42 @@ export function createTriageWorkExecution({
               })
             : null;
 
+        const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
+        if (
+          await createPublishContext(pool, {
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            reviewLens: "triage",
+          }).completed(doneStep)
+        ) {
+          omitTerminal = true;
+          return { kind: "completed" };
+        }
+
+        await ensureTriageNotCancelled(env);
+
+        const resumeParams = {
+          env,
+          cfg,
+          pool,
+          item,
+          prSurface,
+          headSha,
+          headRef: branch.headRef,
+          inventory: approval?.approvedInventory ?? currentInventory,
+          recoveryInventory: discovered.threads,
+          resolutionByRootCommentId: discovered.resolutionByRootCommentId,
+          previouslyResolvedCount: discovered.previouslyResolvedCount,
+          reportContext: discovered.reportContext,
+          leaseEpoch: env.leaseEpoch,
+          signal: env.signal,
+        };
+
+        if (mode !== "preview") {
+          const resumed = await tryResumeStoredPush(resumeParams);
+          if (resumed != null) return resumed;
+        }
+
         if (currentInventory.length === 0) {
           return publishEmptyInventoryReport({
             env,
@@ -920,35 +874,6 @@ export function createTriageWorkExecution({
             }),
           });
           return { kind: "completed" };
-        }
-
-        const doneStep = mode === "preview" ? "triage_preview" : "triage_report";
-        if (await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", doneStep)) {
-          omitTerminal = true;
-          return { kind: "completed" };
-        }
-
-        await ensureTriageNotCancelled(env);
-
-        const resumeParams = {
-          env,
-          cfg,
-          pool,
-          item,
-          prSurface,
-          headSha,
-          headRef: branch.headRef,
-          inventory: approval?.approvedInventory ?? currentInventory,
-          resolutionByRootCommentId: discovered.resolutionByRootCommentId,
-          previouslyResolvedCount: discovered.previouslyResolvedCount,
-          reportContext: discovered.reportContext,
-          leaseEpoch: env.leaseEpoch,
-          signal: env.signal,
-        };
-
-        if (mode !== "preview") {
-          const resumed = await tryResumeStoredPush(resumeParams);
-          if (resumed != null) return resumed;
         }
 
         switch (mode) {
@@ -1008,7 +933,11 @@ export function createTriageWorkExecution({
     onTerminalFailure: async (item, prSurface) => {
       if (!prSurface) return;
       if (
-        await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", "triage_report")
+        await createPublishContext(pool, {
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reviewLens: "triage",
+        }).completed("triage_report")
       ) {
         return;
       }

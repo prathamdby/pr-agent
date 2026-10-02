@@ -8,8 +8,8 @@ import {
   operationIntentMarker,
   reviewLabelsOperationKey,
   reviewSummaryOperationKey,
-  withOperationIntent,
-} from "../../agentWork/withOperationIntent.js";
+  publishOnce,
+} from "../../agentWork/publishOnce.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../../agentWork/ciProjection.js";
 import { closeOwnVerdict } from "../../agentWork/closeOwnVerdict.js";
 import { summaryCommentVerdictMeta } from "../../agentWork/ownCheckReconcile.js";
@@ -228,7 +228,7 @@ export async function publishReviewSummaryOnly(params: {
   const summaryPromise =
     summaryCoordination == null
       ? runSummaryUpsert()
-      : withOperationIntent<{ readonly id: number; readonly updated: boolean }>({
+      : publishOnce<{ readonly id: number; readonly updated: boolean }>({
           client: summaryCoordination.pool,
           workItemId: summaryCoordination.workItemId,
           operationKey:
@@ -360,7 +360,7 @@ export async function publishReviewSummaryOnly(params: {
         if (summaryCoordination == null) {
           await publishLabels();
         } else {
-          await withOperationIntent<void>({
+          await publishOnce<void>({
             client: summaryCoordination.pool,
             workItemId: summaryCoordination.workItemId,
             operationKey: reviewLabelsOperationKey(summaryCoordination.resourceKey),

@@ -1,5 +1,4 @@
 import type { Pool, PoolClient } from "pg";
-import { AppError } from "../errors/appError.js";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
@@ -29,16 +28,7 @@ import {
   withOwnVerdictClose,
   type SelectedOwnVerdict,
 } from "./publishRecordRepository.js";
-import {
-  mergeOperationIntentDetail,
-  persistOperationIntent,
-  reconcileOperationIntent,
-} from "./operationIntentRepository.js";
-import {
-  reviewCheckOperationKey,
-  throwIfExecutionAborted,
-  withOperationIntent,
-} from "./withOperationIntent.js";
+import { reviewCheckOperationKey, throwIfExecutionAborted, publishOnce } from "./publishOnce.js";
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
@@ -206,9 +196,9 @@ async function createGithubCheckRunOnSurface(
   const operationKey = reviewCheckOperationKey(params.workItemId);
   try {
     throwIfExecutionAborted(params.signal, { workItemId: params.workItemId, operationKey });
-    // The signal stays out of withOperationIntent: its after-mutate check would
+    // The signal stays out of publishOnce: its after-mutate check would
     // drop the stash for a check GitHub already accepted.
-    return await withOperationIntent<GithubCheckRunRef>({
+    return await publishOnce<GithubCheckRunRef>({
       client: pool,
       workItemId: params.workItemId,
       operationKey,
@@ -377,43 +367,12 @@ async function applyReviewCheckRunCompletion(
   let delegated = false;
   let provenNoAcceptance = false;
   try {
-    const parent = await persistOperationIntent(client, {
-      workItemId: params.workItemId,
-      operationKey,
-      mutationKind: "github.review_check_run_close",
-      leaseEpoch: params.leaseEpoch,
-      detail: {
-        resourceKey: params.resourceKey,
-        reviewLens: params.reviewLens,
-        delegationEntered: false,
-      },
-    });
-    if (parent.status === "failed")
-      await mergeOperationIntentDetail(client, {
-        workItemId: params.workItemId,
-        operationKey,
-        leaseEpoch: params.leaseEpoch,
-        detail: { delegationEntered: false, __mutating: false },
-      });
-    if (
-      parent.status === "pending" &&
-      parent.detail.__mutating === true &&
-      parent.detail.delegationEntered === false &&
-      !Object.hasOwn(parent.detail, "__result")
-    ) {
-      await reconcileOperationIntent(client, {
-        workItemId: params.workItemId,
-        operationKey,
-        leaseEpoch: params.leaseEpoch,
-        status: "failed",
-        detail: { __mutating: false },
-      });
-    }
-    await withOperationIntent<void>({
+    await publishOnce<void>({
       client,
       workItemId: params.workItemId,
       operationKey,
       mutationKind: "github.review_check_run_close",
+      delegation: { resourceKey: params.resourceKey, reviewLens: params.reviewLens },
       leaseEpoch: params.leaseEpoch,
       allowsUndefinedResult: true,
       recover: async () => {
@@ -427,18 +386,6 @@ async function applyReviewCheckRunCompletion(
       isKnownNoAcceptanceError: (error) =>
         !delegated || provenNoAcceptance || isKnownNoAcceptanceMutationError(error),
       mutate: async () => {
-        const marked = await mergeOperationIntentDetail(client, {
-          workItemId: params.workItemId,
-          operationKey,
-          leaseEpoch: params.leaseEpoch,
-          detail: { delegationEntered: true },
-        });
-        if (marked == null)
-          throw new AppError({
-            code: "operation_intent.reconcile_no_row",
-            message: "Own verdict delegation marker returned no row",
-            context: { workItemId: params.workItemId },
-          });
         delegated = true;
         try {
           await params.prSurface.finishReviewCheck(output);

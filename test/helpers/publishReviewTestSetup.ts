@@ -119,7 +119,6 @@ export function createAgentWorkRepositoryMock() {
     getProgressCommentRevision: vi.fn(async () => null),
     getProgressStubPostedAtMs: vi.fn(async () => null),
     getSummaryCommentGithubId: vi.fn(async () => null),
-    recordPublishStep: vi.fn(),
   };
 }
 

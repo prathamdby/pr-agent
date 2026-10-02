@@ -21,8 +21,8 @@ import {
 import {
   operationIntentMarker,
   verificationThreadOperationKey,
-  withOperationIntent,
-} from "../../agentWork/withOperationIntent.js";
+  publishOnce,
+} from "../../agentWork/publishOnce.js";
 import {
   safeRecordThreadFindingHistoryOutcome,
   type FindingHistoryOutcome,
@@ -212,7 +212,7 @@ async function withVerificationThreadOperation(
 ): Promise<number | undefined> {
   const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-  return withOperationIntent<number | undefined>({
+  return publishOnce<number | undefined>({
     client: params.pool,
     workItemId: params.workItemId,
     leaseEpoch: params.leaseEpoch,

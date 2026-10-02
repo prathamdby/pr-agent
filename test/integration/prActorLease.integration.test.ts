@@ -1,8 +1,9 @@
+import { createPublishContext } from "../../src/agentWork/publishOnce.js";
 import { DESCRIPTION_PAYLOAD_BASE_EXAMPLE } from "../../src/agent/description/descriptionSchema.js";
 import {
   operationIntentMarker,
   runInOperationIntentFrame,
-} from "../../src/agentWork/withOperationIntent.js";
+} from "../../src/agentWork/publishOnce.js";
 import { createFakePrSurface, withPrSurfaceMutationBoundary } from "../../src/github/prSurface.js";
 import type { PrSurfaceMutation, PrSurfaceMutationBoundary } from "../../src/github/prSurface.js";
 import { recoverPrSurfaceMutation } from "../../src/github/recoverPrSurfaceMutation.js";
@@ -53,7 +54,7 @@ import {
   runDurableWorkItem,
   type DurableJobSpec,
 } from "../../src/agentWork/durableJob.js";
-import { recordPublishStep } from "../../src/agentWork/publishRecordRepository.js";
+
 import { makeTestConfig } from "../helpers/config.js";
 import {
   acquirePrActorLease,
@@ -65,7 +66,7 @@ import {
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
 import type { OperationIntentRow } from "../../src/agentWork/operationIntentRepository.js";
-import { withOperationIntent } from "../../src/agentWork/withOperationIntent.js";
+import { publishOnce } from "../../src/agentWork/publishOnce.js";
 import {
   cancelOrphanedStaleHeadReplacementOnTerminalFailure,
   cancelUnenqueuedStaleHeadReplacement,
@@ -698,13 +699,11 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         (event) => event.kind === "upsertProgressComment",
       );
       expect(published).toHaveLength(1);
-      const stored = await workRepository.getCompletedPublishStepDetail(
-        pool,
+      const stored = await createPublishContext(pool, {
         workItemId,
         resourceKey,
-        "review",
-        "summary_comment",
-      );
+        reviewLens: "review",
+      }).completed("summary_comment");
       expect(stored?.lightweightCompletion).toBe(true);
       if (mode === "ordinary_summary") {
         await pool.query(
@@ -1742,7 +1741,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           event: "COMMENT",
           commitId: "h",
         });
-        await recordPublishStep(pool, {
+        await createPublishContext(pool, {
           workItemId,
           resourceKey: item.resourceKey,
           reviewLens: "review",
@@ -1757,7 +1756,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
             fingerprints: [],
             placements: [],
           },
-        });
+        }).record();
         return { kind: "completed" };
       },
       onCancelled: async (_item, surface) => {
@@ -2960,7 +2959,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       let beforeCatch: IntentSnapshot | undefined;
 
       await expect(
-        withOperationIntent({
+        publishOnce({
           client: pool,
           workItemId,
           operationKey: OPERATION_KEY,
@@ -2998,7 +2997,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
       const recover = vi.fn(async (_intent: OperationIntentRow) => ({ kind: "absent" as const }));
 
       await expect(
-        withOperationIntent({
+        publishOnce({
           client: pool,
           workItemId,
           operationKey: OPERATION_KEY,
@@ -3078,7 +3077,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         );
       }
       const mutate = vi.fn(async () => undefined);
-      const error = await withOperationIntent({
+      const error = await publishOnce({
         client: pool,
         workItemId,
         operationKey,

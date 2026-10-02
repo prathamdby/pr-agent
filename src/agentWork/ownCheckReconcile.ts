@@ -1,8 +1,8 @@
+import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { OwnVerdictOutcome } from "./closeOwnVerdict.js";
-import { getCompletedPublishStepDetail } from "./publishRecordRepository.js";
 
 export type TerminalOwnCheckStatus = "completed" | "failed" | "cancelled" | "superseded";
 
@@ -78,13 +78,11 @@ export async function resolveOwnVerdictForTerminalReview(params: {
     case "superseded":
       return { kind: "superseded" };
     case "completed": {
-      const summary = await getCompletedPublishStepDetail(
-        params.pool,
-        params.workItemId,
-        params.resourceKey,
-        params.reviewLens,
-        "summary_comment",
-      );
+      const summary = await createPublishContext(params.pool, {
+        workItemId: params.workItemId,
+        resourceKey: params.resourceKey,
+        reviewLens: params.reviewLens,
+      }).completed("summary_comment");
       if (summary == null) return { kind: "not_published" };
       return ownVerdictFromSummaryDetail(summary);
     }

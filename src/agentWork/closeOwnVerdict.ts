@@ -21,7 +21,7 @@ import {
   recordOwnVerdictSurfaceApplied,
   withOwnVerdictClose,
 } from "./publishRecordRepository.js";
-import { reviewCommitStatusOperationKey, withOperationIntent } from "./withOperationIntent.js";
+import { reviewCommitStatusOperationKey, publishOnce } from "./publishOnce.js";
 
 export type ReviewCommitStatusState = "pending" | "success" | "failure" | "error";
 
@@ -147,7 +147,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<bool
     targetUrl: params.targetUrl,
   };
   try {
-    await withOperationIntent<void>({
+    await publishOnce<void>({
       client: params.pool,
       workItemId: params.workItemId,
       operationKey: reviewCommitStatusOperationKey(

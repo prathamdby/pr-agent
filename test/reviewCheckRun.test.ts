@@ -1,3 +1,44 @@
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrSurface } from "../src/github/prSurface.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
@@ -18,7 +59,6 @@ vi.mock("../src/evlog.js", () => ({
 vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../src/agentWork/publishRecordRepository.js")>();
-  const { memoryOperationIntentStore } = await import("./setup/operationIntent-memory.js");
   const records = new Map<
     string,
     {
@@ -52,11 +92,20 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
     ),
     hasLegacyOwnVerdictCompletion: vi.fn(async () => false),
     getDelegatedOwnVerdictFinish: vi.fn(async (_client, params) => {
-      const row = memoryOperationIntentStore.findChildByParent(
-        params.workItemId,
-        "github.pr_surface.finishReviewCheck",
-        actual.ownVerdictCloseOperationKey(params),
-      );
+      const intents = await import("../src/agentWork/operationIntentRepository.js");
+      const key = vi
+        .mocked(intents.persistOperationIntent)
+        .mock.calls.toReversed()
+        .find(
+          ([, value]) =>
+            value.workItemId === params.workItemId &&
+            value.mutationKind === "github.pr_surface.finishReviewCheck" &&
+            value.detail?.parentOperationKey === actual.ownVerdictCloseOperationKey(params),
+        )?.[1].operationKey;
+      const row =
+        key == null
+          ? null
+          : await publishStoreState.store.getOperationIntent(_client, params.workItemId, key);
       return row ? { status: row.status, detail: row.detail } : null;
     }),
     resetOwnVerdictRecords: () => records.clear(),

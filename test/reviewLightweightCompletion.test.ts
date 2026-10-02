@@ -1,3 +1,68 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
+vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.js")>()),
+  assertPrActorLeaseHeld: vi.fn(async () => undefined),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.js";
@@ -9,7 +74,6 @@ import { LIGHTWEIGHT_REVIEW_COMPLETION_LEAD } from "../src/settings/index.js";
 vi.mock("../src/agentWork/repository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
   shouldSkipWork: vi.fn(),
-  recordPublishStep: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/review/run/reviewRunMetrics.js", () => ({
@@ -37,21 +101,7 @@ vi.mock("../src/review/publish/summaryCommentUpsert.js", () => ({
   }),
 }));
 
-vi.mock("../src/agentWork/withOperationIntent.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/withOperationIntent.js")>();
-  return {
-    ...actual,
-    withOperationIntent: vi.fn(async (params: { mutate: () => Promise<unknown> }) =>
-      params.mutate(),
-    ),
-  };
-});
-
-import {
-  getSummaryCommentGithubId,
-  recordPublishStep,
-  shouldSkipWork,
-} from "../src/agentWork/repository.js";
+import { getSummaryCommentGithubId, shouldSkipWork } from "../src/agentWork/repository.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentUpsert.js";

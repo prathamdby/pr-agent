@@ -1,8 +1,7 @@
+import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import type { VerificationFailureSurface } from "../review/ci/verificationFailureBlock.js";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
-import { getLatestCompletedPublishStepDetail } from "./publishRecordRepository.js";
-import { recordPublishStep } from "./repository.js";
 
 type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
 
@@ -119,12 +118,10 @@ export async function loadVerificationThreadLedger(
     readonly resourceKey: string;
   },
 ): Promise<VerificationThreadLedger> {
-  const detail = await getLatestCompletedPublishStepDetail(
-    pool,
-    params.resourceKey,
-    VERIFICATION_PUBLISH_LENS,
-    VERIFICATION_THREAD_ACTIONS_STEP,
-  );
+  const detail = await createPublishContext(pool, {
+    resourceKey: params.resourceKey,
+    reviewLens: VERIFICATION_PUBLISH_LENS,
+  }).latest(VERIFICATION_THREAD_ACTIONS_STEP);
   return parseVerificationThreadLedger(detail);
 }
 
@@ -137,7 +134,7 @@ export async function saveVerificationThreadLedger(
     readonly leaseEpoch: number | null;
   },
 ): Promise<void> {
-  await recordPublishStep(pool, {
+  await createPublishContext(pool, {
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
     reviewLens: VERIFICATION_PUBLISH_LENS,
@@ -149,7 +146,7 @@ export async function saveVerificationThreadLedger(
         : {}),
     },
     leaseEpoch: params.leaseEpoch,
-  });
+  }).record();
 }
 
 export function upsertVerificationThreadState(

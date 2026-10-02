@@ -1,3 +1,4 @@
+import { createPublishContext } from "../../src/agentWork/publishOnce.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
@@ -14,12 +15,10 @@ import { acquirePrActorLease, releasePrActorLease } from "../../src/agentWork/pr
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
-  hasCompletedPublishStep,
   markQueuedWorkCancelled,
   markWorkCancelled,
   markWorkCompleted,
   markWorkRetrying,
-  recordAskPublishStep,
   recordReviewCheckRun,
 } from "../../src/agentWork/repository.js";
 import type { WorkStatus } from "../../src/agentWork/types.js";
@@ -538,27 +537,41 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     const first = await insertAskWorkItem(resourceKey);
     const second = await insertAskWorkItem(resourceKey);
 
-    await recordAskPublishStep(pool, {
+    await createPublishContext(pool, {
       workItemId: first,
       leaseEpoch: null,
       resourceKey,
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation" },
-    });
-    await recordAskPublishStep(pool, {
+      reviewLens: "ask",
+    }).record();
+    await createPublishContext(pool, {
       workItemId: second,
       leaseEpoch: null,
       resourceKey,
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation" },
-    });
+      reviewLens: "ask",
+    }).record();
 
-    await expect(
-      hasCompletedPublishStep(pool, first, resourceKey, "ask", "ask_reply"),
-    ).resolves.toBe(true);
-    await expect(
-      hasCompletedPublishStep(pool, second, resourceKey, "ask", "ask_reply"),
-    ).resolves.toBe(true);
+    expect(
+      Boolean(
+        await createPublishContext(pool, {
+          workItemId: first,
+          resourceKey: resourceKey,
+          reviewLens: "ask",
+        }).completed("ask_reply"),
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        await createPublishContext(pool, {
+          workItemId: second,
+          resourceKey: resourceKey,
+          reviewLens: "ask",
+        }).completed("ask_reply"),
+      ),
+    ).toBe(true);
 
     const { rows } = await pool.query<{ work_item_id: string }>(
       `SELECT work_item_id

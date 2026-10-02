@@ -2,7 +2,7 @@ import type { PrResource } from "../agentWork/types.js";
 import type { Config } from "../config.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
-import type { OperationIntentRecovery } from "../agentWork/withOperationIntent.js";
+import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
 import type { ReplyTarget } from "../agentWork/types.js";
 import type { InstallationToken } from "./appAuth.js";
 import type {

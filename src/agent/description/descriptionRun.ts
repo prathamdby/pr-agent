@@ -14,7 +14,7 @@ import {
   MAX_TOOL_ROUNDS_DESCRIBE,
 } from "../../settings/index.js";
 import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.js";
-import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
+import type { OperationIntentContext } from "../../agentWork/publishOnce.js";
 import type { FeatureSessionContext } from "../runtime/createFeatureSession.js";
 
 export type DescriptionRunResult = {

@@ -1,10 +1,51 @@
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as v from "valibot";
 import type { Pool } from "pg";
 import {
   deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
-} from "../src/agentWork/withOperationIntent.js";
+} from "../src/agentWork/publishOnce.js";
 import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   applyFindingLedgerDelta,
@@ -20,7 +61,6 @@ import {
   createTestEvidenceLedger,
   seedEvidenceForFindings,
 } from "./helpers/evidenceTestHelpers.js";
-import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 import {
   createPublishReviewTestHarness,
   type PublishReviewTestHarness,
@@ -711,7 +751,9 @@ describe("publishFindingBatch", () => {
         meta: expect.objectContaining({ batchId: expectedBatchId }),
       }),
     );
-    expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
+    expect(
+      (await publishStoreState.store.getOperationIntent(pool, "wi-1", expectedKey))?.status,
+    ).toBe("reconciled");
 
     harness.publishThreadBatch.mockClear();
     const second = await publishFindingBatch(
@@ -722,7 +764,9 @@ describe("publishFindingBatch", () => {
     );
     expect(second.kind).toBe("published");
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
+    expect(
+      (await publishStoreState.store.getOperationIntent(pool, "wi-1", expectedKey))?.status,
+    ).toBe("reconciled");
   });
 
   it("does not emit a key-only marker without a work-item instance", async () => {
@@ -789,9 +833,12 @@ describe("publishFindingBatch", () => {
       findingFingerprints: [fingerprintFinding(finding, "review")],
     });
     expect(
-      memoryOperationIntentStore.get(
-        "wi-review-unknown",
-        reviewInlineBatchOperationKey(expectedBatchId),
+      (
+        await publishStoreState.store.getOperationIntent(
+          pool,
+          "wi-review-unknown",
+          reviewInlineBatchOperationKey(expectedBatchId),
+        )
       )?.status,
     ).toBe("reconciled");
     expect(recordPublishStep).toHaveBeenCalledWith(
@@ -846,7 +893,9 @@ describe("publishFindingBatch", () => {
       findingFingerprints: [fingerprint],
     });
     const operationKey = reviewInlineBatchOperationKey(batchId);
-    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 1);
+    vi.spyOn(publishStoreState.store, "reconcileOperationIntent").mockRejectedValueOnce(
+      new Error("crash before reconcile"),
+    );
 
     await expect(
       publishFindingBatch(
@@ -863,7 +912,11 @@ describe("publishFindingBatch", () => {
     ).rejects.toThrow("crash before reconcile");
 
     expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
-    const pending = memoryOperationIntentStore.get("wi-crash", operationKey);
+    const pending = await publishStoreState.store.getOperationIntent(
+      pool,
+      "wi-crash",
+      operationKey,
+    );
     expect(pending?.status).toBe("pending");
     expect(pending?.detail.__result).toEqual(
       expect.objectContaining({
@@ -886,6 +939,8 @@ describe("publishFindingBatch", () => {
 
     expect(recovered.kind).toBe("published");
     expect(harness.publishThreadBatch).not.toHaveBeenCalled();
-    expect(memoryOperationIntentStore.get("wi-crash", operationKey)?.status).toBe("reconciled");
+    expect(
+      (await publishStoreState.store.getOperationIntent(pool, "wi-crash", operationKey))?.status,
+    ).toBe("reconciled");
   });
 });

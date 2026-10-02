@@ -71,7 +71,7 @@ import { inTransaction } from "../db/postgres.js";
 import { installationGroupId, isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
-import { withOperationIntent, type WithOperationIntentParams } from "./withOperationIntent.js";
+import { publishOnce, type PublishOnceParams } from "./publishOnce.js";
 import {
   withPrRepositoryView,
   type PreparePrRepositoryViewParams,
@@ -309,7 +309,7 @@ function createLeaseMutationBoundary(params: {
     run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) => {
       await assertNotCancelled(mutation.operationKey);
       let mutationStarted = false;
-      return withOperationIntent<T>({
+      return publishOnce<T>({
         client: params.pool,
         workItemId: params.workItemId,
         operationKey: mutation.operationKey,
@@ -322,7 +322,7 @@ function createLeaseMutationBoundary(params: {
           leaseEpoch: params.leaseEpoch,
           surfaceMutation: true,
         },
-        recover: mutation.recover as WithOperationIntentParams<T>["recover"],
+        recover: mutation.recover as PublishOnceParams<T>["recover"],
         allowsUndefinedResult: mutation.allowsUndefinedResult,
         // The local gate can fail before any request reaches the surface.
         isKnownNoAcceptanceError: (error) =>

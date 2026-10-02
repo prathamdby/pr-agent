@@ -1,4 +1,5 @@
 import { productionInstallationSurface } from "./installationSurface.js";
+import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
@@ -15,11 +16,7 @@ import {
   resolveOwnVerdictForTerminalReview,
   type TerminalOwnCheckStatus,
 } from "./ownCheckReconcile.js";
-import {
-  getCompletedPublishStepDetail,
-  getWorkItemCore,
-  markLostRunningWorkFailed,
-} from "./repository.js";
+import { getWorkItemCore, markLostRunningWorkFailed } from "./repository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
 
 export async function listTerminalReviewsWithOpenOwnChecks(
@@ -69,13 +66,11 @@ async function closeOpenOwnVerdict(params: {
     return;
   }
   if (core.headSha === DEFERRED_HEAD_SHA) return;
-  const checkDetail = await getCompletedPublishStepDetail(
-    params.pool,
-    core.id,
-    core.resourceKey,
-    core.reviewLens,
-    "check_run",
-  );
+  const checkDetail = await createPublishContext(params.pool, {
+    workItemId: core.id,
+    resourceKey: core.resourceKey,
+    reviewLens: core.reviewLens,
+  }).completed("check_run");
   if (!isOwnCheckOpen(checkDetail)) return;
   const installation = await productionInstallationSurface.token(params.cfg, core.installationId);
   const prSurface = await productionInstallationSurface.create({

@@ -1,3 +1,23 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
@@ -45,7 +65,6 @@ vi.mock("../src/agentWork/repository.js", () => ({
     status: "running",
     type: "review",
   })),
-  recordPublishStep: vi.fn(),
   claimSummaryCommentCreation: vi.fn(async () => true),
 }));
 
@@ -78,7 +97,6 @@ import {
   getProgressCommentOwner,
   getReviewQueuePosition,
   getWorkItemCore,
-  recordPublishStep,
 } from "../src/agentWork/repository.js";
 import { closeOwnVerdictsForWorkItems } from "../src/agentWork/closeOwnVerdict.js";
 import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";

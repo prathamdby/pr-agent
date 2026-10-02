@@ -1,6 +1,7 @@
 import type { BotIdentity } from "../../github/appAuth.js";
 import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
 import { productionInstallationSurface } from "../installationSurface.js";
+import { createPublishContext } from "../publishOnce.js";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
@@ -81,12 +82,10 @@ import {
   safeLoadFindingHistoryCandidates,
 } from "../findingHistoryRepository.js";
 import {
-  getCompletedPublishStepDetail,
   loadReviewExecutorPublishContext,
   getProgressCommentOwner,
   getSummaryCommentGithubId,
   getWorkItem,
-  recordPublishStep,
   shouldSkipWork,
   type ReviewExecutorPublishContext,
 } from "../repository.js";
@@ -774,7 +773,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     },
     recordPublishStep: attachSummaryCommentCoordination(
       (step, detail) =>
-        recordPublishStep(pool, {
+        createPublishContext(pool, {
           workItemId: item.id,
           resourceKey: item.resourceKey,
           reviewLens,
@@ -782,7 +781,7 @@ async function runFullReviewAgainstRepositoryView(args: {
           githubId: detail?.githubId,
           detail: detail?.meta,
           leaseEpoch,
-        }),
+        }).record(),
       {
         pool,
         workItemId: item.id,
@@ -930,13 +929,11 @@ async function runClaimedReview(args: {
   }
 
   if (publishContext.publishState.summaryPublished) {
-    const summaryDetail = await getCompletedPublishStepDetail(
-      pool,
-      item.id,
-      item.resourceKey,
-      reviewLens,
-      "summary_comment",
-    );
+    const summaryDetail = await createPublishContext(pool, {
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+      reviewLens: reviewLens,
+    }).completed("summary_comment");
     if (summaryDetail?.lightweightCompletion === true) {
       await closeStoredReviewVerdict({
         pool,
@@ -1108,20 +1105,16 @@ export function createReviewWorkExecution({
       if (!prSurface) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;
-      const summaryDetail = await getCompletedPublishStepDetail(
-        pool,
-        item.id,
-        item.resourceKey,
-        reviewLens,
-        "summary_comment",
-      );
-      const checkDetail = await getCompletedPublishStepDetail(
-        pool,
-        item.id,
-        item.resourceKey,
-        reviewLens,
-        "check_run",
-      );
+      const summaryDetail = await createPublishContext(pool, {
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens: reviewLens,
+      }).completed("summary_comment");
+      const checkDetail = await createPublishContext(pool, {
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens: reviewLens,
+      }).completed("check_run");
       if (summaryDetail != null) {
         if (!isOwnCheckOpen(checkDetail)) return;
         const commentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);

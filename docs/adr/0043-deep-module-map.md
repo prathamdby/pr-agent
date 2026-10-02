@@ -388,6 +388,93 @@ Unsafe source assertions remain 78; no baseline changed.
 The parent still owns merged full-gate, database-integration and disposable-stack
 verification, deslop, and the milestone commit.
 
+## M8 failure modes
+
+Recorded before changing the existing owner tests or production code:
+
+1. Moving parent frames changes a retained child key or input hash.
+2. Shared and ask records lose their distinct uniqueness scopes; progress loses
+   its independent owner gate, or inline batches overwrite retained evidence.
+3. A recovered typed result is replaced by void ledger success, or an unknown
+   mutation is retried without provider-proven nonacceptance.
+4. Ask evidence adoption or verdict delegation bypasses the publication owner.
+5. A stored triage push with a different head or inventory skips fresh work.
+6. Recovery fabricates a checkout, accepts a partial push, or reconstructs
+   intended commits from the remote branch instead of retained evidence.
+7. Cancellation is observed after commit or push rather than before it.
+8. Removing the memory setup drops crash/replay evidence rather than moving it
+   to the existing database owner suite and an injected production fake seam.
+9. Description recovery loses its historical scoped parent/child identities.
+10. An interrupted push reruns the agent and changes the intended commit set.
+    Retain its plan before delegation; only all retained commits on the retained
+    branch/head prove acceptance. A partial or absent remote observation cannot
+    authorize another push.
+11. A cancellation or stolen lease after commit permits push, or one after push
+    permits thread/report publication. Commit and push guards precede their
+    callbacks; recovery also checks cancellation before publication.
+12. Fixture mocks recreate the removed mutation bypass, or a fake completion
+    store disagrees with the Postgres owner, batch, or ask uniqueness contract.
+13. A fake adapter exposes nested mutable objects that Postgres JSON snapshots
+    isolate, or numeric-epoch writes skip the shared fence.
+14. Empty unresolved inventory masks a retained push after its thread actions
+    completed. Recovery must precede empty-inventory completion and retain its
+    original publication inventory rather than admit another attempt.
+15. A safe pre-delegation retry keeps a stale plan while pushing newly created
+    commits. The selected plan must be saved atomically with the in-flight marker
+    only when the existing intent permits delegation.
+16. A landed recovered push is followed by closure, cancellation, or lease loss.
+    The accepted push can be reconciled, but no successful feature completion or
+    thread action may be inferred from the now-invalid write authority.
+17. An interrupted plan is missing its base or original inventory, or names a
+    different durable item base. A matching remote tip cannot repair missing
+    intent evidence; legacy completed records keep their existing reader.
+18. A fresh checkout reuses a stashed void push result from another retained
+    plan and labels its new commits pushed. Cached acceptance must match the
+    selected plan before any completion record or feature output is written.
+
+M8 gives mutation sequencing, completion evidence, ask adoption, and own-verdict
+delegation one publication owner. `PublishStepSpec` selects work/resource scope
+and replace/progress/batch merge policy. The Postgres and in-process adapters
+share snapshot, owner, scope, and numeric-epoch contracts. The old wrappers,
+memory durability setup and its failure/reset hooks, and mutation bypass are deleted.
+
+Triage saves its selected push plan with the in-flight marker before delegation.
+Recovery validates the durable base, branch, tip, complete commit set, and
+original inventory without fabricating a checkout or inferring intended commits
+from GitHub. Partial, absent, mismatched, or incomplete evidence stays fail-closed;
+provider read failures remain transient. Cached acceptance cannot label a
+regenerated checkout successful. Recovery precedes fresh admission and
+empty-inventory completion, including after its thread actions resolved.
+Commit/push guards check durable cancellation, lease, and PR state before their
+callbacks; cancellation or lease loss after acceptance blocks later feature
+publication. Legacy completed records retain their reader.
+
+The M5 scoped historical description identity selection (work item, exact
+parent scope, `publishDescription` method, exact operation marker; ambiguous or
+unprovable rows fail closed) now runs at the start of `publishOnce` through the
+store seam's `findRetainedDescriptionSurfaceIdentity`. The Postgres adapter keeps
+the M5 SQL; the in-process adapter applies the same selection rule to its rows.
+
+The existing database owner suite retains the M0 golden table and now exercises
+both adapters and interrupted-push outcomes. All 22 completion SQL template
+literals and 16 operation-key/batch-hash/marker helper definitions are
+byte-identical. PR-surface child identities and hashes are unchanged. Exact
+`dump-prompt all` comparison remains empty.
+
+The M8 gate passed: 193 unit suites (2,599 tests), 14 dedicated-database
+integration suites (534 tests), and disposable-stack verification (534 tests).
+Verification left `verify-artifacts/2026-10-02T17-00-55-944Z.md`.
+Code, dependency, guard, format, and build checks passed with source/test unsafe
+assertion counts unchanged at 87/0.
+
+Integrated onto M0-M7, the same lane passed 188 unit suites (2,599 tests), 14
+dedicated-database integration suites (544 tests), and the code, dependency,
+guard, format, and build checks with source/test unsafe assertions at 78/0. The
+exact `dump-prompt all` comparison remained byte-identical. Triage keeps the M3
+execution-context cancellation and lease policy for its commit/push guards; the
+publication owner checks the same conditions only inside its own recovery and
+push mutation.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

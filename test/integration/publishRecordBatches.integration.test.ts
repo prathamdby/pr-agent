@@ -3,6 +3,17 @@ import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import type { PrSurfaceMutation } from "../../src/github/prSurface.js";
 import type { DescriptionPayload } from "../../src/agent/description/descriptionSchema.js";
+import {
+  createPublishContext,
+  publishStepSpecs,
+  postgresPublishRecords,
+  postgresPublishStore,
+} from "../../src/agentWork/publishOnce.js";
+import {
+  createFakePublishRecords,
+  createFakePublishStore,
+} from "../../src/agentWork/fakePublishStore.js";
+import { isRecord } from "../../src/util/typeGuards.js";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -17,7 +28,6 @@ import {
   beginWorkAttempt,
   getWorkItem,
   loadReviewExecutorPublishContext,
-  recordPublishStep,
   recordReviewCheckRun,
 } from "../../src/agentWork/repository.js";
 import { retryDispositionFor } from "../../src/agentWork/retryPolicy.js";
@@ -27,9 +37,8 @@ import { prResourceKey } from "../../src/agentWork/types.js";
 import {
   claimSummaryCommentCreation,
   ownVerdictCloseOperationKey,
-  recordAskPublishStep,
-  type PublishStep,
 } from "../../src/agentWork/publishRecordRepository.js";
+import { type PublishStep } from "../../src/agentWork/publishOnce.js";
 import { saveVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
 import { WORKER_CONSUMER_QUEUES, WORKER_DLQ_QUEUES } from "../../src/agentWork/workerHealth.js";
 import * as analytics from "../../src/analytics/index.js";
@@ -60,9 +69,9 @@ import { wrapDescriptionAgentBlock } from "../../src/agent/description/descripti
 import { makeTestConfig } from "../helpers/config.js";
 import {
   runInOperationIntentFrame,
-  withOperationIntent,
+  publishOnce,
   operationIntentMarker,
-  type WithOperationIntentParams,
+  type PublishOnceParams,
   askReplyOperationKey,
   askFailureReplyOperationKey,
   descriptionPrBodyOperationKey,
@@ -78,10 +87,11 @@ import {
   reviewCheckOperationKey,
   reviewCommitStatusOperationKey,
   reviewLabelsOperationKey,
-} from "../../src/agentWork/withOperationIntent.js";
+} from "../../src/agentWork/publishOnce.js";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { hasDatabase, integrationPool } from "./db.js";
+import { publishTriage, recoverTriagePublication } from "../../src/agent/triage/publishTriage.js";
 
 describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () => {
   let pool: Pool;
@@ -98,6 +108,890 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  it.each(["postgres", "fake"] as const)(
+    "keeps completion scopes and batches through %s",
+    async (adapter) => {
+      const workItemId = randomUUID();
+      const resourceKey = `integration/publish-owner-${randomUUID()}#1`;
+      await pool.query(
+        `INSERT INTO agent_work_items
+         (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+       VALUES ($1, 'review', 'slash', 'running', 'o', 'r', 1, 42, 'abc1234', 'review', $2, '{"mode":"review","source":"slash"}')`,
+        [workItemId, resourceKey],
+      );
+      try {
+        const records =
+          adapter === "postgres"
+            ? postgresPublishRecords
+            : createFakePublishRecords(publishStepSpecs);
+        const ctx = createPublishContext(
+          pool,
+          {
+            workItemId,
+            resourceKey,
+            reviewLens: "review",
+            leaseEpoch: null,
+          },
+          records,
+        );
+        await expect(ctx.record({ step: "ask_reply", detail: {} })).rejects.toMatchObject({
+          code: "agent_work.publish_lens_mismatch",
+        });
+        await expect(
+          createPublishContext(
+            pool,
+            {
+              workItemId,
+              resourceKey,
+              reviewLens: "ask",
+              leaseEpoch: null,
+            },
+            records,
+          ).record({ step: "summary_comment", detail: {} }),
+        ).rejects.toMatchObject({ code: "agent_work.publish_lens_mismatch" });
+        expect(await ctx.completed("inline_review")).toBeNull();
+        await ctx.record({
+          step: "inline_review",
+          detail: { batchId: "first", fingerprints: ["one"] },
+        });
+        await ctx.record({
+          step: "inline_review",
+          detail: { batchId: "second", fingerprints: ["two"] },
+        });
+        await ctx.record({
+          step: "inline_review",
+          detail: { batchId: "first", fingerprints: ["one"] },
+        });
+        expect(await ctx.completed("inline_review")).toEqual({
+          batches: [
+            { batchId: "first", fingerprints: ["one"] },
+            { batchId: "second", fingerprints: ["two"] },
+          ],
+        });
+        const snapshot = await ctx.completed("inline_review");
+        if (Array.isArray(snapshot?.batches) && isRecord(snapshot.batches[0]))
+          snapshot.batches[0].batchId = "modified read";
+        expect(await ctx.completed("inline_review")).toMatchObject({
+          batches: [{ batchId: "first" }, { batchId: "second" }],
+        });
+        const incoming = { nested: { saved: true } };
+        await ctx.record({ step: "triage_push", detail: incoming });
+        incoming.nested.saved = false;
+        expect(await ctx.latest("triage_push")).toEqual({ nested: { saved: true } });
+        expect(await ctx.withoutNewer("triage_push", "triage_report")).toEqual({
+          nested: { saved: true },
+        });
+        await ctx.record({ step: "triage_report", detail: { reported: true } });
+        expect(await ctx.withoutNewer("triage_push", "triage_report")).toBeNull();
+        expect(
+          await createPublishContext(
+            pool,
+            {
+              workItemId: randomUUID(),
+              resourceKey,
+              reviewLens: "review",
+            },
+            records,
+          ).completed("inline_review"),
+        ).toBeNull();
+        await ctx.record({ step: "progress_comment", detail: { revision: 0, stubPostedAtMs: 7 } });
+        await ctx.record({ step: "progress_comment", detail: { revision: 1 } });
+        expect(await ctx.completed("progress_comment")).toEqual({ revision: 1, stubPostedAtMs: 7 });
+        const foreignId = randomUUID();
+        await pool.query(
+          `INSERT INTO agent_work_items
+           (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+         VALUES ($1, 'ask', 'slash', 'running', 'o', 'r', 1, 42, 'abc1234', NULL, $2, '{}')`,
+          [foreignId, resourceKey],
+        );
+        try {
+          await expect(
+            createPublishContext(
+              pool,
+              {
+                workItemId: foreignId,
+                resourceKey,
+                reviewLens: "review",
+                leaseEpoch: null,
+              },
+              records,
+            ).record({ step: "progress_comment", detail: { revision: 2 } }),
+          ).rejects.toMatchObject({ code: "agent_work.progress_comment_ownership_conflict" });
+          const firstAsk = createPublishContext(
+            pool,
+            { workItemId, resourceKey, reviewLens: "ask", leaseEpoch: null },
+            records,
+          );
+          const secondAsk = createPublishContext(
+            pool,
+            { workItemId: foreignId, resourceKey, reviewLens: "ask", leaseEpoch: null },
+            records,
+          );
+          await firstAsk.record({ step: "ask_reply", detail: { reply: "first" } });
+          await secondAsk.record({ step: "ask_reply", detail: { reply: "second" } });
+          expect(await firstAsk.completed("ask_reply")).toEqual({ reply: "first" });
+          expect(await secondAsk.completed("ask_reply")).toEqual({ reply: "second" });
+        } finally {
+          await pool.query("DELETE FROM agent_work_items WHERE id = $1", [foreignId]);
+        }
+        await acquirePrActorLease(pool, {
+          resourceKey,
+          workType: "review",
+          workItemId,
+          holderId: "m8-adapter",
+          ttlSeconds: 120,
+        });
+        const leased = createPublishContext(
+          pool,
+          { workItemId, resourceKey, reviewLens: "review", leaseEpoch: 1 },
+          records,
+        );
+        await leased.record({ step: "summary_comment", detail: { version: 1 } });
+        await pool.query(
+          "UPDATE pr_actor_leases SET holder_id = NULL, work_item_id = NULL WHERE resource_key = $1",
+          [resourceKey],
+        );
+        await expect(
+          leased.record({ step: "summary_comment", detail: { version: 2 } }),
+        ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+        expect(await ctx.completed("summary_comment")).toEqual({ version: 1 });
+      } finally {
+        await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      }
+    },
+  );
+
+  it.each(["postgres", "fake"] as const)(
+    "retains isolated intent snapshots and fences transitions through %s",
+    async (adapter) => {
+      const workItemId = randomUUID();
+      const resourceKey = `integration/intent-adapter-${randomUUID()}#1`;
+      await pool.query(
+        `INSERT INTO agent_work_items
+         (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+       VALUES ($1, 'review', 'slash', 'running', 'o', 'r', 1, 42, 'abc1234', 'review', $2, '{}')`,
+        [workItemId, resourceKey],
+      );
+      const store = adapter === "postgres" ? postgresPublishStore : createFakePublishStore();
+      const operationKey = `adapter:${resourceKey}`;
+      const detail = { nested: { kept: true } };
+      try {
+        await acquirePrActorLease(pool, {
+          resourceKey,
+          workType: "review",
+          workItemId,
+          holderId: "m8-intent-adapter",
+          ttlSeconds: 120,
+        });
+        const first = await store.persistOperationIntent(pool, {
+          workItemId,
+          operationKey,
+          mutationKind: "github.test",
+          leaseEpoch: 1,
+          detail,
+        });
+        detail.nested.kept = false;
+        expect(await store.getOperationIntent(pool, workItemId, operationKey)).toMatchObject({
+          detail: { nested: { kept: true } },
+        });
+        const snapshot = await store.getOperationIntent(pool, workItemId, operationKey);
+        if (isRecord(snapshot?.detail.nested)) snapshot.detail.nested.kept = false;
+        expect(await store.getOperationIntent(pool, workItemId, operationKey)).toMatchObject({
+          detail: { nested: { kept: true } },
+        });
+        const conflict = await store.persistOperationIntent(pool, {
+          workItemId,
+          operationKey,
+          mutationKind: "github.other",
+          leaseEpoch: 1,
+          detail: { wrong: true },
+        });
+        expect(conflict).toMatchObject({
+          id: first.id,
+          mutationKind: "github.test",
+          detail: { nested: { kept: true } },
+        });
+        await store.reconcileOperationIntent(pool, {
+          workItemId,
+          operationKey,
+          status: "failed",
+          leaseEpoch: 1,
+        });
+        await store.mergeOperationIntentDetail(pool, {
+          workItemId,
+          operationKey,
+          leaseEpoch: 1,
+          detail: { __mutating: true },
+        });
+        expect(await store.listPendingOperationIntents(pool, workItemId)).toMatchObject([
+          { operationKey, status: "pending", detail: { __mutating: true } },
+        ]);
+        await pool.query(
+          "UPDATE pr_actor_leases SET holder_id = NULL, work_item_id = NULL WHERE resource_key = $1",
+          [resourceKey],
+        );
+        await expect(
+          store.persistOperationIntent(pool, {
+            workItemId,
+            operationKey,
+            mutationKind: "github.test",
+            leaseEpoch: 1,
+          }),
+        ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+        await expect(
+          store.mergeOperationIntentDetail(pool, {
+            workItemId,
+            operationKey,
+            leaseEpoch: 1,
+            detail: { changed: true },
+          }),
+        ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+        await expect(
+          store.reconcileOperationIntent(pool, {
+            workItemId,
+            operationKey,
+            status: "reconciled",
+            leaseEpoch: 1,
+          }),
+        ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
+        expect(await store.getOperationIntent(pool, workItemId, operationKey)).toMatchObject({
+          status: "pending",
+          detail: { __mutating: true },
+        });
+        await store.reconcileOperationIntent(pool, {
+          workItemId,
+          operationKey,
+          status: "outcome_unknown",
+          leaseEpoch: null,
+        });
+        expect(
+          await store.mergeOperationIntentDetail(pool, {
+            workItemId,
+            operationKey,
+            detail: { changed: true },
+          }),
+        ).toBeNull();
+      } finally {
+        await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      }
+    },
+  );
+
+  it.each([
+    "accepted",
+    "partial",
+    "wrong branch",
+    "wrong inventory",
+    "wrong remote branch",
+    "wrong remote tip",
+    "missing plan",
+    "incomplete plan",
+    "wrong retained base",
+    "wrong retained inventory",
+    "observation outage",
+    "closed after acceptance",
+    "cancel during evidence",
+  ] as const)(
+    "recovers interrupted triage from retained pre-push evidence: %s",
+    async (scenario) => {
+      const workItemId = randomUUID();
+      const resourceKey = `integration/triage-interrupted-${randomUUID()}#1`;
+      const baseHeadSha = "a".repeat(40);
+      const firstSha = "b".repeat(40);
+      const pushedHeadSha = "c".repeat(40);
+      const commits = [
+        { sha: firstSha, subject: "fix: first", diff: "+first\n" },
+        { sha: pushedHeadSha, subject: "fix: second", diff: "+second\n" },
+      ];
+      const payload = {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: pushedHeadSha, evidence: "fixed" },
+        ],
+      };
+      await pool.query(
+        `INSERT INTO agent_work_items
+           (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+         VALUES ($1, 'triage', 'slash', 'running', 'o', 'r', 1, 42, $3, NULL, $2, '{}')`,
+        [workItemId, resourceKey, baseHeadSha],
+      );
+      const operationKey = triagePushOperationKey(resourceKey);
+      const pushPlan = {
+        pushOutcome: "pushed",
+        baseHeadSha:
+          scenario === "incomplete plan"
+            ? undefined
+            : scenario === "wrong retained base"
+              ? "d".repeat(40)
+              : baseHeadSha,
+        headRef: "branch",
+        pushedHeadSha,
+        pushedShas: [firstSha, pushedHeadSha],
+        commits,
+        payload,
+        threadRootCommentIds: scenario === "wrong retained inventory" ? [2] : [1],
+      };
+      const fake = createFakePrSurface(
+        { owner: "o", repo: "r", prNumber: 1 },
+        { headSha: pushedHeadSha },
+      );
+      if (scenario === "wrong remote branch")
+        fake.controls.setPullRequestBranchInfo({ headRef: "other", sameRepo: true });
+      if (scenario === "wrong remote tip") fake.controls.setHeadSha(firstSha);
+      if (scenario === "closed after acceptance")
+        fake.controls.setPullRequest({
+          additions: 1,
+          deletions: 0,
+          title: "",
+          body: null,
+          changed_files: 1,
+          state: "closed",
+          merged: false,
+          merged_at: null,
+          head: { sha: pushedHeadSha },
+        });
+      fake.controls.setPushedCommits(
+        (scenario === "partial" ? commits.slice(0, 1) : commits).map((commit) => ({
+          sha: commit.sha,
+          subject: commit.subject,
+        })),
+      );
+      const gitAuth = vi.spyOn(fake.surface, "gitCredentialAuth");
+      try {
+        await intentRepository.persistOperationIntent(pool, {
+          workItemId,
+          operationKey,
+          mutationKind: "github.triage_push",
+          detail: {
+            step: "triage_push",
+            resourceKey,
+            reviewLens: "triage",
+            ...(scenario !== "missing plan" ? { pushPlan } : {}),
+            __mutating: true,
+          },
+        });
+        if (scenario === "observation outage")
+          vi.spyOn(fake.surface, "listPushedCommits").mockRejectedValue(
+            new Error("temporary provider read failure"),
+          );
+        if (scenario === "cancel during evidence")
+          vi.spyOn(fake.surface, "listPushedCommits").mockImplementation(async () => {
+            await pool.query(
+              "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
+              [workItemId],
+            );
+            return commits;
+          });
+        const recovery = () =>
+          recoverTriagePublication({
+            pool,
+            workItemId,
+            resourceKey,
+            installationId: 42,
+            prSurface: fake.surface,
+            owner: "o",
+            repo: "r",
+            prNumber: 1,
+            headSha: pushedHeadSha,
+            headRef: scenario === "wrong branch" ? "other" : "branch",
+            inventory: [
+              {
+                rootCommentId: scenario === "wrong inventory" ? 2 : 1,
+                lens: "review",
+                path: "src/app.ts",
+                line: 1,
+                severity: "P1",
+                titleSnippet: "Bug",
+                humanReplies: [],
+                threadUrl: "https://github.test/thread",
+              },
+            ],
+            resolutionByRootCommentId: new Map(),
+            previouslyResolvedCount: 0,
+            leaseEpoch: null,
+          });
+        if (scenario === "accepted" || scenario === "closed after acceptance") {
+          expect(await recovery()).toMatchObject({
+            pushOutcome: scenario === "accepted" ? "pushed" : "closed",
+          });
+          const record = await createPublishContext(pool, {
+            workItemId,
+            resourceKey,
+            reviewLens: "triage",
+          }).completed("triage_push");
+          expect(record).toMatchObject(
+            scenario === "accepted"
+              ? pushPlan
+              : { pushOutcome: "closed", attemptedShas: pushPlan.pushedShas },
+          );
+          const report = fake.controls.getProgressComment("## PR Agent Triage")?.body;
+          if (scenario === "accepted") {
+            expect(report).toContain(firstSha.slice(0, 7));
+            expect(report).toContain(pushedHeadSha.slice(0, 7));
+          } else {
+            expect(report).toContain("closed or merged");
+            expect(report).not.toContain("Pushed commits:");
+            expect(
+              fake.controls.events.filter(
+                (event) => event.kind === "replyAt" || event.kind === "resolveInlineReviewThread",
+              ),
+            ).toHaveLength(0);
+          }
+        } else {
+          await expect(recovery()).rejects.toMatchObject({
+            code:
+              scenario === "cancel during evidence"
+                ? "triage.cancelled"
+                : scenario === "observation outage"
+                  ? "operation_intent.recovery_failed"
+                  : "operation_intent.mutation_outcome_unknown",
+          });
+          expect(
+            await createPublishContext(pool, {
+              workItemId,
+              resourceKey,
+              reviewLens: "triage",
+            }).completed("triage_push"),
+          ).toBeNull();
+          expect(
+            fake.controls.events.filter(
+              (event) =>
+                event.kind === "upsertProgressComment" ||
+                event.kind === "replyAt" ||
+                event.kind === "resolveInlineReviewThread",
+            ),
+          ).toHaveLength(0);
+          if (scenario !== "observation outage" && scenario !== "cancel during evidence") {
+            const intent = await intentRepository.getOperationIntent(
+              pool,
+              workItemId,
+              operationKey,
+            );
+            expect(intent).toMatchObject({
+              status: "outcome_unknown",
+              detail: { unknownResolution: "terminal" },
+            });
+            await expect(recovery()).rejects.toMatchObject({
+              code: "operation_intent.mutation_outcome_unknown",
+            });
+          }
+        }
+        expect(gitAuth).not.toHaveBeenCalled();
+      } finally {
+        vi.restoreAllMocks();
+        await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      }
+    },
+  );
+
+  it.each(["cancel before push", "cancel during push", "lease lost during push"] as const)(
+    "blocks feature publication across %s",
+    async (scenario) => {
+      const workItemId = randomUUID();
+      const resourceKey = `integration/triage-cancel-${randomUUID()}#1`;
+      const headSha = "a".repeat(40);
+      const commitSha = "b".repeat(40);
+      await pool.query(
+        `INSERT INTO agent_work_items
+           (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+         VALUES ($1, 'triage', 'slash', 'running', 'o', 'r', 1, 42, $3, NULL, $2, '{}')`,
+        [workItemId, resourceKey, headSha],
+      );
+      await acquirePrActorLease(pool, {
+        resourceKey,
+        workType: "triage",
+        workItemId,
+        holderId: "m8-test",
+        ttlSeconds: 120,
+      });
+      const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { headSha });
+      const push = vi.fn(async () => {
+        if (scenario === "cancel during push")
+          await pool.query(
+            "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
+            [workItemId],
+          );
+        if (scenario === "lease lost during push")
+          await pool.query(
+            "UPDATE pr_actor_leases SET holder_id = NULL, work_item_id = NULL WHERE resource_key = $1",
+            [resourceKey],
+          );
+      });
+      try {
+        if (scenario === "cancel before push")
+          await pool.query(
+            "UPDATE agent_work_items SET cancel_requested_at = now() WHERE id = $1",
+            [workItemId],
+          );
+        await expect(
+          publishTriage({
+            pool,
+            workItemId,
+            resourceKey,
+            installationId: 42,
+            prSurface: fake.surface,
+            owner: "o",
+            repo: "r",
+            prNumber: 1,
+            headSha,
+            checkout: {
+              headRef: "branch",
+              push,
+              listCommittedShas: () => [commitSha],
+              listCommittedDetails: () => [
+                { sha: commitSha, subject: "fix: issue", diff: "+fixed\n" },
+              ],
+            },
+            inventory: [
+              {
+                rootCommentId: 1,
+                lens: "review",
+                path: "src/app.ts",
+                line: 1,
+                severity: "P1",
+                titleSnippet: "Bug",
+                humanReplies: [],
+                threadUrl: "https://github.test/thread",
+              },
+            ],
+            resolutionByRootCommentId: new Map(),
+            payload: {
+              verdicts: [
+                { verdict: "fixed", threadRootCommentId: 1, commitSha, evidence: "fixed" },
+              ],
+            },
+            previouslyResolvedCount: 0,
+            leaseEpoch: 1,
+          }),
+        ).rejects.toMatchObject({
+          code:
+            scenario === "lease lost during push"
+              ? "agent_work.pr_actor_lease_lost"
+              : "triage.cancelled",
+        });
+        expect(push).toHaveBeenCalledTimes(scenario === "cancel before push" ? 0 : 1);
+        expect(
+          await createPublishContext(pool, {
+            workItemId,
+            resourceKey,
+            reviewLens: "triage",
+          }).completed("triage_push"),
+        ).toBeNull();
+        expect(
+          fake.controls.events.filter(
+            (event) =>
+              event.kind === "upsertProgressComment" ||
+              event.kind === "replyAt" ||
+              event.kind === "resolveInlineReviewThread",
+          ),
+        ).toHaveLength(0);
+      } finally {
+        await pool.query("DELETE FROM pr_actor_leases WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      }
+    },
+  );
+
+  it("refuses to label a regenerated checkout pushed from another plan's stashed result", async () => {
+    const workItemId = randomUUID();
+    const resourceKey = `integration/triage-cached-plan-${randomUUID()}#1`;
+    const headSha = "a".repeat(40);
+    const selectedSha = "b".repeat(40);
+    const acceptedSha = "c".repeat(40);
+    const operationKey = triagePushOperationKey(resourceKey);
+    const fake = createFakePrSurface(
+      { owner: "o", repo: "r", prNumber: 1 },
+      { headSha: acceptedSha },
+    );
+    const push = vi.fn(async () => undefined);
+    await pool.query(
+      `INSERT INTO agent_work_items
+         (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+       VALUES ($1, 'triage', 'slash', 'running', 'o', 'r', 1, 42, $3, NULL, $2, '{}')`,
+      [workItemId, resourceKey, headSha],
+    );
+    try {
+      await intentRepository.persistOperationIntent(pool, {
+        workItemId,
+        operationKey,
+        mutationKind: "github.triage_push",
+        detail: {
+          pushPlan: {
+            pushOutcome: "pushed",
+            baseHeadSha: headSha,
+            headRef: "branch",
+            pushedHeadSha: acceptedSha,
+            pushedShas: [acceptedSha],
+            commits: [{ sha: acceptedSha, subject: "fix: accepted", diff: "+old\n" }],
+            payload: {
+              verdicts: [
+                {
+                  verdict: "fixed",
+                  threadRootCommentId: 1,
+                  commitSha: acceptedSha,
+                  evidence: "old",
+                },
+              ],
+            },
+            threadRootCommentIds: [1],
+          },
+        },
+      });
+      await intentRepository.reconcileOperationIntent(pool, {
+        workItemId,
+        operationKey,
+        status: "reconciled",
+        detail: { __result: null },
+      });
+      await expect(
+        publishTriage({
+          pool,
+          workItemId,
+          resourceKey,
+          installationId: 42,
+          prSurface: fake.surface,
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha,
+          checkout: {
+            headRef: "branch",
+            push,
+            listCommittedShas: () => [selectedSha],
+            listCommittedDetails: () => [{ sha: selectedSha, subject: "fix: new", diff: "+new\n" }],
+          },
+          inventory: [
+            {
+              rootCommentId: 1,
+              lens: "review",
+              path: "src/app.ts",
+              line: 1,
+              severity: "P1",
+              titleSnippet: "Bug",
+              humanReplies: [],
+              threadUrl: "https://github.test/thread",
+            },
+          ],
+          resolutionByRootCommentId: new Map(),
+          payload: {
+            verdicts: [
+              { verdict: "fixed", threadRootCommentId: 1, commitSha: selectedSha, evidence: "new" },
+            ],
+          },
+          previouslyResolvedCount: 0,
+          leaseEpoch: null,
+        }),
+      ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+      expect(push).not.toHaveBeenCalled();
+      expect(
+        await createPublishContext(pool, {
+          workItemId,
+          resourceKey,
+          reviewLens: "triage",
+        }).completed("triage_push"),
+      ).toBeNull();
+      expect(fake.controls.getProgressComment("## PR Agent Triage")).toBeNull();
+    } finally {
+      await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+      await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+    }
+  });
+
+  it("retains the selected retry plan before delegation and recovers it without another push", async () => {
+    const workItemId = randomUUID();
+    const resourceKey = `integration/triage-rearmed-${randomUUID()}#1`;
+    const headSha = "a".repeat(40);
+    const commitSha = "b".repeat(40);
+    const operationKey = triagePushOperationKey(resourceKey);
+    const payload = {
+      verdicts: [
+        { verdict: "fixed" as const, threadRootCommentId: 1, commitSha, evidence: "fixed" },
+      ],
+    };
+    const commits = [{ sha: commitSha, subject: "fix: selected retry", diff: "+fixed\n" }];
+    const inventory = [
+      {
+        rootCommentId: 1,
+        lens: "review" as const,
+        path: "src/app.ts",
+        line: 1,
+        severity: "P1" as const,
+        titleSnippet: "Bug",
+        humanReplies: [],
+        threadUrl: "https://github.test/thread",
+      },
+    ];
+    const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { headSha });
+    await pool.query(
+      `INSERT INTO agent_work_items
+         (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+       VALUES ($1, 'triage', 'slash', 'running', 'o', 'r', 1, 42, $3, NULL, $2, '{}')`,
+      [workItemId, resourceKey, headSha],
+    );
+    let delegated: intentRepository.OperationIntentRow | null = null;
+    const push = vi.fn(async () => {
+      delegated = await intentRepository.getOperationIntent(pool, workItemId, operationKey);
+      throw new Error("Provider connection interrupted");
+    });
+    try {
+      await intentRepository.persistOperationIntent(pool, {
+        workItemId,
+        operationKey,
+        mutationKind: "github.triage_push",
+        detail: { pushPlan: { pushedHeadSha: "c".repeat(40) }, __mutating: false },
+      });
+      await expect(
+        publishTriage({
+          pool,
+          workItemId,
+          resourceKey,
+          installationId: 42,
+          prSurface: fake.surface,
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha,
+          checkout: {
+            headRef: "branch",
+            push,
+            listCommittedShas: () => [commitSha],
+            listCommittedDetails: () => commits,
+          },
+          inventory,
+          resolutionByRootCommentId: new Map(),
+          payload,
+          previouslyResolvedCount: 0,
+          leaseEpoch: null,
+        }),
+      ).rejects.toThrow("Provider connection interrupted");
+      expect(delegated).toMatchObject({
+        detail: {
+          __mutating: true,
+          pushPlan: {
+            baseHeadSha: headSha,
+            headRef: "branch",
+            pushedHeadSha: commitSha,
+            pushedShas: [commitSha],
+            commits,
+            payload,
+            threadRootCommentIds: [1],
+          },
+        },
+      });
+      fake.controls.setHeadSha(commitSha);
+      fake.controls.setPushedCommits(commits);
+      expect(
+        await recoverTriagePublication({
+          pool,
+          workItemId,
+          resourceKey,
+          installationId: 42,
+          prSurface: fake.surface,
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: commitSha,
+          headRef: "branch",
+          inventory,
+          resolutionByRootCommentId: new Map(),
+          previouslyResolvedCount: 0,
+          leaseEpoch: null,
+        }),
+      ).toMatchObject({ pushOutcome: "pushed" });
+      expect(push).toHaveBeenCalledTimes(1);
+      expect(fake.controls.getProgressComment("## PR Agent Triage")?.body).toContain(
+        commitSha.slice(0, 7),
+      );
+    } finally {
+      await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+      await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+    }
+  });
+
+  it.each(["head", "inventory", "partial", "branch"] as const)(
+    "refuses mismatched retained triage evidence: %s",
+    async (mismatch) => {
+      const workItemId = randomUUID();
+      const resourceKey = `integration/triage-owner-${randomUUID()}#1`;
+      const headSha = "b".repeat(40);
+      await pool.query(
+        `INSERT INTO agent_work_items
+           (id, type, source, status, owner, repo, pr_number, installation_id, head_sha, review_lens, resource_key, payload)
+         VALUES ($1, 'triage', 'slash', 'running', 'o', 'r', 1, 42, $3, NULL, $2, '{}')`,
+        [workItemId, resourceKey, headSha],
+      );
+      const fake = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+      try {
+        await createPublishContext(pool, {
+          workItemId,
+          resourceKey,
+          reviewLens: "triage",
+          leaseEpoch: null,
+        }).record({
+          step: "triage_push",
+          detail: {
+            pushOutcome: "pushed",
+            baseHeadSha: "a".repeat(40),
+            headRef: mismatch === "branch" ? "another-branch" : "main",
+            pushedHeadSha: mismatch === "head" ? "c".repeat(40) : headSha,
+            pushedShas: mismatch === "partial" ? [] : [headSha],
+            commits: [{ sha: headSha, subject: "fix: issue", diff: "+fixed\n" }],
+            payload: {
+              verdicts: [
+                {
+                  verdict: "fixed",
+                  threadRootCommentId: 1,
+                  commitSha: headSha,
+                  evidence: "fixed",
+                },
+              ],
+            },
+          },
+        });
+        expect(
+          await recoverTriagePublication({
+            pool,
+            workItemId,
+            resourceKey,
+            installationId: 42,
+            prSurface: fake.surface,
+            owner: "o",
+            repo: "r",
+            prNumber: 1,
+            headSha,
+            headRef: "main",
+            inventory:
+              mismatch === "inventory"
+                ? []
+                : [
+                    {
+                      rootCommentId: 1,
+                      lens: "review",
+                      path: "src/app.ts",
+                      line: 1,
+                      severity: "P1",
+                      titleSnippet: "Bug",
+                      humanReplies: [],
+                      threadUrl: "https://github.test/thread",
+                    },
+                  ],
+            resolutionByRootCommentId: new Map(),
+            previouslyResolvedCount: 0,
+            leaseEpoch: null,
+          }),
+        ).toBeNull();
+        expect(fake.controls.events).toHaveLength(0);
+      } finally {
+        await pool.query("DELETE FROM publish_records WHERE resource_key = $1", [resourceKey]);
+        await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
+      }
+    },
+  );
 
   it("keeps the golden operation, marker, queue, and telemetry wire identities", () => {
     const resourceKey = prResourceKey("golden", "repo", 7);
@@ -408,7 +1302,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
             mutationBoundary: {
               signal: new AbortController().signal,
               run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
-                withOperationIntent<T>({
+                publishOnce<T>({
                   client: pool,
                   workItemId,
                   operationKey: mutation.operationKey,
@@ -510,7 +1404,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
             mutationBoundary: {
               signal: new AbortController().signal,
               run: <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>) =>
-                withOperationIntent<T>({
+                publishOnce<T>({
                   client: pool,
                   workItemId,
                   operationKey: mutation.operationKey,
@@ -564,7 +1458,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           mutationBoundary: {
             signal: new AbortController().signal,
             run: (mutation, mutate) =>
-              withOperationIntent({
+              publishOnce({
                 client: pool,
                 workItemId,
                 operationKey: mutation.operationKey,
@@ -671,7 +1565,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         ["verification", "verification_failure"],
       ] as const satisfies readonly (readonly [string, PublishStep])[];
       for (const [reviewLens, step] of steps) {
-        await recordPublishStep(pool, {
+        await createPublishContext(pool, {
           workItemId,
           resourceKey,
           reviewLens,
@@ -679,7 +1573,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           leaseEpoch: null,
           githubId: 70,
           detail: { golden: true },
-        });
+        }).record();
       }
       await claimSummaryCommentCreation(pool, workItemId, resourceKey, "review", null);
       await recordReviewCheckRun(pool, {
@@ -689,13 +1583,14 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         githubId: 70,
         leaseEpoch: null,
       });
-      await recordAskPublishStep(pool, {
+      await createPublishContext(pool, {
         workItemId,
         resourceKey,
         step: "ask_reply",
         githubId: 70,
         leaseEpoch: null,
-      });
+        reviewLens: "ask",
+      }).record();
       await saveVerificationThreadLedger(pool, {
         workItemId,
         resourceKey,
@@ -749,13 +1644,13 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           mutationBoundary: {
             signal: new AbortController().signal,
             run: (mutation, mutate) =>
-              withOperationIntent({
+              publishOnce({
                 client: pool,
                 workItemId,
                 operationKey: mutation.operationKey,
                 mutationKind: mutation.mutationKind,
                 detail: mutation.detail,
-                recover: mutation.recover as WithOperationIntentParams<
+                recover: mutation.recover as PublishOnceParams<
                   Awaited<ReturnType<typeof mutate>>
                 >["recover"],
                 allowsUndefinedResult: mutation.allowsUndefinedResult,
@@ -816,7 +1711,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         placements: [],
       };
       const write = (detail: typeof firstBatch) =>
-        recordPublishStep(pool, {
+        createPublishContext(pool, {
           workItemId,
           leaseEpoch: null,
           resourceKey,
@@ -824,12 +1719,12 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           step: "inline_review",
           githubId: detail.reviewId,
           detail,
-        });
+        }).record();
 
       await write(firstBatch);
       await write(firstBatch);
       await write(secondBatch);
-      await recordPublishStep(pool, {
+      await createPublishContext(pool, {
         workItemId,
         leaseEpoch: null,
         resourceKey,
@@ -837,7 +1732,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         step: "inline_review",
         githubId: 40,
         detail: { fingerprints: ["fp-legacy"] },
-      });
+      }).record();
 
       const result = await pool.query<{ github_id: string; detail: { batches: unknown[] } }>(
         `SELECT github_id, detail
@@ -949,7 +1844,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           recover: (intent: intentRepository.OperationIntentRow) =>
             recoverPrSurfaceMutation<typeof check>(recoverySurface, intent),
         };
-        const failure = await withOperationIntent(params).catch((error: unknown) => error);
+        const failure = await publishOnce(params).catch((error: unknown) => error);
         expect(failure).toMatchObject({
           code: "operation_intent.recovery_failed",
           cause: { code: "github.review_check_lookup_incomplete" },
@@ -962,7 +1857,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         expect(mutate).toHaveBeenCalledTimes(1);
 
         incomplete = false;
-        expect(await withOperationIntent(params)).toEqual(check);
+        expect(await publishOnce(params)).toEqual(check);
         await recordReviewCheckRun(pool, {
           workItemId,
           resourceKey,
@@ -977,7 +1872,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         });
         const reads = list.mock.calls.length;
         const effects = controls.events.length;
-        expect(await withOperationIntent(params)).toEqual(check);
+        expect(await publishOnce(params)).toEqual(check);
         expect(list).toHaveBeenCalledTimes(reads);
         expect(controls.events).toHaveLength(effects);
         expect(mutate).toHaveBeenCalledTimes(1);
@@ -1114,7 +2009,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       });
       if (method === "published summary") {
         controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "Published review", 70);
-        await recordPublishStep(pool, {
+        await createPublishContext(pool, {
           workItemId,
           resourceKey,
           reviewLens: "review",
@@ -1122,7 +2017,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           githubId: 70,
           leaseEpoch: null,
           detail: { findings: [] },
-        });
+        }).record();
       }
       const originalNotice = controls.getProgressComment(REVIEW_SUMMARY_SENTINEL)?.body;
       const merge = intentRepository.mergeOperationIntentDetail;
@@ -1173,7 +2068,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           const fenced = withPrSurfaceMutationBoundary(surface, {
             signal: job.signal,
             run: (mutation, mutate) =>
-              withOperationIntent({
+              publishOnce({
                 client: pool,
                 workItemId,
                 leaseEpoch: 1,
@@ -1181,7 +2076,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
                 mutationKind: mutation.mutationKind,
                 detail: mutation.detail,
                 mutate,
-                recover: mutation.recover as WithOperationIntentParams<
+                recover: mutation.recover as PublishOnceParams<
                   Awaited<ReturnType<typeof mutate>>
                 >["recover"],
                 allowsUndefinedResult: mutation.allowsUndefinedResult,
@@ -1369,7 +2264,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         scenario === "typed ledger outage" ||
         scenario === "typed absence";
       if (ledger)
-        await recordPublishStep(pool, {
+        await createPublishContext(pool, {
           workItemId,
           resourceKey,
           reviewLens: "review",
@@ -1377,7 +2272,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           githubId: 90,
           leaseEpoch: null,
           detail: {},
-        });
+        }).record();
       await intentRepository.persistOperationIntent(pool, {
         workItemId,
         operationKey,
@@ -1428,23 +2323,23 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
           Object.assign(new Error("provider rejected before acceptance"), { status: 422 }),
         );
         await expect(
-          withOperationIntent({ ...params, isKnownNoAcceptanceError: () => true }),
+          publishOnce({ ...params, isKnownNoAcceptanceError: () => true }),
         ).rejects.toMatchObject({
           code: "operation_intent.mutation_failed",
         });
         expect(
           (await intentRepository.getOperationIntent(pool, workItemId, operationKey))?.status,
         ).toBe("failed");
-        expect(await withOperationIntent(params)).toEqual({ commentId: 90 });
+        expect(await publishOnce(params)).toEqual({ commentId: 90 });
         expect(mutate).toHaveBeenCalledTimes(2);
       } else if (scenario === "void ledger") {
-        expect(await withOperationIntent(params)).toBeUndefined();
+        expect(await publishOnce(params)).toBeUndefined();
         expect(
           (await intentRepository.getOperationIntent(pool, workItemId, operationKey))?.detail
             .__result,
         ).toBeNull();
       } else {
-        const error = await withOperationIntent(params).catch((failure: unknown) => failure);
+        const error = await publishOnce(params).catch((failure: unknown) => failure);
         const transient =
           scenario === "provider outage" ||
           scenario === "lookup outage" ||
@@ -1463,15 +2358,15 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         if (transient) {
           expect(intent?.detail.unknownResolution).toBeUndefined();
           recover.mockResolvedValue({ kind: "reconciled", value: { commentId: 90 } });
-          expect(await withOperationIntent(params)).toEqual({ commentId: 90 });
+          expect(await publishOnce(params)).toEqual({ commentId: 90 });
           const readCount = recover.mock.calls.length;
-          expect(await withOperationIntent(params)).toEqual({ commentId: 90 });
+          expect(await publishOnce(params)).toEqual({ commentId: 90 });
           expect(recover).toHaveBeenCalledTimes(readCount);
         } else if (scenario === "cached terminal" || scenario === "typed absence") {
           const readCount = recover.mock.calls.length;
           const lookupCount = lookup.mock.calls.length;
           for (let replay = 0; replay < 2; replay++) {
-            const next = await withOperationIntent(params).catch((failure: unknown) => failure);
+            const next = await publishOnce(params).catch((failure: unknown) => failure);
             expect(retryDispositionFor(next)).toBe("terminal");
           }
           expect(recover).toHaveBeenCalledTimes(readCount);

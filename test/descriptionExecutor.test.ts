@@ -1,3 +1,23 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
 import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
 import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +61,6 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
     markWorkCancelled: vi.fn().mockResolvedValue(undefined),
     markWorkPublishDegraded: vi.fn().mockResolvedValue(undefined),
     updateRunningWorkHeadSha: vi.fn().mockResolvedValue(true),
-    recordPublishStep: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -215,7 +234,7 @@ describe("description work definition", () => {
   });
 
   it("rejects description publish when the PR actor lease is lost", async () => {
-    vi.mocked(repo.recordPublishStep).mockImplementation(async (_pool, params) => {
+    vi.mocked(recordPublishStep).mockImplementation(async (_pool, params) => {
       if (params.leaseEpoch != null) {
         await prActorLease.assertPrActorLeaseHeld(pool, params.workItemId, params.leaseEpoch);
       }

@@ -26,9 +26,9 @@ import {
   deterministicInlineBatchId,
   operationIntentMarker,
   reviewInlineBatchOperationKey,
-  withOperationIntent,
+  publishOnce,
   type OperationIntentContext,
-} from "../../agentWork/withOperationIntent.js";
+} from "../../agentWork/publishOnce.js";
 import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.js";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -320,7 +320,7 @@ export async function publishFindingBatch(
   const publishStartedAt = Date.now();
   const inlineResult = await (context.operationIntent == null
     ? publishInline()
-    : withOperationIntent<
+    : publishOnce<
         Awaited<ReturnType<typeof publishInlineReviewComments<FingerprintedInlinePlacement>>>
       >({
         client: context.operationIntent.client,

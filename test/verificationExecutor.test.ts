@@ -22,7 +22,6 @@ const mocks = vi.hoisted(() => ({
   loadRepoPolicy: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
-  recordPublishStep: vi.fn(),
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({

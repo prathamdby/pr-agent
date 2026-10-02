@@ -1,3 +1,64 @@
+const publicationWrites = vi.hoisted(() => ({
+  write: vi
+    .fn<import("../src/agentWork/publishOnce.js").PublishRecordStore["write"]>()
+    .mockResolvedValue(undefined),
+}));
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        write: publicationWrites.write,
+      }),
+  };
+});
+const recordPublishStep = publicationWrites.write;
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import type { Pool, PoolClient } from "pg";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
@@ -53,7 +114,6 @@ import {
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
-  recordPublishStep,
 } from "../src/agentWork/repository.js";
 import { logWarn } from "../src/evlog.js";
 import { withSessionLock } from "../src/db/sessionLock.js";

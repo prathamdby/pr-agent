@@ -1,5 +1,5 @@
 import type { OperationIntentRow } from "../agentWork/operationIntentRepository.js";
-import type { OperationIntentRecovery } from "../agentWork/withOperationIntent.js";
+import type { OperationIntentRecovery } from "../agentWork/publishOnce.js";
 import { isRecord } from "../util/typeGuards.js";
 import { findCommentIdByMarker } from "./prSurfaceHelpers.js";
 import type {

@@ -1,5 +1,6 @@
 import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
+import { createPublishContext } from "../../src/agentWork/publishOnce.js";
 import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
@@ -21,12 +22,7 @@ import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentW
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
 import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
 import { loadPrHeadCiState, storePrNumbersForHead } from "../../src/agentWork/prHeadCiState.js";
-import {
-  getLatestCompletedPublishStepDetail,
-  getWorkItem,
-  recordPublishStep,
-  recordReviewCheckRun,
-} from "../../src/agentWork/repository.js";
+import { getWorkItem, recordReviewCheckRun } from "../../src/agentWork/repository.js";
 import { loadVerificationThreadLedger } from "../../src/agentWork/verificationThreadLedger.js";
 import { publishVerificationFailure } from "../../src/agent/verification/publishVerificationFailure.js";
 import * as appAuth from "../../src/github/appAuth.js";
@@ -2092,7 +2088,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       githubId: 22,
       detail: { status: "in_progress", headSha, name: "PR Agent Review" },
     });
-    await recordPublishStep(pool, {
+    await createPublishContext(pool, {
       workItemId,
       resourceKey,
       reviewLens: "review",
@@ -2100,7 +2096,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       githubId: 99,
       leaseEpoch: null,
       detail: { ownVerdictKind: "published", ownCheckFailing: true },
-    });
+    }).record();
     const fake = createFakePrSurface({ owner: OWNER, repo: REPO, prNumber: PR_NUMBER });
     fake.controls.setPullsForHead(headSha, [{ number: PR_NUMBER }]);
 
@@ -2420,12 +2416,10 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
     });
     const priorLedger = await loadVerificationThreadLedger(pool, item);
     const priorCi = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-    const priorSignal = await getLatestCompletedPublishStepDetail(
-      pool,
-      item.resourceKey,
-      VERIFICATION_PUBLISH_LENS,
-      "verification_failure",
-    );
+    const priorSignal = await createPublishContext(pool, {
+      resourceKey: item.resourceKey,
+      reviewLens: VERIFICATION_PUBLISH_LENS,
+    }).latest("verification_failure");
     try {
       vi.spyOn(installationToken, "mintInstallationToken").mockResolvedValue({
         token: "test-installation-token",
@@ -2502,12 +2496,10 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       }
       const ledger = await loadVerificationThreadLedger(pool, item);
       const ci = await loadPrHeadCiState(pool, OWNER, REPO, headSha);
-      const signal = await getLatestCompletedPublishStepDetail(
-        pool,
-        item.resourceKey,
-        VERIFICATION_PUBLISH_LENS,
-        "verification_failure",
-      );
+      const signal = await createPublishContext(pool, {
+        resourceKey: item.resourceKey,
+        reviewLens: VERIFICATION_PUBLISH_LENS,
+      }).latest("verification_failure");
       if (fresh) {
         expect(ledger.failureSignal).toBeUndefined();
         expect(signal).toMatchObject({ active: false, headSha });

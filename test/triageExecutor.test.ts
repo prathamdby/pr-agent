@@ -1,3 +1,66 @@
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        completed: async (...args: Parameters<typeof actual.postgresPublishRecords.completed>) =>
+          args[4] === "triage_push"
+            ? mocks.completed(...args)
+            : (await mocks.done(...args))
+              ? {}
+              : null,
+        latest: mocks.latest,
+        withoutNewer: mocks.withoutNewer,
+        write: mocks.write,
+      }),
+  };
+});
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
 import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,11 +97,11 @@ const mocks = vi.hoisted(() => ({
   publishTriage: vi.fn(),
   publishTriagePreview: vi.fn(),
   publishTriageReportOnly: vi.fn(),
-  recordPublishStep: vi.fn(),
-  getCompletedPublishStepDetail: vi.fn(),
-  getCompletedPublishStepDetailWithoutNewerStep: vi.fn(),
-  getLatestCompletedPublishStepDetail: vi.fn(),
-  hasCompletedPublishStep: vi.fn(),
+  write: vi.fn(),
+  completed: vi.fn(),
+  withoutNewer: vi.fn(),
+  latest: vi.fn(),
+  done: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
 }));
@@ -68,8 +131,8 @@ vi.mock("../src/agent/triage/previewApproval.js", async (importOriginal) => {
   return { ...actual, replayPreviewHunks: mocks.replayPreviewHunks };
 });
 
-vi.mock("../src/agent/triage/publishTriage.js", () => ({
-  parseStoredTriagePushDetail: mocks.parseStoredTriagePushDetail,
+vi.mock("../src/agent/triage/publishTriage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agent/triage/publishTriage.js")>()),
   parseStoredTriagePreviewDetail: mocks.parseStoredTriagePreviewDetail,
   publishTriage: mocks.publishTriage,
   publishTriagePreview: mocks.publishTriagePreview,
@@ -77,13 +140,7 @@ vi.mock("../src/agent/triage/publishTriage.js", () => ({
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
-  getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
-  getCompletedPublishStepDetailWithoutNewerStep:
-    mocks.getCompletedPublishStepDetailWithoutNewerStep,
-  getLatestCompletedPublishStepDetail: mocks.getLatestCompletedPublishStepDetail,
-  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
   listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
-  recordPublishStep: mocks.recordPublishStep,
   shouldSkipWork: mocks.shouldSkipWork,
 }));
 
@@ -254,7 +311,7 @@ describe("triage work definition", () => {
           TRIAGE_PREVIEW_SENTINEL,
           TRIAGE_PREVIEW_SENTINEL,
         );
-        await mocks.recordPublishStep(pool, {
+        await mocks.write(pool, {
           step: "triage_preview",
           detail: {
             headSha: params.headSha,
@@ -266,11 +323,11 @@ describe("triage work definition", () => {
       },
     );
     mocks.parseStoredTriagePreviewDetail.mockImplementation((detail) => detail);
-    mocks.recordPublishStep.mockResolvedValue(undefined);
-    mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(null);
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
+    mocks.write.mockResolvedValue(undefined);
+    mocks.completed.mockResolvedValue(null);
+    mocks.withoutNewer.mockResolvedValue(null);
+    mocks.latest.mockResolvedValue(null);
+    mocks.done.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
     durablePrSurfaceControls().setReviewCommentParentGraph([]);
@@ -376,7 +433,7 @@ describe("triage work definition", () => {
     expect(gitPush).not.toHaveBeenCalled();
     const progress = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(progress?.body).toContain("Triage was cancelled because the pull request is closed");
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(mocks.write).toHaveBeenCalledWith(
       publishPool,
       expect.objectContaining({
         step: "triage_push",
@@ -476,7 +533,7 @@ describe("triage work definition", () => {
     const progress = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL);
     expect(progress?.body).toContain(TRIAGE_CLOSED_PR_NOTICE);
     expect(progress?.body).not.toContain("Pushed commits:");
-    const pushRecords = mocks.recordPublishStep.mock.calls.flatMap(([, params]) =>
+    const pushRecords = mocks.write.mock.calls.flatMap(([, params]) =>
       params.step === "triage_push" ? [params.detail] : [],
     );
     expect(pushRecords).toEqual([
@@ -539,8 +596,8 @@ describe("triage work definition", () => {
       code: "triage.cancelled",
     });
 
-    expect(mocks.getCompletedPublishStepDetail).not.toHaveBeenCalled();
-    expect(mocks.getCompletedPublishStepDetailWithoutNewerStep).not.toHaveBeenCalled();
+    expect(mocks.completed).not.toHaveBeenCalled();
+    expect(mocks.withoutNewer).not.toHaveBeenCalled();
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.publishTriage).not.toHaveBeenCalled();
   });
@@ -736,31 +793,34 @@ describe("triage work definition", () => {
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
-  it("resumes publish from stored push detail without rerunning agent", async () => {
-    const payload = {
-      verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
-    };
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
-      pushedShas: ["abc1234"],
-      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
-      pushedHeadSha: "a".repeat(40),
-      payload,
-    });
-
-    await runExecution();
-
-    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
-      expect.objectContaining({
+  it.each([false, true])(
+    "resumes stored push after thread resolution=%s without rerunning agent",
+    async (resolved) => {
+      const payload = {
+        verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+      };
+      mocks.completed.mockResolvedValue({
+        pushedShas: ["a".repeat(40)],
+        commits: [{ sha: "a".repeat(40), subject: "fix: guard user", diff: "+ok\n" }],
+        pushedHeadSha: "a".repeat(40),
         payload,
-        priorPush: expect.objectContaining({ pushOutcome: "pushed" }),
-      }),
-    );
-  });
+      });
+      durablePrSurfaceControls().setThreads(
+        new Map([[1, { threadNodeId: "node", isResolved: resolved }]]),
+      );
+
+      await runExecution();
+
+      expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+      expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+      expect(
+        durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL)?.body,
+      ).toContain("Pushed commits:");
+    },
+  );
 
   it("runs a fresh agent pass when same-work-item push detail is stale", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       staleHead: true,
       attemptedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
@@ -776,7 +836,7 @@ describe("triage work definition", () => {
   });
 
   it("does not resume a terminal closed push detail", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       pushOutcome: "closed",
       attemptedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
@@ -793,7 +853,7 @@ describe("triage work definition", () => {
   });
 
   it("runs a fresh agent pass when same-work-item push detail has stale head", async () => {
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "b".repeat(40),
@@ -812,9 +872,9 @@ describe("triage work definition", () => {
     const payload = {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
     };
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
-      pushedShas: ["abc1234"],
-      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+    mocks.withoutNewer.mockResolvedValue({
+      pushedShas: ["a".repeat(40)],
+      commits: [{ sha: "a".repeat(40), subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
       payload,
     });
@@ -823,11 +883,8 @@ describe("triage work definition", () => {
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload,
-        priorPush: expect.objectContaining({ pushOutcome: "pushed" }),
-      }),
+    expect(durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL)?.body).toContain(
+      "Pushed commits:",
     );
   });
 
@@ -858,7 +915,7 @@ describe("triage work definition", () => {
       [1, { threadNodeId: "node-1", isResolved: false }],
       [2, { threadNodeId: "node-2", isResolved: false }],
     ]);
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+    mocks.withoutNewer.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -874,7 +931,7 @@ describe("triage work definition", () => {
   });
 
   it("runs a fresh agent pass when cross-work-item push detail has extra verdicts", async () => {
-    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+    mocks.withoutNewer.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       pushedHeadSha: "a".repeat(40),
@@ -1128,7 +1185,7 @@ describe("triage work definition", () => {
     const payload = {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
     };
-    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+    mocks.completed.mockResolvedValue({
       pushOutcome: "not-needed",
       pushedShas: [],
       commits: [],
@@ -1140,12 +1197,9 @@ describe("triage work definition", () => {
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
     expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
-    expect(mocks.publishTriage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        payload,
-        priorPush: expect.objectContaining({ pushOutcome: "not-needed" }),
-      }),
-    );
+    const report = durablePrSurfaceControls().getProgressComment(TRIAGE_SUMMARY_SENTINEL)?.body;
+    expect(report).toContain("later");
+    expect(report).not.toContain("Pushed commits:");
   });
 
   it("maps stale pushOutcome to durable degraded without a missing mapping", async () => {
@@ -1301,7 +1355,7 @@ describe("triage work definition", () => {
     expect(mocks.publishTriage).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
     expect(mocks.publishTriagePreview).toHaveBeenCalled();
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(mocks.write).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         step: "triage_preview",
@@ -1330,7 +1384,7 @@ describe("triage work definition", () => {
 
   it("bulk without a preview refuses report-only and never checks out", async () => {
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(null);
+    mocks.latest.mockResolvedValue(null);
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(null);
 
     await runExecution();
@@ -1346,9 +1400,7 @@ describe("triage work definition", () => {
 
   it("bulk with a preview for another headSha refuses", async () => {
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(
-      storedPreview({ headSha: "b".repeat(40) }),
-    );
+    mocks.latest.mockResolvedValue(storedPreview({ headSha: "b".repeat(40) }));
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(
       storedPreview({ headSha: "b".repeat(40) }),
     );
@@ -1398,9 +1450,7 @@ describe("triage work definition", () => {
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(
       storedPreview({ threadRootCommentIds: [1, 2] }),
     );
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(
-      storedPreview({ threadRootCommentIds: [1, 2] }),
-    );
+    mocks.latest.mockResolvedValue(storedPreview({ threadRootCommentIds: [1, 2] }));
 
     await runExecution();
 
@@ -1416,7 +1466,7 @@ describe("triage work definition", () => {
   it("bulk happy path calls publishTriage", async () => {
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
+    mocks.latest.mockResolvedValue(storedPreview());
 
     await runExecution();
 
@@ -1428,10 +1478,10 @@ describe("triage work definition", () => {
   });
 
   it("skips a second apply or bulk run when triage_report already completed", async () => {
-    mocks.hasCompletedPublishStep.mockResolvedValue(true);
+    mocks.done.mockResolvedValue(true);
     mockDurableExecution(item({ payload: { mode: "bulk" } }));
     mocks.parseStoredTriagePreviewDetail.mockReturnValue(storedPreview());
-    mocks.getLatestCompletedPublishStepDetail.mockResolvedValue(storedPreview());
+    mocks.latest.mockResolvedValue(storedPreview());
 
     await runExecution();
 
@@ -1439,3 +1489,11 @@ describe("triage work definition", () => {
     expect(mocks.publishTriage).not.toHaveBeenCalled();
   });
 });
+
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
+  shouldSkipWork: mocks.shouldSkipWork,
+}));
+vi.mock("../src/agentWork/prHeadCiState.js", () => ({
+  loadPrHeadCiState: vi.fn(async () => null),
+}));

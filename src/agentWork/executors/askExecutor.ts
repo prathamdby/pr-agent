@@ -1,6 +1,7 @@
 import type { BotIdentity } from "../../github/appAuth.js";
 import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
 import { productionInstallationSurface } from "../installationSurface.js";
+import { createPublishContext } from "../publishOnce.js";
 import type { Pool } from "pg";
 
 import type { PrSurface } from "../../github/prSurface.js";
@@ -16,18 +17,8 @@ import { classifyFailure, classifiedFailureLogFields } from "../../errors/classi
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
-import {
-  getOperationIntent,
-  mergeOperationIntentDetail,
-  persistOperationIntent,
-  reconcileOperationIntent,
-} from "../operationIntentRepository.js";
-import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
-import {
-  askFailureReplyOperationKey,
-  askReplyOperationKey,
-  withOperationIntent,
-} from "../withOperationIntent.js";
+import { getOperationIntent } from "../operationIntentRepository.js";
+import { askFailureReplyOperationKey, askReplyOperationKey, publishOnce } from "../publishOnce.js";
 import { createAskExecutionId, recordAskProviderUsage } from "../askQuota.js";
 import type { AskWorkItem } from "../types.js";
 import { waitForReadySnapshot } from "../../codeIndex/repository.js";
@@ -135,55 +126,6 @@ async function publishAskAnswer(
   }
 }
 
-async function stashRecoveredAskReply(params: {
-  readonly pool: Pool;
-  readonly item: AskWorkItem;
-  readonly operationKey: string;
-  readonly commentId: number;
-  readonly targetKind: AskWorkItem["payload"]["replyTarget"]["kind"];
-}): Promise<void> {
-  const { pool, item, operationKey, commentId, targetKind } = params;
-  const intent = await getOperationIntent(pool, item.id, operationKey);
-  const result = { commentId };
-  if (intent == null) {
-    await persistOperationIntent(pool, {
-      workItemId: item.id,
-      operationKey,
-      mutationKind: "github.ask_reply",
-      detail: {
-        step: "ask_reply",
-        resourceKey: item.resourceKey,
-        reviewLens: ASK_PUBLISH_LENS,
-        replyTargetKind: targetKind,
-        __result: result,
-      },
-    });
-    return;
-  }
-  if (askReplyCommentIdFromIntentDetail(intent.detail) != null) return;
-  if (intent.status === "outcome_unknown") {
-    // Evidence recovered from GitHub: finish the unknown outcome without remutating.
-    await reconcileOperationIntent(pool, {
-      workItemId: item.id,
-      operationKey,
-      status: "reconciled",
-      detail: {
-        __result: result,
-        replyTargetKind: targetKind,
-        recoveredAfterMutating: true,
-      },
-    });
-    return;
-  }
-  if (intent.status === "pending") {
-    await mergeOperationIntentDetail(pool, {
-      workItemId: item.id,
-      operationKey,
-      detail: { __result: result, replyTargetKind: targetKind },
-    });
-  }
-}
-
 /**
  * Recover a GitHub ask reply that was accepted but not yet recorded locally.
  * Returns the comment id when delivery can complete without remutation/model rerun.
@@ -238,12 +180,17 @@ async function recoverDeliveredAskReplyCommentId(params: {
       : null;
   }
 
-  await stashRecoveredAskReply({
-    pool,
-    item,
+  await createPublishContext(pool, {
+    workItemId: item.id,
+    resourceKey: item.resourceKey,
+    reviewLens: ASK_PUBLISH_LENS,
+    step: "ask_reply",
+  }).adopt({
     operationKey,
-    commentId: recovered.commentId,
-    targetKind: recovered.targetKind ?? item.payload.replyTarget.kind,
+    mutationKind: "github.ask_reply",
+    result: { commentId: recovered.commentId },
+    detail: { replyTargetKind: recovered.targetKind ?? item.payload.replyTarget.kind },
+    hasUsableResult: (detail) => askReplyCommentIdFromIntentDetail(detail) != null,
   });
   return {
     kind: "recovered",
@@ -263,7 +210,11 @@ async function decideAskFailureReply(params: {
 }): Promise<AskFailureReplyDecision> {
   const { pool, prSurface, item } = params;
   if (
-    await hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply")
+    await createPublishContext(pool, {
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+      reviewLens: ASK_PUBLISH_LENS,
+    }).completed("ask_reply")
   ) {
     return "skip";
   }
@@ -284,7 +235,7 @@ async function finalizeAskReplyPublish(params: {
   readonly leaseEpoch: number | null;
 }): Promise<"ok" | "degraded"> {
   const { pool, item, commentId, targetKind, leaseEpoch } = params;
-  await withOperationIntent({
+  await publishOnce({
     client: pool,
     workItemId: item.id,
     operationKey: askReplyOperationKey(item.resourceKey, item.payload.commentId),
@@ -299,7 +250,7 @@ async function finalizeAskReplyPublish(params: {
     mutate: async () => ({ commentId }),
   });
   try {
-    await recordAskPublishStep(pool, {
+    await createPublishContext(pool, {
       workItemId: item.id,
       resourceKey: item.resourceKey,
       step: "ask_reply",
@@ -308,7 +259,8 @@ async function finalizeAskReplyPublish(params: {
         commentId,
       },
       leaseEpoch,
-    });
+      reviewLens: "ask",
+    }).record();
     return "ok";
   } catch (e) {
     const failure = classifyFailure(e, { phase: "publish" });
@@ -335,8 +287,14 @@ export function createAskWorkExecution({
       const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
-      const askReplyPublished = () =>
-        hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
+      const askReplyPublished = async () =>
+        Boolean(
+          await createPublishContext(pool, {
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            reviewLens: ASK_PUBLISH_LENS,
+          }).completed("ask_reply"),
+        );
       if (await askReplyPublished()) {
         return { kind: "completed" };
       }
@@ -442,7 +400,7 @@ export function createAskWorkExecution({
           if (!(await askReplyPublished())) {
             const operationKey = askReplyOperationKey(item.resourceKey, payload.commentId);
             let selectedTargetKind = payload.replyTarget.kind;
-            const posted = await withOperationIntent<{ readonly commentId: number }>({
+            const posted = await publishOnce<{ readonly commentId: number }>({
               client: pool,
               workItemId: item.id,
               operationKey,
@@ -487,7 +445,7 @@ export function createAskWorkExecution({
               },
             });
             try {
-              await recordAskPublishStep(pool, {
+              await createPublishContext(pool, {
                 workItemId: item.id,
                 resourceKey: item.resourceKey,
                 step: "ask_reply",
@@ -496,7 +454,8 @@ export function createAskWorkExecution({
                   commentId: posted.commentId,
                 },
                 leaseEpoch: env.leaseEpoch,
-              });
+                reviewLens: "ask",
+              }).record();
             } catch (e) {
               const failure = classifyFailure(e, { phase: "publish" });
               logWarn("ask_publish_record_failed", {
@@ -544,7 +503,7 @@ export function createAskWorkExecution({
         return;
       const payload = item.payload;
       const operationKey = askFailureReplyOperationKey(item.resourceKey, item.payload.commentId);
-      await withOperationIntent({
+      await publishOnce({
         client: pool,
         workItemId: item.id,
         operationKey,

@@ -112,7 +112,7 @@ triage, and verification. Ask is unleased and relies on publish-record
 idempotency plus admission quotas before insert (ADR 0031). The other
 four take a PR actor lease and fence mutations on the lease epoch
 (ADR 0006, ADR 0030). Persist an operation intent before PR-surface
-GitHub mutations (`withOperationIntent`). `publish_records` stay
+GitHub mutations (`publishOnce`). `publish_records` stay
 authoritative. Escalated retries follow `retryDispositionFor`
 (ADR 0034). Escalation never widens privilege.
 
@@ -171,7 +171,7 @@ changed files.
 
 - Name exact modules, constants, ADRs, and test files from this repo
 - Prefer tokens a literal grep can hit (`createPrSurface`,
-  `withOperationIntent`, `FEATURE_REVIEW`)
+  `publishOnce`, `FEATURE_REVIEW`)
 - Keep one concern so the Bound judge can attach one footer
 - Prefer tight `globs` on large PRs. Use `alwaysApply` only when the
   bug class is cross-cutting

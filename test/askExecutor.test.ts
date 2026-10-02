@@ -1,12 +1,65 @@
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        completed: mocks.completed,
+        write: mocks.write,
+      }),
+  };
+});
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
 import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import {
-  askFailureReplyOperationKey,
-  askReplyOperationKey,
-} from "../src/agentWork/withOperationIntent.js";
+import { askFailureReplyOperationKey, askReplyOperationKey } from "../src/agentWork/publishOnce.js";
 import { makeTestConfig } from "./helpers/config.js";
 import {
   durablePrSurfaceControls,
@@ -16,12 +69,11 @@ import {
 } from "./helpers/executorDurableHarness.js";
 import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
 
 const mocks = vi.hoisted(() => ({
-  hasCompletedPublishStep: vi.fn(),
-  recordAskPublishStep: vi.fn(),
+  completed: vi.fn(),
+  write: vi.fn(),
   runAskRun: vi.fn(),
   withPrRepositoryView: vi.fn(),
   getAppBotIdentity: vi.fn(),
@@ -29,11 +81,6 @@ const mocks = vi.hoisted(() => ({
   waitForReadySnapshot: vi.fn(),
   recordAskProviderUsage: vi.fn(),
   createAskExecutionId: vi.fn(),
-}));
-
-vi.mock("../src/agentWork/repository.js", () => ({
-  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
-  recordAskPublishStep: mocks.recordAskPublishStep,
 }));
 
 vi.mock("../src/agent/ask/askRun.js", () => ({
@@ -125,8 +172,8 @@ describe("ask work definition", () => {
     vi.clearAllMocks();
     resetDurablePrSurface();
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
-    mocks.recordAskPublishStep.mockResolvedValue(undefined);
+    mocks.completed.mockResolvedValue(null);
+    mocks.write.mockResolvedValue(undefined);
     mocks.runAskRun.mockResolvedValue({ answer: "answer" });
     mocks.recordAskProviderUsage.mockResolvedValue(undefined);
     mocks.createAskExecutionId.mockReturnValue("11111111-1111-4111-8111-111111111111");
@@ -143,18 +190,23 @@ describe("ask work definition", () => {
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(mocks.write).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
+      reviewLens: "ask",
       detail: {
         replyTargetKind: "prConversation",
         commentId: expect.any(Number),
       },
       leaseEpoch: null,
     });
-    const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1", 99));
+    const intent = await publishStoreState.store.getOperationIntent(
+      pool,
+      "wi-1",
+      askReplyOperationKey("o/r#1", 99),
+    );
     expect(intent?.status).toBe("reconciled");
     expect(intent?.detail.__result).toEqual({
       commentId: expect.any(Number),
@@ -188,9 +240,9 @@ describe("ask work definition", () => {
       });
 
     await runExecution();
-    memoryOperationIntentStore.reset();
+    publishStoreState.store = createFakePublishStore();
     resetDurablePrSurface();
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
+    mocks.completed.mockResolvedValue(null);
     await runExecution();
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(2);
@@ -250,21 +302,21 @@ describe("ask work definition", () => {
   });
 
   it("skips agent and answer publish when the ask reply was already recorded", async () => {
-    mocks.hasCompletedPublishStep.mockResolvedValue(true);
+    mocks.completed.mockResolvedValue({});
 
     await runExecution();
 
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
-    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
     expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
     expect(mocks.createAskExecutionId).not.toHaveBeenCalled();
   });
 
   it("returns degraded when the publish record fails after answer delivery", async () => {
     let result: unknown;
-    mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
+    mocks.write.mockRejectedValue(new Error("record failed"));
     configureExecution(async (spec) => {
       result = await spec.execute(
         askItem(),
@@ -288,11 +340,11 @@ describe("ask work definition", () => {
     expect(result).toMatchObject({ kind: "completed", degradation: ["publish_record_failed"] });
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
   });
 
   it("skips terminal failure reply after the answer was delivered", async () => {
-    mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
+    mocks.write.mockRejectedValue(new Error("record failed"));
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
@@ -321,7 +373,7 @@ describe("ask work definition", () => {
   });
 
   it("skips terminal failure reply when durable ask_reply is already published", async () => {
-    mocks.hasCompletedPublishStep.mockResolvedValue(true);
+    mocks.completed.mockResolvedValue({});
     configureExecution(async (spec) => {
       const item = askItem();
       const prSurface = fakeDurablePrSurface();
@@ -335,13 +387,13 @@ describe("ask work definition", () => {
 
   it("skips terminal failure reply when a fresh hook finds a stashed ask_reply intent", async () => {
     const operationKey = askReplyOperationKey("o/r#1", 99);
-    await memoryOperationIntentStore.persist(pool, {
+    await publishStoreState.store.persistOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey,
       mutationKind: "github.ask_reply",
-      detail: { step: "ask_reply", __result: { commentId: 4242 } },
+      detail: { step: "ask_reply", reviewLens: "ask", __result: { commentId: 4242 } },
     });
-    await memoryOperationIntentStore.reconcile(pool, {
+    await publishStoreState.store.reconcileOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey,
       status: "reconciled",
@@ -358,7 +410,7 @@ describe("ask work definition", () => {
   });
 
   it("skips terminal failure reply when a fresh hook recovers the delivered reply", async () => {
-    await memoryOperationIntentStore.persist(pool, {
+    await publishStoreState.store.persistOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey: askReplyOperationKey("o/r#1", 99),
       mutationKind: "github.ask_reply",
@@ -427,12 +479,16 @@ describe("ask work definition", () => {
     );
     expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
     expect(
-      memoryOperationIntentStore.get(item.id, askReplyOperationKey(item.resourceKey, 99)),
+      await publishStoreState.store.getOperationIntent(
+        pool,
+        item.id,
+        askReplyOperationKey(item.resourceKey, 99),
+      ),
     ).toMatchObject({
       status: "reconciled",
       detail: { replyTargetKind: "prConversation" },
     });
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+    expect(mocks.write).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         detail: expect.objectContaining({ commentId: expect.any(Number) }),
@@ -486,7 +542,7 @@ describe("ask work definition", () => {
       prNumber: 1,
       inReplyToCommentId: 55,
     });
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+    expect(mocks.write).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         detail: expect.objectContaining({
@@ -545,20 +601,24 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies[0]?.body).toContain(
       "could not complete this ask after retries",
     );
-    const intent = memoryOperationIntentStore.get("wi-1", askFailureReplyOperationKey("o/r#1", 99));
+    const intent = await publishStoreState.store.getOperationIntent(
+      pool,
+      "wi-1",
+      askFailureReplyOperationKey("o/r#1", 99),
+    );
     expect(intent?.status).toBe("reconciled");
     expect(intent?.detail.__result).toEqual({ commentId: expect.any(Number) });
   });
 
   it("posts exactly one failure reply when answer intent is outcome_unknown and nothing was recovered", async () => {
     const answerKey = askReplyOperationKey("o/r#1", 99);
-    await memoryOperationIntentStore.persist(pool, {
+    await publishStoreState.store.persistOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey: answerKey,
       mutationKind: "github.ask_reply",
       detail: { step: "ask_reply" },
     });
-    await memoryOperationIntentStore.reconcile(pool, {
+    await publishStoreState.store.reconcileOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey: answerKey,
       status: "outcome_unknown",
@@ -577,7 +637,8 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies[0]?.body).toContain(
       "could not complete this ask after retries",
     );
-    const failure = memoryOperationIntentStore.get(
+    const failure = await publishStoreState.store.getOperationIntent(
+      pool,
       "wi-1",
       askFailureReplyOperationKey("o/r#1", 99),
     );
@@ -615,17 +676,19 @@ describe("ask work definition", () => {
   });
 
   it("does not remutate or rerun the model after post-mutate / pre-reconcile crash", async () => {
-    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 1);
+    vi.spyOn(publishStoreState.store, "reconcileOperationIntent").mockRejectedValueOnce(
+      new Error("crash before reconcile"),
+    );
 
     await expect(runExecution()).rejects.toThrow("crash before reconcile");
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(durablePrSurfaceControls().replies).toHaveLength(1);
     const operationKey = askReplyOperationKey("o/r#1", 99);
-    const pending = memoryOperationIntentStore.get("wi-1", operationKey);
+    const pending = await publishStoreState.store.getOperationIntent(pool, "wi-1", operationKey);
     expect(pending?.status).toBe("pending");
     expect(pending?.detail.__result).toEqual({ commentId: expect.any(Number) });
-    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
+    expect(mocks.write).not.toHaveBeenCalled();
 
     mocks.runAskRun.mockClear();
     mocks.findExistingAskReplyComment.mockClear();
@@ -638,12 +701,14 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
     expect(mocks.recordAskProviderUsage).toHaveBeenCalledTimes(1);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
-    expect(memoryOperationIntentStore.get("wi-1", operationKey)?.status).toBe("reconciled");
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(
+      (await publishStoreState.store.getOperationIntent(pool, "wi-1", operationKey))?.status,
+    ).toBe("reconciled");
   });
 
   it("recovers from a remote ask reply when intent is pending without __result", async () => {
-    await memoryOperationIntentStore.persist(pool, {
+    await publishStoreState.store.persistOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey: askReplyOperationKey("o/r#1", 99),
       mutationKind: "github.ask_reply",
@@ -657,27 +722,34 @@ describe("ask work definition", () => {
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).toHaveBeenCalledTimes(1);
     expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
+    expect(mocks.write).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
+      reviewLens: "ask",
       detail: { replyTargetKind: "prConversation", commentId: 4242 },
       leaseEpoch: null,
     });
-    expect(memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1", 99))?.status).toBe(
-      "reconciled",
-    );
+    expect(
+      (
+        await publishStoreState.store.getOperationIntent(
+          pool,
+          "wi-1",
+          askReplyOperationKey("o/r#1", 99),
+        )
+      )?.status,
+    ).toBe("reconciled");
   });
 
   it("recovers a remote ask reply when intent is outcome_unknown without __result", async () => {
     const operationKey = askReplyOperationKey("o/r#1", 99);
-    await memoryOperationIntentStore.persist(pool, {
+    await publishStoreState.store.persistOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey,
       mutationKind: "github.ask_reply",
       detail: { step: "ask_reply" },
     });
-    await memoryOperationIntentStore.reconcile(pool, {
+    await publishStoreState.store.reconcileOperationIntent(pool, {
       workItemId: "wi-1",
       operationKey,
       status: "outcome_unknown",
@@ -689,13 +761,13 @@ describe("ask work definition", () => {
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.recordAskProviderUsage).not.toHaveBeenCalled();
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+    expect(mocks.write).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         detail: expect.objectContaining({ commentId: 5151 }),
       }),
     );
-    const intent = memoryOperationIntentStore.get("wi-1", operationKey);
+    const intent = await publishStoreState.store.getOperationIntent(pool, "wi-1", operationKey);
     expect(intent?.status).toBe("reconciled");
     expect(intent?.detail.__result).toEqual({ commentId: 5151 });
     expect(intent?.detail.recoveredAfterMutating).toBe(true);

@@ -1,3 +1,4 @@
+import { createPublishContext } from "../../agentWork/publishOnce.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -11,10 +12,6 @@ import {
   isEffectiveVerificationSignalTransition,
   type VerificationSignalPrior,
 } from "../../agentWork/prHeadCiState.js";
-import {
-  getLatestCompletedPublishStepDetail,
-  recordPublishStep,
-} from "../../agentWork/repository.js";
 import {
   clearVerificationFailureSignalFromLedger,
   loadVerificationThreadLedger,
@@ -96,12 +93,10 @@ async function writeVerificationSignal(
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
       `verification-failure:${params.resourceKey}`,
     ]);
-    const priorDetail = await getLatestCompletedPublishStepDetail(
-      client,
-      params.resourceKey,
-      VERIFICATION_PUBLISH_LENS,
-      "verification_failure",
-    );
+    const priorDetail = await createPublishContext(client, {
+      resourceKey: params.resourceKey,
+      reviewLens: VERIFICATION_PUBLISH_LENS,
+    }).latest("verification_failure");
     const effective = isEffectiveVerificationSignalTransition(priorFromDetail(priorDetail), {
       active,
       headSha: params.headSha,
@@ -112,14 +107,14 @@ async function writeVerificationSignal(
       headSha: params.headSha,
       effective,
     });
-    await recordPublishStep(client, {
+    await createPublishContext(client, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: VERIFICATION_PUBLISH_LENS,
       step: "verification_failure",
       leaseEpoch: params.leaseEpoch,
       detail: { headSha: params.headSha, active },
-    });
+    }).record();
     const job: CiProjectionJobData = {
       kind: "ci_projection",
       installationId: params.installationId,

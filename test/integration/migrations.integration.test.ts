@@ -1,12 +1,10 @@
+import { createPublishContext } from "../../src/agentWork/publishOnce.js";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
-import {
-  claimSummaryCommentCreation,
-  recordAskPublishStep,
-} from "../../src/agentWork/publishRecordRepository.js";
+import { claimSummaryCommentCreation } from "../../src/agentWork/publishRecordRepository.js";
 import { persistOperationIntent } from "../../src/agentWork/operationIntentRepository.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -243,13 +241,14 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
         ),
       ).resolves.toBe(true);
 
-      await recordAskPublishStep(pool, {
+      await createPublishContext(pool, {
         workItemId,
         resourceKey: `${resourceKey}:ask`,
         step: "ask_reply",
         githubId: 123,
         leaseEpoch: null,
-      });
+        reviewLens: "ask",
+      }).record();
 
       const { rows: intentRows } = await pool.query<{ lease_epoch: string | null }>(
         `SELECT lease_epoch FROM operation_intents

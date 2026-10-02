@@ -1,4 +1,5 @@
 import { productionInstallationSurface } from "../installationSurface.js";
+import { createPublishContext } from "../publishOnce.js";
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -60,12 +61,7 @@ import {
   isOwnCheckOpen,
   resolveOwnVerdictForTerminalReview,
 } from "../ownCheckReconcile.js";
-import {
-  getCompletedPublishStepDetail,
-  getLatestCompletedPublishStepDetail,
-  getProgressCommentOwner,
-  recordPublishStep,
-} from "../repository.js";
+import { getProgressCommentOwner } from "../repository.js";
 import { getWorkItemCore } from "../workItemStateRepository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
 
@@ -117,13 +113,11 @@ async function reconcileOwnVerdicts(params: {
   );
   for (const item of items) {
     if (!isAnyReviewLens(item.reviewLens)) continue;
-    const checkDetail = await getCompletedPublishStepDetail(
-      params.pool,
-      item.id,
-      item.resourceKey,
-      item.reviewLens,
-      "check_run",
-    );
+    const checkDetail = await createPublishContext(params.pool, {
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+      reviewLens: item.reviewLens,
+    }).completed("check_run");
     if (!isOwnCheckOpen(checkDetail)) continue;
     const status = asTerminalOwnCheckStatus(item.status);
     if (status == null) continue;
@@ -163,12 +157,10 @@ async function verificationFailureActive(
   resourceKey: string,
   headSha: string,
 ): Promise<boolean> {
-  const detail = await getLatestCompletedPublishStepDetail(
-    pool,
-    resourceKey,
-    VERIFICATION_PUBLISH_LENS,
-    "verification_failure",
-  );
+  const detail = await createPublishContext(pool, {
+    resourceKey: resourceKey,
+    reviewLens: VERIFICATION_PUBLISH_LENS,
+  }).latest("verification_failure");
   if (detail == null) return false;
   if (detail.active === false) return false;
   return detail.headSha === headSha;
@@ -464,7 +456,7 @@ async function projectOnePr(params: {
     sawUpdate = true;
     const owner = await getProgressCommentOwner(params.pool, resourceKey, "review");
     if (owner != null) {
-      await recordPublishStep(params.pool, {
+      await createPublishContext(params.pool, {
         workItemId: owner.workItemId,
         resourceKey,
         reviewLens: "review",
@@ -476,7 +468,7 @@ async function projectOnePr(params: {
           version: params.row.version,
           commentId: comment.id,
         },
-      });
+      }).record();
     }
     logDebug("ci_projection_patched", {
       owner: params.data.owner,

@@ -1,3 +1,59 @@
+vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/publishOnce.js")>();
+  return {
+    ...actual,
+    createPublishContext: (
+      client: import("pg").Pool | import("pg").PoolClient,
+      identity: import("../src/agentWork/publishOnce.js").PublicationIdentity,
+    ) =>
+      actual.createPublishContext(client, identity, {
+        ...actual.postgresPublishRecords,
+        completed: mocks.completed,
+        write: mocks.write,
+      }),
+  };
+});
+import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+const publishStoreState = vi.hoisted(() => {
+  let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
+  return {
+    get store() {
+      return store;
+    },
+    set store(value) {
+      store = value;
+    },
+  };
+});
+vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
+  persistOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.persistOperationIntent>) =>
+      publishStoreState.store.persistOperationIntent(...args),
+  ),
+  mergeOperationIntentDetail: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.mergeOperationIntentDetail>) =>
+      publishStoreState.store.mergeOperationIntentDetail(...args),
+  ),
+  reconcileOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.reconcileOperationIntent>) =>
+      publishStoreState.store.reconcileOperationIntent(...args),
+  ),
+  getOperationIntent: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.getOperationIntent>) =>
+      publishStoreState.store.getOperationIntent(...args),
+  ),
+  listPendingOperationIntents: vi.fn(
+    (...args: Parameters<typeof publishStoreState.store.listPendingOperationIntents>) =>
+      publishStoreState.store.listPendingOperationIntents(...args),
+  ),
+}));
+beforeEach(() => {
+  publishStoreState.store = createFakePublishStore();
+});
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
+  findCompletedPublishRecordId: vi.fn(async () => null),
+}));
 import { createDurableExecutionContext } from "../src/agentWork/durableJob.js";
 import { makeDurableJobMetadata } from "./helpers/executorDurableHarness.js";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -38,11 +94,8 @@ const mocks = vi.hoisted(() => ({
   getProgressCommentOwner: vi.fn(async () => ({ workItemId: "wi-1", generation: 0 })),
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
   getWorkItem: vi.fn(async (): Promise<unknown> => null),
-  recordPublishStep: vi.fn(),
-  hasCompletedPublishStep: vi.fn(async () => false),
-  getCompletedPublishStepDetail: vi.fn(
-    async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
-  ),
+  write: vi.fn(),
+  completed: vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null),
   shouldSkipWork: vi.fn(async () => false),
   getSharedRateLimitCircuit: vi.fn(async () => null),
   openSharedRateLimitCircuitBestEffort: vi.fn(),
@@ -50,9 +103,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/agentWork/repository.js", () => ({
   loadReviewExecutorPublishContext: mocks.loadPublishContext,
-  recordPublishStep: mocks.recordPublishStep,
-  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
-  getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
   shouldSkipWork: mocks.shouldSkipWork,
   getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
   getProgressCommentOwner: mocks.getProgressCommentOwner,
@@ -220,7 +270,7 @@ describe("review work definition", () => {
           : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
     );
     mocks.getSharedRateLimitCircuit.mockResolvedValue(null);
-    mocks.getCompletedPublishStepDetail.mockImplementation(
+    mocks.completed.mockImplementation(
       async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null,
     );
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
@@ -274,7 +324,6 @@ describe("review work definition", () => {
     mocks.getSummaryCommentGithubId.mockResolvedValue(1);
     mocks.shouldSkipWork.mockResolvedValue(false);
     mocks.getWorkItem.mockResolvedValue(null);
-    mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.buildStaleReschedule.mockReset();
     mockRepositoryView();
     mockDurableExecution("slash");
@@ -1062,7 +1111,7 @@ describe("review work definition", () => {
   });
 
   it("does not overwrite a completed summary from the terminal failure hook", async () => {
-    mocks.getCompletedPublishStepDetail.mockImplementation(async (...args: unknown[]) => {
+    mocks.completed.mockImplementation(async (...args: unknown[]) => {
       if (args[4] === "summary_comment") {
         return { ownVerdictKind: "published", ownCheckFailing: false };
       }
@@ -1078,7 +1127,7 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(mocks.getCompletedPublishStepDetail).toHaveBeenCalledWith(
+    expect(mocks.completed).toHaveBeenCalledWith(
       pool,
       expect.any(String),
       expect.any(String),
@@ -1099,7 +1148,7 @@ describe("review work definition", () => {
   });
 
   it("skips the terminal failure close when the check already has a conclusion", async () => {
-    mocks.getCompletedPublishStepDetail.mockImplementation(async (...args: unknown[]) => {
+    mocks.completed.mockImplementation(async (...args: unknown[]) => {
       if (args[4] === "summary_comment") {
         return { ownVerdictKind: "published", ownCheckFailing: true };
       }

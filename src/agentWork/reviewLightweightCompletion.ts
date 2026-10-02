@@ -1,3 +1,4 @@
+import { createPublishContext } from "./publishOnce.js";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
@@ -12,13 +13,9 @@ import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContrac
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "./ciProjection.js";
 import { summaryCommentVerdictMeta } from "./ownCheckReconcile.js";
-import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
+import { getSummaryCommentGithubId, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
-import {
-  operationIntentMarker,
-  reviewSummaryOperationKey,
-  withOperationIntent,
-} from "./withOperationIntent.js";
+import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.js";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }
@@ -86,7 +83,7 @@ export async function tryLightweightAutoReviewCompletion(
     params.reviewLens,
   );
   const knownExisting = await params.prSurface.resolveProgressComment(sentinel, storedId);
-  const summary = await withOperationIntent<{
+  const summary = await publishOnce<{
     readonly id: number;
     readonly updated: boolean;
   }>({
@@ -134,7 +131,7 @@ export async function tryLightweightAutoReviewCompletion(
     headSha: params.item.headSha,
     renderedVersion: renderedCi.version,
   });
-  await recordPublishStep(pool, {
+  await createPublishContext(pool, {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     reviewLens: params.reviewLens,
@@ -146,6 +143,6 @@ export async function tryLightweightAutoReviewCompletion(
       ...summaryCommentVerdictMeta({ kind: "published", findings: [] }),
     },
     leaseEpoch: params.leaseEpoch,
-  });
+  }).record();
   return { handled: true, published: true, summaryId: summary.id };
 }

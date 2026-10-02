@@ -13,7 +13,7 @@ import {
   createSubmitDescriptionState,
   type SubmitDescriptionState,
 } from "./submitDescriptionTool.js";
-import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
+import type { OperationIntentContext } from "../../agentWork/publishOnce.js";
 
 export type DescriptionRunSetup = {
   readonly systemPrompt: string;

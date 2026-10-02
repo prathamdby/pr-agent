@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { currentOperationIntentKey } from "../agentWork/withOperationIntent.js";
+import { currentOperationIntentKey } from "../agentWork/publishOnce.js";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
 import {
   extractPrSurfaceRecoverDetail,
@@ -119,7 +119,7 @@ function mutation(
 ): PrSurfaceMutation {
   // M0 pins full-Config description inputs, including removed snapshot defaults.
   // This is new-input compatibility metadata, not historical hash reconstruction.
-  // withOperationIntent selects retained children by exact parent/work/marker.
+  // publishOnce selects retained children by exact parent/work/marker.
   // Narrowed Pick arguments stay intact.
   const args = Array.isArray(input) ? input : [];
   const descriptionConfig = args[0];

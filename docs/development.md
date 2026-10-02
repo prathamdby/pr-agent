@@ -17,6 +17,12 @@ Review recovery accepts a completed summary's `lightweightCompletion: true`
 only when that record belongs to the current work item. It repairs the verdict
 before fresh admission. An ordinary or foreign summary cannot select this path.
 
+`src/agentWork/publishOnce.ts` owns mutation intent sequencing and scoped
+completion evidence. `createPublishContext` binds the work item, resource, lens,
+and epoch before reading or recording a step. Postgres and the production fake
+adapters share the publication persistence interfaces. Triage's publisher selects
+stored push evidence itself; orchestration no longer fabricates a checkout.
+
 ## Module layout (production)
 
 | Area                                      | Path                                            | Public entry                                                                                                                                                                                                                                                                                                                               |

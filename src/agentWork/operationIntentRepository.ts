@@ -17,30 +17,30 @@ export type OperationIntentRow = {
   readonly detail: Record<string, unknown>;
 };
 
-/** Removed Config fields cannot reconstruct a retained description child's hash. */
-export async function findRetainedDescriptionSurfaceIdentity(
-  client: Pool | PoolClient,
-  params: {
-    readonly workItemId: string;
-    readonly operationKey: string;
-    readonly parentOperationKey?: string;
-    readonly operationMarker?: string;
-  },
-): Promise<{ readonly operationKey: string; readonly inputHash: string } | null> {
-  const { rows } = await client.query<{
-    operation_key: string;
-    detail: Record<string, unknown>;
-  }>(
-    `SELECT operation_key, detail
-       FROM operation_intents
-      WHERE work_item_id = $1
-        AND mutation_kind = 'github.pr_surface.publishDescription'
-        AND detail->>'surfaceMethod' = 'publishDescription'
-        AND detail->>'parentOperationKey' IS NOT DISTINCT FROM $2::text
-        AND detail->>'operationMarker' IS NOT DISTINCT FROM $3::text
-      LIMIT 2`,
-    [params.workItemId, params.parentOperationKey ?? null, params.operationMarker ?? null],
-  );
+type RetainedDescriptionLookup = {
+  readonly workItemId: string;
+  readonly operationKey: string;
+  readonly parentOperationKey?: string;
+  readonly operationMarker?: string;
+};
+
+export type RetainedDescriptionSurfaceIdentity = {
+  readonly operationKey: string;
+  readonly inputHash: string;
+};
+
+/**
+ * Select the one retained description child whose stored scope and hash prove
+ * its key. Ambiguous or unprovable rows fail closed; rows must already be
+ * filtered to the exact work item, mutation, scope, and marker (LIMIT 2).
+ */
+export function selectRetainedDescriptionSurfaceIdentity(
+  rows: readonly {
+    readonly operation_key: string;
+    readonly detail: Record<string, unknown>;
+  }[],
+  params: RetainedDescriptionLookup,
+): RetainedDescriptionSurfaceIdentity | null {
   const retained = rows[0];
   if (retained == null) return null;
   const inputHash = retained.detail.inputHash;
@@ -64,6 +64,28 @@ export async function findRetainedDescriptionSurfaceIdentity(
     });
   }
   return { operationKey: retained.operation_key, inputHash };
+}
+
+/** Removed Config fields cannot reconstruct a retained description child's hash. */
+export async function findRetainedDescriptionSurfaceIdentity(
+  client: Pool | PoolClient,
+  params: RetainedDescriptionLookup,
+): Promise<RetainedDescriptionSurfaceIdentity | null> {
+  const { rows } = await client.query<{
+    operation_key: string;
+    detail: Record<string, unknown>;
+  }>(
+    `SELECT operation_key, detail
+       FROM operation_intents
+      WHERE work_item_id = $1
+        AND mutation_kind = 'github.pr_surface.publishDescription'
+        AND detail->>'surfaceMethod' = 'publishDescription'
+        AND detail->>'parentOperationKey' IS NOT DISTINCT FROM $2::text
+        AND detail->>'operationMarker' IS NOT DISTINCT FROM $3::text
+      LIMIT 2`,
+    [params.workItemId, params.parentOperationKey ?? null, params.operationMarker ?? null],
+  );
+  return selectRetainedDescriptionSurfaceIdentity(rows, params);
 }
 
 export async function persistOperationIntent(

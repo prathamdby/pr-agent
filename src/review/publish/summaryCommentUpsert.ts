@@ -1,3 +1,4 @@
+import { createPublishContext } from "../../agentWork/publishOnce.js";
 import type { Pool, PoolClient } from "pg";
 import { withSessionLock } from "../../db/sessionLock.js";
 import {
@@ -6,7 +7,6 @@ import {
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
-  recordPublishStep as recordAgentWorkPublishStep,
 } from "../../agentWork/repository.js";
 import { logWarn } from "../../evlog.js";
 import { AppError } from "../../errors/appError.js";
@@ -219,7 +219,7 @@ async function prepareSummaryCommentAtRevision(
   // Claim this revision under the advisory lock before the GitHub write so a
   // crash before acceptance remains recoverable without an open transaction.
   if (params.workItemId != null) {
-    await recordAgentWorkPublishStep(client, {
+    await createPublishContext(client, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
@@ -232,7 +232,7 @@ async function prepareSummaryCommentAtRevision(
           ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
           : {}),
       },
-    });
+    }).record();
   }
 
   return {
@@ -310,7 +310,7 @@ export async function upsertSummaryCommentWithCreationClaim(
         hintCommentId: prepared.hintCommentId,
       });
       if (params.workItemId != null) {
-        await recordAgentWorkPublishStep(client, {
+        await createPublishContext(client, {
           workItemId: params.workItemId,
           resourceKey: params.resourceKey,
           reviewLens: params.reviewLens,
@@ -325,7 +325,7 @@ export async function upsertSummaryCommentWithCreationClaim(
               ? { headSha: params.ciHeadSha, version: params.ciVersion ?? 0 }
               : {}),
           },
-        });
+        }).record();
       }
       return result;
     },

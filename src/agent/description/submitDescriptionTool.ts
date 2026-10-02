@@ -27,8 +27,8 @@ import {
   descriptionPrBodyOperationKey,
   operationIntentMarker,
   type OperationIntentContext,
-  withOperationIntent,
-} from "../../agentWork/withOperationIntent.js";
+  publishOnce,
+} from "../../agentWork/publishOnce.js";
 import { DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 
 export type SubmitDescriptionState = {
@@ -163,7 +163,7 @@ export function buildSubmitDescriptionTool(params: {
     const result =
       params.operationIntent == null
         ? await publish()
-        : await withOperationIntent<PublishDescriptionSurfaceResult>({
+        : await publishOnce<PublishDescriptionSurfaceResult>({
             client: params.operationIntent.client,
             workItemId: params.operationIntent.workItemId,
             operationKey:

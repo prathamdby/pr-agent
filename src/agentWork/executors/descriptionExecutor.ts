@@ -1,11 +1,10 @@
 import type { WorkExecution, WorkExecutionDependencies } from "../workDefinition.js";
-
+import { createPublishContext } from "../publishOnce.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
 import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
-import { recordPublishStep } from "../repository.js";
 
 export function createDescriptionWorkExecution({
   cfg,
@@ -34,14 +33,14 @@ export function createDescriptionWorkExecution({
             escalation: env.escalation,
             shouldAbortPublish: env.shouldAbortPublish,
             recordPublishStep: (detail) =>
-              recordPublishStep(pool, {
+              createPublishContext(pool, {
                 workItemId: item.id,
                 resourceKey: item.resourceKey,
                 reviewLens: DESCRIPTION_PUBLISH_LENS,
                 step: "pr_body",
                 detail,
                 leaseEpoch: env.leaseEpoch,
-              }),
+              }).record(),
             operationIntent: {
               client: pool,
               workItemId: item.id,
