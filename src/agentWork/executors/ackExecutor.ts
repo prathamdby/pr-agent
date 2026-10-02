@@ -18,9 +18,8 @@ import {
   getWorkItemCore,
   type ReviewQueuePosition,
 } from "../repository.js";
-import { closeOwnVerdictsForWorkItems, postOwnVerdictPending } from "../closeOwnVerdict.js";
+import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../reviewVerdict.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../ciProjection.js";
-import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import {
   parseProgressRevisionState,
   renderReviewCancelledNotice,
@@ -127,7 +126,10 @@ async function publishAckProgress(
   // Deferred-head reviews resolve the binding head at claim time; starting the
   // check run here would pin it to an earlier SHA if another push lands first.
   if (data.workItemId && !deferredHead) {
-    const startedCheckId = await ensureReviewCheckRunStarted(pool, {
+    await reviewVerdict({
+      pool,
+      commitStatusEnabled: cfg.features.commitStatus,
+      summaryCommentId: null,
       prSurface,
       owner: data.owner,
       repo: data.repo,
@@ -136,20 +138,7 @@ async function publishAckProgress(
       workItemId: data.workItemId,
       resourceKey,
       reviewLens: data.progress.lens,
-    });
-    if (startedCheckId != null) {
-      await postOwnVerdictPending({
-        pool,
-        prSurface,
-        workItemId: data.workItemId,
-        resourceKey,
-        owner: data.owner,
-        repo: data.repo,
-        prNumber: data.prNumber,
-        headSha,
-        commitStatusEnabled: cfg.features.commitStatus,
-      });
-    }
+    }).pending();
   }
 }
 
@@ -201,7 +190,7 @@ async function publishCancelProgress(
     data.cancelProgress.workItemId,
   ];
 
-  await closeOwnVerdictsForWorkItems(pool, {
+  await closeReviewVerdictsForWorkItems(pool, {
     prSurface,
     owner: data.owner,
     repo: data.repo,

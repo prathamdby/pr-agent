@@ -70,12 +70,11 @@ import {
 } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
-  closeOwnVerdict,
-  postOwnVerdictPending,
+  reviewVerdict,
   type OwnVerdictOutcome,
-} from "../closeOwnVerdict.js";
-import { isOwnCheckOpen, ownVerdictFromSummaryDetail } from "../ownCheckReconcile.js";
-import { ensureReviewCheckRunStarted, reviewCheckDetailsUrl } from "../reviewCheckRun.js";
+  isOwnCheckOpen,
+  ownVerdictFromSummaryDetail,
+} from "../reviewVerdict.js";
 import {
   formatFindingHistoryTrustedBlock,
   safeLoadCrossPrSuppressionFingerprints,
@@ -84,7 +83,6 @@ import {
 import {
   loadReviewExecutorPublishContext,
   getProgressCommentOwner,
-  getSummaryCommentGithubId,
   getWorkItem,
   shouldSkipWork,
   type ReviewExecutorPublishContext,
@@ -210,7 +208,7 @@ async function handleStaleHeadReschedule(args: {
     item,
     leaseEpoch,
     beforeBuild: async () => {
-      await closeOwnVerdict({
+      await reviewVerdict({
         pool,
         prSurface,
         owner: item.owner,
@@ -222,8 +220,8 @@ async function handleStaleHeadReschedule(args: {
         headSha: item.headSha,
         leaseEpoch,
         commitStatusEnabled,
-        outcome: { kind: "stale_head" },
-      });
+        summaryCommentId: null,
+      }).close({ kind: "stale_head" });
     },
   });
 }
@@ -256,8 +254,7 @@ async function closeStoredReviewVerdict(args: {
       ...classifiedFailureLogFields(lastFailure),
     });
   }
-  const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-  await closeOwnVerdict({
+  await reviewVerdict({
     pool,
     prSurface,
     owner: item.owner,
@@ -269,9 +266,7 @@ async function closeStoredReviewVerdict(args: {
     headSha: item.headSha,
     leaseEpoch,
     commitStatusEnabled,
-    outcome,
-    detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
-  });
+  }).close(outcome);
 }
 
 async function runLightweightCompletionOrSkip(args: {
@@ -370,7 +365,7 @@ async function runLightweightCompletionOrSkip(args: {
   logReviewRunCompleted();
   args.profile.record({ outcome: "lightweight", publishAttempts: 0, publishStepCount: 0 });
   args.profile.capture();
-  await closeOwnVerdict({
+  await reviewVerdict({
     pool,
     prSurface,
     owner: item.owner,
@@ -382,16 +377,12 @@ async function runLightweightCompletionOrSkip(args: {
     headSha,
     leaseEpoch,
     commitStatusEnabled,
-    outcome: lightweightResult.published
+    summaryCommentId: lightweightResult.published ? lightweightResult.summaryId : null,
+  }).close(
+    lightweightResult.published
       ? { kind: "published", findings: [], summary: "Documentation-only change set." }
       : { kind: "cancelled", summary: "Review was cancelled before lightweight completion." },
-    detailsUrl: reviewCheckDetailsUrl(
-      item.owner,
-      item.repo,
-      item.prNumber,
-      lightweightResult.published ? lightweightResult.summaryId : null,
-    ),
-  });
+  );
   return { done: true, result: { kind: "completed" } };
 }
 
@@ -899,7 +890,9 @@ async function runClaimedReview(args: {
   const staleHeadAtPublish = { value: false };
   const publishAbortState: { staleHead?: boolean } = {};
 
-  const startedCheckId = await ensureReviewCheckRunStarted(pool, {
+  await reviewVerdict({
+    pool,
+    commitStatusEnabled: cfg.features.commitStatus,
     prSurface,
     owner: item.owner,
     repo: item.repo,
@@ -910,23 +903,7 @@ async function runClaimedReview(args: {
     reviewLens,
     leaseEpoch: env.leaseEpoch,
     signal: env.signal,
-  });
-  if (startedCheckId != null) {
-    const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-    await postOwnVerdictPending({
-      pool,
-      prSurface,
-      workItemId: item.id,
-      resourceKey: item.resourceKey,
-      owner: item.owner,
-      repo: item.repo,
-      prNumber: item.prNumber,
-      headSha,
-      commitStatusEnabled,
-      leaseEpoch: env.leaseEpoch,
-      detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
-    });
-  }
+  }).pending();
 
   if (publishContext.publishState.summaryPublished) {
     const summaryDetail = await createPublishContext(pool, {
@@ -1084,8 +1061,7 @@ export function createReviewWorkExecution({
     onCancelled: async (item, prSurface, _reason, leaseEpoch) => {
       if (!item.reviewLens) return;
       const reviewLens = item.reviewLens;
-      const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-      await closeOwnVerdict({
+      await reviewVerdict({
         pool,
         prSurface,
         owner: item.owner,
@@ -1097,9 +1073,7 @@ export function createReviewWorkExecution({
         headSha: item.headSha,
         leaseEpoch,
         commitStatusEnabled: cfg.features.commitStatus,
-        outcome: { kind: "cancelled" },
-        detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
-      });
+      }).close({ kind: "cancelled" });
     },
     onTerminalFailure: async (item, prSurface, _error, leaseEpoch) => {
       if (!prSurface) return;
@@ -1117,8 +1091,7 @@ export function createReviewWorkExecution({
       }).completed("check_run");
       if (summaryDetail != null) {
         if (!isOwnCheckOpen(checkDetail)) return;
-        const commentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-        await closeOwnVerdict({
+        await reviewVerdict({
           pool,
           prSurface,
           owner: item.owner,
@@ -1130,9 +1103,7 @@ export function createReviewWorkExecution({
           headSha: item.headSha,
           leaseEpoch,
           commitStatusEnabled: cfg.features.commitStatus,
-          outcome: ownVerdictFromSummaryDetail(summaryDetail),
-          detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, commentId),
-        });
+        }).close(ownVerdictFromSummaryDetail(summaryDetail));
         return;
       }
       const owner = await getProgressCommentOwner(pool, item.resourceKey, reviewLens);
@@ -1152,7 +1123,7 @@ export function createReviewWorkExecution({
           commentId = summary.id;
         }
       }
-      await closeOwnVerdict({
+      await reviewVerdict({
         pool,
         prSurface,
         owner: item.owner,
@@ -1164,9 +1135,8 @@ export function createReviewWorkExecution({
         headSha: item.headSha,
         leaseEpoch,
         commitStatusEnabled: cfg.features.commitStatus,
-        outcome: { kind: "crashed" },
-        detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, commentId),
-      });
+        summaryCommentId: commentId,
+      }).close({ kind: "crashed" });
     },
   };
 }

@@ -475,6 +475,50 @@ execution-context cancellation and lease policy for its commit/push guards; the
 publication owner checks the same conditions only inside its own recovery and
 push mutation.
 
+## M9 failure modes
+
+Recorded before existing-test or production changes:
+
+1. Two closing APIs select different outputs or bypass the combined check/status
+   writer. The verdict owner must expose one close operation.
+2. Concurrent closes overwrite the first CAS-selected output or its details hash.
+3. Null or omitted epochs publish while work is live, including acknowledgement.
+4. Moving selection/application changes the session lock, autocommit ordering,
+   lease SQL, operation keys, child hashes, or separate accepted receipts.
+5. Repair infers acceptance from check creation, reopens unknown intents, or
+   replaces the saved selection with a newly inferred summary verdict.
+6. Callers construct divergent details URLs or read repair evidence in a different
+   order. The verdict owner resolves the summary URL and owns open-check repair.
+7. Consolidation loses accepted-start recording, reservation recovery, orphan
+   cleanup, permission soft failures, or cancellation behavior.
+
+The existing agent-work repository integration suite owns first-output CAS,
+terminal-only null/omitted epochs (including acknowledgement), and fail-closed
+repair. The renamed verdict unit suite retains creation/recovery coverage.
+
+M9 consolidates check creation, combined verdict publication, and terminal
+repair in `src/agentWork/reviewVerdict.ts`. The factory returns
+`{pending, close, repairIfOpen}`; no independent check-only or cancellation
+closer remains. It builds details links from comment IDs, retaining explicit
+no-link output on acknowledgement, stale-head replacement, projector, and
+sweeper paths. Newly published summary or failure-notice IDs retain their
+original link before a durable record exists.
+
+The shared session-lock and fenced-write implementations, repository SQL, CAS
+selection, operation keys, delegated child evidence, and separate acceptance
+receipts remain unchanged. Existing check-only selection compatibility is
+exercised by seeding the retained selection at the repository boundary, then
+using the one combined writer. The owner tests exercise the real fake PR
+surface with Postgres for races and fail-closed reconciliation.
+
+Integrated onto M0-M8, the lane passed formatting, typecheck, lint, guards, 188
+unit suites (2,599 tests), the build, and 14 dedicated-database integration suites
+(544 tests). Source/test unsafe assertions stay at 78/0 with no baseline growth.
+The complete prompt dump remains byte-identical to M0, SHA-256
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`. The check
+close delegation uses the M8 publication owner's delegation gate and marker; the
+selection, keys, and receipts above are unchanged.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

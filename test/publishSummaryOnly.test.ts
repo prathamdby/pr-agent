@@ -78,6 +78,7 @@ function configuredSummarySurface() {
     ],
     truncated: false,
   });
+  vi.spyOn(bundle.surface, "finishReviewCheck");
   const upsertProgressComment = vi
     .spyOn(bundle.surface, "upsertProgressComment")
     .mockResolvedValue({ id: 2, updated: false });
@@ -133,11 +134,6 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
 vi.mock("../src/agentWork/ciProjection.js", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
@@ -146,8 +142,7 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
   enqueueCiProjectionIfDue: vi.fn(async () => undefined),
 }));
 
-import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
-import * as closeOwnVerdict from "../src/agentWork/closeOwnVerdict.js";
+import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
 import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
 import type { Pool, PoolClient } from "pg";
 
@@ -165,6 +160,7 @@ function finding(line: number): ReviewFinding {
 
 describe("publishReviewSummaryOnly", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -196,7 +192,15 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     const { surface, upsertProgressComment } = configuredSummarySurface();
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict");
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+      close.mockImplementation((outcome) => verdict.close(outcome));
+      return { ...verdict, close };
+    });
 
     const result = await publishReviewSummaryOnly({
       cfg: makeTestConfig(),
@@ -219,6 +223,7 @@ describe("publishReviewSummaryOnly", () => {
 
     expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
     expect(close).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
     expect(upsertProgressComment).toHaveBeenCalledTimes(1);
     const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r41");
@@ -269,7 +274,15 @@ describe("publishReviewSummaryOnly", () => {
       resourceKey: "o/r#1",
     });
     const { surface, setReviewCommitStatus, upsertProgressComment } = configuredSummarySurface();
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict");
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+      close.mockImplementation((outcome) => verdict.close(outcome));
+      return { ...verdict, close };
+    });
     const result = await publishReviewSummaryOnly({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
@@ -293,23 +306,17 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result.kind).toBe("published");
-    expect(completeReviewCheckRun).toHaveBeenCalledWith(
-      recordPublishStep.summaryCommentCoordination?.pool,
+    expect(surface.finishReviewCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        prSurface: surface,
         conclusion: "neutral",
         summary: "Coverage partial: security specialist failed.",
       }),
     );
-    expect(close).toHaveBeenCalledWith(
-      expect.objectContaining({
-        commitStatusEnabled: true,
-        outcome: {
-          kind: "partial",
-          note: "Coverage partial: security specialist failed.",
-        },
-      }),
-    );
+    expect(close).toHaveBeenCalledWith({
+      kind: "partial",
+      note: "Coverage partial: security specialist failed.",
+    });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ commitStatusEnabled: true }));
     expect(setReviewCommitStatus).toHaveBeenCalledWith(
       "sha",
       expect.objectContaining({ state: "error" }),
@@ -320,7 +327,15 @@ describe("publishReviewSummaryOnly", () => {
   it("closes the own verdict from pool identity when summary coordination is absent", async () => {
     const pool = { connect: vi.fn() } as unknown as Pool;
     const { surface } = configuredSummarySurface();
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+
+      return { ...verdict, close };
+    });
     const result = await publishReviewSummaryOnly({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
@@ -341,13 +356,13 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result.kind).toBe("published");
-    expect(close).toHaveBeenCalledWith(
+    expect(close).toHaveBeenCalledWith({ kind: "published", findings: [finding(10)] });
+    expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: "wi-1",
         resourceKey: "o/r#1",
         commitStatusEnabled: true,
-        outcome: { kind: "published", findings: [finding(10)] },
       }),
     );
   });

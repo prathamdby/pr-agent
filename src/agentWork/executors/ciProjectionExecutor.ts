@@ -38,7 +38,7 @@ import {
 } from "../../settings/legacyReviewLenses.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
-import { closeOwnVerdict } from "../closeOwnVerdict.js";
+import { reviewVerdict, asTerminalOwnCheckStatus } from "../reviewVerdict.js";
 import {
   enqueueCiProjectionAfter,
   enqueueCiProjectionDebouncedStandalone,
@@ -56,11 +56,7 @@ import {
   storePrNumbersForHead,
   type PrHeadCiStateRow,
 } from "../prHeadCiState.js";
-import {
-  asTerminalOwnCheckStatus,
-  isOwnCheckOpen,
-  resolveOwnVerdictForTerminalReview,
-} from "../ownCheckReconcile.js";
+
 import { getProgressCommentOwner } from "../repository.js";
 import { getWorkItemCore } from "../workItemStateRepository.js";
 import { prResourceKey, type CiProjectionJobData } from "../types.js";
@@ -113,16 +109,8 @@ async function reconcileOwnVerdicts(params: {
   );
   for (const item of items) {
     if (!isAnyReviewLens(item.reviewLens)) continue;
-    const checkDetail = await createPublishContext(params.pool, {
-      workItemId: item.id,
-      resourceKey: item.resourceKey,
-      reviewLens: item.reviewLens,
-    }).completed("check_run");
-    if (!isOwnCheckOpen(checkDetail)) continue;
-    const status = asTerminalOwnCheckStatus(item.status);
-    if (status == null) continue;
     try {
-      await closeOwnVerdict({
+      await reviewVerdict({
         pool: params.pool,
         prSurface: params.prSurface,
         owner: params.owner,
@@ -134,14 +122,8 @@ async function reconcileOwnVerdicts(params: {
         headSha: params.headSha,
         leaseEpoch: null,
         commitStatusEnabled: params.cfg.features.commitStatus,
-        outcome: await resolveOwnVerdictForTerminalReview({
-          pool: params.pool,
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          reviewLens: item.reviewLens,
-          status,
-        }),
-      });
+        summaryCommentId: null,
+      }).repairIfOpen();
     } catch (error) {
       logWarn("ci_projection_own_verdict_failed", {
         workItemId: item.id,

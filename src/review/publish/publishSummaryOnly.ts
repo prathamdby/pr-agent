@@ -11,9 +11,7 @@ import {
   publishOnce,
 } from "../../agentWork/publishOnce.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../../agentWork/ciProjection.js";
-import { closeOwnVerdict } from "../../agentWork/closeOwnVerdict.js";
-import { summaryCommentVerdictMeta } from "../../agentWork/ownCheckReconcile.js";
-import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
+import { reviewVerdict, summaryCommentVerdictMeta } from "../../agentWork/reviewVerdict.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../../github/mutationErrorContract.js";
@@ -289,14 +287,13 @@ export async function publishReviewSummaryOnly(params: {
     updated: summary.updated,
   });
 
-  const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
   const verdictPool = params.pool ?? summaryCoordination?.pool;
   const verdictWorkItemId = params.workItemId ?? summaryCoordination?.workItemId;
   const verdictResourceKey = params.resourceKey ?? summaryCoordination?.resourceKey;
   const verdictLeaseEpoch =
     summaryCoordination != null ? summaryCoordination.leaseEpoch : params.leaseEpoch;
   if (verdictPool != null && verdictWorkItemId != null && verdictResourceKey != null) {
-    await closeOwnVerdict({
+    await reviewVerdict({
       pool: verdictPool,
       prSurface: params.prSurface,
       owner,
@@ -308,12 +305,12 @@ export async function publishReviewSummaryOnly(params: {
       headSha,
       leaseEpoch: verdictLeaseEpoch,
       commitStatusEnabled: params.cfg.features.commitStatus,
-      detailsUrl: targetUrl,
-      outcome:
-        coverage.kind === "partial"
-          ? { kind: "partial", note: coverage.note }
-          : { kind: "published", findings: params.payload.findings },
-    });
+      summaryCommentId: summary.id,
+    }).close(
+      coverage.kind === "partial"
+        ? { kind: "partial", note: coverage.note }
+        : { kind: "published", findings: params.payload.findings },
+    );
   }
 
   if (currentLabels instanceof Error) {

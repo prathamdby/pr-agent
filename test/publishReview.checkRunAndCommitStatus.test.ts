@@ -87,11 +87,6 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
 vi.mock("../src/agentWork/ciProjection.js", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
@@ -101,8 +96,7 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
 }));
 
 import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentUpsert.js";
-import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
-import * as closeOwnVerdict from "../src/agentWork/closeOwnVerdict.js";
+import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
 
 const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
@@ -117,6 +111,7 @@ const pool = {
 
 describe("publishReview check run completion", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
@@ -139,16 +134,8 @@ describe("publishReview check run completion", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
+    expect(harness.surface.finishReviewCheck).toHaveBeenCalledWith(
       expect.objectContaining({
-        prSurface: harness.surface,
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        workItemId: "wi-1",
-        resourceKey: "o/r#1",
-        reviewLens: "review",
         conclusion: "failure",
         summary: "1 finding",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-2",
@@ -168,12 +155,8 @@ describe("publishReview check run completion", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "failure",
-        summary: "1 finding",
-      }),
+    expect(harness.surface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ conclusion: "failure", summary: "1 finding" }),
     );
   });
 
@@ -186,12 +169,8 @@ describe("publishReview check run completion", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "success",
-        summary: "No findings",
-      }),
+    expect(harness.surface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ conclusion: "success", summary: "No findings" }),
     );
   });
 
@@ -213,18 +192,15 @@ describe("publishReview check run completion", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "success",
-        summary: "No findings",
-      }),
+    expect(harness.surface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ conclusion: "success", summary: "No findings" }),
     );
   });
 });
 
 describe("publishReview commit status", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     harness = createPublishReviewTestHarness();
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
@@ -240,7 +216,15 @@ describe("publishReview commit status", () => {
   }
 
   it("closes the own verdict as failure when published findings include P1", async () => {
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+
+      return { ...verdict, close };
+    });
 
     await publishReviewForTest({
       ...baseParams,
@@ -250,15 +234,11 @@ describe("publishReview commit status", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(close).toHaveBeenCalledWith(
-      expect.objectContaining({
-        commitStatusEnabled: true,
-        outcome: expect.objectContaining({ kind: "published" }),
-      }),
-    );
-    expect(closeOwnVerdict.ownVerdictSurfaces(close.mock.calls[0]?.[0].outcome)).toEqual(
-      expect.objectContaining({ checkRun: "failure", commitStatus: "failure" }),
-    );
+    expect(close).toHaveBeenCalledWith(expect.objectContaining({ kind: "published" }));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ commitStatusEnabled: true }));
+    expect(
+      verdictOwner.ownVerdictSurfaces(close.mock.calls[0]?.[0] ?? { kind: "not_published" }),
+    ).toEqual(expect.objectContaining({ checkRun: "failure", commitStatus: "failure" }));
   });
 
   it("completes publish when commit status API throws", async () => {
@@ -276,7 +256,15 @@ describe("publishReview commit status", () => {
   });
 
   it("asks the own verdict writer to skip commit status when the flag is off", async () => {
-    const close = vi.spyOn(closeOwnVerdict, "closeOwnVerdict").mockResolvedValue(undefined);
+    const close = vi.fn<(outcome: verdictOwner.OwnVerdictOutcome) => Promise<void>>(
+      async () => undefined,
+    );
+    const actualVerdict = verdictOwner.reviewVerdict;
+    const create = vi.spyOn(verdictOwner, "reviewVerdict").mockImplementation((params) => {
+      const verdict = actualVerdict(params);
+
+      return { ...verdict, close };
+    });
 
     await publishReviewForTest({
       ...baseParams,
@@ -285,7 +273,7 @@ describe("publishReview commit status", () => {
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(close).toHaveBeenCalledWith(expect.objectContaining({ commitStatusEnabled: false }));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ commitStatusEnabled: false }));
     expect(harness.setReviewCommitStatus).not.toHaveBeenCalled();
   });
 });

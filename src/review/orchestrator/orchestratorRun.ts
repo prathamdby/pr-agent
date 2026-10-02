@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
+import { reviewCheckDetailsUrl } from "../../agentWork/reviewVerdict.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { combineAbortSignals, type TurnEnd } from "../../agent/providers/interface.js";

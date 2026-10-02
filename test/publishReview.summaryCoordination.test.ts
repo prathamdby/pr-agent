@@ -86,11 +86,6 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
 vi.mock("../src/evlog.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/evlog.js")>();
   return { ...actual, logWarn: vi.fn() };

@@ -130,23 +130,18 @@ import { AppError } from "../src/errors/appError.js";
 import { assertPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
 import * as closeRepository from "../src/agentWork/publishRecordRepository.js";
 import {
-  closeOwnVerdictsForWorkItems,
+  closeReviewVerdictsForWorkItems,
   ownVerdictSurfaces,
-} from "../src/agentWork/closeOwnVerdict.js";
-import {
   isOwnCheckOpen,
   ownVerdictFromSummaryDetail,
   summaryCommentVerdictMeta,
-} from "../src/agentWork/ownCheckReconcile.js";
-import {
   REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
-  cancelReviewCheckRun,
-  completeReviewCheckRun,
-  ensureReviewCheckRunStarted,
+  reviewVerdict,
   reviewCheckRunName,
   reviewCheckRunOutcome,
   waitForReviewCheckRunGithubId,
-} from "../src/agentWork/reviewCheckRun.js";
+} from "../src/agentWork/reviewVerdict.js";
+
 import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
 
 const pool = {} as never;
@@ -185,6 +180,8 @@ function startParams(prSurface = makePrSurface()) {
 describe("review check run lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getReviewCheckRunGithubId).mockReset().mockResolvedValue(null);
+    vi.mocked(getSummaryCommentGithubId).mockReset().mockResolvedValue(null);
     (
       closeRepository as typeof closeRepository & { resetOwnVerdictRecords: () => void }
     ).resetOwnVerdictRecords();
@@ -217,7 +214,12 @@ describe("review check run lifecycle", () => {
     const stalePrSurface = makePrSurface();
 
     await expect(
-      ensureReviewCheckRunStarted(pool, { ...startParams(stalePrSurface), leaseEpoch: 1 }),
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(stalePrSurface),
+        leaseEpoch: 1,
+      }).pending(),
     ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
 
     expect(stalePrSurface.startReviewCheck).not.toHaveBeenCalled();
@@ -226,7 +228,12 @@ describe("review check run lifecycle", () => {
     vi.mocked(assertPrActorLeaseHeld).mockResolvedValue(undefined);
     const livePrSurface = makePrSurface();
     await expect(
-      ensureReviewCheckRunStarted(pool, { ...startParams(livePrSurface), leaseEpoch: 2 }),
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(livePrSurface),
+        leaseEpoch: 2,
+      }).pending(),
     ).resolves.toBe(123);
     expect(livePrSurface.startReviewCheck).toHaveBeenCalledTimes(1);
     expect(recordReviewCheckRun).toHaveBeenCalledWith(
@@ -244,11 +251,13 @@ describe("review check run lifecycle", () => {
     const prSurface = makePrSurface();
 
     await expect(
-      ensureReviewCheckRunStarted(pool, {
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
         ...startParams(prSurface),
         leaseEpoch: 1,
         signal: controller.signal,
-      }),
+      }).pending(),
     ).rejects.toMatchObject({ code: "agent_work.execution_aborted" });
 
     expect(prSurface.startReviewCheck).not.toHaveBeenCalled();
@@ -271,11 +280,13 @@ describe("review check run lifecycle", () => {
     });
 
     await expect(
-      ensureReviewCheckRunStarted(pool, {
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
         ...startParams(prSurface),
         leaseEpoch: 1,
         signal: controller.signal,
-      }),
+      }).pending(),
     ).rejects.toThrow("gh 500");
 
     expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(pool, {
@@ -297,11 +308,13 @@ describe("review check run lifecycle", () => {
     });
 
     await expect(
-      ensureReviewCheckRunStarted(pool, {
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
         ...startParams(prSurface),
         leaseEpoch: 1,
         signal: controller.signal,
-      }),
+      }).pending(),
     ).resolves.toBe(123);
 
     expect(recordReviewCheckRun).toHaveBeenCalledWith(
@@ -406,7 +419,13 @@ describe("review check run lifecycle", () => {
 
   it("creates and records an in-progress check run", async () => {
     const prSurface = makePrSurface();
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBe(123);
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBe(123);
 
     expect(reserveReviewCheckRun).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
@@ -443,7 +462,13 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(456);
     const prSurface = makePrSurface();
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBe(456);
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBe(456);
 
     expect(reserveReviewCheckRun).not.toHaveBeenCalled();
     expect(prSurface.startReviewCheck).not.toHaveBeenCalled();
@@ -453,7 +478,13 @@ describe("review check run lifecycle", () => {
     vi.mocked(reserveReviewCheckRun).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const prSurface = makePrSurface();
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBe(123);
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBe(123);
 
     expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(
       pool,
@@ -474,7 +505,11 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
     const prSurface = makePrSurface();
 
-    const pending = ensureReviewCheckRunStarted(pool, startParams(prSurface));
+    const pending = reviewVerdict({
+      pool: pool,
+      commitStatusEnabled: false,
+      ...startParams(prSurface),
+    }).pending();
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toBeNull();
 
@@ -492,7 +527,11 @@ describe("review check run lifecycle", () => {
       .mockResolvedValueOnce(456);
     const prSurface = makePrSurface();
 
-    const pending = ensureReviewCheckRunStarted(pool, startParams(prSurface));
+    const pending = reviewVerdict({
+      pool: pool,
+      commitStatusEnabled: false,
+      ...startParams(prSurface),
+    }).pending();
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toBe(456);
 
@@ -512,7 +551,13 @@ describe("review check run lifecycle", () => {
       }),
     });
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBeNull();
 
     expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
@@ -527,7 +572,13 @@ describe("review check run lifecycle", () => {
       startReviewCheck: vi.fn().mockRejectedValue(new Error("checks forbidden")),
     });
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBeNull();
 
     expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
@@ -550,8 +601,20 @@ describe("review check run lifecycle", () => {
     });
     vi.spyOn(prSurface, "findReviewCheck").mockImplementation(findReviewCheck);
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBe(123);
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBeNull();
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBe(123);
 
     expect(prSurface.startReviewCheck).toHaveBeenCalledOnce();
     expect(findReviewCheck).toHaveBeenCalledTimes(2);
@@ -570,7 +633,13 @@ describe("review check run lifecycle", () => {
         ),
     });
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBeNull();
 
     expect(logWarn).not.toHaveBeenCalled();
   });
@@ -582,7 +651,13 @@ describe("review check run lifecycle", () => {
         .mockRejectedValue(Object.assign(new Error("Not Found"), { status: 404 })),
     });
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBeNull();
 
     expect(logWarn).toHaveBeenCalledWith(
       "review_check_run_start_failed",
@@ -594,7 +669,13 @@ describe("review check run lifecycle", () => {
     vi.mocked(recordReviewCheckRun).mockRejectedValueOnce(new Error("db unavailable"));
     const prSurface = makePrSurface();
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams(prSurface))).resolves.toBeNull();
+    await expect(
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
+        ...startParams(prSurface),
+      }).pending(),
+    ).resolves.toBeNull();
 
     expect(prSurface.startReviewCheck).toHaveBeenCalled();
     expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
@@ -613,16 +694,16 @@ describe("review check run lifecycle", () => {
 
   it("completes an existing check run", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
+    vi.mocked(getSummaryCommentGithubId).mockResolvedValueOnce(2);
     const prSurface = makePrSurface();
 
     await expect(
-      completeReviewCheckRun(pool, {
-        ...startParams(prSurface),
-        conclusion: "failure",
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "published",
+        findings: [{ severity: "P1" }],
         summary: "1 finding",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBeUndefined();
 
     expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -635,23 +716,23 @@ describe("review check run lifecycle", () => {
     );
   });
 
-  it("waits for a persisted check run id before completing", async () => {
+  it("waits for the peer-started ID before concluding through the owner", async () => {
     vi.useFakeTimers();
+    vi.mocked(reserveReviewCheckRun).mockResolvedValueOnce(false);
+    vi.mocked(releaseUnstartedReviewCheckRunReservation).mockResolvedValueOnce(false);
     vi.mocked(getReviewCheckRunGithubId)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(123);
+      .mockResolvedValue(123);
     const prSurface = makePrSurface();
-
-    const pending = completeReviewCheckRun(pool, {
-      ...startParams(prSurface),
-      conclusion: "success",
-      summary: "No findings",
-    });
+    const verdict = reviewVerdict({ pool, commitStatusEnabled: false, ...startParams(prSurface) });
+    const pending = verdict.pending();
     await vi.runAllTimersAsync();
-    await expect(pending).resolves.toBe(true);
-
-    expect(prSurface.finishReviewCheck).toHaveBeenCalled();
+    await expect(pending).resolves.toBe(123);
+    await verdict.close({ kind: "published", findings: [] });
+    expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ checkRunId: 123, conclusion: "success" }),
+    );
     vi.useRealTimers();
   });
 
@@ -668,7 +749,7 @@ describe("review check run lifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("returns true and logs a DB record warning when GitHub completion succeeds", async () => {
+  it("logs a DB record warning when GitHub completion succeeds", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
     vi.mocked(closeRepository.recordOwnVerdictSurfaceApplied).mockRejectedValueOnce(
       new Error("db unavailable"),
@@ -676,12 +757,12 @@ describe("review check run lifecycle", () => {
     const prSurface = makePrSurface();
 
     await expect(
-      completeReviewCheckRun(pool, {
-        ...startParams(prSurface),
-        conclusion: "success",
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "published",
+        findings: [],
         summary: "No findings",
       }),
-    ).resolves.toBe(true);
+    ).resolves.toBeUndefined();
 
     expect(prSurface.finishReviewCheck).toHaveBeenCalled();
     expect(logWarn).toHaveBeenCalledWith(
@@ -704,12 +785,12 @@ describe("review check run lifecycle", () => {
     });
 
     await expect(
-      completeReviewCheckRun(pool, {
-        ...startParams(prSurface),
-        conclusion: "success",
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "published",
+        findings: [],
         summary: "No findings",
       }),
-    ).resolves.toBe(false);
+    ).resolves.toBeUndefined();
 
     expect(logWarn).not.toHaveBeenCalled();
   });
@@ -718,7 +799,11 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
     const prSurface = makePrSurface();
 
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+    await expect(
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "cancelled",
+      }),
+    ).resolves.toBeUndefined();
 
     expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -739,18 +824,26 @@ describe("review check run lifecycle", () => {
         ),
     });
 
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    await expect(
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "cancelled",
+      }),
+    ).resolves.toBeUndefined();
 
     expect(logWarn).not.toHaveBeenCalled();
   });
 
-  it("returns false and logs when cancel finish fails generically", async () => {
+  it("logs when cancel finish fails generically", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
     const prSurface = makePrSurface({
       finishReviewCheck: vi.fn().mockRejectedValue(new Error("github unavailable")),
     });
 
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    await expect(
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "cancelled",
+      }),
+    ).resolves.toBeUndefined();
 
     expect(logWarn).toHaveBeenCalledWith(
       "review_check_run_complete_failed",
@@ -762,14 +855,18 @@ describe("review check run lifecycle", () => {
     );
   });
 
-  it("returns true and logs a DB record warning when cancel GitHub completion succeeds", async () => {
+  it("logs a DB record warning when cancel GitHub completion succeeds", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
     vi.mocked(closeRepository.recordOwnVerdictSurfaceApplied).mockRejectedValueOnce(
       new Error("db unavailable"),
     );
     const prSurface = makePrSurface();
 
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+    await expect(
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "cancelled",
+      }),
+    ).resolves.toBeUndefined();
 
     expect(prSurface.finishReviewCheck).toHaveBeenCalled();
     expect(logWarn).toHaveBeenCalledWith(
@@ -782,12 +879,16 @@ describe("review check run lifecycle", () => {
     );
   });
 
-  it("returns false without a GitHub snapshot when no stored check run id exists", async () => {
+  it("does not read a GitHub snapshot when no stored check run id exists", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
     const prSurface = makePrSurface();
     const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
 
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(false);
+    await expect(
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "cancelled",
+      }),
+    ).resolves.toBeUndefined();
 
     expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
     expect(getCiStatus).not.toHaveBeenCalled();
@@ -800,8 +901,12 @@ describe("review check run lifecycle", () => {
     const prSurface = makePrSurface();
     const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
 
-    const pending = cancelReviewCheckRun(pool, startParams(prSurface));
-    await expect(pending).resolves.toBe(false);
+    const pending = reviewVerdict({
+      pool: pool,
+      commitStatusEnabled: false,
+      ...startParams(prSurface),
+    }).close({ kind: "cancelled" });
+    await expect(pending).resolves.toBeUndefined();
 
     expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
     expect(getCiStatus).not.toHaveBeenCalled();
@@ -813,8 +918,16 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(123);
     const prSurface = makePrSurface();
 
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
-    await expect(cancelReviewCheckRun(pool, startParams(prSurface))).resolves.toBe(true);
+    await expect(
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "cancelled",
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      reviewVerdict({ pool: pool, commitStatusEnabled: false, ...startParams(prSurface) }).close({
+        kind: "cancelled",
+      }),
+    ).resolves.toBeUndefined();
 
     expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(1);
     expect(prSurface.finishReviewCheck).toHaveBeenNthCalledWith(
@@ -823,17 +936,19 @@ describe("review check run lifecycle", () => {
     );
   });
 
-  it("does not look up open checks when headSha is undefined", async () => {
+  it("does not look up open checks when headSha is empty", async () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
     const prSurface = makePrSurface();
     const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
 
     await expect(
-      cancelReviewCheckRun(pool, {
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
         ...startParams(prSurface),
-        headSha: undefined,
-      }),
-    ).resolves.toBe(false);
+        headSha: "",
+      }).close({ kind: "cancelled" }),
+    ).resolves.toBeUndefined();
 
     expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
     expect(getCiStatus).not.toHaveBeenCalled();
@@ -846,11 +961,13 @@ describe("review check run lifecycle", () => {
     const getCiStatus = vi.spyOn(prSurface, "getCiStatus");
 
     await expect(
-      cancelReviewCheckRun(pool, {
+      reviewVerdict({
+        pool: pool,
+        commitStatusEnabled: false,
         ...startParams(prSurface),
         headSha: DEFERRED_HEAD_SHA,
-      }),
-    ).resolves.toBe(false);
+      }).close({ kind: "cancelled" }),
+    ).resolves.toBeUndefined();
 
     expect(getReviewCheckRunGithubId).toHaveBeenCalledTimes(1);
     expect(getCiStatus).not.toHaveBeenCalled();
@@ -879,7 +996,7 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(11).mockResolvedValueOnce(22);
     const prSurface = makePrSurface();
 
-    await closeOwnVerdictsForWorkItems(pool, {
+    await closeReviewVerdictsForWorkItems(pool, {
       prSurface,
       owner: "o",
       repo: "r",
@@ -955,7 +1072,7 @@ describe("review check run lifecycle", () => {
       }),
     });
 
-    await closeOwnVerdictsForWorkItems(pool, {
+    await closeReviewVerdictsForWorkItems(pool, {
       prSurface,
       owner: "o",
       repo: "r",
@@ -1001,7 +1118,7 @@ describe("review check run lifecycle", () => {
     vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(22);
     const prSurface = makePrSurface();
 
-    await closeOwnVerdictsForWorkItems(pool, {
+    await closeReviewVerdictsForWorkItems(pool, {
       prSurface,
       owner: "o",
       repo: "r",

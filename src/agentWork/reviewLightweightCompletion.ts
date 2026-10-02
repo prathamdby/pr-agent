@@ -12,7 +12,7 @@ import type { PrSurface } from "../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
 import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "./ciProjection.js";
-import { summaryCommentVerdictMeta } from "./ownCheckReconcile.js";
+import { summaryCommentVerdictMeta } from "./reviewVerdict.js";
 import { getSummaryCommentGithubId, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 import { operationIntentMarker, reviewSummaryOperationKey, publishOnce } from "./publishOnce.js";

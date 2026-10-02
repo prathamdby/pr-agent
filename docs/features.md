@@ -99,7 +99,7 @@ Notes:
 - `FEATURE_REVIEW_LABELS=off` stops size and security labels only. Category
   labels still sync.
 - `FEATURE_COMMIT_STATUS` and the `PR Agent Review` check run share one writer
-  (`closeOwnVerdict`). A crash concludes the check as `action_required`. A
+  (`reviewVerdict(...).close`). A crash concludes the check as `action_required`. A
   published P0–P2 finding concludes it as `failure`.
   Concurrent closes keep the first verdict. A later cancellation or recovery
   does not replace it. The optional status uses that same verdict.

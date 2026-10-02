@@ -145,7 +145,7 @@ import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
 import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
 import * as rateLimitCircuit from "../src/github/rateLimitCircuit.js";
-import * as reviewCheckRun from "../src/agentWork/reviewCheckRun.js";
+import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
 import * as prSurfaceModule from "../src/github/prSurface.js";
 import { createWorkDefinitions } from "../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../src/agentWork/installationSurface.js";
@@ -250,6 +250,11 @@ function mockDurableExecution(
   return captured;
 }
 
+const verdictMethods = {
+  pending: vi.fn(async (): Promise<number | null> => 123),
+  close: vi.fn(async (_outcome: verdictOwner.OwnVerdictOutcome) => undefined),
+  repairIfOpen: vi.fn(async () => undefined),
+};
 describe("review work definition", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -260,10 +265,9 @@ describe("review work definition", () => {
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(
       () => durableSurfaceBundle.surface,
     );
-    vi.spyOn(reviewCheckRun, "ensureReviewCheckRunStarted").mockResolvedValue(123);
-    vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockResolvedValue(true);
-    vi.spyOn(reviewCheckRun, "cancelReviewCheckRun").mockResolvedValue(true);
-    vi.spyOn(reviewCheckRun, "reviewCheckDetailsUrl").mockImplementation(
+    verdictMethods.close.mockReset().mockResolvedValue(undefined);
+    vi.spyOn(verdictOwner, "reviewVerdict").mockReturnValue(verdictMethods);
+    vi.spyOn(verdictOwner, "reviewCheckDetailsUrl").mockImplementation(
       (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
         summaryCommentId == null
           ? undefined
@@ -502,9 +506,9 @@ describe("review work definition", () => {
   it("ensures a review check run before the long review", async () => {
     await runExecution();
 
-    expect(reviewCheckRun.ensureReviewCheckRunStarted).toHaveBeenCalledWith(
-      pool,
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
       expect.objectContaining({
+        pool,
         prSurface: durableSurfaceBundle.surface,
         owner: "o",
         repo: "r",
@@ -618,11 +622,14 @@ describe("review work definition", () => {
       1,
     );
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review was rescheduled for a newer pull request head.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review was rescheduled for a newer pull request head.",
+        }),
+      ]),
     );
   });
 
@@ -754,7 +761,11 @@ describe("review work definition", () => {
       code: "agent_work.pr_actor_lease_lost",
     });
 
-    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["published", "partial", "crashed", "not_published"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
   });
 
@@ -772,11 +783,14 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review publish was skipped because the work was superseded or cancelled.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review publish was skipped because the work was superseded or cancelled.",
+        }),
+      ]),
     );
   });
 
@@ -883,11 +897,14 @@ describe("review work definition", () => {
       ),
     ).toBe(false);
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review publish was skipped because the work was superseded or cancelled.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review publish was skipped because the work was superseded or cancelled.",
+        }),
+      ]),
     );
   });
 
@@ -912,12 +929,12 @@ describe("review work definition", () => {
     );
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "success",
-        summary: "Documentation-only change set.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ checkRun: "success", summary: "Documentation-only change set." }),
+      ]),
     );
   });
 
@@ -933,12 +950,12 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "failure",
-        summary: "1 finding",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ checkRun: "failure", summary: "1 finding" }),
+      ]),
     );
   });
 
@@ -952,13 +969,15 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "action_required",
-        summary: "PR Agent could not publish a structured review.",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkRun: "action_required",
+          summary: "PR Agent could not publish a structured review.",
+        }),
+      ]),
     );
   });
 
@@ -1007,11 +1026,14 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review publish was skipped because the work was superseded or cancelled.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          summary: "Review publish was skipped because the work was superseded or cancelled.",
+        }),
+      ]),
     );
   });
 
@@ -1031,11 +1053,12 @@ describe("review work definition", () => {
     await runExecution();
 
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        summary: "Review was cancelled before lightweight completion.",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ summary: "Review was cancelled before lightweight completion." }),
+      ]),
     );
   });
 
@@ -1049,9 +1072,7 @@ describe("review work definition", () => {
   it("propagates lightweight verdict cleanup failure", async () => {
     mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
-    vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockRejectedValue(
-      new Error("check-run update failed"),
-    );
+    vi.mocked(verdictMethods.close).mockRejectedValue(new Error("check-run update failed"));
 
     await expect(runExecution()).rejects.toThrow("check-run update failed");
   });
@@ -1067,13 +1088,15 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "action_required",
-        summary: "PR Agent could not complete the review after retries.",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkRun: "action_required",
+          summary: "PR Agent could not complete the review after retries.",
+        }),
+      ]),
     );
   });
 
@@ -1100,13 +1123,15 @@ describe("review work definition", () => {
     ]);
     const edit = edits[0];
     expect(edit?.kind === "editComment" ? edit.body : "").toContain("Review did not finish");
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "action_required",
-        summary: "PR Agent could not complete the review after retries.",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-4242",
-      }),
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          checkRun: "action_required",
+          summary: "PR Agent could not complete the review after retries.",
+        }),
+      ]),
     );
   });
 
@@ -1139,12 +1164,9 @@ describe("review work definition", () => {
         (event: FakePrSurfaceEvent) => event.kind === "upsertProgressComment",
       ),
     ).toHaveLength(0);
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        conclusion: "success",
-      }),
-    );
+    expect(
+      verdictMethods.close.mock.calls.map(([outcome]) => verdictOwner.ownVerdictSurfaces(outcome)),
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ checkRun: "success" })]));
   });
 
   it("skips the terminal failure close when the check already has a conclusion", async () => {
@@ -1169,7 +1191,11 @@ describe("review work definition", () => {
         (event: FakePrSurfaceEvent) => event.kind === "upsertProgressComment",
       ),
     ).toHaveLength(0);
-    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["published", "partial", "crashed", "not_published"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
   });
 
   it("completes an existing check as cancelled from the durable cancellation hook", async () => {
@@ -1183,15 +1209,15 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        headSha: "head",
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({ pool, workItemId: "wi-1", headSha: "head" }),
     );
-    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(verdictMethods.close).toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["published", "partial", "crashed", "not_published"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
   });
 
@@ -1206,7 +1232,11 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).not.toHaveBeenCalled();
+    expect(
+      verdictMethods.close.mock.calls.filter(([outcome]) =>
+        ["cancelled", "superseded", "stale_head"].includes(outcome.kind),
+      ),
+    ).toHaveLength(0);
   });
 
   it("still attempts DB-id cancel from onCancelled when headSha is missing", async () => {
@@ -1220,14 +1250,10 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        headSha: undefined,
-        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
-      }),
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({ pool, workItemId: "wi-1", headSha: undefined }),
     );
+    expect(verdictMethods.close).toHaveBeenCalled();
   });
 
   it("passes undefined detailsUrl from onCancelled when summary comment id is null", async () => {
@@ -1242,13 +1268,10 @@ describe("review work definition", () => {
 
     await runExecution();
 
-    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        detailsUrl: undefined,
-      }),
+    expect(verdictOwner.reviewVerdict).toHaveBeenCalledWith(
+      expect.objectContaining({ pool, workItemId: "wi-1" }),
     );
+    expect(verdictMethods.close).toHaveBeenCalled();
   });
 
   it("passes auto preflight files into repository preparation", async () => {

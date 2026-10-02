@@ -5,9 +5,9 @@ import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { createFakePrSurface } from "../../src/github/prSurface.js";
 import * as closeRepository from "../../src/agentWork/publishRecordRepository.js";
 import {
-  closeOwnVerdict,
-  closeOwnVerdictsForWorkItems,
-} from "../../src/agentWork/closeOwnVerdict.js";
+  reviewVerdict,
+  closeReviewVerdictsForWorkItems,
+} from "../../src/agentWork/reviewVerdict.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import * as postgres from "../../src/db/postgres.js";
 import * as leaseRepository from "../../src/agentWork/prActorLease.js";
@@ -674,16 +674,15 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("own verdict contender did not settle")), 3000);
       });
-      const first = closeOwnVerdict(params);
+      const first = reviewVerdict(params).close(params.outcome);
       let second: Promise<void> | undefined;
       try {
         await Promise.race([entry, timeout]);
-        second = closeOwnVerdict({
-          ...params,
-          outcome: sameOutcome
+        second = reviewVerdict({ ...params }).close(
+          sameOutcome
             ? params.outcome
             : { kind: "published", findings: [], summary: "losing verdict" },
-        });
+        );
         await Promise.race([second, timeout]);
         const apply = vi.fn(async () => true);
         await expect(
@@ -697,9 +696,9 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         await Promise.allSettled([first, ...(second == null ? [] : [second])]);
         clearTimeout(timer);
       }
-      await closeOwnVerdict({
-        ...params,
-        outcome: { kind: "crashed", summary: "post-release contender" },
+      await reviewVerdict({ ...params }).close({
+        kind: "crashed",
+        summary: "post-release contender",
       });
       expect(finishSpy).toHaveBeenCalledTimes(1);
       expect(statusSpy).toHaveBeenCalledTimes(1);
@@ -742,7 +741,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     });
     const finish = vi.spyOn(surface, "finishReviewCheck");
     const status = vi.spyOn(surface, "setReviewCommitStatus");
-    await closeOwnVerdict({
+    await reviewVerdict({
       pool,
       prSurface: surface,
       owner: OWNER,
@@ -754,13 +753,12 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       headSha: "h",
       commitStatusEnabled: true,
       leaseEpoch: null,
-      outcome: { kind: "published", findings: [] },
-    });
+    }).close({ kind: "published", findings: [] });
     const before = await pool.query(
       "SELECT id, detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
       [id],
     );
-    await closeOwnVerdictsForWorkItems(pool, {
+    await closeReviewVerdictsForWorkItems(pool, {
       prSurface: surface,
       owner: OWNER,
       repo: "r",
@@ -791,7 +789,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         detail: { status: "in_progress" },
       });
       for (const leaseEpoch of [null, undefined]) {
-        await closeOwnVerdict({
+        await reviewVerdict({
           pool,
           prSurface: surface,
           owner: OWNER,
@@ -803,10 +801,23 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
           headSha: "h",
           commitStatusEnabled: true,
           leaseEpoch,
-          outcome: { kind: "cancelled" },
-        });
+        }).close({ kind: "cancelled" });
       }
+      await closeReviewVerdictsForWorkItems(pool, {
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        workItemIds: [id],
+        commitStatusEnabled: true,
+        outcome: { kind: "cancelled" },
+      });
       expect(controls.events).toEqual([]);
+      const selected = await pool.query(
+        "SELECT detail->'selectedOwnVerdict' AS selected FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
+        [id],
+      );
+      expect(selected.rows[0].selected).toBeNull();
     },
   );
 
@@ -860,17 +871,12 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     if (mode === "receipt_failure")
       receiptSpy.mockRejectedValueOnce(new Error("synthetic receipt failure"));
     try {
-      await closeOwnVerdict(params);
+      await reviewVerdict(params).close(params.outcome);
     } finally {
       receiptSpy.mockRestore();
     }
     const saved = await closeRepository.getOwnVerdictCloseRecord(pool, params);
-    await closeOwnVerdict({
-      ...params,
-      headSha: "h",
-      commitStatusEnabled: true,
-      outcome: { kind: "published", findings: [], summary: "loser" },
-    });
+    await reviewVerdict({ ...params, headSha: "h", commitStatusEnabled: true }).repairIfOpen();
     const accepted = controls.events.filter((event) => event.kind === "finishReviewCheck");
     if (mode === "check_unknown" || mode === "no_check") expect(accepted).toEqual([]);
     else expect(accepted).toEqual([expect.objectContaining({ conclusion: "failure" })]);
@@ -929,7 +935,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     const finish = vi.spyOn(surface, "finishReviewCheck");
     const status = vi.spyOn(surface, "setReviewCommitStatus");
     await expect(
-      closeOwnVerdict({
+      reviewVerdict({
         ...identity,
         pool,
         prSurface: surface,
@@ -938,8 +944,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         prNumber: 1,
         headSha: "h",
         commitStatusEnabled: true,
-        outcome: { kind: "published", findings: [] },
-      }),
+      }).close({ kind: "published", findings: [] }),
     ).rejects.toMatchObject(error);
     expect(finish).not.toHaveBeenCalled();
     expect(status).not.toHaveBeenCalled();
@@ -1041,7 +1046,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
             }),
           ],
         );
-      await closeOwnVerdict({
+      await reviewVerdict({
         pool,
         prSurface: surface,
         owner: OWNER,
@@ -1053,8 +1058,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         headSha: "h",
         commitStatusEnabled: true,
         leaseEpoch: null,
-        outcome: { kind: "cancelled" },
-      });
+      }).close({ kind: "cancelled" });
       expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
         mode === "rejected" ? 1 : 0,
       );
@@ -1133,7 +1137,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
       const finish = vi.spyOn(surface, "finishReviewCheck");
       const status = vi.spyOn(surface, "setReviewCommitStatus");
-      await closeOwnVerdict({
+      await reviewVerdict({
         pool,
         prSurface: surface,
         owner: OWNER,
@@ -1145,8 +1149,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         headSha: "h",
         leaseEpoch: null,
         commitStatusEnabled: true,
-        outcome: { kind: "cancelled" },
-      });
+      }).close({ kind: "cancelled" });
       expect(finish).toHaveBeenCalledWith(
         expect.objectContaining({
           conclusion: outputs[0]?.selected?.conclusion,
@@ -1225,7 +1228,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     );
     const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
     const finish = vi.spyOn(surface, "finishReviewCheck");
-    await closeOwnVerdict({
+    await reviewVerdict({
       ...params,
       pool,
       prSurface: surface,
@@ -1234,8 +1237,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       prNumber: 1,
       headSha: "h",
       commitStatusEnabled: false,
-      outcome: { kind: "cancelled" },
-    });
+    }).close({ kind: "cancelled" });
     expect(finish).toHaveBeenCalledWith(
       expect.objectContaining({ conclusion: "failure", summary: "winner" }),
     );
@@ -1278,7 +1280,9 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         githubId: 111,
         detail: { status: "in_progress" },
       });
-      await expect(closeOwnVerdict({ ...params, leaseEpoch })).rejects.toMatchObject({
+      await expect(
+        reviewVerdict({ ...params, leaseEpoch }).close(params.outcome),
+      ).rejects.toMatchObject({
         code: "agent_work.own_verdict_capacity",
       });
       expect(finish).not.toHaveBeenCalled();
@@ -1292,7 +1296,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         [id],
       );
       expect(intents.rows).toEqual([]);
-      await closeOwnVerdict({ ...params, leaseEpoch: null });
+      await reviewVerdict({ ...params, leaseEpoch: null }).close(params.outcome);
       expect(finish).toHaveBeenCalledOnce();
     } finally {
       await scopedPool.end();
@@ -1308,7 +1312,6 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
   ] as const)(
     "own verdict check-only $conclusion keeps output when status is attached",
     async ({ conclusion, state }) => {
-      const { completeReviewCheckRun } = await import("../../src/agentWork/reviewCheckRun.js");
       const id = await insertWorkItem({ status: "completed" });
       const resourceKey = `repo-it-${id}`;
       const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
@@ -1329,34 +1332,24 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         reviewLens: "review" as const,
         leaseEpoch: null,
       };
-      await expect(
-        completeReviewCheckRun(pool, {
-          ...params,
-          conclusion,
-          summary: "check-only winner",
-        }),
-      ).resolves.toBe(true);
+      await closeRepository.claimOwnVerdict(pool, {
+        ...params,
+        selected: { conclusion, summary: "check-only winner" },
+      });
       const status = vi
         .spyOn(surface, "setReviewCommitStatus")
         .mockRejectedValueOnce(Object.assign(new Error("rejected"), { accepted: false }));
-      await closeOwnVerdict({
-        ...params,
-        pool,
-        headSha: "h",
-        commitStatusEnabled: true,
-        outcome: { kind: "cancelled" },
+      await reviewVerdict({ ...params, pool, headSha: "h", commitStatusEnabled: true }).close({
+        kind: "cancelled",
       });
       const open = await pool.query(
         "SELECT detail FROM publish_records WHERE work_item_id = $1 AND step = 'check_run'",
         [id],
       );
       expect(open.rows[0].detail.status).toBe("in_progress");
-      await closeOwnVerdict({
-        ...params,
-        pool,
-        headSha: "h",
-        commitStatusEnabled: true,
-        outcome: { kind: "published", findings: [] },
+      await reviewVerdict({ ...params, pool, headSha: "h", commitStatusEnabled: true }).close({
+        kind: "published",
+        findings: [],
       });
       expect(status).toHaveBeenLastCalledWith(
         "h",
@@ -1471,7 +1464,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       const { surface } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
       const finish = vi.spyOn(surface, "finishReviewCheck");
       for (let attempt = 0; attempt < 2; attempt += 1)
-        await closeOwnVerdict({
+        await reviewVerdict({
           ...identity,
           pool,
           prSurface: surface,
@@ -1480,8 +1473,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
           prNumber: 1,
           headSha: "h",
           commitStatusEnabled: false,
-          outcome: { kind: "cancelled" },
-        });
+        }).close({ kind: "cancelled" });
       expect(finish).toHaveBeenCalledTimes(calls);
       if (calls > 0)
         expect(finish).toHaveBeenCalledWith(
@@ -1615,13 +1607,15 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       commitStatusEnabled: false,
       outcome: { kind: "published" as const, findings: [] },
     };
-    await expect(closeOwnVerdict({ ...params, leaseEpoch: leaseEpoch + 1 })).rejects.toMatchObject({
+    await expect(
+      reviewVerdict({ ...params, leaseEpoch: leaseEpoch + 1 }).close(params.outcome),
+    ).rejects.toMatchObject({
       code: "agent_work.pr_actor_lease_lost",
     });
     expect(finish).not.toHaveBeenCalled();
-    await closeOwnVerdict({ ...params, leaseEpoch });
+    await reviewVerdict({ ...params, leaseEpoch }).close(params.outcome);
     await expect(
-      closeOwnVerdict({ ...params, leaseEpoch: leaseEpoch + 1, outcome: { kind: "cancelled" } }),
+      reviewVerdict({ ...params, leaseEpoch: leaseEpoch + 1 }).close({ kind: "cancelled" }),
     ).rejects.toMatchObject({ code: "agent_work.pr_actor_lease_lost" });
     expect(finish).toHaveBeenCalledOnce();
     expect(finish).toHaveBeenCalledWith(expect.objectContaining({ conclusion: "success" }));
@@ -1662,7 +1656,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         ],
       );
       const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      await closeOwnVerdict({
+      await reviewVerdict({
         ...params,
         pool,
         prSurface: surface,
@@ -1671,8 +1665,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         prNumber: 1,
         headSha: "h",
         commitStatusEnabled: false,
-        outcome: { kind: "cancelled" },
-      });
+      }).close({ kind: "cancelled" });
       expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
         intentStatus === "pending" ? 1 : 0,
       );

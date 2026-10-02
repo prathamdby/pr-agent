@@ -90,8 +90,8 @@ import {
   updateRunningWorkHeadSha,
 } from "../../src/agentWork/repository.js";
 import { hasDatabase, integrationPool } from "./db.js";
-import { closeOwnVerdict } from "../../src/agentWork/closeOwnVerdict.js";
-import * as ownVerdictModule from "../../src/agentWork/closeOwnVerdict.js";
+import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
+import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.js";
 
 const OWNER = "lease-it";
 const TTL_SECONDS = 900;
@@ -662,26 +662,28 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           : prSurfaceModule.withPrSurfaceMutationBoundary(fake.surface, params.mutationBoundary),
       );
       const workspace = vi.spyOn(prWorkspaceModule, "withPrRepositoryView");
-      const close = ownVerdictModule.closeOwnVerdict;
+      const createVerdict = ownVerdictModule.reviewVerdict;
       let interrupted = false;
-      vi.spyOn(ownVerdictModule, "closeOwnVerdict").mockImplementation(async (params) => {
-        if (
-          !interrupted &&
-          params.workItemId === workItemId &&
-          params.outcome.kind === "published"
-        ) {
-          interrupted = true;
-          await pool.query(
-            "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
-            [resourceKey],
-          );
-          expect(await acquire(resourceKey, workItemId)).toMatchObject({ acquired: true });
-          throw new AppError({
-            code: "agent_work.pr_actor_lease_lost",
-            message: "Synthetic interruption before verdict close",
-          });
-        }
-        return close(params);
+      vi.spyOn(ownVerdictModule, "reviewVerdict").mockImplementation((params) => {
+        const verdict = createVerdict(params);
+        return {
+          ...verdict,
+          close: async (outcome) => {
+            if (!interrupted && params.workItemId === workItemId && outcome.kind === "published") {
+              interrupted = true;
+              await pool.query(
+                "UPDATE pr_actor_leases SET expires_at = now() - interval '1 second' WHERE resource_key = $1",
+                [resourceKey],
+              );
+              expect(await acquire(resourceKey, workItemId)).toMatchObject({ acquired: true });
+              throw new AppError({
+                code: "agent_work.pr_actor_lease_lost",
+                message: "Synthetic interruption before verdict close",
+              });
+            }
+            return verdict.close(outcome);
+          },
+        };
       });
       await createWorkDefinitions({
         cfg: cfg,
@@ -1407,7 +1409,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           job,
           resolveHeadSha: async () => ({ headSha: "h" }),
           execute: async (_item, env) => {
-            await closeOwnVerdict({
+            await reviewVerdict({
               pool: scopedPool,
               prSurface: env.prSurface,
               owner: OWNER,
@@ -1419,14 +1421,13 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
               headSha: "h",
               leaseEpoch: env.leaseEpoch,
               commitStatusEnabled: false,
-              outcome: { kind: "published", findings: [{ severity: "P1" }], summary: "winner" },
-            });
+            }).close({ kind: "published", findings: [{ severity: "P1" }], summary: "winner" });
             return { kind: "completed" };
           },
         });
         if (mode === "local_gate") expect(finish).not.toHaveBeenCalled();
         else expect(finish).toHaveBeenCalledOnce();
-        await closeOwnVerdict({
+        await reviewVerdict({
           pool: scopedPool,
           prSurface: fake.surface,
           owner: OWNER,
@@ -1438,8 +1439,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
           headSha: "h",
           leaseEpoch: null,
           commitStatusEnabled: false,
-          outcome: { kind: "cancelled" },
-        });
+        }).close({ kind: "cancelled" });
         expect(finish).toHaveBeenCalledOnce();
         expect(finish).toHaveBeenCalledWith(
           expect.objectContaining({ conclusion: "failure", summary: "winner" }),

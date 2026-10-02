@@ -68,6 +68,7 @@ export function createPublishReviewTestHarness(options?: {
   const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
   const resolveProgressComment = vi.spyOn(bundle.surface, "resolveProgressComment");
   const findProgressComment = vi.spyOn(bundle.surface, "findProgressComment");
+  vi.spyOn(bundle.surface, "finishReviewCheck");
   const getLabels = vi.spyOn(bundle.surface, "getLabels");
   const setLabels = vi.spyOn(bundle.surface, "setLabels");
   const setReviewCommitStatus = vi.spyOn(bundle.surface, "setReviewCommitStatus");
@@ -116,6 +117,8 @@ export function createAgentWorkRepositoryMock() {
   return {
     claimSummaryCommentCreation: vi.fn(async () => true),
     getProgressCommentOwner: vi.fn(async () => null),
+    getReviewCheckRunGithubId: vi.fn(async () => 111),
+    getWorkItemCore: vi.fn(async () => ({ status: "completed" })),
     getProgressCommentRevision: vi.fn(async () => null),
     getProgressStubPostedAtMs: vi.fn(async () => null),
     getSummaryCommentGithubId: vi.fn(async () => null),
@@ -123,24 +126,22 @@ export function createAgentWorkRepositoryMock() {
 }
 
 export function createOwnVerdictCloseMock() {
+  let selected: unknown;
   return {
+    getOwnVerdictCloseRecord: vi.fn(async () => ({
+      selected,
+      githubId: 111,
+      checkApplied: false,
+      statusApplied: false,
+    })),
     withOwnVerdictClose: vi.fn(
       async (client: unknown, _params: unknown, apply: (client: unknown) => unknown) =>
         apply(client),
     ),
-    claimOwnVerdict: vi.fn(async (_client: unknown, params: { selected: unknown }) => ({
-      selected: params.selected,
-      checkApplied: false,
-      statusApplied: false,
-    })),
+    claimOwnVerdict: vi.fn(async (_client: unknown, params: { selected: unknown }) => {
+      selected = params.selected;
+      return { selected, githubId: 111, checkApplied: false, statusApplied: false };
+    }),
     recordOwnVerdictSurfaceApplied: vi.fn(async () => undefined),
-  };
-}
-
-export async function createReviewCheckRunMock() {
-  const actual = await import("../../src/agentWork/reviewCheckRun.js");
-  return {
-    ...actual,
-    completeReviewCheckRun: vi.fn(async () => true),
   };
 }

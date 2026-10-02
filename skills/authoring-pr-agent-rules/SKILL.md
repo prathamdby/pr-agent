@@ -116,7 +116,7 @@ GitHub mutations (`publishOnce`). `publish_records` stay
 authoritative. Escalated retries follow `retryDispositionFor`
 (ADR 0034). Escalation never widens privilege.
 
-**Own verdict and CI.** `closeOwnVerdict` is the only writer for
+**Own verdict and CI.** `reviewVerdict(...).close` is the only writer for
 `PR Agent Review` and optional `pr-agent/review`. Findings conclude
 `failure` or `success`. Crash and unpublished runs conclude
 `action_required`. `check_run` and `status` deliveries write

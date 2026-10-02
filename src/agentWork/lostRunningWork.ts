@@ -9,13 +9,12 @@ import {
   STALE_QUEUED_WORK_GRACE_SECONDS,
 } from "../settings/index.js";
 import { isAnyReviewLens } from "../settings/legacyReviewLenses.js";
-import { closeOwnVerdict } from "./closeOwnVerdict.js";
 import {
+  reviewVerdict,
   asTerminalOwnCheckStatus,
   isOwnCheckOpen,
-  resolveOwnVerdictForTerminalReview,
   type TerminalOwnCheckStatus,
-} from "./ownCheckReconcile.js";
+} from "./reviewVerdict.js";
 import { getWorkItemCore, markLostRunningWorkFailed } from "./repository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
 
@@ -81,7 +80,7 @@ async function closeOpenOwnVerdict(params: {
     prNumber: core.prNumber,
     installation,
   });
-  await closeOwnVerdict({
+  await reviewVerdict({
     pool: params.pool,
     prSurface,
     owner: core.owner,
@@ -93,14 +92,8 @@ async function closeOpenOwnVerdict(params: {
     headSha: core.headSha,
     leaseEpoch: null,
     commitStatusEnabled: params.cfg.features.commitStatus,
-    outcome: await resolveOwnVerdictForTerminalReview({
-      pool: params.pool,
-      workItemId: core.id,
-      resourceKey: core.resourceKey,
-      reviewLens: core.reviewLens,
-      status: params.status,
-    }),
-  });
+    summaryCommentId: null,
+  }).repairIfOpen();
 }
 
 /** Mark lost running items failed, then close any review whose check is still open. */

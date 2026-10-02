@@ -25,11 +25,6 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
-  const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewCheckRunMock();
-});
-
 const payload = publishReviewTestPayload;
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;

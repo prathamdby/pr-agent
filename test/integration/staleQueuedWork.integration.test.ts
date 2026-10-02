@@ -8,7 +8,7 @@ import {
   PR_ACTOR_LEASE_DEFER_SECONDS,
   renewPrActorLease,
 } from "../../src/agentWork/prActorLease.js";
-import { closeOwnVerdict } from "../../src/agentWork/closeOwnVerdict.js";
+import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
 import { withOwnVerdictClose } from "../../src/agentWork/publishRecordRepository.js";
 import {
   listTerminalReviewsWithOpenOwnChecks,
@@ -1267,7 +1267,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       });
     }
     expect(await markWorkCompleted(pool, id, leaseEpoch)).toBe(true);
-    await closeOwnVerdict({
+    await reviewVerdict({
       pool,
       prSurface: fake.surface,
       owner: OWNER,
@@ -1279,8 +1279,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       headSha: "h",
       leaseEpoch,
       commitStatusEnabled: false,
-      outcome: { kind: "published", findings: [] },
-    });
+    }).close({ kind: "published", findings: [] });
     expect(fake.controls.events.filter((event) => event.kind === "finishReviewCheck")).toEqual([
       expect.objectContaining({ conclusion: "success" }),
     ]);
@@ -1493,7 +1492,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
       );
       try {
         await Promise.all(entered);
-        await closeOwnVerdict({
+        await reviewVerdict({
           pool,
           prSurface: fake.surface,
           owner: OWNER,
@@ -1505,8 +1504,7 @@ describe.skipIf(!hasDatabase)("stale queued work diagnostic (integration)", () =
           headSha: "h",
           leaseEpoch: null,
           commitStatusEnabled: cfg.features.commitStatus,
-          outcome: { kind: "cancelled" },
-        });
+        }).close({ kind: "cancelled" });
         expect(finish).not.toHaveBeenCalled();
         expect(status).not.toHaveBeenCalled();
         expect(

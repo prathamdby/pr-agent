@@ -1,5 +1,5 @@
 import type { Config } from "../../src/config.js";
-import { reviewCheckDetailsUrl } from "../../src/agentWork/reviewCheckRun.js";
+import { reviewCheckDetailsUrl } from "../../src/agentWork/reviewVerdict.js";
 import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 import type { PrSurface } from "../../src/github/prSurface.js";
 import {

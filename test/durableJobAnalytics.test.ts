@@ -62,20 +62,20 @@ import type { WorkCompletion } from "../src/analytics/workCompleted.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 import { runFullPrDescription } from "../src/agent/description/descriptionRun.js";
 import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.js";
-import { closeOwnVerdict } from "../src/agentWork/closeOwnVerdict.js";
 import { loadPrHeadCiState } from "../src/agentWork/prHeadCiState.js";
 
 vi.mock("../src/agentWork/prHeadCiState.js", () => ({ loadPrHeadCiState: vi.fn() }));
 vi.mock("../src/agentWork/reviewLightweightCompletion.js", () => ({
   tryLightweightAutoReviewCompletion: vi.fn(),
 }));
-vi.mock("../src/agentWork/closeOwnVerdict.js", () => ({
-  closeOwnVerdict: vi.fn(),
-  postOwnVerdictPending: vi.fn(),
+const verdict = vi.hoisted(() => ({
+  pending: vi.fn(async (): Promise<number | null> => null),
+  close: vi.fn(async (_outcome: unknown): Promise<void> => undefined),
+  repairIfOpen: vi.fn(async (): Promise<void> => undefined),
 }));
-vi.mock("../src/agentWork/reviewCheckRun.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/agentWork/reviewCheckRun.js")>()),
-  ensureReviewCheckRunStarted: vi.fn(async () => null),
+vi.mock("../src/agentWork/reviewVerdict.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/reviewVerdict.js")>()),
+  reviewVerdict: vi.fn(() => verdict),
 }));
 
 vi.mock("../src/agent/description/descriptionRun.js", () => ({
@@ -201,7 +201,7 @@ describe("durableJob analytics forwarding", () => {
     vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
     vi.mocked(loadPrHeadCiState).mockResolvedValue(null);
-    vi.mocked(closeOwnVerdict).mockResolvedValue(undefined);
+    verdict.close.mockReset().mockResolvedValue(undefined);
     vi.mocked(repo.loadReviewExecutorPublishContext).mockResolvedValue({
       publishState: { summaryPublished: false, inlineReviewIds: [], threadCallCount: 0 },
       shouldLinkToSummary: false,
@@ -242,7 +242,7 @@ describe("durableJob analytics forwarding", () => {
         summaryId: 42,
       });
       const cleanupError = new Error("verdict cleanup failed");
-      vi.mocked(closeOwnVerdict).mockImplementation(async () => {
+      verdict.close.mockImplementation(async () => {
         vi.mocked(Date.now).mockReturnValue(started + 5_000);
         if (resolution === "cleanup_throw") throw cleanupError;
       });
