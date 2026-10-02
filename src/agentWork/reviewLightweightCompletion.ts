@@ -11,7 +11,7 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema
 import type { PrSurface } from "../github/prSurface.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import { recoverMarkedProgressComment } from "../github/recoverPrSurfaceMutation.js";
-import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "./ciProjection.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "./ciProjection.js";
 import { summaryCommentVerdictMeta } from "./reviewVerdict.js";
 import { getSummaryCommentGithubId, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
@@ -123,15 +123,16 @@ export async function tryLightweightAutoReviewCompletion(
         ciVersion: renderedCi.version,
       }),
   });
-  await enqueueCiProjectionIfDue({
-    boss: params.boss,
-    pool,
-    installationId: params.item.installationId,
-    owner: params.item.owner,
-    repo: params.item.repo,
-    headSha: params.item.headSha,
-    renderedVersion: renderedCi.version,
-  });
+  await requestHeadCiProjection(
+    params.boss,
+    {
+      installationId: params.item.installationId,
+      owner: params.item.owner,
+      repo: params.item.repo,
+      headSha: params.item.headSha,
+    },
+    { kind: "when_due", pool, renderedVersion: renderedCi.version },
+  );
   await createPublishContext(pool, {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,

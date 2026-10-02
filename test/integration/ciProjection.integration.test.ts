@@ -13,14 +13,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
-import {
-  enqueueCiProjectionDebounced,
-  enqueueCiProjectionDebouncedStandalone,
-} from "../../src/agentWork/intake/queueing.js";
-import {
-  enqueueCiProjectionIfDue,
-  loadRenderableHeadCi,
-} from "../../src/agentWork/ciProjection.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../src/agentWork/ciProjection.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
 import { executeCiProjectionJob } from "../../src/agentWork/executors/ciProjectionExecutor.js";
 import { listTerminalReviewsWithOpenOwnChecks } from "../../src/agentWork/lostRunningWork.js";
@@ -547,15 +540,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
   it("enqueues a projection after a claim-time write when the head is unseeded", async () => {
     const headSha = "33".repeat(20);
 
-    await enqueueCiProjectionIfDue({
+    await requestHeadCiProjection(
       boss,
-      pool,
-      installationId: 9001,
-      owner: OWNER,
-      repo: REPO,
-      headSha,
-      renderedVersion: 0,
-    });
+      { installationId: 9001, owner: OWNER, repo: REPO, headSha },
+      { kind: "when_due", pool, renderedVersion: 0 },
+    );
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
@@ -575,15 +564,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       [OWNER, REPO, headSha],
     );
 
-    await enqueueCiProjectionIfDue({
+    await requestHeadCiProjection(
       boss,
-      pool,
-      installationId: 9001,
-      owner: OWNER,
-      repo: REPO,
-      headSha,
-      renderedVersion: 0,
-    });
+      { installationId: 9001, owner: OWNER, repo: REPO, headSha },
+      { kind: "when_due", pool, renderedVersion: 0 },
+    );
 
     const jobs = await boss.findJobs(CI_PROJECTION_QUEUE, {});
     expect(jobs).toHaveLength(1);
@@ -603,15 +588,11 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       [OWNER, REPO, headSha],
     );
 
-    await enqueueCiProjectionIfDue({
+    await requestHeadCiProjection(
       boss,
-      pool,
-      installationId: 9001,
-      owner: OWNER,
-      repo: REPO,
-      headSha,
-      renderedVersion: 2,
-    });
+      { installationId: 9001, owner: OWNER, repo: REPO, headSha },
+      { kind: "when_due", pool, renderedVersion: 2 },
+    );
 
     await expect(boss.findJobs(CI_PROJECTION_QUEUE, {})).resolves.toHaveLength(0);
   });
@@ -710,7 +691,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       await observer.query(
         "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
       );
-      await enqueueCiProjectionDebouncedStandalone(boss, data);
+      await requestHeadCiProjection(boss, data, { kind: "debounced" });
       const setup = await boss.findJobs<CiProjectionJobData>(CI_PROJECTION_QUEUE, {});
       expect(setup).toHaveLength(1);
       const setupJob = setup[0];
@@ -878,7 +859,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
       await observer.query(
         "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
       );
-      await enqueueCiProjectionDebouncedStandalone(boss, data);
+      await requestHeadCiProjection(boss, data, { kind: "debounced" });
       await applyCompletedRunCiIntake(
         boss,
         pool,
@@ -1105,7 +1086,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         const correlation = { webhookEventId: event.id, delivery };
         await client.query("BEGIN");
         await expect(
-          enqueueCiProjectionDebounced(boss, client, { ...data, ...correlation }),
+          requestHeadCiProjection(boss, { ...data, ...correlation }, { kind: "intake", client }),
         ).resolves.toBe("already_present");
         await client.query("COMMIT");
         await applyCompletedRunCiIntake(
@@ -1120,9 +1101,9 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
           const sameDelivery = { webhookEventId: randomUUID(), delivery };
           const forwarded = { ...data, ...correlation, correlations: [sameDelivery, {}, prior] };
           await client.query("BEGIN");
-          await expect(enqueueCiProjectionDebounced(boss, client, forwarded)).resolves.toBe(
-            "already_present",
-          );
+          await expect(
+            requestHeadCiProjection(boss, forwarded, { kind: "intake", client }),
+          ).resolves.toBe("already_present");
           await client.query("COMMIT");
           expected.push(sameDelivery);
         }
@@ -1219,7 +1200,7 @@ describe.skipIf(!hasDatabase)("CI projection against real pg-boss (integration)"
         await client.query(
           "SELECT pg_sleep(5 - mod(extract(epoch FROM clock_timestamp())::numeric, 5) + 0.05)",
         );
-        await enqueueCiProjectionDebouncedStandalone(boss, data);
+        await requestHeadCiProjection(boss, data, { kind: "debounced" });
         await applyCiStateIntake(
           boss,
           pool,

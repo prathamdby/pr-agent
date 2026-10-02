@@ -78,8 +78,8 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getLatestCompletedPublishStepDetail: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("../src/agentWork/intake/queueing.js", () => ({
-  enqueueCiProjectionDebounced: vi.fn().mockResolvedValue("enqueued"),
+vi.mock("../src/agentWork/ciProjection.js", () => ({
+  requestHeadCiProjection: vi.fn().mockResolvedValue("enqueued"),
 }));
 
 vi.mock("../src/agentWork/prHeadCiState.js", async (importOriginal) => {

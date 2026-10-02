@@ -6,7 +6,7 @@ import type { PrConversationComment } from "../../github/prSurfaceTypes.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import { REVIEW_SUMMARY_SENTINEL, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
-import { enqueueCiProjectionDebounced } from "../../agentWork/intake/queueing.js";
+import { requestHeadCiProjection } from "../../agentWork/ciProjection.js";
 import {
   advancePrHeadCiRevisionForVerificationSignal,
   isEffectiveVerificationSignalTransition,
@@ -20,7 +20,6 @@ import {
   type VerificationFailureSignal,
   type VerificationThreadLedger,
 } from "../../agentWork/verificationThreadLedger.js";
-import type { CiProjectionJobData } from "../../agentWork/types.js";
 
 const REVIEW_SUMMARY_SENTINELS = [
   REVIEW_SUMMARY_SENTINEL,
@@ -115,14 +114,16 @@ async function writeVerificationSignal(
       leaseEpoch: params.leaseEpoch,
       detail: { headSha: params.headSha, active },
     }).record();
-    const job: CiProjectionJobData = {
-      kind: "ci_projection",
-      installationId: params.installationId,
-      owner: params.prSurface.owner,
-      repo: params.prSurface.repo,
-      headSha: params.headSha,
-    };
-    await enqueueCiProjectionDebounced(params.boss, client, job);
+    await requestHeadCiProjection(
+      params.boss,
+      {
+        installationId: params.installationId,
+        owner: params.prSurface.owner,
+        repo: params.prSurface.repo,
+        headSha: params.headSha,
+      },
+      { kind: "intake", client },
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

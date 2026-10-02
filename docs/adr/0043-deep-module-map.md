@@ -594,6 +594,82 @@ All captured task containers and disposable volumes were removed.
 The parent owns final integrated verification, deslop, and commit. This lane
 makes no commit, push, or external write.
 
+## M12 failure modes
+
+Recorded before the transition and CI-request changes:
+
+1. A transition loses its race predicate: a cancel request, a stale lease epoch,
+   or an already-terminal row is overwritten, so completion revives cancelled work
+   or a displaced worker marks the replacement's item failed.
+2. Terminal state stops winning: a retry or failure write moves a `completed`,
+   `failed`, or `cancelled` row, or a late completion lands after
+   `cancel_requested_at`.
+3. A shared builder changes what a statement writes: a claim loses its
+   `FOR UPDATE` prior-status read, drops the COALESCE on `started_at` or
+   `execution_epoch`, or a force-completion overwrites an earlier `completed_at`.
+4. A cancel that must release lease holders stops returning the exact
+   `(id, execution_epoch)` pairs, or the running cancel stops recording
+   `cancel_requested_at`, so the lease release or the in-process skip check breaks.
+5. The lost-running sweep loses the age, type, resource-key, cancel, lease-liveness,
+   or pg-boss-liveness predicate and fails live work; its `READ COMMITTED` and
+   lock ordering must stay in the caller.
+6. Queued replacement cancellation changes its three-statement order (queued
+   attempt, queued epoch-pinned retry, lease-locked running cancel) and cancels a
+   newer epoch's replacement.
+7. A status literal drifts from `WorkStatus`, or a second writer reappears and the
+   single owner is bypassed.
+8. The CI request loses a job identity: the `owner/repo:headSha` singleton key, the
+   five-second debounce slot, the `:deferred` key, priority, or installation group
+   changes, stranding retained jobs or defeating debounce.
+9. An intake request leaves the caller's transaction: the job commits without the
+   facts, or an absorbed delivery loses its `correlations` entry, or a missing
+   target no longer rolls intake back.
+10. A claim-time writer enqueues when the head is seeded at the rendered version,
+    or stops enqueuing when it needs a seed or the row moved; an absent queue or
+    an installation id of zero starts throwing.
+
+`workItemTransitions.ts::transition` is the only status writer. Callers state the
+selector, the statuses they may leave, the `WorkStatus` target, and the guards;
+terminal targets stamp `completed_at` and `running` stamps `started_at`. A
+numeric `leaseEpoch` adds the existing lease-fence predicate; null or omitted
+adds none. The fence is a predicate only: the earlier `fencedWrite` wrapper on
+these writers requested neither precheck nor recheck, so it did nothing and is
+gone from them. Each repository keeps its domain wrapper and its lock ordering
+(`markQueuedWorkCancelled`'s three statements, `markLostRunningWorkFailed`'s lock
+sequence, cancel-then-release for review and triage close). The 14 status
+`UPDATE` statements in `src/` (the plan estimated 22) become `transition()` calls;
+the cancel-request-only write in `autoWorkEnqueue.ts` keeps status `running` and
+is not a transition. Initial `queued` inserts stay in intake. `check:guards` now
+fails on any other `UPDATE agent_work_items ... SET status`.
+
+`ciProjection.ts::requestHeadCiProjection` replaces the transactional,
+standalone, deferred, and due-checked variants and their thirteen callers. The
+`intake` schedule keeps the in-transaction send and correlation merge, `debounced`
+keeps the transaction-free send, `after` keeps the `:deferred` singleton, and
+`when_due` keeps the seed/version check, the missing-queue skip, and the
+installation-id guard. Job payloads, queue, priority, group, debounce seconds, and
+singleton keys are byte-identical.
+
+Coverage migration: no removed assertion was SQL-text only. The unit mocks that
+named the old enqueue functions now mock `requestHeadCiProjection`, and the
+integration cases for debounce, absorption, and due checks call it directly. The
+existing `agentWorkRepository.integration` owner gains behavior cases for the
+shared guards: a stale lease epoch cannot move running work to completed, failed,
+retrying, or cancelled; a recorded cancel request wins over completed, failed,
+and retrying; terminal rows stay terminal against later writers. Claim,
+force-completion, replacement cancellation, close cancellation, supersede, and
+the lost-running sweep stay with their existing owners (`agentWorkRepository`,
+`prActorLease`, `staleQueuedWork`, `intakeTransaction`, `slashActiveUniqueness`).
+No new test, helper, or fixture file was created.
+
+Local M12 gates passed: effect versions, production dependencies, code, guards,
+build, 181 unit suites (2,532 tests), and all fourteen dedicated Postgres
+integration suites (577 tests, eleven new guard cases). Source assertion baseline
+remains 78. The prompt dump is byte-identical to M0, SHA-256
+`d29f822bfaeba33e5526fd5aa3b618f22eaaf691e9e11052b67a9e1778ae06e5`.
+`AGENTS.md` sits 25 bytes under the 32 KiB trusted-instruction file cap, so
+further additions there need a matching trim.
+
 ## Consequences
 
 No new test files or main-site copy changes. Existing invariant owner tests stay

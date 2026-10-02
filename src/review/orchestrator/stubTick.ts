@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../../agentWork/ciProjection.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
 import { logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
@@ -90,15 +90,16 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
     } else {
       await summary.tick({ ...write, progressRevision: args.progressRevision });
     }
-    await enqueueCiProjectionIfDue({
-      boss: args.boss,
-      pool: args.pool,
-      installationId: args.installationId ?? 0,
-      owner: args.owner,
-      repo: args.repo,
-      headSha: args.headSha,
-      renderedVersion: rendered.version,
-    });
+    await requestHeadCiProjection(
+      args.boss,
+      {
+        installationId: args.installationId ?? 0,
+        owner: args.owner,
+        repo: args.repo,
+        headSha: args.headSha,
+      },
+      { kind: "when_due", pool: args.pool, renderedVersion: rendered.version },
+    );
   } catch (error) {
     logWarn("review_progress_tick_failed", {
       mode: args.mode,

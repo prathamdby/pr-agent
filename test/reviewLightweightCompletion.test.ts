@@ -85,7 +85,7 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
     summary: { status: "pending", headline: "CI is pending", failures: [] },
     version: 1,
   })),
-  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
+  requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
 const summaryWrite = vi.hoisted(() =>
@@ -125,7 +125,7 @@ vi.mock("../src/review/publish/reviewSummaryComment.js", () => ({
 
 import { getSummaryCommentGithubId, shouldSkipWork } from "../src/agentWork/repository.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
-import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
+import { requestHeadCiProjection, loadRenderableHeadCi } from "../src/agentWork/ciProjection.js";
 
 const pool = {} as Pool;
 
@@ -223,7 +223,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       pool,
       expect.objectContaining({ step: "summary_comment" }),
     );
-    expect(enqueueCiProjectionIfDue).toHaveBeenCalled();
+    expect(requestHeadCiProjection).toHaveBeenCalled();
   });
 
   it("writes a terminal lightweight body that replaces the queued stub wording", async () => {

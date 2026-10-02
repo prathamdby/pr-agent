@@ -5,7 +5,15 @@ import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReviewCancelAttribution } from "../settings/reviewConstants.js";
 
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
-export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
+export const WORK_STATUSES = [
+  "queued",
+  "running",
+  "superseded",
+  "cancelled",
+  "completed",
+  "failed",
+] as const;
+export type WorkStatus = (typeof WORK_STATUSES)[number];
 
 export const ACTIVE_WORK_STATUSES = ["queued", "running"] as const satisfies readonly WorkStatus[];
 

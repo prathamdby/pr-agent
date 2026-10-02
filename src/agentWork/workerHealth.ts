@@ -18,7 +18,7 @@ import {
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import { AGENT_DEAD_LETTER_QUEUES } from "./boss.js";
-import { lostRunningWorkLivenessSql } from "./workItemStateRepository.js";
+import { lostRunningWorkLivenessSql } from "./workItemTransitions.js";
 
 /** Queues that must have registered consumers for worker readiness. */
 export const WORKER_CONSUMER_QUEUES = [

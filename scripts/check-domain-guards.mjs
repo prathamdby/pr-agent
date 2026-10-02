@@ -102,6 +102,19 @@ for (const token of pathLike) {
   if (!fs.existsSync(candidate)) fail(`AGENTS.md drift: \`${token}\` does not exist`);
 }
 
+// 6. agent_work_items.status has one writer: transition() in workItemTransitions.ts.
+const statusWriters = rg(
+  "UPDATE\\s+agent_work_items(\\s+(AS\\s+)?\\w+)?\\s+SET\\s+status\\b",
+  "src",
+  "--multiline --files-with-matches",
+)
+  .split("\n")
+  .filter(Boolean)
+  .map((file) => path.relative(ROOT, file));
+for (const file of statusWriters) {
+  fail(`work item status written outside transition(): ${file}`);
+}
+
 if (failures.length > 0) {
   console.error(`Domain guard failures:\n- ${failures.join("\n- ")}`);
   process.exit(1);

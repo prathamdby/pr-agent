@@ -21,6 +21,7 @@ import {
 import { prResourceKey, type PrRef } from "../types.js";
 import { releasePrActorLeaseHeldByWorkItems } from "../prActorLease.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
+import { transition } from "../workItemTransitions.js";
 
 /**
  * Partial unique index predicate from migrations/014_slash_active_uniqueness.sql.
@@ -659,45 +660,15 @@ export async function cancelActiveReviews(
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
   const lastError = reviewCancelLastError(attribution);
 
-  const queued = await client.query<{
-    id: string;
-    source: WorkSource;
-    head_sha: string;
-    created_at: Date | string;
-    execution_epoch: string | number | null;
-  }>(
-    `UPDATE agent_work_items
-		    SET status = 'cancelled',
-		        last_error = $2,
-		        completed_at = now(),
-		        updated_at = now(),
-		        payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
-		  WHERE resource_key = $1
-		    AND type = 'review'
-		    AND status = 'queued'
-		  RETURNING id, source, head_sha, created_at, execution_epoch`,
-    [resourceKey, lastError, payloadPatch],
-  );
-  const running = await client.query<{
-    id: string;
-    source: WorkSource;
-    head_sha: string;
-    created_at: Date | string;
-    execution_epoch: string | number | null;
-  }>(
-    `UPDATE agent_work_items
-		    SET status = 'cancelled',
-		        cancel_requested_at = COALESCE(cancel_requested_at, now()),
-		        last_error = $2,
-		        completed_at = now(),
-		        updated_at = now(),
-		        payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
-		  WHERE resource_key = $1
-		    AND type = 'review'
-		    AND status = 'running'
-		  RETURNING id, source, head_sha, created_at, execution_epoch`,
-    [resourceKey, lastError, payloadPatch],
-  );
+  const cancel = {
+    selector: { resourceKey, type: "review" },
+    to: "cancelled",
+    lastError,
+    payloadPatch,
+    returning: ["id", "source", "head_sha", "created_at", "execution_epoch"],
+  } as const;
+  const queued = await transition(client, { ...cancel, from: ["queued"] });
+  const running = await transition(client, { ...cancel, from: ["running"], requestCancel: true });
   const cancelled = [
     ...mapCancelledReviewRows(running.rows),
     ...mapCancelledReviewRows(queued.rows),
@@ -747,45 +718,15 @@ export async function cancelActiveTriage(
   const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
   const lastError = reviewCancelLastError(attribution);
 
-  const queued = await client.query<{
-    id: string;
-    head_sha: string;
-    created_at: Date | string;
-    payload: unknown;
-    execution_epoch: string | number | null;
-  }>(
-    `UPDATE agent_work_items
-			   SET status = 'cancelled',
-			       last_error = $2,
-			       completed_at = now(),
-			       updated_at = now(),
-			       payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
-		 WHERE resource_key = $1
-		   AND type = 'triage'
-		   AND status = 'queued'
-		 RETURNING id, head_sha, created_at, payload, execution_epoch`,
-    [resourceKey, lastError, payloadPatch],
-  );
-  const running = await client.query<{
-    id: string;
-    head_sha: string;
-    created_at: Date | string;
-    payload: unknown;
-    execution_epoch: string | number | null;
-  }>(
-    `UPDATE agent_work_items
-			   SET status = 'cancelled',
-			       cancel_requested_at = COALESCE(cancel_requested_at, now()),
-			       last_error = $2,
-			       completed_at = now(),
-			       updated_at = now(),
-			       payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
-		 WHERE resource_key = $1
-		   AND type = 'triage'
-		   AND status = 'running'
-		 RETURNING id, head_sha, created_at, payload, execution_epoch`,
-    [resourceKey, lastError, payloadPatch],
-  );
+  const cancel = {
+    selector: { resourceKey, type: "triage" },
+    to: "cancelled",
+    lastError,
+    payloadPatch,
+    returning: ["id", "head_sha", "created_at", "payload", "execution_epoch"],
+  } as const;
+  const queued = await transition(client, { ...cancel, from: ["queued"] });
+  const running = await transition(client, { ...cancel, from: ["running"], requestCancel: true });
   const holders = [...running.rows, ...queued.rows]
     .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
     .filter((holder) => holder.leaseEpoch > 0);

@@ -23,6 +23,14 @@ IDs, refresh near-expiry tokens, and evict rejected pending lookups. No auth res
 operation is exposed; failed auth does not clear mutation acceptance evidence,
 leases, operation intents, or publish records.
 
+`workItemTransitions.ts::transition` is the only writer of work item status. A
+write that loses its race (cancel request recorded, stale lease epoch, row already
+terminal or claimed elsewhere) changes no row and the wrapper reports `false`; an
+operator never needs to repair a half-applied transition. `requestHeadCiProjection`
+in `ciProjection.ts` is the only enqueue path for `agent-work-ci-projection`, so
+the debounce slot, the `owner/repo:headSha` singleton key, and the deferred
+`:deferred` key behave identically for intake, writers, the projector, and repair.
+
 The durable execution context admits read-only repository views before checkout
 and shares signal, cancellation, and lease publication checks. Triage applies
 those checks at its existing tool/commit/push checkpoints without sharing a

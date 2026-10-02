@@ -1,15 +1,16 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import { pgBossDb } from "../db/postgres.js";
+import { AppError } from "../errors/appError.js";
 import {
   ciSummaryFromFacts,
   headCiFactsAreComplete,
   waitingCiSummary,
   type RenderableHeadCi,
 } from "../review/ci/ciFromHeadState.js";
-import { AUTOMATED_PR_ACTIONS, DEFERRED_HEAD_SHA } from "../settings/index.js";
-import { enqueueCiProjectionDebouncedStandalone } from "./intake/queueing.js";
+import { AUTOMATED_PR_ACTIONS, CI_PROJECTION_QUEUE, DEFERRED_HEAD_SHA } from "../settings/index.js";
 import { headCiNeedsSeed, loadPrHeadCiState, type PrHeadCiStateRow } from "./prHeadCiState.js";
-import type { CiProjectionJobData } from "./types.js";
+import { installationGroupId, type CiProjectionJobData, type JobCorrelation } from "./types.js";
 
 export async function loadRenderableHeadCi(
   pool: Pool,
@@ -52,24 +53,151 @@ export function ciProjectionDue(
   return row != null && row.version > renderedVersion;
 }
 
-export async function enqueueCiProjectionIfDue(params: {
-  readonly boss: PgBoss | undefined;
-  readonly pool: Pool;
-  readonly installationId: number;
-  readonly owner: string;
-  readonly repo: string;
-  readonly headSha: string;
-  readonly renderedVersion: number;
-}): Promise<void> {
-  if (params.boss == null || params.installationId <= 0) return;
-  const row = await loadPrHeadCiState(params.pool, params.owner, params.repo, params.headSha);
-  if (!ciProjectionDue(row, params.renderedVersion)) return;
-  const job: CiProjectionJobData = {
-    kind: "ci_projection",
-    installationId: params.installationId,
-    owner: params.owner,
-    repo: params.repo,
-    headSha: params.headSha,
-  };
-  await enqueueCiProjectionDebouncedStandalone(params.boss, job);
+const CI_PROJECTION_DEBOUNCE_SECONDS = 5;
+
+type CiProjectionPayload = CiProjectionJobData & {
+  readonly correlations?: readonly JobCorrelation[];
+};
+
+function ciProjectionCorrelations(data: CiProjectionPayload): JobCorrelation[] {
+  const correlations = new Map<string, JobCorrelation>();
+  for (const identity of [...(data.correlations ?? []), data]) {
+    const correlation: JobCorrelation = {
+      ...(identity.webhookEventId ? { webhookEventId: identity.webhookEventId } : {}),
+      ...(identity.delivery ? { delivery: identity.delivery } : {}),
+    };
+    if (Object.keys(correlation).length > 0) {
+      correlations.set(JSON.stringify(correlation), correlation);
+    }
+  }
+  return [...correlations.values()];
+}
+
+async function mergeCiProjectionCorrelations(
+  client: PoolClient,
+  data: CiProjectionJobData,
+  singletonKey: string,
+  correlations: readonly JobCorrelation[],
+): Promise<void> {
+  // pg-boss tries the current slot, then the next. Its throttle index includes
+  // active and terminal rows; append against the locked row, not a stale read.
+  const { rows } = await client.query<{ id: string }>(
+    `UPDATE pgboss.job
+        SET data = jsonb_set(data, '{correlations}', (
+          SELECT jsonb_agg(DISTINCT correlation)
+            FROM jsonb_array_elements(
+              COALESCE(data->'correlations', '[]'::jsonb)
+              || jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                'webhookEventId', NULLIF(data->>'webhookEventId', ''),
+                'delivery', NULLIF(data->>'delivery', '')
+              )))
+              || $8::jsonb
+            ) AS identities(correlation)
+           WHERE correlation <> '{}'::jsonb
+        ))
+      WHERE name = $1
+        AND singleton_key = $2
+        AND singleton_on = 'epoch'::timestamp + '1s'::interval
+          * ($3::float8 * floor((date_part('epoch', now()) + $3::float8) / $3::float8))
+        AND state <> 'cancelled'
+        AND data->>'owner' = $4
+        AND data->>'repo' = $5
+        AND data->>'headSha' = $6
+        AND data->>'installationId' = $7::text
+      RETURNING id`,
+    [
+      CI_PROJECTION_QUEUE,
+      singletonKey,
+      CI_PROJECTION_DEBOUNCE_SECONDS,
+      data.owner,
+      data.repo,
+      data.headSha,
+      data.installationId,
+      JSON.stringify(correlations),
+    ],
+  );
+  if (rows.length !== 1) {
+    throw new AppError({
+      code: "agent_work.ci_projection_correlation_missing",
+      message: "CI projection correlation target is missing",
+      context: {
+        queue: CI_PROJECTION_QUEUE,
+        owner: data.owner,
+        repo: data.repo,
+        headSha: data.headSha,
+      },
+    });
+  }
+}
+
+/**
+ * - `intake`: debounced inside the caller's transaction; a later write joins the
+ *   next 5s slot and keeps its delivery identity in the job's `correlations`.
+ * - `debounced`: the same slot without a transaction, for the projector and
+ *   writers that hold none. It carries the identities the head already has.
+ * - `after`: one job deferred until the rate-limit circuit closes.
+ * - `when_due`: `debounced` only when the head still needs a seed or its row
+ *   moved past the version the writer just rendered.
+ */
+export type HeadCiProjectionSchedule =
+  | { readonly kind: "intake"; readonly client: PoolClient }
+  | { readonly kind: "debounced" }
+  | { readonly kind: "after"; readonly seconds: number }
+  | { readonly kind: "when_due"; readonly pool: Pool; readonly renderedVersion: number };
+
+export type HeadCiProjectionResult = "enqueued" | "already_present" | "skipped";
+
+/** The one way to ask for a `ci-projection` job for a head. */
+export async function requestHeadCiProjection(
+  boss: PgBoss | undefined,
+  head: Omit<CiProjectionJobData, "kind">,
+  schedule: HeadCiProjectionSchedule,
+): Promise<HeadCiProjectionResult> {
+  if (boss == null) return "skipped";
+  if (schedule.kind === "when_due") {
+    if (head.installationId <= 0) return "skipped";
+    const row = await loadPrHeadCiState(schedule.pool, head.owner, head.repo, head.headSha);
+    if (!ciProjectionDue(row, schedule.renderedVersion)) return "skipped";
+  }
+  const data: CiProjectionJobData = { kind: "ci_projection", ...head };
+  const singletonKey = `${data.owner}/${data.repo}:${data.headSha}`;
+  const group = { id: installationGroupId(data.installationId) };
+
+  if (schedule.kind === "after") {
+    const startAfter = Math.max(1, schedule.seconds);
+    const jobId = await boss.send(CI_PROJECTION_QUEUE, data, {
+      startAfter,
+      singletonKey: `${singletonKey}:deferred`,
+      singletonSeconds: startAfter,
+      priority: 40,
+      group,
+    });
+    return jobId == null ? "already_present" : "enqueued";
+  }
+
+  if (schedule.kind === "intake") {
+    const correlations = ciProjectionCorrelations(data);
+    const payload = correlations.length > 0 ? { ...data, correlations } : data;
+    const jobId = await boss.sendDebounced(
+      CI_PROJECTION_QUEUE,
+      payload,
+      { db: pgBossDb(schedule.client), priority: 40, group },
+      CI_PROJECTION_DEBOUNCE_SECONDS,
+      singletonKey,
+    );
+    if (jobId != null) return "enqueued";
+    if (correlations.length > 0) {
+      await mergeCiProjectionCorrelations(schedule.client, data, singletonKey, correlations);
+    }
+    return "already_present";
+  }
+
+  const jobId = await boss.sendDebounced(
+    CI_PROJECTION_QUEUE,
+    data,
+    { priority: 40, group },
+    CI_PROJECTION_DEBOUNCE_SECONDS,
+    singletonKey,
+  );
+  return jobId == null ? "already_present" : "enqueued";
 }

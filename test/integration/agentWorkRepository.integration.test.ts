@@ -18,6 +18,7 @@ import {
   markQueuedWorkCancelled,
   markWorkCancelled,
   markWorkCompleted,
+  markWorkFailed,
   markWorkRetrying,
   recordReviewCheckRun,
 } from "../../src/agentWork/repository.js";
@@ -205,6 +206,60 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
     await expect(markWorkCompleted(pool, id, null)).resolves.toBe(false);
     await expect(getWorkRow(id)).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  const guardedWriters = {
+    completed: (id: string, epoch: number | null) => markWorkCompleted(pool, id, epoch),
+    failed: (id: string, epoch: number | null) =>
+      markWorkFailed(pool, id, new Error("guarded failure"), epoch),
+    retrying: (id: string, epoch: number | null) =>
+      markWorkRetrying(pool, id, new Error("guarded retry"), epoch),
+    cancelled: async (id: string, epoch: number | null) => {
+      await markWorkCancelled(pool, id, epoch);
+      return (await getWorkRow(id)).status === "cancelled";
+    },
+  };
+
+  it.each(["completed", "failed", "retrying", "cancelled"] as const)(
+    "a stale lease epoch cannot move running work to %s",
+    async (writer) => {
+      const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+      const epoch = await acquireReviewLease(id, `repo-it-${id}`);
+      const before = await getWorkRow(id);
+
+      await expect(guardedWriters[writer](id, epoch + 1)).resolves.toBe(false);
+      await expect(getWorkRow(id)).resolves.toEqual(before);
+
+      await expect(guardedWriters[writer](id, epoch)).resolves.toBe(true);
+      expect((await getWorkRow(id)).status).not.toBe("running");
+    },
+  );
+
+  it.each(["completed", "failed", "retrying"] as const)(
+    "a recorded cancel request wins over the %s write",
+    async (writer) => {
+      const id = await insertWorkItem({
+        status: "running",
+        cancelRequestedAt: new Date().toISOString(),
+      });
+      const before = await getWorkRow(id);
+
+      await expect(guardedWriters[writer](id, null)).resolves.toBe(false);
+      await expect(getWorkRow(id)).resolves.toEqual(before);
+    },
+  );
+
+  it.each([
+    ["completed", "completed"],
+    ["failed", "failed"],
+    ["cancelled", "retrying"],
+    ["completed", "cancelled"],
+  ] as const)("a %s row stays terminal against the %s write", async (status, writer) => {
+    const id = await insertWorkItem({ status });
+    const before = await getWorkRow(id);
+
+    await expect(guardedWriters[writer](id, null)).resolves.toBe(false);
+    await expect(getWorkRow(id)).resolves.toEqual(before);
   });
 
   it.each(["queued", "running"] as const)(

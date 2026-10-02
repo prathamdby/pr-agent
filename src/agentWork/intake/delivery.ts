@@ -33,7 +33,6 @@ import { recordEvent } from "../../evlog.js";
 import {
   type AckJobData,
   type AckTarget,
-  type CiProjectionJobData,
   type JobCorrelation,
   type PrRef,
   type WebhookHeaders,
@@ -41,14 +40,17 @@ import {
 } from "../types.js";
 import {
   enqueueAck,
-  enqueueCiProjectionDebounced,
   enqueueDescription,
   enqueueReview,
   enqueueVerification,
   jobCorrelation,
 } from "./queueing.js";
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
-import { isHeadCiSeedPullRequest, shouldSeedHeadCiFromPullRequest } from "../ciProjection.js";
+import {
+  isHeadCiSeedPullRequest,
+  requestHeadCiProjection,
+  shouldSeedHeadCiFromPullRequest,
+} from "../ciProjection.js";
 import { applyPrHeadCiFact, headCiNeedsSeed, loadPrHeadCiState } from "../prHeadCiState.js";
 import type { CiCheckFact } from "../../review/ci/classifySnapshot.js";
 import {
@@ -404,15 +406,17 @@ async function enqueueHeadCiProjection(
   ref: PrRef,
   correlation: JobCorrelation,
 ): Promise<DeferredIntakeEvent> {
-  const job: CiProjectionJobData = {
-    kind: "ci_projection",
-    installationId: ref.installationId,
-    owner: ref.owner,
-    repo: ref.repo,
-    headSha: ref.headSha,
-    ...correlation,
-  };
-  const result = await enqueueCiProjectionDebounced(boss, client, job);
+  const result = await requestHeadCiProjection(
+    boss,
+    {
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      headSha: ref.headSha,
+      ...correlation,
+    },
+    { kind: "intake", client },
+  );
   return {
     name: "ci_projection_enqueued",
     fields: {
@@ -620,15 +624,17 @@ async function applyCompletedRunCiIntake(
   if (event.duplicate) {
     return deferred;
   }
-  const job: CiProjectionJobData = {
-    kind: "ci_projection",
-    installationId: data.installationId,
-    owner: data.owner,
-    repo: data.repo,
-    headSha: data.headSha,
-    ...jobCorrelation(event.id, headers),
-  };
-  const result = await enqueueCiProjectionDebounced(boss, client, job);
+  const result = await requestHeadCiProjection(
+    boss,
+    {
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      ...jobCorrelation(event.id, headers),
+    },
+    { kind: "intake", client },
+  );
   deferred.push({
     name: "ci_projection_enqueued",
     fields: {
@@ -694,15 +700,17 @@ async function applyCiStateIntake(
         version: applied.version,
       }),
     );
-  const job: CiProjectionJobData = {
-    kind: "ci_projection",
-    installationId: data.installationId,
-    owner: data.owner,
-    repo: data.repo,
-    headSha: data.headSha,
-    ...jobCorrelation(event.id, headers),
-  };
-  const result = await enqueueCiProjectionDebounced(boss, client, job);
+  const result = await requestHeadCiProjection(
+    boss,
+    {
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      headSha: data.headSha,
+      ...jobCorrelation(event.id, headers),
+    },
+    { kind: "intake", client },
+  );
   deferred.push({
     name: "ci_projection_enqueued",
     fields: {

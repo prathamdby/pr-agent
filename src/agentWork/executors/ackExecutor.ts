@@ -19,7 +19,7 @@ import {
   type ReviewQueuePosition,
 } from "../repository.js";
 import { closeReviewVerdictsForWorkItems, reviewVerdict } from "../reviewVerdict.js";
-import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../ciProjection.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../ciProjection.js";
 import { parseProgressRevisionState } from "../../review/run/commentMarkers.js";
 import {
   renderReviewCancelledNotice,
@@ -112,15 +112,11 @@ async function publishAckProgress(
     ciHeadSha: headSha,
     ciVersion: rendered.version,
   });
-  await enqueueCiProjectionIfDue({
+  await requestHeadCiProjection(
     boss,
-    pool,
-    installationId: data.installationId,
-    owner: data.owner,
-    repo: data.repo,
-    headSha,
-    renderedVersion: rendered.version,
-  });
+    { installationId: data.installationId, owner: data.owner, repo: data.repo, headSha },
+    { kind: "when_due", pool, renderedVersion: rendered.version },
+  );
   // Deferred-head reviews resolve the binding head at claim time; starting the
   // check run here would pin it to an earlier SHA if another push lands first.
   if (data.workItemId && !deferredHead) {

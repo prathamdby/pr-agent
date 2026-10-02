@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { releasePrActorLeaseHeldByWorkItems } from "./prActorLease.js";
+import { transition, type TransitionSelector } from "./workItemTransitions.js";
 
 export type AutoWorkSupersedeTarget =
   | {
@@ -39,32 +40,10 @@ function linkSupersededWorkItems(
   ]);
 }
 
-function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
-  sql: string;
-  params: unknown[];
-} {
-  if (target.kind === "review") {
-    return {
-      sql: `UPDATE agent_work_items
-			       SET status = 'superseded', updated_at = now()
-			     WHERE resource_key = $1
-			       AND review_lens = $2
-			       AND source = 'auto'
-			       AND status = 'queued'
-			     RETURNING id, execution_epoch`,
-      params: [target.resourceKey, "review"],
-    };
-  }
-  return {
-    sql: `UPDATE agent_work_items
-			     SET status = 'superseded', updated_at = now()
-			   WHERE resource_key = $1
-			     AND type = $2
-			     AND source = 'auto'
-			     AND status = 'queued'
-			   RETURNING id, execution_epoch`,
-    params: [target.resourceKey, target.kind],
-  };
+function supersedeSelector(target: AutoWorkSupersedeTarget): TransitionSelector {
+  return target.kind === "review"
+    ? { resourceKey: target.resourceKey, reviewLens: "review", source: "auto" }
+    : { resourceKey: target.resourceKey, type: target.kind, source: "auto" };
 }
 
 function cancelRunningSql(target: AutoWorkSupersedeTarget): {
@@ -109,12 +88,13 @@ async function supersedeActiveAutoWork(
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     autoWorkIntakeLockKey(target),
   ]);
-  const queuedQuery = supersedeQueuedSql(target);
   const runningQuery = cancelRunningSql(target);
-  const queued = await client.query<{ id: string; execution_epoch: string | number | null }>(
-    queuedQuery.sql,
-    queuedQuery.params,
-  );
+  const queued = await transition(client, {
+    selector: supersedeSelector(target),
+    from: ["queued"],
+    to: "superseded",
+    returning: ["id", "execution_epoch"],
+  });
   const running = await client.query<{ id: string; execution_epoch: string | number | null }>(
     runningQuery.sql,
     runningQuery.params,

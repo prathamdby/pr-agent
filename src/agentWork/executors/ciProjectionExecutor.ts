@@ -39,10 +39,7 @@ import {
 import { captureCiStateChanged } from "../../analytics/workCompleted.js";
 import { authorHeadCiIfFactsChanged } from "../ciAuthoring.js";
 import { reviewVerdict, asTerminalOwnCheckStatus } from "../reviewVerdict.js";
-import {
-  enqueueCiProjectionAfter,
-  enqueueCiProjectionDebouncedStandalone,
-} from "../intake/queueing.js";
+import { requestHeadCiProjection } from "../ciProjection.js";
 import {
   asPrNumbers,
   clearProjectionRepairPending,
@@ -524,7 +521,10 @@ async function applyGithubCiListingIfNeeded(params: {
       headSha: params.data.headSha,
       message,
     });
-    await enqueueCiProjectionAfter(params.boss, params.data, PENDING_CI_REFRESH_RETRY_SECONDS);
+    await requestHeadCiProjection(params.boss, params.data, {
+      kind: "after",
+      seconds: PENDING_CI_REFRESH_RETRY_SECONDS,
+    });
     return params.row;
   }
 
@@ -568,7 +568,7 @@ export async function executeCiProjectionJob(
     const circuit = await getSharedRateLimitCircuit(pool, data.installationId);
     const openUntil = circuit?.openUntil.getTime() ?? Date.now() + 60_000;
     const startAfter = Math.max(1, Math.ceil((openUntil - Date.now()) / 1000));
-    await enqueueCiProjectionAfter(boss, data, startAfter);
+    await requestHeadCiProjection(boss, data, { kind: "after", seconds: startAfter });
     logDebug("ci_projection_deferred_rate_limit", {
       owner: data.owner,
       repo: data.repo,
@@ -676,7 +676,7 @@ export async function executeCiProjectionJob(
   const latest = await loadPrHeadCiState(pool, data.owner, data.repo, data.headSha);
   const versionMoved = latest != null && latest.version > row.version;
   if (aggregate === "retry" || versionMoved) {
-    await enqueueCiProjectionDebouncedStandalone(boss, data);
+    await requestHeadCiProjection(boss, data, { kind: "debounced" });
     return;
   }
 

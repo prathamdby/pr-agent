@@ -139,7 +139,7 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
     summary: { status: "pending", headline: "⏳ Waiting for CI", failures: [] },
     version: 0,
   })),
-  enqueueCiProjectionIfDue: vi.fn(async () => undefined),
+  requestHeadCiProjection: vi.fn(async () => "skipped"),
 }));
 
 import * as verdictOwner from "../src/agentWork/reviewVerdict.js";

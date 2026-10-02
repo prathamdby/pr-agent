@@ -2,13 +2,8 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logDebug, logWarn } from "../evlog.js";
 import { CI_PROJECTION_REPAIR_BATCH_SIZE } from "../settings/index.js";
-import { enqueueCiProjectionDebouncedStandalone } from "./intake/queueing.js";
-import {
-  clearProjectionRepairPending,
-  listProjectionRepairPendingHeads,
-  type ProjectionRepairCandidate,
-} from "./prHeadCiState.js";
-import type { CiProjectionJobData } from "./types.js";
+import { requestHeadCiProjection } from "./ciProjection.js";
+import { clearProjectionRepairPending, listProjectionRepairPendingHeads } from "./prHeadCiState.js";
 
 export type ProjectionRepairScanReport = {
   readonly pendingScanned: number;
@@ -16,18 +11,6 @@ export type ProjectionRepairScanReport = {
   readonly unreachable: number;
   readonly skippedNoInstallation: number;
 };
-
-function asJob(
-  candidate: ProjectionRepairCandidate & { installationId: number },
-): CiProjectionJobData {
-  return {
-    kind: "ci_projection",
-    installationId: candidate.installationId,
-    owner: candidate.owner,
-    repo: candidate.repo,
-    headSha: candidate.headSha,
-  };
-}
 
 /**
  * Bounded diagnostics tick: enqueue ordinary projection jobs for heads still
@@ -63,9 +46,15 @@ export async function scanProjectionRepairPending(params: {
       continue;
     }
 
-    const result = await enqueueCiProjectionDebouncedStandalone(
+    const result = await requestHeadCiProjection(
       params.boss,
-      asJob({ ...candidate, installationId: candidate.installationId }),
+      {
+        installationId: candidate.installationId,
+        owner: candidate.owner,
+        repo: candidate.repo,
+        headSha: candidate.headSha,
+      },
+      { kind: "debounced" },
     );
     if (result === "enqueued") enqueued += 1;
     logDebug("ci_projection_repair_enqueued", {

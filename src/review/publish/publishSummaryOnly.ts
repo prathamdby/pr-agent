@@ -10,7 +10,7 @@ import {
   reviewSummaryOperationKey,
   publishOnce,
 } from "../../agentWork/publishOnce.js";
-import { enqueueCiProjectionIfDue, loadRenderableHeadCi } from "../../agentWork/ciProjection.js";
+import { loadRenderableHeadCi, requestHeadCiProjection } from "../../agentWork/ciProjection.js";
 import { reviewVerdict, summaryCommentVerdictMeta } from "../../agentWork/reviewVerdict.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import type { PrSurface } from "../../github/prSurface.js";
@@ -244,15 +244,11 @@ export async function publishReviewSummaryOnly(params: {
         });
   const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
   if (ciPool != null) {
-    await enqueueCiProjectionIfDue({
-      boss: params.boss,
-      pool: ciPool,
-      installationId: params.installationId ?? 0,
-      owner,
-      repo,
-      headSha,
-      renderedVersion: renderedCi.version,
-    });
+    await requestHeadCiProjection(
+      params.boss,
+      { installationId: params.installationId ?? 0, owner, repo, headSha },
+      { kind: "when_due", pool: ciPool, renderedVersion: renderedCi.version },
+    );
   }
   const summaryOnlyCount = params.ledger.accepted.filter(
     (accepted) => accepted.kind === "summary_only",
