@@ -646,10 +646,31 @@ Run these before calling a site change done. They are the checks the maintainer 
 
    ```bash
    nub run check:code
+   nub run check:site-design
    nub run --node site:build
    ```
 
    `check:code` runs the typecheck, `oxlint`, and `oxfmt --check`. The site build runs `vite build` and two `tsc --noEmit` passes, and its `emitLlmsTxt` plugin rewrites `site/public/llms.txt`. Include regenerated agent documentation in the same commit without separate approval, and check it equals `renderLlmsTxt()`. Generation does not authorize changes to the main site's human-facing source wording. Run `nub run fmt` if the format check fails.
+
+   `check:site-design` (`scripts/check-site-design.mjs`, also in the CI `site` job) scans `site/app` and `site/components` and fails when any rule's count rises above `scripts/baselines/site-design-baseline.json`. Most counts are zero. `raw-color`, `primitive-read`, and `arbitrary-value` carry today's stock and may only shrink.
+
+   | Rule                    | Fails on                                                                                                            |
+   | ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
+   | `palette-reset`         | `@theme` losing `--color-*: initial`                                                                                |
+   | `undefined-color-token` | a colour utility Tailwind does not build (an undeclared token or a stock colour), or an undeclared `var(--color-*)` |
+   | `raw-color`             | a hex, `rgb()`, `hsl()`, `oklch()`, or `oklab()` literal outside the `:root` primitives                             |
+   | `primitive-read`        | `var(--palette-*)` outside `:root` and `@theme`                                                                     |
+   | `shadow-var`            | `var(--shadow-*)` other than `--shadow-ink`                                                                         |
+   | `arbitrary-type-size`   | a `text-[…]` size other than a fluid `clamp()`                                                                      |
+   | `arbitrary-value`       | any `name-[…]` utility                                                                                              |
+   | `transition-all`        | `transition-all` or `transition: all`                                                                               |
+   | `hover-unguarded`       | a `:hover` rule in CSS outside `@media (hover: hover)`                                                              |
+   | `card-clone`            | `rounded-lg`, `bg-surface`, and `shadow-card` in one class string instead of `.card`                                |
+   | `chip-clone`            | the `.chip` recipe spelled out in one class string                                                                  |
+   | `section-title-clone`   | the section `h2` size outside `site/components/section.tsx`                                                         |
+   | `docs-token-parity`     | an `@theme` token missing from this file, or a `--color-*` named here that does not exist                           |
+
+   The check reads source text, so it cannot see contrast, behaviour, or class names built at runtime. A red rule is a finding: fix the code rather than raise the baseline. `--bootstrap` rewrites the baseline and refuses to run under `CI=true`.
 
 2. Screenshots at three widths. Start the dev server (`nub run site:dev`, port 3000), note its process id so you stop only what you started, then drive it with Playwright. Playwright is not a repository dependency, so install it into a throwaway directory and point `NODE_PATH` at it (`npx -p playwright node -e` does not resolve the module from the repo). `playwright install chromium` is instant when that build is already in `~/.cache/ms-playwright`:
 
