@@ -491,6 +491,26 @@ describe("classified-failure projections", () => {
 });
 
 describe("retryDispositionFor", () => {
+  it("terminates only typed permanent resolution denial, leaving generic auth transient", () => {
+    const denied = new AppError({
+      domain: "github",
+      kind: "review_thread_resolution_denied",
+      message: "Denied",
+      context: { mutationAccepted: false, threadNodeId: "PRRT_1" },
+    });
+    expect(retryDispositionFor(denied)).toBe("terminal");
+    expect(classifyFailure(denied)).toMatchObject({
+      failureDomain: "github",
+      errorKind: "forbidden",
+      errorCode: "github.review_thread_resolution_denied",
+    });
+    expect(retryDispositionFor(Object.assign(new Error("Forbidden"), { status: 403 }))).toBe(
+      "transient",
+    );
+    expect(retryDispositionFor(Object.assign(new Error("Bad credentials"), { status: 401 }))).toBe(
+      "transient",
+    );
+  });
   it("keeps stale-head replacement exhaustion terminal", () => {
     const error = new AppError({
       domain: "review",

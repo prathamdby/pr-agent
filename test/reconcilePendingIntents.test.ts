@@ -170,7 +170,7 @@ describe("reconcilePendingIntents", () => {
     });
   });
 
-  it("matches verification thread intents against the ADR-0023 threads ledger", async () => {
+  it("does not borrow a carried-forward verification thread entry", async () => {
     await publishStoreState.store.persistOperationIntent(pool, {
       workItemId: "wi-3",
       operationKey: "verification:thread:99",
@@ -180,19 +180,73 @@ describe("reconcilePendingIntents", () => {
         reviewLens: "verification",
         resourceKey: "o/r#1",
         threadRootCommentId: 99,
+        headSha: "new-head",
+        verdict: "fixed",
+        requiresStub: false,
       },
     });
-    vi.mocked(queryOne).mockResolvedValue({ id: "pub-v" });
+    vi.mocked(queryOne).mockResolvedValue({
+      id: "pub-v",
+      detail: { threads: { "99": { lastVerdict: "skipped", lastHeadSha: "old-head" } } },
+    });
 
-    await reconcilePendingIntents(pool, "wi-3");
+    await expect(reconcilePendingIntents(pool, "wi-3")).resolves.toEqual({
+      reconciled: 0,
+      stillPending: 1,
+    });
+  });
 
-    expect(queryOne).toHaveBeenCalledWith(pool, expect.stringMatching(/detail -> 'threads' \?/), [
-      "wi-3",
-      "verification_thread_actions",
-      "verification",
-      "o/r#1",
-      "99",
-    ]);
+  it.each([
+    {},
+    { workItemId: "other" },
+    { operationKey: "verification:thread:98" },
+    { headSha: "old-head" },
+    { verdict: "skipped" },
+    { stubOutcome: "not_required" },
+    { resolutionOutcome: "not_required" },
+  ])(
+    "requires an exact verification receipt with all required child outcomes (%j)",
+    async (override) => {
+      const intent = await publishStoreState.store.persistOperationIntent(pool, {
+        workItemId: "wi-3",
+        operationKey: "verification:thread:99",
+        mutationKind: "github.verification_thread",
+        detail: {
+          step: "verification_thread_actions",
+          headSha: "new-head",
+          verdict: "dismissed",
+          requiresStub: true,
+        },
+      });
+      const completion = {
+        workItemId: "wi-3",
+        operationKey: intent.operationKey,
+        headSha: "new-head",
+        verdict: "dismissed",
+        stubOutcome: "written",
+        stubCommentId: 77,
+        resolutionOutcome: "resolved",
+        ...override,
+      };
+      vi.mocked(queryOne).mockResolvedValue({
+        id: "pub-v",
+        detail: { threads: { "99": { lastVerdict: "dismissed", completion } } },
+      });
+      await expect(findCompletedPublishRecordId(pool, "wi-3", intent)).resolves.toBe(
+        Object.keys(override).length === 0 ? "pub-v" : null,
+      );
+    },
+  );
+
+  it("does not use a verification receipt for legacy intents without head/verdict requirements", async () => {
+    const intent = await publishStoreState.store.persistOperationIntent(pool, {
+      workItemId: "wi-3",
+      operationKey: "verification:thread:99",
+      mutationKind: "github.verification_thread",
+      detail: { step: "verification_thread_actions" },
+    });
+    await expect(findCompletedPublishRecordId(pool, "wi-3", intent)).resolves.toBeNull();
+    expect(queryOne).not.toHaveBeenCalled();
   });
 
   it("includes batchId filters when present on the intent", async () => {

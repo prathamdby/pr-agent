@@ -6,6 +6,10 @@ import {
   reconcileOperationIntent,
   type OperationIntentRow,
 } from "./operationIntentRepository.js";
+import {
+  matchesVerificationThreadCompletion,
+  parseVerificationThreadLedger,
+} from "./verificationThreadLedger.js";
 
 type ReconcilePendingIntentsResult = {
   readonly reconciled: number;
@@ -47,13 +51,22 @@ export async function findCompletedPublishRecordId(
   if (typeof step !== "string") return null;
 
   const triageThread = triageThreadRootFromOperationKey(intent.operationKey);
+  const verificationRoot = verificationThreadRootFromOperationKey(intent.operationKey);
+  if (
+    verificationRoot != null &&
+    (typeof detail.headSha !== "string" ||
+      typeof detail.verdict !== "string" ||
+      typeof detail.requiresStub !== "boolean")
+  ) {
+    return null;
+  }
   // Resolve has no publish_records row; never borrow the reply ledger.
   if (triageThread?.isResolve) {
     return null;
   }
 
   const values: unknown[] = [workItemId, step];
-  let query = `SELECT id
+  let query = `SELECT id, detail
                  FROM publish_records
                 WHERE work_item_id = $1
                   AND step = $2
@@ -81,11 +94,18 @@ export async function findCompletedPublishRecordId(
     values.push(String(triageThread.rootCommentId));
     query += ` AND detail @> jsonb_build_object('actedThreadIds', jsonb_build_array(($${values.length}::text)::bigint))`;
   } else {
-    const verificationRoot = verificationThreadRootFromOperationKey(intent.operationKey);
     if (verificationRoot != null) {
       values.push(String(verificationRoot));
-      // ADR-0016 ledger: { threads: { "<rootCommentId>": { ... } } }
-      query += ` AND detail -> 'threads' ? $${values.length}::text`;
+      const rootIndex = values.length;
+      values.push(
+        JSON.stringify({
+          workItemId,
+          operationKey: intent.operationKey,
+          headSha: detail.headSha,
+          verdict: detail.verdict,
+        }),
+      );
+      query += ` AND detail -> 'threads' -> $${rootIndex}::text -> 'completion' @> $${values.length}::jsonb`;
     } else {
       const threadRootCommentId = detail.threadRootCommentId;
       if (typeof threadRootCommentId === "number") {
@@ -97,7 +117,21 @@ export async function findCompletedPublishRecordId(
 
   query += " ORDER BY updated_at DESC LIMIT 1";
 
-  const row = await queryOne<{ id: string }>(client, query, values);
+  const row = await queryOne<{ id: string; detail: unknown }>(client, query, values);
+  if (row != null && verificationRoot != null) {
+    const receipt = parseVerificationThreadLedger(row.detail).threads[String(verificationRoot)]
+      ?.completion;
+    if (
+      !matchesVerificationThreadCompletion(receipt, {
+        workItemId,
+        operationKey: intent.operationKey,
+        headSha: detail.headSha,
+        verdict: detail.verdict,
+        requiresStub: detail.requiresStub,
+      })
+    )
+      return null;
+  }
   return row?.id ?? null;
 }
 

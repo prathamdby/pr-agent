@@ -88,6 +88,12 @@ import {
 import { hasDatabase, integrationPool } from "./db.js";
 import { reviewVerdict } from "../../src/agentWork/reviewVerdict.js";
 import * as ownVerdictModule from "../../src/agentWork/reviewVerdict.js";
+import { publishVerification } from "../../src/agent/verification/publishVerification.js";
+import { findCompletedPublishRecordId } from "../../src/agentWork/reconcilePendingIntents.js";
+import {
+  loadVerificationThreadLedger,
+  saveVerificationThreadLedger,
+} from "../../src/agentWork/verificationThreadLedger.js";
 
 const OWNER = "lease-it";
 const TTL_SECONDS = 900;
@@ -157,6 +163,167 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
   }
 
   const surfaceParams = { owner: "o", repo: "r", prNumber: 1 };
+
+  it.each(["dismiss-create", "dismiss-edit", "fixed-edit"])(
+    "recovers verification partial acceptance from exact child receipts without duplicating stubs (%s)",
+    async (mode) => {
+      const resourceKey = `${OWNER}/verification-receipts-${randomUUID()}#1`;
+      const workItemId = await insertRunningWorkItem(resourceKey);
+      await pool.query("UPDATE agent_work_items SET type = 'verification' WHERE id = $1", [
+        workItemId,
+      ]);
+      const lease = await acquirePrActorLease(pool, {
+        resourceKey,
+        workType: "verification",
+        workItemId,
+        holderId: "verification-it",
+        ttlSeconds: TTL_SECONDS,
+      });
+      if (!lease.acquired) throw new Error("expected verification lease");
+      await claimWorkForExecution(pool, workItemId, lease.leaseEpoch);
+      const fake = createFakePrSurface(surfaceParams, { headSha: "h" });
+      const createsStub = mode === "dismiss-create";
+      if (!createsStub) fake.controls.setReviewCommentBody(555, "Still open");
+      const verdict =
+        mode === "fixed-edit"
+          ? {
+              verdict: "fixed" as const,
+              threadRootCommentId: 9,
+              evidence: "fixed",
+              commitSha: "abcdef1",
+            }
+          : { verdict: "dismissed" as const, threadRootCommentId: 9, evidence: "intentional" };
+      fake.controls.setThreads(new Map([[9, { threadNodeId: "PRRT_9", isResolved: false }]]));
+      const denial = new AppError({
+        domain: "github",
+        kind: "review_thread_resolution_denied",
+        message: "Denied",
+        context: { threadNodeId: "PRRT_9", mutationAccepted: false },
+      });
+      const resolve = vi.spyOn(fake.surface, "resolveInlineReviewThread").mockRejectedValue(denial);
+      const surface = withPrSurfaceMutationBoundary(fake.surface, {
+        signal: new AbortController().signal,
+        run: async <T>(mutation: PrSurfaceMutation, mutate: () => Promise<T>): Promise<T> => {
+          const result = await publishOnce({
+            client: pool,
+            workItemId,
+            leaseEpoch: lease.leaseEpoch,
+            ...mutation,
+            mutate,
+          });
+          return result as T;
+        },
+      });
+      const params = {
+        pool,
+        workItemId,
+        resourceKey,
+        leaseEpoch: lease.leaseEpoch,
+        installationId: 1,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "h",
+        prSurface: surface,
+        inventory: [
+          {
+            rootCommentId: 9,
+            lens: "review" as const,
+            path: "src/a.ts",
+            line: 1,
+            severity: "P1" as const,
+            titleSnippet: "bug",
+            humanReplies: [],
+            threadUrl: "https://github.test/thread",
+            ...(!createsStub ? { verificationStubCommentId: 555 } : {}),
+          },
+        ],
+        resolutionByRootCommentId: new Map([[9, { threadNodeId: "PRRT_9", isResolved: false }]]),
+        payload: {
+          verdicts: [verdict],
+        },
+        changedFilePaths: ["src/a.ts"],
+        policyResult: { kind: "absent" as const },
+      };
+      await expect(publishVerification(params)).rejects.toBe(denial);
+      expect(retryDispositionFor(denial)).toBe("terminal");
+      const parent = await intentRepository.getOperationIntent(
+        pool,
+        workItemId,
+        "verification:thread:9",
+      );
+      expect(parent).toMatchObject({ status: "outcome_unknown" });
+      const children = await pool.query<{
+        operation_key: string;
+        status: string;
+        detail: Record<string, unknown>;
+      }>(
+        "SELECT operation_key, status, detail FROM operation_intents WHERE work_item_id = $1 AND detail->>'parentOperationKey' = $2",
+        [workItemId, "verification:thread:9"],
+      );
+      expect(children.rows).toHaveLength(2);
+      expect(
+        children.rows.find(
+          (child) => child.detail.surfaceMethod === (createsStub ? "replyAt" : "editReviewComment"),
+        ),
+      ).toMatchObject({
+        status: "reconciled",
+        detail: { __result: createsStub ? { commentId: expect.any(Number) } : true },
+      });
+      expect(
+        children.rows.find((child) => child.detail.surfaceMethod === "resolveInlineReviewThread")
+          ?.status,
+      ).toBe("failed");
+      expect(fake.controls.replies).toHaveLength(createsStub ? 1 : 0);
+      const replyId = createsStub
+        ? (
+            children.rows.find((child) => child.detail.surfaceMethod === "replyAt")?.detail
+              .__result as {
+              commentId: number;
+            }
+          ).commentId
+        : 555;
+      // The provider marker is gone; the exact accepted child result remains authoritative.
+      fake.controls.setReviewComments([]);
+      fake.controls.setThreads(new Map([[9, { threadNodeId: "PRRT_9", isResolved: true }]]));
+      await expect(publishVerification(params)).resolves.toEqual({ degradation: [] });
+      expect(resolve).toHaveBeenCalledTimes(1);
+      expect(fake.controls.replies).toHaveLength(createsStub ? 1 : 0);
+      expect(
+        fake.controls.events.filter((event) => event.kind === "editReviewComment"),
+      ).toHaveLength(createsStub ? 0 : 1);
+      const ledger = await loadVerificationThreadLedger(pool, { resourceKey });
+      expect(ledger.threads["9"]?.completion).toEqual({
+        workItemId,
+        operationKey: "verification:thread:9",
+        headSha: "h",
+        verdict: verdict.verdict,
+        stubOutcome: "written",
+        stubCommentId: replyId,
+        resolutionOutcome: "resolved",
+      });
+      if (parent == null) throw new Error("missing verification intent");
+      await expect(findCompletedPublishRecordId(pool, workItemId, parent)).resolves.toEqual(
+        expect.any(String),
+      );
+      await expect(
+        findCompletedPublishRecordId(pool, workItemId, {
+          ...parent,
+          detail: {
+            ...parent.detail,
+            verdict: verdict.verdict === "fixed" ? "dismissed" : "fixed",
+          },
+        }),
+      ).resolves.toBeNull();
+      await saveVerificationThreadLedger(pool, {
+        workItemId,
+        resourceKey,
+        leaseEpoch: lease.leaseEpoch,
+        ledger: { threads: { "9": { lastVerdict: "skipped", lastHeadSha: "old-head" } } },
+      });
+      await expect(findCompletedPublishRecordId(pool, workItemId, parent)).resolves.toBeNull();
+    },
+  );
 
   describe("PrSurface lease mutation boundary", () => {
     it("blocks every mutating method before the fake external call when ownership is lost", async () => {

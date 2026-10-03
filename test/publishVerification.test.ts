@@ -73,6 +73,9 @@ import {
 } from "./helpers/publishPrSurface.js";
 
 import { isEffectiveVerificationSignalTransition } from "../src/agentWork/prHeadCiState.js";
+import { operationIntentMarker } from "../src/agentWork/publishOnce.js";
+import { AppError } from "../src/errors/appError.js";
+import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.js";
 
 vi.mock("../src/agentWork/ciProjection.js", () => ({
   requestHeadCiProjection: vi.fn().mockResolvedValue("enqueued"),
@@ -229,6 +232,258 @@ describe("publishVerification", () => {
     vi.clearAllMocks();
   });
 
+  it("does not reopen a partially accepted dismissal after resolve is denied", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: {
+        verdicts: [{ verdict: "dismissed", threadRootCommentId: 1, evidence: "intentional" }],
+      },
+    });
+    const resolve = vi
+      .spyOn(params.prSurface, "resolveInlineReviewThread")
+      .mockRejectedValue(
+        Object.assign(new Error("Forbidden"), { status: 403, mutationAccepted: false }),
+      );
+    await expect(publishVerification(params)).rejects.toBeDefined();
+    expect(
+      await publishStoreState.store.getOperationIntent(params.pool, "wi", "verification:thread:1"),
+    ).toMatchObject({ status: "outcome_unknown" });
+    await expect(publishVerification(params)).rejects.toBeDefined();
+    expect(controls.replies).toHaveLength(1);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(recordPublishStep).not.toHaveBeenCalled();
+  });
+
+  it("does not recover dismissal solely from an externally resolved thread", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      resolutionByRootCommentId: resolutionMap([[1, { threadNodeId: "PRRT_1", isResolved: true }]]),
+      payload: {
+        verdicts: [{ verdict: "dismissed", threadRootCommentId: 1, evidence: "intentional" }],
+      },
+    });
+    vi.spyOn(params.prSurface, "replyAt").mockRejectedValue(new Error("Connection lost"));
+    await expect(publishVerification(params)).rejects.toBeDefined();
+    expect(recordPublishStep).not.toHaveBeenCalled();
+    await expect(publishVerification(params)).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(controls.replies).toHaveLength(0);
+  });
+
+  it("recovers a silent resolve without fabricating a stub comment id", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "abcdef1", evidence: "fixed" },
+        ],
+      },
+    });
+    const original = params.prSurface.resolveInlineReviewThread.bind(params.prSurface);
+    vi.spyOn(params.prSurface, "resolveInlineReviewThread").mockImplementation(async (id) => {
+      await original(id);
+      throw new Error("Lost response after acceptance");
+    });
+    await expect(publishVerification(params)).resolves.toEqual({ degradation: [] });
+    expect(controls.replies).toHaveLength(0);
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        detail: {
+          threads: {
+            "1": expect.objectContaining({
+              completion: {
+                workItemId: "wi",
+                operationKey: "verification:thread:1",
+                headSha: params.headSha,
+                verdict: "fixed",
+                stubOutcome: "not_required",
+                resolutionOutcome: "resolved",
+              },
+            }),
+          },
+        },
+      }),
+    );
+  });
+
+  it("keeps unavailable resolution recovery transient without remutating", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "abcdef1", evidence: "fixed" },
+        ],
+      },
+    });
+    vi.spyOn(params.prSurface, "resolveInlineReviewThread").mockRejectedValue(
+      new Error("Lost response"),
+    );
+    vi.spyOn(params.prSurface, "listInlineReviewThreads").mockResolvedValue({
+      byRootCommentId: new Map(),
+      status: "partial",
+      truncated: true,
+    });
+    await expect(publishVerification(params)).rejects.toMatchObject({
+      code: "operation_intent.recovery_failed",
+    });
+    await expect(publishVerification(params)).rejects.toMatchObject({
+      code: "operation_intent.recovery_failed",
+      context: expect.not.objectContaining({ unknownResolution: "terminal" }),
+    });
+    expect(recordPublishStep).not.toHaveBeenCalled();
+  });
+
+  it("does not recover a required prior stub edit from resolved state without its marker", async () => {
+    const params = baseParams({
+      inventory: [{ ...thread, verificationStubCommentId: 555 }],
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "abcdef1", evidence: "fixed" },
+        ],
+      },
+    });
+    vi.spyOn(params.prSurface, "editReviewComment").mockRejectedValue(new Error("Lost response"));
+    controls.setThreads(resolutionMap([[1, { threadNodeId: "PRRT_1", isResolved: true }]]));
+    await expect(publishVerification(params)).rejects.toBeDefined();
+    expect(recordPublishStep).not.toHaveBeenCalled();
+    expect(controls.replies).toHaveLength(0);
+  });
+
+  it("does not treat a capped child receipt read as absence", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: Array.from({ length: 16 }, () => ({ detail: {} })) })),
+    } as unknown as Pool;
+    const params = baseParams({
+      pool: db,
+      inventory: [thread],
+      payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "still open" }] },
+    });
+    vi.spyOn(params.prSurface, "replyAt").mockRejectedValue(new Error("Lost response"));
+    await expect(publishVerification(params)).rejects.toMatchObject({
+      code: "operation_intent.recovery_failed",
+    });
+    expect(recordPublishStep).not.toHaveBeenCalled();
+  });
+
+  it("preserves actionable permanent denial even when later evidence reads are unavailable", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: {
+        verdicts: [{ verdict: "dismissed", threadRootCommentId: 1, evidence: "intentional" }],
+      },
+    });
+    const denial = new AppError({
+      domain: "github",
+      kind: "review_thread_resolution_denied",
+      message: "Denied",
+      context: { threadNodeId: "PRRT_1", mutationAccepted: false },
+    });
+    vi.spyOn(params.prSurface, "resolveInlineReviewThread").mockRejectedValue(denial);
+    vi.spyOn(params.prSurface, "listInlineReviewThreads").mockRejectedValue(
+      new Error("Read unavailable"),
+    );
+    await expect(publishVerification(params)).rejects.toBe(denial);
+    expect(
+      await publishStoreState.store.getOperationIntent(params.pool, "wi", "verification:thread:1"),
+    ).toMatchObject({ status: "outcome_unknown" });
+    expect(controls.replies).toHaveLength(1);
+    expect(recordPublishStep).not.toHaveBeenCalled();
+  });
+
+  it("does not reopen a cached terminal legacy intent even if its marker later appears", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "still open" }] },
+    });
+    await publishStoreState.store.persistOperationIntent(params.pool, {
+      workItemId: "wi",
+      operationKey: "verification:thread:1",
+      mutationKind: "github.verification_thread",
+      detail: { verdict: "skipped" },
+    });
+    await publishStoreState.store.reconcileOperationIntent(params.pool, {
+      workItemId: "wi",
+      operationKey: "verification:thread:1",
+      status: "outcome_unknown",
+      detail: { unknownResolution: "terminal" },
+    });
+    controls.setReviewCommentBody(555, operationIntentMarker("verification:thread:1", "wi"));
+    await expect(publishVerification(params)).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+      context: { unknownResolution: "terminal" },
+    });
+    expect(controls.replies).toHaveLength(0);
+    expect(recordPublishStep).not.toHaveBeenCalled();
+  });
+
+  it("recovers a completed parent from its exact receipt when provider evidence is no longer readable", async () => {
+    const completion = {
+      workItemId: "wi",
+      operationKey: "verification:thread:1",
+      headSha: "a".repeat(40),
+      verdict: "dismissed",
+      stubOutcome: "written",
+      stubCommentId: 555,
+      resolutionOutcome: "resolved",
+    };
+    const params = baseParams({
+      pool: pool({ threads: { "1": { lastVerdict: "dismissed", completion } } }),
+      inventory: [thread],
+      payload: {
+        verdicts: [{ verdict: "dismissed", threadRootCommentId: 1, evidence: "intentional" }],
+      },
+    });
+    await publishStoreState.store.persistOperationIntent(params.pool, {
+      workItemId: "wi",
+      operationKey: completion.operationKey,
+      mutationKind: "github.verification_thread",
+      detail: {
+        step: "verification_thread_actions",
+        headSha: params.headSha,
+        verdict: "dismissed",
+        requiresStub: true,
+        __mutating: true,
+      },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValueOnce("pub-exact");
+    vi.spyOn(params.prSurface, "listReviewComments").mockRejectedValue(
+      new Error("Read unavailable"),
+    );
+    vi.spyOn(params.prSurface, "listInlineReviewThreads").mockRejectedValue(
+      new Error("Read unavailable"),
+    );
+    await expect(publishVerification(params)).resolves.toEqual({ degradation: [] });
+    expect(controls.replies).toHaveLength(0);
+    expect(
+      await publishStoreState.store.getOperationIntent(params.pool, "wi", completion.operationKey),
+    ).toMatchObject({ status: "reconciled", detail: { __result: 555 } });
+  });
+
+  it("does not guess resolve-only requirements for an interrupted legacy fixed parent", async () => {
+    const params = baseParams({
+      inventory: [thread],
+      resolutionByRootCommentId: resolutionMap([[1, { threadNodeId: "PRRT_1", isResolved: true }]]),
+      payload: {
+        verdicts: [
+          { verdict: "fixed", threadRootCommentId: 1, commitSha: "abcdef1", evidence: "fixed" },
+        ],
+      },
+    });
+    await publishStoreState.store.persistOperationIntent(params.pool, {
+      workItemId: "wi",
+      operationKey: "verification:thread:1",
+      mutationKind: "github.verification_thread",
+      detail: { verdict: "fixed", __mutating: true },
+    });
+    await expect(publishVerification(params)).rejects.toMatchObject({
+      code: "operation_intent.mutation_outcome_unknown",
+    });
+    expect(recordPublishStep).not.toHaveBeenCalled();
+    expect(controls.replies).toHaveLength(0);
+  });
+
   it("silently resolves fixed and already-resolved threads without replying", async () => {
     const result = await publishVerification(
       baseParams({
@@ -264,6 +519,7 @@ describe("publishVerification", () => {
               lastVerdict: "fixed",
               lastHeadSha: "a".repeat(40),
               terminal: true,
+              completion: expect.any(Object),
             },
           },
         },
@@ -279,11 +535,13 @@ describe("publishVerification", () => {
               lastVerdict: "fixed",
               lastHeadSha: "a".repeat(40),
               terminal: true,
+              completion: expect.any(Object),
             },
             "2": {
               lastVerdict: "already-resolved",
               lastHeadSha: "a".repeat(40),
               terminal: true,
+              completion: expect.any(Object),
             },
           },
         },
@@ -322,6 +580,7 @@ describe("publishVerification", () => {
               lastVerdict: "fixed",
               lastHeadSha: "a".repeat(40),
               terminal: true,
+              completion: expect.any(Object),
             },
           },
         },
@@ -527,6 +786,7 @@ describe("publishVerification", () => {
               lastVerdict: "dismissed",
               lastHeadSha: "a".repeat(40),
               terminal: true,
+              completion: expect.any(Object),
             },
           },
         },
@@ -562,6 +822,7 @@ describe("publishVerification", () => {
               lastVerdict: "dismissed",
               lastHeadSha: "a".repeat(40),
               terminal: true,
+              completion: expect.any(Object),
             }),
           },
         },
@@ -738,6 +999,7 @@ describe("publishVerification", () => {
               lastVerdict: "fixed",
               lastHeadSha: "a".repeat(40),
               terminal: true,
+              completion: expect.objectContaining({ stubOutcome: "missing" }),
             },
           },
         },
