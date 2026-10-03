@@ -33,6 +33,7 @@ import {
   type WorkClaim,
 } from "./workItemStateRepository.js";
 import { errorMessage } from "../errors/errorMessage.js";
+import type { WorkExecutionStopReason } from "../analytics/workCompleted.js";
 
 /** Per-process identity recorded on lease rows so operators can see who owns a PR. */
 const leaseHolderId = `${os.hostname()}:${process.pid}`;
@@ -92,7 +93,7 @@ export function startCancelObserve(params: {
   readonly pool: Pool;
   readonly workItemId: string;
   readonly leaseEpoch: number;
-  readonly abort: () => void;
+  readonly abort: (reason: "cancellation_observed" | "lease_lost") => void;
 }): () => void {
   let stopped = false;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -108,7 +109,7 @@ export function startCancelObserve(params: {
       if (!skip && held) return;
       stopped = true;
       if (timer) clearInterval(timer);
-      params.abort();
+      params.abort(skip ? "cancellation_observed" : "lease_lost");
     } catch (error) {
       logWarn("agent_work_cancel_observe_failed", {
         workItemId: params.workItemId,
@@ -331,10 +332,12 @@ export type LeasedExecution = {
   readonly claim: WorkClaim;
   /** Job signal combined with lease loss and the cancellation observer. */
   readonly signal: AbortSignal;
+  /** First observed stop cause; never a terminal-state assertion. */
+  readonly stopReason: WorkExecutionStopReason | undefined;
   /** Unleased types have no fencing token; leased types own the row only while their epoch holds. */
   owns(): Promise<boolean>;
-  /** Cancel while this epoch still owns the row; false means a newer execution owns it. */
-  cancel(item: { readonly id: string }, reason: string): Promise<boolean>;
+  /** Null means displaced; otherwise true only for an acknowledged winning cancellation write. */
+  cancelWhileOwned(item: { readonly id: string }, reason: string): Promise<boolean | null>;
   /** Rescheduled parents complete under their epoch; an unleased or displaced run cannot. */
   requireLeaseEpoch(itemId: string): number;
   /** Mutation fence for PR writes; undefined without a lease. */
@@ -352,7 +355,7 @@ export type LeasedExecution = {
     forceCompletedRescheduledParent(itemId: string): Promise<boolean>;
     retrying(itemId: string, error: unknown): Promise<boolean>;
     failed(itemId: string, error: unknown): Promise<boolean>;
-    cancelled(itemId: string): Promise<void>;
+    cancelled(itemId: string): Promise<boolean>;
   };
   /** Stop observers and renewal, then clear the holder; safe to call more than once. */
   release(): Promise<void>;
@@ -381,6 +384,7 @@ export async function openLeasedExecution(
   let stopLeaseRenewal: (() => void) | undefined;
   let stopCancelObserve: (() => void) | undefined;
   let claim: WorkClaim;
+  let stopReason: WorkExecutionStopReason | undefined;
 
   if (params.prActorLease) {
     const key: PrActorLeaseKey = { resourceKey: core.resourceKey, workType: type };
@@ -439,6 +443,7 @@ export async function openLeasedExecution(
     // node:22.22.0): no fallback branch to maintain.
     signal = AbortSignal.any([jobSignal, abortController.signal]);
     stopLeaseRenewal = runtime.startLeaseRenewal(pool, cfg, key, core.id, epoch, () => {
+      stopReason ??= "lease_lost";
       abortController.abort(
         new AppError({
           domain: "agent_work",
@@ -473,9 +478,12 @@ export async function openLeasedExecution(
     leaseEpoch,
     claim,
     signal,
+    get stopReason() {
+      return stopReason;
+    },
     owns,
     requireLeaseEpoch,
-    cancel: async (item, reason) => {
+    cancelWhileOwned: async (item, reason) => {
       if (leaseEpoch != null && !(await isPrActorLeaseHeld(pool, item.id, leaseEpoch))) {
         logInfo("agent_work_stale_execution_skipped", {
           type,
@@ -483,10 +491,9 @@ export async function openLeasedExecution(
           leaseEpoch,
           reason,
         });
-        return false;
+        return null;
       }
-      await markWorkCancelled(pool, item.id, leaseEpoch);
-      return true;
+      return markWorkCancelled(pool, item.id, leaseEpoch);
     },
     mutationBoundary: (item, options) =>
       leaseEpoch == null || leaseAbortController == null
@@ -506,7 +513,10 @@ export async function openLeasedExecution(
         pool,
         workItemId: core.id,
         leaseEpoch,
-        abort: () => controller.abort(),
+        abort: (reason) => {
+          stopReason ??= reason;
+          controller.abort();
+        },
       });
     },
     mark: {

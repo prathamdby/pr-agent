@@ -59,7 +59,7 @@ vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) =>
     markWorkCompleted: vi.fn().mockResolvedValue(true),
     markWorkFailed: vi.fn().mockResolvedValue(true),
     markWorkRetrying: vi.fn().mockResolvedValue(true),
-    markWorkCancelled: vi.fn().mockResolvedValue(undefined),
+    markWorkCancelled: vi.fn().mockResolvedValue(true),
     markWorkPublishDegraded: vi.fn().mockResolvedValue(undefined),
     updateRunningWorkHeadSha: vi.fn().mockResolvedValue(true),
   };

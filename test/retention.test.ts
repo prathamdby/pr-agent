@@ -23,6 +23,7 @@ describe("runRetention batched delete loop", () => {
 
     const pool = {
       query: vi.fn(async (text: string) => {
+        if (text.includes("DELETE FROM github_repository_capabilities")) return { rowCount: 0 };
         if (text.includes("DELETE FROM agent_work_items")) {
           const batch = workBatches[workCalls++];
           if (batch === undefined) {
@@ -79,6 +80,7 @@ describe("runRetention batched delete loop", () => {
 
     const pool = {
       query: vi.fn(async (text: string) => {
+        if (text.includes("DELETE FROM github_repository_capabilities")) return { rowCount: 0 };
         if (text.includes("DELETE FROM agent_work_items")) {
           workCalls += 1;
           return { rowCount: 3 };
@@ -117,6 +119,7 @@ describe("runRetention batched delete loop", () => {
     const eventBatches = [RETENTION_DELETE_BATCH_SIZE, 7];
     let eventCalls = 0;
     const query = vi.fn(async (text: string) => {
+      if (text.includes("DELETE FROM github_repository_capabilities")) return { rowCount: 0 };
       if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
       if (text.includes("webhook_events")) return { rowCount: 0 };
       if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };
@@ -148,6 +151,7 @@ describe("runRetention batched delete loop", () => {
     const stateBatches = [RETENTION_DELETE_BATCH_SIZE, 4];
     let stateCalls = 0;
     const query = vi.fn(async (text: string) => {
+      if (text.includes("DELETE FROM github_repository_capabilities")) return { rowCount: 0 };
       if (text.includes("DELETE FROM agent_work_items")) return { rowCount: 0 };
       if (text.includes("webhook_events")) return { rowCount: 0 };
       if (text.includes("webhook_delivery_duplicates")) return { rowCount: 0 };

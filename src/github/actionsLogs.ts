@@ -2,6 +2,7 @@ import { REVIEW_CI_SUMMARY_LOG_MAX_JOBS } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 import { classifyGithubError } from "./githubErrors.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
+import { isConfirmedCapabilityDenial } from "./installationCapabilities.js";
 
 const WORKFLOW_RUNS_PAGE_SIZE = 20;
 const WORKFLOW_RUNS_MAX_PAGES = 2;
@@ -24,7 +25,7 @@ export type DownloadActionsJobLogsResult =
   | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
 
 export function isMissingActionsPermissionError(error: unknown): boolean {
-  return classifyGithubError(error) === "forbidden";
+  return isConfirmedCapabilityDenial(error);
 }
 
 export function isGithubNotFoundError(error: unknown): boolean {

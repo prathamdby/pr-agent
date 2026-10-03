@@ -62,4 +62,37 @@ describe("classifyProviderError", () => {
   it("returns unknown for unclassified errors", () => {
     expect(classifyProviderError(new Error("something else"))).toBe("unknown");
   });
+
+  it("does not classify structured internal or GitHub failures from ambiguous wording", () => {
+    expect(
+      classifyProviderError(
+        new AppError({
+          domain: "operation_intent",
+          kind: "mutation_outcome_unknown",
+          message: "Automatic retry is forbidden",
+        }),
+      ),
+    ).toBe("unknown");
+    expect(
+      classifyProviderError(
+        new AppError({
+          domain: "github",
+          kind: "review_check_lookup_incomplete",
+          message: "401 Unauthorized",
+        }),
+      ),
+    ).toBe("unknown");
+  });
+
+  it("still classifies messages within a typed provider domain", () => {
+    expect(
+      classifyProviderError(
+        new AppError({
+          domain: "provider",
+          kind: "request_failed",
+          message: "Insufficient credits",
+        }),
+      ),
+    ).toBe("quota");
+  });
 });

@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import type { WorkSource } from "../review/reviewSchema.js";
 import { releasePrActorLeaseHeldByWorkItems } from "./prActorLease.js";
 import { transition, type TransitionSelector } from "./workItemTransitions.js";
 
@@ -10,6 +11,19 @@ export type AutoWorkSupersedeTarget =
   | { readonly kind: "description"; readonly resourceKey: string }
   | { readonly kind: "triage"; readonly resourceKey: string }
   | { readonly kind: "verification"; readonly resourceKey: string };
+
+export type AutoWorkLifecycleChange = {
+  readonly id: string;
+  readonly headSha: string;
+  readonly source: WorkSource;
+  readonly workType: AutoWorkSupersedeTarget["kind"];
+  readonly lifecycleStatus: "superseded" | "cancel_requested";
+};
+
+type AutoWorkSupersedeResult = {
+  readonly supersededIds: readonly string[];
+  readonly lifecycleChanges: readonly AutoWorkLifecycleChange[];
+};
 
 function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
   return JSON.stringify(["auto_work_intake", target.kind, target.resourceKey]);
@@ -50,26 +64,23 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   sql: string;
   params: unknown[];
 } {
-  if (target.kind === "review") {
-    return {
-      sql: `UPDATE agent_work_items
-			       SET cancel_requested_at = COALESCE(cancel_requested_at, now()), updated_at = now()
-			     WHERE resource_key = $1
-			       AND review_lens = $2
-			       AND source = 'auto'
-			       AND status = 'running'
-			     RETURNING id, execution_epoch`,
-      params: [target.resourceKey, "review"],
-    };
-  }
   return {
-    sql: `UPDATE agent_work_items
-			     SET cancel_requested_at = COALESCE(cancel_requested_at, now()), updated_at = now()
-			   WHERE resource_key = $1
-			     AND type = $2
-			     AND source = 'auto'
-			     AND status = 'running'
-			   RETURNING id, execution_epoch`,
+    // Lock and retain the prior request bit so relinking an already-cancelled
+    // running row preserves replacement behavior without reporting a new request.
+    sql: `WITH prior AS MATERIALIZED (
+            SELECT id, cancel_requested_at
+              FROM agent_work_items
+             WHERE resource_key = $1
+               AND ${target.kind === "review" ? "review_lens" : "type"} = $2
+               AND source = 'auto' AND status = 'running'
+             FOR UPDATE
+          )
+          UPDATE agent_work_items w
+             SET cancel_requested_at = COALESCE(w.cancel_requested_at, now()), updated_at = now()
+            FROM prior
+           WHERE w.id = prior.id AND w.status = 'running'
+          RETURNING w.id, w.execution_epoch, w.head_sha, w.source,
+                    (prior.cancel_requested_at IS NULL) AS cancel_changed`,
     params: [target.resourceKey, target.kind],
   };
 }
@@ -84,7 +95,7 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
 async function supersedeActiveAutoWork(
   client: PoolClient,
   target: AutoWorkSupersedeTarget,
-): Promise<readonly string[]> {
+): Promise<AutoWorkSupersedeResult> {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
     autoWorkIntakeLockKey(target),
   ]);
@@ -93,12 +104,15 @@ async function supersedeActiveAutoWork(
     selector: supersedeSelector(target),
     from: ["queued"],
     to: "superseded",
-    returning: ["id", "execution_epoch"],
+    returning: ["id", "execution_epoch", "head_sha", "source"],
   });
-  const running = await client.query<{ id: string; execution_epoch: string | number | null }>(
-    runningQuery.sql,
-    runningQuery.params,
-  );
+  const running = await client.query<{
+    id: string;
+    execution_epoch: string | number | null;
+    head_sha: string;
+    source: WorkSource;
+    cancel_changed: boolean;
+  }>(runningQuery.sql, runningQuery.params);
   const holders = [...queued.rows, ...running.rows]
     .map((row) => ({ workItemId: row.id, leaseEpoch: Number(row.execution_epoch ?? 0) }))
     .filter((holder) => holder.leaseEpoch > 0);
@@ -109,7 +123,27 @@ async function supersedeActiveAutoWork(
     workType: target.kind,
     holders,
   });
-  return [...queued.rows, ...running.rows].map((r) => r.id);
+  return {
+    supersededIds: [...queued.rows, ...running.rows].map((r) => r.id),
+    lifecycleChanges: [
+      ...queued.rows.map((row) => ({
+        id: row.id,
+        headSha: row.head_sha,
+        source: row.source,
+        workType: target.kind,
+        lifecycleStatus: "superseded" as const,
+      })),
+      ...running.rows
+        .filter((row) => row.cancel_changed)
+        .map((row) => ({
+          id: row.id,
+          headSha: row.head_sha,
+          source: row.source,
+          workType: target.kind,
+          lifecycleStatus: "cancel_requested" as const,
+        })),
+    ],
+  };
 }
 
 /** Supersede queued auto work, request cancel on running, create replacement, link superseded rows. */
@@ -120,13 +154,17 @@ export async function replaceAutoWorkItem(params: {
 }): Promise<{
   readonly workItemId: string;
   readonly supersededIds: readonly string[];
+  readonly lifecycleChanges: readonly AutoWorkLifecycleChange[];
 }> {
-  const supersededIds = await supersedeActiveAutoWork(params.client, params.target);
+  const { supersededIds, lifecycleChanges } = await supersedeActiveAutoWork(
+    params.client,
+    params.target,
+  );
   const workItemId = await params.createWorkItem();
   if (supersededIds.length > 0) {
     await linkSupersededWorkItems(params.client, workItemId, supersededIds);
   }
-  return { workItemId, supersededIds };
+  return { workItemId, supersededIds, lifecycleChanges };
 }
 
 /**
@@ -141,12 +179,16 @@ export async function replaceActiveAutoWorkItem(params: {
 }): Promise<{
   readonly workItemId: string | null;
   readonly supersededIds: readonly string[];
+  readonly lifecycleChanges: readonly AutoWorkLifecycleChange[];
 }> {
-  const supersededIds = await supersedeActiveAutoWork(params.client, params.target);
+  const { supersededIds, lifecycleChanges } = await supersedeActiveAutoWork(
+    params.client,
+    params.target,
+  );
   if (supersededIds.length === 0) {
-    return { workItemId: null, supersededIds };
+    return { workItemId: null, supersededIds, lifecycleChanges };
   }
   const workItemId = await params.createWorkItem();
   await linkSupersededWorkItems(params.client, workItemId, supersededIds);
-  return { workItemId, supersededIds };
+  return { workItemId, supersededIds, lifecycleChanges };
 }

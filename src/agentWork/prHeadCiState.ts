@@ -10,6 +10,7 @@ import {
   type CiAuthoredCache,
   type CiCheckRunSnapshot,
   type CiLegacyStatus,
+  type CiSourceAvailability,
 } from "../review/ci/ciFacts.js";
 import {
   CI_STATE_MAX_CHECKS,
@@ -31,6 +32,7 @@ export type PrHeadCiStateRow = {
   readonly projectionRepairPending: boolean;
   readonly firstSeenAt: Date;
   readonly updatedAt: Date;
+  readonly sourceAvailability?: CiSourceAvailability;
 };
 
 export function headCiNeedsSeed(row: Pick<PrHeadCiStateRow, "seededAt"> | null): boolean {
@@ -38,10 +40,31 @@ export function headCiNeedsSeed(row: Pick<PrHeadCiStateRow, "seededAt"> | null):
 }
 
 export type HeadCiListingPhase = "seed" | "pending-refresh" | "none";
+const UNKNOWN_CI_READ_LIMIT = 3;
 
 export function headCiListingPhase(
-  row: Pick<PrHeadCiStateRow, "seededAt" | "checks" | "rollup"> | null,
+  row: Pick<PrHeadCiStateRow, "seededAt" | "checks" | "rollup" | "sourceAvailability"> | null,
 ): HeadCiListingPhase {
+  if (row?.sourceAvailability != null) {
+    const availability = row.sourceAvailability;
+    const needsListing = (["checks", "statuses"] as const).some((source) => {
+      const state = availability[source];
+      if (state.access === "denied") return false;
+      if (state.access === "unknown" && (state.unknownReadCount ?? 0) >= UNKNOWN_CI_READ_LIMIT)
+        return false;
+      return (
+        state.access === "unknown" ||
+        state.listingRequired ||
+        Object.values(row.checks).some(
+          (fact) =>
+            fact.source === (source === "checks" ? "check_run" : "status") &&
+            isCheckFactPending(fact),
+        )
+      );
+    });
+    if (!needsListing) return "none";
+    return row.seededAt == null ? "seed" : "pending-refresh";
+  }
   if (row == null || row.seededAt == null) return "seed";
   if (row.rollup === "unknown") return "pending-refresh";
   if (Object.values(row.checks).some(isCheckFactPending)) return "pending-refresh";
@@ -609,7 +632,18 @@ export async function listProjectionRepairPendingHeads(
     installation_id: string | number | null;
   }>(
     `SELECT s.owner, s.repo, s.head_sha, s.version,
-            (
+            COALESCE((
+              SELECT c.installation_id
+                FROM github_head_ci_sources c
+                JOIN github_repository_capabilities o
+                  ON o.installation_id = c.installation_id AND o.owner = c.owner AND o.repo = c.repo
+               WHERE c.owner = s.owner AND c.repo = s.repo AND c.head_sha = s.head_sha
+                 AND (c.generation < o.generation OR (
+                   c.generation = o.generation AND c.access <> 'denied'
+                   AND o.capabilities->>(CASE c.source WHEN 'checks' THEN 'checksRead' ELSE 'statusesRead' END) = 'denied'
+                 ))
+               ORDER BY c.installation_id LIMIT 1
+            ), (
               SELECT w.installation_id
                 FROM agent_work_items w
                WHERE w.owner = s.owner
@@ -617,9 +651,18 @@ export async function listProjectionRepairPendingHeads(
                  AND w.head_sha = s.head_sha
                ORDER BY w.created_at DESC
                LIMIT 1
-            ) AS installation_id
+            )) AS installation_id
        FROM pr_head_ci_state s
-      WHERE s.projection_repair_pending = true
+      WHERE s.projection_repair_pending = true OR EXISTS (
+        SELECT 1 FROM github_head_ci_sources c
+          JOIN github_repository_capabilities o
+            ON o.installation_id = c.installation_id AND o.owner = c.owner AND o.repo = c.repo
+         WHERE c.owner = s.owner AND c.repo = s.repo AND c.head_sha = s.head_sha
+           AND (c.generation < o.generation OR (
+             c.generation = o.generation AND c.access <> 'denied'
+             AND o.capabilities->>(CASE c.source WHEN 'checks' THEN 'checksRead' ELSE 'statusesRead' END) = 'denied'
+           ))
+      )
       ORDER BY s.updated_at ASC
       LIMIT $1::int`,
     [limit],

@@ -7,6 +7,7 @@ import type { PrSurface } from "../../github/prSurface.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import type { ReviewPublishContext } from "../reviewSchema.js";
 import type { RecordPublishStepWithCoordination } from "./reviewSummaryComment.js";
+import type { ReviewRecovery } from "../recovery/reviewRecovery.js";
 
 export type PublishStopReason = "superseded" | "stale_head";
 
@@ -28,6 +29,7 @@ type VerdictTarget = {
  * ledger, payload, coverage) stay with the caller.
  */
 export type ReviewPublishSession = {
+  readonly recovery?: ReviewRecovery;
   readonly cfg: ReviewPublishConfig;
   readonly ctx: ReviewPublishContext;
   readonly mode: AnyReviewLens;
@@ -55,6 +57,7 @@ export type ReviewPublishSession = {
 };
 
 export type ReviewPublishSessionInput = {
+  readonly recovery?: ReviewRecovery;
   readonly cfg: ReviewPublishConfig;
   readonly ctx: ReviewPublishContext;
   readonly prSurface: PrSurface;
@@ -83,6 +86,7 @@ export function createReviewPublishSession(input: ReviewPublishSessionInput): Re
   const verdictWorkItemId = input.verdictWorkItemId ?? coordination?.workItemId;
   const verdictResourceKey = input.verdictResourceKey ?? coordination?.resourceKey;
   return {
+    recovery: input.recovery,
     cfg: input.cfg,
     ctx: input.ctx,
     mode: input.mode ?? "review",

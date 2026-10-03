@@ -64,8 +64,20 @@ import {
   type ReviewPublishSessionInput,
 } from "../src/review/publish/reviewPublishSession.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { reviewFindingSchema, type ReviewFinding } from "../src/review/reviewSchema.js";
+import {
+  reviewFindingSchema,
+  reviewPayloadFromFindings,
+  type ReviewFinding,
+} from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
+import {
+  createReviewArtifactBinding,
+  createReviewArtifactEnvelope,
+  parseReviewArtifactEnvelope,
+} from "../src/review/recovery/reviewArtifacts.js";
+import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.js";
+import { recordDeliveredFileRead } from "../src/review/findings/evidenceLedger.js";
+import { reviewRecoveryInputDigest } from "../src/review/recovery/reviewRecoveryBinding.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import {
   createTestEvidenceLedger,
@@ -161,6 +173,320 @@ function batchContext(
 }
 
 describe("publishFindingBatch", () => {
+  it("binds effective policy and role models without credentials or evolving comments", () => {
+    const cfg = makeTestConfig();
+    const input = {
+      cfg,
+      diff: [["src/a.ts", "patch"]],
+      trustedInputs: "policy",
+      source: "slash",
+      userSupplement: "inspect",
+      prTitle: "Title",
+      prBody: "Body",
+      modelApis: { orchestrator: "openai-responses" },
+    };
+    const digest = reviewRecoveryInputDigest(input);
+    const publication = {
+      checksWrite: true,
+      statusesWrite: false,
+      labelsWrite: true,
+      reactionsWrite: true,
+    };
+    expect(
+      reviewRecoveryInputDigest({ ...input, effectivePublicationCapabilities: publication }),
+    ).not.toBe(digest);
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        effectivePublicationCapabilities: { ...publication, checksWrite: false },
+      }),
+    ).not.toBe(
+      reviewRecoveryInputDigest({ ...input, effectivePublicationCapabilities: publication }),
+    );
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        modelApis: { orchestrator: "anthropic-messages" },
+      }),
+    ).not.toBe(digest);
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        cfg: makeTestConfig({ findingHistory: { enabled: !cfg.findingHistory.enabled } }),
+      }),
+    ).not.toBe(digest);
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        cfg: makeTestConfig({
+          models: { providerKeys: { openai: "changed-secret" } },
+        }),
+      }),
+    ).toBe(digest);
+    expect(reviewRecoveryInputDigest({ ...input, trustedInputs: "changed-policy" })).not.toBe(
+      digest,
+    );
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        cfg: makeTestConfig({
+          models: { orchestratorModel: "other-model" },
+        }),
+      }),
+    ).not.toBe(digest);
+    expect(reviewRecoveryInputDigest({ ...input, userSupplement: "changed-input" })).not.toBe(
+      digest,
+    );
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        escalation: {
+          attempt: 2,
+          kinds: ["fallback_model", "tool_rounds"],
+          model: { provider: "openai", model: "fallback" },
+        },
+      }),
+    ).not.toBe(digest);
+  });
+  // Recovery failure inventory (before implementation):
+  // - a cache grants stale coverage, or stores a diff-response hash as a range hash;
+  // - a crash loses summary-only reasons, suppression, footers, counts or budget state;
+  // - settlement exceeds its reserved 8 KiB by duplicating a large canonical delta;
+  // - journal acceptance substitutes for the actual operation receipt;
+  // - replay doubles resumed placements or redoes settled judgment/provider generations;
+  // - capacity/incompatibility prevents settling an already admitted decision;
+  // - database/lease failures become successful reports or deterministic degradation;
+  // - recovery bypasses admission, changes mutation keys, or runs while disabled.
+  it.each([true, false])(
+    "retains a local decision only with reproducible evidence (%s)",
+    async (reproducible) => {
+      const binding = createReviewArtifactBinding(
+        {
+          workItemId: "00000000-0000-4000-8000-000000000001",
+          resourceKey: "o/r#1",
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          installationId: 1,
+          baseSha: "base",
+          headSha: "abc1234",
+          mode: "review",
+        },
+        "a".repeat(64),
+      );
+      const artifacts = new Map<string, unknown>();
+      const store = {
+        load: async (key: string) => parseReviewArtifactEnvelope(artifacts.get(key)),
+        save: vi.fn(async (value: unknown) => {
+          const envelope = parseReviewArtifactEnvelope(value);
+          if (!envelope) throw new Error("invalid envelope");
+          artifacts.set(envelope.logicalKey, envelope);
+          return "stored" as const;
+        }),
+      };
+      const recovery = openReviewRecovery(binding, store);
+      const ledger = createFindingLedger({ threadCallCount: 8 });
+      const [session, input] = batchContext(ledger, undefined, {
+        cfg: makeTestConfig({ review: { maxThreadPublishCalls: 8 } }),
+      });
+      if (input.evidenceLedger && reproducible)
+        recordDeliveredFileRead(input.evidenceLedger, {
+          path: "src/a.ts",
+          headSha: "abc1234",
+          tool: "readWorkspaceFile",
+          startLine: 10,
+          endLine: 10,
+          content: "line ten",
+        });
+      const result = await publishFindingBatch([finding], { ...session, recovery }, input);
+      expect(result.kind).toBe("budget_exhausted");
+      if (!reproducible) {
+        expect(store.save).not.toHaveBeenCalled();
+        expect(recovery.canReuseSummary()).toBe(false);
+        return;
+      }
+      const saved = await store.load("decision/0/prepared");
+      expect(saved?.artifact).toMatchObject({
+        canonical: {
+          kind: "threads",
+          source: "correctness",
+          localDelta: {
+            threadCallCount: 1,
+            threadBudgetExhausted: true,
+            accepted: [expect.objectContaining({ kind: "summary_only", reason: "budget" })],
+          },
+        },
+      });
+      expect(
+        Buffer.byteLength(JSON.stringify(await store.load("decision/0/settled"))),
+      ).toBeLessThan(8192);
+      const replay = openReviewRecovery(binding, store);
+      const decisions = await replay.decisions();
+      expect(decisions).toHaveLength(1);
+      const repeated = await publishFindingBatch(
+        [],
+        { ...session, recovery: replay },
+        {
+          ...input,
+          recoveryDecision: decisions[0],
+        },
+      );
+      expect(repeated).toEqual(result);
+      expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+      expect(store.save).toHaveBeenCalledTimes(2);
+      const missed = await publishFindingBatch(
+        [],
+        { ...session, recovery: replay },
+        {
+          ...input,
+          recoveryDecision: decisions[0],
+          recoveryWithoutEvidence: true,
+        },
+      );
+      expect(missed).toMatchObject({
+        kind: "budget_exhausted",
+        delta: { accepted: [], threadCallCount: 1, threadBudgetExhausted: true },
+      });
+    },
+  );
+
+  it("redacts canonical findings and rejects unknown journal fields", () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "head",
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const envelope = createReviewArtifactEnvelope(binding, {
+      kind: "publication_prepared",
+      sequence: 0,
+      decisionId: "d0",
+      operationKey: "local:0",
+      payload: reviewPayloadFromFindings([]),
+      dependencies: [],
+      canonical: {
+        kind: "threads",
+        source: "correctness",
+        ledgerBefore: {
+          accepted: [],
+          suppressionFingerprints: [],
+          inlineReviewIds: [],
+          postedInlineCount: 0,
+          threadCallCount: 0,
+          threadBudgetExhausted: false,
+        },
+        localDelta: {
+          accepted: [],
+          suppressionFingerprints: [],
+          inlineReviewIds: [],
+          postedInlineCount: 0,
+          threadCallCount: 1,
+          threadBudgetExhausted: false,
+        },
+        inline: [],
+        footers: [],
+        resultKind: "empty",
+        evidence: [],
+        judgmentDegraded: false,
+        counts: { suppressed: 0, capDowngraded: 0 },
+      },
+    });
+    expect(parseReviewArtifactEnvelope(envelope)).toEqual(envelope);
+    expect(
+      parseReviewArtifactEnvelope({
+        ...envelope,
+        artifact: { ...envelope.artifact, transcript: "never saved" },
+      }),
+    ).toBeNull();
+  });
+
+  it("replays the authoritative remote fallback result, not the prepared inline plan", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "abc1234",
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const rows = new Map<string, unknown>();
+    const store = {
+      load: async (key: string) => parseReviewArtifactEnvelope(rows.get(key)),
+      save: async (value: unknown) => {
+        const envelope = parseReviewArtifactEnvelope(value);
+        if (!envelope) throw new Error("invalid");
+        rows.set(envelope.logicalKey, envelope);
+        return "stored" as const;
+      },
+    };
+    const recovery = openReviewRecovery(binding, store);
+    const second = findingAt(11);
+    harness.publishThreadBatch.mockRejectedValueOnce(
+      Object.assign(new Error("line could not be resolved"), {
+        status: 422,
+        response: {
+          data: {
+            message: "Validation Failed",
+            errors: [{ resource: "PullRequestReviewComment", field: "line", code: "invalid" }],
+          },
+        },
+      }),
+    );
+    const [session, input] = batchContext(createFindingLedger(), undefined, {
+      workItemId: binding.workItemId,
+      operationIntent: {
+        client: {} as Pool,
+        workItemId: binding.workItemId,
+        resourceKey: binding.resourceKey,
+      },
+      cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 11]),
+      seedFindings: [finding, second],
+    });
+    if (input.evidenceLedger)
+      recordDeliveredFileRead(input.evidenceLedger, {
+        path: "src/a.ts",
+        headSha: "abc1234",
+        tool: "readWorkspaceFile",
+        startLine: 10,
+        endLine: 11,
+        content: "line ten\nline eleven",
+      });
+    const result = await publishFindingBatch([finding, second], { ...session, recovery }, input);
+    expect(result.kind).toBe("published");
+    if (result.kind !== "published") return;
+    expect(
+      result.delta.accepted.some(
+        (entry) => entry.kind === "summary_only" && entry.reason === "anchor",
+      ),
+    ).toBe(true);
+    const replay = openReviewRecovery(binding, store);
+    const decisions = await replay.decisions();
+    harness.publishThreadBatch.mockClear();
+    const repeated = await publishFindingBatch(
+      [],
+      { ...session, recovery: replay },
+      {
+        ...input,
+        recoveryDecision: decisions[0],
+      },
+    );
+    expect(repeated).toEqual(result);
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     harness = createPublishReviewTestHarness();
     vi.clearAllMocks();

@@ -3,6 +3,7 @@ import { MAX_REVIEW_THREAD_PAGES } from "../settings/index.js";
 import { isRecord } from "../util/typeGuards.js";
 import { installationOctokit } from "./appAuth.js";
 import { classifyGithubError } from "./githubErrors.js";
+import { AppError } from "../errors/appError.js";
 
 export type ReviewThreadResolution = {
   readonly threadNodeId: string;
@@ -247,7 +248,54 @@ export async function resolveReviewThread(
   expiresAtTs?: number,
 ): Promise<void> {
   const octokit = installationOctokit(token, expiresAtTs);
-  await octokit.graphql(RESOLVE_REVIEW_THREAD_MUTATION, { threadId: threadNodeId });
+  let response: unknown;
+  try {
+    response = await octokit.graphql(RESOLVE_REVIEW_THREAD_MUTATION, { threadId: threadNodeId });
+  } catch (error) {
+    throwResolutionDenial(error, threadNodeId);
+    throw error;
+  }
+  throwResolutionDenial(response, threadNodeId);
+  const data = isRecord(response) && isRecord(response.data) ? response.data : response;
+  const mutation = isRecord(data) ? data.resolveReviewThread : undefined;
+  const thread = isRecord(mutation) ? mutation.thread : undefined;
+  if (!isRecord(thread) || thread.id !== threadNodeId || thread.isResolved !== true) {
+    throw Object.assign(new Error("GitHub did not confirm review-thread resolution"), {
+      data,
+      ...(isRecord(response) && Array.isArray(response.errors) ? { errors: response.errors } : {}),
+    });
+  }
+}
+
+/** A denial proves nonacceptance of this mutation only, never its calling workflow. */
+function throwResolutionDenial(response: unknown, threadNodeId: string): void {
+  if (!isRecord(response) || classifyGithubError(response) === "rate_limit") return;
+  const errors = response.errors;
+  const data = Object.hasOwn(response, "data") ? response.data : response;
+  if (data != null && (!isRecord(data) || data.resolveReviewThread != null)) return;
+  if (
+    !Array.isArray(errors) ||
+    errors.length === 0 ||
+    !errors.every(
+      (error) =>
+        isRecord(error) &&
+        (error.type === "FORBIDDEN" ||
+          (isRecord(error.extensions) && error.extensions.code === "FORBIDDEN")) &&
+        Array.isArray(error.path) &&
+        error.path[0] === "resolveReviewThread",
+    )
+  ) {
+    return;
+  }
+  throw new AppError({
+    domain: "github",
+    kind: "review_thread_resolution_denied",
+    message:
+      "GitHub denied review-thread resolution. Grant the App Pull requests write access " +
+      "and confirm this installation can resolve the finding thread, then run /verify.",
+    context: { threadNodeId, mutationAccepted: false },
+    cause: response,
+  });
 }
 
 /** Log when resolution fetch is degraded. */

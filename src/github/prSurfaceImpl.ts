@@ -5,9 +5,9 @@ import { mintInstallationToken, isInstallationTokenNearExpiry } from "./installa
 import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "./actionsLogs.js";
 import { listCommitCompareFiles } from "./compareCommitFiles.js";
 import {
-  listCheckRunsForHead,
-  listLegacyCommitStatusesForHead,
+  readCiStatusSources,
   listPullsForHead,
+  listLegacyCommitStatusesForHeadDetailed,
 } from "./ciStatus.js";
 import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.js";
 import { isDuplicateCheckRunCreationError } from "./githubErrors.js";
@@ -50,6 +50,11 @@ import type {
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
 import { errorMessage } from "../errors/errorMessage.js";
+import { AppError } from "../errors/appError.js";
+import {
+  isConfirmedCapabilityDenial,
+  type InstallationOperation,
+} from "./installationCapabilities.js";
 
 async function listConversationCommentsForPr(
   token: string,
@@ -292,23 +297,7 @@ async function safeReaction(
   expiresAtTs?: number,
 ): Promise<void> {
   const octokit = installationOctokit(token, expiresAtTs);
-  try {
-    await reactionEndpoints(octokit, owner, repo, target).create(content);
-  } catch (e: unknown) {
-    const status = httpStatus(e);
-    if (status === 403) {
-      logDebug("reaction_suppressed_forbidden", {
-        owner,
-        repo,
-        target,
-        reaction: content,
-        status,
-      });
-      return;
-    }
-    if (status === 422) return;
-    throw e;
-  }
+  await reactionEndpoints(octokit, owner, repo, target).create(content);
 }
 
 async function listLifecycleReactions(
@@ -371,12 +360,26 @@ async function reactOnAckTargets(
   content: GithubReactionContent,
   botUserId: number | undefined,
   expiresAtTs?: number,
+  strict = false,
 ): Promise<void> {
   await Promise.all(
     targets.map(async (target) => {
       try {
         await setLifecycleReaction(token, owner, repo, target, content, botUserId, expiresAtTs);
       } catch (e) {
+        const status = httpStatus(e);
+        if (status === 422) return;
+        if (strict) throw e;
+        if (status === 403) {
+          logDebug("reaction_suppressed_forbidden", {
+            owner,
+            repo,
+            target,
+            reaction: content,
+            status,
+          });
+          return;
+        }
         logDebug("ack_reaction_failed", {
           owner,
           repo,
@@ -478,6 +481,10 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
   let botIdentityLoaded = false;
 
   async function ensureAuth(): Promise<{ token: string; expiresAtTs: number }> {
+    if (params.tokenResolver) {
+      installation = await params.tokenResolver();
+      return { token: installation.token, expiresAtTs: installation.expiresAtTs };
+    }
     if (installation != null && !isInstallationTokenNearExpiry(installation.expiresAtTs)) {
       return { token: installation.token, expiresAtTs: installation.expiresAtTs };
     }
@@ -504,10 +511,11 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     return botUserId;
   }
 
-  return {
+  const surface = {
     owner,
     repo,
     prNumber,
+    capabilities: params.capabilities,
 
     async getHead() {
       const { token, expiresAtTs } = await ensureAuth();
@@ -525,7 +533,16 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     async setAcknowledgementReaction(targets, kind) {
       const { token, expiresAtTs } = await ensureAuth();
       const botId = await ensureBotUserId();
-      await reactOnAckTargets(token, owner, repo, targets, kind, botId, expiresAtTs);
+      await reactOnAckTargets(
+        token,
+        owner,
+        repo,
+        targets,
+        kind,
+        botId,
+        expiresAtTs,
+        params.capabilities != null,
+      );
     },
 
     async replyAt(target, body) {
@@ -700,15 +717,33 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
     async getCiStatus(headSha) {
       const { token, expiresAtTs } = await ensureAuth();
-      const [checkRuns, legacyStatuses] = await Promise.all([
-        listCheckRunsForHead(token, owner, repo, headSha, expiresAtTs),
-        listLegacyCommitStatusesForHead(token, owner, repo, headSha, expiresAtTs),
-      ]);
-      return {
-        checkRuns: checkRuns.checkRuns,
-        checkRunsComplete: !checkRuns.truncated,
-        legacyStatuses,
-      };
+      return readCiStatusSources({
+        token,
+        owner,
+        repo,
+        headSha,
+        expiresAtTs,
+        capabilityPolicy: params.capabilities,
+      });
+    },
+
+    async getReviewCommitStatuses(headSha) {
+      const { token, expiresAtTs } = await ensureAuth();
+      const result = await listLegacyCommitStatusesForHeadDetailed(
+        token,
+        owner,
+        repo,
+        headSha,
+        expiresAtTs,
+      );
+      if (result.truncated) {
+        throw new AppError({
+          domain: "github",
+          kind: "preflight_unavailable",
+          message: "GitHub commit-status evidence is incomplete",
+        });
+      }
+      return result.legacyStatuses;
     },
 
     async listPullsForHead(headSha) {
@@ -718,12 +753,17 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
     async listFailingActionsJobs(headSha) {
       const { token, expiresAtTs } = await ensureAuth();
-      return listFailingActionsJobsForHead(token, owner, repo, headSha, expiresAtTs);
+      const result = await listFailingActionsJobsForHead(token, owner, repo, headSha, expiresAtTs);
+      if (!result.ok) await params.capabilities?.deny("actionsRead");
+      return result;
     },
 
     async downloadActionsJobLogs(jobId) {
       const { token, expiresAtTs } = await ensureAuth();
-      return downloadActionsJobLogs(token, owner, repo, jobId, expiresAtTs);
+      const result = await downloadActionsJobLogs(token, owner, repo, jobId, expiresAtTs);
+      if (!result.ok && result.reason === "actions_permission")
+        await params.capabilities?.deny("actionsRead");
+      return result;
     },
 
     async gitCredentialAuth() {
@@ -786,5 +826,80 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         return null;
       }
     },
+  } satisfies PrSurface;
+  const policy = params.capabilities;
+  if (!policy) return surface;
+  function guard<Args extends unknown[], Result>(
+    operation: InstallationOperation,
+    original: (...args: Args) => Promise<Result>,
+  ): (...args: Args) => Promise<Result> {
+    return async (...args) => {
+      if (policy?.access(operation) === "denied") {
+        throw new AppError({
+          domain: "github",
+          kind: "essential_access_denied",
+          message: "GitHub installation operation is unavailable",
+          context: { operation },
+        });
+      }
+      try {
+        return await original(...args);
+      } catch (error) {
+        if (!isConfirmedCapabilityDenial(error)) throw error;
+        await policy?.deny(operation);
+        throw new AppError({
+          domain: "github",
+          kind: "essential_access_denied",
+          message: "GitHub denied installation operation",
+          context: { operation },
+          cause: error,
+        });
+      }
+    };
+  }
+  return {
+    ...surface,
+    getHead: guard("pullRequestsRead", surface.getHead.bind(surface)),
+    getHeadSha: guard("pullRequestsRead", surface.getHeadSha.bind(surface)),
+    getReviewCommitStatuses: guard("statusesRead", surface.getReviewCommitStatuses.bind(surface)),
+    setAcknowledgementReaction: guard(
+      "reactionsWrite",
+      surface.setAcknowledgementReaction.bind(surface),
+    ),
+    replyAt: guard("commentsWrite", surface.replyAt.bind(surface)),
+    findProgressComment: guard("pullRequestsRead", surface.findProgressComment.bind(surface)),
+    resolveProgressComment: guard("pullRequestsRead", surface.resolveProgressComment.bind(surface)),
+    upsertProgressComment: guard("commentsWrite", surface.upsertProgressComment.bind(surface)),
+    editComment: guard("commentsWrite", surface.editComment.bind(surface)),
+    listReviewComments: guard("pullRequestsRead", surface.listReviewComments.bind(surface)),
+    listPullRequestReviews: guard("pullRequestsRead", surface.listPullRequestReviews.bind(surface)),
+    setReviewCommitStatus: guard("statusesWrite", surface.setReviewCommitStatus.bind(surface)),
+    publishThreadBatch: guard("reviewWrite", surface.publishThreadBatch.bind(surface)),
+    listInlineReviewThreads: guard(
+      "pullRequestsRead",
+      surface.listInlineReviewThreads.bind(surface),
+    ),
+    resolveInlineReviewThread: guard(
+      "reviewWrite",
+      surface.resolveInlineReviewThread.bind(surface),
+    ),
+    listChangedFiles: guard("pullRequestsRead", surface.listChangedFiles.bind(surface)),
+    listCommitCompareFiles: guard("contentsRead", surface.listCommitCompareFiles.bind(surface)),
+    getLabels: guard("labelsRead", surface.getLabels.bind(surface)),
+    setLabels: guard("labelsWrite", surface.setLabels.bind(surface)),
+    startReviewCheck: guard("checksWrite", surface.startReviewCheck.bind(surface)),
+    findReviewCheck: guard("checksRead", surface.findReviewCheck.bind(surface)),
+    finishReviewCheck: guard("checksWrite", surface.finishReviewCheck.bind(surface)),
+    listPullsForHead: guard("pullRequestsRead", surface.listPullsForHead.bind(surface)),
+    listFailingActionsJobs: guard("actionsRead", surface.listFailingActionsJobs.bind(surface)),
+    downloadActionsJobLogs: guard("actionsRead", surface.downloadActionsJobLogs.bind(surface)),
+    gitCredentialAuth: guard("contentsRead", surface.gitCredentialAuth.bind(surface)),
+    listConversationComments: guard(
+      "pullRequestsRead",
+      surface.listConversationComments.bind(surface),
+    ),
+    editReviewComment: guard("reviewWrite", surface.editReviewComment.bind(surface)),
+    updatePullRequest: guard("reviewWrite", surface.updatePullRequest.bind(surface)),
+    listPushedCommits: guard("pullRequestsRead", surface.listPushedCommits.bind(surface)),
   };
 }

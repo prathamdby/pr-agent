@@ -29,6 +29,35 @@ function completedCheck(id: number, name: string, conclusion: string): CiCheckRu
 }
 
 describe("summarizeCiSnapshot", () => {
+  it("never reports passing or no CI when either source is denied or unlisted", () => {
+    for (const checks of [[], [completedCheck(1, "lint", "success")]]) {
+      for (const access of ["denied", "unknown", "available"] as const) {
+        const summary = summarizeCiSnapshot({
+          checks,
+          statuses: [],
+          sourceAvailability: {
+            checks: { access: "available", listingRequired: false },
+            statuses: { access, listingRequired: true },
+          },
+        });
+        expect(summary.status).toBe("unavailable");
+      }
+    }
+  });
+
+  it("preserves known failures and exposes a partial view across missing sources", () => {
+    const summary = summarizeCiSnapshot({
+      checks: [completedCheck(1, "lint", "failure")],
+      statuses: [],
+      sourceAvailability: {
+        checks: { access: "available", listingRequired: false },
+        statuses: { access: "denied", listingRequired: true },
+      },
+    });
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("partial CI view");
+    expect(summary.permissionNote).toContain("statuses");
+  });
   it("identifies the own check by App id or work-item external id", () => {
     const identity = { githubAppId: "99", workItemId: "wi-1" };
     expect(isOwnCiCheck(identity, { app_id: 99, external_id: null })).toBe(true);

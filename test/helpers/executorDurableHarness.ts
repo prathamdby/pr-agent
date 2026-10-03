@@ -195,7 +195,7 @@ export function setupDefaultDurableRepositoryMocks(): void {
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCancelled).mockResolvedValue(undefined);
+  vi.mocked(repo.markWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
 }
 

@@ -1,5 +1,6 @@
 import {
   classifyProviderError,
+  isCancelAbortError,
   type ProviderErrorKind,
 } from "../agent/providers/providerErrors.js";
 import {
@@ -63,14 +64,10 @@ function rawMessage(error: unknown): string {
 }
 
 function collectCauseChain(error: unknown): string[] {
-  const out: string[] = [];
-  let current: unknown = error instanceof Error ? error.cause : undefined;
-  while (current != null && out.length < MAX_CAUSE_CHAIN) {
-    const msg = sanitizeLogMessage(rawMessage(current));
-    if (msg.length > 0) out.push(msg);
-    current = current instanceof Error ? current.cause : undefined;
-  }
-  return out;
+  return walkErrors(error)
+    .slice(1)
+    .map((cause) => sanitizeLogMessage(rawMessage(cause)))
+    .filter((message) => message.length > 0);
 }
 
 function walkErrors(error: unknown): unknown[] {
@@ -91,6 +88,9 @@ type InternalErrorKind = Extract<ClassifiedErrorKind, "validation" | "publish">;
 const INTERNAL_ERROR_KIND: {
   readonly [D in AppErrorDomain]?: { readonly [K in AppErrorKind<D>]?: InternalErrorKind };
 } = {
+  operation_intent: {
+    mutation_outcome_unknown: "publish",
+  },
   review: {
     deterministic_finding_publish_failed: "publish",
     publish_summary_failed: "publish",
@@ -107,6 +107,24 @@ function classifyFromErrorChain(error: unknown): {
   kind: ClassifiedErrorKind;
 } {
   const nodes = walkErrors(error);
+  // Structured origin and terminal mutation/lifecycle boundaries outrank wrapper
+  // wording. Review publish kinds remain fallbacks so real API causes survive.
+  for (const node of nodes) {
+    if (isCancelAbortError(node)) return { domain: "internal", kind: "cancelled" };
+    if (!isAppError(node)) continue;
+    if (node.domain === "provider") {
+      return { domain: "provider", kind: classifyProviderError(node) };
+    }
+    if (node.domain === "github") {
+      return { domain: "github", kind: classifyGithubError(node) };
+    }
+    const byKind: Partial<Record<string, InternalErrorKind>> | undefined =
+      INTERNAL_ERROR_KIND[node.domain];
+    const kind = byKind?.[node.kind];
+    if (node.domain === "operation_intent" && kind != null) {
+      return { domain: "internal", kind };
+    }
+  }
   for (const node of nodes) {
     if (looksLikeGithubError(node)) {
       const kind = classifyGithubError(node);
@@ -115,20 +133,23 @@ function classifyFromErrorChain(error: unknown): {
   }
   for (const node of nodes) {
     const kind = classifyProviderError(node);
-    if (kind !== "unknown") return { domain: "provider", kind };
+    if (kind !== "unknown") {
+      return { domain: isAppError(node) ? "internal" : "provider", kind };
+    }
   }
-  if (isAppError(error)) {
+  const appError = nodes.find(isAppError);
+  if (appError != null) {
     const byKind: Partial<Record<string, InternalErrorKind>> | undefined =
-      INTERNAL_ERROR_KIND[error.domain];
-    return { domain: "internal", kind: byKind?.[error.kind] ?? "unknown" };
+      INTERNAL_ERROR_KIND[appError.domain];
+    return { domain: "internal", kind: byKind?.[appError.kind] ?? "unknown" };
   }
   return { domain: "unknown", kind: "unknown" };
 }
 
 /**
  * Logs/analytics classification for terminal and soft-fail agent-work paths.
- * Precedence: lifecycle hint → explicit domain hint → GitHub-shaped (incl. cause)
- * → provider → AppError/internal → unknown.
+ * Precedence: lifecycle hint → explicit domain hint → structured origin/boundary
+ * (incl. cause) → GitHub-shaped → provider text → AppError/internal → unknown.
  */
 export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): ClassifiedFailure {
   if (hints?.lifecycle === "superseded") {
@@ -142,7 +163,13 @@ export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): C
     return finalize(error, "github", classifyGithubError(error), hints);
   }
   if (hints?.domain === "provider") {
-    return finalize(error, "provider", classifyProviderError(error), hints);
+    const kind = classifyProviderError(error);
+    return finalize(
+      error,
+      "provider",
+      kind === "unknown" && isAppError(error) ? classifyProviderError(rawMessage(error)) : kind,
+      hints,
+    );
   }
   if (hints?.domain === "internal") {
     const fromChain = classifyFromErrorChain(error);

@@ -77,6 +77,7 @@ function clampStoredCommentText(text: string): string {
 
 type SlashIntakeContext = {
   readonly boss: PgBoss;
+  readonly tx: DeliveryTx;
   readonly client: PoolClient;
   readonly input: SlashCommandInput;
   readonly eventId: string;
@@ -314,6 +315,16 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
       login: sanitizeGithubLogin(ctx.input.commenterLogin ?? ""),
     };
     const cancelled = await cancelActiveReviews(ctx.client, resourceKey, attribution);
+    ctx.tx.deferWorkLifecycle(
+      ctx.ref,
+      cancelled.map((row) => ({
+        ...row,
+        workType: "review" as const,
+        lifecycleStatus: "cancelled" as const,
+      })),
+      "review_force",
+      ctx.correlation,
+    );
     if (cancelled.length > 0) {
       const primary = cancelled[0];
       if (primary) {
@@ -388,6 +399,16 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
     login: sanitizeGithubLogin(ctx.input.commenterLogin ?? ""),
   };
   const cancelled = await cancelActiveReviews(ctx.client, resourceKey, attribution);
+  ctx.tx.deferWorkLifecycle(
+    ctx.ref,
+    cancelled.map((row) => ({
+      ...row,
+      workType: "review" as const,
+      lifecycleStatus: "cancelled" as const,
+    })),
+    "slash_cancel",
+    ctx.correlation,
+  );
   if (cancelled.length === 0) {
     await enqueueSlashAck(ctx, {
       reply: { target: ctx.input.replyTarget, body: SLASH_CANCEL_NONE_BODY },
@@ -526,6 +547,7 @@ export async function applySlashCommandIntake(
   ];
   const ctx: SlashIntakeContext = {
     boss,
+    tx,
     client,
     input,
     eventId: event.id,

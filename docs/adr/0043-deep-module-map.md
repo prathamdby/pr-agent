@@ -14,10 +14,30 @@ remain unchanged.
 
 ## Decision
 
+The later review-reliability contract is in
+[ADR 0044](0044-review-validated-artifact-recovery.md). It adds review-specific
+validated output artifacts after migration 036, not a return of generic phase
+checkpoints or encrypted session snapshots. Artifact contracts/redaction and
+lease-first bounded persistence have separate deep owners; exact mutation
+receipts remain authoritative. The consumer owns current-input binding and
+fresh-session reconstruction. This amendment does not authorize renaming
+retained wire mutation keys, child hashes, or hidden markers.
+
 Deep modules own ordering behind small interfaces. Delete a module only when it
 has no current caller or product reason. Keep a module when removing its interface
 would expose meaningful policy or complexity. A module that makes callers repeat
 its ordering needs a deepen verdict before the next milestone.
+
+The installation capability amendment has two owners:
+`src/github/installationCapabilities.ts` owns validated operation-level
+available/denied/unknown observations, and
+`src/agentWork/githubCapabilityRepository.ts` owns scoped generation ordering,
+source restoration, revision changes, retention, and durable preflight counts.
+`installationSurface.ts` owns the bounded probe and token resolver.
+`durableJob.ts` prepares authentication before head/receipt recovery, then
+admits new review work. `reviewVerdict.ts` retains immutable output and
+independent surface applicability. No feature constructs Octokit, stores
+credentials, or replaces acceptance receipts with capability metadata.
 
 The implementation order is M0, M1, M2, M3, M5, M4, M6, M7, M8, M9, M10, M11,
 M12, M13, M14, M15, M16, M17, M18. Each milestone runs the backend gate, the

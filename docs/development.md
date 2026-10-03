@@ -2,6 +2,9 @@
 
 Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md). Cursor Cloud VM setup: [cursor-cloud.md](cursor-cloud.md). Maintainer-local Compose is [docker-compose.dev.yml](../docker-compose.dev.yml) (Postgres, Caddy, web, worker, and a Cloudflare quick tunnel).
 
+Keep root `AGENTS.md` below the binding loader's 32 KiB file limit. Use pointers
+to this guide and the runbooks instead of duplicating their detail.
+
 Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/). This guide indexes areas and links those rules. Do not restate `.mdc` bodies here. Author or refresh them with [`skills/authoring-pr-agent-rules`](../skills/authoring-pr-agent-rules/SKILL.md).
 
 Lifecycle claim and feature admission have separate owners:
@@ -44,7 +47,40 @@ and epoch before reading or recording a step. Postgres and the production fake
 adapters share the publication persistence interfaces. Triage's publisher selects
 stored push evidence itself; orchestration no longer fabricates a checkout.
 
+Review artifact recovery has separate owners:
+`src/review/recovery/reviewArtifacts.ts` validates/redacts structured output,
+versions contracts, and binds effective input identity;
+`src/agentWork/reviewArtifactRepository.ts` fences active writes lease-first,
+serializes the per-work 1 MiB UTF-8 budget, reserves 8 KiB per prepared decision,
+and enforces idempotent keys and ordered dependencies. It is not generic session
+storage. Flag gating and effective-input digest assembly belong to the review
+consumer. Prepared plans retain full canonical ledger decisions/footers; bounded
+settlement refers to them and never substitutes for exact remote receipts.
+`findings/evidenceLedger.ts::revalidateEvidenceDescriptors` stages coverage until
+all fresh governed range reads match. See [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+
+Runtime-session and send UUIDs are telemetry identity, not prompt-cache identity.
+`agentEventSink.ts` fans out independently to optional local audit and PostHog;
+missing generation usage remains absent. Specialist schema/validation/run spans
+are non-generation stages emitted as they settle. Durable terminal capture follows
+the winning committed state write; an execution stop has no terminal authority.
+Structured failure origins and lifecycle boundaries outrank wrapper wording.
+Typed thread-resolution denial is child-only nonacceptance, and verification
+recovery requires exact operation completion receipts rather than resource history.
+
 ## Module layout (production)
+
+`src/github/installationCapabilities.ts` owns validated available/denied/unknown
+operation grants and endpoint permission alternatives.
+`installationSurface.ts` owns fresh bounded repository preflight and managed
+token resolution. `src/agentWork/githubCapabilityRepository.ts` owns ordered
+scoped observations, CI source restoration/revisions, retention, and lease-fenced
+preflight counters. No capability record contains credentials.
+`durableJob.ts` prepares authentication before real head/receipt recovery;
+`runReviewForWorkItem.ts` gates only new work after exact completion evidence.
+`reviewVerdict.ts` keeps immutable selected output and independent
+applied/skipped-for-this-run/blocked/unresolved surface applicability.
+Optional reads and writes are run-scoped, never shared-config changes.
 
 | Area                                      | Path                                            | Public entry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

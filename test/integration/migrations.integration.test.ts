@@ -48,6 +48,8 @@ const EXPECTED_MIGRATIONS = [
   "034_pr_review_lifecycle.sql",
   "035_pr_review_approvals.sql",
   "036_drop_agent_runtime_durability.sql",
+  "037_review_run_artifacts.sql",
+  "038_github_capabilities.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {
@@ -79,6 +81,28 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     const versions = rows.map((r) => r.version).toSorted();
     expect(versions).toEqual(EXPECTED_MIGRATIONS);
     expect(versions).toEqual(migrationFilesOnDisk());
+  });
+
+  it("keeps review artifact identities indexed without restoring runtime transcripts", async () => {
+    const indexes = await pool.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE tablename = 'review_run_artifacts'",
+    );
+    const definitions = indexes.rows.map((row) => row.indexdef).join("\n");
+    expect(definitions).toContain("(work_item_id, logical_key)");
+    expect(definitions).toContain("(work_item_id, artifact_order)");
+    const constraints = await pool.query<{ definition: string }>(
+      "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = 'review_run_artifacts'::regclass",
+    );
+    expect(constraints.rows.map((row) => row.definition).join("\n")).toContain(
+      "REFERENCES agent_work_items(id) ON DELETE CASCADE",
+    );
+    expect(
+      (
+        await pool.query(
+          "SELECT to_regclass('agent_phase_checkpoints') AS checkpoints, to_regclass('agent_resume_snapshots') AS snapshots",
+        )
+      ).rows,
+    ).toEqual([{ checkpoints: null, snapshots: null }]);
   });
 
   it("creates retention-supporting indexes", async () => {

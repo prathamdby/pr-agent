@@ -544,13 +544,14 @@ export async function markWorkCancelled(
   pool: Pool,
   id: string,
   leaseEpoch?: number | null,
-): Promise<void> {
-  await transition(pool, {
+): Promise<boolean> {
+  const result = await transition(pool, {
     selector: { id },
     from: ["queued", "running"],
     to: "cancelled",
     leaseEpoch,
   });
+  return result.rowCount > 0;
 }
 
 export async function shouldSkipWork(

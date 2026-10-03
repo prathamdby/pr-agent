@@ -38,6 +38,7 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     await pool.query("DELETE FROM pr_head_ci_state WHERE owner = $1", [OWNER]);
     await pool.query("DELETE FROM agent_events WHERE event_kind = $1", [EVENT]);
     await pool.query("DELETE FROM pr_review_approvals WHERE owner = $1", [OWNER]);
+    await pool.query("DELETE FROM github_repository_capabilities WHERE owner = $1", [OWNER]);
   });
 
   async function insertWorkItem(
@@ -87,6 +88,28 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     const ids = rows.map((r) => r.id);
     expect(ids).not.toContain(agedSuperseded);
     expect(ids).toContain(freshSuperseded);
+  });
+
+  it("cascades private review artifacts with work retention while recovery is off", async () => {
+    const aged = await insertWorkItem("completed", daysAgo(60));
+    const fresh = await insertWorkItem("completed", daysAgo(1));
+    await pool.query(
+      `INSERT INTO review_run_artifacts
+         (work_item_id, logical_key, artifact_order, kind, input_fingerprint, payload_hash, envelope)
+       VALUES ($1, 'brief', 0, 'brief', repeat('a', 64), repeat('b', 64), '{}'),
+              ($2, 'brief', 0, 'brief', repeat('a', 64), repeat('b', 64), '{}')`,
+      [aged, fresh],
+    );
+    expect(RETENTION.review.recoveryEnabled).toBe(false);
+    await runRetention(pool, RETENTION);
+    expect(
+      (
+        await pool.query(
+          "SELECT work_item_id FROM review_run_artifacts WHERE work_item_id = ANY($1::uuid[])",
+          [[aged, fresh]],
+        )
+      ).rows,
+    ).toEqual([{ work_item_id: fresh }]);
   });
 
   it("deletes aged webhook events but keeps fresh ones", async () => {
@@ -180,6 +203,41 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     expect(heads).not.toContain("orphan-aged");
     expect(heads).toContain("h");
     expect(heads).toContain("fresh");
+  });
+
+  it("expires orphaned capability observations and cascades scoped head access", async () => {
+    await insertWorkItem("completed", daysAgo(1));
+    await pool.query(
+      `INSERT INTO github_repository_capabilities
+        (installation_id, owner, repo, generation, capabilities, observed_at)
+       VALUES (1, $1, 'orphan', 1, '{}', $2),
+              (1, $1, 'r', 1, '{}', $2),
+              (1, $1, 'fresh', 1, '{}', now())`,
+      [OWNER, daysAgo(60)],
+    );
+    await pool.query(
+      `INSERT INTO pr_head_ci_state (owner, repo, head_sha, checks, rollup, version, updated_at)
+       VALUES ($1, 'orphan', 'expired', '{}', 'none', 0, $2)`,
+      [OWNER, daysAgo(60)],
+    );
+    await pool.query(
+      `INSERT INTO github_head_ci_sources (installation_id, owner, repo, head_sha, source, generation, access)
+       VALUES (1, $1, 'orphan', 'expired', 'checks', 1, 'denied')`,
+      [OWNER],
+    );
+    await runRetention(pool, RETENTION);
+    expect(
+      (
+        await pool.query(
+          "SELECT repo FROM github_repository_capabilities WHERE owner = $1 ORDER BY repo",
+          [OWNER],
+        )
+      ).rows,
+    ).toEqual([{ repo: "fresh" }, { repo: "r" }]);
+    expect(
+      (await pool.query("SELECT source FROM github_head_ci_sources WHERE owner = $1", [OWNER]))
+        .rows,
+    ).toEqual([]);
   });
 
   it("deletes agent_events older than the default retention and keeps them when retention is 0", async () => {

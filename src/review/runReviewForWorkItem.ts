@@ -1,5 +1,12 @@
 import type { BotIdentity } from "../github/appAuth.js";
-import { createPublishContext } from "../agentWork/publishOnce.js";
+import {
+  createPublishContext,
+  OPERATION_INTENT_RESULT_KEY,
+  operationIntentMarker,
+  reviewSummaryOperationKey,
+} from "../agentWork/publishOnce.js";
+import { getOperationIntent } from "../agentWork/operationIntentRepository.js";
+import { isRecord } from "../util/typeGuards.js";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
@@ -94,6 +101,14 @@ import { prepareCodeIndexForReview } from "../codeIndex/buildJob.js";
 import type { ReviewProfileFields, WorkCompletion } from "../analytics/workCompleted.js";
 import type { ReviewRunMetricsSnapshot } from "./run/reviewRunMetrics.js";
 import { errorMessage } from "../errors/errorMessage.js";
+import { createReviewArtifactBinding, encodeReviewArtifact } from "./recovery/reviewArtifacts.js";
+import { openReviewRecovery } from "./recovery/reviewRecovery.js";
+import {
+  reviewRecoveryBaseSha,
+  reviewRecoveryInputDigest,
+  reviewRecoveryModelApis,
+} from "./recovery/reviewRecoveryBinding.js";
+import { openReviewArtifactStore } from "../agentWork/reviewArtifactRepository.js";
 
 type ReviewDegradationReason = "publish_not_completed";
 
@@ -651,7 +666,14 @@ async function assembleTrustedReviewContext(args: {
     symbolIndexStatus: repositoryView.workspace.reader.getSymbolIndexStatus(),
     codeIndexStatus,
   });
-  return { sameRepo, repoPolicy, trustedContext };
+  // Exclude our evolving summary, inline comments and history from cache identity.
+  const recoveryContext = encodeReviewArtifact({
+    sameRepo,
+    repoPolicyBlock,
+    agentInstructionFilesBlock,
+    preflight: repositoryView.preflight,
+  });
+  return { sameRepo, repoPolicy, trustedContext, recoveryContext };
 }
 
 async function runFullReviewAgainstRepositoryView(args: {
@@ -749,14 +771,15 @@ async function runFullReviewAgainstRepositoryView(args: {
     pathGate,
   });
 
-  const { sameRepo, repoPolicy, trustedContext } = await assembleTrustedReviewContext({
-    repositoryView,
-    pullRequest,
-    priorInlineFeedback: priorInlineFeedbackResult.value,
-    findingHistoryTrustedBlock,
-    checkoutCoverage,
-    codeIndexStatus,
-  });
+  const { sameRepo, repoPolicy, trustedContext, recoveryContext } =
+    await assembleTrustedReviewContext({
+      repositoryView,
+      pullRequest,
+      priorInlineFeedback: priorInlineFeedbackResult.value,
+      findingHistoryTrustedBlock,
+      checkoutCoverage,
+      codeIndexStatus,
+    });
 
   const timing = reviewRunTimingFromJob(args.job);
   const gate = reviewRunGate({
@@ -768,7 +791,68 @@ async function runFullReviewAgainstRepositoryView(args: {
     publishAbortState,
     staleHeadAtPublish,
   });
+  // This entry is already inside the admitted view. Recovery never prepares a
+  // workspace or performs model work before beginAttempt spends its attempt.
+  const baseSha = cfg.review.recoveryEnabled ? reviewRecoveryBaseSha(pullRequest) : null;
+  const recoveryDiff = baseSha
+    ? {
+        patches: await Promise.all(
+          repositoryView.workspace.reader.changedFiles
+            .toSorted((a, b) => a.path.localeCompare(b.path))
+            .map(async (file) => ({
+              ...file,
+              patch: await repositoryView.workspace.reader.getDiffForPath(file.path),
+            })),
+        ),
+        anchors: [...repositoryView.workspace.reader.diffIndex.files].toSorted(([a], [b]) =>
+          a.localeCompare(b),
+        ),
+        truncated: repositoryView.workspace.reader.diffIndex.truncated,
+      }
+    : undefined;
+  const binding = baseSha
+    ? createReviewArtifactBinding(
+        {
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          installationId: item.installationId,
+          baseSha,
+          headSha,
+          mode: "review",
+        },
+        reviewRecoveryInputDigest({
+          cfg,
+          diff: recoveryDiff,
+          trustedInputs: recoveryContext,
+          source: payload.source,
+          userSupplement: payload.userSupplement,
+          prTitle: pullRequest?.title ?? "",
+          prBody: pullRequest?.body ?? null,
+          escalation,
+          modelApis: await reviewRecoveryModelApis(cfg, escalation),
+          effectivePublicationCapabilities: {
+            checksWrite:
+              (prSurface.capabilities?.access("checksWrite") ?? "available") === "available",
+            statusesWrite:
+              cfg.features.commitStatus &&
+              (prSurface.capabilities?.access("statusesWrite") ?? "available") === "available",
+            labelsWrite:
+              (prSurface.capabilities?.access("labelsRead") ?? "available") === "available" &&
+              (prSurface.capabilities?.access("labelsWrite") ?? "available") === "available",
+            reactionsWrite:
+              (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available",
+          },
+        }),
+      )
+    : null;
+  const recovery = binding
+    ? openReviewRecovery(binding, openReviewArtifactStore(pool, binding, leaseEpoch))
+    : undefined;
   const result = await runOrchestratedPrReview({
+    recovery,
     cfg,
     prSurface,
     owner: item.owner,
@@ -925,6 +1009,68 @@ async function runClaimedReview(args: {
   const staleHeadAtPublish = { value: false };
   const publishAbortState: { staleHead?: boolean } = {};
 
+  if (publishContext.publishState.summaryPublished) {
+    const summaryDetail = await createPublishContext(pool, {
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+      reviewLens: reviewLens,
+    }).completed("summary_comment");
+    let usableSummaryReceipt =
+      summaryDetail?.lightweightCompletion === true && (await prSurface.getHeadSha()) === headSha;
+    if (
+      !usableSummaryReceipt &&
+      cfg.review.recoveryEnabled &&
+      summaryDetail &&
+      item.headSha === headSha &&
+      (summaryDetail.ownVerdictKind === "published" ||
+        (summaryDetail.ownVerdictKind === "partial" &&
+          typeof summaryDetail.ownVerdictNote === "string" &&
+          summaryDetail.ownVerdictNote.trim().length > 0)) &&
+      typeof summaryDetail.ownCheckFailing === "boolean"
+    ) {
+      const operationKey = reviewSummaryOperationKey(item.resourceKey, reviewLens);
+      const intent = await getOperationIntent(pool, item.id, operationKey);
+      const result = intent?.detail[OPERATION_INTENT_RESULT_KEY];
+      usableSummaryReceipt =
+        intent?.workItemId === item.id &&
+        intent.operationKey === operationKey &&
+        intent.mutationKind === "github.summary_comment" &&
+        intent.status === "reconciled" &&
+        intent.detail.step === "summary_comment" &&
+        intent.detail.resourceKey === item.resourceKey &&
+        intent.detail.reviewLens === reviewLens &&
+        intent.detail.operationMarker === operationIntentMarker(operationKey, item.id) &&
+        isRecord(result) &&
+        typeof result.id === "number" &&
+        Number.isSafeInteger(result.id) &&
+        result.id > 0 &&
+        typeof result.updated === "boolean" &&
+        result.id === publishContext.progressCommentGithubId &&
+        (await prSurface.getHeadSha()) === headSha;
+    }
+    if (usableSummaryReceipt) {
+      try {
+        await closeStoredReviewVerdict({
+          pool,
+          item,
+          reviewLens,
+          prSurface,
+          leaseEpoch: env.leaseEpoch,
+          commitStatusEnabled,
+          outcome: ownVerdictFromSummaryDetail(summaryDetail),
+        });
+      } catch (error) {
+        logWarn("review_receipt_cleanup_deferred", {
+          workItemId: item.id,
+          installationId: item.installationId,
+          message: errorMessage(error),
+        });
+      }
+      return { kind: "completed" };
+    }
+  }
+
+  await env.ensureReviewAccess?.();
   await reviewVerdict({
     pool,
     commitStatusEnabled: cfg.features.commitStatus,
@@ -939,26 +1085,6 @@ async function runClaimedReview(args: {
     leaseEpoch: env.leaseEpoch,
     signal: env.signal,
   }).pending();
-
-  if (publishContext.publishState.summaryPublished) {
-    const summaryDetail = await createPublishContext(pool, {
-      workItemId: item.id,
-      resourceKey: item.resourceKey,
-      reviewLens: reviewLens,
-    }).completed("summary_comment");
-    if (summaryDetail?.lightweightCompletion === true) {
-      await closeStoredReviewVerdict({
-        pool,
-        item,
-        reviewLens,
-        prSurface,
-        leaseEpoch: env.leaseEpoch,
-        commitStatusEnabled,
-        outcome: ownVerdictFromSummaryDetail(summaryDetail),
-      });
-      return { kind: "completed" };
-    }
-  }
 
   const lightweight = await runLightweightCompletionOrSkip({
     beginAttempt: env.beginAttempt,

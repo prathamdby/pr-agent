@@ -19,14 +19,24 @@ import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
   upsertVerificationThreadState,
+  matchesVerificationThreadCompletion,
+  parseVerificationThreadLedger,
   type VerificationThreadLedger,
   type VerificationThreadState,
+  type VerificationThreadCompletion,
 } from "../../agentWork/verificationThreadLedger.js";
 import {
   operationIntentMarker,
   verificationThreadOperationKey,
   publishOnce,
+  type OperationIntentRecovery,
 } from "../../agentWork/publishOnce.js";
+import {
+  getOperationIntent,
+  type OperationIntentRow,
+} from "../../agentWork/operationIntentRepository.js";
+import { AppError, isAppError } from "../../errors/appError.js";
+import { isRecord } from "../../util/typeGuards.js";
 import {
   safeRecordThreadFindingHistoryOutcome,
   type FindingHistoryOutcome,
@@ -87,24 +97,136 @@ function dismissedReplyBody(
 }
 
 async function recoverVerificationMutation(params: {
+  readonly pool: Pool;
+  readonly workItemId: string;
+  readonly headSha: string;
+  readonly verdict: VerificationVerdict["verdict"];
+  readonly intent: OperationIntentRow;
+  readonly publishRecordId: string | null;
   readonly prSurface: PrSurface;
   readonly marker: string;
   readonly rootCommentId: number;
   readonly requiresResolved: boolean;
-}): Promise<number | undefined | null> {
-  const botLogin = await params.prSurface.getBotLogin();
-  const { comments } = await params.prSurface.listReviewComments();
-  const markedCommentId = findCommentIdByMarker(
-    comments,
-    params.marker,
-    (comment) => comment.authorLogin === botLogin && comment.inReplyToId === params.rootCommentId,
-  );
-  if (params.requiresResolved) {
-    const threads = await params.prSurface.listInlineReviewThreads();
-    if (threads.byRootCommentId.get(params.rootCommentId)?.isResolved !== true) return null;
-    return markedCommentId ?? undefined;
+  readonly requiresStub: boolean;
+  readonly stubCommentId?: number;
+  readonly threadNodeId?: string;
+  readonly expectedBody: string;
+}): Promise<OperationIntentRecovery<number | undefined>> {
+  if (params.publishRecordId != null) {
+    const { rows } = await params.pool.query<{ detail: unknown }>(
+      `SELECT detail FROM publish_records WHERE id = $1 AND work_item_id = $2
+        AND review_lens = $3 AND step = 'verification_thread_actions' AND status = 'completed'`,
+      [params.publishRecordId, params.workItemId, VERIFICATION_PUBLISH_LENS],
+    );
+    const receipt = parseVerificationThreadLedger(rows[0]?.detail).threads[
+      String(params.rootCommentId)
+    ]?.completion;
+    if (
+      matchesVerificationThreadCompletion(receipt, {
+        workItemId: params.workItemId,
+        operationKey: params.intent.operationKey,
+        headSha: params.headSha,
+        verdict: params.verdict,
+        requiresStub: params.requiresStub,
+      })
+    ) {
+      return { kind: "reconciled", value: receipt?.stubCommentId };
+    }
   }
-  return markedCommentId;
+  const childEvidenceMatches =
+    params.intent.detail.headSha === params.headSha &&
+    params.intent.detail.verdict === params.verdict &&
+    typeof params.intent.detail.requiresStub === "boolean";
+  const { rows } = childEvidenceMatches
+    ? await params.pool.query<{
+        operation_key: string;
+        mutation_kind: string;
+        detail: Record<string, unknown>;
+      }>(
+        `SELECT operation_key, mutation_kind, detail FROM operation_intents
+      WHERE work_item_id = $1 AND detail->>'parentOperationKey' = $2
+        AND detail ? '__result'
+      LIMIT 16`,
+        [params.workItemId, params.intent.operationKey],
+      )
+    : { rows: [] };
+  let stubCommentId: number | undefined;
+  let stubProven = !params.requiresStub;
+  let resolved = !params.requiresResolved;
+  for (const child of rows) {
+    const detail = child.detail;
+    if (!isRecord(detail)) continue;
+    const method = detail.surfaceMethod;
+    if (
+      typeof method !== "string" ||
+      typeof detail.inputHash !== "string" ||
+      !/^[a-f0-9]{64}$/.test(detail.inputHash) ||
+      detail.parentOperationKey !== params.intent.operationKey ||
+      child.operation_key !==
+        `${params.intent.operationKey}:surface:${method}:${detail.inputHash}` ||
+      child.mutation_kind !== `github.pr_surface.${method}`
+    )
+      continue;
+    if (
+      method === "resolveInlineReviewThread" &&
+      detail.threadId === params.threadNodeId &&
+      detail.__result === null
+    )
+      resolved = true;
+    if (detail.operationMarker !== params.marker) continue;
+    if (method === "editReviewComment" && detail.commentId === params.stubCommentId) {
+      if (detail.__result === true) {
+        stubProven = true;
+        stubCommentId = params.stubCommentId;
+      } else if (
+        detail.__result === false &&
+        (params.verdict === "fixed" || params.verdict === "already-resolved")
+      ) {
+        // The exact edit receipt proves deletion; a missing listing does not.
+        stubProven = true;
+      }
+    }
+    if (
+      method === "replyAt" &&
+      detail.replyTargetKind === "inlineReviewThread" &&
+      detail.inReplyToId === params.rootCommentId &&
+      isRecord(detail.__result) &&
+      typeof detail.__result.commentId === "number" &&
+      Number.isSafeInteger(detail.__result.commentId) &&
+      detail.__result.commentId > 0
+    ) {
+      stubProven = true;
+      stubCommentId = detail.__result.commentId;
+    }
+  }
+  if (!stubProven) {
+    const botLogin = await params.prSurface.getBotLogin();
+    const { comments, truncated } = await params.prSurface.listReviewComments();
+    stubCommentId =
+      findCommentIdByMarker(
+        comments,
+        params.marker,
+        (comment) =>
+          comment.authorLogin === botLogin &&
+          comment.inReplyToId === params.rootCommentId &&
+          comment.body === params.expectedBody,
+      ) ?? undefined;
+    stubProven = stubCommentId != null;
+    if (!stubProven && truncated)
+      throw new Error("Verification stub recovery listing is truncated");
+  }
+  if (!resolved) {
+    const threads = await params.prSurface.listInlineReviewThreads();
+    const thread = threads.byRootCommentId.get(params.rootCommentId);
+    resolved = thread?.isResolved === true && thread.threadNodeId === params.threadNodeId;
+    if (!resolved && (threads.status !== "ok" || threads.truncated)) {
+      throw new Error("Verification resolution recovery is unavailable or incomplete");
+    }
+  }
+  if ((!stubProven || !resolved) && rows.length >= 16) {
+    throw new Error("Verification child receipt recovery is capped");
+  }
+  return stubProven && resolved ? { kind: "reconciled", value: stubCommentId } : { kind: "absent" };
 }
 
 function resolveStubCommentId(
@@ -204,6 +326,7 @@ function verificationIntentDetail(
     threadRootCommentId,
     verdict,
     operationMarker,
+    headSha: params.headSha,
   };
 }
 
@@ -211,37 +334,106 @@ async function withVerificationThreadOperation(
   params: PublishVerificationParams,
   verdict: VerificationVerdict,
   requiresResolved: boolean,
-  mutate: (operationMarker: string) => Promise<number | undefined>,
-): Promise<number | undefined> {
+  requirements: {
+    readonly requiresStub: boolean;
+    readonly stubCommentId?: number;
+    readonly threadNodeId?: string;
+    readonly body: (marker: string) => string;
+  },
+  mutate: (operationMarker: string, accepted: () => void) => Promise<number | undefined>,
+): Promise<{ readonly stubCommentId?: number; readonly completion: VerificationThreadCompletion }> {
   const operationKey = verificationThreadOperationKey(verdict.threadRootCommentId);
   const operationMarker = operationIntentMarker(operationKey, params.workItemId);
-  return publishOnce<number | undefined>({
+  const retained = await getOperationIntent(params.pool, params.workItemId, operationKey);
+  if (
+    retained != null &&
+    ((typeof retained.detail.headSha === "string" && retained.detail.headSha !== params.headSha) ||
+      (typeof retained.detail.verdict === "string" && retained.detail.verdict !== verdict.verdict))
+  ) {
+    throw new AppError({
+      domain: "operation_intent",
+      kind: "mutation_outcome_unknown",
+      message: "Verification operation identity no longer matches its retained head and verdict",
+      context: { workItemId: params.workItemId, operationKey, unknownResolution: "terminal" },
+    });
+  }
+  const requiresStub =
+    typeof retained?.detail.requiresStub === "boolean"
+      ? retained.detail.requiresStub
+      : retained != null &&
+          (retained.status === "outcome_unknown" ||
+            retained.status === "reconciled" ||
+            retained.detail.__mutating === true)
+        ? true
+        : requirements.requiresStub;
+  const expectedStubId =
+    typeof retained?.detail.stubCommentId === "number"
+      ? retained.detail.stubCommentId
+      : requirements.stubCommentId;
+  let childAccepted = false;
+  let resolutionDenied = false;
+  const stubCommentId = await publishOnce<number | undefined>({
     client: params.pool,
     workItemId: params.workItemId,
     leaseEpoch: params.leaseEpoch,
     operationKey,
     mutationKind: "github.verification_thread",
-    allowsUndefinedResult: true,
-    detail: verificationIntentDetail(
-      params,
-      verdict.threadRootCommentId,
-      verdict.verdict,
-      operationMarker,
-    ),
-    recover: async () => {
-      const recovered = await recoverVerificationMutation({
+    allowsUndefinedResult: false,
+    detail: {
+      ...verificationIntentDetail(
+        params,
+        verdict.threadRootCommentId,
+        verdict.verdict,
+        operationMarker,
+      ),
+      requiresStub,
+      ...(expectedStubId != null ? { stubCommentId: expectedStubId } : {}),
+      ...(requirements.threadNodeId != null ? { threadNodeId: requirements.threadNodeId } : {}),
+    },
+    recover: async (intent, publishRecordId) => {
+      // A proven denial is already the terminal decision for this dispatch.
+      // Do not mask it with a failing observational read after partial acceptance.
+      if (resolutionDenied) return { kind: "absent" };
+      return recoverVerificationMutation({
+        pool: params.pool,
+        workItemId: params.workItemId,
+        headSha: params.headSha,
+        verdict: verdict.verdict,
+        intent,
+        publishRecordId: publishRecordId ?? intent.publishRecordId,
         prSurface: params.prSurface,
         marker: operationMarker,
         rootCommentId: verdict.threadRootCommentId,
         requiresResolved,
+        requiresStub,
+        stubCommentId: expectedStubId,
+        threadNodeId: requirements.threadNodeId,
+        expectedBody: requirements.body(operationMarker),
       });
-      return recovered == null
-        ? { kind: "absent" as const }
-        : { kind: "reconciled" as const, value: recovered };
     },
-    isKnownNoAcceptanceError: isKnownNoAcceptanceMutationError,
-    mutate: () => mutate(operationMarker),
+    // A later child denial cannot undo a stub that was already accepted.
+    isKnownNoAcceptanceError: (error) => {
+      resolutionDenied =
+        isAppError(error) && error.code === "github.review_thread_resolution_denied";
+      return !childAccepted && isKnownNoAcceptanceMutationError(error);
+    },
+    mutate: () =>
+      mutate(operationMarker, () => {
+        childAccepted = true;
+      }),
   });
+  return {
+    ...(stubCommentId != null ? { stubCommentId } : {}),
+    completion: {
+      workItemId: params.workItemId,
+      operationKey,
+      headSha: params.headSha,
+      verdict: verdict.verdict,
+      stubOutcome: !requiresStub ? "not_required" : stubCommentId != null ? "written" : "missing",
+      ...(stubCommentId != null ? { stubCommentId } : {}),
+      resolutionOutcome: requiresResolved ? "resolved" : "not_required",
+    },
+  };
 }
 
 function recordVerificationHistoryOutcome(
@@ -294,12 +486,18 @@ export async function publishVerification(
           degradation.add("verdict_mapping_incomplete");
           break;
         }
-        const stubCommentId = await withVerificationThreadOperation(
+        const priorStubId = resolveStubCommentId(thread, prior);
+        const { stubCommentId, completion } = await withVerificationThreadOperation(
           params,
           verdict,
           true,
-          async (operationMarker) => {
-            const priorStubId = resolveStubCommentId(thread, prior);
+          {
+            requiresStub: priorStubId != null,
+            stubCommentId: priorStubId,
+            threadNodeId: resolution.threadNodeId,
+            body: (marker) => terminalSuccessStubBody(verdict, marker),
+          },
+          async (operationMarker, accepted) => {
             let nextStubCommentId: number | undefined = priorStubId;
             if (priorStubId != null) {
               const updated = await updateStubReply({
@@ -308,6 +506,7 @@ export async function publishVerification(
                 body: terminalSuccessStubBody(verdict, operationMarker),
               });
               if (!updated) nextStubCommentId = undefined;
+              else accepted();
             }
             if (!resolution.isResolved) {
               await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
@@ -322,7 +521,10 @@ export async function publishVerification(
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,
-          state: terminalThreadState(prior, verdict.verdict, params.headSha, stubCommentId),
+          state: {
+            ...terminalThreadState(prior, verdict.verdict, params.headSha, stubCommentId),
+            completion,
+          },
         });
         recordVerificationHistoryOutcome(params, thread, verdict.verdict);
         break;
@@ -330,10 +532,19 @@ export async function publishVerification(
       case "skipped": {
         // When compare is truncated, omitted paths must not suppress still-open stubs.
         if (changedMembershipComplete && !changedFiles.has(thread.path)) break;
-        const stubCommentId = await withVerificationThreadOperation(
+        const { stubCommentId, completion } = await withVerificationThreadOperation(
           params,
           verdict,
           false,
+          {
+            requiresStub: true,
+            stubCommentId: resolveStubCommentId(thread, prior),
+            body: (marker) =>
+              withStubMarker(
+                redactReviewText(`**Verification**: Still open - ${verdict.reason}`),
+                marker,
+              ),
+          },
           async (operationMarker) =>
             upsertStubComment({
               prSurface: params.prSurface,
@@ -357,6 +568,7 @@ export async function publishVerification(
             stubCommentId,
             lastVerdict: "skipped",
             lastHeadSha: params.headSha,
+            completion,
           },
         });
         recordVerificationHistoryOutcome(params, thread, "skipped");
@@ -368,11 +580,17 @@ export async function publishVerification(
           degradation.add("verdict_mapping_incomplete");
           break;
         }
-        const stubCommentId = await withVerificationThreadOperation(
+        const { stubCommentId, completion } = await withVerificationThreadOperation(
           params,
           verdict,
           true,
-          async (operationMarker) => {
+          {
+            requiresStub: true,
+            stubCommentId: resolveStubCommentId(thread, prior),
+            threadNodeId: resolution.threadNodeId,
+            body: (marker) => dismissedReplyBody(verdict, thread, params.policyResult, marker),
+          },
+          async (operationMarker, accepted) => {
             const createdStubCommentId = await upsertStubComment({
               prSurface: params.prSurface,
               prNumber: params.prNumber,
@@ -380,6 +598,7 @@ export async function publishVerification(
               stubCommentId: resolveStubCommentId(thread, prior),
               body: dismissedReplyBody(verdict, thread, params.policyResult, operationMarker),
             });
+            accepted();
             if (!resolution.isResolved) {
               await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
             }
@@ -393,7 +612,10 @@ export async function publishVerification(
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,
-          state: terminalThreadState(prior, "dismissed", params.headSha, stubCommentId),
+          state: {
+            ...terminalThreadState(prior, "dismissed", params.headSha, stubCommentId),
+            completion,
+          },
         });
         recordVerificationHistoryOutcome(params, thread, "dismissed");
         break;

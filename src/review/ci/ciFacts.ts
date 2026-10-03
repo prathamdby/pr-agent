@@ -15,6 +15,23 @@ import {
 
 export type CiSummaryStatus = "passing" | "failing" | "pending" | "none" | "unavailable";
 
+export type CiSourceAccess = "available" | "denied" | "unknown";
+export type CiSourceAvailabilityState = {
+  readonly access: CiSourceAccess;
+  readonly listingRequired: boolean;
+  readonly unknownReadCount?: number;
+};
+export type CiSourceAvailability = {
+  readonly checks: CiSourceAvailabilityState;
+  readonly statuses: CiSourceAvailabilityState;
+};
+
+export function ciSourcesComplete(availability: CiSourceAvailability): boolean {
+  return [availability.checks, availability.statuses].every(
+    (source) => source.access === "available" && !source.listingRequired,
+  );
+}
+
 export type CiFailureDetail = {
   /** Check run or status context name. */
   readonly name: string;
@@ -384,12 +401,31 @@ export function summarizeCiSnapshot(params: {
   readonly failures?: CiSummary["failures"];
   readonly permissionNote?: string;
   readonly checkRunsComplete?: boolean;
+  readonly legacyStatusesComplete?: boolean;
+  readonly sourceAvailability?: CiSourceAvailability;
 }): CiSummary {
   const state = classifyGithubSnapshot(params.checks, params.statuses);
-  const permissionNote = params.permissionNote;
-  const incomplete = params.checkRunsComplete === false;
+  const unavailableSources =
+    params.sourceAvailability == null
+      ? []
+      : (["checks", "statuses"] as const).filter(
+          (source) =>
+            params.sourceAvailability?.[source].access !== "available" ||
+            params.sourceAvailability?.[source].listingRequired,
+        );
+  const permissionNote =
+    unavailableSources.length > 0
+      ? `Partial CI view: ${unavailableSources.join(" and ")} unavailable.${params.permissionNote == null ? "" : ` ${params.permissionNote}`}`
+      : params.permissionNote;
+  const incomplete =
+    params.checkRunsComplete === false ||
+    params.legacyStatusesComplete === false ||
+    unavailableSources.length > 0;
   if (incomplete && (state === "none" || state === "passing")) {
-    return unavailableSummary(REVIEW_CI_SUMMARY_INCOMPLETE);
+    return {
+      ...unavailableSummary(REVIEW_CI_SUMMARY_INCOMPLETE),
+      ...(permissionNote != null ? { permissionNote } : {}),
+    };
   }
   switch (state) {
     case "none":
@@ -402,7 +438,7 @@ export function summarizeCiSnapshot(params: {
     case "pending":
       return {
         status: "pending",
-        headline: "⏳ CI still running",
+        headline: incomplete ? withPartialCiView("⏳ CI still running") : "⏳ CI still running",
         failures: [],
         ...(permissionNote != null ? { permissionNote } : {}),
       };
@@ -446,7 +482,10 @@ export function summarizeCiSnapshot(params: {
 
 export function summarizeCiFacts(
   checks: Readonly<Record<string, CiCheckFact>>,
-  options?: { readonly checkRunsComplete?: boolean },
+  options?: {
+    readonly checkRunsComplete?: boolean;
+    readonly sourceAvailability?: CiSourceAvailability;
+  },
 ): CiSummary {
   const checkRuns: CiCheckRunSnapshot[] = [];
   const statuses: CiLegacyStatus[] = [];
@@ -476,6 +515,7 @@ export function summarizeCiFacts(
     checks: checkRuns,
     statuses,
     checkRunsComplete: options?.checkRunsComplete,
+    sourceAvailability: options?.sourceAvailability,
   });
 }
 
@@ -537,7 +577,10 @@ export function ciSummaryFromFacts(
   checks: Readonly<Record<string, CiCheckFact>>,
   version: number,
   authored?: unknown,
-  options?: { readonly checkRunsComplete?: boolean },
+  options?: {
+    readonly checkRunsComplete?: boolean;
+    readonly sourceAvailability?: CiSourceAvailability;
+  },
 ): RenderableHeadCi {
   const facts = summarizeCiFacts(checks, options);
   const cache = parseCiAuthoredCache(authored);
@@ -545,9 +588,15 @@ export function ciSummaryFromFacts(
     return {
       summary: {
         status: "failing",
-        headline: cache.headline,
+        headline: facts.headline.includes("(partial CI view)")
+          ? withPartialCiView(cache.headline)
+          : cache.headline,
         failures: cache.failures,
-        ...(cache.permissionNote != null ? { permissionNote: cache.permissionNote } : {}),
+        ...(facts.permissionNote != null
+          ? { permissionNote: facts.permissionNote }
+          : cache.permissionNote != null
+            ? { permissionNote: cache.permissionNote }
+            : {}),
       },
       version,
     };

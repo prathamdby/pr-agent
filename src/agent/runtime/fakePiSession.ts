@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { AppError } from "../../errors/appError.js";
 import type { AgentRunnerTurn, TurnEnd } from "../providers/interface.js";
 import { promptMetadataFromText } from "../providers/usageMetadata.js";
@@ -35,11 +36,23 @@ export function createFakePiSession(
     });
   let aborted = false;
   let disposed = false;
+  const sessionId = randomUUID();
 
-  const emit = (event: AgentLifecycleEvent) => {
-    events.push(event);
-    params.eventSink(event);
+  const emitForGeneration = (generationId?: string) => (event: AgentLifecycleEvent) => {
+    const correlated = {
+      ...event,
+      sessionId,
+      ...(generationId != null ? { generationId } : {}),
+      ...(params.specialistId != null ? { specialistId: params.specialistId } : {}),
+    };
+    events.push(correlated);
+    try {
+      params.eventSink(correlated);
+    } catch {
+      // Match the real runtime's best-effort observers.
+    }
   };
+  const emitSession = emitForGeneration();
 
   const controls: FakePiSessionControls = {
     events,
@@ -67,6 +80,8 @@ export function createFakePiSession(
           message: "Agent runner session aborted",
         });
       }
+      const emit = emitForGeneration(randomUUID());
+      const startedAt = Date.now();
       sends.push({ prompt, opts });
       emit({
         kind: "turn",
@@ -76,29 +91,45 @@ export function createFakePiSession(
         provider: params.primary.provider,
         model: params.primary.model,
       });
-      const reply = await script({ prompt, opts, emit });
-      const { text, end }: { text: string; end: TurnEnd } =
-        typeof reply === "string" ? { text: reply, end: "completed" } : reply;
-      const turn: AgentRunnerTurn = {
-        text,
-        end,
-        prompt: promptMetadataFromText(prompt),
-      };
-      emit({
-        kind: "completion",
-        role: params.role,
-        phase: opts.phase,
-        checkpointId: opts.checkpointId,
-        provider: params.primary.provider,
-        model: params.primary.model,
-        ok: true,
-        end,
-      });
-      return turn;
+      try {
+        const reply = await script({ prompt, opts, emit });
+        const { text, end }: { text: string; end: TurnEnd } =
+          typeof reply === "string" ? { text: reply, end: "completed" } : reply;
+        const turn: AgentRunnerTurn = {
+          text,
+          end,
+          prompt: promptMetadataFromText(prompt),
+        };
+        emit({
+          kind: "completion",
+          role: params.role,
+          phase: opts.phase,
+          checkpointId: opts.checkpointId,
+          provider: params.primary.provider,
+          model: params.primary.model,
+          ok: true,
+          end,
+          durationMs: Date.now() - startedAt,
+        });
+        return turn;
+      } catch (error) {
+        emit({
+          kind: "failure",
+          role: params.role,
+          phase: opts.phase,
+          checkpointId: opts.checkpointId,
+          provider: params.primary.provider,
+          model: params.primary.model,
+          ok: false,
+          failureCode: error instanceof AppError ? error.code : "runtime.session_send_failed",
+          durationMs: Date.now() - startedAt,
+        });
+        throw error;
+      }
     },
     async abort() {
       aborted = true;
-      emit({
+      emitSession({
         kind: "cancellation",
         role: params.role,
         provider: params.primary.provider,

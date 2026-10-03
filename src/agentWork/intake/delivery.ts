@@ -26,6 +26,7 @@ import {
   acquireAutoWorkIntakeLock,
   replaceActiveAutoWorkItem,
   replaceAutoWorkItem,
+  type AutoWorkLifecycleChange,
   type AutoWorkSupersedeTarget,
 } from "../autoWorkEnqueue.js";
 import type { RequestLogger, WideEventLevel } from "../../evlog.js";
@@ -45,7 +46,13 @@ import {
   enqueueVerification,
   jobCorrelation,
 } from "./queueing.js";
-import { captureCiStateChanged } from "../../analytics/workCompleted.js";
+import {
+  captureCiStateChanged,
+  captureWorkTerminal,
+  installationDistinctId,
+} from "../../analytics/workCompleted.js";
+import { captureEvent } from "../../analytics/index.js";
+import type { CaptureEventInput } from "../../analytics/types.js";
 import {
   isHeadCiSeedPullRequest,
   requestHeadCiProjection,
@@ -74,16 +81,18 @@ type AutomatedKindDispatchDescriptor = {
 };
 
 async function dispatchAutomatedKind(
-  client: PoolClient,
+  tx: DeliveryTx,
+  ref: PrRef,
   resourceKey: string,
   correlation: JobCorrelation,
   descriptor: AutomatedKindDispatchDescriptor,
 ): Promise<DeferredIntakeEvent[]> {
-  const { workItemId } = await replaceAutoWorkItem({
-    client,
+  const { workItemId, lifecycleChanges } = await replaceAutoWorkItem({
+    client: tx.client,
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
+  tx.deferWorkLifecycle(ref, lifecycleChanges, "auto_replacement", correlation);
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);
   }
@@ -165,7 +174,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   if (plan.kinds.includes("review")) {
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
-      ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
+      ...(await dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
         target: {
           kind: "review",
           resourceKey,
@@ -203,7 +212,7 @@ async function applyPlannedAutomatedPullRequestIntake(
 
   if (plan.kinds.includes("reviewSupersede")) {
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
-    const { workItemId, supersededIds } = await replaceActiveAutoWorkItem({
+    const { workItemId, supersededIds, lifecycleChanges } = await replaceActiveAutoWorkItem({
       client,
       target: { kind: "review", resourceKey },
       createWorkItem: () =>
@@ -214,6 +223,7 @@ async function applyPlannedAutomatedPullRequestIntake(
           ackTargets,
         }),
     });
+    tx.deferWorkLifecycle(ref, lifecycleChanges, "auto_replacement", correlation);
     if (workItemId != null) {
       await enqueueAck(boss, client, {
         kind: "ack",
@@ -251,7 +261,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   if (plan.kinds.includes("description")) {
     const descriptionAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
-      ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
+      ...(await dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
         target: {
           kind: "description",
           resourceKey,
@@ -272,7 +282,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   if (plan.kinds.includes("verification")) {
     const verificationAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
-      ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
+      ...(await dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
         target: {
           kind: "verification",
           resourceKey,
@@ -340,6 +350,23 @@ async function applyReviewCloseCancelIntake(
   }
   const cancelledReviews = await cancelActiveReviews(client, resourceKey, attribution);
   const cancelledTriage = await cancelActiveTriage(client, resourceKey, attribution, ref.prNumber);
+  tx.deferWorkLifecycle(
+    ref,
+    [
+      ...cancelledReviews.map((row) => ({
+        ...row,
+        workType: "review" as const,
+        lifecycleStatus: "cancelled" as const,
+      })),
+      ...cancelledTriage.map((row) => ({
+        ...row,
+        workType: "triage" as const,
+        lifecycleStatus: "cancelled" as const,
+      })),
+    ],
+    observation.state === "merged" ? "pr_merged" : "pr_closed",
+    correlation,
+  );
   const cancelledReviewWorkItemIds = cancelledReviews.map((row) => row.id);
   const cancelledTriageWorkItemIds = cancelledTriage.map((row) => row.id);
   const cancelledWorkItemIds = [...cancelledReviewWorkItemIds, ...cancelledTriageWorkItemIds];
@@ -572,7 +599,7 @@ async function applyReviewApprovedIntake(
     const deferredRef = { ...ref, headSha: DEFERRED_HEAD_SHA };
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
-      ...(await dispatchAutomatedKind(client, resourceKey, correlation, {
+      ...(await dispatchAutomatedKind(tx, ref, resourceKey, correlation, {
         target: { kind: "review", resourceKey },
         createWorkItem: () =>
           createReviewWorkItem(client, {
@@ -913,10 +940,59 @@ export type IntakeCommand =
 export class DeliveryTx {
   readonly events: DeferredIntakeEvent[] = [];
   readonly afterCommit: Array<() => void> = [];
+  readonly lifecycleEvents: CaptureEventInput[] = [];
   constructor(
     readonly client: PoolClient,
     readonly headers: WebhookHeaders,
   ) {}
+  deferWorkLifecycle(
+    ref: PrRef,
+    changes: readonly (Omit<AutoWorkLifecycleChange, "lifecycleStatus"> & {
+      readonly lifecycleStatus: AutoWorkLifecycleChange["lifecycleStatus"] | "cancelled";
+    })[],
+    reason: "auto_replacement" | "review_force" | "slash_cancel" | "pr_closed" | "pr_merged",
+    correlation: JobCorrelation,
+  ): void {
+    for (const change of changes) {
+      if (change.lifecycleStatus !== "cancel_requested") {
+        const outcome = change.lifecycleStatus;
+        this.afterCommit.push(() =>
+          captureWorkTerminal({
+            workItemId: change.id,
+            installationId: ref.installationId,
+            owner: ref.owner,
+            repo: ref.repo,
+            prNumber: ref.prNumber,
+            headSha: change.headSha,
+            workType: change.workType,
+            outcome,
+            reason,
+            source: "intake",
+          }),
+        );
+        continue;
+      }
+      this.lifecycleEvents.push({
+        distinctId: installationDistinctId(ref.installationId),
+        event: "work lifecycle",
+        properties: {
+          work_item_id: change.id,
+          installation_id: ref.installationId,
+          owner: ref.owner,
+          repo: ref.repo,
+          pr_number: ref.prNumber,
+          head_sha: change.headSha,
+          work_type: change.workType,
+          lifecycle_status: change.lifecycleStatus,
+          reason,
+          source: "intake",
+          trigger_source: change.source,
+          webhook_event_id: correlation.webhookEventId,
+          delivery_id: correlation.delivery,
+        },
+      });
+    }
+  }
   async insert(decision: string): Promise<EventRecord> {
     const event = await insertWebhookEvent(this.client, this.headers, decision);
     if (event.duplicate)
@@ -982,7 +1058,22 @@ export async function runDelivery(
     tx.events.push(...events);
     return tx;
   });
-  for (const action of completed.afterCommit) action();
+  // Analytics is best effort. An accepted delivery remains accepted even when
+  // the sink fails, and no deferred metadata escapes a rolled-back transaction.
+  for (const action of completed.afterCommit) {
+    try {
+      action();
+    } catch {
+      // The committed durable state remains the source of truth.
+    }
+  }
+  for (const event of completed.lifecycleEvents) {
+    try {
+      captureEvent(event);
+    } catch {
+      // A failed capture must not suppress another changed item's event.
+    }
+  }
   for (const event of completed.events)
     recordEvent(log, event.name, event.fields, event.level ?? "info");
 }

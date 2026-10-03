@@ -88,7 +88,7 @@ describe("replaceAutoWorkItem", () => {
       createWorkItem,
     });
 
-    expect(result).toEqual({ workItemId: "replacement-id", supersededIds: ["queued-1"] });
+    expect(result).toMatchObject({ workItemId: "replacement-id", supersededIds: ["queued-1"] });
     expect(createWorkItem).toHaveBeenCalledTimes(1);
     expect(client.linkedIds).toEqual(["queued-1"]);
   });
@@ -103,7 +103,7 @@ describe("replaceAutoWorkItem", () => {
       createWorkItem,
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       workItemId: "replacement-id",
       supersededIds: ["queued-1", "queued-2", "running-1"],
     });
@@ -122,7 +122,7 @@ describe("replaceAutoWorkItem", () => {
       createWorkItem,
     });
 
-    expect(result).toEqual({ workItemId: null, supersededIds: [] });
+    expect(result).toEqual({ workItemId: null, supersededIds: [], lifecycleChanges: [] });
     expect(createWorkItem).not.toHaveBeenCalled();
     expect(client.linkedIds).toEqual([]);
   });

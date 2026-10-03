@@ -24,6 +24,22 @@ Large PR reviews drive many GitHub REST calls in a single **review run** (pg-bos
 
 5. **`listPullRequestFiles`** — Server-side pagination (`per_page: 100`), caps `MAX_PR_FILES_LISTED` (default 300) and `MAX_PR_FILES_PATCH_BYTES` (default 500_000).
 
+6. **Bounded installation preflight.** Each new review execution observes
+   `GET /repos/{owner}/{repo}/installation` with an App JWT. Installation
+   metadata and a necessary cold token mint or refresh share a two-second total
+   deadline, transport cancellation, and disabled request retries. This path
+   never waits inline for throttling. Ordinary PR reads and model execution
+   are outside that budget. In-flight observations join only for the same
+   credential identity, installation, and repository; completed observations
+   are not a freshness cache. Managed surfaces resolve the current token at
+   each call, including near-expiry refresh.
+
+   Shared-circuit deferral performs no metadata probe and spends no
+   preflight-failure count. Unknown access checks use a separate lease-fenced
+   durable budget of `QUEUE_RETRY_LIMIT + 1`, not model attempts or escalation.
+   A successful preflight resets it. Timeout, rate limit, cancellation,
+   malformed metadata, and ambiguous errors are not confirmed denial.
+
 ## Consequences
 
 - Reviews on large PRs may run longer (throttle waits); ADR 0006 moves review execution out of the webhook request fiber.
@@ -31,7 +47,9 @@ Large PR reviews drive many GitHub REST calls in a single **review run** (pg-bos
 - Throttle state is per-process; `REVIEW_CONCURRENCY > 1` or multi-replica deploys can still burst the same installation.
 - Effective GitHub load scales roughly as `replicas × localConcurrency` per queue (see [operations.md](../operations.md)).
 - **MVP shared circuit:** opening a local rate-limit circuit also upserts Postgres `github_installation_rate_limit_circuits` (`installation_id`, `open_until`, `last_error_kind`). Other workers check that row before starting review/ask runs and hydrate their local circuit open so they do not immediately re-amplify 403/429 on the same installation.
-- **CI projector:** the projector is the other shared-circuit consumer ([ADR 0035](0035-head-ci-state-projection.md)). If the row is open, it re-enqueues with `startAfter = open_until` and exits. That is the only REST gate for projection. The in-process circuit still short-circuits agent tools only.
+- **CI projector:** the projector honors the shared circuit before any network
+  access and defers to `open_until`. Scoped capability availability also gates
+  source reads and optional writes ([ADR 0035](0035-head-ci-state-projection.md)).
 
 ## Superseded by ADR 0006
 

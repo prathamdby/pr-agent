@@ -69,6 +69,25 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
 });
 
 describe("verificationThreadLedger", () => {
+  it("retains exact completion receipts while rejecting malformed ones", () => {
+    const completion = {
+      workItemId: "wi",
+      operationKey: "verification:thread:10",
+      headSha: "a".repeat(40),
+      verdict: "dismissed",
+      stubOutcome: "written",
+      stubCommentId: 99,
+      resolutionOutcome: "resolved",
+    };
+    const ledger = parseVerificationThreadLedger({
+      threads: {
+        "10": { lastVerdict: "dismissed", completion },
+        "11": { lastVerdict: "fixed", completion: { ...completion, stubCommentId: undefined } },
+      },
+    });
+    expect(ledger.threads["10"]).toEqual({ lastVerdict: "dismissed", completion });
+    expect(ledger.threads["11"]).toEqual({ lastVerdict: "fixed" });
+  });
   it("parses the threads map detail shape", () => {
     const ledger = parseVerificationThreadLedger({
       threads: {

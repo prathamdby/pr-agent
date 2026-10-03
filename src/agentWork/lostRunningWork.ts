@@ -13,6 +13,20 @@ import { reviewVerdict, asTerminalOwnCheckStatus, isOwnCheckOpen } from "./revie
 import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
 import { errorMessage } from "../errors/errorMessage.js";
+import {
+  loadGithubCapabilityObservation,
+  recordGithubCapabilityDenial,
+} from "./githubCapabilityRepository.js";
+import {
+  getOwnVerdictCloseRecord,
+  ownVerdictStatusApplicable,
+  hasOwnVerdictSurfaceAcceptance,
+} from "./publishRecordRepository.js";
+import {
+  availableInstallationCapabilities,
+  unknownInstallationCapabilities,
+  createReviewCapabilityPolicy,
+} from "../github/installationCapabilities.js";
 
 export async function listTerminalReviewsWithOpenOwnChecks(
   pool: Pool,
@@ -27,15 +41,33 @@ export async function listTerminalReviewsWithOpenOwnChecks(
             w.resource_key,
             w.type AS work_type
        FROM agent_work_items w
-       JOIN publish_records p
+       LEFT JOIN publish_records p
          ON p.work_item_id = w.id
         AND p.step = 'check_run'
-        AND p.status = 'completed'
       WHERE w.type = 'review'
         AND w.status IN ('completed', 'failed', 'cancelled', 'superseded')
         AND (
-          COALESCE(p.detail->>'status', '') = 'in_progress'
-          OR COALESCE(p.detail->>'conclusion', '') = ''
+          (p.detail ? 'selectedOwnVerdict' AND (
+            (COALESCE(p.detail->>'ownCheckApplied', '') <> 'true'
+              AND COALESCE(p.detail->>'ownCheckState', '') <> 'skipped-for-this-run')
+            OR (p.detail->'selectedOwnVerdict'->'status'->>'enabled' = 'true'
+              AND COALESCE(p.detail->'selectedOwnVerdict'->'status'->>'headSha', '')
+                  NOT IN ('', 'deferred-to-worker')
+              AND COALESCE(p.detail->>'ownStatusApplied', '') <> 'true'
+              AND COALESCE(p.detail->>'ownStatusState', '') <> 'skipped-for-this-run')
+          ))
+          OR (NOT (p.detail ? 'selectedOwnVerdict') AND p.status = 'completed' AND (
+            COALESCE(p.detail->>'status', '') = 'in_progress'
+            OR COALESCE(p.detail->>'conclusion', '') = ''
+          ))
+          OR (p.id IS NULL AND EXISTS (
+            SELECT 1 FROM operation_intents i WHERE i.work_item_id = w.id
+              AND i.mutation_kind = 'github.review_commit_status'
+              AND (i.detail->>'state' = 'pending'
+                   OR i.operation_key LIKE 'review:commit_status:%:pending')
+              AND (i.status IN ('reconciled', 'outcome_unknown') OR i.detail ? '__result'
+                   OR (i.status <> 'failed' AND i.detail->'__mutating' = 'true'::jsonb))
+          ))
         )
       ORDER BY w.updated_at ASC
       LIMIT $1::int`,
@@ -60,12 +92,59 @@ async function closeOpenOwnVerdict(params: {
     return;
   }
   if (core.headSha === DEFERRED_HEAD_SHA) return;
+  const identity = {
+    workItemId: core.id,
+    resourceKey: core.resourceKey,
+    reviewLens: core.reviewLens,
+  };
+  const record = await getOwnVerdictCloseRecord(params.pool, identity);
   const checkDetail = await createPublishContext(params.pool, {
     workItemId: core.id,
     resourceKey: core.resourceKey,
     reviewLens: core.reviewLens,
   }).completed("check_run");
-  if (!isOwnCheckOpen(checkDetail)) return;
+  if (record?.legacyClosed || (record?.selected == null && !isOwnCheckOpen(checkDetail))) return;
+  const saved = await loadGithubCapabilityObservation(params.pool, core);
+  const available = availableInstallationCapabilities({
+    appId: params.cfg.github.appId,
+    installationId: core.installationId,
+    owner: core.owner,
+    repo: core.repo,
+  });
+  const unknown = unknownInstallationCapabilities(available.scope, String(saved?.generation ?? 0));
+  const capabilities = createReviewCapabilityPolicy(
+    saved == null
+      ? available
+      : {
+          ...available,
+          generation: String(saved.generation),
+          availability: { ...unknown.availability, ...saved.capabilities },
+        },
+    saved == null
+      ? undefined
+      : async (operation) => {
+          await recordGithubCapabilityDenial(params.pool, {
+            installationId: core.installationId,
+            owner: core.owner,
+            repo: core.repo,
+            generation: saved.generation,
+            operation,
+          });
+        },
+  );
+  const checkNeedsRepair = !record?.checkApplied && record?.checkState !== "skipped-for-this-run";
+  const statusNeedsRepair =
+    record?.selected == null
+      ? params.cfg.features.commitStatus ||
+        (await hasOwnVerdictSurfaceAcceptance(params.pool, identity, "status"))
+      : ownVerdictStatusApplicable(record.selected) &&
+        !record.statusApplied &&
+        record.statusState !== "skipped-for-this-run";
+  if (
+    (!checkNeedsRepair || capabilities.access("checksWrite") !== "available") &&
+    (!statusNeedsRepair || capabilities.access("statusesWrite") !== "available")
+  )
+    return;
   const installation = await productionInstallationSurface.token(params.cfg, core.installationId);
   const prSurface = await productionInstallationSurface.create({
     cfg: params.cfg,
@@ -74,6 +153,7 @@ async function closeOpenOwnVerdict(params: {
     repo: core.repo,
     prNumber: core.prNumber,
     installation,
+    capabilities,
   });
   await reviewVerdict({
     pool: params.pool,

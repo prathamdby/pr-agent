@@ -38,14 +38,20 @@ export type SpecialistBriefRenderOptions = {
   };
 };
 
-export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
+export function buildSpecialistBriefTool(
+  phaseRef: OrchestratorPhaseRef,
+  options?: {
+    readonly initialBrief?: SpecialistBrief;
+    readonly onAccepted?: (brief: SpecialistBrief) => Promise<void>;
+  },
+): {
   readonly piTool: PiTool;
   readonly executor: AgentRunnerToolExecutor;
   readonly getBrief: () => SpecialistBrief | null;
   readonly getValidationError: () => string | null;
   readonly clearValidationError: () => void;
 } {
-  let brief: SpecialistBrief | null = null;
+  let brief: SpecialistBrief | null = options?.initialBrief ?? null;
   let validationError: string | null = null;
   const piTool: PiTool = {
     name: "submit_specialist_brief",
@@ -72,6 +78,7 @@ export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
       validationError = parsed.error;
       return { accepted: false, error: validationError };
     }
+    await options?.onAccepted?.(parsed.value);
     brief = parsed.value;
     validationError = null;
     return { accepted: true };
