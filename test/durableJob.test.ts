@@ -240,7 +240,7 @@ function defaultMocks() {
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCancelled).mockResolvedValue();
+  vi.mocked(repo.markWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markQueuedWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue();
   vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
@@ -950,6 +950,8 @@ describe("durable execution context policies", () => {
       owner: item.owner,
       repo: item.repo,
       prNumber: item.prNumber,
+      executionId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      attemptCount: undefined,
     });
   });
 

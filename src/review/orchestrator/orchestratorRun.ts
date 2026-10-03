@@ -8,9 +8,7 @@ import { isCancelAbortError } from "../../agent/providers/providerErrors.js";
 import {
   resolveAgentEventsContext,
   safeEmitDecisionEvent,
-  emitWorkSpan,
 } from "../../agent/runtime/agentEventSink.js";
-import { llmSpanFromSession } from "../../analytics/workSpan.js";
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText, runValidationRepairLoop } from "../../agent/runtime/featureAgent.js";
 import { escalatedToolRounds, type EscalationPlan } from "../../agentWork/retryPolicy.js";
@@ -277,33 +275,6 @@ export async function runOrchestratedPrReview(
   const briefTool = buildSpecialistBriefTool(phaseRef);
   const state = initialState();
   const agentEvents = resolveAgentEventsContext(params.cfg, params.sessionContext);
-  const workSpanContext =
-    params.sessionContext != null
-      ? {
-          workItemId: params.sessionContext.workItemId,
-          installationId: params.sessionContext.installationId,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-        }
-      : null;
-  const emitSpecialistSpan = (outcome: SpecialistOutcome): void => {
-    if (!workSpanContext) return;
-    emitWorkSpan(
-      agentEvents,
-      params.cfg,
-      llmSpanFromSession({
-        context: workSpanContext,
-        phase: `specialist_${outcome.specialist}`,
-        sessionRole: "specialist",
-        provider: params.cfg.models.provider,
-        model: params.cfg.models.model,
-        latencyMs: outcome.durationMs,
-        isError: outcome.kind === "error",
-        ...(outcome.kind === "error" ? { errorReason: outcome.error.code } : {}),
-      }),
-    );
-  };
   const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
   const resolveProgressCommentUrl = async (): Promise<string | undefined> => {
     let commentId: number | null | undefined;
@@ -783,7 +754,6 @@ export async function runOrchestratedPrReview(
 
   const recordOutcome = async (outcome: SpecialistOutcome): Promise<void> => {
     if (state.outcomes[outcome.specialist] != null) return;
-    emitSpecialistSpan(outcome);
     state.outcomes[outcome.specialist] = outcome;
     state.completionOrder.push(outcome.specialist);
     state.progressRevision = nextProgressRevision(state.progressRevision);

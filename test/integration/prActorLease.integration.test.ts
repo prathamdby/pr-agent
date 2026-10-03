@@ -3653,7 +3653,7 @@ describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
         target: { kind: "triage", resourceKey: triageKey },
         createWorkItem: async () => insertAutoQueued(triageKey, "review"),
       });
-      expect(result).toEqual({ workItemId: null, supersededIds: [] });
+      expect(result).toEqual({ workItemId: null, supersededIds: [], lifecycleChanges: [] });
     } finally {
       triageClient.release();
     }

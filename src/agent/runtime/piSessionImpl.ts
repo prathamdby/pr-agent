@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   type AgentContext,
   type AgentEvent,
@@ -69,7 +70,22 @@ function convertToLlm(messages: AgentMessage[]): Message[] {
 }
 
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
-  const emit = createSanitizedEventSink(params.eventSink);
+  const sessionId = randomUUID();
+  const emitForGeneration = (generationId?: string) =>
+    createSanitizedEventSink((event) => {
+      // Correlation is runtime-owned and added after the content allowlist.
+      try {
+        params.eventSink({
+          ...event,
+          sessionId,
+          ...(generationId != null ? { generationId } : {}),
+          ...(params.specialistId != null ? { specialistId: params.specialistId } : {}),
+        });
+      } catch {
+        // Observers cannot fail or retry an agent send.
+      }
+    });
+  const emitSession = emitForGeneration();
   const sessionAbort = new AbortController();
   // pi-agent-core no longer takes a separate systemPrompt on AgentContext: the
   // prompt travels as the leading system message of the transcript instead.
@@ -115,11 +131,11 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
   const abort = (): Promise<void> => {
     abortPromise ??= (async () => {
       sessionAbort.abort();
-      emit({
+      emitSession({
         kind: "cancellation",
         role: params.role,
-        provider: params.primary.provider,
-        model: params.primary.model,
+        provider: model.provider,
+        model: model.id,
         reason: "abort",
       });
     })();
@@ -137,6 +153,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           message: "Agent runner session aborted",
         });
       }
+      const emit = emitForGeneration(randomUUID());
       const sendAbort = new AbortController();
       const loopSignal = combineAbortSignals([
         sessionAbort.signal,
@@ -161,8 +178,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           emit({
             kind: "compaction",
             role: params.role,
-            provider: params.primary.provider,
-            model: params.primary.model,
+            provider: model.provider,
+            model: model.id,
             reason,
           }),
       });
@@ -233,8 +250,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             phase: opts.phase,
             toolName: event.toolName,
             checkpointId: opts.checkpointId,
-            provider: params.primary.provider,
-            model: params.primary.model,
+            provider: model.provider,
+            model: model.id,
           });
         }
         if (event.type !== "turn_end") return;
@@ -255,8 +272,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
               kind: "usage",
               role: params.role,
               phase: opts.phase,
-              provider: params.primary.provider,
-              model: params.primary.model,
+              provider: model.provider,
+              model: model.id,
               ...(turnUsage?.inputTokens != null ? { inputTokens: turnUsage.inputTokens } : {}),
               ...(turnUsage?.outputTokens != null ? { outputTokens: turnUsage.outputTokens } : {}),
               ...(turnUsage?.cacheReadTokens != null
@@ -281,8 +298,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         role: params.role,
         phase: opts.phase,
         checkpointId: opts.checkpointId,
-        provider: params.primary.provider,
-        model: params.primary.model,
+        provider: model.provider,
+        model: model.id,
       });
 
       let sendStartedAt: number | undefined;
@@ -303,8 +320,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
               kind: "retry",
               role: params.role,
               checkpointId: opts.checkpointId,
-              provider: params.primary.provider,
-              model: params.primary.model,
+              provider: model.provider,
+              model: model.id,
               attempt,
               reason: "provider",
             }),
@@ -354,8 +371,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           role: params.role,
           phase: opts.phase,
           checkpointId: opts.checkpointId,
-          provider: params.primary.provider,
-          model: params.primary.model,
+          provider: model.provider,
+          model: model.id,
           ok: true,
           end,
           ...(durationMs != null ? { durationMs } : {}),
@@ -380,8 +397,8 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           role: params.role,
           phase: opts.phase,
           checkpointId: opts.checkpointId,
-          provider: params.primary.provider,
-          model: params.primary.model,
+          provider: model.provider,
+          model: model.id,
           ok: false,
           failureCode:
             error instanceof AppError

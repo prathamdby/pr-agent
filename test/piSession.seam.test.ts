@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
+import type { AgentLifecycleEvent } from "../src/agent/runtime/types.js";
 
 const runAgentLoop = vi.hoisted(() => vi.fn());
 
@@ -61,6 +62,57 @@ describe("createPiSession seam", () => {
     expect(events.map((event) => event.kind)).toContain("turn");
     expect(events.map((event) => event.kind)).toContain("completion");
 
+    await session.dispose();
+  });
+
+  it("keeps send ids stable through completion and aggregates measured turn usage", async () => {
+    const events: AgentLifecycleEvent[] = [];
+    runAgentLoop.mockImplementation(async (_prompts, _context, _config, emit) => {
+      for (const input of [10, 20]) {
+        await emit({
+          type: "turn_end",
+          toolResults: [],
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "answer" }],
+            stopReason: "stop",
+            usage: { input, output: 3, cacheRead: 4, cacheWrite: 0, totalTokens: input + 7 },
+          },
+        });
+      }
+      return [];
+    });
+    const session = await createPiSession({
+      role: "specialist",
+      specialistId: "quality",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("specialist"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      systemPrompt: "system",
+      eventSink: (event) => events.push(event),
+      cfg: makeTestConfig({ models: { providerKeys: { openai: "k" } } }),
+      tools: [],
+      executors: {},
+    });
+    await session.send("first", { phase: "specialist", checkpointId: "same" });
+    await session.send("repair", { phase: "validation_repair", checkpointId: "same" });
+    const starts = events.filter((event) => event.kind === "turn");
+    const ends = events.filter((event) => event.kind === "completion");
+    expect(ends).toHaveLength(2);
+    expect(ends[0]).toMatchObject({
+      generationId: starts[0]?.generationId,
+      sessionId: starts[0]?.sessionId,
+      specialistId: "quality",
+      inputTokens: 30,
+      outputTokens: 6,
+      cacheReadTokens: 8,
+    });
+    expect(ends[0]?.generationId).not.toBe(ends[1]?.generationId);
+    expect(ends[0]?.sessionId).toBe(ends[1]?.sessionId);
+    const cacheId = runAgentLoop.mock.calls[0]?.[2]?.sessionId;
+    expect(ends[0]?.sessionId).not.toBe(cacheId);
     await session.dispose();
   });
 

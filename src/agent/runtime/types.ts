@@ -62,7 +62,7 @@ export type PiSessionSendOptions = {
 
 export type PiSessionCreateParams = {
   readonly role: AgentSessionRole;
-  /** Optional specialist persona; included in OpenAI-style session cache identity. */
+  /** Specialist persona for lifecycle correlation and the unchanged cache identity. */
   readonly specialistId?: string;
   readonly primary: ModelAssignment;
   readonly thinkingPolicy: ThinkingPolicy;

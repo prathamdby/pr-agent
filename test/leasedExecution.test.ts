@@ -122,6 +122,7 @@ import * as appAuth from "../src/github/appAuth.js";
 import * as prSurface from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { mockWorkClaim } from "./helpers/executorDurableHarness.js";
+import { openLeasedExecution } from "../src/agentWork/leasedExecution.js";
 
 let installationSurface = openInstallationSurface();
 
@@ -216,7 +217,7 @@ function defaultMocks() {
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
-  vi.mocked(repo.markWorkCancelled).mockResolvedValue();
+  vi.mocked(repo.markWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markQueuedWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue();
   vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
@@ -244,6 +245,38 @@ describe("leased execution", () => {
     vi.clearAllMocks();
     defaultMocks();
   });
+  it.each([true, false])(
+    "preserves the acknowledged cancellation result through both lease APIs (%s)",
+    async (changed) => {
+      const item = makeItem();
+      vi.mocked(repo.markWorkCancelled).mockResolvedValue(changed);
+      const execution = await openLeasedExecution({
+        cfg,
+        pool,
+        boss,
+        job: makeJob(),
+        type: "review",
+        core: coreOf(item),
+        prActorLease: { queue: "agent-work-review" },
+        runtime: createDurableRuntime({
+          transaction: vi.fn().mockImplementation(async (_pool, fn) => fn(pool)),
+          startLeaseRenewal: vi.fn(() => () => undefined),
+        }),
+      });
+      if (!execution) throw new Error("expected an owned execution");
+      try {
+        await expect(execution.cancelWhileOwned(item, "cancel")).resolves.toBe(changed);
+        await expect(execution.mark.cancelled(item.id)).resolves.toBe(changed);
+        expect(repo.markWorkCancelled).toHaveBeenNthCalledWith(1, pool, item.id, 1);
+        expect(repo.markWorkCancelled).toHaveBeenNthCalledWith(2, pool, item.id, 1);
+        vi.mocked(prActorLease.isPrActorLeaseHeld).mockResolvedValue(false);
+        await expect(execution.cancelWhileOwned(item, "lost")).resolves.toBeNull();
+        expect(repo.markWorkCancelled).toHaveBeenCalledTimes(2);
+      } finally {
+        await execution.release();
+      }
+    },
+  );
   it("claims through the unified path and acquires the PR actor lease", async () => {
     const item = makeItem();
     mockFetchedItem(item);

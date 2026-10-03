@@ -113,6 +113,13 @@ const mockPostHog = vi.hoisted(() => {
 });
 
 vi.mock("posthog-node", () => ({ PostHog: mockPostHog.PostHog }));
+vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/agentWork/prActorLease.js")>()),
+  acquirePrActorLease: vi.fn(async () => ({ acquired: true, leaseEpoch: 1 })),
+  isPrActorLeaseHeld: vi.fn(async () => true),
+  releasePrActorLease: vi.fn(async () => undefined),
+  armLeaseWatchdogHop: vi.fn(async () => ({ liveHop: true })),
+}));
 
 vi.mock("../src/agentWork/publishRecordRepository.js", () => ({
   loadReviewExecutorPublishContext: vi.fn(),
@@ -153,6 +160,7 @@ vi.mock("../src/github/appAuth.js", () => ({
 import * as repo from "../src/agentWork/workItemStateRepository.js";
 import * as publishRecords from "../src/agentWork/publishRecordRepository.js";
 import * as appAuth from "../src/github/appAuth.js";
+import { isPrActorLeaseHeld } from "../src/agentWork/prActorLease.js";
 
 let installationSurface = openInstallationSurface();
 
@@ -201,6 +209,8 @@ describe("durableJob analytics forwarding", () => {
     vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
     vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
     vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
+    vi.mocked(repo.markWorkCancelled).mockResolvedValue(false);
+    vi.mocked(isPrActorLeaseHeld).mockResolvedValue(true);
     vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue(undefined);
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
     vi.mocked(loadPrHeadCiState).mockResolvedValue(null);
@@ -229,6 +239,157 @@ describe("durableJob analytics forwarding", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await shutdownAnalytics();
+  });
+
+  it.each([
+    { leaseMode: "unleased", changed: true },
+    { leaseMode: "unleased", changed: false },
+    { leaseMode: "leased", changed: true },
+    { leaseMode: "leased", changed: false },
+  ] as const)(
+    "gates terminal cancellation on acknowledgement ($leaseMode, $changed)",
+    async ({ leaseMode, changed }) => {
+      const item = makeReviewWorkItem({ installationId: 99 });
+      vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+      vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+      const capture = mockPostHog.instances[0]?.capture;
+      let acknowledge: (changed: boolean) => void = () => {
+        throw new Error("cancellation has not reached its writer");
+      };
+      vi.mocked(repo.markWorkCancelled).mockImplementation(
+        () =>
+          new Promise<boolean>((resolve) => {
+            acknowledge = resolve;
+          }),
+      );
+      let executing = false;
+      vi.mocked(repo.shouldSkipWork).mockImplementation(
+        async () => leaseMode === "unleased" || executing,
+      );
+      const dispatch = runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job: reviewJob(item.id, 0, 3),
+        runtime: createDurableRuntime({
+          installationSurface,
+          transaction: vi.fn().mockImplementation(async (_pool, fn) => fn(pool)),
+          startLeaseRenewal: vi.fn(() => () => undefined),
+          startCancelObserve: vi.fn(() => () => undefined),
+        }),
+        ...(leaseMode === "leased" ? { prActorLease: { queue: "agent-work-review" } } : {}),
+        contextPolicy: { commenterId: () => undefined },
+        resolveHeadSha: async () => ({ headSha: item.headSha }),
+        execute: async () => {
+          executing = true;
+          return { kind: "completed" };
+        },
+      });
+      await expect.poll(() => vi.mocked(repo.markWorkCancelled).mock.calls.length).toBe(1);
+      expect(capture).not.toHaveBeenCalledWith(
+        expect.objectContaining({ event: "work item cancelled" }),
+      );
+      acknowledge(changed);
+      await dispatch;
+      const terminals = capture?.mock.calls.filter(
+        ([event]) => event.event === "work item cancelled",
+      );
+      expect(terminals).toHaveLength(changed ? 1 : 0);
+      if (changed) {
+        expect(terminals?.[0]?.[0]).toMatchObject({
+          properties: { work_item_id: item.id, source: "worker", outcome: "cancelled" },
+        });
+      }
+      expect(repo.markWorkCompleted).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not infer terminal cancellation after lease ownership is lost", async () => {
+    const item = makeReviewWorkItem({ installationId: 99 });
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+    let executing = false;
+    vi.mocked(isPrActorLeaseHeld).mockImplementation(async () => !executing);
+    vi.mocked(repo.shouldSkipWork).mockImplementation(async () => executing);
+    vi.mocked(repo.markWorkCancelled).mockResolvedValue(true);
+    await runDurableWorkItem({
+      type: "review",
+      cfg,
+      pool,
+      boss,
+      job: reviewJob(item.id, 0, 3),
+      prActorLease: { queue: "agent-work-review" },
+      runtime: createDurableRuntime({
+        installationSurface,
+        transaction: vi.fn().mockImplementation(async (_pool, fn) => fn(pool)),
+        startLeaseRenewal: vi.fn(() => () => undefined),
+        startCancelObserve: vi.fn(() => () => undefined),
+      }),
+      contextPolicy: { commenterId: () => undefined },
+      resolveHeadSha: async () => ({ headSha: item.headSha }),
+      execute: async () => {
+        executing = true;
+        return { kind: "completed" };
+      },
+    });
+    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(mockPostHog.instances[0]?.capture).toHaveBeenCalledTimes(1);
+    expect(mockPostHog.instances[0]?.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work execution stopped",
+        properties: expect.objectContaining({ reason: "lease_lost" }),
+      }),
+    );
+  });
+
+  it.each([
+    makeReviewWorkItem,
+    makeAskWorkItem,
+    makeDescriptionWorkItem,
+    makeTriageWorkItem,
+    makeVerificationWorkItem,
+  ])("reports an aborted execution without inventing a terminal completion", async (makeItem) => {
+    const item = makeItem({ installationId: 99 });
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+    const abort = new AbortController();
+    const job = { ...reviewJob(item.id, 0, 3), signal: abort.signal };
+    await runDurableWorkItem({
+      type: item.type,
+      cfg,
+      pool,
+      boss,
+      job,
+      runtime: createDurableRuntime({ installationSurface }),
+      contextPolicy: { commenterId: () => undefined },
+      resolveHeadSha: async () => ({ headSha: item.headSha }),
+      execute: async (_item, execution) => {
+        await execution.beginAttempt();
+        abort.abort();
+        throw new AppError({
+          domain: "agent",
+          kind: "session_aborted",
+          message: "Aborted",
+        });
+      },
+    });
+    const capture = mockPostHog.instances[0]?.capture;
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "work execution stopped",
+        properties: expect.objectContaining({
+          work_item_id: item.id,
+          work_type: item.type,
+          reason: "job_aborted",
+          execution_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          attempt_count: 1,
+        }),
+      }),
+    );
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
   });
 
   it.each(["won", "lost", "cleanup_throw"] as const)(

@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PiSessionCreateParams } from "./types.js";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../settings/index.js";
@@ -25,6 +25,8 @@ export type FeatureSessionContext = {
   readonly owner?: string;
   readonly repo?: string;
   readonly prNumber?: number;
+  readonly executionId?: string;
+  readonly attemptCount?: number;
 };
 
 function attachSessionAbort(session: PiSession, sessionAbort: AbortController): PiSession {
@@ -49,7 +51,9 @@ export async function createFeaturePiSession(params: {
   readonly cwd?: string;
   readonly eventSink?: (event: AgentLifecycleEvent) => void;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-  readonly sessionContext?: FeatureSessionContext;
+  readonly sessionContext?: Omit<FeatureSessionContext, "pool"> & {
+    readonly pool: Pool | PoolClient;
+  };
   /** Durable job/lease abort; combined with the session abort and the loop signal. */
   readonly hostSignal?: AbortSignal;
   /** Model this durable attempt runs on; defaults to the role policy when omitted. */
@@ -61,13 +65,14 @@ export async function createFeaturePiSession(params: {
   const durableEventSink = agentEventsContext
     ? createDurableLifecycleEventSink(agentEventsContext, params.cfg)
     : null;
-  const eventSink =
-    durableEventSink && params.eventSink
-      ? (event: AgentLifecycleEvent) => {
-          params.eventSink?.(event);
-          durableEventSink(event);
-        }
-      : (durableEventSink ?? params.eventSink ?? (() => undefined));
+  const eventSink = (event: AgentLifecycleEvent): void => {
+    try {
+      params.eventSink?.(event);
+    } catch {
+      // Custom observers must not suppress the independent telemetry sink.
+    }
+    durableEventSink?.(event);
+  };
   const executors = { ...params.executors };
   const execute = executors[CODE_MODE_EXECUTE_NAME];
   const sessionAbort = new AbortController();

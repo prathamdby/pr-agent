@@ -10,6 +10,9 @@ export type AgentAuditRecord = {
   readonly toolName?: string;
   readonly provider: string;
   readonly model: string;
+  readonly sessionId?: string;
+  readonly generationId?: string;
+  readonly specialistId?: string;
   readonly ok?: boolean;
   readonly failureCode?: string;
   readonly failureDomain?: string;
@@ -43,6 +46,9 @@ export function agentAuditRecordFromLifecycleEvent(
     role: event.role,
     provider: event.provider,
     model: event.model,
+    ...(event.sessionId != null ? { sessionId: event.sessionId } : {}),
+    ...(event.generationId != null ? { generationId: event.generationId } : {}),
+    ...(event.specialistId != null ? { specialistId: event.specialistId } : {}),
     recordedAt: now().toISOString(),
   };
 

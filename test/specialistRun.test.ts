@@ -29,6 +29,12 @@ const runnerMocks = vi.hoisted(() => ({
   createSession: vi.fn(),
   behaviors: [] as AttemptBehavior[],
   sessions: [] as TestSession[],
+  captureWorkSpan: vi.fn(),
+}));
+
+vi.mock("../src/analytics/workSpan.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/analytics/workSpan.js")>()),
+  captureWorkSpan: runnerMocks.captureWorkSpan,
 }));
 
 vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
@@ -191,6 +197,37 @@ describe("runSpecialist", () => {
       maxToolRounds: 24,
       phase: "specialist",
       checkpointId: "specialist:specialist",
+    });
+  });
+
+  it("emits schema and run spans at the specialist boundary without fabricating generations", async () => {
+    runnerMocks.behaviors.push({ kind: "report", report: emptyReport });
+    const context = {
+      pool: {} as never,
+      workItemId: "work",
+      installationId: 1,
+      owner: "owner",
+      repo: "repo",
+      prNumber: 2,
+      executionId: "execution",
+      attemptCount: 2,
+    };
+    const outcome = await runSpecialist(specialistArgs({ agentEvents: context }));
+    expect(outcome.kind).toBe("empty");
+    expect(runnerMocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionContext: context }),
+    );
+    const spans = runnerMocks.captureWorkSpan.mock.calls.map(([span]) => span);
+    expect(spans.map((span) => span.spanName)).toEqual([
+      "specialist:correctness:schema",
+      "specialist:correctness:run",
+    ]);
+    expect(spans.every((span) => span.kind === "specialist_span")).toBe(true);
+    expect(spans.at(-1)).toMatchObject({
+      outcome: "empty",
+      specialistId: "correctness",
+      executionId: "execution",
+      attemptCount: 2,
     });
   });
 

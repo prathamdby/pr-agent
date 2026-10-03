@@ -202,7 +202,8 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
   it("prevents completion after cancellation wins", async () => {
     const id = await insertWorkItem({ status: "running", attemptCount: 1 });
 
-    await markWorkCancelled(pool, id);
+    await expect(markWorkCancelled(pool, id)).resolves.toBe(true);
+    await expect(markWorkCancelled(pool, id)).resolves.toBe(false);
 
     await expect(markWorkCompleted(pool, id, null)).resolves.toBe(false);
     await expect(getWorkRow(id)).resolves.toMatchObject({ status: "cancelled" });
@@ -214,10 +215,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       markWorkFailed(pool, id, new Error("guarded failure"), epoch),
     retrying: (id: string, epoch: number | null) =>
       markWorkRetrying(pool, id, new Error("guarded retry"), epoch),
-    cancelled: async (id: string, epoch: number | null) => {
-      await markWorkCancelled(pool, id, epoch);
-      return (await getWorkRow(id)).status === "cancelled";
-    },
+    cancelled: (id: string, epoch: number | null) => markWorkCancelled(pool, id, epoch),
   };
 
   it.each(["completed", "failed", "retrying", "cancelled"] as const)(

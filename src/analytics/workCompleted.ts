@@ -338,23 +338,97 @@ export type WorkItemRetried = WorkIdentity & {
 };
 
 export function captureWorkRetried(input: WorkItemRetried): void {
-  captureEvent({
-    distinctId: installationDistinctId(input.installationId),
-    event: "work item retried",
-    properties: {
-      work_item_id: input.workItemId,
-      work_type: input.workType,
-      owner: input.owner,
-      repo: input.repo,
-      pr_number: input.prNumber,
-      head_sha: input.headSha,
-      attempt_count: input.attemptCount,
-      next_attempt: input.nextAttempt,
-      retry_disposition: input.retryDisposition,
-      escalation_kinds: [...input.escalationKinds],
-      ...failureEnvelopeProperties(input.failure),
-    },
-  });
+  try {
+    captureEvent({
+      distinctId: installationDistinctId(input.installationId),
+      event: "work item retried",
+      properties: {
+        work_item_id: input.workItemId,
+        work_type: input.workType,
+        owner: input.owner,
+        repo: input.repo,
+        pr_number: input.prNumber,
+        head_sha: input.headSha,
+        attempt_count: input.attemptCount,
+        next_attempt: input.nextAttempt,
+        retry_disposition: input.retryDisposition,
+        escalation_kinds: [...input.escalationKinds],
+        ...failureEnvelopeProperties(input.failure),
+      },
+    });
+  } catch {
+    // Telemetry must not replace the error that the durable queue will retry.
+  }
+}
+
+export type WorkExecutionStopReason =
+  | "lease_lost"
+  | "cancellation_observed"
+  | "job_aborted"
+  | "execution_aborted";
+
+/** An execution stopped. This says nothing about the item's durable terminal state. */
+export function captureWorkExecutionStopped(
+  input: WorkIdentity & {
+    readonly executionId: string;
+    readonly reason: WorkExecutionStopReason;
+    readonly attemptCount: number;
+    readonly leaseEpoch: number | null;
+  },
+): void {
+  try {
+    captureEvent({
+      distinctId: installationDistinctId(input.installationId),
+      event: "work execution stopped",
+      properties: {
+        work_item_id: input.workItemId,
+        work_type: input.workType,
+        execution_id: input.executionId,
+        reason: input.reason,
+        attempt_count: input.attemptCount,
+        ...(input.leaseEpoch != null ? { lease_epoch: input.leaseEpoch } : {}),
+        owner: input.owner,
+        repo: input.repo,
+        pr_number: input.prNumber,
+        head_sha: input.headSha,
+      },
+    });
+  } catch {
+    // Stopping work never depends on analytics availability.
+  }
+}
+
+/** Caller must have acknowledged a winning terminal write and its transaction commit. */
+export function captureWorkTerminal(
+  input: WorkIdentity & {
+    readonly outcome: "cancelled" | "superseded";
+    readonly reason: string;
+    readonly source: "worker" | "intake";
+    readonly executionId?: string;
+    readonly attemptCount?: number;
+  },
+): void {
+  try {
+    captureEvent({
+      distinctId: installationDistinctId(input.installationId),
+      event: input.outcome === "cancelled" ? "work item cancelled" : "work item superseded",
+      properties: {
+        work_item_id: input.workItemId,
+        work_type: input.workType,
+        outcome: input.outcome,
+        reason: input.reason,
+        source: input.source,
+        ...(input.executionId != null ? { execution_id: input.executionId } : {}),
+        ...(input.attemptCount != null ? { attempt_count: input.attemptCount } : {}),
+        owner: input.owner,
+        repo: input.repo,
+        pr_number: input.prNumber,
+        head_sha: input.headSha,
+      },
+    });
+  } catch {
+    // A committed lifecycle transition must not become another queue attempt.
+  }
 }
 
 export type CiStateChanged = {

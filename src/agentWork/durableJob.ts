@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import {
@@ -9,6 +10,9 @@ import {
 } from "../settings/index.js";
 import {
   captureWorkRetried,
+  captureWorkExecutionStopped,
+  captureWorkTerminal,
+  type WorkExecutionStopReason,
   recordWorkCompleted,
   type WorkCompletion,
   durationMsFromClaim,
@@ -20,7 +24,7 @@ import { logError, logInfo, logWarn } from "../evlog.js";
 import type { InstallationToken } from "../github/appAuth.js";
 import { productionInstallationSurface, type InstallationSurface } from "./installationSurface.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { classifyProviderError, isCancelAbortError } from "../agent/providers/providerErrors.js";
+import { isCancelAbortError } from "../agent/providers/providerErrors.js";
 import { classifyFailure, classifiedFailureLogFields } from "../errors/classifiedFailure.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
 import {
@@ -84,6 +88,8 @@ export type DurableExecutionContext = {
     readonly owner: string;
     readonly repo: string;
     readonly prNumber: number;
+    readonly executionId: string;
+    readonly attemptCount?: number;
   };
   /** Shared signal/cancellation/lease policy; feature-specific head checks stay with the feature. */
   shouldAbortPublish: () => Promise<boolean>;
@@ -102,9 +108,11 @@ export function createDurableExecutionContext(
     readonly item: AgentWorkItem;
     readonly getClaim: () => WorkClaim | undefined;
     readonly getEscalation: () => EscalationPlan | undefined;
+    readonly executionId?: string;
   },
 ): DurableExecutionContext {
-  const { pool, item, getClaim, getEscalation, beginAttempt, ...context } = params;
+  const { pool, item, getClaim, getEscalation, beginAttempt, executionId, ...context } = params;
+  const runtimeExecutionId = executionId ?? randomUUID();
   let admission: Promise<WorkClaim> | undefined;
   const admit = () => (admission ??= beginAttempt());
   return {
@@ -132,6 +140,10 @@ export function createDurableExecutionContext(
       owner: item.owner,
       repo: item.repo,
       prNumber: item.prNumber,
+      executionId: runtimeExecutionId,
+      get attemptCount() {
+        return getClaim()?.attemptCount;
+      },
     },
     shouldAbortPublish: async () =>
       context.signal.aborted ||
@@ -318,6 +330,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   let executionPrSurface: PrSurface | undefined;
   let boundHeadSha: string | undefined;
   let workClaim: WorkClaim | undefined;
+  const executionId = randomUUID();
 
   async function prSurfaceForHooks(
     workItemCore: TypedCore,
@@ -374,13 +387,29 @@ export async function runDurableWorkItem<T extends WorkType>(
     itemCore: TypedCore,
     reason: string,
     installation?: InstallationToken,
+    notifyHook = true,
   ): Promise<void> {
-    if (lease) {
-      if (!(await lease.cancel(itemCore, reason))) return;
-    } else {
-      await markWorkCancelled(spec.pool, itemCore.id, null);
+    const won = lease
+      ? await lease.cancelWhileOwned(itemCore, reason)
+      : await markWorkCancelled(spec.pool, itemCore.id, null);
+    if (won === null) return;
+    if (won) {
+      captureWorkTerminal({
+        workItemId: itemCore.id,
+        installationId: itemCore.installationId,
+        owner: itemCore.owner,
+        repo: itemCore.repo,
+        prNumber: itemCore.prNumber,
+        headSha: itemCore.headSha,
+        workType: spec.type,
+        outcome: "cancelled",
+        reason,
+        source: "worker",
+        executionId,
+        attemptCount: workClaim?.attemptCount ?? itemCore.attemptCount,
+      });
     }
-    await invokeCancelledHook(itemCore, reason, installation);
+    if (notifyHook) await invokeCancelledHook(itemCore, reason, installation);
   }
 
   const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
@@ -409,6 +438,30 @@ export async function runDurableWorkItem<T extends WorkType>(
   const opened = lease;
   const leaseEpoch = opened.leaseEpoch;
   const executionSignal = opened.signal;
+  let executionStopped = false;
+  const recordExecutionStopped = (reason: WorkExecutionStopReason): void => {
+    if (executionStopped) return;
+    executionStopped = true;
+    captureWorkExecutionStopped({
+      workItemId: core.id,
+      installationId: core.installationId,
+      owner: core.owner,
+      repo: core.repo,
+      prNumber: core.prNumber,
+      headSha: boundHeadSha ?? core.headSha,
+      workType: spec.type,
+      executionId,
+      reason,
+      attemptCount: workClaim?.attemptCount ?? opened.claim.attemptCount,
+      leaseEpoch,
+    });
+  };
+  const onExecutionAbort = () =>
+    recordExecutionStopped(
+      jobSignal.aborted ? "job_aborted" : (opened.stopReason ?? "execution_aborted"),
+    );
+  executionSignal.addEventListener("abort", onExecutionAbort, { once: true });
+  if (executionSignal.aborted) onExecutionAbort();
 
   try {
     workClaim = opened.claim;
@@ -507,6 +560,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       if (isSkipCheckSuppressed(phaseState)) return false;
       // A newer execution owns the lease — exit without terminalising its work item.
       if (!(await opened.owns())) {
+        recordExecutionStopped("lease_lost");
         logInfo("agent_work_stale_execution_skipped", {
           type: spec.type,
           workItemId: item.id,
@@ -516,10 +570,11 @@ export async function runDurableWorkItem<T extends WorkType>(
         return true;
       }
       if (!(await shouldSkipWork(spec.pool, item))) return false;
+      recordExecutionStopped("cancellation_observed");
       if (notifyHook) {
         await markCancelledAndInvokeHook(item, reason, seededInstallation);
       } else {
-        await opened.mark.cancelled(item.id);
+        await markCancelledAndInvokeHook(item, reason, seededInstallation, false);
       }
       return true;
     };
@@ -568,6 +623,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           signal: executionSignal,
           beginAttempt: admitWork,
           getClaim: () => workClaim,
+          executionId,
           getEscalation: () =>
             workAdmissionAcknowledged && workClaim
               ? escalationForAttempt(workClaim.attemptCount, spec.cfg)
@@ -666,7 +722,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           type: spec.type,
           workItemId: item.id,
           message,
-          providerErrorKind: classifyProviderError(error),
+          ...(failure.failureDomain === "provider" ? { providerErrorKind: failure.errorKind } : {}),
           pgBossRetryCount: spec.job.retryCount,
           pgBossRetryLimit: spec.job.retryLimit,
           dbAttemptCount: attemptCount,
@@ -737,6 +793,7 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     async function handleDurableExecutionError(error: unknown): Promise<void> {
       if (isAppError(error) && error.code === "agent_work.pr_actor_lease_lost") {
+        recordExecutionStopped("lease_lost");
         logInfo("agent_work_stale_execution_skipped", {
           type: spec.type,
           workItemId: item.id,
@@ -746,6 +803,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       }
       if (isCancelAbortError(error)) {
         if (await recheckSkippableAndCancel("skipped_after_error")) return;
+        recordExecutionStopped(jobSignal.aborted ? "job_aborted" : "execution_aborted");
         logInfo("agent_work_stale_execution_skipped", {
           type: spec.type,
           workItemId: item.id,
@@ -784,7 +842,6 @@ export async function runDurableWorkItem<T extends WorkType>(
       await invokeTerminalFailureHook(error);
       await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);
       const failure = classifyFailure(error);
-      const providerErrorKind = classifyProviderError(error);
       logError(
         "agent_work_failed",
         {
@@ -795,7 +852,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           repo: item.repo,
           pr_number: item.prNumber,
           message: sanitizeLogMessage(message),
-          providerErrorKind,
+          ...(failure.failureDomain === "provider" ? { providerErrorKind: failure.errorKind } : {}),
           retryDisposition: disposition,
           pgBossRetryCount: spec.job.retryCount,
           pgBossRetryLimit: spec.job.retryLimit,
@@ -818,6 +875,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         return;
       }
       if (!(await opened.owns())) {
+        recordExecutionStopped("lease_lost");
         // A newer execution owns the lease — do not terminalise its work item.
         logInfo("agent_work_stale_execution_skipped", {
           type: spec.type,
@@ -838,6 +896,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       });
       await reconcilePendingIntents(spec.pool, item.id, leaseEpoch);
       if (!(await opened.owns())) {
+        recordExecutionStopped("lease_lost");
         logInfo("agent_work_stale_execution_skipped", {
           type: spec.type,
           workItemId: item.id,
@@ -856,6 +915,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       await handleDurableExecutionError(error);
     }
   } finally {
+    executionSignal.removeEventListener("abort", onExecutionAbort);
     // Terminal marks and hooks above ran under the lease; release happens after them so
     // no durable write from this epoch can be fenced out by an early clear. On retry
     // (markRetryingOrCancel rethrows) the next delivery re-acquires with a fresh epoch.

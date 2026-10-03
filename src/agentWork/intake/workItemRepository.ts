@@ -591,6 +591,7 @@ export type CancelledActiveReview = {
 
 export type CancelledActiveTriage = {
   readonly id: string;
+  readonly source: WorkSource;
   readonly headSha: string;
   readonly ackTargets: readonly AckTarget[];
   readonly replyTarget: ReplyTarget;
@@ -625,6 +626,7 @@ function mapCancelledReviewRows(
 function mapCancelledTriageRows(
   rows: readonly {
     id: string;
+    source: WorkSource;
     head_sha: string;
     created_at: Date | string;
     payload: unknown;
@@ -635,6 +637,7 @@ function mapCancelledTriageRows(
     const payload = parseWorkItemPayload("triage", row.payload);
     return {
       id: row.id,
+      source: row.source,
       headSha: row.head_sha,
       ackTargets: triageAckTargets(payload, prNumber),
       replyTarget: payload.replyTarget,
@@ -723,7 +726,7 @@ export async function cancelActiveTriage(
     to: "cancelled",
     lastError,
     payloadPatch,
-    returning: ["id", "head_sha", "created_at", "payload", "execution_epoch"],
+    returning: ["id", "source", "head_sha", "created_at", "payload", "execution_epoch"],
   } as const;
   const queued = await transition(client, { ...cancel, from: ["queued"] });
   const running = await transition(client, { ...cancel, from: ["running"], requestCancel: true });

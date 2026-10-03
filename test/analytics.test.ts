@@ -58,6 +58,120 @@ describe("analytics facade", () => {
     expect(mockPostHog.instances).toHaveLength(0);
   });
 
+  it.each([
+    { posthog: false, audit: false },
+    { posthog: false, audit: true },
+    { posthog: true, audit: false },
+    { posthog: true, audit: true },
+  ])(
+    "captures real send identities and completion times independently (PostHog=$posthog, audit=$audit)",
+    async ({ posthog, audit }) => {
+      const analytics = await import("../src/analytics/index.js");
+      const { createFeaturePiSession } =
+        await import("../src/agent/runtime/createFeatureSession.js");
+      const { createFakePiSession } = await import("../src/agent/runtime/fakePiSession.js");
+      const { makeTestConfig } = await import("./helpers/config.js");
+      const { Pool } = await import("pg");
+      const pool = new Pool();
+      const writes = vi.spyOn(pool, "query").mockImplementation(async () => ({
+        rows: [],
+        rowCount: 1,
+        command: "INSERT",
+        oid: 0,
+        fields: [],
+      }));
+      await analytics.initAnalytics({ projectToken: posthog ? "token" : "", host: "" });
+      const captureTimes: number[] = [];
+      const capture = mockPostHog.instances[0]?.capture;
+      capture?.mockImplementation(() => captureTimes.push(Date.now()));
+      const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+      const events: import("../src/agent/runtime/types.js").AgentLifecycleEvent[] = [];
+      const session = await createFeaturePiSession({
+        role: "specialist",
+        specialistId: "security",
+        cfg: makeTestConfig({ agentEvents: { enabled: audit } }),
+        attemptModel: { provider: "anthropic", model: "fallback" },
+        systemPrompt: "private system",
+        tools: [],
+        executors: {},
+        sessionContext: {
+          pool,
+          workItemId: "work",
+          installationId: 1,
+          owner: "owner",
+          repo: "repo",
+          prNumber: 1,
+          executionId: "execution",
+          attemptCount: 2,
+        },
+        createSession: (params) =>
+          createFakePiSession(params, ({ prompt }) => {
+            if (prompt === "failure") {
+              now.mockReturnValue(3_040);
+              throw new Error("provider unavailable");
+            }
+            now.mockReturnValue(prompt === "normal" ? 1_075 : 2_025);
+            return "";
+          }).session,
+        eventSink: (event) => events.push(event),
+      });
+      try {
+        await session.send("normal", { phase: "specialist", checkpointId: "same" });
+        now.mockReturnValue(2_000);
+        await session.send("repair", { phase: "validation_repair", checkpointId: "same" });
+        now.mockReturnValue(3_000);
+        await expect(
+          session.send("failure", { phase: "specialist", checkpointId: "same" }),
+        ).rejects.toThrow("provider unavailable");
+        const starts = events.filter((event) => event.kind === "turn");
+        const ends = events.filter(
+          (event) => event.kind === "completion" || event.kind === "failure",
+        );
+        expect(new Set(starts.map((event) => event.generationId)).size).toBe(3);
+        expect(ends.map((event) => event.generationId)).toEqual(
+          starts.map((event) => event.generationId),
+        );
+        expect(ends.map((event) => event.durationMs)).toEqual([75, 25, 40]);
+        expect(new Set(ends.map((event) => event.sessionId)).size).toBe(1);
+        expect(ends[0]?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(writes.mock.calls.length).toBe(audit ? 9 : 0);
+        if (posthog) {
+          expect(captureTimes).toEqual([1_075, 2_025, 3_040]);
+          const generations = capture?.mock.calls.map(([event]) => event);
+          expect(generations).toHaveLength(3);
+          expect(generations?.map((event) => event.properties.$ai_span_id)).toEqual(
+            starts.map((event) => event.generationId),
+          );
+          expect(generations?.map((event) => event.properties.$ai_latency)).toEqual([
+            0.075, 0.025, 0.04,
+          ]);
+          expect(generations?.map((event) => event.properties.$ai_is_error)).toEqual([
+            false,
+            false,
+            true,
+          ]);
+          expect(generations?.[0]).toMatchObject({
+            event: "$ai_generation",
+            properties: {
+              $ai_provider: "anthropic",
+              $ai_model: "fallback",
+              $ai_session_id: ends[0]?.sessionId,
+              execution_id: "execution",
+              attempt_count: 2,
+            },
+          });
+          expect(generations?.[0]?.properties).not.toHaveProperty("$ai_input_tokens");
+        } else {
+          expect(mockPostHog.PostHog).not.toHaveBeenCalled();
+        }
+      } finally {
+        await session.dispose();
+        await pool.end();
+        await analytics.shutdownAnalytics();
+      }
+    },
+  );
+
   it("lazy-loads PostHog with autocapture and sanitizer when token is set", async () => {
     const analytics = await import("../src/analytics/index.js");
 
