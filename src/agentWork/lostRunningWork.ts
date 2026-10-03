@@ -9,12 +9,7 @@ import {
   isAnyReviewLens,
 } from "../settings/index.js";
 import { logWarn } from "../evlog.js";
-import {
-  reviewVerdict,
-  asTerminalOwnCheckStatus,
-  isOwnCheckOpen,
-  type TerminalOwnCheckStatus,
-} from "./reviewVerdict.js";
+import { reviewVerdict, asTerminalOwnCheckStatus, isOwnCheckOpen } from "./reviewVerdict.js";
 import { getWorkItemCore, markLostRunningWorkFailed } from "./workItemStateRepository.js";
 import type { LostRunningWorkItem } from "./workerHealth.js";
 import { errorMessage } from "../errors/errorMessage.js";
@@ -58,10 +53,9 @@ async function closeOpenOwnVerdict(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly workItemId: string;
-  readonly status: TerminalOwnCheckStatus;
 }): Promise<void> {
   const core = await getWorkItemCore(params.pool, params.workItemId);
-  if (core == null) return;
+  if (core == null || asTerminalOwnCheckStatus(core.status) == null) return;
   if (core.type !== "review" || core.reviewLens == null || !isAnyReviewLens(core.reviewLens)) {
     return;
   }
@@ -120,7 +114,6 @@ export async function reconcileLostRunningWork(params: {
         cfg: params.cfg,
         pool: params.pool,
         workItemId: item.workItemId,
-        status: "failed",
       });
     } catch (error) {
       logWarn("lost_running_work_reconcile_failed", {
@@ -145,14 +138,10 @@ export async function reconcileLostRunningWork(params: {
   for (const item of extra) {
     if (seen.has(item.workItemId)) continue;
     try {
-      const core = await getWorkItemCore(params.pool, item.workItemId);
-      const status = core == null ? null : asTerminalOwnCheckStatus(core.status);
-      if (status == null) continue;
       await closeOpenOwnVerdict({
         cfg: params.cfg,
         pool: params.pool,
         workItemId: item.workItemId,
-        status,
       });
     } catch (error) {
       logWarn("lost_running_work_reconcile_failed", {

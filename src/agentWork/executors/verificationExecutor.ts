@@ -17,6 +17,7 @@ import {
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
 } from "../../settings/index.js";
+import { throwIfExecutionAborted } from "../publishOnce.js";
 import { listTriageEligibleInlineReviews } from "../publishRecordRepository.js";
 import { type DurableExecutionResult } from "../durableJob.js";
 import { escalatedVerificationInventory } from "../retryPolicy.js";
@@ -72,6 +73,9 @@ export function createVerificationWorkExecution({
       );
 
       const checkCompletionGate = async (): Promise<DurableExecutionResult | undefined> => {
+        // An aborted job signal with a held lease is not a skip; completing here would
+        // drop the run instead of leaving the row for redelivery or the lost-running sweep.
+        throwIfExecutionAborted(env.signal, { workItemId: item.id });
         if (await env.shouldAbortPublish()) {
           logInfo("verification_publish_skipped", {
             type: "verification",

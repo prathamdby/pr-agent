@@ -2,7 +2,6 @@
 globs:
   - "src/settings/featureModes.ts"
   - "src/settings/envKeys.ts"
-  - "src/settings/slashConstants.ts"
   - "src/settings/config.ts"
   - "src/settings/slices/features.ts"
   - "src/agentWork/intake/**"
