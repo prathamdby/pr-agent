@@ -2,7 +2,7 @@ import { DeliveryTx } from "../../src/agentWork/intake/delivery.js";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
@@ -117,6 +117,22 @@ async function verificationJobFor(boss: PgBoss, workItemId: string) {
 describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
   let pool: Pool;
   let boss: PgBoss;
+  beforeEach(() => {
+    vi.spyOn(appAuth, "lookupRepositoryInstallation").mockResolvedValue({
+      id: 4242,
+      app_id: 1,
+      suspended_at: null,
+      repository_selection: "all",
+      permissions: {
+        contents: "read",
+        pull_requests: "write",
+        issues: "write",
+        checks: "write",
+        statuses: "write",
+        actions: "read",
+      },
+    });
+  });
 
   beforeAll(async () => {
     pool = integrationPool();

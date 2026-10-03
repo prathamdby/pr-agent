@@ -178,6 +178,31 @@ describe("review artifact evidence descriptors", () => {
 });
 
 describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () => {
+  beforeEach(() => {
+    const permissions = {
+      contents: "read",
+      pull_requests: "write",
+      issues: "write",
+      checks: "write",
+      statuses: "write",
+      actions: "read",
+    } as const;
+    vi.spyOn(appAuth, "lookupRepositoryInstallation").mockResolvedValue({
+      id: 42,
+      app_id: 1,
+      suspended_at: null,
+      repository_selection: "all",
+      permissions,
+    });
+    vi.spyOn(appAuth, "mintScopedInstallationAuth").mockImplementation(async (cfg, id) => {
+      const auth = await appAuth.mintInstallationAuth(cfg, id);
+      return {
+        token: auth.token,
+        expires_at: auth.expiresAt ?? new Date(Date.now() + 3_600_000).toISOString(),
+        permissions,
+      };
+    });
+  });
   let pool: Pool;
 
   beforeAll(async () => {

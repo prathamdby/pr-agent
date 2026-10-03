@@ -47,6 +47,28 @@ vi.mock("../src/github/installationToken.js", async (importOriginal) => ({
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
 }));
+vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+  nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  recordGithubCapabilityDenial: vi.fn(async () => true),
+  loadGithubCapabilityObservation: vi.fn(async () => ({
+    generation: 1,
+    capabilities: {
+      pullRequestsRead: "available",
+      contentsRead: "available",
+      reviewWrite: "available",
+      commentsWrite: "available",
+      checksRead: "available",
+      checksWrite: "available",
+      statusesRead: "available",
+      statusesWrite: "available",
+      actionsRead: "available",
+      labelsRead: "available",
+      labelsWrite: "available",
+      reactionsWrite: "available",
+    },
+  })),
+  saveGithubCapabilityObservation: vi.fn(async () => true),
+}));
 
 vi.mock("../src/agentWork/ciProjection.js", () => ({
   loadRenderableHeadCi: vi.fn(async () => ({
@@ -137,6 +159,10 @@ import {
   triageCancelledNotice,
 } from "../src/settings/index.js";
 import { logWarn } from "../src/evlog.js";
+import {
+  availableInstallationCapabilities,
+  createReviewCapabilityPolicy,
+} from "../src/github/installationCapabilities.js";
 
 const cfg = makeTestConfig({ features: { ...makeTestConfig().features, commitStatus: false } });
 const pool = {} as Pool;
@@ -161,6 +187,29 @@ describe("executeAckJob", () => {
     vi.clearAllMocks();
     surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
     vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
+  });
+
+  it("does not send denied acknowledgement reactions while leaving replies available", async () => {
+    const observation = availableInstallationCapabilities({
+      appId: cfg.github.appId,
+      installationId: 42,
+      owner: "o",
+      repo: "r",
+    });
+    Object.assign(surfaceBundle.surface, {
+      capabilities: createReviewCapabilityPolicy({
+        ...observation,
+        availability: { ...observation.availability, reactionsWrite: "denied" },
+      }),
+    });
+    const reactions = vi.spyOn(surfaceBundle.surface, "setAcknowledgementReaction");
+    const reply = vi.spyOn(surfaceBundle.surface, "replyAt");
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      reply: { target: { kind: "prConversation", prNumber: 1 }, body: "usage" },
+    });
+    expect(reactions).not.toHaveBeenCalled();
+    expect(reply).toHaveBeenCalled();
   });
 
   it("posts eyes on every ack target", async () => {

@@ -30,6 +30,12 @@ export function retryDispositionFor(error: unknown): RetryDisposition {
   if (isStaleHeadReplacementExhausted(error)) return "terminal";
   if (isCancelAbortError(error)) return "terminal";
   if (isAppError(error) && error.code === "agent_work.attempts_exhausted") return "terminal";
+  if (
+    isAppError(error) &&
+    (error.code === "github.essential_access_denied" || error.code === "github.preflight_exhausted")
+  ) {
+    return "terminal";
+  }
   if (isAppError(error) && error.code === "github.review_thread_resolution_denied") {
     return "terminal";
   }

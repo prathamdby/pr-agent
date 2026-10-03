@@ -369,7 +369,36 @@ and defaults are unchanged. There is no separate unknown-resolution knob.
 
 Concurrent attempts to finish a review keep the first verdict, including acknowledgement and recovery. No new setting is required. A disabled commit status or an empty/deferred head needs no status write.
 
-Review check runs are always on. The acknowledgement worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. When `FEATURE_COMMIT_STATUS` is on, the same start posts `pr-agent/review` as `pending`. A remote run belongs to `(owner, repo, head SHA, name, external ID)`, where the external ID is the requesting work-item ID. Duplicate recovery adopts a run only when the provider returns exactly one run with that full identity. Every terminal path closes both surfaces through `reviewVerdict(...).close`. Full-coverage runs complete the check with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes the check as `neutral` and the commit status as `error`. Cancel, supersede, and stale-head reschedule complete the check as `cancelled` and the commit status as `error`. Crash and unpublished runs complete the check as `action_required` and the commit status as `error`. Commit status keys are per state (`review:commit_status:<resource>:<head>:<state>`). Checks require GitHub App read/write permission and soft-fail when that permission is missing.
+Review check runs are configured on, but optional installation access determines
+their applicability for each run. When Checks write is available, the worker
+starts `PR Agent Review` as `in_progress`. Enabled `FEATURE_COMMIT_STATUS`
+independently starts `pr-agent/review` as `pending` when status write is available.
+A remote check belongs to `(owner, repo, head SHA, name, external ID)`, with the
+work-item ID as external ID. Duplicate recovery requires exactly one full-identity
+match. Every terminal path uses `reviewVerdict(...).close`.
+Full coverage concludes `failure` for P0–P2 and `success` for empty/P3-only
+findings. Partial coverage uses check `neutral` and status `error`.
+Cancellation, supersession, and stale-head replacement use check `cancelled`;
+crash/unpublished uses `action_required`. Their statuses use `error`.
+Commit-status keys remain per state (`review:commit_status:<resource>:<head>:<state>`).
+Selected output is immutable. Surface state separately records applied,
+skipped-for-this-run, blocked, or unresolved. Never-started optional surfaces
+can be skipped; accepted or acceptance-uncertain effects stay applicable for
+independent repair. Status recovery does not require a successful Checks read.
+
+Fresh repository-specific installation preflight needs PR/content reads and
+review/comment publication for new review work, not Contents write. Comments
+and labels accept Issues or Pull requests grants at their endpoint's level.
+Optional Checks/statuses reads and writes, Actions logs, all managed labels,
+and reactions are run-scoped. Unknown CI-source reads stop after three persisted
+failures per observation; a newer review observation reopens them. Repository
+observation fanout touches at most 100 existing scoped heads per transaction;
+projection repair discovers the remainder. A two-second total budget bounds metadata plus a
+required cold mint/refresh. Unknown failures use a separate lease-fenced durable
+`QUEUE_RETRY_LIMIT + 1` counter, reset after success, without model attempts or
+escalation. Shared-circuit deferral spends no probe count. No new environment
+flag is required. Receipt-only completion precedes new-output access checks.
+See [rollout](operations.md#review-reliability-rollout).
 
 Operators using branch protection must replace required checks named `PR Agent Security Review`, `PR Agent Quality Review`, or `PR Agent Tests Review` with `PR Agent Review`. New runs no longer create the three old check names.
 

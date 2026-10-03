@@ -28,6 +28,17 @@ has no current caller or product reason. Keep a module when removing its interfa
 would expose meaningful policy or complexity. A module that makes callers repeat
 its ordering needs a deepen verdict before the next milestone.
 
+The installation capability amendment has two owners:
+`src/github/installationCapabilities.ts` owns validated operation-level
+available/denied/unknown observations, and
+`src/agentWork/githubCapabilityRepository.ts` owns scoped generation ordering,
+source restoration, revision changes, retention, and durable preflight counts.
+`installationSurface.ts` owns the bounded probe and token resolver.
+`durableJob.ts` prepares authentication before head/receipt recovery, then
+admits new review work. `reviewVerdict.ts` retains immutable output and
+independent surface applicability. No feature constructs Octokit, stores
+credentials, or replaces acceptance receipts with capability metadata.
+
 The implementation order is M0, M1, M2, M3, M5, M4, M6, M7, M8, M9, M10, M11,
 M12, M13, M14, M15, M16, M17, M18. Each milestone runs the backend gate, the
 dedicated-database integration suite, disposable-stack verification, and a

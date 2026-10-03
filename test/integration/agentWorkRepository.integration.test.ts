@@ -957,6 +957,184 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     }
   });
 
+  // Failure modes: optional denial suppressing the other surface, accepted pending
+  // work forgotten on restart, skips becoming receipts, and uncertainty becoming a skip.
+  it.each([
+    "status_only",
+    "both_denied",
+    "accepted_revoked",
+    "accepted_start_revoked",
+    "pending_status_revoked",
+    "uncertain_revoked",
+  ] as const)(
+    "own verdict independently retains applicability across restart for %s",
+    async (mode) => {
+      const { createReviewCapabilityPolicy, availableInstallationCapabilities } =
+        await import("../../src/github/installationCapabilities.js");
+      const id = await insertWorkItem({ status: "completed" });
+      const identity = {
+        workItemId: id,
+        resourceKey: `repo-it-${id}`,
+        reviewLens: "review" as const,
+        leaseEpoch: null,
+      };
+      const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+      const observation = availableInstallationCapabilities({
+        appId: "test",
+        installationId: 1,
+        owner: OWNER,
+        repo: "r",
+      });
+      const denied = createReviewCapabilityPolicy({
+        ...observation,
+        availability: {
+          ...observation.availability,
+          checksRead: "denied",
+          checksWrite: "denied",
+          statusesWrite: ["both_denied", "pending_status_revoked"].includes(mode)
+            ? "denied"
+            : "available",
+        },
+      });
+      Object.defineProperty(surface, "capabilities", { value: denied, configurable: true });
+      if (mode === "accepted_revoked")
+        await recordReviewCheckRun(pool, {
+          ...identity,
+          githubId: 111,
+          detail: { status: "in_progress" },
+        });
+      if (mode === "uncertain_revoked")
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+           VALUES ($1, $2, $3, 'github.review_check_run', 'outcome_unknown', '{"__mutating":true}'::jsonb)`,
+          [randomUUID(), id, `review:check_run:${id}`],
+        );
+      if (mode === "accepted_start_revoked")
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+           VALUES ($1, $2, $3, 'github.review_check_run', 'pending', '{"__result":{"id":111,"url":null}}'::jsonb)`,
+          [randomUUID(), id, `review:check_run:${id}`],
+        );
+      if (mode === "pending_status_revoked") {
+        const { reviewCommitStatusOperationKey } =
+          await import("../../src/agentWork/publishOnce.js");
+        await pool.query(
+          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+           VALUES ($1, $2, $3, 'github.review_commit_status', 'pending', '{"__result":null}'::jsonb)`,
+          [randomUUID(), id, reviewCommitStatusOperationKey(identity.resourceKey, "h", "pending")],
+        );
+      }
+      const params = {
+        ...identity,
+        pool,
+        prSurface: surface,
+        owner: OWNER,
+        repo: "r",
+        prNumber: 1,
+        headSha: "h",
+        commitStatusEnabled: true,
+      };
+      const finish = vi.spyOn(surface, "finishReviewCheck");
+      await reviewVerdict(params).close({ kind: "published", findings: [{ severity: "P1" }] });
+      const before = await closeRepository.getOwnVerdictCloseRecord(pool, identity);
+      expect(finish).not.toHaveBeenCalled();
+      expect(before?.checkState).toBe(
+        ["accepted_revoked", "accepted_start_revoked", "uncertain_revoked"].includes(mode)
+          ? "blocked"
+          : "skipped-for-this-run",
+      );
+      expect(before?.statusState).toBe(
+        mode === "both_denied"
+          ? "skipped-for-this-run"
+          : mode === "pending_status_revoked"
+            ? "blocked"
+            : "applied",
+      );
+      expect(before?.checkApplied).toBe(false);
+      Object.defineProperty(surface, "capabilities", {
+        value: createReviewCapabilityPolicy(observation),
+        configurable: true,
+      });
+      await reviewVerdict(params).repairIfOpen();
+      const after = await closeRepository.getOwnVerdictCloseRecord(pool, identity);
+      expect(after?.selected).toEqual(before?.selected);
+      expect(finish).toHaveBeenCalledTimes(
+        ["accepted_revoked", "accepted_start_revoked"].includes(mode) ? 1 : 0,
+      );
+      expect(after?.checkApplied).toBe(
+        ["accepted_revoked", "accepted_start_revoked"].includes(mode),
+      );
+      expect(
+        controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
+      ).toHaveLength(mode === "both_denied" ? 0 : 1);
+      if (mode === "status_only" || mode === "both_denied") {
+        expect(after?.githubId).toBeNull();
+        expect(after?.checkState).toBe("skipped-for-this-run");
+      } else if (mode === "uncertain_revoked") {
+        expect(after?.checkState).toBe("unresolved");
+      }
+    },
+  );
+
+  it("own verdict reconciles saved status acceptance without Checks access after restart", async () => {
+    const { createReviewCapabilityPolicy, availableInstallationCapabilities } =
+      await import("../../src/github/installationCapabilities.js");
+    const { reviewCommitStatusOperationKey } = await import("../../src/agentWork/publishOnce.js");
+    const id = await insertWorkItem({ status: "completed" });
+    const identity = {
+      workItemId: id,
+      resourceKey: `repo-it-${id}`,
+      reviewLens: "review" as const,
+      leaseEpoch: null,
+    };
+    const selected = {
+      conclusion: "failure" as const,
+      summary: "saved winner",
+      status: { headSha: "h", enabled: true, state: "failure" as const },
+    };
+    await closeRepository.claimOwnVerdict(pool, { ...identity, selected });
+    await pool.query(
+      `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+       VALUES ($1, $2, $3, 'github.review_commit_status', 'pending', '{"__result":null}'::jsonb)`,
+      [randomUUID(), id, reviewCommitStatusOperationKey(identity.resourceKey, "h", "failure")],
+    );
+    const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    const observation = availableInstallationCapabilities({
+      appId: "test",
+      installationId: 1,
+      owner: OWNER,
+      repo: "r",
+    });
+    Object.defineProperty(surface, "capabilities", {
+      value: createReviewCapabilityPolicy({
+        ...observation,
+        availability: {
+          ...observation.availability,
+          checksRead: "denied",
+          checksWrite: "denied",
+          statusesRead: "denied",
+          statusesWrite: "denied",
+        },
+      }),
+    });
+    await reviewVerdict({
+      ...identity,
+      pool,
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      headSha: "h",
+      commitStatusEnabled: true,
+    }).repairIfOpen();
+    const record = await closeRepository.getOwnVerdictCloseRecord(pool, identity);
+    expect(record?.selected).toEqual(selected);
+    expect(record?.statusApplied).toBe(true);
+    expect(record?.statusState).toBe("applied");
+    expect(record?.checkApplied).toBe(false);
+    expect(controls.events).toEqual([]);
+  });
+
   it("own verdict rejects a corrupt selection without overwriting it or publishing", async () => {
     const id = await insertWorkItem({ status: "completed" });
     const identity = {
@@ -1065,61 +1243,85 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     },
   );
 
-  it.each(["completed", "unknown", "mutating", "saved_result", "rejected"] as const)(
-    "own verdict preserves legacy completion evidence %s",
-    async (mode) => {
-      const id = await insertWorkItem({ status: "completed" });
-      const resourceKey = `repo-it-${id}`;
-      const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
-      await recordReviewCheckRun(pool, {
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        githubId: 111,
-        detail:
-          mode === "completed"
-            ? { status: "completed", conclusion: "success" }
-            : { status: "in_progress" },
-      });
-      if (mode !== "completed")
-        await pool.query(
-          `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
-         VALUES ($1, $2, 'pr-surface:finishReviewCheck:legacy', 'github.pr_surface.finishReviewCheck', $3, $4::jsonb)`,
-          [
-            randomUUID(),
-            id,
-            mode === "unknown" ? "outcome_unknown" : mode === "rejected" ? "failed" : "pending",
-            JSON.stringify({
-              surfaceMethod: "finishReviewCheck",
-              ...(mode === "saved_result"
-                ? { __result: null }
-                : mode === "mutating"
-                  ? { __mutating: true }
-                  : {}),
-            }),
-          ],
-        );
-      await reviewVerdict({
-        pool,
-        prSurface: surface,
-        owner: OWNER,
-        repo: "r",
-        prNumber: 1,
-        workItemId: id,
-        resourceKey,
-        reviewLens: "review",
-        headSha: "h",
-        commitStatusEnabled: true,
-        leaseEpoch: null,
-      }).close({ kind: "cancelled" });
-      expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
-        mode === "rejected" ? 1 : 0,
+  // Failure modes: a legacy accepted finish being replaced by a new selection,
+  // saved status acceptance not reconciled, and uncertain status writes being skipped.
+  it.each([
+    "completed",
+    "unknown",
+    "mutating",
+    "saved_result",
+    "rejected",
+    "status_saved_result",
+    "status_unknown",
+  ] as const)("own verdict preserves legacy completion evidence %s", async (mode) => {
+    const id = await insertWorkItem({ status: "completed" });
+    const resourceKey = `repo-it-${id}`;
+    const { surface, controls } = createFakePrSurface({ owner: OWNER, repo: "r", prNumber: 1 });
+    await recordReviewCheckRun(pool, {
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review",
+      githubId: 111,
+      detail:
+        mode === "completed"
+          ? { status: "completed", conclusion: "success" }
+          : { status: "in_progress" },
+    });
+    if (mode !== "completed")
+      await pool.query(
+        `INSERT INTO operation_intents (id, work_item_id, operation_key, mutation_kind, status, detail)
+         VALUES ($1, $2, 'pr-surface:finishReviewCheck:legacy', $5, $3, $4::jsonb)`,
+        [
+          randomUUID(),
+          id,
+          mode === "unknown" || mode === "status_unknown"
+            ? "outcome_unknown"
+            : mode === "rejected"
+              ? "failed"
+              : "pending",
+          JSON.stringify({
+            surfaceMethod: "finishReviewCheck",
+            ...(mode === "status_saved_result" || mode === "status_unknown"
+              ? { state: "failure", description: "legacy winner", headSha: "h" }
+              : {}),
+            ...(mode === "saved_result" || mode === "status_saved_result"
+              ? { __result: null }
+              : mode === "mutating"
+                ? { __mutating: true }
+                : {}),
+          }),
+          mode === "status_saved_result" || mode === "status_unknown"
+            ? "github.review_commit_status"
+            : "github.pr_surface.finishReviewCheck",
+        ],
       );
-      expect(
-        controls.events.filter((event) => event.kind === "setReviewCommitStatus"),
-      ).toHaveLength(mode === "rejected" ? 1 : 0);
-    },
-  );
+    await reviewVerdict({
+      pool,
+      prSurface: surface,
+      owner: OWNER,
+      repo: "r",
+      prNumber: 1,
+      workItemId: id,
+      resourceKey,
+      reviewLens: "review",
+      headSha: "h",
+      commitStatusEnabled: true,
+      leaseEpoch: null,
+    }).close({ kind: "cancelled" });
+    expect(controls.events.filter((event) => event.kind === "finishReviewCheck")).toHaveLength(
+      mode === "rejected" ? 1 : 0,
+    );
+    expect(controls.events.filter((event) => event.kind === "setReviewCommitStatus")).toHaveLength(
+      mode === "rejected" ? 1 : 0,
+    );
+    if (mode === "status_saved_result") {
+      const receipt = await pool.query(
+        "SELECT status FROM operation_intents WHERE work_item_id = $1",
+        [id],
+      );
+      expect(receipt.rows).toEqual([{ status: "reconciled" }]);
+    }
+  });
 
   it("own verdict two-client CAS returns the immutable visible winner", async () => {
     const { claimOwnVerdict } = await import("../../src/agentWork/publishRecordRepository.js");

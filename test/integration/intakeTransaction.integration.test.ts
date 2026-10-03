@@ -12,7 +12,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "../../src/agentWork/scheduler.js";
 import { processWebhookPostRequestEffect } from "../../src/effect/programs/processWebhookRequestEffect.js";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
 import {
@@ -173,6 +173,23 @@ async function deleteQueueJobs(boss: PgBoss): Promise<void> {
 describe.skipIf(!hasDatabase)("intake transaction (integration)", () => {
   let pool: Pool;
   let boss: PgBoss;
+
+  beforeEach(() => {
+    vi.spyOn(appAuth, "lookupRepositoryInstallation").mockResolvedValue({
+      id: 9001,
+      app_id: 1,
+      suspended_at: null,
+      repository_selection: "all",
+      permissions: {
+        contents: "read",
+        pull_requests: "write",
+        issues: "write",
+        checks: "write",
+        statuses: "write",
+        actions: "read",
+      },
+    });
+  });
 
   beforeAll(async () => {
     pool = integrationPool();

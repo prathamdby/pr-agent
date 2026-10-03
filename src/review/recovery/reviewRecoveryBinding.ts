@@ -62,6 +62,12 @@ export function reviewRecoveryInputDigest(input: {
   readonly prBody: string | null;
   readonly escalation?: EscalationPlan;
   readonly modelApis?: Readonly<Record<string, string | null>>;
+  readonly effectivePublicationCapabilities?: Readonly<{
+    checksWrite: boolean;
+    statusesWrite: boolean;
+    labelsWrite: boolean;
+    reactionsWrite: boolean;
+  }>;
 }) {
   const policy = resolveModelPolicy(input.cfg);
   return createHash("sha256")
@@ -79,6 +85,7 @@ export function reviewRecoveryInputDigest(input: {
         publication: {
           commitStatus: input.cfg.features.commitStatus,
           reviewLabels: input.cfg.features.reviewLabels,
+          capabilities: input.effectivePublicationCapabilities ?? null,
         },
         models: {
           orchestrator: input.escalation?.model ?? policy.orchestratorPrimary,

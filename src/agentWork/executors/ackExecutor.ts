@@ -30,6 +30,18 @@ import type { ReviewMode } from "../../review/reviewSchema.js";
 import { ACTIVE_WORK_STATUSES, prResourceKey, type AckJobData } from "../types.js";
 import { canPublishApprovalNotice } from "../intake/reviewApprovals.js";
 import { errorMessage } from "../../errors/errorMessage.js";
+import {
+  createReviewCapabilityPolicy,
+  unknownInstallationCapabilities,
+  type InstallationCapabilities,
+  type ReviewCapabilityPolicy,
+} from "../../github/installationCapabilities.js";
+import {
+  loadGithubCapabilityObservation,
+  nextGithubCapabilityObservationGeneration,
+  recordGithubCapabilityDenial,
+  saveGithubCapabilityObservation,
+} from "../githubCapabilityRepository.js";
 
 /** True when this ack may still write the shared progress comment for its work item. */
 export async function canAckPublishProgress(
@@ -57,6 +69,7 @@ async function ackPrSurface(
   cfg: Config,
   data: Pick<AckJobData, "installationId" | "owner" | "repo" | "prNumber">,
   installation: AckInstallation,
+  capabilities?: ReviewCapabilityPolicy,
 ) {
   return productionInstallationSurface.create({
     cfg,
@@ -65,6 +78,7 @@ async function ackPrSurface(
     repo: data.repo,
     prNumber: data.prNumber,
     installation,
+    capabilities,
   });
 }
 
@@ -75,11 +89,19 @@ async function publishAckProgress(
   installation: AckInstallation,
   resourceKey: string,
   boss?: PgBoss,
+  capabilities?: ReviewCapabilityPolicy,
 ): Promise<void> {
-  const prSurface = await ackPrSurface(cfg, data, installation);
+  const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
+  if ((prSurface.capabilities?.access("commentsWrite") ?? "available") !== "available") return;
   const deferredHead = data.progress.headSha === DEFERRED_HEAD_SHA;
   const headSha = deferredHead ? await prSurface.getHeadSha() : data.progress.headSha;
-  const rendered = await loadRenderableHeadCi(pool, data.owner, data.repo, headSha);
+  const rendered = await loadRenderableHeadCi(
+    pool,
+    data.owner,
+    data.repo,
+    headSha,
+    data.installationId,
+  );
   const ciSummary = rendered.summary;
   let queuePosition: ReviewQueuePosition | null = null;
   if (data.workItemId != null) {
@@ -143,9 +165,14 @@ async function publishCancelProgress(
   data: AckJobData & { readonly cancelProgress: NonNullable<AckJobData["cancelProgress"]> },
   installation: AckInstallation,
   resourceKey: string,
+  capabilities?: ReviewCapabilityPolicy,
 ): Promise<void> {
-  const prSurface = await ackPrSurface(cfg, data, installation);
-  const existing = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
+  const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
+  const commentsAvailable =
+    (prSurface.capabilities?.access("commentsWrite") ?? "available") === "available";
+  const existing = commentsAvailable
+    ? await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL)
+    : null;
   const rev = existing?.body != null ? parseProgressRevisionState(existing.body) : null;
   const ownsStub =
     existing != null &&
@@ -158,7 +185,9 @@ async function publishCancelProgress(
 
   // Comment I/O must not block check cancellation — stale checks stuck in_progress are worse.
   try {
-    if (ownsStub && existing != null) {
+    if (!commentsAvailable) {
+      // Verdict receipts remain applicable even when a cancellation notice cannot be written.
+    } else if (ownsStub && existing != null) {
       await prSurface.editComment(existing.id, body);
     } else {
       await createReviewSummaryComment({
@@ -195,11 +224,18 @@ async function publishTriageCancellation(
   prSurface: Awaited<ReturnType<typeof ackPrSurface>>,
   data: AckJobData & { readonly cancelTriage: NonNullable<AckJobData["cancelTriage"]> },
 ): Promise<void> {
-  await prSurface.setAcknowledgementReaction(data.cancelTriage.targets, GITHUB_REACTION_MINUS_ONE);
-  await prSurface.replyAt(
-    data.cancelTriage.replyTarget,
-    triageCancelledNotice(data.cancelTriage.attribution),
-  );
+  if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available") {
+    await prSurface.setAcknowledgementReaction(
+      data.cancelTriage.targets,
+      GITHUB_REACTION_MINUS_ONE,
+    );
+  }
+  if ((prSurface.capabilities?.access("commentsWrite") ?? "available") === "available") {
+    await prSurface.replyAt(
+      data.cancelTriage.replyTarget,
+      triageCancelledNotice(data.cancelTriage.attribution),
+    );
+  }
 }
 
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
@@ -217,15 +253,50 @@ export async function executeAckJob(
       message: errorMessage(e),
     });
   }
-  const installation = await productionInstallationSurface.token(cfg, data.installationId);
-  const prSurface = await ackPrSurface(cfg, data, installation);
+  const scope = { installationId: data.installationId, owner: data.owner, repo: data.repo };
+  const stored = await loadGithubCapabilityObservation(pool, scope);
+  let observation: InstallationCapabilities;
+  let installation: AckInstallation | undefined;
+  if (stored) {
+    const unknown = unknownInstallationCapabilities(
+      { ...scope, appId: cfg.github.appId },
+      String(stored.generation),
+    );
+    observation = { ...unknown, availability: { ...unknown.availability, ...stored.capabilities } };
+    installation = await productionInstallationSurface.token(cfg, data.installationId);
+  } else {
+    const fresh = await productionInstallationSurface.preflight({
+      cfg,
+      ...scope,
+      generation: await nextGithubCapabilityObservationGeneration(pool),
+    });
+    observation = fresh.observation;
+    installation = fresh.installation;
+    await saveGithubCapabilityObservation(pool, { ...scope, observation });
+    if (!installation) return;
+  }
+  const capabilities = createReviewCapabilityPolicy(observation, async (operation) => {
+    await recordGithubCapabilityDenial(pool, {
+      ...scope,
+      generation: Number(observation.generation),
+      operation,
+    });
+  });
+  const prSurface = await ackPrSurface(cfg, data, installation, capabilities);
   const resourceKey = prResourceKey(data.owner, data.repo, data.prNumber);
 
-  if (!data.awaitingApproval && !data.closedApproval) {
+  if (
+    !data.awaitingApproval &&
+    !data.closedApproval &&
+    (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available"
+  ) {
     await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_EYES);
   }
 
-  if (data.awaitingApproval || data.closedApproval) {
+  if (
+    (data.awaitingApproval || data.closedApproval) &&
+    (prSurface.capabilities?.access("commentsWrite") ?? "available") === "available"
+  ) {
     await createReviewSummaryComment({
       prSurface,
       reviewLens: "review",
@@ -254,6 +325,7 @@ export async function executeAckJob(
         { ...data, cancelProgress: data.cancelProgress },
         installation,
         resourceKey,
+        capabilities,
       );
     } catch (error) {
       logWarn("ack_cancel_progress_failed", {
@@ -291,19 +363,42 @@ export async function executeAckJob(
           reviewLens: progressData.progress.lens,
         });
       } else {
-        await publishAckProgress(cfg, pool, progressData, installation, resourceKey, boss);
+        await publishAckProgress(
+          cfg,
+          pool,
+          progressData,
+          installation,
+          resourceKey,
+          boss,
+          capabilities,
+        );
       }
     } else {
-      await publishAckProgress(cfg, pool, progressData, installation, resourceKey, boss);
+      await publishAckProgress(
+        cfg,
+        pool,
+        progressData,
+        installation,
+        resourceKey,
+        boss,
+        capabilities,
+      );
     }
   }
 
-  if (data.reply) {
+  if (
+    data.reply &&
+    (prSurface.capabilities?.access("commentsWrite") ?? "available") === "available"
+  ) {
     await prSurface.replyAt(data.reply.target, data.reply.body);
   }
 
   // Ack-only interactions (help / disabled / usage / cancel) finish here — no durable work item.
-  if (data.reply && data.workItemId == null) {
+  if (
+    data.reply &&
+    data.workItemId == null &&
+    (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available"
+  ) {
     await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_PLUS_ONE);
   }
 }

@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.unmock("../src/github/ciStatus.js");
 import { makeTestConfig } from "./helpers/config.js";
 import type { PrSurface } from "../src/github/prSurface.js";
 import { createFakePrSurface, createPrSurface } from "../src/github/prSurface.js";
 import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
+import {
+  installationCapabilitiesFromPermissions,
+  createReviewCapabilityPolicy,
+} from "../src/github/installationCapabilities.js";
 
 const reviewPublishMocks = vi.hoisted(() => ({
   createReviewCheckRun: vi.fn(),
@@ -48,6 +53,128 @@ async function sharedProgressCommentScenarios(surface: PrSurface): Promise<void>
 }
 
 describe("PrSurface seam", () => {
+  it.each([false, true])(
+    "reads verdict statuses without Checks and refuses incomplete status evidence (%s)",
+    async (incomplete) => {
+      const policy = createReviewCapabilityPolicy(
+        installationCapabilitiesFromPermissions({
+          scope: { appId: "1", installationId: 42, owner: "o", repo: "r" },
+          generation: "1",
+          permissions: { statuses: "read" },
+        }),
+      );
+      const getCombinedStatusForRef = vi.fn(async () => ({
+        data: {
+          statuses: Array.from({ length: incomplete ? 100 : 1 }, (_, index) => ({
+            context: index === 0 ? "pr-agent/review" : `ci-${index}`,
+            state: "success",
+            description: "accepted",
+            target_url: null,
+            updated_at: "2026-10-03T00:00:00Z",
+            created_at: "2026-10-03T00:00:00Z",
+          })),
+        },
+      }));
+      const listForRef = vi.fn();
+      vi.mocked(installationOctokit).mockReturnValue({
+        rest: { repos: { getCombinedStatusForRef }, checks: { listForRef } },
+      } as never);
+      const surface = createPrSurface({
+        cfg: makeTestConfig(),
+        installationId: 42,
+        owner: "o",
+        repo: "r",
+        prNumber: 5,
+        installation: { token: "seed", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
+        capabilities: policy,
+      });
+      const statuses = surface.getReviewCommitStatuses?.("head");
+      if (incomplete) {
+        await expect(statuses).rejects.toMatchObject({ code: "github.preflight_unavailable" });
+      } else {
+        await expect(statuses).resolves.toEqual([
+          expect.objectContaining({ context: "pr-agent/review", state: "success" }),
+        ]);
+      }
+      expect(listForRef).not.toHaveBeenCalled();
+    },
+  );
+
+  it("permits real head and identity reads but blocks new publication with revoked write grants", async () => {
+    const policy = createReviewCapabilityPolicy(
+      installationCapabilitiesFromPermissions({
+        scope: { appId: "1", installationId: 42, owner: "o", repo: "r" },
+        generation: "1",
+        permissions: { contents: "read", pull_requests: "read" },
+      }),
+    );
+    const pullsGet = vi.fn(async () => ({
+      data: { head: { sha: "live-head" }, additions: 0, deletions: 0, changed_files: 0 },
+    }));
+    const createReview = vi.fn();
+    vi.mocked(installationOctokit).mockReturnValue({
+      rest: { pulls: { get: pullsGet, createReview } },
+    } as never);
+    const tokenResolver = vi.fn(async () => ({
+      token: "managed",
+      expiresAtTs: Date.now() + 3_600_000,
+      ttlMs: 3_600_000,
+    }));
+    const surface = createPrSurface({
+      cfg: makeTestConfig(),
+      installationId: 42,
+      owner: "o",
+      repo: "r",
+      prNumber: 5,
+      tokenResolver,
+      capabilities: policy,
+    });
+    await expect(surface.getHeadSha()).resolves.toBe("live-head");
+    await expect(surface.getBotLogin()).resolves.toBe("pr-agent[bot]");
+    await expect(
+      surface.publishThreadBatch({ body: "new output", event: "COMMENT" }),
+    ).rejects.toMatchObject({
+      code: "github.essential_access_denied",
+    });
+    expect(createReview).not.toHaveBeenCalled();
+    expect(pullsGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists Actions denial exposed by the read helper without denying other operations", async () => {
+    const persist = vi.fn(async () => {});
+    const policy = createReviewCapabilityPolicy(
+      installationCapabilitiesFromPermissions({
+        scope: { appId: "1", installationId: 42, owner: "o", repo: "r" },
+        generation: "1",
+        permissions: { actions: "read", checks: "read" },
+      }),
+      persist,
+    );
+    const listWorkflowRunsForRepo = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+      );
+    vi.mocked(installationOctokit).mockReturnValue({
+      rest: { actions: { listWorkflowRunsForRepo } },
+    } as never);
+    const surface = createPrSurface({
+      cfg: makeTestConfig(),
+      installationId: 42,
+      owner: "o",
+      repo: "r",
+      prNumber: 5,
+      installation: { token: "seed", expiresAtTs: Date.now() + 3_600_000, ttlMs: 3_600_000 },
+      capabilities: policy,
+    });
+    await expect(surface.listFailingActionsJobs("head")).resolves.toEqual({
+      ok: false,
+      reason: "actions_permission",
+    });
+    expect(policy.access("actionsRead")).toBe("denied");
+    expect(policy.access("checksRead")).toBe("available");
+    expect(persist).toHaveBeenCalledWith("actionsRead");
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     reviewPublishMocks.createReviewCheckRun.mockReset();
@@ -187,6 +314,34 @@ describe("PrSurface seam", () => {
     await expect(surface.getHeadSha()).resolves.toBe("abc123");
     expect(mintInstallationToken).toHaveBeenCalledTimes(1);
     expect(installationOctokit).toHaveBeenLastCalledWith("fresh-token", freshExpiry);
+  });
+
+  it("resolves managed credentials on every operation including git checkout", async () => {
+    const expiresAtTs = Date.now() + 3_600_000;
+    const tokenResolver = vi.fn(async () => ({
+      token: "managed",
+      expiresAtTs,
+      ttlMs: 3_600_000,
+    }));
+    const pullsGet = vi.fn(async () => ({
+      data: { head: { sha: "abc" }, additions: 0, deletions: 0, changed_files: 0 },
+    }));
+    vi.mocked(installationOctokit).mockReturnValue({
+      rest: { pulls: { get: pullsGet } },
+    } as never);
+    const surface = createPrSurface({
+      cfg: makeTestConfig(),
+      installationId: 42,
+      owner: "o",
+      repo: "r",
+      prNumber: 5,
+      installation: { token: "seed", expiresAtTs, ttlMs: 3_600_000 },
+      tokenResolver,
+    });
+    await surface.getHead();
+    await surface.gitCredentialAuth();
+    expect(tokenResolver).toHaveBeenCalledTimes(2);
+    expect(installationOctokit).toHaveBeenCalledWith("managed", expiresAtTs);
   });
 
   it("startReviewCheck returns duplicate id for a proven duplicate-create error", async () => {

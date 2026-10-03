@@ -103,7 +103,11 @@ function githubErrorText(error: unknown): string {
 
 /** Logs/analytics-only classification for GitHub API failures. */
 export function classifyGithubError(error: unknown): GithubErrorKind {
-  if (isAppError(error) && error.code === "github.review_thread_resolution_denied") {
+  if (
+    isAppError(error) &&
+    (error.code === "github.review_thread_resolution_denied" ||
+      error.code === "github.essential_access_denied")
+  ) {
     return "forbidden";
   }
   const text = githubErrorText(error);

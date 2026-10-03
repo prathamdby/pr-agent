@@ -62,6 +62,7 @@ export async function tryLightweightAutoReviewCompletion(
     params.item.owner,
     params.item.repo,
     params.item.headSha,
+    params.item.installationId,
   );
   const body = renderLightweightReviewCompletion(
     {

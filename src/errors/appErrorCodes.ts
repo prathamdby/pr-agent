@@ -57,8 +57,11 @@ export const APP_ERROR_KINDS = {
   context7: ["outbound_policy_rejected", "request_failed", "response_too_large"],
   description: ["publish_superseded", "validation_failed"],
   github: [
+    "essential_access_denied",
     "head_sha_mismatch",
     "missing_app_slug",
+    "preflight_exhausted",
+    "preflight_unavailable",
     "review_check_lookup_incomplete",
     "review_thread_resolution_denied",
   ],

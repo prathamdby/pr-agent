@@ -37,6 +37,60 @@ those checks at its existing tool/commit/push checkpoints without sharing a
 read-only checkout. Verification applies them before both empty completion and
 late publication; lost ownership cannot clear the verification failure signal.
 
+## Installation access recovery
+
+Each new review observes fresh grants for its App installation and repository,
+not account-wide state. Authentication and real head/identity reads precede exact
+receipt recovery. Only new work requires essential read/publication access.
+Optional reads and writes use an explicit run policy, not shared feature flags.
+Contents write is not required for reviews.
+
+Inspect scoped metadata and counters with bound identifiers:
+
+```sql
+select installation_id, owner, repo, generation, capabilities, observed_at
+from github_repository_capabilities
+where installation_id = $1 and owner = $2 and repo = $3;
+select source, generation, access, listing_required, updated_at
+from github_head_ci_sources
+where installation_id = $1 and owner = $2 and repo = $3 and head_sha = $4;
+select id, status, attempt_count, github_preflight_failure_count, last_error
+from agent_work_items where id = $1;
+```
+
+`github.essential_access_denied` is a confirmed terminal access refusal.
+`github.preflight_unavailable` is unknown access, not missing permission.
+Its durable counter is lease-fenced and bounded by `QUEUE_RETRY_LIMIT + 1`;
+`github.preflight_exhausted` means that access check stayed unavailable.
+These failures never spend model attempts or trigger model escalation.
+Successful preflight resets the counter. Shared-circuit deferral probes nothing
+and spends no probe count. Do not reset counts, clear intents, or invent receipts
+to force a retry.
+
+Confirmed source denial stops recurring metadata and denied-read/write polling.
+Other readable sources can still refresh. Known CI failures remain visible;
+partial/inaccessible sources cannot claim passing or no CI. Restore the grants
+and request a new review to reopen eligible projection/repair. Restoration
+requires a fresh listing even for a previously terminal head. Only successful
+complete reads clear `listing_required`. The shared head revision advances
+atomically with scoped rendered availability changes; denial stays scoped to
+the installation. Observations expire in bounded batches on the work-retention
+horizon. No historical network backfill is performed.
+
+Verdict surface state is applied, skipped-for-this-run, blocked, or unresolved.
+Configured intent and the immutable selected result stay separate from current
+access. Accepted or acceptance-uncertain pending Checks/statuses remain applicable
+after revoke/restart and repair independently after restoration. A never-started
+optional surface can be skipped without an ID or acceptance receipt. Legacy
+payloads and uncertain intents keep their existing recovery rules.
+
+Install migration `038` before the worker build and upgrade affected workers
+together. Rollback stops/drains those workers and restores the prior build while
+retaining additive state, selections, intents, and receipts. That build restores
+the previous permission-denial behavior, not the new safeguards. Live mutation
+tests remain waived; local evidence proves bounded protocol and durable recovery
+only. Rollout: [operations](operations.md#review-reliability-rollout).
+
 ## Inspect Queue Health
 
 Use SQL against Postgres:

@@ -833,6 +833,18 @@ async function runFullReviewAgainstRepositoryView(args: {
           prBody: pullRequest?.body ?? null,
           escalation,
           modelApis: await reviewRecoveryModelApis(cfg, escalation),
+          effectivePublicationCapabilities: {
+            checksWrite:
+              (prSurface.capabilities?.access("checksWrite") ?? "available") === "available",
+            statusesWrite:
+              cfg.features.commitStatus &&
+              (prSurface.capabilities?.access("statusesWrite") ?? "available") === "available",
+            labelsWrite:
+              (prSurface.capabilities?.access("labelsRead") ?? "available") === "available" &&
+              (prSurface.capabilities?.access("labelsWrite") ?? "available") === "available",
+            reactionsWrite:
+              (prSurface.capabilities?.access("reactionsWrite") ?? "available") === "available",
+          },
         }),
       )
     : null;
@@ -997,28 +1009,14 @@ async function runClaimedReview(args: {
   const staleHeadAtPublish = { value: false };
   const publishAbortState: { staleHead?: boolean } = {};
 
-  await reviewVerdict({
-    pool,
-    commitStatusEnabled: cfg.features.commitStatus,
-    prSurface,
-    owner: item.owner,
-    repo: item.repo,
-    prNumber: item.prNumber,
-    headSha,
-    workItemId: item.id,
-    resourceKey: item.resourceKey,
-    reviewLens,
-    leaseEpoch: env.leaseEpoch,
-    signal: env.signal,
-  }).pending();
-
   if (publishContext.publishState.summaryPublished) {
     const summaryDetail = await createPublishContext(pool, {
       workItemId: item.id,
       resourceKey: item.resourceKey,
       reviewLens: reviewLens,
     }).completed("summary_comment");
-    let usableSummaryReceipt = summaryDetail?.lightweightCompletion === true;
+    let usableSummaryReceipt =
+      summaryDetail?.lightweightCompletion === true && (await prSurface.getHeadSha()) === headSha;
     if (
       !usableSummaryReceipt &&
       cfg.review.recoveryEnabled &&
@@ -1051,18 +1049,42 @@ async function runClaimedReview(args: {
         (await prSurface.getHeadSha()) === headSha;
     }
     if (usableSummaryReceipt) {
-      await closeStoredReviewVerdict({
-        pool,
-        item,
-        reviewLens,
-        prSurface,
-        leaseEpoch: env.leaseEpoch,
-        commitStatusEnabled,
-        outcome: ownVerdictFromSummaryDetail(summaryDetail),
-      });
+      try {
+        await closeStoredReviewVerdict({
+          pool,
+          item,
+          reviewLens,
+          prSurface,
+          leaseEpoch: env.leaseEpoch,
+          commitStatusEnabled,
+          outcome: ownVerdictFromSummaryDetail(summaryDetail),
+        });
+      } catch (error) {
+        logWarn("review_receipt_cleanup_deferred", {
+          workItemId: item.id,
+          installationId: item.installationId,
+          message: errorMessage(error),
+        });
+      }
       return { kind: "completed" };
     }
   }
+
+  await env.ensureReviewAccess?.();
+  await reviewVerdict({
+    pool,
+    commitStatusEnabled: cfg.features.commitStatus,
+    prSurface,
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+    headSha,
+    workItemId: item.id,
+    resourceKey: item.resourceKey,
+    reviewLens,
+    leaseEpoch: env.leaseEpoch,
+    signal: env.signal,
+  }).pending();
 
   const lightweight = await runLightweightCompletionOrSkip({
     beginAttempt: env.beginAttempt,

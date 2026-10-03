@@ -143,7 +143,7 @@ export async function publishReviewSummaryOnly(
   const renderedCi =
     ciPool == null
       ? { summary: undefined, version: 0 }
-      : await loadRenderableHeadCi(ciPool, owner, repo, headSha);
+      : await loadRenderableHeadCi(ciPool, owner, repo, headSha, session.installationId);
   const ciSummary = renderedCi.summary;
   const durationMs = resolveReviewWallClockMs({
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
@@ -182,7 +182,12 @@ export async function publishReviewSummaryOnly(
       : null;
   }
 
-  const labelsPromise = session.prSurface.getLabels().catch((error: unknown) => error);
+  const labelsAvailable =
+    (session.prSurface.capabilities?.access("labelsRead") ?? "available") === "available" &&
+    (session.prSurface.capabilities?.access("labelsWrite") ?? "available") === "available";
+  const labelsPromise = labelsAvailable
+    ? session.prSurface.getLabels().catch((error: unknown) => error)
+    : Promise.resolve(null);
   const coordination = summaryCoordination;
   const summaryOperationKey =
     coordination == null ? null : reviewSummaryOperationKey(coordination.resourceKey, mode);
@@ -313,6 +318,7 @@ export async function publishReviewSummaryOnly(
     );
   }
 
+  if (!labelsAvailable) return finishPublished(summary.id);
   if (currentLabels instanceof Error) {
     logWarn("review_labels_fetch_failed", {
       mode,

@@ -152,9 +152,41 @@ vi.mock("../src/agentWork/reviewReschedule.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.js", async (importOriginal) => ({
+  parseRepositoryInstallation: (await importOriginal<typeof import("../src/github/appAuth.js")>())
+    .parseRepositoryInstallation,
+  installationOctokit: vi.fn(() => {
+    throw new Error("Unexpected live GitHub access in analytics fixture");
+  }),
   mintInstallationAuth: vi.fn(),
+  mintScopedInstallationAuth: vi.fn(
+    (config: Parameters<typeof appAuth.mintInstallationAuth>[0], installationId: number) =>
+      appAuth.mintInstallationAuth(config, installationId),
+  ),
   getAppBotIdentity: vi.fn(),
+  lookupRepositoryInstallation: vi.fn(async () => ({
+    id: 99,
+    app_id: 1,
+    suspended_at: null,
+    repository_selection: "all",
+    permissions: {
+      pull_requests: "write",
+      contents: "read",
+      issues: "write",
+      checks: "write",
+      statuses: "write",
+      actions: "read",
+    },
+  })),
+}));
+vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+  nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  recordGithubCapabilityDenial: vi.fn(async () => true),
+  saveGithubCapabilityObservation: vi.fn(async () => true),
+  changeGithubPreflightFailureCount: vi.fn(async () => 0),
+}));
+vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
+  getSharedRateLimitCircuit: vi.fn(async () => null),
 }));
 
 import * as repo from "../src/agentWork/workItemStateRepository.js";

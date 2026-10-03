@@ -113,9 +113,42 @@ import {
 } from "../src/agentWork/publishRecordRepository.js";
 import { logWarn } from "../src/evlog.js";
 import { withSessionLock } from "../src/db/sessionLock.js";
+import {
+  availableInstallationCapabilities,
+  createReviewCapabilityPolicy,
+} from "../src/github/installationCapabilities.js";
 
 let harness: PublishReviewTestHarness;
 let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
+
+it("renders one concise optional-capability notice without changing review output", async () => {
+  const bundle = createPublishReviewTestHarness();
+  const observation = availableInstallationCapabilities({
+    appId: 1,
+    installationId: 42,
+    owner: "o",
+    repo: "r",
+  });
+  Object.assign(bundle.surface, {
+    capabilities: createReviewCapabilityPolicy({
+      ...observation,
+      availability: {
+        ...observation.availability,
+        checksRead: "denied",
+        checksWrite: "denied",
+        actionsRead: "unknown",
+        labelsWrite: "denied",
+      },
+    }),
+  });
+  await createReviewSummaryComment({ prSurface: bundle.surface, reviewLens: "review" }).conclude({
+    body: "review output",
+  });
+  const body = bundle.upsertProgressComment.mock.calls[0]?.[0] ?? "";
+  expect(body).toContain("review output");
+  expect(body).toContain("Unavailable for this review: Checks read/write, Actions logs, labels.");
+  expect(body.match(/Unavailable for this review:/g)).toHaveLength(1);
+});
 
 function createLockedPool() {
   const query = vi.fn(

@@ -170,6 +170,22 @@ const selectedOwnVerdictSchema = v.object({
 });
 
 export type SelectedOwnVerdict = v.InferOutput<typeof selectedOwnVerdictSchema>;
+export type OwnVerdictSurfaceState = "applied" | "skipped-for-this-run" | "blocked" | "unresolved";
+const ownVerdictMutationKinds = {
+  check: [
+    "github.review_check_run",
+    "github.pr_surface.startReviewCheck",
+    "github.review_check_run_close",
+    "github.pr_surface.finishReviewCheck",
+  ],
+  status: ["github.review_commit_status", "github.pr_surface.setReviewCommitStatus"],
+};
+
+function ownVerdictSurfaceState(value: unknown, applied: boolean): OwnVerdictSurfaceState {
+  if (applied) return "applied";
+  // A state label alone is never an acceptance receipt.
+  return value === "skipped-for-this-run" || value === "blocked" ? value : "unresolved";
+}
 type OwnVerdictIdentity = {
   readonly workItemId: string;
   readonly resourceKey: string;
@@ -213,12 +229,106 @@ export async function getOwnVerdictCloseRecord(
     githubId: row.github_id == null ? null : Number(row.github_id),
     checkApplied: row.detail.ownCheckApplied === true,
     statusApplied: row.detail.ownStatusApplied === true,
+    checkState: ownVerdictSurfaceState(
+      row.detail.ownCheckState,
+      row.detail.ownCheckApplied === true,
+    ),
+    statusState: ownVerdictSurfaceState(
+      row.detail.ownStatusState,
+      row.detail.ownStatusApplied === true,
+    ),
     legacyClosed:
       parsed == null &&
       row.detail.status === "completed" &&
       typeof row.detail.conclusion === "string" &&
       row.detail.conclusion.length > 0,
   };
+}
+
+/** Accepted or uncertain starts remain applicable even when current access is denied. */
+export async function hasOwnVerdictSurfaceAcceptance(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity,
+  surface: "check" | "status",
+): Promise<boolean> {
+  const row = await queryOne<{ applicable: boolean }>(
+    client,
+    `SELECT EXISTS (
+       SELECT 1 FROM operation_intents WHERE work_item_id = $1
+         AND mutation_kind = ANY($2::text[])
+         AND (status IN ('reconciled', 'outcome_unknown') OR detail ? '__result'
+           OR (status <> 'failed' AND detail->'__mutating' = 'true'::jsonb))
+     ) AS applicable`,
+    [params.workItemId, ownVerdictMutationKinds[surface]],
+  );
+  return row?.applicable === true;
+}
+
+/** A legacy delegated status with unknown acceptance cannot be evaded by a new verdict key. */
+export async function hasUnresolvedDelegatedOwnStatus(
+  client: Pool | PoolClient,
+  workItemId: string,
+  operationKey: string,
+): Promise<boolean> {
+  const row = await queryOne<{ unresolved: boolean }>(
+    client,
+    `SELECT EXISTS (
+       SELECT 1 FROM operation_intents WHERE work_item_id = $1
+         AND mutation_kind = 'github.pr_surface.setReviewCommitStatus'
+         AND (status = 'outcome_unknown'
+           OR (status = 'pending' AND detail->'__mutating' = 'true'::jsonb))
+         AND NOT (detail ? '__result')
+         AND detail->>'parentOperationKey' IS DISTINCT FROM $2
+         AND NOT EXISTS (
+           SELECT 1 FROM operation_intents parent
+             WHERE parent.work_item_id = operation_intents.work_item_id
+               AND parent.operation_key = operation_intents.detail->>'parentOperationKey'
+               AND parent.mutation_kind = 'github.review_commit_status'
+               AND (parent.detail->>'state' = 'pending'
+                    OR parent.operation_key LIKE 'review:commit_status:%:pending')
+         )
+     ) AS unresolved`,
+    [workItemId, operationKey],
+  );
+  return row?.unresolved === true;
+}
+
+export async function recordOwnVerdictSurfaceState(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity & { readonly selected: SelectedOwnVerdict },
+  surface: "check" | "status",
+  state: Exclude<OwnVerdictSurfaceState, "applied">,
+): Promise<void> {
+  const key = surface === "check" ? "ownCheckState" : "ownStatusState";
+  await fencedWrite(client, params.workItemId, params.leaseEpoch, { before: true }, () =>
+    client.query(
+      `UPDATE publish_records SET detail = detail || $4::jsonb, updated_at = now()
+        WHERE work_item_id = $1 AND resource_key = $2 AND review_lens = $3 AND step = 'check_run'
+          AND detail->'selectedOwnVerdict' = $5::jsonb
+          AND COALESCE(detail->>$6, '') NOT IN ('applied', 'skipped-for-this-run')
+          AND ($8 <> 'skipped-for-this-run' OR (
+            ($6 <> 'ownCheckState' OR (github_id IS NULL AND detail->>'status' IS DISTINCT FROM 'starting'))
+            AND NOT EXISTS (SELECT 1 FROM operation_intents i WHERE i.work_item_id = $1
+              AND i.mutation_kind = ANY($9::text[])
+              AND (i.status IN ('reconciled', 'outcome_unknown') OR i.detail ? '__result'
+                OR (i.status <> 'failed' AND i.detail->'__mutating' = 'true'::jsonb)))
+          ))
+          AND ($7::bigint IS NULL OR EXISTS (
+            SELECT 1 FROM pr_actor_leases WHERE work_item_id = $1 AND lease_epoch = $7
+          ))`,
+      [
+        params.workItemId,
+        params.resourceKey,
+        params.reviewLens,
+        JSON.stringify({ [key]: state }),
+        JSON.stringify(params.selected),
+        key,
+        params.leaseEpoch ?? null,
+        state,
+        ownVerdictMutationKinds[surface],
+      ],
+    ),
+  );
 }
 
 export function ownVerdictCloseOperationKey(params: OwnVerdictIdentity): string {
@@ -261,8 +371,20 @@ export async function hasLegacyOwnVerdictCompletion(
     `SELECT EXISTS (
        SELECT 1 FROM operation_intents
         WHERE work_item_id = $1
-          AND (mutation_kind = 'github.pr_surface.finishReviewCheck'
-               OR detail->>'surfaceMethod' = 'finishReviewCheck')
+          AND (mutation_kind IN ('github.pr_surface.finishReviewCheck', 'github.review_check_run_close')
+               OR detail->>'surfaceMethod' = 'finishReviewCheck'
+               OR (mutation_kind = 'github.review_commit_status'
+                   AND detail->>'state' IS DISTINCT FROM 'pending'
+                   AND operation_key NOT LIKE 'review:commit_status:%:pending')
+               OR (mutation_kind = 'github.pr_surface.setReviewCommitStatus'
+                   AND NOT EXISTS (
+                     SELECT 1 FROM operation_intents parent
+                       WHERE parent.work_item_id = operation_intents.work_item_id
+                         AND parent.operation_key = operation_intents.detail->>'parentOperationKey'
+                         AND parent.mutation_kind = 'github.review_commit_status'
+                         AND (parent.detail->>'state' = 'pending'
+                              OR parent.operation_key LIKE 'review:commit_status:%:pending')
+                   )))
           AND detail->>'parentOperationKey' IS DISTINCT FROM $2
           AND (status = 'reconciled'
                OR (status = 'outcome_unknown'
@@ -273,6 +395,51 @@ export async function hasLegacyOwnVerdictCompletion(
     [params.workItemId, ownVerdictCloseOperationKey(params)],
   );
   return row?.blocked === true;
+}
+
+async function reconcileSavedOwnVerdictAcceptance(
+  client: Pool | PoolClient,
+  params: OwnVerdictIdentity,
+): Promise<void> {
+  await fencedWrite(client, params.workItemId, params.leaseEpoch, { before: true }, () =>
+    client.query(
+      `UPDATE operation_intents SET status = 'reconciled', updated_at = now()
+        WHERE work_item_id = $1
+          AND mutation_kind = ANY($2::text[])
+          AND detail ? '__result' AND status <> 'reconciled'
+          AND ($3::bigint IS NULL OR EXISTS (
+            SELECT 1 FROM pr_actor_leases WHERE work_item_id = $1 AND lease_epoch = $3
+          ))`,
+      [
+        params.workItemId,
+        [...ownVerdictMutationKinds.check, ...ownVerdictMutationKinds.status],
+        params.leaseEpoch ?? null,
+      ],
+    ),
+  );
+  const start = await queryOne<{ detail: Record<string, unknown> }>(
+    client,
+    `SELECT detail FROM operation_intents
+      WHERE work_item_id = $1 AND mutation_kind IN ('github.review_check_run', 'github.pr_surface.startReviewCheck')
+        AND detail ? '__result'
+      ORDER BY created_at DESC LIMIT 1`,
+    [params.workItemId],
+  );
+  const result = start?.detail.__result;
+  if (
+    !isRecord(result) ||
+    typeof result.id !== "number" ||
+    !Number.isSafeInteger(result.id) ||
+    result.id <= 0
+  )
+    return;
+  if ((await getReviewCheckRunGithubId(client, params.workItemId, params.reviewLens)) != null)
+    return;
+  await recordReviewCheckRun(client, {
+    ...params,
+    githubId: result.id,
+    detail: { status: "in_progress", htmlUrl: typeof result.url === "string" ? result.url : null },
+  });
 }
 
 export async function claimOwnVerdict(
@@ -288,6 +455,7 @@ export async function claimOwnVerdict(
       [params.workItemId, params.resourceKey, params.reviewLens, params.leaseEpoch ?? null],
     );
     if (eligible == null) return null;
+    await reconcileSavedOwnVerdictAcceptance(client, params);
     const existing = await getOwnVerdictCloseRecord(client, params);
     if (existing?.selected == null && (await hasLegacyOwnVerdictCompletion(client, params))) {
       logWarn("review_own_verdict_legacy_unresolved", {
@@ -392,13 +560,17 @@ export async function recordOwnVerdictSurfaceApplied(
       client.query(
         `UPDATE publish_records
         SET detail = detail || $4::jsonb || jsonb_build_object(
-              'status', CASE WHEN ($5 OR detail->'ownCheckApplied' = 'true'::jsonb)
-                 AND (NOT $6 OR $7 OR detail->'ownStatusApplied' = 'true'::jsonb)
+              'status', CASE WHEN ($5 OR detail->'ownCheckApplied' = 'true'::jsonb
+                                      OR detail->>'ownCheckState' = 'skipped-for-this-run')
+                 AND (NOT $6 OR $7 OR detail->'ownStatusApplied' = 'true'::jsonb
+                                      OR detail->>'ownStatusState' = 'skipped-for-this-run')
                 THEN 'completed' ELSE 'in_progress' END),
             updated_at = now()
       WHERE work_item_id = $1 AND resource_key = $2 AND review_lens = $3 AND step = 'check_run'
         AND detail->'selectedOwnVerdict' = $8::jsonb
         AND (NOT $5 OR github_id IS NOT NULL)
+        AND COALESCE(detail->>CASE WHEN $5 THEN 'ownCheckState' ELSE 'ownStatusState' END, '')
+              <> 'skipped-for-this-run'
         AND ($9::bigint IS NULL OR EXISTS (
           SELECT 1 FROM pr_actor_leases WHERE work_item_id = $1 AND lease_epoch = $9
         ))`,
@@ -410,11 +582,12 @@ export async function recordOwnVerdictSurfaceApplied(
             check
               ? {
                   ownCheckApplied: true,
+                  ownCheckState: "applied",
                   conclusion: params.selected.conclusion,
                   completedAt: new Date().toISOString(),
                   detailsUrl: params.selected.detailsUrl,
                 }
-              : { ownStatusApplied: true },
+              : { ownStatusApplied: true, ownStatusState: "applied" },
           ),
           check,
           ownVerdictStatusApplicable(params.selected),
@@ -488,6 +661,7 @@ export async function reserveReviewCheckRun(
          WHERE publish_records.resource_key = EXCLUDED.resource_key
            AND publish_records.status = 'pending' AND publish_records.github_id IS NULL
            AND publish_records.detail ? 'selectedOwnVerdict'
+           AND publish_records.detail->>'ownCheckState' IS DISTINCT FROM 'skipped-for-this-run'
            AND publish_records.detail->>'status' IS DISTINCT FROM 'starting'
            AND (EXCLUDED.lease_epoch IS NULL OR EXISTS (
              SELECT 1 FROM pr_actor_leases WHERE work_item_id = EXCLUDED.work_item_id
@@ -507,7 +681,7 @@ export async function reserveReviewCheckRun(
 }
 
 export async function recordReviewCheckRun(
-  pool: Pool,
+  pool: Pool | PoolClient,
   params: {
     workItemId: string;
     resourceKey: string;

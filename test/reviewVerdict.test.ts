@@ -61,6 +61,8 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
       checkApplied: boolean;
       statusApplied: boolean;
       githubId: null;
+      checkState: string;
+      statusState: string;
     }
   >();
   return {
@@ -79,6 +81,8 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
         checkApplied: false,
         statusApplied: false,
         githubId: null,
+        checkState: "unresolved",
+        statusState: "unresolved",
       };
       records.set(params.workItemId, record);
       return record;
@@ -86,15 +90,22 @@ vi.mock("../src/agentWork/publishRecordRepository.js", async (importOriginal) =>
     recordOwnVerdictSurfaceApplied: vi.fn(async (_client, params, surface) => {
       const record = records.get(params.workItemId);
       if (record && surface === "check") record.checkApplied = true;
+      if (record && surface === "status") record.statusApplied = true;
+      if (record) record[surface === "check" ? "checkState" : "statusState"] = "applied";
     }),
+    recordOwnVerdictSurfaceState: vi.fn(async (_client, params, surface, state) => {
+      const record = records.get(params.workItemId);
+      if (record) record[surface === "check" ? "checkState" : "statusState"] = state;
+    }),
+    hasOwnVerdictSurfaceAcceptance: vi.fn(async () => false),
+    hasUnresolvedDelegatedOwnStatus: vi.fn(async () => false),
     getOwnVerdictCloseRecord: vi.fn(
       async (_client, params) => records.get(params.workItemId) ?? null,
     ),
     hasLegacyOwnVerdictCompletion: vi.fn(async () => false),
     getDelegatedOwnVerdictFinish: vi.fn(async (_client, params) => {
-      const intents = await import("../src/agentWork/operationIntentRepository.js");
       const key = vi
-        .mocked(intents.persistOperationIntent)
+        .mocked(persistOperationIntent)
         .mock.calls.toReversed()
         .find(
           ([, value]) =>
@@ -143,6 +154,7 @@ import {
 } from "../src/agentWork/reviewVerdict.js";
 
 import { DEFERRED_HEAD_SHA } from "../src/settings/index.js";
+import { persistOperationIntent } from "../src/agentWork/operationIntentRepository.js";
 
 const pool = {} as never;
 
@@ -205,6 +217,67 @@ describe("review check run lifecycle", () => {
       kind: "pr_actor_lease_lost",
       message: "PR actor lease is no longer held by this execution",
     });
+
+  it.each(["denied", "unknown"] as const)(
+    "skips a never-started check during terminal cleanup after %s essential admission",
+    async (access) => {
+      const { availableInstallationCapabilities, createReviewCapabilityPolicy } =
+        await import("../src/github/installationCapabilities.js");
+      const surface = makePrSurface();
+      const observation = availableInstallationCapabilities({
+        appId: "test",
+        installationId: 1,
+        owner: "o",
+        repo: "r",
+      });
+      Object.defineProperty(surface, "capabilities", {
+        value: createReviewCapabilityPolicy({
+          ...observation,
+          availability: { ...observation.availability, reviewWrite: access },
+        }),
+      });
+      await reviewVerdict({
+        ...startParams(surface),
+        pool,
+        commitStatusEnabled: false,
+        leaseEpoch: null,
+      }).close({ kind: "crashed" });
+      expect(surface.startReviewCheck).not.toHaveBeenCalled();
+      expect(surface.finishReviewCheck).not.toHaveBeenCalled();
+      expect(await closeRepository.getOwnVerdictCloseRecord(pool, startParamsBase)).toMatchObject({
+        checkState: "skipped-for-this-run",
+      });
+    },
+  );
+
+  it("starts a pending status independently when Checks are denied", async () => {
+    const { availableInstallationCapabilities, createReviewCapabilityPolicy } =
+      await import("../src/github/installationCapabilities.js");
+    const surface = makePrSurface();
+    const observation = availableInstallationCapabilities({
+      appId: "test",
+      installationId: 1,
+      owner: "o",
+      repo: "r",
+    });
+    Object.defineProperty(surface, "capabilities", {
+      value: createReviewCapabilityPolicy({
+        ...observation,
+        availability: { ...observation.availability, checksRead: "denied", checksWrite: "denied" },
+      }),
+    });
+    const status = vi.spyOn(surface, "setReviewCommitStatus");
+    await expect(
+      reviewVerdict({
+        pool,
+        commitStatusEnabled: true,
+        ...startParams(surface),
+      }).pending(),
+    ).resolves.toBeNull();
+    expect(surface.startReviewCheck).not.toHaveBeenCalled();
+    expect(reserveReviewCheckRun).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith("sha", expect.objectContaining({ state: "pending" }));
+  });
 
   it("refuses a stale create after a fenced reserve so the live holder can still create", async () => {
     vi.mocked(reserveReviewCheckRun).mockImplementationOnce(async () => {
@@ -1007,6 +1080,7 @@ describe("review check run lifecycle", () => {
       outcome: { kind: "cancelled" },
     });
 
+    expect(vi.mocked(logWarn).mock.calls).toEqual([]);
     expect(prSurface.finishReviewCheck).toHaveBeenCalledTimes(2);
     expect(prSurface.finishReviewCheck).toHaveBeenCalledWith(
       expect.objectContaining({ checkRunId: 11, conclusion: "cancelled" }),

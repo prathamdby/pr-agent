@@ -6,6 +6,7 @@ import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js"
 import { deleteExpiredAskQuotaState } from "./askQuota.js";
 import { deleteExpiredPrHeadCiState } from "./prHeadCiState.js";
 import { deleteExpiredReviewApprovals } from "./intake/reviewApprovals.js";
+import { deleteExpiredGithubCapabilities } from "./githubCapabilityRepository.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -121,6 +122,7 @@ export async function runRetention(
     deleteExpiredPrHeadCiState(pool, cfg.retention.agentWorkSeconds),
     deleteExpiredReviewApprovals(pool, cfg.retention.agentWorkSeconds),
   ]);
+  await deleteExpiredGithubCapabilities(pool, cfg.retention.agentWorkSeconds);
   return {
     workItemsDeleted,
     webhookEventsDeleted,

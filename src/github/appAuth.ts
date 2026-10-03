@@ -9,6 +9,10 @@ import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { noteGithubRequestSuccess } from "./rateLimitCircuit.js";
 import { errorMessage } from "../errors/errorMessage.js";
+import {
+  parseInstallationPermissions,
+  type InstallationPermissions,
+} from "./installationCapabilities.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
@@ -27,7 +31,110 @@ export type InstallationToken = {
   readonly expiresAtTs: number;
   /** Observed TTL at mint (ms); used for token_age_seconds in logs */
   readonly ttlMs: number;
+  readonly permissions?: InstallationPermissions;
+  readonly repositories?: readonly string[];
+  readonly requestedPermissions?: InstallationTokenOptions["permissions"];
+  readonly repositorySelection?: "all" | "selected";
 };
+
+export type InstallationTokenOptions = {
+  readonly signal?: AbortSignal;
+  readonly repositories?: string[];
+  readonly permissions?: NonNullable<
+    Parameters<Octokit["rest"]["apps"]["createInstallationAccessToken"]>[0]
+  >["permissions"];
+};
+export type RepositoryInstallation = {
+  readonly id: number;
+  readonly app_id: number | string;
+  readonly suspended_at: string | null;
+  readonly permissions: InstallationPermissions;
+  readonly repository_selection: "all" | "selected";
+};
+
+export function parseRepositoryInstallation(value: unknown): RepositoryInstallation | undefined {
+  if (
+    typeof value !== "object" ||
+    value == null ||
+    Array.isArray(value) ||
+    !("id" in value) ||
+    !("app_id" in value) ||
+    !("suspended_at" in value) ||
+    !("permissions" in value) ||
+    !("repository_selection" in value)
+  )
+    return undefined;
+  if (
+    typeof value.id !== "number" ||
+    !Number.isSafeInteger(value.id) ||
+    value.id <= 0 ||
+    (typeof value.app_id !== "number" && typeof value.app_id !== "string") ||
+    !Number.isSafeInteger(Number(value.app_id)) ||
+    Number(value.app_id) <= 0 ||
+    (value.suspended_at !== null &&
+      (typeof value.suspended_at !== "string" ||
+        !Number.isFinite(Date.parse(value.suspended_at)))) ||
+    (value.repository_selection !== "all" && value.repository_selection !== "selected")
+  )
+    return undefined;
+  const permissions = parseInstallationPermissions(value.permissions);
+  if (!permissions) return undefined;
+  return {
+    id: value.id,
+    app_id: value.app_id,
+    suspended_at: value.suspended_at,
+    repository_selection: value.repository_selection,
+    permissions,
+  };
+}
+
+/** App JWT transport deliberately has neither throttling nor retry plugins. */
+export async function lookupRepositoryInstallation(
+  cfg: Pick<Config, "github">,
+  owner: string,
+  repo: string,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const jwt = await mintAppJwtToken(cfg);
+  signal?.throwIfAborted();
+  const octokit = new Octokit({ auth: jwt });
+  const { data } = await octokit.rest.apps.getRepoInstallation({
+    owner,
+    repo,
+    request: { signal },
+  });
+  return data;
+}
+
+export async function mintScopedInstallationAuth(
+  cfg: Pick<Config, "github">,
+  installationId: number,
+  options: InstallationTokenOptions,
+) {
+  const jwt = await mintAppJwtToken(cfg);
+  options.signal?.throwIfAborted();
+  const octokit = new Octokit({ auth: jwt });
+  const { data } = await octokit.rest.apps.createInstallationAccessToken({
+    installation_id: installationId,
+    repositories: options.repositories,
+    permissions: options.permissions,
+    request: { signal: options.signal },
+  });
+  if (
+    !parseInstallationPermissions(data.permissions) ||
+    (data.repository_selection !== "all" && data.repository_selection !== "selected") ||
+    (options.repositories &&
+      (data.repository_selection !== "selected" ||
+        data.repositories?.some((repository) => !options.repositories?.includes(repository.name))))
+  ) {
+    throw new AppError({
+      domain: "github",
+      kind: "preflight_unavailable",
+      message: "GitHub installation token returned invalid permissions or repository scope",
+    });
+  }
+  return data;
+}
 
 export async function mintInstallationAuth(
   cfg: Pick<Config, "github">,

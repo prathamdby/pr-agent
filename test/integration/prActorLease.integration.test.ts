@@ -12,7 +12,7 @@ import { createWorkDefinitions } from "../../src/agentWork/workDefinition.js";
 import { openInstallationSurface } from "../../src/agentWork/installationSurface.js";
 import * as localPrWorkspaceModule from "../../src/prWorkspace/localPrWorkspace.js";
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { PgBoss } from "pg-boss";
@@ -107,6 +107,31 @@ type LeaseRow = {
 
 describe.skipIf(!hasDatabase)("PR actor lease (integration)", () => {
   let pool: Pool;
+  beforeEach(() => {
+    const permissions = {
+      contents: "read",
+      pull_requests: "write",
+      issues: "write",
+      checks: "write",
+      statuses: "write",
+      actions: "read",
+    } as const;
+    vi.spyOn(appAuth, "lookupRepositoryInstallation").mockResolvedValue({
+      id: 1,
+      app_id: 1,
+      suspended_at: null,
+      repository_selection: "all",
+      permissions,
+    });
+    vi.spyOn(appAuth, "mintScopedInstallationAuth").mockImplementation(async (cfg, id) => {
+      const auth = await appAuth.mintInstallationAuth(cfg, id);
+      return {
+        token: auth.token,
+        expires_at: auth.expiresAt ?? new Date(Date.now() + 3_600_000).toISOString(),
+        permissions,
+      };
+    });
+  });
 
   beforeAll(async () => {
     pool = integrationPool();

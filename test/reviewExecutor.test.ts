@@ -99,6 +99,7 @@ const mocks = vi.hoisted(() => ({
   write: vi.fn(),
   completed: vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown> | null> => null),
   shouldSkipWork: vi.fn(async () => false),
+  ensureReviewAccess: vi.fn(async () => undefined),
   summaryConclude: vi.fn(
     async (
       deps: { readonly prSurface: import("../src/github/prSurface.js").PrSurface },
@@ -257,6 +258,7 @@ function mockDurableExecution(
         leaseEpoch: 1,
         job: makeDurableJobMetadata(),
         beginAttempt: async () => mockWorkClaim(),
+        ensureReviewAccess: mocks.ensureReviewAccess,
         signal: new AbortController().signal,
         pullRequest: executionPullRequest,
         getClaim: () => ({
@@ -348,6 +350,7 @@ describe("review work definition", () => {
     mocks.fetchPriorFeedback.mockResolvedValue(undefined);
     mocks.getSummaryCommentGithubId.mockResolvedValue(1);
     mocks.shouldSkipWork.mockResolvedValue(false);
+    mocks.ensureReviewAccess.mockReset().mockResolvedValue(undefined);
     mocks.getWorkItem.mockResolvedValue(null);
     mocks.buildStaleReschedule.mockReset();
     mockRepositoryView();
@@ -480,6 +483,73 @@ describe("review work definition", () => {
       expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
     },
   );
+
+  it.each(["essential_access_denied", "preflight_unavailable"] as const)(
+    "refuses fresh review work on %s before pending verdicts, workspace, or model work",
+    async (kind) => {
+      mocks.ensureReviewAccess.mockRejectedValue(
+        new AppError({ domain: "github", kind, message: "Review access is unavailable" }),
+      );
+      await expect(runExecution()).rejects.toMatchObject({ code: `github.${kind}` });
+      expect(mocks.ensureReviewAccess).toHaveBeenCalledTimes(1);
+      expect(verdictMethods.pending).not.toHaveBeenCalled();
+      expect(mocks.lightweight).not.toHaveBeenCalled();
+      expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
+      expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    },
+  );
+
+  it("completes an exact lightweight receipt at the cap without new publication admission", async () => {
+    mocks.loadPublishContext.mockResolvedValue({
+      publishState: { summaryPublished: true, inlineReviewIds: [], threadCallCount: 0 },
+      shouldLinkToSummary: false,
+      storedInlineFingerprints: [],
+      resumedPlacements: [],
+      progressCommentGithubId: 2,
+    });
+    mocks.completed.mockResolvedValue({
+      lightweightCompletion: true,
+      ownVerdictKind: "published",
+      ownCheckFailing: false,
+    });
+    const beginAttempt = vi.fn(async () => {
+      throw new AppError({ domain: "agent_work", kind: "attempts_exhausted", message: "at cap" });
+    });
+    mocks.ensureReviewAccess.mockRejectedValue(
+      new AppError({
+        domain: "github",
+        kind: "essential_access_denied",
+        message: "Review publication was revoked",
+      }),
+    );
+    configureExecution(async (spec) => {
+      const item = makeItem("slash");
+      return spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item,
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: 2,
+          job: makeDurableJobMetadata(),
+          beginAttempt,
+          ensureReviewAccess: mocks.ensureReviewAccess,
+          signal: new AbortController().signal,
+          pullRequest,
+          getClaim: () => ({ ...mockWorkClaim(), attemptCount: 4, resumed: true }),
+          getEscalation: () => undefined,
+        }),
+      );
+    });
+    await expect(runExecution()).resolves.toMatchObject({ kind: "completed" });
+    expect(mocks.ensureReviewAccess).not.toHaveBeenCalled();
+    expect(beginAttempt).not.toHaveBeenCalled();
+    expect(verdictMethods.pending).not.toHaveBeenCalled();
+    expect(verdictMethods.close).toHaveBeenCalledTimes(1);
+    expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+  });
 
   it("refuses an unfinished resumed review at the cap before preparing its admitted repository view", async () => {
     const beginAttempt = vi.fn(async () => {

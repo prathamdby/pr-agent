@@ -49,6 +49,7 @@ const EXPECTED_MIGRATIONS = [
   "035_pr_review_approvals.sql",
   "036_drop_agent_runtime_durability.sql",
   "037_review_run_artifacts.sql",
+  "038_github_capabilities.sql",
 ].toSorted();
 
 function migrationFilesOnDisk(): string[] {

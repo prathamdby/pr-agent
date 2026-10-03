@@ -52,7 +52,7 @@ and return `503`.
 - **Duplicate evidence:** every committed rejected arrival writes metadata-only `webhook_delivery_duplicates`, with its incoming delivery ID, body fingerprint, and guard reason. It adds no work or jobs. Audit-write failure rolls back intake and returns `503`. Evidence expires by its own arrival age under the same 30-day webhook setting, independently of accepted events, and does not extend replay protection. `RETENTION_ENABLED=false` leaves this evidence unpurged. ID/body patterns alone do not establish malicious intent. Inspection and rollout: [agent-work-ops.md](agent-work-ops.md#duplicate-delivery-evidence).
 - **Review superseding:** when a newer automated review is enqueued for the same PR, it supersedes queued auto-reviews and requests cooperative cancellation of an in-flight auto-review. A `synchronize` push does the same from intake: it supersedes queued auto-reviews, requests cancellation of the running one, clears those rows' **PR actor lease** holder on exact (id, epoch) pairs, and enqueues one deferred-head replacement (no replacement when no review is active, so pushes never re-review a finished PR). The replacement acquires the lease immediately. The running review observes the cancel request from the durable execute observer (`REVIEW_CANCEL_POLL_INTERVAL_MS` after an immediate first tick) and aborts the host signal so recon, judgment, synthesis, and specialists stop at the next existing abort boundary. Automated **verification** on `synchronize` uses the same supersede pattern for prior verification items. Slash-command reviews are not superseded.
 - **Review check-run identity:** the worker binds `PR Agent Review` to the exact repository, head SHA, check name, and requesting work-item external ID. It adopts a remote run only after a proven duplicate-creation error and one exact provider match; ambiguous or incomplete provider state remains unresolved.
-- **Own verdict:** one writer (`reviewVerdict(...).close`) finishes `PR Agent Review` and, when `FEATURE_COMMIT_STATUS` is on, `pr-agent/review`. Publish maps findings to check `failure`/`success` and matching commit status. Partial coverage is check `neutral` and status `error`. Cancel, supersede, and stale head are check `cancelled` and status `error`. Crash and unpublished are check `action_required` and status `error`. `pending` is posted only when the check starts. A diagnostics sweeper marks a lost running review `failed` (`worker_lost`) and closes the crashed verdict so a required context does not hang at Expected. That failure decision serializes with lease renewals and job writes, then rechecks age and liveness in a fresh statement. Busy or timed-out passes leave the candidate unchanged and try again later. Only a committed mark permits its crashed close. It separately retries close for a terminal review whose recorded check conclusion is still missing.
+- **Own verdict:** one writer (`reviewVerdict(...).close`) finishes `PR Agent Review` and, when `FEATURE_COMMIT_STATUS` is on, `pr-agent/review`. Publish maps findings to check `failure`/`success` and matching commit status. Partial coverage is check `neutral` and status `error`. Cancel, supersede, and stale head are check `cancelled` and status `error`. Crash and unpublished are check `action_required` and status `error`. Accessible statuses can start `pending` independently of Checks. A diagnostics sweeper marks a lost running review `failed` (`worker_lost`) and closes applicable verdict surfaces. That failure decision serializes with lease renewals and job writes, then rechecks age and liveness in a fresh statement. Busy or timed-out passes leave the candidate unchanged and try again later. Only a committed mark permits its crashed close. It separately retries unresolved applicable surfaces for terminal reviews; never-started skipped surfaces do not keep repair open.
 - **Stale-head reschedule.** Automatic-review preflight and the publish gate detect a moved PR head. The worker cancels the stale auto or slash run and enqueues one replacement review for the latest head. The replacement takes ownership of the existing **review progress comment**, so its acknowledgement refreshes the stub and later specialist ticks and summary update the same comment. Retrying a stale review keeps changes already saved on its replacement. Stored payload values win collisions; incoming-only fields are added, including across lease epochs. Upgrade all workers for this coverage; no migration or web change is needed. A replacement that also goes stale fails with retry guidance instead of looping.
 - **Orchestrated reviews:** the acknowledgement worker posts a queued progress stub (Head/Source, optional Queue `#N of M` wait rank among queued reviews for the same pull request, optional CI) before the review worker claims the item. The review orchestrator then performs reconnaissance and writes one specialist brief. The progress stub shows Recon as Running (specialists Waiting) until that brief is ready, then marks Recon Done and specialists Running. Correctness, security, quality, and tests specialists then run in parallel. Each completed report is judged once with `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS` evidence rounds plus one reserved publish round (at most one extra round, so evidence gathering can never starve `publish_thread`) and may publish one incremental `COMMENT` review. A failed or unpublished judgment degrades that report only to deterministic publication; the session continues for the remaining reports. Specialist ticks use shared status copy (`Waiting`, `Running`, `No findings`, `N findings`, `Failed`); `N findings` counts accepted ledger placements (inline plus summary-only), not inline threads alone. A synthesis turn authors Size, Mergeability, and Blast Radius through `publish_summary`, running on the accepted ledger even when it is empty (a zero-findings review is a legitimate published review, not a degraded run). Synthesis runs on the partial ledger (accepted placements plus partial specialists) before any deterministic summary fallback. The final summary waits for all specialists. A failed specialist produces partial coverage, a neutral check run, and an error commit status. If all specialists fail, the worker posts a failure notice instead of a summary.
 - **GitHub publish recovery:** every non-idempotent review, ask, description, triage, verification, check, status, and label mutation records an operation intent before calling `PrSurface`. A crash between GitHub acceptance and stashing `__result` is resolved from `publish_records` or exact provider evidence (operation-intent marker or provider id) and then treated as success. Leased `PrSurface` mutations use that same recover hook at the lease boundary. The review check-run create is fenced on the lease epoch, a cancelled run does not start one, and an accepted check is still recorded so the own-verdict writer can close it. Reactions, labels, commit statuses, and finishing a check run cannot prove this attempt landed, so they stay fail-closed. An `outcome_unknown` intent is never remutated; automatic retry requires proof that a local gate stopped the request before delegation or that the provider did not accept it. If exact recovery is unavailable, the worker preserves the publish record and takes the bounded deterministic degradation path, so an accepted mutation is not duplicated.
@@ -293,6 +293,40 @@ keys are ignored. Capped submit repairs retain their last validation diagnostic.
 
 ## Review reliability rollout
 
+Install additive `038_github_capabilities.sql` before the matching worker build.
+It adds generation-ordered installation/repository observations, scoped head
+source availability, and a work-item preflight-failure count. It stores no
+credentials and does not redefine CI facts or rollup. Upgrade affected workers
+together; do not mix old and new verdict/projector consumers.
+
+Before each new review execution, a repository-specific App-JWT installation
+lookup checks identity, association, suspension, and endpoint permission levels.
+Metadata and a required cold mint/refresh share a two-second total deadline,
+with transport abort and no request retries or inline throttle wait. No boot
+account scan or test mutation is performed. Missing essential PR/code reads or
+review/comment publication fails clearly before checkout/model work. Optional
+Checks, statuses, Actions, category/size/security labels, and reactions are
+disabled only for that run, with one concise review notice when comments are
+available. Publication denial keeps a typed durable failure and operator
+diagnostic, not a promised GitHub notice.
+
+Timeouts, rate limits, malformed metadata, and ambiguous errors are unknown,
+never confirmed missing permissions. `github.preflight_unavailable` retries
+against a lease-fenced `QUEUE_RETRY_LIMIT + 1` budget that survives restarts and
+lease hops, resets on successful preflight, and never spends model attempts or
+triggers escalation. Exhaustion is `github.preflight_exhausted`, not permission
+missing. Shared-circuit deferral probes nothing and spends no probe count.
+Confirmed essential denial is `github.essential_access_denied`.
+
+CI source availability is installation-scoped. Denied or incomplete Checks or
+legacy statuses cannot produce passing/no-CI claims; known failures remain with
+a partial-view notice. Confirmed denials stop self-scheduled denied-source/write
+loops. A fresh restored grant forces a listing even on a previously terminal
+head. Only a successful complete source read clears restoration state.
+Applicable pending verdicts can then repair independently. Deliberately skipped
+surfaces are not fake acceptance receipts. Exact summary receipts are checked
+before new output admission; optional cleanup cannot invalidate proven completion.
+
 Install additive `037_review_run_artifacts.sql` first. Startup migrations install
 it normally. Deploy the matching web and worker telemetry changes together and
 upgrade all affected workers for typed thread-denial and recovery handling.
@@ -324,5 +358,14 @@ so old code cannot consume a new terminal thread-denial state. Setting
 `FEATURE_VERIFICATION=off` alone is not a queued-work execution barrier. Stop or
 drain affected consumers before deploying the downgrade. Preserve accepted child
 effects and receipts; use a new `/verify` only after understanding the denial.
-There is no new deadline, retry scheduler, external service, or telemetry backfill.
+Artifact recovery adds no review-execution deadline, retry scheduler, external
+service, or telemetry backfill.
 Recovery contracts: [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+
+For capability rollback, stop or drain affected workers before restoring the prior
+build. Retain additive tables/columns, selected verdicts, intents, and acceptance
+receipts. The prior build restores the previous permission-denial behavior; it
+does not retain the new safeguards. No environment flag or dependency is added.
+The new two-second budget applies only to installation preflight, not ordinary
+PR reads or review execution. Repeatable local integration proves the bounded
+protocol and durable recovery, not acceptance by a live GitHub installation.

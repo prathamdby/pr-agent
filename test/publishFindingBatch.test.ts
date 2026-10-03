@@ -186,6 +186,23 @@ describe("publishFindingBatch", () => {
       modelApis: { orchestrator: "openai-responses" },
     };
     const digest = reviewRecoveryInputDigest(input);
+    const publication = {
+      checksWrite: true,
+      statusesWrite: false,
+      labelsWrite: true,
+      reactionsWrite: true,
+    };
+    expect(
+      reviewRecoveryInputDigest({ ...input, effectivePublicationCapabilities: publication }),
+    ).not.toBe(digest);
+    expect(
+      reviewRecoveryInputDigest({
+        ...input,
+        effectivePublicationCapabilities: { ...publication, checksWrite: false },
+      }),
+    ).not.toBe(
+      reviewRecoveryInputDigest({ ...input, effectivePublicationCapabilities: publication }),
+    );
     expect(
       reviewRecoveryInputDigest({
         ...input,

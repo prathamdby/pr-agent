@@ -6,6 +6,7 @@ import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
+  REVIEW_QUEUE,
   type GithubReactionContent,
 } from "../settings/index.js";
 import {
@@ -35,7 +36,7 @@ import {
   shouldSkipWork,
   type WorkClaim,
 } from "./workItemStateRepository.js";
-import { isPrActorLeaseHeld } from "./prActorLease.js";
+import { armLeaseWatchdogHop, isPrActorLeaseHeld } from "./prActorLease.js";
 import {
   openLeasedExecution,
   startCancelObserve,
@@ -63,6 +64,20 @@ import {
   type PrRepositoryView,
 } from "../prWorkspace/prRepositoryView.js";
 import { errorMessage } from "../errors/errorMessage.js";
+import {
+  assertEssentialInstallationCapabilities,
+  createReviewCapabilityPolicy,
+  essentialInstallationOperations,
+  type ReviewCapabilityPolicy,
+} from "../github/installationCapabilities.js";
+import {
+  changeGithubPreflightFailureCount,
+  nextGithubCapabilityObservationGeneration,
+  recordGithubCapabilityDenial,
+  saveGithubCapabilityObservation,
+} from "./githubCapabilityRepository.js";
+import { getSharedRateLimitCircuit } from "../github/sharedRateLimitCircuit.js";
+import { installationGroupId } from "./types.js";
 
 export type DurableExecutionContext = {
   readonly job: JobWithMetadata<{ workItemId: string }>;
@@ -75,6 +90,8 @@ export type DurableExecutionContext = {
   signal: AbortSignal;
   /** Admit fresh feature work once per dispatch, before preparing its workspace. */
   beginAttempt: () => Promise<WorkClaim>;
+  /** Fresh review grants gate new output only, after exact receipt recovery. */
+  readonly ensureReviewAccess?: () => Promise<void>;
   /** Admission precedes every read-only checkout; recovery callers need not acquire one. */
   withAdmittedRepositoryView: <T>(
     options: Pick<PreparePrRepositoryViewParams, "repositorySizeKb" | "prFiles">,
@@ -328,6 +345,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   const phaseState: WorkItemPhaseState = { phase: "claiming" };
   let seededInstallation: InstallationToken | undefined;
   let executionPrSurface: PrSurface | undefined;
+  let reviewCapabilities: ReviewCapabilityPolicy | undefined;
   let boundHeadSha: string | undefined;
   let workClaim: WorkClaim | undefined;
   const executionId = randomUUID();
@@ -336,6 +354,9 @@ export async function runDurableWorkItem<T extends WorkType>(
     workItemCore: TypedCore,
     installation?: InstallationToken,
   ): Promise<PrSurface> {
+    if (reviewCapabilities && !installation && !seededInstallation) {
+      assertEssentialInstallationCapabilities(reviewCapabilities.observation);
+    }
     const token =
       installation ??
       seededInstallation ??
@@ -347,6 +368,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       repo: workItemCore.repo,
       prNumber: workItemCore.prNumber,
       installation: token,
+      capabilities: reviewCapabilities,
       // Terminal hooks must still close the cancelled verdict.
       mutationBoundary: lease?.mutationBoundary(workItemCore, { checkCancellation: false }),
     });
@@ -511,6 +533,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           })
         );
       }
+      ensureReviewAccess();
       const result = await opened.mark.beginAttempt(item.id, maxAttempts(spec.cfg));
       if (result.kind === "exhausted") {
         throw new AppError({
@@ -554,6 +577,19 @@ export async function runDurableWorkItem<T extends WorkType>(
         );
       }
       return workClaim;
+    }
+
+    function ensureReviewAccess(): void {
+      if (!reviewCapabilities) return;
+      const observation = reviewCapabilities.observation;
+      const availability = { ...observation.availability };
+      for (const operation of essentialInstallationOperations) {
+        availability[operation] = reviewCapabilities.access(operation);
+      }
+      assertEssentialInstallationCapabilities({
+        ...observation,
+        availability,
+      });
     }
 
     const cancelIfSkippable = async (reason: string, notifyHook = true) => {
@@ -605,6 +641,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         repo: item.repo,
         prNumber: item.prNumber,
         installation: installationToken,
+        capabilities: reviewCapabilities,
         mutationBoundary: opened.mutationBoundary(item),
       });
       const resolvedHead = await spec.resolveHeadSha(prSurface, item);
@@ -622,6 +659,7 @@ export async function runDurableWorkItem<T extends WorkType>(
           leaseEpoch,
           signal: executionSignal,
           beginAttempt: admitWork,
+          ensureReviewAccess: spec.type === "review" ? async () => ensureReviewAccess() : undefined,
           getClaim: () => workClaim,
           executionId,
           getEscalation: () =>
@@ -652,6 +690,8 @@ export async function runDurableWorkItem<T extends WorkType>(
     async function publishOutcomeReaction(content: GithubReactionContent): Promise<void> {
       try {
         const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
+        if ((prSurface.capabilities?.access("reactionsWrite") ?? "available") !== "available")
+          return;
         await prSurface.setAcknowledgementReaction(reactionTargetsForWorkItem(item), content);
       } catch (error) {
         logWarn("agent_work_outcome_reaction_failed", {
@@ -816,14 +856,41 @@ export async function runDurableWorkItem<T extends WorkType>(
         return;
       }
       if (await recheckSkippableAndCancel("skipped_after_error")) return;
+      let preflightFailureCount: number | undefined;
+      if (
+        spec.type === "review" &&
+        isAppError(error) &&
+        (error.code === "github.preflight_unavailable" ||
+          error.code === "github.preflight_exhausted") &&
+        leaseEpoch != null
+      ) {
+        const count = await changeGithubPreflightFailureCount(spec.pool, {
+          workItemId: item.id,
+          leaseEpoch,
+        });
+        if (count == null) return;
+        preflightFailureCount = count;
+        error = new AppError({
+          domain: "github",
+          kind: count >= maxAttempts(spec.cfg) ? "preflight_exhausted" : "preflight_unavailable",
+          message:
+            count >= maxAttempts(spec.cfg)
+              ? "GitHub installation access check remains unavailable after its retry budget"
+              : "GitHub installation access check is unavailable",
+          context: { workItemId: item.id, preflightFailureCount: count },
+          cause: error,
+        });
+      }
       const message = errorMessage(error);
       const disposition = retryDispositionFor(error);
       const attemptCount = workClaim?.attemptCount ?? item.attemptCount;
       // pg-boss retryCount restarts on every lease hop job, so the durable attempt count
       // is the budget that actually bounds re-execution.
       const budgetRemains =
-        (!workAdmissionAcknowledged || attemptCount < maxAttempts(spec.cfg)) &&
-        spec.job.retryCount < spec.job.retryLimit;
+        preflightFailureCount != null
+          ? preflightFailureCount < maxAttempts(spec.cfg)
+          : (!workAdmissionAcknowledged || attemptCount < maxAttempts(spec.cfg)) &&
+            spec.job.retryCount < spec.job.retryLimit;
       // Deterministic failures get exactly one escalated replay: after that attempt the
       // work item is terminal even when budget remains.
       const mayRetry =
@@ -884,7 +951,70 @@ export async function runDurableWorkItem<T extends WorkType>(
         });
         return;
       }
-      seededInstallation = await runtime.installationSurface.token(spec.cfg, item.installationId);
+      if (spec.type === "review") {
+        const circuit = await getSharedRateLimitCircuit(spec.pool, item.installationId);
+        if (circuit && circuit.openUntil.getTime() > Date.now()) {
+          const deferred = new AppError({
+            domain: "github",
+            kind: "preflight_unavailable",
+            message: "GitHub installation access check deferred by the shared rate-limit circuit",
+          });
+          if (await opened.mark.retrying(item.id, deferred)) {
+            await armLeaseWatchdogHop(spec.boss, {
+              queue: spec.prActorLease?.queue ?? REVIEW_QUEUE,
+              data: { workItemId: item.id },
+              singletonKey: item.id,
+              deferSeconds: Math.max(
+                1,
+                Math.ceil((circuit.openUntil.getTime() - Date.now()) / 1000),
+              ),
+              groupId: installationGroupId(item.installationId),
+              workItemId: item.id,
+              onSendFailure: "throw",
+            });
+          }
+          return;
+        }
+        const preflight = await runtime.installationSurface.preflight({
+          cfg: spec.cfg,
+          installationId: item.installationId,
+          owner: item.owner,
+          repo: item.repo,
+          signal: executionSignal,
+          generation: await nextGithubCapabilityObservationGeneration(spec.pool),
+        });
+        const observation = preflight.observation;
+        const scope = { installationId: item.installationId, owner: item.owner, repo: item.repo };
+        const observedEssentialAccess = essentialInstallationOperations.every(
+          (operation) => observation.availability[operation] !== "unknown",
+        );
+        await saveGithubCapabilityObservation(spec.pool, { ...scope, observation });
+        reviewCapabilities = createReviewCapabilityPolicy(observation, async (operation) => {
+          await recordGithubCapabilityDenial(spec.pool, {
+            ...scope,
+            generation: Number(observation.generation),
+            operation,
+          });
+        });
+        seededInstallation = preflight.installation;
+        if (!seededInstallation) {
+          ensureReviewAccess();
+          throw new AppError({
+            domain: "github",
+            kind: "preflight_unavailable",
+            message: "GitHub installation authentication could not be prepared",
+          });
+        }
+        if (leaseEpoch != null && observedEssentialAccess) {
+          await changeGithubPreflightFailureCount(spec.pool, {
+            workItemId: item.id,
+            leaseEpoch,
+            reset: true,
+          });
+        }
+      } else {
+        seededInstallation = await runtime.installationSurface.token(spec.cfg, item.installationId);
+      }
       const execution = await prepareDurableExecution(seededInstallation);
       if (!execution) return;
 

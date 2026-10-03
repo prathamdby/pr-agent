@@ -229,7 +229,8 @@ describe("classifyFailure", () => {
               ? {
                   failureDomain: domain,
                   errorKind:
-                    error.code === "github.review_thread_resolution_denied"
+                    error.code === "github.review_thread_resolution_denied" ||
+                    error.code === "github.essential_access_denied"
                       ? "forbidden"
                       : "unknown",
                 }

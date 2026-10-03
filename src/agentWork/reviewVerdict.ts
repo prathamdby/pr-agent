@@ -4,6 +4,7 @@ import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { isDuplicateCheckRunCreationError } from "../github/githubErrors.js";
 import { isKnownNoAcceptanceMutationError } from "../github/mutationErrorContract.js";
 import type { PrSurface } from "../github/prSurface.js";
+import type { InstallationOperation } from "../github/installationCapabilities.js";
 import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
 import { checkRunFindingsSummary } from "../review/statusCopy.js";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
@@ -30,6 +31,9 @@ import {
   recordOwnVerdictSurfaceApplied,
   withOwnVerdictClose,
   ownVerdictStatusApplicable,
+  hasOwnVerdictSurfaceAcceptance,
+  hasUnresolvedDelegatedOwnStatus,
+  recordOwnVerdictSurfaceState,
   type SelectedOwnVerdict,
 } from "./publishRecordRepository.js";
 import {
@@ -41,6 +45,22 @@ import {
 } from "./publishOnce.js";
 import type { WorkStatus } from "./types.js";
 import { errorMessage } from "../errors/errorMessage.js";
+import { getOperationIntent, reconcileOperationIntent } from "./operationIntentRepository.js";
+import { isRecord } from "../util/typeGuards.js";
+
+function hasAccess(surface: PrSurface, operation: InstallationOperation): boolean {
+  return surface.capabilities == null || surface.capabilities.access(operation) === "available";
+}
+
+function acceptedIntent(
+  intent: { readonly status: string; readonly detail: Record<string, unknown> } | null,
+): boolean {
+  return (
+    intent != null &&
+    (Object.hasOwn(intent.detail, "__result") ||
+      (intent.status === "reconciled" && intent.detail.reconciledFromPublishRecord !== true))
+  );
+}
 
 export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
@@ -225,6 +245,8 @@ async function createGithubCheckRunOnSurface(
         name,
       },
       recover: async () => {
+        if (!hasAccess(params.prSurface, "checksRead"))
+          throw new Error("Check acceptance cannot be read with current installation access");
         const found = await params.prSurface.findReviewCheck(params.headSha, params.workItemId);
         return found == null
           ? { kind: "absent" as const }
@@ -333,6 +355,10 @@ async function ensureReviewCheckRunStarted(
 ): Promise<number | null> {
   const existing = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (existing != null) return existing;
+  const record = await getOwnVerdictCloseRecord(pool, params);
+  if (record?.checkState === "skipped-for-this-run") return null;
+  if (!hasAccess(params.prSurface, "checksWrite") || !hasAccess(params.prSurface, "checksRead"))
+    return null;
 
   const name = reviewCheckRunName();
   const reservation = await reserveReviewCheckRunSlot(pool, params, name);
@@ -427,11 +453,84 @@ async function completeSelectedCheck(
   const record = await getOwnVerdictCloseRecord(client, params);
   if (record?.legacyClosed || record?.checkApplied) return true;
   if (record?.selected == null) return false;
-  const id =
+  if (record.checkState === "skipped-for-this-run") return false;
+  const selected = record.selected;
+  const parent = await getOperationIntent(
+    client,
+    params.workItemId,
+    ownVerdictCloseOperationKey(params),
+  );
+  const child = await getDelegatedOwnVerdictFinish(client, params);
+  if (acceptedIntent(parent) || acceptedIntent(child)) {
+    if (parent != null)
+      await reconcileOperationIntent(client, {
+        workItemId: params.workItemId,
+        operationKey: ownVerdictCloseOperationKey(params),
+        leaseEpoch: params.leaseEpoch,
+        status: "reconciled",
+        detail: { __result: null },
+      });
+    await recordOwnVerdictSurfaceApplied(client, { ...params, selected }, "check");
+    return true;
+  }
+  let id =
     record.githubId ??
     (await getReviewCheckRunGithubId(client, params.workItemId, params.reviewLens));
-  if (id == null) return false;
-  return applyReviewCheckRunCompletion(client, params, id, record.selected);
+  const applicable = id != null || (await hasOwnVerdictSurfaceAcceptance(client, params, "check"));
+  if (id == null && applicable) {
+    const start = await getOperationIntent(
+      client,
+      params.workItemId,
+      reviewCheckOperationKey(params.workItemId),
+    );
+    const result = start?.detail.__result;
+    let recovered: GithubCheckRunRef | null =
+      isRecord(result) &&
+      typeof result.id === "number" &&
+      Number.isSafeInteger(result.id) &&
+      result.id > 0
+        ? { id: result.id, url: typeof result.url === "string" ? result.url : null }
+        : null;
+    if (recovered == null && hasAccess(params.prSurface, "checksRead")) {
+      try {
+        recovered = await params.prSurface.findReviewCheck(params.headSha, params.workItemId);
+      } catch (error) {
+        logCheckRunWarning("review_check_run_recovery_failed", error, {
+          owner: params.owner,
+          repo: params.repo,
+          pr: params.prNumber,
+        });
+      }
+    }
+    if (recovered != null) {
+      await recordReviewCheckRun(client, {
+        ...params,
+        githubId: recovered.id,
+        detail: {
+          status: "in_progress",
+          headSha: params.headSha,
+          externalId: params.workItemId,
+          name: reviewCheckRunName(),
+          htmlUrl: recovered.url,
+        },
+      });
+      id = recovered.id;
+    }
+  }
+  const available = hasAccess(params.prSurface, "checksWrite");
+  if (!available || id == null) {
+    await recordOwnVerdictSurfaceState(
+      client,
+      { ...params, selected },
+      "check",
+      applicable ? (available ? "unresolved" : "blocked") : "skipped-for-this-run",
+    );
+    return false;
+  }
+  const applied = await applyReviewCheckRunCompletion(client, params, id, selected);
+  if (!applied)
+    await recordOwnVerdictSurfaceState(client, { ...params, selected }, "check", "unresolved");
+  return applied;
 }
 
 export type ReviewCommitStatusState = "pending" | "success" | "failure" | "error";
@@ -553,6 +652,19 @@ type OwnCommitStatusParams = {
 
 async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<boolean> {
   if (params.headSha === DEFERRED_HEAD_SHA || params.headSha.length === 0) return false;
+  const operationKey = reviewCommitStatusOperationKey(
+    params.resourceKey,
+    params.headSha,
+    params.state,
+  );
+  const retained = await getOperationIntent(params.pool, params.workItemId, operationKey);
+  // Exact saved acceptance is authority even after access is revoked.
+  if (!acceptedIntent(retained) && !hasAccess(params.prSurface, "statusesWrite")) return false;
+  if (
+    !acceptedIntent(retained) &&
+    (await hasUnresolvedDelegatedOwnStatus(params.pool, params.workItemId, operationKey))
+  )
+    return false;
   const status = {
     state: params.state,
     description: params.description,
@@ -562,11 +674,7 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<bool
     await publishOnce<void>({
       client: params.pool,
       workItemId: params.workItemId,
-      operationKey: reviewCommitStatusOperationKey(
-        params.resourceKey,
-        params.headSha,
-        params.state,
-      ),
+      operationKey,
       mutationKind: "github.review_commit_status",
       leaseEpoch: params.leaseEpoch,
       allowsUndefinedResult: true,
@@ -578,8 +686,21 @@ async function writeOwnCommitStatus(params: OwnCommitStatusParams): Promise<bool
         ...status,
       },
       recover: async () => {
-        const current = await params.prSurface.getCiStatus(params.headSha);
-        const found = current.legacyStatuses.some(
+        if (acceptedIntent(retained)) return { kind: "reconciled" as const, value: undefined };
+        if (!hasAccess(params.prSurface, "statusesRead"))
+          throw new Error(
+            "Commit status acceptance cannot be read with current installation access",
+          );
+        if (
+          params.prSurface.getReviewCommitStatuses == null &&
+          params.prSurface.capabilities != null
+        )
+          throw new Error("Statuses-only acceptance recovery is unavailable on this surface");
+        const statuses =
+          params.prSurface.getReviewCommitStatuses != null
+            ? await params.prSurface.getReviewCommitStatuses(params.headSha)
+            : (await params.prSurface.getCiStatus(params.headSha)).legacyStatuses;
+        const found = statuses.some(
           (legacy) =>
             legacy.context === "pr-agent/review" &&
             legacy.state === status.state &&
@@ -616,6 +737,9 @@ async function closeReviewVerdict(params: CloseReviewVerdictParams): Promise<voi
 
   const surfaces = ownVerdictSurfaces(params.outcome);
   await withOwnVerdictClose(params.pool, { ...params, leaseEpoch }, async (client) => {
+    const statusEnabled =
+      params.commitStatusEnabled ||
+      (await hasOwnVerdictSurfaceAcceptance(client, params, "status"));
     const record = await claimOwnVerdict(client, {
       ...params,
       leaseEpoch,
@@ -625,7 +749,7 @@ async function closeReviewVerdict(params: CloseReviewVerdictParams): Promise<voi
         ...(params.detailsUrl == null ? {} : { detailsUrl: params.detailsUrl }),
         status: {
           headSha: params.headSha,
-          enabled: params.commitStatusEnabled,
+          enabled: statusEnabled,
           state: surfaces.commitStatus,
         },
       },
@@ -633,7 +757,12 @@ async function closeReviewVerdict(params: CloseReviewVerdictParams): Promise<voi
     const selected = record?.selected;
     if (record == null || selected == null) return;
     if (!record.checkApplied) await completeSelectedCheck(client, { ...params, leaseEpoch });
-    if (!ownVerdictStatusApplicable(selected) || record.statusApplied || selected.status == null)
+    if (
+      !ownVerdictStatusApplicable(selected) ||
+      record.statusApplied ||
+      record.statusState === "skipped-for-this-run" ||
+      selected.status == null
+    )
       return;
     const applied = await writeOwnCommitStatus({
       pool: client,
@@ -651,6 +780,16 @@ async function closeReviewVerdict(params: CloseReviewVerdictParams): Promise<voi
     });
     if (applied)
       await recordOwnVerdictSurfaceApplied(client, { ...params, leaseEpoch, selected }, "status");
+    else {
+      const available = hasAccess(params.prSurface, "statusesWrite");
+      const applicable = await hasOwnVerdictSurfaceAcceptance(client, params, "status");
+      await recordOwnVerdictSurfaceState(
+        client,
+        { ...params, leaseEpoch, selected },
+        "status",
+        available ? "unresolved" : applicable ? "blocked" : "skipped-for-this-run",
+      );
+    }
   });
 }
 
@@ -702,6 +841,22 @@ export type TerminalOwnCheckStatus = "completed" | "failed" | "cancelled" | "sup
 /** GitHub finish is in `detail`, not `publish_records.status`. */
 export function isOwnCheckOpen(detail: Record<string, unknown> | null): boolean {
   if (detail == null) return true;
+  if (isRecord(detail.selectedOwnVerdict)) {
+    const checkResolved =
+      detail.ownCheckApplied === true || detail.ownCheckState === "skipped-for-this-run";
+    const status = detail.selectedOwnVerdict.status;
+    const statusApplicable =
+      isRecord(status) &&
+      status.enabled === true &&
+      typeof status.headSha === "string" &&
+      status.headSha.length > 0 &&
+      status.headSha !== DEFERRED_HEAD_SHA;
+    const statusResolved =
+      !statusApplicable ||
+      detail.ownStatusApplied === true ||
+      detail.ownStatusState === "skipped-for-this-run";
+    return !checkResolved || !statusResolved;
+  }
   if (detail.status === "in_progress") return true;
   return typeof detail.conclusion !== "string" || detail.conclusion.length === 0;
 }
@@ -803,7 +958,7 @@ export function reviewVerdict(params: ReviewVerdictParams) {
   return {
     async pending(): Promise<number | null> {
       const checkId = await ensureReviewCheckRunStarted(params.pool, params);
-      if (checkId != null && params.commitStatusEnabled)
+      if (params.commitStatusEnabled)
         await writeOwnCommitStatus({
           ...params,
           state: "pending",
@@ -814,12 +969,22 @@ export function reviewVerdict(params: ReviewVerdictParams) {
     },
     close,
     async repairIfOpen(): Promise<void> {
+      const record = await getOwnVerdictCloseRecord(params.pool, params);
+      if (record?.legacyClosed) return;
+      if (record?.selected != null) {
+        const checkResolved = record.checkApplied || record.checkState === "skipped-for-this-run";
+        const statusResolved =
+          !ownVerdictStatusApplicable(record.selected) ||
+          record.statusApplied ||
+          record.statusState === "skipped-for-this-run";
+        if (checkResolved && statusResolved) return;
+      }
       const detail = await createPublishContext(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
         reviewLens: params.reviewLens,
       }).completed("check_run");
-      if (!isOwnCheckOpen(detail)) return;
+      if (record?.selected == null && !isOwnCheckOpen(detail)) return;
       const core = await getWorkItemCore(params.pool, params.workItemId);
       const status = core == null ? null : asTerminalOwnCheckStatus(core.status);
       if (status == null) return;

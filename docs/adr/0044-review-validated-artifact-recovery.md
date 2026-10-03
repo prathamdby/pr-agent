@@ -61,6 +61,11 @@ can invalidate computation. An accepted remote operation receipt remains
 authoritative even when every artifact is a miss. Never reopen accepted intents
 to make a new cache entry fit.
 
+The input digest includes stable effective publication capabilities for this
+run, including category-label applicability. It excludes grant observation
+timestamps, generations, token values, and credentials. A changed grant may
+invalidate reusable computation; it cannot invalidate an exact accepted receipt.
+
 ### Fenced and bounded persistence
 
 Writes lock the exact live PR actor lease first, then read and lock the active
@@ -113,6 +118,16 @@ reconciliation can proceed; no new workspace or model work is admitted.
 pg-boss remains the scheduler. Deadlines, retry limits, and escalation are not
 redesigned.
 
+Fresh installation grants and managed authentication are prepared before real
+head/identity checks. Saved completion acceptance is reconciled before selecting
+new verdict writes or enforcing access to create new output. Receipt-only
+completion stays possible at the attempt cap after publication is revoked.
+Confirmed denial or unknown availability can defer optional cleanup without
+invalidating proven completion. New work alone requires essential access.
+Access-check retries have their own lease-fenced durable counter, bounded by
+`QUEUE_RETRY_LIMIT + 1`, reset by a successful preflight, without model attempts
+or escalation. Shared-circuit deferral spends no probe count.
+
 ### Related reliability boundaries
 
 Structured failure origin and lifecycle decisions outrank ambiguous error text.
@@ -143,3 +158,10 @@ so old code cannot misinterpret the new terminal denial. A feature flag alone
 does not stop retained queued execution. See
 [operations](../operations.md#review-reliability-rollout) and the
 [queue runbook](../agent-work-ops.md#validated-review-artifact-recovery).
+
+The installation capability amendment also requires additive migration `038`
+before the matching worker build. Upgrade affected workers together. Rollback
+stops or drains those workers, restores the prior build, and retains capability
+tables, preflight counts, verdict selections, intents, and receipts. The old build
+restores the previous permission-denial behavior; it does not retain the new
+access gates or scoped degradation safeguards.

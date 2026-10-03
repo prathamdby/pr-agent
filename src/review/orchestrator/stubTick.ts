@@ -60,7 +60,13 @@ export type WriteCancelledProgressCommentArgs = {
 
 export async function tickProgressComment(args: TickProgressCommentArgs): Promise<void> {
   try {
-    const rendered = await loadRenderableHeadCi(args.pool, args.owner, args.repo, args.headSha);
+    const rendered = await loadRenderableHeadCi(
+      args.pool,
+      args.owner,
+      args.repo,
+      args.headSha,
+      args.installationId,
+    );
     const summary = createReviewSummaryComment({
       prSurface: args.prSurface,
       reviewLens: args.mode,

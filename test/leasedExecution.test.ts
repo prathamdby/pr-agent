@@ -86,9 +86,39 @@ vi.mock("../src/agentWork/prActorLease.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/github/appAuth.js", () => ({
+vi.mock("../src/github/appAuth.js", async (importOriginal) => ({
+  parseRepositoryInstallation: (await importOriginal<typeof import("../src/github/appAuth.js")>())
+    .parseRepositoryInstallation,
   mintInstallationAuth: vi.fn(),
+  mintScopedInstallationAuth: vi.fn(async (cfg, id) => {
+    const auth = await appAuth.mintInstallationAuth(cfg, id);
+    return { token: auth.token, expires_at: auth.expiresAt };
+  }),
+  lookupRepositoryInstallation: vi.fn(async () => ({
+    id: 42,
+    app_id: 1,
+    suspended_at: null,
+    repository_selection: "all",
+    permissions: {
+      contents: "read",
+      pull_requests: "write",
+      issues: "write",
+      checks: "write",
+      statuses: "write",
+      actions: "read",
+    },
+  })),
   getAppBotIdentity: vi.fn(),
+}));
+
+vi.mock("../src/agentWork/githubCapabilityRepository.js", () => ({
+  nextGithubCapabilityObservationGeneration: vi.fn(async () => "1"),
+  saveGithubCapabilityObservation: vi.fn(async () => true),
+  recordGithubCapabilityDenial: vi.fn(async () => true),
+  changeGithubPreflightFailureCount: vi.fn(async () => 0),
+}));
+vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
+  getSharedRateLimitCircuit: vi.fn(async () => null),
 }));
 
 const prSurfaceMocks = vi.hoisted(() => ({

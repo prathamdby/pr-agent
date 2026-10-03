@@ -110,11 +110,26 @@ Create the GitHub App and paste a real private key before you start Compose. The
 | --------------- | ------------ | ------------------------------------------------------------------------------- |
 | Issues          | Read & write | PR conversation comments and reactions                                          |
 | Pull requests   | Read & write | Reviews, inline threads, PR body for `/describe`                                |
-| Contents        | Read & write | Read code; write only needed for `/triage` pushes                               |
+| Contents        | Read         | Read code. Add write only for `/triage` pushes.                                 |
 | Metadata        | Read         | Required by GitHub for apps                                                     |
 | Checks          | Read & write | Review check run + CI summary inputs                                            |
 | Actions         | Read         | Condensed job logs when CI fails                                                |
 | Commit statuses | Read         | Legacy `status` events and CI facts. Add write if `FEATURE_COMMIT_STATUS=true`. |
+
+Before a new review, PR Agent checks the App's current grants for that repository.
+Missing code or PR reads, reviews, or conversation publication stops the run
+before it reads a checkout or calls the model. Checks, commit statuses, Actions
+logs, labels, and reactions are optional. Missing access disables only those
+operations and adds one notice to the review. Conversation comments and labels
+accept Issues or Pull requests grants at the required level. Reviews do not
+require Contents write.
+
+An incomplete or inaccessible CI source cannot show passing or no-CI copy.
+Known failures remain visible with a partial-view notice. Restore the grant and
+start a new review to refresh CI and retry applicable verdict repair. A timeout
+or rate limit reports an unavailable access check, not missing permission.
+An already-published review can finish from exact saved receipts without new
+publication permission.
 
 `workflow_run` or `check_suite` (completed) refreshes the CI row and action line on an existing review summary when Actions finish later. After you push, a finished review's CI row and action line follow the new head. The footer still names the reviewed commit. `check_run` (`created`, `completed`) and `status` are recorded for the head even when no PR is known yet. Opening, synchronizing, or reopening a pull request also enqueues a snapshot when that head has no seeded row. Ack and publish do the same after they write the comment. A missing or unseeded snapshot shows **Waiting for CI**. A complete snapshot with no external checks shows **No CI checks on this head**. Own-App `check_run` and `check_suite` deliveries are ignored.
 

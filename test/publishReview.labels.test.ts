@@ -8,6 +8,10 @@ import {
   publishReviewTestPayload,
   type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
+import {
+  availableInstallationCapabilities,
+  createReviewCapabilityPolicy,
+} from "../src/github/installationCapabilities.js";
 
 vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>()),
@@ -34,6 +38,42 @@ describe("publishReview labels", () => {
     baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
   });
+
+  it.each(["denied", "unknown"] as const)(
+    "skips eager label reads and category, size, and security synchronization when labels are %s",
+    async (access) => {
+      const observation = availableInstallationCapabilities({
+        appId: 1,
+        installationId: 42,
+        owner: "o",
+        repo: "r",
+      });
+      Object.assign(harness.surface, {
+        capabilities: createReviewCapabilityPolicy({
+          ...observation,
+          availability: { ...observation.availability, labelsRead: access, labelsWrite: access },
+        }),
+      });
+      await publishReviewForTest({
+        ...baseParams,
+        publishState: testPublishState(),
+        cfg: {
+          ...baseParams.cfg,
+          features: { ...baseParams.cfg.features, reviewLabels: "size+security" as const },
+        },
+        payload: {
+          ...payload,
+          findings: payload.findings.map((finding) => ({
+            ...finding,
+            category: "security" as const,
+          })),
+        },
+      });
+      expect(harness.getLabels).not.toHaveBeenCalled();
+      expect(harness.setLabels).not.toHaveBeenCalled();
+      expect(harness.upsertProgressComment).toHaveBeenCalled();
+    },
+  );
 
   it("skips label sync when reviewLabels mode is off and no category label exists", async () => {
     harness.getLabels.mockResolvedValueOnce(["bug"]);
