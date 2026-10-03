@@ -113,6 +113,15 @@ after the inline mutation is proven absent).
 
 ### Durability and deadlines
 
+Review-specific validated artifact recovery is defined by
+[ADR 0044](0044-review-validated-artifact-recovery.md). Default-off recovery can
+retain redacted briefs/reports, an ordered prepared/settled publication journal,
+and summary inputs. It does not restore a transcript or replace operation
+receipts. Reused reports require fresh governed evidence reads; judgment starts
+a fresh session with normal trusted context and untrusted saved output.
+Resumed workspace/read/model work still charges admitted `beginAttempt`.
+This addition does not change the deadlines below.
+
 The existing `publish_records` table needs no migration. All incremental
 `inline_review` batches for a pull request and review run stay in one row. The
 `detail` JSONB stores an atomically appended `batches` array. Each entry records

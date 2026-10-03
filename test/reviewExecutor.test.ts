@@ -14,6 +14,7 @@ vi.mock("../src/agentWork/publishOnce.js", async (importOriginal) => {
   };
 });
 import { createFakePublishStore } from "../src/agentWork/fakePublishStore.js";
+import { operationIntentMarker, reviewSummaryOperationKey } from "../src/agentWork/publishOnce.js";
 const publishStoreState = vi.hoisted(() => {
   let store: import("../src/agentWork/publishOnce.js").PublishIntentStore;
   return {
@@ -66,6 +67,7 @@ import type { DurableExecutionResult } from "../src/agentWork/durableJob.js";
 import { escalationForAttempt, type EscalationPlan } from "../src/agentWork/retryPolicy.js";
 import type { PullRequestForFileList } from "../src/github/listPullRequestFiles.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { AppError } from "../src/errors/appError.js";
 import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -168,11 +170,16 @@ import { openInstallationSurface } from "../src/agentWork/installationSurface.js
 let runExecution: () => Promise<unknown>;
 function configureExecution(
   run: (definition: ReturnType<typeof createWorkDefinitions>["review"]) => Promise<unknown>,
+  config = cfg,
 ): void {
   runExecution = () =>
     run(
-      createWorkDefinitions({ cfg, pool, boss, installationSurface: openInstallationSurface() })
-        .review,
+      createWorkDefinitions({
+        cfg: config,
+        pool,
+        boss,
+        installationSurface: openInstallationSurface(),
+      }).review,
     );
 }
 
@@ -352,6 +359,159 @@ describe("review work definition", () => {
 
     expect(mocks.loadPublishContext).toHaveBeenCalledTimes(1);
     expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
+  });
+
+  it.each([
+    [false, "exact", false],
+    [false, "metadata", false],
+    [true, "exact", true],
+    [true, "partial", true],
+    [true, "metadata", false],
+    [true, "missing_result", false],
+    [true, "malformed_result", false],
+    [true, "pending", false],
+    [true, "wrong_head", false],
+    [true, "wrong_identity", false],
+    [true, "wrong_marker", false],
+    [true, "wrong_outcome", false],
+  ] as const)(
+    "requires an exact usable summary receipt at cap (enabled=%s, receipt=%s)",
+    async (enabled, receipt, completes) => {
+      mocks.loadPublishContext.mockResolvedValueOnce({
+        publishState: { summaryPublished: true, inlineReviewIds: [41], threadCallCount: 1 },
+        shouldLinkToSummary: false,
+        storedInlineFingerprints: [],
+        resumedPlacements: [],
+        progressCommentGithubId: 2,
+      });
+      mocks.completed.mockResolvedValue(
+        receipt === "metadata"
+          ? {}
+          : verdictOwner.summaryCommentVerdictMeta({
+              kind: receipt === "partial" ? "partial" : "published",
+              ...(receipt === "partial" ? { note: "Two validated specialists completed." } : {}),
+              findings: [],
+            }),
+      );
+      if (receipt === "wrong_outcome")
+        mocks.completed.mockResolvedValue({
+          ownVerdictKind: "crashed",
+          ownCheckFailing: false,
+        });
+      const operationKey = reviewSummaryOperationKey("o/r#1", "review");
+      await publishStoreState.store.persistOperationIntent(pool, {
+        workItemId: receipt === "wrong_identity" ? "other-work" : "wi-1",
+        operationKey,
+        mutationKind: "github.summary_comment",
+        detail: {
+          step: "summary_comment",
+          resourceKey: "o/r#1",
+          reviewLens: "review",
+          operationMarker:
+            receipt === "wrong_marker"
+              ? "wrong-marker"
+              : operationIntentMarker(operationKey, "wi-1"),
+        },
+      });
+      if (receipt === "pending") {
+        await publishStoreState.store.mergeOperationIntentDetail(pool, {
+          workItemId: "wi-1",
+          operationKey,
+          detail: { __result: { id: 2, updated: true } },
+        });
+      } else
+        await publishStoreState.store.reconcileOperationIntent(pool, {
+          workItemId: receipt === "wrong_identity" ? "other-work" : "wi-1",
+          operationKey,
+          status: "reconciled",
+          detail:
+            receipt === "missing_result"
+              ? {}
+              : {
+                  __result: receipt === "malformed_result" ? { id: 0 } : { id: 2, updated: true },
+                },
+        });
+      if (receipt === "wrong_head") durableSurfaceBundle.controls.setHeadSha("different-head");
+      const beginAttempt = vi.fn(async () => {
+        throw new AppError({
+          domain: "agent_work",
+          kind: "attempts_exhausted",
+          message: "at cap",
+        });
+      });
+      configureExecution(
+        async (spec) => {
+          const item = makeItem("slash");
+          return spec.execute(
+            item,
+            createDurableExecutionContext({
+              pool,
+              item,
+              prSurface: durableSurfaceBundle.surface,
+              headSha: "head",
+              leaseEpoch: 1,
+              job: makeDurableJobMetadata(),
+              beginAttempt,
+              signal: new AbortController().signal,
+              pullRequest,
+              getClaim: () => ({ ...mockWorkClaim(), attemptCount: 4, resumed: true }),
+              getEscalation: () => undefined,
+            }),
+          );
+        },
+        makeTestConfig({ review: { recoveryEnabled: enabled } }),
+      );
+      if (completes) {
+        await expect(runExecution()).resolves.toMatchObject({ kind: "completed" });
+        expect(beginAttempt).not.toHaveBeenCalled();
+        expect(verdictMethods.close).toHaveBeenCalledWith(
+          expect.objectContaining({
+            kind: receipt === "partial" ? "partial" : "published",
+          }),
+        );
+      } else {
+        await expect(runExecution()).rejects.toMatchObject({
+          code: "agent_work.attempts_exhausted",
+        });
+        expect(beginAttempt).toHaveBeenCalledTimes(1);
+        expect(verdictMethods.close).not.toHaveBeenCalled();
+      }
+      expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
+      expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses an unfinished resumed review at the cap before preparing its admitted repository view", async () => {
+    const beginAttempt = vi.fn(async () => {
+      throw new AppError({
+        domain: "agent_work",
+        kind: "attempts_exhausted",
+        message: "at cap",
+      });
+    });
+    configureExecution(async (spec) => {
+      const item = makeItem("slash");
+      return spec.execute(
+        item,
+        createDurableExecutionContext({
+          pool,
+          item,
+          prSurface: durableSurfaceBundle.surface,
+          headSha: "head",
+          leaseEpoch: 2,
+          job: makeDurableJobMetadata(),
+          beginAttempt,
+          signal: new AbortController().signal,
+          pullRequest,
+          getClaim: () => ({ ...mockWorkClaim(), attemptCount: 4, resumed: true }),
+          getEscalation: () => undefined,
+        }),
+      );
+    });
+    await expect(runExecution()).rejects.toMatchObject({ code: "agent_work.attempts_exhausted" });
+    expect(beginAttempt).toHaveBeenCalledTimes(1);
+    expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
   });
 
   it("records the rate_limit_circuit_opened metric when the review circuit opens", async () => {

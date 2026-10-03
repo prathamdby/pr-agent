@@ -29,6 +29,11 @@ import { createReviewSummaryComment } from "./reviewSummaryComment.js";
 import type { PublishStopReason, ReviewPublishSession } from "./reviewPublishSession.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import { errorMessage } from "../../errors/errorMessage.js";
+import { snapshotFindingLedger, type RecoveryDecision } from "../recovery/reviewRecovery.js";
+import { getOperationIntent } from "../../agentWork/operationIntentRepository.js";
+import { reviewArtifactInvalid } from "../recovery/reviewArtifacts.js";
+import { createFindingLedger } from "../orchestrator/orchestratorTypes.js";
+import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
 
 export type PublishSummaryOnlyResult =
   | { readonly kind: "published"; readonly summaryCommentId: number }
@@ -36,14 +41,40 @@ export type PublishSummaryOnlyResult =
 
 export async function publishReviewSummaryOnly(
   session: ReviewPublishSession,
-  input: {
+  requestedInput: {
     readonly payload: ReviewPayload;
     readonly ledger: FindingLedger;
     readonly coverage?: ReviewCoverage;
     readonly staleReview?: boolean;
     readonly dedupedFindingCount?: number;
+    readonly recoveryDecision?: RecoveryDecision;
   },
 ): Promise<PublishSummaryOnlyResult> {
+  const retained = session.recovery?.canReuseSummary()
+    ? await session.recovery.load("final-summary")
+    : null;
+  const saved =
+    retained?.artifact.kind === "final_summary" && retained.artifact.inputs?.kind === "summary"
+      ? { payload: retained.artifact.payload, inputs: retained.artifact.inputs }
+      : undefined;
+  const input = saved
+    ? {
+        ...requestedInput,
+        payload: saved.payload,
+        ledger: createFindingLedger(saved.inputs.ledger),
+        coverage: saved.inputs.coverage,
+        staleReview: saved.inputs.staleReview,
+        dedupedFindingCount: saved.inputs.dedupedFindingCount,
+      }
+    : requestedInput;
+  if (saved) {
+    const validation = validateReviewPayload({
+      payload: input.payload,
+      cachedDiffIndex: session.cachedDiffIndex,
+      enforceInlineAnchorValidation: false,
+    });
+    if (!validation.ok) reviewArtifactInvalid("saved_summary_validation");
+  }
   const coverage = input.coverage ?? { kind: "full" };
   if (coverage.kind === "none") {
     throw new AppError({
@@ -162,6 +193,32 @@ export async function publishReviewSummaryOnly(
           reviewSummaryOperationKey(coordination.resourceKey, mode),
           coordination.workItemId,
         );
+  const inputs = saved?.inputs ?? {
+    kind: "summary" as const,
+    ledger: snapshotFindingLedger(input.ledger),
+    coverage: coverage.kind === "full" ? coverage : { ...coverage, failed: [...coverage.failed] },
+    staleReview: input.staleReview ?? false,
+    dedupedFindingCount: input.dedupedFindingCount ?? 0,
+    judgmentDegraded: session.recovery?.getJudgmentDegraded() ?? false,
+    briefFallback: session.recovery?.getBriefFallback() ?? false,
+  };
+  await session.recovery?.saveSummary(input.payload, inputs);
+  const recoveryDecision =
+    input.recoveryDecision ??
+    (await session.recovery?.prepare(
+      input.payload,
+      summaryOperationKey ?? `summary:${owner}/${repo}#${prNumber}`,
+      inputs,
+    )) ??
+    null;
+  if (input.recoveryDecision?.settled && summaryCoordination) {
+    const intent = await getOperationIntent(
+      summaryCoordination.pool,
+      summaryCoordination.workItemId,
+      summaryOperationKey ?? reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
+    );
+    if (!intent) reviewArtifactInvalid("settled_summary_receipt_missing");
+  }
   const summaryBodyForPublish =
     summaryOperationMarker == null ? summaryBody : `${summaryBody}\n${summaryOperationMarker}`;
   const runSummaryUpsert = () =>
@@ -225,6 +282,7 @@ export async function publishReviewSummaryOnly(
       }),
     },
   });
+  await session.recovery?.settle(recoveryDecision, summary.id);
   logDebug("review_published_summary", {
     mode,
     owner,

@@ -73,6 +73,14 @@ thread. The join lasts until the work item is purged by
 
 Notes:
 
+- `REVIEW_RECOVERY_ENABLED` is separate operator tuning, default off, not a
+  ninth feature. Validated review artifacts can reduce repeated computation
+  after a restart; they never restore a transcript or bypass evidence and
+  publication gates. See [configuration.md](configuration.md) and [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+- A typed GitHub review-thread resolution denial stops verification rather than
+  claiming the thread was resolved. A reply accepted before that denial remains
+  accepted; the denial is not permission to repeat it. Confirm App permissions
+  and installation access before requesting a new `/verify`.
 - Recovering a run does not use another retry unless PR Agent starts another
   work attempt. Interrupted work attempts still count. Previously failed runs
   are not reopened automatically.
@@ -121,4 +129,5 @@ Description, verification, and triage share bounded submit repairs. If a repair
 hits its tool budget without submitting, the last validation error is retained
 for the next repair and the final diagnostic. Ask remains a direct session run.
 Session computation is in memory; durable work and publication recovery remain
-backed by work items, operation intents, and publish records.
+backed by work items, operation intents, and publish records. Optional validated
+review artifacts are a separate structured-output store, not session persistence.

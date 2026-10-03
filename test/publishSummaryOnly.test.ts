@@ -127,6 +127,13 @@ vi.mock("../src/agentWork/ciProjection.js", () => ({
 import * as verdictOwner from "../src/agentWork/reviewVerdict.js";
 import { attachSummaryCommentCoordination } from "../src/review/publish/reviewSummaryComment.js";
 import type { Pool, PoolClient } from "pg";
+import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
+import { createReviewPublishSession } from "../src/review/publish/reviewPublishSession.js";
+import { openReviewRecovery } from "../src/review/recovery/reviewRecovery.js";
+import {
+  createReviewArtifactBinding,
+  parseReviewArtifactEnvelope,
+} from "../src/review/recovery/reviewArtifacts.js";
 
 function finding(line: number): ReviewFinding {
   return {
@@ -144,6 +151,84 @@ describe("publishReviewSummaryOnly", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.clearAllMocks();
+  });
+
+  it("prepares final summary inputs and the summary-only ledger before the remote mutation", async () => {
+    const binding = createReviewArtifactBinding(
+      {
+        workItemId: "00000000-0000-4000-8000-000000000001",
+        resourceKey: "o/r#1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        installationId: 1,
+        baseSha: "base",
+        headSha: "head",
+        mode: "review",
+      },
+      "a".repeat(64),
+    );
+    const rows = new Map<string, unknown>();
+    const recovery = openReviewRecovery(binding, {
+      load: async (key) => parseReviewArtifactEnvelope(rows.get(key)),
+      save: async (envelope) => {
+        const parsed = parseReviewArtifactEnvelope(envelope);
+        if (!parsed) throw new Error("invalid");
+        rows.set(parsed.logicalKey, parsed);
+        return "stored";
+      },
+    });
+    const { surface, upsertProgressComment } = configuredSummarySurface();
+    upsertProgressComment.mockImplementation(async () => {
+      expect(rows.has("final-summary")).toBe(true);
+      expect(rows.has("decision/0/prepared")).toBe(true);
+      return { id: 2, updated: false };
+    });
+    const item = finding(10);
+    const ledger = createFindingLedger({
+      accepted: [
+        {
+          kind: "summary_only",
+          source: "quality",
+          placement: {
+            finding: item,
+            inlineLine: 10,
+            inlinePosted: false,
+          },
+          canonicalFingerprint: "fp",
+          reason: "budget",
+        },
+      ],
+      threadCallCount: 9,
+      threadBudgetExhausted: true,
+    });
+    const session = createReviewPublishSession({
+      cfg: makeTestConfig(),
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "head", hasDescriptionReviewMap: false },
+      prSurface: surface,
+      recovery,
+    });
+    await expect(
+      publishReviewSummaryOnly(session, {
+        payload: makeReviewPayload({ findings: [item] }),
+        ledger,
+        coverage: { kind: "partial", failed: ["tests"], note: "Partial coverage" },
+      }),
+    ).resolves.toEqual({ kind: "published", summaryCommentId: 2 });
+    expect(parseReviewArtifactEnvelope(rows.get("final-summary"))?.artifact).toMatchObject({
+      inputs: {
+        kind: "summary",
+        ledger: {
+          threadCallCount: 9,
+          threadBudgetExhausted: true,
+          accepted: [expect.objectContaining({ reason: "budget" })],
+        },
+        coverage: { kind: "partial", failed: ["tests"] },
+      },
+    });
+    expect(parseReviewArtifactEnvelope(rows.get("decision/0/settled"))?.artifact).toMatchObject({
+      remote: { githubId: 2 },
+    });
   });
 
   it("links placements to comments from every inline review batch", async () => {

@@ -598,34 +598,63 @@ describe("Code Mode", () => {
 
   it("keeps a truncated file read as a string and records only delivered lines", async () => {
     const headSha = "abc123";
-    const ledger = createEvidenceLedger(headSha);
     const lines = Array.from(
       { length: 800 },
       (_, index) => `line-${String(index + 1).padStart(3, "0")}:${"x".repeat(80)}`,
     ).join("\n");
-    const result = await runCodeModeScript({
-      executorKind: "in_process",
-      code: `const file = await tools.readWorkspaceFile({ path: "big.ts" });
-        ({ kind: typeof file.content, length: file.content.length, truncated: file.truncation && file.truncation.truncated })`,
-      capabilities: {
-        readWorkspaceFile: async () => ({
-          path: "big.ts",
-          content: lines,
-          startLine: 1,
-          endLine: 800,
-        }),
+    for (const read of [
+      { content: lines, endLine: 800 },
+      { content: lines, endLine: 800, metadata: Array.from({ length: 1000 }, () => "metadata") },
+      { content: "one\ntwo\nthree", endLine: 3, clampedLines: [2], metadata: "x".repeat(40000) },
+      {
+        content: "one\ntwo\nthree",
+        endLine: 3,
+        clampedLines: Array.from({ length: 1000 }, (_, i) => i + 1),
       },
-      evidenceLedger: ledger,
-      headSha,
-    });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      const output = result.output as { kind: string; length: number; truncated: boolean };
-      expect(output.kind).toBe("string");
-      expect(output.length).toBeLessThan(lines.length);
-      expect(output.truncated).toBe(true);
+      { content: "", endLine: 1 },
+    ]) {
+      const ledger = createEvidenceLedger(headSha);
+      const result = await runCodeModeScript({
+        executorKind: "in_process",
+        code: `const file = await tools.readWorkspaceFile({ path: "big.ts" });
+        ({ kind: typeof file.content, length: file.content.length, truncated: file.truncation && file.truncation.truncated })`,
+        capabilities: {
+          readWorkspaceFile: async () => ({
+            path: "big.ts",
+            ...read,
+            startLine: 1,
+          }),
+        },
+        evidenceLedger: ledger,
+        headSha,
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        const output = result.output as { kind: string; length: number; truncated: boolean };
+        expect(output.kind).toBe("string");
+        if (read.content === lines) {
+          expect(output.length).toBeLessThan(lines.length);
+          expect(output.truncated).toBe(true);
+          const completeLines = lines.slice(0, output.length).split("\n").length - 1;
+          expect(ledger.snapshot().at(-1)?.descriptor?.endLine).toBe(completeLines);
+          expect(ledger.covers("big.ts", completeLines, completeLines)).toBe(true);
+          expect(ledger.covers("big.ts", completeLines + 1, completeLines + 1)).toBe(false);
+        } else if (read.clampedLines && read.clampedLines.length > 100) {
+          expect(ledger.snapshot()).toEqual([]);
+          expect(ledger.covers("big.ts", 3, 3)).toBe(false);
+        } else if (read.content.length > 0) {
+          expect(ledger.snapshot().at(-1)?.descriptor?.endLine).toBe(3);
+          expect(ledger.covers("big.ts", 3, 3)).toBe(true);
+          expect(ledger.covers("big.ts", 2, 2)).toBe(false);
+        } else {
+          expect(ledger.snapshot()).toEqual([]);
+          expect(ledger.covers("big.ts", 1, 1)).toBe(false);
+        }
+      }
+      expect(ledger.covers("big.ts", 1, 1)).toBe(
+        read.content.length > 0 && (read.clampedLines?.length ?? 0) < 100,
+      );
+      expect(ledger.covers("big.ts", 800, 800)).toBe(false);
     }
-    expect(ledger.covers("big.ts", 1, 1)).toBe(true);
-    expect(ledger.covers("big.ts", 800, 800)).toBe(false);
   });
 });

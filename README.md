@@ -68,6 +68,12 @@ After an interrupted publish, PR Agent checks the saved result and available evi
 
 Recovering a run does not use another retry unless PR Agent starts another work attempt. An interrupted work attempt still counts. Previously failed runs are not reopened automatically.
 
+`REVIEW_RECOVERY_ENABLED=false` keeps validated review artifact recovery off by
+default. Enabling it can reuse a validated brief or specialist report after a
+restart, but evidence is read again and publication still uses the normal gates.
+It does not restore a conversation. Keep it off until local crash/restart proof
+and rollout approval. See [operations.md](docs/operations.md#review-reliability-rollout).
+
 After PR Agent accepts a close or merge, automated review requests and `/review`
 (including `force`) and stale-head replacements cannot start another review. A closed command receives a
 reply asking you to reopen first; a merged command is refused. A newer
@@ -402,6 +408,12 @@ Agent sessions keep computation in memory. Retries start fresh sessions; saved
 work and publication evidence still protect recovery. Unused encrypted session
 snapshots and phase checkpoints are removed by migration 036.
 
+Optional review recovery stores redacted structured briefs, reports, publication
+plans, and summary inputs on your infrastructure. Finding details, fix directions,
+and suggested code can contain code excerpts. It does not retain raw checkout
+files, prompts, reasoning, or transcripts. Migration 037 adds this separate store;
+work-item retention deletes its rows even after recovery is disabled.
+
 | Topic         | Rule                                                                                                                                                                                  |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Self-hosted   | Postgres, pg-boss, webhook bodies, and work-item state stay on your infrastructure. You own the GitHub App credentials.                                                               |
@@ -434,7 +446,11 @@ Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` d
 <details>
 <summary>PostHog</summary>
 
-PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent. Use `POSTHOG_HOST` only if your project is not on the default host. Prompts, diffs, and error text stay off that path. Env catalog: [docs/configuration.md](docs/configuration.md).
+PR Agent can send work and webhook events to [PostHog](https://posthog.com). Set `POSTHOG_PROJECT_TOKEN` in `.env`. Leave it empty and nothing is sent. Use `POSTHOG_HOST` only if your project is not on the default host. Prompts, diffs, and raw error payloads stay off that path. Env catalog: [docs/configuration.md](docs/configuration.md).
+
+PostHog and the local metadata audit (`AGENT_EVENTS_ENABLED`) are independent.
+PostHog receives metadata, not recovery artifact contents. Classified failures
+can include sanitized, bounded error messages; raw error payloads are not sent.
 
 </details>
 

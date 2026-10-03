@@ -37,6 +37,7 @@ const MISSING_REPORT_ERROR =
   "No valid SpecialistReport was submitted. Call submit_findings_report with the complete report.";
 
 export type RunSpecialistParams = {
+  readonly onValidatedReport?: (report: SpecialistReport) => Promise<void>;
   readonly cfg: Config;
   readonly cwd: string;
   readonly specialist: SpecialistId;
@@ -443,7 +444,7 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
       const report = await runAttempt(params, deadlineMs);
       const durationMs = Date.now() - startedAtMs;
       if (report.status === "no_findings") {
-        return { kind: "empty", specialist: params.specialist, durationMs };
+        return { kind: "empty", specialist: params.specialist, durationMs, report };
       }
       return {
         kind: "report",
@@ -496,6 +497,13 @@ async function runSpecialistOutcome(params: RunSpecialistParams): Promise<Specia
 
 export async function runSpecialist(params: RunSpecialistParams): Promise<SpecialistOutcome> {
   const outcome = await runSpecialistOutcome(params);
+  if (outcome.kind !== "error") {
+    await params.onValidatedReport?.(
+      outcome.kind === "report"
+        ? outcome.report
+        : (outcome.report ?? { status: "no_findings", findings: [] }),
+    );
+  }
   // This owner emits before the serialized judgment consumer receives the report.
   emitSpecialistStage(params, {
     stage: "run",

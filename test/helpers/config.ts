@@ -44,7 +44,12 @@ const baseTestConfig: Config = {
   findingHistory: { enabled: true, dismissSuppressAfter: 3, lookbackDays: 180 },
   codeIndex: { mode: "off", waitMs: 3_000, retentionSeconds: 2_592_000 },
   codeMode: { executorKind: "in_process" },
-  review: { specialistTimeoutMs: 900_000, maxInlineComments: 50, maxThreadPublishCalls: 8 },
+  review: {
+    specialistTimeoutMs: 900_000,
+    recoveryEnabled: false,
+    maxInlineComments: 50,
+    maxThreadPublishCalls: 8,
+  },
   concurrency: {
     review: 2,
     ask: 1,

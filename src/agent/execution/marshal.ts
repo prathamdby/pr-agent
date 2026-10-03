@@ -17,6 +17,7 @@ export type TruncationInfo = {
   readonly reason: string;
   readonly omittedCount?: number;
   readonly omittedBytes?: number;
+  readonly fileContentTruncated?: boolean;
 };
 
 export type MarshalOptions = {
@@ -121,7 +122,26 @@ export function boundJsonValue(value: unknown, options?: MarshalOptions): Bounde
       truncation: { truncated: true, reason: "transfer_byte_limit" },
     };
   }
-  return { value: bounded, truncation: truncation.current };
+  const fileContentTruncated =
+    value !== null &&
+    typeof value === "object" &&
+    "content" in value &&
+    typeof value.content === "string" &&
+    bounded !== null &&
+    typeof bounded === "object" &&
+    "content" in bounded &&
+    typeof bounded.content === "string" &&
+    bounded.content.length < value.content.length;
+  return {
+    value: bounded,
+    truncation:
+      truncation.current === null
+        ? null
+        : {
+            ...truncation.current,
+            ...(fileContentTruncated ? { fileContentTruncated: true } : {}),
+          },
+  };
 }
 
 export function serializeCodeModeValue(
@@ -164,6 +184,8 @@ export function recordMarshalledEvidence(
   if (!delivered || typeof delivered !== "object") return;
   const row = delivered as Record<string, unknown>;
   if (typeof row.path === "string" && typeof row.content === "string") {
+    // Missing clamp entries cannot authorize lines omitted by the governed reader.
+    if (row.clampedLines != null && !Array.isArray(row.clampedLines)) return;
     const startLine = typeof row.startLine === "number" ? row.startLine : 1;
     const lineCount = row.content.length === 0 ? 0 : row.content.split("\n").length;
     const computedEnd = startLine + Math.max(lineCount, 1) - 1;
@@ -171,7 +193,16 @@ export function recordMarshalledEvidence(
       typeof row.endLine === "number" ? Math.min(row.endLine, computedEnd) : computedEnd;
     const clampedLines = Array.isArray(row.clampedLines)
       ? row.clampedLines.filter((line): line is number => typeof line === "number")
-      : undefined;
+      : [];
+    if (
+      row.truncation &&
+      typeof row.truncation === "object" &&
+      "fileContentTruncated" in row.truncation &&
+      row.truncation.fileContentTruncated === true
+    ) {
+      // The serializer can cut through a line, unlike the governed reader's windows.
+      clampedLines.push(computedEnd);
+    }
     recordDeliveredFileRead(params.ledger, {
       path: row.path,
       headSha: params.headSha,

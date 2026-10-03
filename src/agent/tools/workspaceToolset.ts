@@ -1,6 +1,7 @@
 import { logDebug } from "../../evlog.js";
 import {
   createPathPolicy,
+  assertContainedWorkspacePath,
   type CheckoutCoverage,
   type GitGrepWorkspaceResult,
   type PathPolicy,
@@ -41,7 +42,11 @@ import {
   normalizeEvidencePath,
   recordDeliveredFileRead,
   type EvidenceLedger,
+  type EvidenceDescriptor,
+  type DeliveredFileRead,
 } from "../../review/findings/evidenceLedger.js";
+import { AppError } from "../../errors/appError.js";
+import { MAX_TOOL_ROUNDS } from "../../settings/index.js";
 import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.js";
 
 export type LocalWorkspaceToolLimits = {
@@ -59,6 +64,60 @@ const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
   searchMaxFiles: LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   searchMaxTotalBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 };
+
+/** Recovery reads use the investigation path policy and ordinary file/output clamps. */
+export function createGovernedReviewEvidenceReader(
+  workspace: PinnedRepositoryReader,
+  headSha: string,
+) {
+  const gate = createAskPathGate();
+  primePathGate(workspace, gate);
+  const policy = createPathPolicy(workspace.agentCwd, { kind: "investigation", gate });
+  let remainingReads = MAX_TOOL_ROUNDS;
+  let remainingBytes = LOCAL_WORKSPACE_READ_RESPONSE_BYTES * MAX_TOOL_ROUNDS;
+  return async (descriptor: EvidenceDescriptor): Promise<DeliveredFileRead | null> => {
+    if (
+      remainingReads <= 0 ||
+      remainingBytes <= 0 ||
+      descriptor.headSha !== headSha ||
+      !policy.allows(descriptor.path) ||
+      !workspace.isPathInCheckout(descriptor.path)
+    )
+      return null;
+    remainingReads -= 1;
+    try {
+      // A freshly reintroduced symlink must not exploit the stripped-checkout assumption.
+      await assertContainedWorkspacePath(workspace.agentCwd, descriptor.path);
+      const result = await workspace.readFile(descriptor.path, policy, {
+        maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+        maxResponseBytes: Math.min(LOCAL_WORKSPACE_READ_RESPONSE_BYTES, remainingBytes),
+        window: {
+          startLine: descriptor.startLine,
+          maxLines: descriptor.endLine - descriptor.startLine + 1,
+        },
+      });
+      if (result.refused || result.truncated) return null;
+      remainingBytes -= Buffer.byteLength(result.content, "utf8");
+      return {
+        path: descriptor.path,
+        headSha,
+        tool: "readWorkspaceFile",
+        content: result.content,
+        startLine: result.startLine,
+        endLine: result.endLine,
+        clampedLines: result.clampedLines,
+      };
+    } catch (error) {
+      if (
+        error instanceof AppError &&
+        (error.code === "pr_workspace.symlink_escape" ||
+          error.code === "pr_workspace.path_traversal")
+      )
+        return null;
+      throw error;
+    }
+  };
+}
 
 function primePathGate(
   workspace: PinnedRepositoryReader,

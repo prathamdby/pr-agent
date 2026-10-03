@@ -18,6 +18,7 @@ import {
   type SpecialistId,
 } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
+import type { RecoveryDecision } from "../recovery/reviewRecovery.js";
 
 const publishThreadSchema = v.object({
   findings: v.array(reviewFindingSchema),
@@ -82,6 +83,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
   readonly getLedger: () => FindingLedger;
   readonly getPublishedBatchCount: () => number;
   readonly getStopReason: () => PublishStopReason | null;
+  readonly replay: (decision: RecoveryDecision, withoutEvidence?: boolean) => Promise<void>;
 } {
   let source: SpecialistId | null = null;
   let stopReason: PublishStopReason | null = null;
@@ -175,5 +177,21 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     getLedger: () => ledger,
     getPublishedBatchCount: () => publishedBatchCount,
     getStopReason: () => stopReason,
+    replay: async (decision, withoutEvidence) => {
+      const canonical = decision.prepared.artifact.canonical;
+      if (canonical.kind !== "threads") return;
+      const result = await publishFindingBatch([], session, {
+        ...params.policy,
+        source: canonical.source,
+        ledger,
+        recoveryDecision: decision,
+        recoveryWithoutEvidence: withoutEvidence,
+      });
+      if (result.kind === "stopped") {
+        stopReason = result.reason;
+        return;
+      }
+      ledger = applyFindingLedgerDelta(ledger, result.delta);
+    },
   };
 }

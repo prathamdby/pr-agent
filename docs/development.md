@@ -44,6 +44,27 @@ and epoch before reading or recording a step. Postgres and the production fake
 adapters share the publication persistence interfaces. Triage's publisher selects
 stored push evidence itself; orchestration no longer fabricates a checkout.
 
+Review artifact recovery has separate owners:
+`src/review/recovery/reviewArtifacts.ts` validates/redacts structured output,
+versions contracts, and binds effective input identity;
+`src/agentWork/reviewArtifactRepository.ts` fences active writes lease-first,
+serializes the per-work 1 MiB UTF-8 budget, reserves 8 KiB per prepared decision,
+and enforces idempotent keys and ordered dependencies. It is not generic session
+storage. Flag gating and effective-input digest assembly belong to the review
+consumer. Prepared plans retain full canonical ledger decisions/footers; bounded
+settlement refers to them and never substitutes for exact remote receipts.
+`findings/evidenceLedger.ts::revalidateEvidenceDescriptors` stages coverage until
+all fresh governed range reads match. See [ADR 0044](adr/0044-review-validated-artifact-recovery.md).
+
+Runtime-session and send UUIDs are telemetry identity, not prompt-cache identity.
+`agentEventSink.ts` fans out independently to optional local audit and PostHog;
+missing generation usage remains absent. Specialist schema/validation/run spans
+are non-generation stages emitted as they settle. Durable terminal capture follows
+the winning committed state write; an execution stop has no terminal authority.
+Structured failure origins and lifecycle boundaries outrank wrapper wording.
+Typed thread-resolution denial is child-only nonacceptance, and verification
+recovery requires exact operation completion receipts rather than resource history.
+
 ## Module layout (production)
 
 | Area                                      | Path                                            | Public entry                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |

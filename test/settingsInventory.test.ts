@@ -29,6 +29,7 @@ describe("settings inventory", () => {
     expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
     expect(envValues).toContain("POSTHOG_HOST");
     expect(envValues).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
+    expect(envValues).toContain("REVIEW_RECOVERY_ENABLED");
     expect(new Set(envValues).size).toBe(envValues.length);
     expect(envValues).toContain("PI_ORCHESTRATOR_PROVIDER");
     expect(envValues).toContain("PI_ORCHESTRATOR_MODEL");
@@ -45,7 +46,7 @@ describe("settings inventory", () => {
     expect(envValues).toContain("CODE_INDEX_MODE");
     expect(envValues).toContain("CODE_INDEX_WAIT_MS");
     expect(envValues).toContain("CODE_INDEX_RETENTION_SECONDS");
-    expect(envValues.length).toBe(76);
+    expect(envValues.length).toBe(77);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

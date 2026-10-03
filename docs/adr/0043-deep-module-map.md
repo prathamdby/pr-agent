@@ -14,6 +14,15 @@ remain unchanged.
 
 ## Decision
 
+The later review-reliability contract is in
+[ADR 0044](0044-review-validated-artifact-recovery.md). It adds review-specific
+validated output artifacts after migration 036, not a return of generic phase
+checkpoints or encrypted session snapshots. Artifact contracts/redaction and
+lease-first bounded persistence have separate deep owners; exact mutation
+receipts remain authoritative. The consumer owns current-input binding and
+fresh-session reconstruction. This amendment does not authorize renaming
+retained wire mutation keys, child hashes, or hidden markers.
+
 Deep modules own ordering behind small interfaces. Delete a module only when it
 has no current caller or product reason. Keep a module when removing its interface
 would expose meaningful policy or complexity. A module that makes callers repeat

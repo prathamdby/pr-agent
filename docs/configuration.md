@@ -68,6 +68,24 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 ## Ops (deployment-varying tuning)
 
+`REVIEW_RECOVERY_ENABLED` defaults to `false` and maps to
+`cfg.review.recoveryEnabled` in `src/settings/slices/service.ts`. It accepts only
+`true` or `false`; empty uses the default, and `1`, `yes`, or `TRUE` fail startup.
+It is operator tuning, not another `FEATURE_*` mode. Migration 037 must be
+installed first. Keep it off until local crash/restart proof and rollout approval.
+See [ADR 0044](adr/0044-review-validated-artifact-recovery.md) and
+[rollout](operations.md#review-reliability-rollout).
+
+Fixed store limits live in `src/agentWork/reviewArtifactRepository.ts`:
+`REVIEW_ARTIFACT_BUDGET_BYTES=1048576` (1 MiB of UTF-8 per work item) and
+`REVIEW_SETTLEMENT_RESERVE_BYTES=8192` (8 KiB per prepared decision, included in
+that budget). They are not env settings. Work-item retention cascades deletion
+even with recovery off; disabling scheduled retention leaves artifacts retained.
+
+`AGENT_EVENTS_ENABLED` controls local metadata audit persistence only.
+`POSTHOG_PROJECT_TOKEN` independently enables PostHog. Neither setting enables
+review artifacts, and artifact retention is independent of the recovery flag.
+
 | Name                          | Env var                                   | Default                     | Notes                                                                                                                                                                                                                                |
 | ----------------------------- | ----------------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Provider prompt timeout       | `PROVIDER_PROMPT_TIMEOUT_MS`              | `300000`                    | inactivity cap: abort if no provider activity this long                                                                                                                                                                              |
@@ -720,4 +738,5 @@ Private specialist orchestration constants (not exported from `src/settings/`): 
 `AGENT_RESUME_SNAPSHOT_KEY` and `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS` are ignored.
 Sessions run in memory. Durable work, operation intents, and publish records
 still own retries and publication recovery. Migration 036 drops only the unread
-agent checkpoint and session snapshot tables.
+agent checkpoint and session snapshot tables. Migration 037 adds the separate
+validated review artifact store described in ADR 0044, not replacement sessions.

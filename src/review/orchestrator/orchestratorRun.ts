@@ -20,6 +20,7 @@ import {
   MAX_TOOL_ROUNDS,
   ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
   PUBLISH_RECOVERY_ROUNDS,
+  REVIEW_SUMMARY_SENTINEL,
   SUBMIT_ONLY_MAX_TOOL_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
 } from "../../settings/index.js";
@@ -65,6 +66,11 @@ import { buildPublishThreadTool } from "./publishThreadTool.js";
 import { nextStep, type ReviewStep, type ReviewStepFacts } from "./runStep.js";
 import { runSpecialist } from "./specialistRun.js";
 import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
+import { createGovernedReviewEvidenceReader } from "../../agent/tools/workspaceToolset.js";
+import { revalidateEvidenceDescriptors } from "../findings/evidenceLedger.js";
+import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
+import { evidenceForCachedFindings } from "../recovery/reviewCachedOutputs.js";
+import { wrapUntrustedEvidence } from "../../agent/prompts/promptBlocks.js";
 
 function ownVerdictPublishParams(params: ReviewRunParams): {
   readonly workItemId?: string;
@@ -272,7 +278,74 @@ export async function runOrchestratedPrReview(
   };
   const sessionCwd = params.cwd ?? params.workspace.agentCwd;
   const phaseRef = createOrchestratorPhaseRef("recon");
-  const briefTool = buildSpecialistBriefTool(phaseRef);
+  const recovery = params.cfg.review.recoveryEnabled ? params.recovery : undefined;
+  const readEvidence = createGovernedReviewEvidenceReader(params.workspace.reader, params.headSha);
+  const cachedBriefEnvelope = await recovery?.load("brief");
+  const cachedBrief =
+    cachedBriefEnvelope?.artifact.kind === "brief" ? cachedBriefEnvelope.artifact.brief : undefined;
+  const cachedReports = new Map<SpecialistId, SpecialistOutcome>();
+  if (recovery) {
+    for (const specialist of SPECIALIST_IDS) {
+      const envelope = await recovery.load(`report/${specialist}`);
+      if (envelope?.artifact.kind !== "report") continue;
+      const artifact = envelope.artifact;
+      if (
+        !(await revalidateEvidenceDescriptors(
+          setup.evidenceLedger,
+          artifact.evidence,
+          readEvidence,
+        ))
+      ) {
+        recovery.discardEvidenceCache();
+        continue;
+      }
+      const validated = assertFindingsHaveEvidence(
+        artifact.report.findings,
+        setup.evidenceLedger,
+        params.headSha,
+        {
+          checkoutCoverage: params.workspace.reader.getCoverage(),
+          isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
+        },
+      );
+      if (validated.rejected.length > 0) {
+        recovery.discardEvidenceCache();
+        continue;
+      }
+      cachedReports.set(
+        specialist,
+        artifact.report.status === "no_findings"
+          ? { kind: "empty", specialist, durationMs: 0, report: artifact.report }
+          : {
+              kind: "report",
+              specialist,
+              durationMs: 0,
+              report: { ...artifact.report, status: "findings" },
+            },
+      );
+    }
+  }
+  const recoveredDecisions = (await recovery?.decisions()) ?? [];
+  const evidenceMisses = new Set<number>();
+  for (const decision of recoveredDecisions) {
+    const canonical = decision.prepared.artifact.canonical;
+    if (
+      canonical.kind === "threads" &&
+      !(await revalidateEvidenceDescriptors(setup.evidenceLedger, canonical.evidence, readEvidence))
+    ) {
+      // Never let a cache miss authorize a fresh mutation of an interrupted plan.
+      recovery?.discardEvidenceCache();
+      evidenceMisses.add(decision.prepared.artifact.sequence);
+    }
+  }
+  const briefTool = buildSpecialistBriefTool(phaseRef, {
+    initialBrief: cachedBrief,
+    onAccepted: recovery
+      ? async (brief) => {
+          await recovery.save({ kind: "brief", brief });
+        }
+      : undefined,
+  });
   const state = initialState();
   const agentEvents = resolveAgentEventsContext(params.cfg, params.sessionContext);
   const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
@@ -293,16 +366,23 @@ export async function runOrchestratedPrReview(
           domain: "review",
           kind: "progress_comment_lookup_failed",
         });
+        if (recovery) throw appError;
         logWarn("review_progress_comment_lookup_failed", errorLogFields(appError));
         commentId = params.progressCommentIdHint;
       }
     } else {
       commentId = params.progressCommentIdHint;
     }
+    if (recovery && commentId == null) {
+      // A final-summary claim can replace the progress detail before its receipt lands.
+      // This read supplies only the link, never evidence that a mutation was accepted.
+      commentId = (await params.prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL))?.id;
+    }
     return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
   };
   const verdictIdentity = ownVerdictPublishParams(params);
   const publishSession = createReviewPublishSession({
+    recovery,
     cfg: params.cfg,
     ctx: publishCtx,
     prSurface: setup.prSurface,
@@ -351,10 +431,57 @@ export async function runOrchestratedPrReview(
       isPathInCheckout: (path) => params.workspace.reader.isPathInCheckout(path),
       crossPrSuppressionFingerprints: params.crossPrSuppressionFingerprints,
     },
-    initialLedger: initialLedger(params),
+    initialLedger:
+      recoveredDecisions[0]?.prepared.artifact.canonical.kind === "threads"
+        ? createFindingLedger(recoveredDecisions[0].prepared.artifact.canonical.ledgerBefore)
+        : initialLedger(params),
   });
+  const recoveredSources = new Set<SpecialistId>();
+  let recoveredSummary = false;
+  for (const decision of recoveredDecisions) {
+    const canonical = decision.prepared.artifact.canonical;
+    if (canonical.kind === "threads") {
+      if ((await params.gate.check()).kind !== "continue") break;
+      const withoutEvidence = evidenceMisses.has(decision.prepared.artifact.sequence);
+      await publishThread.replay(decision, withoutEvidence);
+      if (publishThread.getStopReason()) break;
+      if (canonical.source !== "review" && !withoutEvidence) recoveredSources.add(canonical.source);
+    } else {
+      if (evidenceMisses.size > 0) continue;
+      const result = await publishReviewSummaryOnly(publishSession, {
+        payload: decision.prepared.artifact.payload,
+        ledger: createFindingLedger(canonical.ledger),
+        coverage: canonical.coverage,
+        staleReview: canonical.staleReview,
+        dedupedFindingCount: canonical.dedupedFindingCount,
+        recoveryDecision: decision,
+      });
+      recoveredSummary = result.kind === "published";
+      if (canonical.coverage.kind !== "full")
+        state.failedSpecialists.push(...canonical.coverage.failed);
+    }
+  }
+  const savedFinalSummary =
+    recoveredSummary || evidenceMisses.size > 0 ? null : await recovery?.load("final-summary");
+  if (
+    savedFinalSummary?.artifact.kind === "final_summary" &&
+    savedFinalSummary.artifact.inputs?.kind === "summary"
+  ) {
+    const inputs = savedFinalSummary.artifact.inputs;
+    const result = await publishReviewSummaryOnly(publishSession, {
+      payload: savedFinalSummary.artifact.payload,
+      ledger: createFindingLedger(inputs.ledger),
+      coverage: inputs.coverage,
+      staleReview: inputs.staleReview,
+      dedupedFindingCount: inputs.dedupedFindingCount,
+    });
+    recoveredSummary = result.kind === "published";
+    if (inputs.coverage.kind !== "full") state.failedSpecialists.push(...inputs.coverage.failed);
+  }
+  if (recovery?.getJudgmentDegraded()) state.judgment = "degraded";
+  state.briefFallback = recovery?.getBriefFallback() ?? false;
   const summaryState = createPublishSummaryState({
-    published: params.initialPublishState?.published,
+    published: recoveredSummary || params.initialPublishState?.published,
   });
   const publishSummary = buildPublishSummaryTool({
     phaseRef,
@@ -377,30 +504,35 @@ export async function runOrchestratedPrReview(
   };
   let session: PiSession | null = null;
   let sessionCreation: Promise<PiSession> | null = null;
+  let recoveryBootstrapPending = cachedBrief !== undefined || recoveredDecisions.length > 0;
   try {
-    sessionCreation = params.createSession({
-      role: "orchestrator",
-      cfg: params.cfg,
-      cwd: sessionCwd,
-      systemPrompt: orchestratorSystemPrompt,
-      tools: allTools,
-      executors: allExecutors,
-      attemptModel: params.escalation?.model,
-      sessionContext: params.sessionContext,
-      hostSignal: params.signal,
-    });
-    const creation = await settleBefore(
-      sessionCreation,
-      Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
-      params.signal,
-    );
+    sessionCreation = recoveredSummary
+      ? null
+      : params.createSession({
+          role: "orchestrator",
+          cfg: params.cfg,
+          cwd: sessionCwd,
+          systemPrompt: orchestratorSystemPrompt,
+          tools: allTools,
+          executors: allExecutors,
+          attemptModel: params.escalation?.model,
+          sessionContext: params.sessionContext,
+          hostSignal: params.signal,
+        });
+    const creation = sessionCreation
+      ? await settleBefore(
+          sessionCreation,
+          Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
+          params.signal,
+        )
+      : { kind: "aborted" as const };
     if (creation.kind === "settled") {
       session = creation.value;
     } else if (creation.kind === "deadline") {
       state.judgment = "degraded";
       state.lifecycle = { kind: "finalizing", reason: "deadline" };
       void sessionCreation
-        .then(async (lateSession) => {
+        ?.then(async (lateSession) => {
           await lateSession.abort().catch(() => undefined);
           await lateSession.dispose().catch(() => undefined);
         })
@@ -423,7 +555,7 @@ export async function runOrchestratedPrReview(
       });
     } else if (creation.kind === "aborted") {
       void sessionCreation
-        .then(async (lateSession) => {
+        ?.then(async (lateSession) => {
           await lateSession.abort().catch(() => undefined);
           await lateSession.dispose().catch(() => undefined);
         })
@@ -516,6 +648,34 @@ export async function runOrchestratedPrReview(
     options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs" | "reservedTerminalTool">,
   ): Promise<SendResult> => {
     phaseRef.current = phase;
+    if (recoveryBootstrapPending) {
+      // New sessions get the normal trusted bootstrap. Saved output is evidence only.
+      prompt = [
+        setup.orchestratorUserContent,
+        wrapUntrustedEvidence("cached_review_brief", JSON.stringify(cachedBrief ?? {})),
+        ...[...cachedReports]
+          .filter(
+            ([specialist]) =>
+              !recoveredSources.has(specialist) && state.specialists[specialist].phase !== "done",
+          )
+          .flatMap(([specialist, outcome]) =>
+            outcome.kind === "report" || (outcome.kind === "empty" && outcome.report)
+              ? [
+                  wrapUntrustedEvidence(
+                    `cached_report_${specialist}`,
+                    JSON.stringify(outcome.report),
+                  ),
+                ]
+              : [],
+          ),
+        wrapUntrustedEvidence(
+          "reconstructed_finding_ledger",
+          JSON.stringify(publishThread.getLedger().accepted),
+        ),
+        prompt,
+      ].join("\n\n");
+      recoveryBootstrapPending = false;
+    }
     let firstError: AppError | null = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       if (sessionRetired || !session) {
@@ -610,6 +770,7 @@ export async function runOrchestratedPrReview(
         recordAgentTurnMetrics(send.value);
         return { kind: "sent", text: send.value.text, end: send.value.end };
       } catch (error) {
+        recovery?.throwIfFailed();
         const appError = toAppError(error, {
           domain: "review",
           kind: "orchestrator_send_failed",
@@ -776,6 +937,7 @@ export async function runOrchestratedPrReview(
       });
       await writeTick();
     }
+    recovery?.setCoverage(coverage(state));
   };
 
   const publishReportDeterministically = async (
@@ -819,6 +981,7 @@ export async function runOrchestratedPrReview(
     cause: JudgmentDegradeCause,
   ): Promise<void> => {
     state.judgment = "degraded";
+    recovery?.setJudgmentDegraded(true);
     if (agentEvents) {
       const submittedCount = outcome.report.findings.length;
       safeEmitDecisionEvent(agentEvents, params.cfg, {
@@ -861,6 +1024,7 @@ export async function runOrchestratedPrReview(
   };
 
   const publishDeterministicSummary = async (): Promise<void> => {
+    if (summaryState.published) return;
     const ledger = publishThread.getLedger();
     const payload = reviewPayloadFromFindings(
       ledger.accepted.map((accepted) => accepted.placement.finding),
@@ -921,6 +1085,7 @@ export async function runOrchestratedPrReview(
   const runStep = async (step: ReviewStep): Promise<void> => {
     switch (step.kind) {
       case "recon": {
+        if (cachedBrief || recoveredSummary) break;
         const recon = await sendWithRetry(
           "recon",
           [setup.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
@@ -957,10 +1122,15 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "dispatch_specialists": {
+        if (recoveredSummary) {
+          state.lifecycle = { kind: "complete" };
+          break;
+        }
         const submittedBrief = briefTool.getBrief();
         const brief = submittedBrief ?? fallbackBrief(params);
         if (submittedBrief == null) {
           state.briefFallback = true;
+          recovery?.setBriefFallback(true);
           logWarn("review_brief_fallback", {
             owner: params.owner,
             repo: params.repo,
@@ -972,6 +1142,11 @@ export async function runOrchestratedPrReview(
 
         const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
         for (const specialist of SPECIALIST_IDS) {
+          const cached = cachedReports.get(specialist);
+          if (cached) {
+            pending.set(specialist, Promise.resolve(cached));
+            continue;
+          }
           const controller = new AbortController();
           specialistControllers.set(specialist, controller);
           pending.set(
@@ -1003,6 +1178,19 @@ export async function runOrchestratedPrReview(
               agentEvents: agentEvents ?? undefined,
               escalation: params.escalation,
               createSession: params.createSession,
+              onValidatedReport: recovery
+                ? async (report) => {
+                    const evidence = evidenceForCachedFindings(
+                      setup.evidenceLedger,
+                      report.findings,
+                    );
+                    if (evidence === null) {
+                      recovery.discardEvidenceCache();
+                      return;
+                    }
+                    await recovery.save({ kind: "report", specialist, report, evidence });
+                  }
+                : undefined,
             }),
           );
         }
@@ -1016,6 +1204,16 @@ export async function runOrchestratedPrReview(
 
               await recordOutcome(outcome);
               if (outcome.kind !== "report") return;
+              if (recoveredSources.has(outcome.specialist)) {
+                state.specialists[outcome.specialist] = {
+                  phase: "done",
+                  findingsAccepted: publishThread
+                    .getLedger()
+                    .accepted.filter((entry) => entry.source === outcome.specialist).length,
+                };
+                await writeTick();
+                return;
+              }
               const judgmentSession = session;
               // Per-report degrade: a prior crowded report must not cascade into
               // judgment_unavailable for the rest. Unavailable is only for a
@@ -1073,6 +1271,7 @@ export async function runOrchestratedPrReview(
               );
               await writeTick();
             } catch (error) {
+              recovery?.throwIfFailed();
               await recordOutcome(outcome);
               if (outcome.kind === "report") {
                 await degradeReport(outcome, { reason: "judgment_failed", error });
@@ -1139,6 +1338,7 @@ export async function runOrchestratedPrReview(
         break;
       }
       case "synthesis": {
+        if (recoveredSummary) break;
         // Synthesis runs on the accepted ledger whenever the session is alive —
         // even on degraded runs, and even when the ledger is empty. A
         // zero-findings review is a legitimate published review, not a degraded
@@ -1188,12 +1388,12 @@ export async function runOrchestratedPrReview(
       }
       case "recover_summary": {
         recoveryRoundsRun += 1;
-        const recovery = await sendWithRetry(
+        const summaryRecovery = await sendWithRetry(
           "synthesis",
           "Call publish_summary now with the complete final review. Do not reply with prose only.",
           { maxToolRounds: SUBMIT_ONLY_MAX_TOOL_ROUNDS },
         );
-        if (recovery.kind === "sent") lastText = recovery.text;
+        if (summaryRecovery.kind === "sent") lastText = summaryRecovery.text;
         else state.judgment = "degraded";
         await applyPublishStop();
         break;

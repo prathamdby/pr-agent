@@ -52,6 +52,20 @@ Outcome telemetry was not honest about completion state: `ask failed`, `descript
 
 ## Consequences
 
+Amendment for review reliability:
+[ADR 0044](0044-review-validated-artifact-recovery.md) adds default-off validated
+artifact recovery without changing retry scheduling, limits, or deadlines.
+Receipt-only reconciliation remains reachable at the cap, but resumed workspace,
+evidence rereads, read-tool, and model work charge memoized admitted `beginAttempt`.
+A typed `github.review_thread_resolution_denied` is terminal verification denial,
+not an ambiguous provider-text error. Its child-only nonacceptance does not undo
+accepted sibling effects; parent completion needs exact operation receipts.
+
+Cancellation/supersession telemetry follows a winning committed terminal write,
+including intake. Dispatch abort or lease loss alone emits nonterminal execution
+stop metadata. Audit and PostHog are independent, and no historical telemetry is
+backfilled. This amends decision 6's exclusion of intake lifecycle terminals.
+
 Amendment to decision 7: concurrent closes select one durable review verdict
 before publication, including acknowledgement. Null and omitted epochs require
 terminal work; numeric epochs keep their live fences. Repair retains that
@@ -74,8 +88,13 @@ unreconstructible completion evidence stays unresolved rather than remutated.
 
 Drain/stop affected workers and deploy them together; mixed versions still
 charge lifecycle claims. Web intake and schema do not change. Keep historical
-counts, terminal rows, work, lease, intent, publish and snapshot data without
+counts, terminal rows, work, lease, intent, publish and artifact data without
 refunds or automatic reopening. A coordinated rollback to claim charging
 restores future budget burn and does not preserve the corrected guarantee.
+
+For a verification downgrade, pause active and queued execution first so old
+workers cannot consume a new terminal denial. Disabling a feature alone does
+not block retained queued work. Artifact rollback disables recovery and retains
+rows and receipts; it never drops the table or resets accepted intents.
 
 Restore `fallbackClassification.ts` and the orchestrator restart, drop the disposition and escalation plumbing, and re-emit per-feature failure events. This would reintroduce mid-run model switching and failure events for completed work items, so it is not recommended.
